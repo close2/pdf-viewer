@@ -41,6 +41,7 @@ use super::super::decision::Because;
 use super::super::prepare::Spare;
 use super::super::sites::{dictionary_of, loaded_as_stated, objects_named};
 use super::Substitutes;
+use super::notdef_glyph::NewOutline;
 use super::{cff_notdef_glyph, cid_cff_notdef_glyph, cid_notdef_glyph, notdef_glyph};
 
 /// The requirements a font's restated `cmap` answers.
@@ -99,7 +100,8 @@ pub(in crate::archive) const NOTDEF_NOT_GIVEN: &str = "this file shows a charact
      reaches the .notdef glyph of the program a font embeds, and this conversion gives such a \
      code a glyph of its own whose outline and advance are copied from the program's .notdef \
      glyph, reached through a restated cmap, or for a CIDFontType2 through a restated \
-     CIDToGIDMap; in a simple font's CFF program the code is given a copy of the .notdef \
+     CIDToGIDMap, and a shown code a simple TrueType program reached no glyph for a glyph \
+     that draws nothing at its width; in a simple font's CFF program the code is given a copy of the .notdef \
      charstring, or a glyph that draws nothing where it reached no glyph, under the name its \
      encoding gives it or a new one the encoding is restated to name, and in a simple font's \
      Type 1 program the same, its CharStrings dictionary decrypted, grown and encrypted again; \
@@ -107,8 +109,8 @@ pub(in crate::archive) const NOTDEF_NOT_GIVEN: &str = "this file shows a charact
      of the .notdef charstring and added to the charset. It does that only for a TrueType, \
      simple CFF, Type 1 or CID-keyed CFF program it can extend and prove, and only where every \
      font the \
-     requirement names has one: a font here is another kind, reaches no glyph at all for its \
-     code, or could not be extended";
+     requirement names has one: a font here is another kind, reaches no glyph for a code this \
+     reader drew a mark for, or could not be extended";
 
 /// Whether every font the [`NOTDEF_ROWS`] name has a program the copy reaches — a simple
 /// TrueType font, a `Type0` font over a `CIDFontType2` ([`cid_notdef_glyph::is_cid_truetype`]),
@@ -464,9 +466,10 @@ pub(in crate::archive) fn restated(
         )? {
             continue;
         }
+        let shown = shown_codes(survey.filter(|_| notdef.contains(&id)), id);
         if restate_one(
             document,
-            (id, notdef.contains(&id)),
+            (id, notdef.contains(&id), shown.as_ref()),
             dict,
             (spare, programs, &mut copied),
             substitutes,
@@ -650,10 +653,52 @@ fn codes_by_advance(font: &LoadedFont, codes: &[u8], units: f32) -> Option<BTree
     Some(by_advance)
 }
 
+/// The codes the survey saw a simple font show, where it kept every string the font showed;
+/// `None` where it kept only a prefix, or saw the font show nothing.
+fn shown_codes(survey: Option<&Survey>, id: ObjectId) -> Option<BTreeSet<u8>> {
+    let used: Vec<_> = survey?.fonts().filter(|used| used.id == Some(id)).collect();
+    if used.is_empty() || used.iter().any(|used| !used.shown_complete) {
+        return None;
+    }
+    Some(
+        used.iter()
+            .flat_map(|used| used.shown.keys().flatten().copied())
+            .collect(),
+    )
+}
+
+/// The shown codes of `before` that reach no glyph of the program and that this reader drew
+/// nothing for, each given a glyph that draws nothing (`doc/adr/2753`); `None` where a shown code
+/// reaches no glyph and is drawn with a mark all the same, which no empty glyph restates.
+///
+/// ISO 19005-2 section 6.2.11.4.1 (ISO 19005-4 section 6.2.10.4.1) asks the embedded program to
+/// define every glyph the file renders, and a code its route sends to no glyph is one the program
+/// does not define; this reader advances by the code's width and draws no mark (ISO 32000-2
+/// §9.6.5.4 names the glyph a code's route reaches and nothing in its place), so an empty glyph at
+/// that width is what the page drew.
+fn codes_on_nothing(before: &LoadedFont, shown: &BTreeSet<u8>) -> Option<Vec<u8>> {
+    let mut on_nothing = Vec::new();
+    for byte in shown {
+        let code = Code::single_byte(*byte);
+        if before.glyph_index(code).is_some() {
+            continue;
+        }
+        if before.draws_notdef_in_place(code) || before.outline(code).is_some() {
+            return None;
+        }
+        on_nothing.push(*byte);
+    }
+    Some(on_nothing)
+}
+
 /// One font: the new descriptor and program, proved, and the objects that hold them.
+///
+/// `shown` is the codes the survey saw the font show, complete; where it is known, a shown code
+/// that reaches no glyph is given a glyph that draws nothing (`doc/adr/2753`), and a font named
+/// by a `.notdef` row is answered only where every shown code reaches a glyph afterwards.
 fn restate_one(
     document: &Document,
-    (id, notdef): (ObjectId, bool),
+    (id, notdef, shown): (ObjectId, bool, Option<&BTreeSet<u8>>),
     dict: &Dictionary,
     (spare, programs, copied): (&mut Spare, &BTreeMap<ObjectId, Object>, &mut usize),
     substitutes: Option<&Substitutes>,
@@ -681,38 +726,19 @@ fn restate_one(
     if *copied > MAX_COPIED_BYTES {
         return None;
     }
-    // A font named by a `.notdef` row with no code on glyph 0 is restated as the other rows ask
-    // and given no glyph: its shown code reaches no glyph at all, and a copy of `.notdef` would
-    // draw a mark the reader did not. It is left out of `notdef_given`, so its row stays refused.
-    let mut tables = Vec::new();
-    let mut map = reached.clone();
-    let mut given: BTreeMap<u8, u16> = BTreeMap::new();
-    if !on_notdef.is_empty() {
-        // One glyph for each width the dictionary gives these codes, in the program's units,
-        // because the program's advance for a glyph is held to the width of every code that
-        // reaches it (ISO 19005-2 section 6.2.11.5).
-        let units = f32::from(notdef_glyph::units_per_em(&program)?);
-        let by_advance = codes_by_advance(&before, &on_notdef, units)?;
-        let advances: Vec<u16> = by_advance.keys().copied().collect();
-        let glyphs = notdef_glyph::with_notdef_copied(&program, &advances)?;
-        for (codes, glyph) in by_advance.values().zip(&glyphs.glyphs) {
-            for code in codes {
-                map.insert(*code, *glyph);
-                given.insert(*code, *glyph);
-            }
+    // A shown code on no glyph is given an empty one only in the file's own program: a face this
+    // program embeds for an unembedded font draws what its own table reaches, which
+    // `codes_drawn` already holds it to.
+    let on_nothing = match shown {
+        Some(shown) if notdef && written.embedded_face.is_none() => {
+            codes_on_nothing(&before, shown)
         }
-        tables.extend(glyphs.tables);
-    }
-    tables.push((*b"cmap", cmap_table(&map)?));
-    let restated = pdf_font::embedding::with_tables(&program, &tables)?;
-    // Each new glyph is proved to be glyph 0's own outline in the program as written.
-    let notdef_outline = notdef_glyph::outline(&program, NOTDEF);
-    if given
-        .values()
-        .any(|glyph| notdef_glyph::outline(&restated, *glyph) != notdef_outline)
-    {
-        return None;
-    }
+        _ => Some(Vec::new()),
+    };
+    let all_answered = on_nothing.is_some();
+    let on_nothing = on_nothing.unwrap_or_default();
+    let (restated, given) =
+        program_restated(&before, &program, &reached, (&on_notdef, &on_nothing))?;
     let new_program = super::program_stream(Some(&stream.dict), &restated, true)?;
 
     let mut new_descriptor = descriptor.clone();
@@ -757,10 +783,68 @@ fn restate_one(
         .written
         .insert(descriptor_id, Object::Dictionary(new_descriptor));
     found.descriptors.insert(id, descriptor_id);
-    if !given.is_empty() {
+    if !given.is_empty() && all_answered {
         found.notdef_given.insert(id);
     }
     Some(())
+}
+
+/// The program with a glyph for each code of `on_notdef` and of `on_nothing` and its `cmap`
+/// restated to reach them and `reached`, proved, and the glyph each code is given.
+///
+/// One glyph for each width the dictionary gives the codes on `.notdef`, in the program's units,
+/// because the program's advance for a glyph is held to the width of every code that reaches it
+/// (ISO 19005-2 section 6.2.11.5), each a copy of glyph 0's outline; and one for each width again
+/// among the codes on no glyph, each with no outline (`doc/adr/2753`). Each new glyph is proved to
+/// be glyph 0's own outline, or no outline, in the program as written.
+fn program_restated(
+    before: &LoadedFont,
+    program: &[u8],
+    reached: &BTreeMap<u8, u16>,
+    (on_notdef, on_nothing): (&[u8], &[u8]),
+) -> Option<(Vec<u8>, BTreeMap<u8, u16>)> {
+    let mut tables = Vec::new();
+    let mut map = reached.clone();
+    let mut given: BTreeMap<u8, (u16, NewOutline)> = BTreeMap::new();
+    if !on_notdef.is_empty() || !on_nothing.is_empty() {
+        let units = f32::from(notdef_glyph::units_per_em(program)?);
+        let mut asked: Vec<(u16, NewOutline)> = Vec::new();
+        let mut groups: Vec<Vec<u8>> = Vec::new();
+        for (codes, drawn) in [
+            (on_notdef, NewOutline::CopyOf(NOTDEF)),
+            (on_nothing, NewOutline::Nothing),
+        ] {
+            for (advance, codes) in codes_by_advance(before, codes, units)? {
+                asked.push((advance, drawn));
+                groups.push(codes);
+            }
+        }
+        let glyphs = notdef_glyph::with_glyphs_given(program, &asked)?;
+        for ((codes, glyph), (_, drawn)) in groups.iter().zip(&glyphs.glyphs).zip(&asked) {
+            for code in codes {
+                map.insert(*code, *glyph);
+                given.insert(*code, (*glyph, *drawn));
+            }
+        }
+        tables.extend(glyphs.tables);
+    }
+    tables.push((*b"cmap", cmap_table(&map)?));
+    let restated = pdf_font::embedding::with_tables(program, &tables)?;
+    let notdef_outline = notdef_glyph::outline(program, NOTDEF);
+    if given.values().any(|(glyph, drawn)| {
+        let expected = match drawn {
+            NewOutline::CopyOf(_) => notdef_outline,
+            NewOutline::Nothing => Some(&[][..]),
+        };
+        notdef_glyph::outline(&restated, *glyph) != expected
+    }) {
+        return None;
+    }
+    let given = given
+        .into_iter()
+        .map(|(code, (glyph, _))| (code, glyph))
+        .collect();
+    Some((restated, given))
 }
 
 /// One font as this conversion writes it before its `cmap` is restated: the dictionary with the

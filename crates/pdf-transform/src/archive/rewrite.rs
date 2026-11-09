@@ -1540,8 +1540,10 @@ impl Rewrite {
                 "a TrueType font's program gains one glyph for each width whose outline and \
                  advance are its own .notdef glyph's, and each code that reached .notdef reaches \
                  the one for its width through the program's restated cmap, or for a \
-                 CIDFontType2 through the CIDToGIDMap restated as a stream, so the page draws \
-                 the same marks and no text-showing operator references .notdef"
+                 CIDFontType2 through the CIDToGIDMap restated as a stream, and a shown code a \
+                 simple TrueType program reached no glyph for reaches one at its width that draws \
+                 nothing, so the page draws the same marks, no text-showing operator references \
+                 .notdef and the program defines every glyph shown"
             }
             Self::Type3NotdefRenamed => {
                 "a Type 3 font's glyph procedure named .notdef is given another name in its \

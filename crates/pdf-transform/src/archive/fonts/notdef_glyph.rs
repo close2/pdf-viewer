@@ -1,4 +1,4 @@
-//! A TrueType program given more glyphs, each with its own glyph 0's outline.
+//! A TrueType program given more glyphs, each with its own glyph 0's outline or with none.
 //!
 //! ISO 19005-2 section 6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid a text-showing operator
 //! to reference the `.notdef` glyph, and in a TrueType program that glyph is glyph 0 by position
@@ -7,6 +7,11 @@
 //! draws for it (`doc/questions/A694` item 3). This module copies that outline, byte for byte,
 //! to new glyphs at the end of the program, so that a `cmap` can send each code there: the page
 //! draws the producer's marks and no code reaches `.notdef` (`doc/adr/2543`).
+//!
+//! A shown code the program reaches no glyph for is one ISO 19005-2 section 6.2.11.4.1 (ISO
+//! 19005-4 section 6.2.10.4.1) finds the program does not define, and this reader drew no mark
+//! for it: such a code is given a glyph with no outline, a `loca` entry spanning no bytes, at its
+//! width (`doc/adr/2753`).
 //!
 //! **One glyph per advance, not one per program**: ISO 19005-2 section 6.2.11.5 holds the
 //! program's advance for the glyph a code reaches to the dictionary's width for that code, and
@@ -86,6 +91,17 @@ pub(in crate::archive) fn with_notdef_copied(
     with_glyph_copied(program, 0, advances, NAME_STEM)
 }
 
+/// The program with one glyph appended for each of `asked`, at its advance in font units and
+/// drawing what its [`NewOutline`] says, as the tables that change: the glyphs a simple TrueType
+/// font's codes on `.notdef` or on no glyph are given (`doc/adr/2543`, `doc/adr/2753`). `None`
+/// where [`with_notdef_copied`] answers `None`.
+pub(in crate::archive) fn with_glyphs_given(
+    program: &[u8],
+    asked: &[(u16, NewOutline)],
+) -> Option<GivenGlyphs> {
+    with_glyphs_appended(program, asked, NAME_STEM)
+}
+
 /// The program with glyph `source` copied once for each of `advances`, in font units, as the
 /// tables that change; in a `post` table that names glyphs, the copies are named from `stem`.
 ///
@@ -99,7 +115,34 @@ pub(in crate::archive) fn with_glyph_copied(
     advances: &[u16],
     stem: &str,
 ) -> Option<GivenGlyphs> {
-    if advances.is_empty() || advances.len() > MOST_GIVEN {
+    let asked: Vec<(u16, NewOutline)> = advances
+        .iter()
+        .map(|advance| (*advance, NewOutline::CopyOf(source)))
+        .collect();
+    with_glyphs_appended(program, &asked, stem)
+}
+
+/// What one glyph appended to a program draws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::archive) enum NewOutline {
+    /// The outline bytes of this glyph of the program, and its bearings.
+    CopyOf(u16),
+    /// No outline: the glyph's `loca` entry spans no bytes of `glyf`, which the Manual's `loca`
+    /// chapter gives as the shape of a glyph with no outline (a space), and its left side
+    /// bearing is 0 (`doc/adr/2753`).
+    Nothing,
+}
+
+/// The program with one glyph appended for each of `asked`, at its advance in font units and
+/// drawing what its [`NewOutline`] says, as the tables that change; in a `post` table that names
+/// glyphs, the new ones are named from `stem`. `None` where [`with_notdef_copied`] answers `None`,
+/// or where a glyph copied is not one of the program's.
+fn with_glyphs_appended(
+    program: &[u8],
+    asked: &[(u16, NewOutline)],
+    stem: &str,
+) -> Option<GivenGlyphs> {
+    if asked.is_empty() || asked.len() > MOST_GIVEN {
         return None;
     }
     let tables = directory(program)?;
@@ -108,7 +151,7 @@ pub(in crate::archive) fn with_glyph_copied(
     }
     let maxp = *tables.get(b"maxp")?;
     let count = u16_at(maxp, 4)?;
-    let added = u16::try_from(advances.len()).ok()?;
+    let added = u16::try_from(asked.len()).ok()?;
     let grown = count.checked_add(added)?;
     let glyphs: Vec<u16> = (count..grown).collect();
     let mut out = Vec::new();
@@ -125,16 +168,8 @@ pub(in crate::archive) fn with_glyph_copied(
     };
     let offsets = loca_offsets(tables.get(b"loca")?, count, long_offsets)?;
     let glyf = *tables.get(b"glyf")?;
-    if source >= count {
-        return None;
-    }
-    let first = *offsets.get(usize::from(source))?;
-    let second = *offsets.get(usize::from(source).checked_add(1)?)?;
     let end = *offsets.last()?;
-    let outline = glyf.get(first..second)?;
-    if outline.len().checked_add(1)?.checked_mul(advances.len())? > MOST_COPIED_OUTLINE_BYTES {
-        return None;
-    }
+    let outlines = outlines_asked(glyf, &offsets, count, asked)?;
     let mut new_glyf = glyf.get(..end)?.to_vec();
     // A short `loca` stores each offset halved, so under it every glyph starts on an even byte;
     // a long one stores the byte offset, and a copy is then the outline's bytes and nothing more.
@@ -143,7 +178,7 @@ pub(in crate::archive) fn with_glyph_copied(
     }
     let mut new_offsets = offsets.clone();
     new_offsets.pop();
-    for _ in advances {
+    for outline in &outlines {
         new_offsets.push(new_glyf.len());
         new_glyf.extend_from_slice(outline);
         if !long_offsets && new_glyf.len() % 2 == 1 {
@@ -162,20 +197,37 @@ pub(in crate::archive) fn with_glyph_copied(
         out.push((*b"head", new_head));
     }
 
-    let (_, bearing) = metric(&tables, *b"hhea", *b"hmtx", source)?;
-    let horizontal: Vec<(u16, i16)> = advances.iter().map(|advance| (*advance, bearing)).collect();
+    let mut horizontal: Vec<(u16, i16)> = Vec::with_capacity(asked.len());
+    for (advance, drawn) in asked {
+        let bearing = match drawn {
+            NewOutline::CopyOf(source) => metric(&tables, *b"hhea", *b"hmtx", *source)?.1,
+            NewOutline::Nothing => 0,
+        };
+        horizontal.push((*advance, bearing));
+    }
     let (hhea, hmtx) = metrics_grown(&tables, (*b"hhea", *b"hmtx"), count, &horizontal)?;
     out.push((*b"hhea", hhea));
     out.push((*b"hmtx", hmtx));
     if tables.contains_key(b"vmtx") || tables.contains_key(b"vhea") {
-        let vertical = vec![metric(&tables, *b"vhea", *b"vmtx", source)?; advances.len()];
+        // A glyph with no outline takes glyph 0's vertical metric: it has no bounds of its own,
+        // and a simple font is set horizontally (ISO 32000-2 §9.2.4), so the table only stays
+        // one entry a glyph.
+        let mut vertical = Vec::with_capacity(asked.len());
+        for (_, drawn) in asked {
+            let source = match drawn {
+                NewOutline::CopyOf(source) => *source,
+                NewOutline::Nothing => 0,
+            };
+            vertical.push(metric(&tables, *b"vhea", *b"vmtx", source)?);
+        }
         let (vhea, vmtx) = metrics_grown(&tables, (*b"vhea", *b"vmtx"), count, &vertical)?;
         out.push((*b"vhea", vhea));
         out.push((*b"vmtx", vmtx));
     }
     if let Some(hdmx) = tables.get(b"hdmx") {
         let units = u16_at(head, 18)?;
-        out.push((*b"hdmx", hdmx_grown(hdmx, count, (advances, units))?));
+        let advances: Vec<u16> = asked.iter().map(|(advance, _)| *advance).collect();
+        out.push((*b"hdmx", hdmx_grown(hdmx, count, (&advances, units))?));
     }
     if let Some(ltsh) = tables.get(b"LTSH") {
         out.push((*b"LTSH", ltsh_grown(ltsh, count, added)?));
@@ -189,6 +241,35 @@ pub(in crate::archive) fn with_glyph_copied(
         tables: out,
         glyphs,
     })
+}
+
+/// The outline bytes each of `asked` is given: its source glyph's, by `offsets` into `glyf`, or
+/// none; `None` where a source is not a glyph of the program's `count` or the outlines together
+/// pass [`MOST_COPIED_OUTLINE_BYTES`].
+fn outlines_asked<'a>(
+    glyf: &'a [u8],
+    offsets: &[usize],
+    count: u16,
+    asked: &[(u16, NewOutline)],
+) -> Option<Vec<&'a [u8]>> {
+    let mut outlines: Vec<&[u8]> = Vec::with_capacity(asked.len());
+    let mut outline_bytes = 0_usize;
+    for (_, drawn) in asked {
+        let outline: &[u8] = match drawn {
+            NewOutline::CopyOf(source) => {
+                if *source >= count {
+                    return None;
+                }
+                let first = *offsets.get(usize::from(*source))?;
+                let second = *offsets.get(usize::from(*source).checked_add(1)?)?;
+                glyf.get(first..second)?
+            }
+            NewOutline::Nothing => &[],
+        };
+        outline_bytes = outline_bytes.checked_add(outline.len().checked_add(1)?)?;
+        outlines.push(outline);
+    }
+    (outline_bytes <= MOST_COPIED_OUTLINE_BYTES).then_some(outlines)
 }
 
 /// The program's units per em, from `head`.
@@ -633,6 +714,45 @@ mod tests {
                 horizontal_metric(&source, glyph)
             );
         }
+    }
+
+    /// A glyph appended with no outline spans no bytes of `glyf` (the Manual's `loca` chapter: a
+    /// glyph with no outline has an offset equal to the next one's), takes the advance asked and a
+    /// bearing of 0, and leaves `.notdef`'s copy beside it and every glyph before it as they were
+    /// (`doc/adr/2753`). Under a short `loca` the glyph after an odd copy starts on the even byte.
+    #[test]
+    fn a_glyph_given_nothing_spans_no_bytes_at_its_own_advance() {
+        let notdef: &[u8] = &[1, 2, 3, 4, 5];
+        let source = program(&[notdef, &[9, 9], &[7, 7, 7]]);
+        let given = with_glyphs_given(
+            &source,
+            &[
+                (500, NewOutline::CopyOf(0)),
+                (278, NewOutline::Nothing),
+                (900, NewOutline::Nothing),
+            ],
+        )
+        .expect("a glyf program");
+        assert_eq!(given.glyphs, [3, 4, 5]);
+        let after = applied(&source, &given);
+        assert_eq!(outline(&after, 3), outline(&source, 0));
+        assert_eq!(horizontal_metric(&after, 3), Some((500, 7)));
+        for (glyph, advance) in [(4, 278), (5, 900)] {
+            assert_eq!(
+                outline(&after, glyph),
+                Some(&[][..]),
+                "glyph {glyph} draws nothing"
+            );
+            assert_eq!(horizontal_metric(&after, glyph), Some((advance, 0)));
+        }
+        for glyph in 0..3 {
+            assert_eq!(outline(&after, glyph), outline(&source, glyph));
+            assert_eq!(
+                horizontal_metric(&after, glyph),
+                horizontal_metric(&source, glyph)
+            );
+        }
+        assert_eq!(glyph_count(&after), Some(6));
     }
 
     #[test]

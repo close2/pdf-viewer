@@ -108,8 +108,8 @@ column. R02 is built (ADR 2498) and no document reaches it.
 | 3 | R08-unembedded-font-photograph | 11 | 11 | 35 / 35 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
 | 4 | R10-font-refiling | 5 | 5 | 7 / 7 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688), a glyf program under a CIDFontType0 (ADR 2716), a collection nothing reads (ADR 2717), a font written inside another object (ADR 2722), a code Annex D encodes twice in a glyf face (ADR 2723) |
 | 5 | R11-truetype-route | 5 | 5 | 7 / 7 | builds only | built: A694 item 3, ADR 2520 |
-| 6 | R03a-notdef-named | 4 | 4 | 8 / 5 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650 |
-| 7 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
+| 6 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
+| 7 | R03a-notdef-named | 2 | 2 | 6 / 3 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650, 2753; left, a code an embedded CMap reads as invalid in a CJK collection without ToUnicode |
 | 8 | R16-annotations-and-forms | 2 | 2 | 14 / 17 | builds only | built: a push button with no appearance dictionary (ADR 2751), an appearance dictionary stating no entry (ADR 2752); left, named per site |
 | 9 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
 | 10 | R07-undecodable-stream | 1 | 2 | 1 / 2 | builds only | built: ADR 2689; the `UnknownFilter` files' `%PDF-3.x` header, ADR 2692; left, an ICC profile written as its alternate |
@@ -190,8 +190,12 @@ charstring per width (or a glyph that draws nothing) under Type 1 charstring enc
 `lenIV`, the encoding restated to name each copy, `/Length1`–`/Length3` restated, and the section read
 back byte for byte and by `read-fonts` before the font is proved. `issue11477_reduced.pdf`,
 `issue6721_reduced.pdf` and `issue6901.pdf` convert at both targets under both profiles and pass veraPDF
-at both; `504076.pdf` loses this row and stays refused on others. Mitigations
-`fonts/no-notdef-glyph-shown`; limits 2.2.
+at both; `504076.pdf` loses this row and stays refused on others. **Built for a shown code a simple
+TrueType program reaches no glyph for** (ADR 2753), which section 6.2.11.4.1 finds the program does
+not define and this reader draws as nothing: a glyph with no outline at the code's width, beside ADR
+2543's copies; `issue14821.pdf` and `issue17333.pdf` convert at both targets under every profile and
+pass veraPDF at both. Left: `issue11768_reduced.pdf` (above), and documents refused on other rows as
+well. Mitigations `fonts/no-notdef-glyph-shown`; limits 2.2.
 
 **R11 — a TrueType code that reaches its glyph by a route ISO 19005 does not admit** (built; 13
 documents left of the 30 at 2b and 28 at 4, alone in 3 under `as-if-printed` and 1 under
@@ -555,7 +559,7 @@ disagrees with `/Widths` the refusal's sentence is `PROGRAM_NOT_RESTATABLE`.
 - D-defect (9): corpora:JA1-1996-PDF.pdf, corpora:JA3-1998-PDF.pdf, corpora:T02-02_002_page-tree-kids-links-recursive.pdf, corpora:digitally_signed_3D_Portfolio.pdf, corpora:hesr13613-sup-0001-Authormatrix.pdf, pdf.js:auth-event-ef-open.pdf, pdf.js:bug864847.pdf, pdf.js:issue14200.pdf, pdf.js:issue14297.pdf
 - R01-recovered-structure (3): corpora:143424271191706722106594310729442158189.pdf, corpora:A Defence of the New Tenseless Theory of Time.pdf, corpora:T02-03_006_page-object-missing.pdf
 - R03-photograph (59): corpora:020747.pdf, corpora:020806.pdf, corpora:027613.pdf, corpora:033689.pdf, corpora:040669.pdf, corpora:050734.pdf, corpora:064034.pdf, corpora:073439.pdf, corpora:150277.pdf, corpora:178360.pdf, corpora:189478.pdf, corpora:210260.pdf, corpora:219789.pdf, corpora:226387.pdf, corpora:268346.pdf, corpora:303226.pdf, corpora:367594.pdf, corpora:379049.pdf, corpora:392154.pdf, corpora:427669.pdf, corpora:435321.pdf, corpora:455746.pdf, corpora:477139.pdf, corpora:492484.pdf, corpora:498264.pdf, corpora:504076.pdf, corpora:507618.pdf, corpora:507676.pdf, corpora:509284.pdf, corpora:T02-05-01_006_font-size-operator-missing.pdf, corpora:T02-05-01_009_Missing_open_paranthesis.pdf, corpora:T02-05-01_011_paranthesis-substituted-with-brackets.pdf, corpora:T02-05-01_014_endstream-keyword-missing.pdf, corpora:hesr13613-sup-0001-Authormatrix.pdf, corpora:sakula.pdf, pdf.js:SimFang-variant.pdf, pdf.js:TAMReview.pdf, pdf.js:XiaoBiaoSong.pdf, pdf.js:boundingBox_invalid.pdf, pdf.js:bug1065245.pdf, pdf.js:bug1953099.pdf, pdf.js:issue17554.pdf, pdf.js:issue19484_1.pdf, pdf.js:issue19484_2.pdf, pdf.js:issue19517.pdf, pdf.js:issue19634.pdf, pdf.js:issue19971.pdf, pdf.js:issue20489.pdf, pdf.js:issue2128r.pdf, pdf.js:issue2391-1.pdf, pdf.js:issue3521.pdf, pdf.js:issue5010.pdf, pdf.js:issue5039.pdf, pdf.js:issue6342.pdf, pdf.js:issue6931_reduced.pdf, pdf.js:issue9252.pdf, pdf.js:poppler-90-0-fuzzed.pdf, pdf.js:sci-notation.pdf, pdf.js:smaskdim.pdf
-- R03a-notdef-named (8): corpora:027613.pdf, corpora:268346.pdf, corpora:477139.pdf, corpora:504076.pdf, corpora:507676.pdf, pdf.js:issue11768_reduced.pdf, pdf.js:issue14821.pdf, pdf.js:issue17333.pdf
+- R03a-notdef-named (6): corpora:027613.pdf, corpora:268346.pdf, corpora:477139.pdf, corpora:504076.pdf, corpora:507676.pdf, pdf.js:issue11768_reduced.pdf
 - R05-press (2): corpora:363_Risk-Based Management of Groundwater Contamination _Paper.pdf, corpora:response-to-fiber-concerns[1].pdf
 - R06b-the-other-part (42): corpora:020747.pdf, corpora:020806.pdf, corpora:027613.pdf, corpora:033689.pdf, corpora:040669.pdf, corpora:150277.pdf, corpora:219789.pdf, corpora:268346.pdf, corpora:427669.pdf, corpora:477139.pdf, corpora:492484.pdf, corpora:507676.pdf, corpora:PDF 2.0 UTF-8 string and annotation.pdf, corpora:PDF 2.0 image with BPC.pdf, corpora:PDF 2.0 via incremental save.pdf, corpora:PDF 2.0 with offset start.pdf, corpora:PDF 2.0 with page level output intent.pdf, corpora:Simple PDF 2.0 file.pdf, corpora:T01_001_header-invalid-major-version.pdf, corpora:UnknownFilter-Font.pdf, corpora:UnknownFilter-FormXObject.pdf, corpora:UnknownFilter-ICC.pdf, corpora:UnknownFilter-ImageXObject.pdf, corpora:UnknownFilter-Linearized.pdf, corpora:UnknownFilter-OutlineObjStm.pdf, corpora:UnknownFilter-PageContentStream.pdf, corpora:UnknownFilter-objstm.pdf, corpora:UnknownFilter-xrefstm.pdf, corpora:pdf20-utf8-test.pdf, pdf.js:auth-event-ef-open.pdf, pdf.js:bug1937438_af_from_latex.pdf, pdf.js:bug1937438_mml_from_latex.pdf, pdf.js:bug1997343.pdf, pdf.js:bug2009627.pdf, pdf.js:bug2025674.pdf, pdf.js:bug854315.pdf, pdf.js:issue14755.pdf, pdf.js:issue17069.pdf, pdf.js:issue19176.pdf, pdf.js:issue3928.pdf, pdf.js:issue6151.pdf, pdf.js:poppler-67295-0.pdf
 - R07-undecodable-stream (2): corpora:UnknownFilter-ICC.pdf, pdf.js:poppler-742-0-fuzzed.pdf

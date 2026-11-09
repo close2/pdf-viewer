@@ -54,7 +54,10 @@ const NOTDEF_GLYPH_REINTERPRETS: &str = "a code a TrueType font sent to its prog
      glyph now reaches a glyph of its own whose outline and advance are copied from .notdef's, \
      by the restated cmap, or for a CIDFontType2 by the CIDToGIDMap restated as a stream. The \
      page draws the same marks for this renderer, and a reader that \
-     drew nothing for .notdef, or a box of its own, draws the program's .notdef outline now";
+     drew nothing for .notdef, or a box of its own, draws the program's .notdef outline now. A \
+     shown code a simple TrueType font sent to no glyph reaches a glyph at its width with no \
+     outline, as this renderer drew no mark for it; a reader that drew the program's .notdef \
+     for such a code draws nothing now";
 
 const TRUETYPE_CMAP_REINTERPRETS: &str = "a rendered TrueType font is now the symbolic font ISO \
      32000-2 \u{a7}9.6.5.4 describes: its program's cmap maps each code to the glyph this \

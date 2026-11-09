@@ -16459,6 +16459,8 @@ mod cid_notdef_glyph;
 mod derived_converted;
 #[path = "archive/notdef_glyph.rs"]
 mod notdef_glyph;
+#[path = "archive/truetype_no_glyph.rs"]
+mod truetype_no_glyph;
 #[path = "archive/type1_notdef_glyph.rs"]
 mod type1_notdef_glyph;
 #[path = "archive/type1_widths.rs"]
