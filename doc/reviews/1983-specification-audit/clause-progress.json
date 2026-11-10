@@ -650,11 +650,13 @@
   {
     "clause": "7.4.8",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "dct_decode_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "dct_decode_audit"
+    ],
     "feature_record_verdicts": {
       "all-three-ranked-cases-and-filter-parameter-location-asserted": 1,
       "covered-on-generated-baseline-jpeg-fixtures": 1,
@@ -5078,11 +5080,13 @@
   {
     "clause": "11.5.1",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "soft_mask_derivation_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "soft_mask_derivation_audit"
+    ],
     "feature_record_verdicts": {
       "confirmed": 1
     },
@@ -5091,25 +5095,29 @@
   {
     "clause": "11.5.2",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "soft_mask_derivation_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "soft_mask_derivation_audit"
+    ],
     "feature_record_verdicts": {
       "confirmed": 1,
-      "missing-test": 1
+      "confirmed-with-new-complete-pdf-test": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
     "clause": "11.5.3",
     "ledger_status": "departed",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "soft_mask_derivation_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "soft_mask_derivation_audit"
+    ],
     "feature_record_verdicts": {
       "confirmed": 3
     },

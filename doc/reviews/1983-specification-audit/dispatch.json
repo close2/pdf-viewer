@@ -1086,16 +1086,17 @@
       "clauses": [
         "7.4.8"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial"
     },
     {
       "agent": "soft_mask_derivation_audit",
       "clauses": [
+        "11.5",
         "11.5.1",
         "11.5.2",
         "11.5.3"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-test"
     },
     {
       "agent": "fdf_absent_value_audit",
@@ -1108,6 +1109,20 @@
       "agent": "fdf_pages_import_audit",
       "clauses": [
         "12.7.8.3.3"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "dct_marker_reference_audit",
+      "clauses": [
+        "7.4.8"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "soft_mask_dictionary_audit",
+      "clauses": [
+        "11.6.5.1"
       ],
       "state": "running"
     }

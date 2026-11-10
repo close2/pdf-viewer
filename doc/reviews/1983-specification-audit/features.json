@@ -9776,6 +9776,236 @@
     "superseded": false
   },
   {
+    "clause": "7.4.8",
+    "feature_id": "dctdecode_reads_baseline_jpeg",
+    "entry_kind": "direct_reader_requirement",
+    "requirement": "DCTDecode decodes grayscale or colour data encoded in JPEG baseline format in accordance with ISO/IEC 10918.",
+    "source_location": "§7.4.8, printed p.48 / one-based physical PDF p.63.",
+    "errata": "No EC3 strike/caret annotation amends this clause on physical p.63. EC3 Issue #29 is on physical p.65 at the following §7.4.9 section and is unrelated.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/dct.rs::decode_jpeg",
+      "crates/pdf-model/src/image/dct.rs::decode_dct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/dct_components.rs::a_three_component_frame_marked_transform_zero_is_three_components",
+      "crates/pdf-model/tests/colour_transform.rs::a_three_component_frame_whose_entry_says_zero_is_not_transformed",
+      "crates/pdf-model/tests/dct_components.rs::a_frame_stating_no_samples_is_refused_rather_than_drawn_empty"
+    ],
+    "verdict": "covered-on-generated-baseline-jpeg-fixtures",
+    "evidence": "The tests construct complete baseline JPEG streams (SOI, marker segments, SOF0, Huffman tables, scan and EOI) and place them in complete one-page PDFs with exact xref/Length values. Pixel assertions distinguish decoded samples from a mere no-error return. `decode_jpeg` parses the frame and delegates entropy decoding to zune-jpeg; malformed input diagnostics are implementation behavior, not an added ISO recovery requirement.",
+    "remaining": "The source delegates ISO/IEC 10918 decoding details to the JPEG standard and Adobe TN #5116 for markers. This audit does not certify every JPEG process or every externally specified marker rule.",
+    "parent_review": "Accepted partial: effective PDF source and current code/test bodies reviewed; full JPEG/Adobe reference not certified.",
+    "test_result": "Generated pdf-model tests PASS in broad20. Ignored raster-golden and pdf-sandbox encoder tests inspected, not newly executed.",
+    "reviewer": "dct_decode_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "covered-on-generated-baseline-jpeg-fixtures",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.8",
+    "feature_id": "dctdecode_supports_progressive_jpeg_from_pdf_1_3",
+    "entry_kind": "direct_reader_requirement",
+    "requirement": "Beginning with PDF 1.3, DCTDecode shall support progressive JPEG; progressive/baseline distinction is represented in the encoded data and adds no DecodeParms entry.",
+    "source_location": "§7.4.8, printed p.49 / one-based physical PDF p.64.",
+    "errata": "No EC3 normative amendment to this paragraph is recorded on physical p.64.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/dct.rs::decode_jpeg",
+      "crates/pdf-model/src/image/dct.rs::first_scan"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/raster_golden.tsv: decodeACSuccessive.pdf p1",
+      "crates/pdf-model/tests/raster_golden.rs::the_first_page_of_every_tracked_document_draws_what_it_drew"
+    ],
+    "verdict": "valid-progressive-pdf-fixture-held-by-raster-golden",
+    "evidence": "The tracked pdf.js fixture `doc/pdf.js/test/pdfs/decodeACSuccessive.pdf` is a complete PDF 1.4 with one 73×76, 8-bit, three-component image. Extracting image object 3 with `pdfimages -j` yields a 2,334-byte JPEG whose frame marker is SOF2 (`FF C2`), so it is genuinely progressive, not inferred from its filename. The held raster-golden row asserts the decoded page's raster, display-list and report digests. The gate is explicitly ignored and run as a corpus gate; the oracle comment also records a three-renderer progressive-JPEG comparison, but that commentary alone is not an assertion. Parent confirmed held golden row and assertion loop; gate returns without assertions if submodule absent and was skipped in broad20, so no current progressive execution claimed.",
+    "remaining": "No standalone non-corpus progressive JPEG test was drafted: the tracked progressive file already has a complete-PDF raster regression with a held digest. The golden test is broad and ignored by default, so this evidence depends on the tracked pdf.js submodule and explicit corpus-gate execution.",
+    "parent_review": "Accepted partial: effective PDF source and current code/test bodies reviewed; full JPEG/Adobe reference not certified.",
+    "test_result": "Generated pdf-model tests PASS in broad20. Ignored raster-golden and pdf-sandbox encoder tests inspected, not newly executed.",
+    "reviewer": "dct_decode_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "valid-progressive-pdf-fixture-held-by-raster-golden",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.8",
+    "feature_id": "jpeg_sample_count_and_byte_layout_are_encoder_stated",
+    "entry_kind": "producer_constraint",
+    "requirement": "JPEG samples have one, three or four colour components; component values for each sample are consecutive and each occupies one byte.",
+    "source_location": "§7.4.8, printed p.48 / physical p.63.",
+    "errata": "No EC3 amendment to this sentence on physical p.63.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/dct.rs::decode_jpeg",
+      "crates/pdf-model/src/image/dct.rs::DecodedJpeg",
+      "crates/pdf-model/src/image/convert.rs::convert_channels",
+      "crates/pdf-sandbox/src/encode.rs::dct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/colour_transform.rs::a_three_component_frame_whose_entry_says_one_is_transformed_to_rgb",
+      "crates/pdf-model/tests/colour_transform.rs::a_four_component_entry_of_one_is_the_markers_transform_two",
+      "crates/pdf-model/tests/dct_components.rs::a_three_component_frame_marked_transform_zero_is_three_components",
+      "crates/pdf-sandbox/src/encode.rs::three_components_are_written_as_baseline"
+    ],
+    "verdict": "producer-rule-kept-distinct-from-invalid-input-recovery",
+    "evidence": "Generated frames exercise one, three and four components; exact three-channel sample assertions and four-channel transform assertions inspect outputs. `decode_jpeg` takes the component count from the JPEG frame and retains four components rather than asking the decoder for three. The sentence constrains encoded JPEG data; it does not itself specify that a reader must reject a two-component frame. The one/two-component Table 13 branch is assessed separately, and a two-component JPEG is not a valid producer-positive fixture under this earlier sentence.",
+    "remaining": "No claim is made about the exact output or error policy for a producer-invalid two-component codestream.",
+    "parent_review": "Accepted partial: effective PDF source and current code/test bodies reviewed; full JPEG/Adobe reference not certified.",
+    "test_result": "Generated pdf-model tests PASS in broad20. Ignored raster-golden and pdf-sandbox encoder tests inspected, not newly executed.",
+    "reviewer": "dct_decode_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "producer-rule-kept-distinct-from-invalid-input-recovery",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.8",
+    "feature_id": "jpeg_encoding_parameters_are_stored_in_codestream_except_colortransform",
+    "entry_kind": "producer_constraint_and_reader_source",
+    "requirement": "Encoder-controlled parameters, including dimensions and component count, shall be stored in the encoded data; DCTDecode may obtain needed parameters there. The one stated exception is ColorTransform, which shall be supplied in the filter parameter dictionary when not in the encoded data.",
+    "source_location": "§7.4.8, printed p.48 / physical p.63; ColorTransform exception and Table 13 are printed p.49 / physical p.64.",
+    "errata": "No EC3 amendment to the DCTDecode parameter paragraph or Table 13 on physical pp.63–64.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/dct.rs::decode_dct",
+      "crates/pdf-model/src/image/dct.rs::dct_frame",
+      "crates/pdf-model/src/image/dct.rs::decode_jpeg",
+      "crates/pdf-model/src/image/dct.rs::defined_number_of_lines"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/dct_components.rs::a_dictionary_that_contradicts_the_frames_dimensions_does_not_cost_the_image",
+      "crates/pdf-model/tests/dct_components.rs::a_dnl_marker_defines_or_redefines_the_frames_number_of_lines",
+      "crates/pdf-model/tests/colour_transform.rs::the_array_form_of_decode_parms_states_the_same_entry",
+      "crates/pdf-model/tests/colour_transform.rs::the_name_written_outside_the_parameter_dictionary_is_not_the_entry"
+    ],
+    "verdict": "frame-data-source-and-parameter-location-asserted",
+    "evidence": "`dct_frame` reads ColorTransform from the image stream's resolved DecodeParms dictionary and `decode_jpeg` reads frame dimensions/component count. DNL tests distinguish Y=0, placeholder/redefinition, and matching counts. A dimensions-conflict test draws on the JPEG's 8×8 grid and reports the differing PDF dictionary; the clause says dimensions are stored in data and permits reading them there, but does not dictate this exact mismatch-recovery behavior. The DNL handling is governed by ISO/IEC 10918-1 B.2.5 and is accurately characterized in ADR 0799. DNL standard interpretation is cited through ADR0799 here; the underlying ISO10918-1 text was not independently re-audited.",
+    "remaining": "Do not convert the implementation's draw-and-report choice for contradictory dictionary dimensions into a SHALL from this clause.",
+    "parent_review": "Accepted partial: effective PDF source and current code/test bodies reviewed; full JPEG/Adobe reference not certified.",
+    "test_result": "Generated pdf-model tests PASS in broad20. Ignored raster-golden and pdf-sandbox encoder tests inspected, not newly executed.",
+    "reviewer": "dct_decode_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "frame-data-source-and-parameter-location-asserted",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.8",
+    "feature_id": "table13_colortransform_values_and_component_conditions",
+    "entry_kind": "direct_conditional_reader_requirement",
+    "requirement": "ColorTransform 0 means no transform. Value 1 maps three-component RGB through YCbCr and back; on four components it maps CMYK through YCbCrK and back. The option is ignored for one or two components.",
+    "source_location": "Table 13, printed p.49 / one-based physical PDF p.64.",
+    "errata": "No EC3 amendment to Table 13 on physical p.64.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/dct.rs::colour_transform",
+      "crates/pdf-model/src/image/dct.rs::ycbcr_to_rgb",
+      "crates/pdf-model/src/image/dct.rs::ycck_to_cmyk",
+      "crates/pdf-model/src/image/dct.rs::decode_jpeg"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/colour_transform.rs::a_three_component_frame_whose_entry_says_zero_is_not_transformed",
+      "crates/pdf-model/tests/colour_transform.rs::a_three_component_frame_whose_entry_says_one_is_transformed_to_rgb",
+      "crates/pdf-model/tests/colour_transform.rs::a_four_component_entry_of_one_is_the_markers_transform_two",
+      "crates/pdf-model/tests/colour_transform.rs::a_one_component_frame_ignores_the_entry",
+      "crates/pdf-model/tests/dct_components.rs::a_three_component_frame_marked_transform_two_is_not_converted_as_ycck"
+    ],
+    "verdict": "valid-one-three-four-component-behavior-asserted",
+    "evidence": "The generated sample `[128,64,192]` distinguishes the no-transform pixel from the YCbCr inverse with numerical expected values and a positive control. Four-component tests compare Table 13's value 1 with Adobe APP14's transform 2 and distinguish the untransformed path. A one-component test checks the parameter is ignored. The separate two-component clause branch has no valid JPEG producer fixture because §7.4.8's earlier producer sentence permits only one, three or four components; no malformed-reader policy is inferred. The three-component APP14 transform-2 test uses a marker/count combination that is not a valid producer-positive case, so it is robustness evidence only, not normative proof. Documentation finding: dct_components.rs comment above the transform2/three-component test incorrectly attributes marker value2 to Table13. Table13 defines entry0/1; APP14 has a separate namespace. Historical comment unchanged.",
+    "remaining": "Adobe's external marker namespace and all of its invalid-combination rules are not certified here; see the separate Technical Note feature.",
+    "parent_review": "Accepted partial: effective PDF source and current code/test bodies reviewed; full JPEG/Adobe reference not certified.",
+    "test_result": "Generated pdf-model tests PASS in broad20. Ignored raster-golden and pdf-sandbox encoder tests inspected, not newly executed.",
+    "reviewer": "dct_decode_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "valid-one-three-four-component-behavior-asserted",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.8",
+    "feature_id": "table13_marker_entry_default_precedence",
+    "entry_kind": "direct_reader_requirement",
+    "requirement": "If an Adobe marker states ColorTransform, follow it and ignore the DecodeParms entry; otherwise use that entry; if neither is present, use 1 for three components and 0 otherwise.",
+    "source_location": "Table 13, printed p.49 / physical p.64.",
+    "errata": "No EC3 amendment to Table 13 on physical p.64.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/dct.rs::adobe_transform",
+      "crates/pdf-model/src/image/dct.rs::colour_transform",
+      "crates/pdf-model/src/image/dct.rs::decode_dct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/colour_transform.rs::a_marked_three_component_frame_ignores_a_contradicting_entry",
+      "crates/pdf-model/tests/colour_transform.rs::a_marked_four_component_frame_ignores_a_contradicting_entry",
+      "crates/pdf-model/tests/colour_transform.rs::the_array_form_of_decode_parms_states_the_same_entry",
+      "crates/pdf-model/tests/colour_transform.rs::the_name_written_outside_the_parameter_dictionary_is_not_the_entry",
+      "crates/pdf-model/tests/colour_transform.rs::with_neither_the_clauses_default_of_one_governs_whatever_the_identifiers_spell"
+    ],
+    "verdict": "all-three-ranked-cases-and-filter-parameter-location-asserted",
+    "evidence": "Contradictory marker/entry pairs test both precedence directions for three and four components. Separate tests prove DecodeParms dictionary and array forms, default behavior without either, and that a direct image-dictionary key is not a filter parameter. ADR 2468's default case is tested even when frame component identifiers spell RGB, with a color triple whose result differs from leaving samples untouched.",
+    "remaining": "The clause's code values are tested; unknown Adobe marker codes are not reclassified as normative Transform values.",
+    "parent_review": "Accepted partial: effective PDF source and current code/test bodies reviewed; full JPEG/Adobe reference not certified.",
+    "test_result": "Generated pdf-model tests PASS in broad20. Ignored raster-golden and pdf-sandbox encoder tests inspected, not newly executed.",
+    "reviewer": "dct_decode_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "all-three-ranked-cases-and-filter-parameter-location-asserted",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.8",
+    "feature_id": "adobe_postscript_dct_marker_rules",
+    "entry_kind": "normative_external_forward_reference",
+    "requirement": "PDF DCT encoding shall follow Adobe Technical Note #5116's exact marker recognition, ignore and error rules.",
+    "source_location": "Table 13, final sentence, printed p.49 / physical p.64.",
+    "errata": "No EC3 amendment to this sentence on physical p.64.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/dct.rs::adobe_transform",
+      "crates/pdf-model/src/image/dct.rs::colour_transform",
+      "crates/pdf-model/src/image/dct.rs::decode_jpeg"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/colour_transform.rs::a_marked_three_component_frame_ignores_a_contradicting_entry",
+      "crates/pdf-model/tests/colour_transform.rs::a_four_component_entry_of_one_is_the_markers_transform_two",
+      "crates/pdf-model/tests/dct_components.rs::a_three_component_frame_marked_transform_zero_is_three_components"
+    ],
+    "verdict": "partial-forward-reference-not-fully-audited",
+    "evidence": "The code walks JPEG marker segments to the first scan and reads an Adobe APP14 segment, rather than searching arbitrary entropy bytes; tests assert the specific 0/1/2 transform semantics and precedence. ADR 1183 explicitly records that Technical Note #5116 is not held. These assertions do not certify all of the externally incorporated PostScript marker recognition, ignore and error rules, so the clause-wide ledger status must not be read as a standalone audit of this forward reference.",
+    "remaining": "The exact rules of Adobe Technical Note #5116 remain unreviewed in this bounded audit. Preserve the cross-reference as delegated rather than treating selective APP14 tests as full TN conformance.",
+    "parent_review": "Accepted partial: effective PDF source and current code/test bodies reviewed; full JPEG/Adobe reference not certified.",
+    "test_result": "Generated pdf-model tests PASS in broad20. Ignored raster-golden and pdf-sandbox encoder tests inspected, not newly executed.",
+    "reviewer": "dct_decode_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-forward-reference-not-fully-audited",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.8",
+    "feature_id": "informative_jpeg_description_and_compression_notes",
+    "entry_kind": "informative_note",
+    "requirement": "Notes 1–4 describe JPEG terminology, lossy continuous-tone design, quality/compression tradeoffs, luminance/chrominance coding and the rationale for progressive JPEG; they state no additional normative reader or producer requirement.",
+    "source_location": "Notes1–3 physical63–64/printed48–49; Note4 physical65/printed50.",
+    "errata": "No EC3 amendment changes the informative notes on physical pp.63–64.",
+    "ledger_status": "implemented",
+    "code_locations": [],
+    "test_refs": [],
+    "verdict": "informative-context-not-a-separate-shall",
+    "evidence": "The source marks these passages NOTE. The informative statement that progressive coding can be slower does not negate the next normative paragraph's shall-support requirement; it gives a use rationale, especially for external files.",
+    "remaining": "No separate implementation or test obligation is inferred from Notes 1–4.",
+    "parent_review": "Accepted partial: effective PDF source and current code/test bodies reviewed; full JPEG/Adobe reference not certified.",
+    "test_result": "Generated pdf-model tests PASS in broad20. Ignored raster-golden and pdf-sandbox encoder tests inspected, not newly executed.",
+    "reviewer": "dct_decode_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "informative-context-not-a-separate-shall",
+    "superseded": false
+  },
+  {
     "clause": "8.6.5.6",
     "feature_id": "8.6.5.6.matching_default_for_each_device_family",
     "requirement": "When a device colour space is selected, consult the current resource dictionary's ColorSpace subdictionary for its corresponding DefaultGray, DefaultRGB, or DefaultCMYK entry and use that value for the operation if present.",
@@ -35988,6 +36218,172 @@
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-ec3-policy-corrections",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "unreviewed",
+    "superseded": false
+  },
+  {
+    "clause": "11.5.1",
+    "feature_id": "independent-spatial-mask-shape-and-opacity",
+    "requirement": "A soft mask supplies spatially varying mask shape and/or opacity from a source independent of the painted object; intermediate values are possible, and shape use is a soft-clip generalization.",
+    "source_location": "ISO 32000-2:2020 §11.5.1, printed p.414 / physical p.429, including Notes 1–2",
+    "errata": "No substantive §11.5.1 correction found in EC3 annotation extraction; nearby entries are navigation links. This is distinct from later §11.6.5.1 PDF dictionary rules.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-render/src/soft_mask.rs::SoftMask::value",
+      "crates/render-cpu/src/soft_mask.rs",
+      "crates/render-cpu/src/mask_cache.rs",
+      "crates/render-gpu/src/soft_mask.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/soft_masks.rs::a_luminosity_mask_takes_the_groups_grey_and_the_backdrops_outside_it",
+      "crates/pdf-model/tests/soft_masks.rs::an_alpha_mask_reads_the_groups_alpha_and_ignores_its_colour",
+      "crates/render-cpu/tests/soft_mask.rs::a_constant_mask_interpolates_between_the_object_and_the_backdrop"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Reader attaches a SoftMask ID to painted commands and both CPU/GPU routes obtain values through the shared raster-resolution derivation. The PDF-level gray and alpha tests assert fractional effects from explicitly defined resources; the CPU test checks interpolation. Their differing alpha/color inputs distinguish the two sources rather than merely seeing an opaque mask.",
+    "test_command": null,
+    "test_result": "Existing selected pdf-model and render-cpu tests PASS in broad20; pdf-render unit tests inspected, not newly run. New Alpha/TR integration1PASS; pdf-model all-target ClippyPASS.",
+    "parent_review": "Accepted selected derivation evidence; source physical429–430 and current code/assertion bodies reviewed. No whole-group-kind or GPU equivalence claim.",
+    "reviewer": "soft_mask_derivation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-test",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "11.5.2",
+    "feature_id": "alpha-is-group-alpha-with-backdrop-factored-out",
+    "requirement": "The group is evaluated with its backdrop factored out; the alpha, not group colour, is the derived mask value. Empty group shape and alpha are zero.",
+    "source_location": "ISO 32000-2:2020 §11.5.2, printed p.414 / physical p.429, both normative paragraphs and Notes 1–2",
+    "errata": "No substantive correction to §11.5.2 identified in EC3 annotations; annotations on physical p.433 are links to clauses, not edits.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/transparency/soft_mask.rs::mask_run_in",
+      "crates/pdf-render/src/soft_mask.rs::SoftMask::paired_value"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/soft_masks.rs::an_alpha_mask_reads_the_groups_alpha_and_ignores_its_colour",
+      "crates/pdf-render/src/soft_mask.rs::an_alpha_mask_reads_the_alpha_and_ignores_the_colour"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The model runs mask-group commands in an independent transparent surface. Renderer selects pixel alpha for Alpha and applies transfer after derivation. PDF test gives same black color different /ca values, has irrelevant /BC [1], asserts 191/64 and zero outside; this independently rejects using color or BC as the alpha derivation. Core unit test covers zero-alpha behavior. The required `/G`/resources are present in the fixture.",
+    "test_command": null,
+    "test_result": "Existing selected pdf-model and render-cpu tests PASS in broad20; pdf-render unit tests inspected, not newly run. New Alpha/TR integration1PASS; pdf-model all-target ClippyPASS.",
+    "parent_review": "Accepted selected derivation evidence; source physical429–430 and current code/assertion bodies reviewed. No whole-group-kind or GPU equivalence claim.",
+    "reviewer": "soft_mask_derivation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-test",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "11.5.2",
+    "feature_id": "alpha-transfer-function-after-derivation",
+    "requirement": "The alpha-derived value is passed through the separately specified transfer function.",
+    "source_location": "ISO 32000-2:2020 §11.5.2, printed p.414 / physical p.429; PDF-level `/TR` mechanics are specified in §11.6.5.1",
+    "errata": "No substantive §11.5.2 correction identified; do not conflate this with §11.6.5.1’s definition and sampling/clamping requirements.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/soft_mask.rs::read",
+      "crates/pdf-render/src/soft_mask.rs::SoftMask::paired_value",
+      "crates/pdf-render/src/soft_mask.rs::Transfer::apply"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/soft_masks.rs::a_transfer_function_maps_every_mask_value_including_the_one_outside_the_box",
+      "crates/pdf-render/src/soft_mask.rs::the_transfer_function_maps_the_derived_value",
+      "crates/pdf-model/tests/soft_mask_derivation_audit.rs::a_pdf_alpha_soft_mask_applies_transfer_to_group_alpha_and_to_zero_outside"
+    ],
+    "verdict": "confirmed-with-new-complete-pdf-test",
+    "evidence": "Complete PDF1.7 uses valid resources, exact xref, Alpha mask with .25/.75 alpha and inversion TR. All RGB channels assert64/191 within1 on opaque white; outsideBBox asserts0 because TR(0)=1. Black group colors and irrelevant BC1 distinguish alpha from luminosity. Complete interpretation and source no-recovery controls pass. New test closes selected parser-to-render combination; not all function kinds/backends.",
+    "test_command": null,
+    "test_result": "Existing selected pdf-model and render-cpu tests PASS in broad20; pdf-render unit tests inspected, not newly run. New Alpha/TR integration1PASS; pdf-model all-target ClippyPASS.",
+    "parent_review": "Accepted selected derivation evidence; source physical429–430 and current code/assertion bodies reviewed. No whole-group-kind or GPU equivalence claim.",
+    "reviewer": "soft_mask_derivation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-test",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-with-new-complete-pdf-test",
+    "superseded": false
+  },
+  {
+    "clause": "11.5.3",
+    "feature_id": "luminosity-of-opaque-backdrop-composite",
+    "requirement": "Luminosity derivation composites the group onto a fully opaque specified-colour backdrop, then uses the resulting colour’s luminosity; group isolation and knockout variants are permitted.",
+    "source_location": "ISO 32000-2:2020 §11.5.3, printed pp.414–415 / physical pp.429–430",
+    "errata": "No normative §11.5.3 amendment found in EC3 annotations. The owner-ratified §11.5.3 colorimetric-branch departure is a policy decision, not EC3 errata.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/soft_mask.rs::luminosity",
+      "crates/pdf-model/src/content/transparency/soft_mask.rs::enter_mask_compositing",
+      "crates/pdf-render/src/soft_mask.rs::SoftMask::paired_value"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/soft_masks.rs::a_luminosity_mask_takes_the_groups_grey_and_the_backdrops_outside_it",
+      "crates/pdf-model/tests/soft_masks.rs::a_cmyk_mask_group_takes_its_luminosity_from_the_clauses_own_formula",
+      "crates/pdf-model/tests/transparency_groups.rs::a_calibrated_mask_group_takes_its_composited_component_as_the_grey",
+      "crates/pdf-model/tests/transparency_groups.rs::a_cal_rgb_mask_group_weighs_its_composited_components_by_the_device_branch"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The renderer interpolates the transparent group pixel over opaque BC before deriving gray/luminosity; model resolves BC and evaluates the group under its declared compositing space. Device-gray PDF controls assert group levels and outside-Box BC; other PDF tests assert RGB/CMYK formulas and the selected device branch. CIE colorimetric Y is expressly not executed under owner answer A23/Q23 and ADR-2552; do not count those device-branch expected values as conformance to the omitted CIE branch.",
+    "test_command": null,
+    "test_result": "Existing selected pdf-model and render-cpu tests PASS in broad20; pdf-render unit tests inspected, not newly run. New Alpha/TR integration1PASS; pdf-model all-target ClippyPASS.",
+    "parent_review": "Accepted selected derivation evidence; source physical429–430 and current code/assertion bodies reviewed. No whole-group-kind or GPU equivalence claim.",
+    "reviewer": "soft_mask_derivation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-test",
+    "reviewer_ledger_status": "departed (colorimetric CIE branch only); remaining derivation implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "11.5.3",
+    "feature_id": "luminosity-transfer-after-derivation",
+    "requirement": "The luminosity-derived mask value is passed through a separate transfer function.",
+    "source_location": "ISO 32000-2:2020 §11.5.3, printed p.415 / physical p.430; `/TR` mechanics also §11.6.5.1",
+    "errata": "No substantive §11.5.3 correction found in EC3 annotations.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/soft_mask.rs::derivation",
+      "crates/pdf-render/src/soft_mask.rs::Transfer::apply"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/soft_masks.rs::a_transfer_function_maps_every_mask_value_including_the_one_outside_the_box",
+      "crates/pdf-render/src/soft_mask.rs::the_transfer_function_maps_the_derived_value"
+    ],
+    "verdict": "confirmed",
+    "evidence": "PDF integration uses a Type 2 inversion function and asserts transformed painted values and the outside-Box value independently. The existing input is DeviceGray, where the owner-ratified choice does not change the expected value.",
+    "test_command": null,
+    "test_result": "Existing selected pdf-model and render-cpu tests PASS in broad20; pdf-render unit tests inspected, not newly run. New Alpha/TR integration1PASS; pdf-model all-target ClippyPASS.",
+    "parent_review": "Accepted selected derivation evidence; source physical429–430 and current code/assertion bodies reviewed. No whole-group-kind or GPU equivalence claim.",
+    "reviewer": "soft_mask_derivation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-test",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "11.5.3",
+    "feature_id": "cie-colorimetric-luminosity-branch",
+    "requirement": "For a CIE-based group colour space, convert resulting colour to CIE 1931 XYZ and use Y; for device spaces use an implementation-defined DeviceGray conversion without gamma/calibration compensation. The note gives device RGB and CMYK examples.",
+    "source_location": "ISO 32000-2:2020 §11.5.3, printed p.415 / physical p.430, bullets and Example 2",
+    "errata": "No EC3 edit identified. Owner answer A23 to Q23 chooses common device behavior for every space; this is a ratified departure, recorded by ADR-2552 and the ledger.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/soft_mask.rs::luminosity_departure",
+      "crates/pdf-render/src/soft_mask.rs::SoftMask::paired_value",
+      "crates/pdf-colour/src/colour.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_calibrated_mask_group_takes_its_composited_component_as_the_grey",
+      "crates/pdf-model/tests/transparency_groups.rs::a_table_profile_mask_group_weighs_its_composited_components_by_the_device_branch",
+      "crates/pdf-model/tests/transparency_groups.rs::a_cal_rgb_mask_group_weighs_its_composited_components_by_the_device_branch"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Tests explicitly expect DeviceGray/RGB formula values for CIE CalGray, ICC/table-profile, and CalRGB group spaces, and complete interpretation reports use of the selected device branch. They verify implementation of the ratified departure, not the normative CIE Y branch. The original normative branch remains in conversion code but has no drawing caller under the decision.",
+    "test_command": null,
+    "test_result": "Existing selected pdf-model and render-cpu tests PASS in broad20; pdf-render unit tests inspected, not newly run. New Alpha/TR integration1PASS; pdf-model all-target ClippyPASS.",
+    "parent_review": "Accepted selected derivation evidence; source physical429–430 and current code/assertion bodies reviewed. No whole-group-kind or GPU equivalence claim.",
+    "reviewer": "soft_mask_derivation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-test",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "confirmed",
     "superseded": false
   },
   {

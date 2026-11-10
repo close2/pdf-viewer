@@ -1098,5 +1098,15 @@
     "skipped": 53,
     "exit": 100,
     "comparison": "Exact manifest match after excluding 3 GTK supplemental assertions. Nextest reported67.125s; wrapper wall time included an external pause."
+  },
+  "soft_mask_derivation": {
+    "log": "soft-mask-derivation-target.log",
+    "passed": 1,
+    "expected_failed": 0,
+    "exit": 0
+  },
+  "soft_mask_derivation_clippy": {
+    "log": "clippy-soft-mask-derivation.log",
+    "exit": 0
   }
 }

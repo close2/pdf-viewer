@@ -358,14 +358,14 @@
   },
   {
     "path": "doc/adr/0027-soft-masks-in-the-graphics-state.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "soft_mask_derivation_audit/decisions.json",
         "decision_id": "soft-mask-commands-retained-until-device-resolution-and-shared-mask-value-derivation",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2144,9 +2144,18 @@
   },
   {
     "path": "doc/adr/0203-four-components-stay-four-whichever-transform-spells-them.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "dct_decode_audit/decisions.json",
+        "decision_id": "ADR 0203",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0204-a-transfer-function-is-not-a-marking-devices.md",
@@ -2733,9 +2742,18 @@
   },
   {
     "path": "doc/adr/0266-a-marker-read-as-a-count-and-a-stream-that-says-it-is-empty.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "dct_decode_audit/decisions.json",
+        "decision_id": "ADR 0266",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0267-a-substituted-serif-costs-nothing-and-a-substituted-sans-costs-one-number.md",
@@ -3386,9 +3404,18 @@
   },
   {
     "path": "doc/adr/0340-the-row-a-photograph-was-refused-for.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "dct_decode_audit/decisions.json",
+        "decision_id": "ADR 0340",
+        "conclusion": "retain-as-reader-robustness-choice",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0341-the-token-that-borrowed-its-bytes.md",
@@ -5994,9 +6021,18 @@
   },
   {
     "path": "doc/adr/0799-a-jpegs-number-of-lines-is-read-from-both-places-the-encoded-data-states-it.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "dct_decode_audit/decisions.json",
+        "decision_id": "ADR 0799",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0800-the-transform-seam-and-its-first-three-verbs.md",
@@ -8454,9 +8490,18 @@
   },
   {
     "path": "doc/adr/1177-a-departure-whose-witness-writes-the-name-somewhere-else.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "dct_decode_audit/decisions.json",
+        "decision_id": "ADR 1177",
+        "conclusion": "superseded-by-ADR-1183-and-ADR-2468",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1178-what-the-special-overprinting-mode-actually-reaches.md",
@@ -8532,9 +8577,18 @@
   },
   {
     "path": "doc/adr/1183-table-13s-entry-is-read-and-one-reading-stays-a-departure.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "dct_decode_audit/decisions.json",
+        "decision_id": "ADR 1183",
+        "conclusion": "ranking-retained-default-departure-superseded-by-ADR-2468",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1184-who-the-jpx-baseline-restriction-binds.md",
@@ -13657,9 +13711,18 @@
   },
   {
     "path": "doc/adr/2138-the-dct-encoder-is-mozjpeg-rs-in-the-decoders-confined-worker.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "dct_decode_audit/decisions.json",
+        "decision_id": "ADR 2138",
+        "conclusion": "retain-as-project-writer-choice",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2139-optimize-images-and-render-jpeg-are-asked-for-by-name-and-keep-what-fails-to-shrink.md",
@@ -15451,9 +15514,18 @@
   },
   {
     "path": "doc/adr/2468-table-13-s-default-of-1-governs-a-three-component-frame-whatever-its-identifiers-spell.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "dct_decode_audit/decisions.json",
+        "decision_id": "ADR 2468",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2470-a-redacted-jpeg-2000-component-deeper-than-sixteen-bits-is-written-back-by-a-lossless-writer-of-the-tree-s-own.md",
@@ -15962,14 +16034,14 @@
   },
   {
     "path": "doc/adr/2552-a-mask-groups-luminosity-takes-the-device-branch-in-every-space-as-the-owner-chose.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "soft_mask_derivation_audit/decisions.json",
         "decision_id": "owner-ratified-colorimetric-CIE-luminosity-departure",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
