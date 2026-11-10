@@ -2,20 +2,20 @@
   "warning": "Records can overlap or cross-reference prior reviews. Selected units do not establish that every decision in an ADR was reviewed; no whole document is marked complete.",
   "adr_documents": 2233,
   "document_states": {
-    "pending": 2065,
-    "selected-decision-units-reviewed": 143,
-    "review-in-progress": 25
+    "pending": 2062,
+    "selected-decision-units-reviewed": 145,
+    "review-in-progress": 26
   },
-  "decision_review_records": 256,
-  "parent_accepted_records": 239,
-  "cross_reference_records": 20,
+  "decision_review_records": 260,
+  "parent_accepted_records": 242,
+  "cross_reference_records": 21,
   "accepted_record_conclusions": {
     "retain-with-qualification": 120,
     "revisit": 14,
-    "retain": 62,
+    "retain": 64,
     "superseded": 11,
     "superseded-in-part": 1,
-    "cross-reference-only": 20,
+    "cross-reference-only": 21,
     "revisit-policy-consistency": 1,
     "retain-Panose-choice; superseded-FD-deferral": 1,
     "retain-with-Table-123-matrix-coverage-qualification": 1,

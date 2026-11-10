@@ -1001,3 +1001,22 @@ These are product-policy assertions around Table167's restriction, not a claim t
 to Off. The selected ADR0304/0814/1144 decisions remain supported. ADR0304 originally concerned
 FreeText; this Text/SetNoteText test exercises their shared restriction boundary and does not
 recertify appearance regeneration or saved output. The test is additional to wave12 totals.
+
+
+## Common annotation dictionary evidence
+
+A complete PDF1.7 regression now proves that the same NM string on two different pages resolves
+to two distinct annotation objects, with an absent-name control. The target passes. This supports
+page-local lookup; it does not certify producer uniqueness within a page or the separate rule that
+one annotation dictionary belongs to only one page's Annots array.
+
+The Table166 review keeps indirect P references, FDF exclusion, Border array structure and
+producer constraints visible as inventory duties. Existing malformed-date assertions prove that
+the popup model retains the exact string; they do not replay every native host. The cited date-save
+tests can return early when corpus files are absent. Annotation language assertions do discriminate
+annotation, structure and document values at the public accessibility boundary.
+
+Parent review rejected a claimed combined OC/flag test: the cited configuration-audit target has
+no annotation fixture. An older annotation test varies only group visibility with F4 fixed.
+Combined gating is a focused follow-up. A draft's unrelated ADR0444 attribution was removed;
+selected ADR0209 and ADR1160 decisions were checked against their actual text.

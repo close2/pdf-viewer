@@ -1797,14 +1797,14 @@
   },
   {
     "path": "doc/adr/0209-a-fragment-is-eleven-shalls-in-a-grammar-the-annex-never-states.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "annotation_dictionary_audit/decisions.json",
         "decision_id": "annotation_nm_lookup_is_page_scoped",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       }
@@ -2651,9 +2651,9 @@
       {
         "source": "annotation_dictionary_audit/decisions.json",
         "decision_id": "annotation_struct_parent_requires_its_own_tree_route",
-        "conclusion": "retain",
-        "parent_accepted": false,
-        "review_type": "cross-reference-only",
+        "conclusion": "cross-reference-only",
+        "parent_accepted": true,
+        "review_type": "cross_reference_only",
         "duplicates_decision": null
       }
     ]
@@ -3513,9 +3513,18 @@
   },
   {
     "path": "doc/adr/0442-the-column-the-third-host-could-not-hold.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "reprojection_adr_audit/decisions.json",
+        "decision_id": "0442-exact-composition-comparison",
+        "conclusion": "superseded",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0443-the-page-a-window-had-no-pixels-for.md",
@@ -3525,9 +3534,26 @@
   },
   {
     "path": "doc/adr/0444-the-half-pixel-a-comparison-could-not-see-past.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "reprojection_adr_audit/decisions.json",
+        "decision_id": "0444-1-half-device-pixel-agreement-bound",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "reprojection_adr_audit/decisions.json",
+        "decision_id": "0444-1-maximum-affine-disagreement-at-raster-corners",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0445-the-pages-a-question-could-not-see.md",
@@ -4372,9 +4398,18 @@
   },
   {
     "path": "doc/adr/0657-the-frame-nobody-will-look-at.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "reprojection_adr_audit/decisions.json",
+        "decision_id": "0657-interrupt-only-frames-that-cannot-stand-in",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0660-the-quotation-that-hid-by-being-wrong.md",
@@ -7206,14 +7241,14 @@
   },
   {
     "path": "doc/adr/1160-what-time-it-is-is-an-input-a-host-supplies.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "annotation_dictionary_audit/decisions.json",
         "decision_id": "annotation_modified_time_is_host_time",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       }

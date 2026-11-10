@@ -3189,6 +3189,408 @@
     "superseded": false
   },
   {
+    "feature_id": "table166_type_optional",
+    "clause": "12.5.2",
+    "entry_kind": "direct dictionary-shape constraint",
+    "requirement": "Type is optional; if present it shall be /Annot. This is a writer/structural validity requirement, not a reason to infer reader behavior for every dictionary.",
+    "source_location": "§12.5.2 Table 166 /Type",
+    "errata": "Effective Table 166 has no direct key-specific EC3 edit in this shard; see reader lead-in note below.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs",
+      "crates/pdf-model/src/structure.rs"
+    ],
+    "test_refs": [],
+    "verdict": "cross-reference-only",
+    "evidence": "Ledger includes selected annotation consumers, but no general reader assertion is identified that validates /Type on every annotation. Annotation membership is page Annots, not Type alone.",
+    "remaining": "Subtype-specific parser validation and writer conformance remain outside this shard.",
+    "test_command": null,
+    "test_result": "Selected existing targets ran in broadwave12; newly promoted NM target1pass annotation-dictionary-target.log. Corpus tests can early-return and are not certified by counts.",
+    "parent_review": "Parent read effective Table166, selected assertions and ADR0209/1160. Partial consumer review, with writer and forward-reference duties kept open.",
+    "reviewer": "annotation_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "cross-reference-only",
+    "superseded": false
+  },
+  {
+    "feature_id": "table166_subtype_required",
+    "clause": "12.5.2",
+    "entry_kind": "forward-reference",
+    "requirement": "/Subtype is required and names the annotation type; detailed values/handlers are in Table 171 and §12.5.6.",
+    "source_location": "§12.5.2 Table 166 /Subtype → §12.5.6",
+    "errata": "Effective Table 166 has no direct key-specific EC3 edit in this shard; see reader lead-in note below.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs"
+    ],
+    "verdict": "cross-reference-only",
+    "evidence": "The ledger and annotation tests exercise handled subtypes; this shard does not repeat subtype coverage.",
+    "remaining": "Complete subtype dispatch and unknown-type behavior are out of scope.",
+    "test_command": null,
+    "test_result": "Selected existing targets ran in broadwave12; newly promoted NM target1pass annotation-dictionary-target.log. Corpus tests can early-return and are not certified by counts.",
+    "parent_review": "Parent read effective Table166, selected assertions and ADR0209/1160. Partial consumer review, with writer and forward-reference duties kept open.",
+    "reviewer": "annotation_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "cross-reference-only",
+    "superseded": false
+  },
+  {
+    "feature_id": "table166_rect_required_and_page_location",
+    "clause": "12.5.2",
+    "entry_kind": "direct plus forward-reference",
+    "requirement": "/Rect is required and locates the annotation in default user space. The same rectangle feeds rendering and §14.7.5.3 structure placement; this shard does not re-audit either consumer.",
+    "source_location": "§12.5.2 Table 166 /Rect; §14.7.5.3",
+    "errata": "Effective Table 166 has no direct key-specific EC3 edit in this shard; see reader lead-in note below.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs",
+      "crates/pdf-model/src/structure.rs",
+      "crates/viewer-core/src/accessibility.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/structure/tests.rs::a_pages_annotations_state_where_they_are",
+      "crates/pdf-model/tests/annotations.rs"
+    ],
+    "verdict": "partial-cross-reference",
+    "evidence": "Existing rendering and structure placement consumers/tests are direct evidence for different uses; the structure test checks normalized coordinates and ignores an object not listed in page Annots.",
+    "remaining": "Annotation placement semantics and §12.5.5 transform details remain in their own shards.",
+    "test_command": null,
+    "test_result": "Selected existing targets ran in broadwave12; newly promoted NM target1pass annotation-dictionary-target.log. Corpus tests can early-return and are not certified by counts.",
+    "parent_review": "Parent read effective Table166, selected assertions and ADR0209/1160. Partial consumer review, with writer and forward-reference duties kept open.",
+    "reviewer": "annotation_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "partial-cross-reference",
+    "superseded": false
+  },
+  {
+    "feature_id": "table166_contents_text_or_alternate",
+    "clause": "12.5.2",
+    "entry_kind": "conditional direct/forward-reference",
+    "requirement": "Optional text is displayed when the annotation type displays text; otherwise it is an alternate human-readable description. Meaning is subtype-specific and also intersects §14.9.3 accessibility.",
+    "source_location": "§12.5.2 Table 166 /Contents; §12.5.6 and §14.9.3",
+    "errata": "Effective Table 166 has no direct key-specific EC3 edit in this shard; see reader lead-in note below.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/popup.rs",
+      "crates/pdf-model/src/appearance.rs",
+      "crates/pdf-model/src/attachment.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/popup.rs unit tests",
+      "crates/pdf-model/src/appearance.rs FreeText consumer"
+    ],
+    "verdict": "partial",
+    "evidence": "Popup, FreeText, and attachment routes consume Contents in different subtype contexts, but cited tests do not establish that every annotation exposes Contents, nor the alternate-description route for all types. No general obligation is inferred.",
+    "remaining": "Subtype-specific visible text and alternate descriptions remain delegated; no defect inferred from absent generic rendering.",
+    "test_command": null,
+    "test_result": "Selected existing targets ran in broadwave12; newly promoted NM target1pass annotation-dictionary-target.log. Corpus tests can early-return and are not certified by counts.",
+    "parent_review": "Parent read effective Table166, selected assertions and ADR0209/1160. Partial consumer review, with writer and forward-reference duties kept open.",
+    "reviewer": "annotation_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "feature_id": "table166_p_association",
+    "clause": "12.5.2",
+    "entry_kind": "conditional writer obligation / forward-reference",
+    "requirement": "Optional page reference generally; required for Screen annotations associated with rendition actions. §12.6.4.14 gives the specialized reader/action validation. P shall be an indirect reference; it is not used in FDF files.",
+    "source_location": "§12.5.2 Table 166 /P → §12.5.6.18, §12.6.4.14",
+    "errata": "Effective Table 166 has no direct key-specific EC3 edit in this shard; see reader lead-in note below.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/action.rs::Rendition::unplaced",
+      "crates/pdf-model/src/view/writing.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/actions.rs"
+    ],
+    "verdict": "partial-cross-reference",
+    "evidence": "Rendition::unplaced verifies the screen annotation /P resolves to a page and that the annotation occurs in that page /Annots; existing rendition tests exercise that conditional path. No generic /P mandate applies to ordinary annotations.",
+    "remaining": "Rendition-action semantics remain in §12.6.4.14 audit; writer-side page linking is separate. No producer-side required/indirect-key or FDF exclusion assertion reviewed.",
+    "test_command": null,
+    "test_result": "Selected existing targets ran in broadwave12; newly promoted NM target1pass annotation-dictionary-target.log. Corpus tests can early-return and are not certified by counts.",
+    "parent_review": "Parent read effective Table166, selected assertions and ADR0209/1160. Partial consumer review, with writer and forward-reference duties kept open.",
+    "reviewer": "annotation_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "partial-cross-reference",
+    "superseded": false
+  },
+  {
+    "feature_id": "table166_nm_page_local_name",
+    "clause": "12.5.2",
+    "entry_kind": "direct; Annex O consumer forward-reference",
+    "requirement": "Optional PDF 1.4 annotation name uniquely identifies an annotation among annotations on its page. Annex O comment and embedded go-to name lookup consume it after page selection; uniqueness is page-local, not document-wide.",
+    "source_location": "§12.5.2 Table 166 /NM; Annex O.2.1; §12.6.4.4",
+    "errata": "Effective Table 166 has no direct key-specific EC3 edit in this shard; see reader lead-in note below.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/fragment.rs::annotation_named",
+      "crates/pdf-model/src/action.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/fragments.rs::a_comment_is_looked_for_on_the_page_chosen_before_it",
+      "crates/pdf-model/tests/annotation_dictionary_audit.rs::the_same_nm_names_distinct_annotations_on_distinct_pages"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "The actual fragment test verifies parameter order: a selected page scopes the NM lookup, while looking on page one yields no focus. Current lookup walks only that page Annots and compares decoded text. Existing test depends on corpus PDF and does not explicitly prove equal NM strings on distinct pages are independently addressable. New complete PDF1.7 fixture with same NM on two distinct pages returns each own annotation object and absent-name None; exactxref/noRecovery. Pass.",
+    "remaining": "Writer uniqueness within one page is inventoried, not certified; AnnexO parsing/focus separate.",
+    "test_command": null,
+    "test_result": "Selected existing targets ran in broadwave12; newly promoted NM target1pass annotation-dictionary-target.log. Corpus tests can early-return and are not certified by counts.",
+    "parent_review": "Parent read effective Table166, selected assertions and ADR0209/1160. Partial consumer review, with writer and forward-reference duties kept open.",
+    "reviewer": "annotation_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "feature_id": "table166_m_any_string_display",
+    "clause": "12.5.2",
+    "entry_kind": "direct",
+    "requirement": "Optional last-modified date/time. Interactive processors shall accept and display a string in any format; date parsing is not a precondition for displaying it. Format SHOULD follow date grammar; arbitrary-string acceptance does not relax producer recommendation.",
+    "source_location": "§12.5.2 Table 166 /M",
+    "errata": "Effective Table 166 has no direct key-specific EC3 edit in this shard; see reader lead-in note below.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/popup.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/popup.rs::a_date_in_no_format_at_all_is_still_shown",
+      "crates/pdf-model/tests/saving.rs::an_annotation_a_person_added_carries_the_date_a_host_stated",
+      "crates/pdf-model/tests/saving.rs::a_host_that_says_nothing_writes_no_modification_date"
+    ],
+    "verdict": "confirmed-model-display-value; host-display-not-replayed",
+    "evidence": "The unit test asserts the literal malformed-format string remains visible while parsed date is None; writer tests separately cover stated and absent host time. Root read exact last Tuesday string and parsedNone assertions; this proves popup model data, not each native host drawing it. Both cited saving consumers can early-return without corpus.",
+    "remaining": "Native host display and complete writer mutation-path coverage remain separate.",
+    "test_command": null,
+    "test_result": "Selected existing targets ran in broadwave12; newly promoted NM target1pass annotation-dictionary-target.log. Corpus tests can early-return and are not certified by counts.",
+    "parent_review": "Parent read effective Table166, selected assertions and ADR0209/1160. Partial consumer review, with writer and forward-reference duties kept open.",
+    "reviewer": "annotation_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "confirmed-model-display-value; host-display-not-replayed",
+    "superseded": false
+  },
+  {
+    "feature_id": "table166_f_default_flags",
+    "clause": "12.5.2",
+    "entry_kind": "forward-reference",
+    "requirement": "Optional integer flags default to 0; meanings and visibility/interactivity are Table 167 / §12.5.3.",
+    "source_location": "§12.5.2 Table 166 /F → §12.5.3",
+    "errata": "Effective Table 166 has no direct key-specific EC3 edit in this shard; see reader lead-in note below.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs",
+      "crates/pdf-model/src/view/settings.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotation_flags_audit.rs"
+    ],
+    "verdict": "partial-cross-reference",
+    "evidence": "Separate accepted flag audit covers selected consumers; F default is implemented by absent integer unwrap_or_default. This record does not independently compare absent F to explicit0.",
+    "remaining": "Full Table 167 coverage remains outside this shard.",
+    "test_command": null,
+    "test_result": "Selected existing targets ran in broadwave12; newly promoted NM target1pass annotation-dictionary-target.log. Corpus tests can early-return and are not certified by counts.",
+    "parent_review": "Parent read effective Table166, selected assertions and ADR0209/1160. Partial consumer review, with writer and forward-reference duties kept open.",
+    "reviewer": "annotation_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "partial-cross-reference",
+    "superseded": false
+  },
+  {
+    "feature_id": "table166_border_fallback",
+    "clause": "12.5.2",
+    "entry_kind": "conditional forward-reference",
+    "requirement": "Optional rounded-rectangle border array; default [0 0 1]. If BS is present, Border is ignored; EC3 #287 strengthens this to shall be ignored. Border implementation and cloud behavior are separately audited. Array has horizontal radius, vertical radius, width, and optional fourth dash array with phase0. Without a fourth entry the border is solid.",
+    "source_location": "§12.5.2 Table 166 /Border; §12.5.4; EC3 #287",
+    "errata": "EC3#287 strengthens BS precedence to shall be ignored; remaining effective entries as base.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotation_border_audit.rs",
+      "crates/pdf-model/tests/cloudy_border_audit.rs"
+    ],
+    "verdict": "partial-cross-reference",
+    "evidence": "Existing border shard directly compares Border/BS and cloud styling. This shard does not repeat its raster tests.",
+    "remaining": "Accepted border audit is partial; default array/radius/phase and every subtype are not recertified.",
+    "test_command": null,
+    "test_result": "Selected existing targets ran in broadwave12; newly promoted NM target1pass annotation-dictionary-target.log. Corpus tests can early-return and are not certified by counts.",
+    "parent_review": "Parent read effective Table166, selected assertions and ADR0209/1160. Partial consumer review, with writer and forward-reference duties kept open.",
+    "reviewer": "annotation_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "partial-cross-reference",
+    "superseded": false
+  },
+  {
+    "feature_id": "table166_c_subtype_colors",
+    "clause": "12.5.2",
+    "entry_kind": "conditional forward-reference",
+    "requirement": "Optional 0–1 component color arrays: closed icon background, popup title bar, or Link border; component count chooses no color/Gray/RGB/CMYK. These are subtype-specific visual uses.",
+    "source_location": "§12.5.2 Table 166 /C; §12.5.4 and relevant subtype clauses",
+    "errata": "Effective Table 166 has no direct key-specific EC3 edit in this shard; see reader lead-in note below.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs",
+      "crates/pdf-model/src/popup.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs"
+    ],
+    "verdict": "partial",
+    "evidence": "Code routes color through popup/icon/link handling; cited general annotation tests do not separately discriminate all three purposes or all component counts. Since AP may govern visible appearance, do not assert generic C rendering.",
+    "remaining": "Each subtype/purpose and color-space path remains delegated; no defect inferred.",
+    "test_command": null,
+    "test_result": "Selected existing targets ran in broadwave12; newly promoted NM target1pass annotation-dictionary-target.log. Corpus tests can early-return and are not certified by counts.",
+    "parent_review": "Parent read effective Table166, selected assertions and ADR0209/1160. Partial consumer review, with writer and forward-reference duties kept open.",
+    "reviewer": "annotation_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "feature_id": "table166_structparent_conditional",
+    "clause": "12.5.2",
+    "entry_kind": "conditional forward-reference",
+    "requirement": "Required if the annotation is a structural content item; integer key links the annotation object to its structure-tree parent via §14.7.5.4.",
+    "source_location": "§12.5.2 Table 166 /StructParent → §14.7.5.4",
+    "errata": "Effective Table 166 has no direct key-specific EC3 edit in this shard; see reader lead-in note below.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/structure.rs",
+      "crates/pdf-model/src/structure/owners.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/structure/tests.rs"
+    ],
+    "verdict": "partial-cross-reference",
+    "evidence": "Structure-tree implementation and existing tests resolve annotation object references using structural parent mapping. Requirement is conditional, not mandatory for every annotation.",
+    "remaining": "Full tagged-PDF ownership/tree semantics remain under §14.7 audit.",
+    "test_command": null,
+    "test_result": "Selected existing targets ran in broadwave12; newly promoted NM target1pass annotation-dictionary-target.log. Corpus tests can early-return and are not certified by counts.",
+    "parent_review": "Parent read effective Table166, selected assertions and ADR0209/1160. Partial consumer review, with writer and forward-reference duties kept open.",
+    "reviewer": "annotation_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "partial-cross-reference",
+    "superseded": false
+  },
+  {
+    "feature_id": "table166_oc_visibility_with_flags",
+    "clause": "12.5.2",
+    "entry_kind": "conditional forward-reference",
+    "requirement": "Optional OCG or OCMD. Before drawing, visibility shall be determined from OC together with F; invisible annotations shall not be drawn. §8.11.3.3 defines evaluation.",
+    "source_location": "§12.5.2 Table 166 /OC → §8.11.3.3, §12.5.3",
+    "errata": "Effective Table 166 has no direct key-specific EC3 edit in this shard; see reader lead-in note below.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs",
+      "crates/pdf-model/src/optional_content.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/optional_content.rs::an_annotation_carrying_oc_is_not_drawn_when_its_group_is_off"
+    ],
+    "verdict": "partial-assertion-gap",
+    "evidence": "Parent rejects draft claim that optional_content_config_audit exercises annotations; it contains no annotation fixture. Existing optional_content.rs test holds F4 constant and tests group off/on. It does not discriminate combined flag+OC gating; focused follow-up delegated.",
+    "remaining": "Full OC/OCMD semantics and Table 167 are delegated.",
+    "test_command": null,
+    "test_result": "Selected existing targets ran in broadwave12; newly promoted NM target1pass annotation-dictionary-target.log. Corpus tests can early-return and are not certified by counts.",
+    "parent_review": "Parent read effective Table166, selected assertions and ADR0209/1160. Partial consumer review, with writer and forward-reference duties kept open.",
+    "reviewer": "annotation_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "partial-assertion-gap",
+    "superseded": false
+  },
+  {
+    "feature_id": "table166_af_associated_files",
+    "clause": "12.5.2",
+    "entry_kind": "conditional forward-reference",
+    "requirement": "Optional in PDF 2.0: one or more file specification dictionaries associated with the annotation; §14.13.9 defines handling.",
+    "source_location": "§12.5.2 Table 166 /AF → §14.13.9",
+    "errata": "Effective Table 166 has no direct key-specific EC3 edit in this shard; see reader lead-in note below.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/attachment.rs",
+      "crates/viewer-core/src/viewer/pointer.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/headless.rs::a_click_on_an_annotation_produces_the_files_it_associates",
+      "crates/pdf-model/tests/associated_file_examples_audit.rs"
+    ],
+    "verdict": "partial-cross-reference",
+    "evidence": "Cross-reference accepted associated-files audit and its promoted assertions; no new certification of associated-file semantics here.",
+    "remaining": "No duplication of §14.13.9 file-spec semantics.",
+    "test_command": null,
+    "test_result": "Selected existing targets ran in broadwave12; newly promoted NM target1pass annotation-dictionary-target.log. Corpus tests can early-return and are not certified by counts.",
+    "parent_review": "Parent read effective Table166, selected assertions and ADR0209/1160. Partial consumer review, with writer and forward-reference duties kept open.",
+    "reviewer": "annotation_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "partial-cross-reference",
+    "superseded": false
+  },
+  {
+    "feature_id": "table166_lang_annotation_override",
+    "clause": "12.5.2",
+    "entry_kind": "conditional direct / forward-reference",
+    "requirement": "Optional PDF 2.0 language identifier overrides document language for all annotation text except explicit local language specifications; §14.9 governs language identifiers.",
+    "source_location": "§12.5.2 Table 166 /Lang → §14.9",
+    "errata": "Effective Table 166 has no direct key-specific EC3 edit in this shard; see reader lead-in note below.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/structure.rs::annotation_languages",
+      "crates/viewer-core/src/accessibility.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/structure/tests.rs::a_pages_annotations_state_what_language_they_are_in",
+      "crates/viewer-core/tests/headless.rs::an_annotations_own_language_is_what_its_element_speaks"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "Model test distinguishes stated, empty, absent, malformed and unlisted annotation values; public accessibility test asserts an annotation own language is spoken over document/structure alternatives. Language-tree hierarchy beyond this carrier remains §14.9. Root read exact es-MX vs en-GB/en-US consumer controls and model stated/empty/absent/malformed/unlisted values. Local text-language mechanisms remain separate.",
+    "remaining": "No further selected requirement; malformed annotation tags have no Table 29 catalog fallback inference here.",
+    "test_command": null,
+    "test_result": "Selected existing targets ran in broadwave12; newly promoted NM target1pass annotation-dictionary-target.log. Corpus tests can early-return and are not certified by counts.",
+    "parent_review": "Parent read effective Table166, selected assertions and ADR0209/1160. Partial consumer review, with writer and forward-reference duties kept open.",
+    "reviewer": "annotation_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.2",
+    "feature_id": "annotation_dictionary_single_page_membership",
+    "requirement": "An annotation dictionary shall be referenced only by one page Annots array. Subsidiary objects such as appearance streams may be shared.",
+    "source_location": "12.5.2 introduction beforeTable166, physical482/printed467",
+    "verdict": "inventoried-producer-constraint",
+    "evidence": "Source duty distinct from NM page-local lookup. No serialization validation or ownership rejection assertion accepted in this shard.",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs"
+    ],
+    "test_refs": [],
+    "remaining": "Verify every writer route and shared-subsidiary preservation separately.",
+    "reviewer": "annotation_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
+    "reviewer_ledger_status": null,
+    "ledger_status": "departed",
+    "reviewer_verdict": "inventoried-producer-constraint",
+    "superseded": false
+  },
+  {
     "clause": "12.5.3",
     "feature_id": "f-is-integer-low-bit-first-reserved-zero",
     "requirement": "The annotation F value is an integer bit field; bit positions are numbered low-to-high starting at 1, and producers shall set every other bit to zero. This is a producer constraint; it does not by itself prescribe recovery for a reader that sees reserved bits.",

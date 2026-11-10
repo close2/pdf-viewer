@@ -630,5 +630,15 @@
   "clippy_annotation_lock_policy": {
     "log": "clippy-annotation-lock-policy-final.log",
     "exit": 0
+  },
+  "annotation_dictionary": {
+    "log": "annotation-dictionary-target.log",
+    "passed": 1,
+    "exit": 0
+  },
+  "annotation_dictionary_clippy": {
+    "log": "clippy-dictionary-followup-final.log",
+    "exit": 0,
+    "initial": "Unused expect_used lint expectation removed after initial denied-warning failure."
   }
 }

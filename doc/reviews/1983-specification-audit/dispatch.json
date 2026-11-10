@@ -726,7 +726,7 @@
       "clauses": [
         "12.5.2 remaining entries"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-page-local-name-test"
     },
     {
       "agent": "annotation_lock_policy_audit",

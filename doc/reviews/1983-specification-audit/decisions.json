@@ -1049,6 +1049,69 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/0209-a-fragment-is-eleven-shalls-in-a-grammar-the-annex-never-states.md",
+    "decision_id": "annotation_nm_lookup_is_page_scoped",
+    "original_decision": "Resolve Annex O comment by exact /NM on the page previously chosen; do not assume /NM unique across the document.",
+    "current_conclusion": "retain",
+    "reason": "Table 166 says NM uniquely identifies an annotation among annotations on its page; Annex O.2.1 likewise says not guaranteed document-wide. The reader takes a page argument and searches only its Annots array.",
+    "current_code_evidence": "crates/pdf-model/src/fragment.rs::annotation_named filters page Annots then compares decoded NM text.",
+    "test_evidence": "viewer-core/tests/fragments.rs::a_comment_is_looked_for_on_the_page_chosen_before_it verifies parameter-order page scoping and no-focus control, using corpus PDF; synthetic same-NM-on-two-pages test is drafted. Promoted NM same-name two-page regression passes with missing-name negative.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 Table 166 /NM",
+      "ISO 32000-2 Annex O.2.1 comment parameter"
+    ],
+    "changed_premise": "No material change; current consumer remains page-scoped.",
+    "remaining_work": "Broader AnnexO is separate.",
+    "review_type": "reviewed_decision_unit",
+    "parent_review": "Selected decision units only; no whole ADR certification.",
+    "reviewer": "annotation_dictionary_audit",
+    "source": "annotation_dictionary_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0325-the-page-that-answered-with-silence.md",
+    "decision_id": "annotation_struct_parent_requires_its_own_tree_route",
+    "original_decision": "An annotation structural content item is resolved through its own StructParent key; page parent-tree entries do not substitute for it.",
+    "current_conclusion": "cross-reference-only",
+    "reason": "Table 166 makes StructParent conditional on annotation being a structural content item, and §14.7.5.4 supplies that key route. Current owner/tree implementation preserves this distinction.",
+    "current_code_evidence": "crates/pdf-model/src/structure/owners.rs and structure.rs resolve annotation object ownership via the annotation key.",
+    "test_evidence": "Existing structure tests exercise annotation ownership; this shard does not add tagged-PDF tests.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 Table 166 /StructParent",
+      "ISO 32000-2 §14.7.5.4"
+    ],
+    "changed_premise": "No material change identified in selected route.",
+    "remaining_work": "Full structure-tree semantics remain delegated.",
+    "review_type": "cross_reference_only",
+    "parent_review": "Selected decision units only; no whole ADR certification.",
+    "reviewer": "annotation_dictionary_audit",
+    "source": "annotation_dictionary_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1160-what-time-it-is-is-an-input-a-host-supplies.md",
+    "decision_id": "annotation_modified_time_is_host_time",
+    "original_decision": "Write annotation M only when host supplies modification time; preserve user-visible stated value and do not invent a clock value.",
+    "current_conclusion": "retain",
+    "reason": "Table 166 leaves M optional and requires interactive processors to accept/display arbitrary string formats. The reader’s exact-string display and writer’s host-stated timestamp policies remain consistent.",
+    "current_code_evidence": "popup::read preserves M text; saving path only adds time when state provides it.",
+    "test_evidence": "popup malformed-format test checks exact display; saving tests cover stated and absent time. Exact popup string asserted, but native host display not replayed; saving tests have corpus-dependent early returns.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 Table 166 /M",
+      "ISO 32000-2 §7.9.4"
+    ],
+    "changed_premise": "No material change identified; note this is annotation M and separate from document Info/XMP dates.",
+    "remaining_work": "Complete save-path/host rendering coverage remains open.",
+    "review_type": "reviewed_decision_unit",
+    "parent_review": "Selected decision units only; no whole ADR certification.",
+    "reviewer": "annotation_dictionary_audit",
+    "source": "annotation_dictionary_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/0168-an-annotation-that-does-not-zoom.md",
     "decision_id": "0168-nozoom-norotate-user-space-adjustment",
     "original_decision": "Compose a scale/rotation compensation around Rect upper-left before page transform; keep Rect unchanged; NoZoom is view-dependent, NoRotate reads file /Rotate.",

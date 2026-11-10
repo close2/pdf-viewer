@@ -5457,15 +5457,18 @@
     ],
     "parent_reviewed_artifacts": [
       "annotation_appearance_audit",
+      "annotation_dictionary_audit",
       "annotation_flags_audit"
     ],
     "feature_record_verdicts": {
-      "confirmed": 1,
       "confirmed-as-informative-scope": 1,
-      "confirmed-selected-consumer": 1,
+      "confirmed-model-display-value; host-display-not-replayed": 1,
+      "confirmed-selected-consumer": 2,
       "cross-reference-only": 2,
-      "delegated-covered": 7,
-      "partial": 4
+      "inventoried-producer-constraint": 1,
+      "partial": 3,
+      "partial-assertion-gap": 1,
+      "partial-cross-reference": 6
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
