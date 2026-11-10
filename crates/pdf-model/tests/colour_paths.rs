@@ -1960,8 +1960,10 @@ fn centre_colour_in(bytes: Vec<u8>, simulate: bool) -> (u8, u8, u8) {
 /// > space to that CMYK should follow the method described in 10.4.2.3
 ///
 /// whose formula is cyan, magenta and yellow `0.0` and black `1.0 − gray`. So `0.5 g` draws
-/// exactly as `0 0 0 0.5 k` does on the press, in a file that is not PDF/A. On screen the
-/// sentence's condition does not hold, and the grey stays this reader's neutral grey (ADR 2758).
+/// exactly as `0 0 0 0.5 k` does on the press, in a file that is not PDF/A (ADR 2758). On screen
+/// the sentence's condition does not hold, and the screen previews the same press by the owner's
+/// choice of §14.11.5's optional `AToB` use, so there too the grey is the half-black ink (A810,
+/// ADR 2765).
 #[test]
 fn a_grey_is_the_presss_black_ink_on_the_simulated_press() {
     let mut hex = String::new();
@@ -1984,12 +1986,16 @@ fn a_grey_is_the_presss_black_ink_on_the_simulated_press() {
         centre_colour_in(page(black_ink), true),
         "§10.4.2.3's black 1 − gray on the simulated press"
     );
-    // The fixture discriminates: the press's half-black ink is not this reader's neutral grey.
-    let on_screen = centre_colour_in(page(grey), false);
-    assert_eq!(on_screen, (128, 128, 128), "on screen the grey is its own");
+    assert_eq!(
+        centre_colour_in(page(grey), false),
+        centre_colour_in(page(black_ink), false),
+        "and on screen, the press previewed through the intent's profile"
+    );
+    // The fixture discriminates: the press's half-black ink is not this reader's neutral grey,
+    // which `0.5 g` draws as (128, 128, 128) with no intent.
     assert!(
-        on_press.0.abs_diff(on_screen.0) > 20,
-        "half the black ink, {on_press:?}, is not the neutral grey {on_screen:?}"
+        on_press.0.abs_diff(128) > 20,
+        "half the black ink, {on_press:?}, is not the neutral grey"
     );
 
     // And it is still `DeviceGray` to §8.6.7: the nonzero overprint mode applies "only to

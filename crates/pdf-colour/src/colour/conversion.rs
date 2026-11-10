@@ -90,9 +90,9 @@ pub struct Conversion {
     spots: DeviceSpots,
     /// What `DeviceGray` means beside this page's output intent ([`GreyReading`]): carried for
     /// the output intent's own reason, because an image's, a shading's and a mesh's
-    /// `/DeviceGray` are parsed after the interpreter has handed the work over, and a PDF/A
-    /// page whose fills drew through the press's black while its images did not would be two
-    /// readings of one clause (ISO 19005-2 and -4 section 6.2.4.3, ADR 2712).
+    /// `/DeviceGray` are parsed after the interpreter has handed the work over, and a page under
+    /// a CMYK intent whose fills drew through the press's black while its images did not would
+    /// be two readings of one clause (§10.3.2, ADR 2765).
     grey: GreyReading,
 }
 

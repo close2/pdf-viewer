@@ -109,80 +109,41 @@ pub(crate) fn selected(document: &Document, page: Option<&Dictionary>) -> Option
     first_usable(document, &document.get_key(&catalog, "OutputIntents"))
 }
 
-/// What `DeviceGray` means on a page whose output intent in force is `selected`.
+/// What `DeviceGray` means on a page whose output intent in force is `selected`: the intent's
+/// black ink alone where its profile is a CMYK one, whatever the intent's subtype and in either
+/// view, and this reader's neutral grey otherwise.
 ///
-/// ISO 19005-2 and ISO 19005-4, section 6.2.4.3, make a conforming reader of a PDF/A file
-/// render a `DeviceGray` colour, where no device-independent `DefaultGray` is set, through the
-/// PDF/A output intent's destination profile — by way of ISO 32000's classic conversion to CMYK
-/// when that profile is a CMYK one. (ISO 19005 is paraphrased and cited by section, never quoted:
-/// `doc/third-party-data.md`.) The owner adopted that rule for this reader (`doc/questions/A788`,
-/// ADR 2712), and it binds only where its three conditions hold, each of which is asked here:
+/// **The clause chain.** §14.11.5 makes the intent's profile the means of a screen preview:
 ///
-/// - the intent is a **PDF/A** one, Table 401's `/S /GTS_PDFA1`, which is the subtype ISO 19005
-///   names its output intent by;
-/// - its profile is **CMYK**, four components — a 'GRAY' profile already stands in for the
-///   family by its component count, and an 'RGB' one is the clause's other bullet, not taken here;
-/// - the file **identifies as PDF/A**: its document-level XMP states `pdfaid:part`, which is
-///   what makes the file one ISO 19005 speaks about at all.
+/// > the "to CIE" (AToB) information may optionally be used to remap source colour values to
+/// > some other destination colour space, such as for screen preview or hardcopy proofing.
 ///
-/// The third is read last because it is the one that costs, and only where the first two already
-/// hold: the catalog's metadata stream is parsed for a page that draws through a PDF/A CMYK intent
-/// and for no other (principle 2). `DefaultGray` is the resources' to answer, where the device
-/// family is resolved (`ColourSpace::device_family`), so it is not asked here.
-///
-/// **And on §10.8.3's simulated press, in any file** (ADR 2758). Where a reader asked for the
-/// simulation, step a) processes the page "as if separations were to be created for a simulated
-/// device that supports subtractive process colourants", whose process colours the
-/// `DestOutputProfile` determines — a device whose native colour space is CMYK. §10.3.2 states
-/// what a grey becomes on such a device:
+/// This reader already previews the stated press for `DeviceCMYK` that way (ADR 0272). A
+/// `DeviceGray` colour reaches the press first, and §10.3.2 states what a grey becomes on a
+/// device whose native colour space is CMYK:
 ///
 /// > If the native device colour space is CMYK, then converting colours in the DeviceGray colour
 /// > space to that CMYK should follow the method described in 10.4.2.3 , ' Conversion between
 /// > DeviceGray and DeviceCMYK".
 ///
 /// §10.4.2.3's method is black `1 − gray` and no other ink, which is `GreyReading::IntentBlack`.
-/// `simulated` is the reader's request, so the screen view of the same file is unchanged: there
-/// the native colour space is the screen's and the sentence's condition does not hold.
-pub(crate) fn grey_reading(
-    document: &Document,
-    selected: &Selected,
-    simulated: bool,
-) -> GreyReading {
-    let cmyk = matches!(&selected.space, ColourSpace::Icc { profile } if profile.channels() == 4);
-    if cmyk && simulated {
-        return GreyReading::IntentBlack;
-    }
-    let pdfa = document
-        .get_key(&selected.dictionary, "S")
-        .as_name()
-        .is_some_and(|name| name.as_bytes() == b"GTS_PDFA1");
-    if cmyk && pdfa && identifies_as_pdfa(document) {
+/// On §10.8.3's simulated press the device *is* that CMYK one and the sentence binds (ADR 2758).
+/// On the screen the processor previews that device, and whether a grey is previewed through it
+/// is the "may optionally" left open: the owner chose that it is (`doc/questions/A810`, ADR
+/// 2765), so `0 g` and `0 0 0 1 k` draw alike on screen as they do on the press, and a PDF/X
+/// file and a PDF/A file behave alike. In a PDF/A file under a CMYK intent ISO 19005-2 and -4
+/// section 6.2.4.3 ask the same of a conforming reader (paraphrased, `doc/third-party-data.md`;
+/// ADR 2712), which this rule now covers without reading the file's identification.
+///
+/// A 'GRAY' intent already stands in for the family by its component count, and an 'RGB' one
+/// leaves the grey this reader's. `DefaultGray` is the resources' to answer, where the device
+/// family is resolved (`ColourSpace::device_family`), so it outranks this and is not asked here.
+pub(crate) fn grey_reading(selected: &Selected) -> GreyReading {
+    if matches!(&selected.space, ColourSpace::Icc { profile } if profile.channels() == 4) {
         GreyReading::IntentBlack
     } else {
         GreyReading::Device
     }
-}
-
-/// The two namespaces a `pdfaid:part` is found under: ISO 19005-1's own, and the `https` form
-/// some producers write, which `pdf_archive` reads as the same schema.
-const IDENTIFICATION: [&str; 2] = [
-    "http://www.aiim.org/pdfa/ns/id/",
-    "https://www.aiim.org/pdfa/ns/id/",
-];
-
-/// Whether the document-level XMP packet states a PDF/A part.
-///
-/// A packet that does not parse states nothing, and the file is then read by ISO 32000 alone:
-/// the rule is the second standard's, and it applies to a file that says it is one of its.
-fn identifies_as_pdfa(document: &Document) -> bool {
-    let Some(Ok(packet)) = crate::xmp::Xmp::document(document) else {
-        return false;
-    };
-    IDENTIFICATION.iter().any(|namespace| {
-        packet
-            .text(namespace, "part")
-            .is_some_and(|part| !part.trim().is_empty())
-    })
 }
 
 /// The first output intent of an array that names a profile this tree can parse.

@@ -1,26 +1,24 @@
-//! `DeviceGray` in a PDF/A file whose output intent is a CMYK press: the press's black ink alone.
+//! `DeviceGray` on a page whose output intent is a CMYK press: the press's black ink alone.
 //!
-//! ISO 32000-2 leaves a grey painted beside a four-component output intent to the processor —
-//! §14.11.5 makes the intent informational, and §11.7.2 converts a device colour of another
-//! component count "in an implementationdependent fashion" — so on any other file this tree
-//! draws `DeviceGray` as its own neutral grey and leaves the intent to the families it has the
-//! components of ([`super::ColourSpace::device_family`]).
+//! **The press view.** §10.3.2 says that on a device whose native colour space is CMYK a grey
+//! "should follow the method described in 10.4.2.3", and §10.8.3's simulated press is such a
+//! device (ADR 2758).
 //!
-//! **A PDF/A file is read by a second standard as well, and that one decides.** ISO 19005-2 and
-//! ISO 19005-4, section 6.2.4.3, bind a conforming reader rendering a `DeviceGray` colour in a
-//! file that has set no device-independent `DefaultGray`: where the PDF/A output intent carries a
-//! CMYK destination profile, the reader converts the grey to CMYK by ISO 32000's classic method
-//! and renders the result with that profile as its source colour space. (ISO 19005 is cited by
-//! section and paraphrased, never quoted: `doc/third-party-data.md`.) The classic method is
-//! ISO 32000-2 §10.4.2.3:
+//! **The screen view.** §14.11.5 lets the intent's profile remap source colours "for screen
+//! preview", and whether a grey is previewed through the press is left to the processor; the
+//! owner chose that it is, in every file whose selected intent is a CMYK profile
+//! (`doc/questions/A810`, ADR 2765). ISO 19005-2 and ISO 19005-4, section 6.2.4.3, ask the same
+//! of a reader of a PDF/A file (cited by section and paraphrased, never quoted:
+//! `doc/third-party-data.md`; ADR 2712). Under any other intent, or none, this tree draws
+//! `DeviceGray` as its own neutral grey. The classic method all three name is ISO 32000-2
+//! §10.4.2.3:
 //!
 //! > Nominally, a gray level is the complement of the black component of CMYK . Therefore, the
 //! > CMYK colour value equivalent to a specific gray level shall be
 //!
 //! followed by a formula set in mathematical italics that no transcription survives: cyan,
-//! magenta and yellow `0.0`, and black `1.0 − gray`. The owner adopted the rule for this reader
-//! (`doc/questions/A788`, ADR 2712), so `0 g` in such a file draws as the press's black ink and
-//! not as this reader's black.
+//! magenta and yellow `0.0`, and black `1.0 − gray`. So `0 g` in such a file draws as the press's
+//! black ink, as `0 0 0 1 k` does, and not as this reader's black.
 //!
 //! **The construction is a space the rest of the tree already reads**: a one-component
 //! `Separation` whose alternate is the intent's own profile and whose tints are the clause's
@@ -39,19 +37,19 @@ use super::{ColourSpace, Tints};
 
 /// How `DeviceGray` is read on a page with an output intent.
 ///
-/// The answer is the document's and the page's, decided where `pdf_model` selects the intent:
-/// this crate cannot read a file's XMP identification, and should not — what makes a file PDF/A
-/// is a question about the file, and the colour space parser is asked about one object.
+/// The answer is the page's, decided where `pdf_model` selects the intent: which intent is in
+/// force is §14.11.5's question about the document and the page, and the colour space parser is
+/// asked about one object.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum GreyReading {
-    /// `DeviceGray` is this reader's neutral grey, whatever the intent is: ISO 32000-2 alone,
-    /// which leaves the conversion to a four-component intent implementation-dependent.
+    /// `DeviceGray` is this reader's neutral grey: there is no intent, or its profile is not a
+    /// CMYK one.
     #[default]
     Device,
-    /// `DeviceGray` is the four-component output intent's black ink alone: ISO 19005-2 and -4
-    /// section 6.2.4.3, in a file that identifies as PDF/A and whose PDF/A output intent is a
-    /// CMYK profile. A `/DefaultGray` the resources state still outranks it, by the clause's own
-    /// condition and by §8.6.5.6.
+    /// `DeviceGray` is the four-component output intent's black ink alone, §10.4.2.3's method:
+    /// on the simulated press by §10.3.2, and on screen as the press's preview by §14.11.5 and
+    /// the owner's choice (ADR 2765). A `/DefaultGray` the resources state still outranks it, by
+    /// §8.6.5.6.
     IntentBlack,
 }
 

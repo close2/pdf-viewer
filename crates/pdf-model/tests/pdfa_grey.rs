@@ -1,4 +1,4 @@
-//! `DeviceGray` in a PDF/A file whose PDF/A output intent is a CMYK press.
+//! `DeviceGray` on a page whose output intent is a CMYK press: in a PDF/A file, and in any file.
 //!
 //! ISO 19005-2 and ISO 19005-4, section 6.2.4.3 (paraphrased, as `doc/third-party-data.md`
 //! asks of ISO 19005): where a PDF/A file sets no device-independent `DefaultGray` and its PDF/A
@@ -11,9 +11,15 @@
 //!
 //! cyan, magenta and yellow `0.0` and black `1.0 − gray`. So every expectation here is a pair of
 //! renderings of one file, and the clause is what says they agree: a grey `g` against the same
-//! mark painted `0 0 0 (1 − g) k`, which the intent's profile already draws (ADR 2712). The rule
-//! binds only where its three conditions hold; each test that removes one expects the grey this
-//! reader draws without an intent, which is ISO 32000's own implementation-dependent answer.
+//! mark painted `0 0 0 (1 − g) k`, which the intent's profile already draws (ADR 2712).
+//!
+//! **The same reading binds in any file whose selected intent is a CMYK profile**, in the screen
+//! view as on the simulated press (ADR 2765). §14.11.5 lets the intent's `AToB` remap source
+//! colours "for screen preview", §10.3.2 says a grey on a CMYK device "should follow the method
+//! described in 10.4.2.3", and the owner chose that the screen previews the press for greys as it
+//! does for `DeviceCMYK` (`doc/questions/A810`). So a PDF/X file and a PDF/A file that does not
+//! identify as one read their greys as the PDF/A file does; an 'RGB' intent, and no intent, leave
+//! the grey this reader's own.
 //!
 //! The intent is the assumed inks (`pdf_colour::colour::assumed_inks_profile`, ADR 2700), whose
 //! black ink draws a visibly warm dark grey rather than `(0, 0, 0)`, so a grey routed through it
@@ -47,7 +53,7 @@ const PDFA_METADATA: &str = "<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\
 </rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end=\"w\"?>";
 
 /// What one fixture states about itself: the three conditions of section 6.2.4.3, each one a
-/// switch.
+/// switch, and the kind of profile its intent carries.
 #[derive(Clone, Copy)]
 struct File {
     /// The catalog's `/Metadata` states `pdfaid:part`.
@@ -55,23 +61,43 @@ struct File {
     /// The output intent's `/S`: `GTS_PDFA1`, the PDF/A one, or something else; `None` for no
     /// intent at all.
     intent: Option<&'static str>,
+    /// The intent's profile is an 'RGB' one, sRGB, rather than the assumed inks' CMYK one.
+    rgb: bool,
 }
 
 const PDFA: File = File {
     identifies: true,
     intent: Some("GTS_PDFA1"),
+    rgb: false,
 };
 
 const NO_INTENT: File = File {
     identifies: false,
     intent: None,
+    rgb: false,
 };
+
+/// A PDF/X file under a CMYK intent, which no PDF/A rule speaks about (ADR 2765's case).
+const PDFX: File = File {
+    identifies: false,
+    intent: Some("GTS_PDFX"),
+    rgb: false,
+};
+
+/// The sRGB profile the tree carries, as an 'RGB' output intent's.
+const SRGB: &[u8] = include_bytes!("../../../data/icc/sRGB2014.icc");
 
 /// Builds a one-page 20 × 20 PDF: `extra` objects from 8 on, `resources` and `content` the
 /// page's.
 fn pdf(file: File, extra: &str, resources: &str, content: &str) -> Vec<u8> {
+    let profile = if file.rgb {
+        SRGB.to_vec()
+    } else {
+        pdf_colour::colour::assumed_inks_profile()
+    };
+    let components = if file.rgb { 3 } else { 4 };
     let mut hex = String::new();
-    for byte in pdf_colour::colour::assumed_inks_profile() {
+    for byte in profile {
         let _ = write!(hex, "{byte:02X}");
     }
     let mut catalog = String::new();
@@ -90,7 +116,7 @@ fn pdf(file: File, extra: &str, resources: &str, content: &str) -> Vec<u8> {
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
          5 0 obj\n<< /Type /OutputIntent /S /{subtype} /OutputConditionIdentifier (Custom) \
          /DestOutputProfile 6 0 R >>\nendobj\n\
-         6 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}>\nendstream\n\
+         6 0 obj\n<< /N {components} /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}>\nendstream\n\
          endobj\n\
          7 0 obj\n<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n{PDFA_METADATA}\n\
          endstream\nendobj\n\
@@ -226,34 +252,59 @@ fn a_pdfa_files_grey_shading_is_the_intents_black_ink_alone() {
     );
 }
 
-/// A file that does not identify as PDF/A is read by ISO 32000 alone, and its grey is this
-/// reader's, intent or no intent — so is a PDF/A file whose intent is not the PDF/A one.
+/// Under any CMYK intent, a grey is the intent's black ink alone on screen: `0.5 g` draws as
+/// `0 0 0 0.5 k`, by every route a grey takes, in a PDF/X file and in a file that names a PDF/A
+/// intent without identifying as PDF/A (A810, ADR 2765).
+///
+/// The screen view is the default `ViewState`, which `centre` draws: §10.8.3's simulation is not
+/// asked for, so this is the screen's preview of the press and not the press.
 #[test]
-fn a_grey_is_unchanged_where_the_file_is_not_pdfa_or_the_intent_is_not_its_pdfa_intent() {
-    let content = format!("{GREY} g 0 0 20 20 re f");
-    let device = centre(pdf(NO_INTENT, "", "", &content));
-    for (why, file) in [
-        (
-            "no pdfaid:part",
-            File {
-                identifies: false,
-                intent: Some("GTS_PDFA1"),
-            },
-        ),
-        (
-            "a PDF/X intent",
-            File {
-                identifies: true,
-                intent: Some("GTS_PDFX"),
-            },
-        ),
-    ] {
-        assert_eq!(
-            centre(pdf(file, "", "", &content)),
-            device,
-            "{why}: the grey is this reader's own"
+fn under_any_cmyk_intent_a_grey_draws_on_screen_as_the_intents_black_ink() {
+    let unidentified = File {
+        identifies: false,
+        intent: Some("GTS_PDFA1"),
+        rgb: false,
+    };
+    let half = "0.5 g 0 0 20 20 re f";
+    let device = centre(pdf(NO_INTENT, "", "", half));
+    for (why, file) in [("a PDF/X intent", PDFX), ("no pdfaid:part", unidentified)] {
+        let grey = centre(pdf(file, "", "", half));
+        let ink = centre(pdf(file, "", "", "0 0 0 0.5 k 0 0 20 20 re f"));
+        assert!(
+            within_a_level(grey, ink),
+            "{why}: 0.5 g draws as 0 0 0 0.5 k, got {grey:?} against {ink:?}"
         );
+        assert!(
+            !within_a_level(grey, device),
+            "{why}: and so not as this reader's own grey {device:?}"
+        );
+        for (route, resources, content) in grey_routes() {
+            let grey = centre(pdf(file, "", &resources, &content));
+            let ink = centre(pdf(file, "", &resources, &black_of(route)));
+            assert!(
+                within_a_level(grey, ink),
+                "{why}, {route}: a grey of {GREY} draws as 0 0 0 {BLACK}, got {grey:?} against \
+                 {ink:?}"
+            );
+        }
     }
+}
+
+/// Under an 'RGB' intent the grey is this reader's own, as with no intent: there is no black ink
+/// to read it as, and the intent already stands for `DeviceRGB` alone.
+#[test]
+fn under_an_rgb_intent_a_grey_is_unchanged() {
+    let rgb = File {
+        identifies: true,
+        intent: Some("GTS_PDFA1"),
+        rgb: true,
+    };
+    let half = "0.5 g 0 0 20 20 re f";
+    assert_eq!(
+        centre(pdf(rgb, "", "", half)),
+        centre(pdf(NO_INTENT, "", "", half)),
+        "an sRGB intent leaves 0.5 g this reader's grey"
+    );
 }
 
 /// A `/DefaultGray` the resources state outranks the rule, which is the clause's own condition
@@ -263,11 +314,13 @@ fn a_default_grey_outranks_the_rule() {
     let resources = "/ColorSpace << /DefaultGray [/CalGray << /WhitePoint [0.9505 1 1.089] \
                      /Gamma 2.2 >>] >>";
     let content = format!("{GREY} g 0 0 20 20 re f");
-    assert_eq!(
-        centre(pdf(PDFA, "", resources, &content)),
-        centre(pdf(NO_INTENT, "", resources, &content)),
-        "the default decides the grey, intent or not"
-    );
+    for (why, file) in [("PDF/A", PDFA), ("PDF/X", PDFX)] {
+        assert_eq!(
+            centre(pdf(file, "", resources, &content)),
+            centre(pdf(NO_INTENT, "", resources, &content)),
+            "{why}: the default decides the grey, intent or not"
+        );
+    }
 }
 
 /// A soft mask built of a grey masks by that grey: §11.5.3's luminosity of `0 0 0 (1 − g)` is
@@ -337,14 +390,10 @@ fn masked(file: File, cs: &str, mask: &str, extra: &str) -> Vec<u8> {
 /// `1 − g` alone — and is not separated colorimetrically by the intent's profile into four inks
 /// that EXAMPLE 2 then weighs darker (ADR 2734). The expectation is the same mask painted in that
 /// black ink, by a fill and by an image, which is how a layout program's feather draws its ramp.
-/// The page's own greys outside a mask stay this reader's
-/// (`a_grey_is_unchanged_where_the_file_is_not_pdfa_or_the_intent_is_not_its_pdfa_intent`).
+/// The page's own greys outside a mask read the same way under such an intent
+/// (`under_any_cmyk_intent_a_grey_draws_on_screen_as_the_intents_black_ink`).
 #[test]
 fn a_grey_inside_a_cmyk_mask_group_masks_by_its_grey_under_any_cmyk_intent() {
-    let pdfx = File {
-        identifies: false,
-        intent: Some("GTS_PDFX"),
-    };
     let image_black = 1.0 - 64.0 / 255.0;
     for (route, grey, ink) in [
         (
@@ -358,8 +407,8 @@ fn a_grey_inside_a_cmyk_mask_group_masks_by_its_grey_under_any_cmyk_intent() {
             format!("0 0 0 {image_black} k 0 0 20 20 re f"),
         ),
     ] {
-        let grey = centre(masked(pdfx, "DeviceCMYK", &grey, ""));
-        let ink = centre(masked(pdfx, "DeviceCMYK", &ink, ""));
+        let grey = centre(masked(PDFX, "DeviceCMYK", &grey, ""));
+        let ink = centre(masked(PDFX, "DeviceCMYK", &ink, ""));
         assert!(
             within_a_level(grey, ink),
             "{route}: a grey in a /DeviceCMYK mask group under a PDF/X intent masks as its black \

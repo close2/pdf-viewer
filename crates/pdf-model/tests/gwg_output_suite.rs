@@ -104,11 +104,16 @@ const GREY_OVERPRINT: &str = "2-SPOT/Patches/GWG030_Gray_K_black_OP_X1.pdf";
 const CHECKS: &[Check] = &[
     // 23.0: DeviceGray 25 %, DeviceCMYK 0/0/0/75, Separation Black 75 and DeviceN Black 75 must
     // render alike (§10.4.2.2 and §10.4.2.3's conversions; §8.6.6.4's `Black` colourant).
-    grey_check(View::Screen, "DeviceGray, line art", 103, -1, false),
+    // On screen the grey is the intent's black ink as well: the press previewed through the
+    // intent's profile, §14.11.5's optional `AToB` use, chosen by the owner (A810, ADR 2765). Both
+    // `[/Black]` spaces revert to their `DeviceGray` alternates on a screen (§8.6.6.4), so they
+    // follow the grey.
+    grey_check(View::Screen, "DeviceGray, line art", 103, -1, true),
+    grey_check(View::Screen, "DeviceGray, image", 103, 1, true),
     grey_check(View::Screen, "DeviceCMYK, line art", 245, -1, true),
-    grey_check(View::Screen, "Separation Black, line art", 386, -1, false),
+    grey_check(View::Screen, "Separation Black, line art", 386, -1, true),
     grey_check(View::Screen, "DeviceN Black, line art", 528, -1, true),
-    grey_check(View::Screen, "DeviceN Black, image", 528, 1, false),
+    grey_check(View::Screen, "DeviceN Black, image", 528, 1, true),
     // On the simulated press a grey is the press's black ink alone, §10.3.2's "should follow the
     // method described in 10.4.2.3" on a device whose native colour space is CMYK (ADR 2758).
     grey_check(View::Press, "DeviceGray, line art", 103, -1, true),

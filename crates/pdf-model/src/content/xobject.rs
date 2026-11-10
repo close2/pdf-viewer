@@ -618,7 +618,7 @@ impl<'a> Interpreter<'a> {
         // holds, §12.6.4.11's overrides and the annotations a person added, is filed under an
         // `ObjectId` of the containing document and means nothing here.
         let (imported_intent, imported_grey) =
-            super::colour::output_intent_reading(document, Some(&page.dict), &self.view);
+            super::colour::output_intent_reading(document, Some(&page.dict));
         let mut view = crate::view::ViewState::of(document);
         view.set_magnification(self.view.magnification());
         view.set_purpose(self.view.purpose());
@@ -643,8 +643,8 @@ impl<'a> Interpreter<'a> {
             // §14.11.5's output intent describes the document whose colours it calibrates, and
             // the imported page's colours are the target document's.
             output_intent: std::mem::replace(&mut self.output_intent, imported_intent),
-            // And what its `DeviceGray` means beside that intent, which is the imported file's
-            // own PDF/A identification (ISO 19005's section 6.2.4.3, ADR 2712).
+            // And what its `DeviceGray` means beside that intent, read from the same selection
+            // (ADR 2765).
             grey: std::mem::replace(&mut self.grey, imported_grey),
             // §8.11's configuration likewise: an optional content group is identified by *which
             // object* it is (§8.11.2.2), in one file.

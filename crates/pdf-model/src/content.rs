@@ -1238,7 +1238,7 @@ fn separate(
         return Err(NotSeparated::Nothing);
     }
     let named = crate::colourants::spot_colourants(document, page);
-    let (intent, grey) = colour::output_intent_reading(document, Some(&page.dict), state);
+    let (intent, grey) = colour::output_intent_reading(document, Some(&page.dict));
     let named = named.readable(
         document,
         &page.resources,
@@ -1484,8 +1484,7 @@ impl<'a> Interpreter<'a> {
             PagePress::Beyond(beyond) => Some(beyond),
             PagePress::Device | PagePress::In(_) => None,
         };
-        let (output_intent, grey) =
-            colour::output_intent_reading(document, Some(&page.dict), state);
+        let (output_intent, grey) = colour::output_intent_reading(document, Some(&page.dict));
         let delegated = match state.widget_appearances() {
             crate::view::WidgetAppearances::Drawn => BTreeSet::new(),
             crate::view::WidgetAppearances::Delegated => {
@@ -2865,10 +2864,10 @@ struct Interpreter<'a> {
     /// can say how its device colours are calibrated, so it is what a device space means
     /// when nothing nearer to hand says otherwise.
     output_intent: Option<ColourSpace>,
-    /// What `DeviceGray` means beside [`Self::output_intent`]: the press's black ink alone in a
-    /// PDF/A file whose PDF/A intent is a CMYK profile (ISO 19005-2 and -4 section 6.2.4.3), and
-    /// this reader's grey everywhere else. Decided with the intent, from the same selection
-    /// (`colour::output_intent_reading`, ADR 2712).
+    /// What `DeviceGray` means beside [`Self::output_intent`]: the press's black ink alone where
+    /// the intent is a CMYK profile (§10.3.2 and §14.11.5, ADR 2765), and this reader's grey
+    /// everywhere else. Decided with the intent, from the same selection
+    /// (`colour::output_intent_reading`).
     grey: crate::colour::GreyReading,
     /// The `ICCBased` CMYK blending space §11.7.2 redefines `DeviceCMYK` to be where the
     /// content now being run is painted, nearest isolated group or page first, or `None` where

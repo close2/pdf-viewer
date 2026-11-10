@@ -819,18 +819,15 @@ pub(super) fn output_intent_space(
 }
 
 /// [`output_intent_space`] together with what `DeviceGray` means beside it, from one selection:
-/// the interpreter's two answers about the page's intent, which ISO 19005's section 6.2.4.3
-/// ties together in a PDF/A file (ADR 2712) and §10.3.2 on §10.8.3's simulated press (ADR 2758)
-/// — which `view` says the reader asked for (`crate::output_intent::grey_reading`).
+/// the interpreter's two answers about the page's intent, which §10.3.2 and §14.11.5 tie
+/// together under a CMYK intent in either view (`crate::output_intent::grey_reading`, ADR 2765).
 pub(super) fn output_intent_reading(
     document: &Document,
     page: Option<&Dictionary>,
-    view: &crate::view::ViewState,
 ) -> (Option<ColourSpace>, GreyReading) {
     match crate::output_intent::selected(document, page) {
         Some(selected) => {
-            let simulated = view.separation_simulation();
-            let grey = crate::output_intent::grey_reading(document, &selected, simulated);
+            let grey = crate::output_intent::grey_reading(&selected);
             (Some(selected.space), grey)
         }
         None => (None, GreyReading::Device),

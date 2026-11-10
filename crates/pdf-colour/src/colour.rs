@@ -294,8 +294,8 @@ pub enum Tints {
     /// ISO 32000-2 §10.4.2.3's classic conversion of a grey level into `DeviceCMYK`, black
     /// alone: the one component is a grey, and the alternate's four are `(0, 0, 0, 1 − gray)`.
     ///
-    /// Not a tint transform a file states: the tints of `DeviceGray` read under ISO 19005's
-    /// section 6.2.4.3, which [`ColourSpace::grey_as_intent_black`] builds and which no
+    /// Not a tint transform a file states: the tints of `DeviceGray` read as a CMYK intent's black
+    /// ink (§10.3.2 and §10.4.2.3, ADR 2765), which [`ColourSpace::grey_as_intent_black`] builds and which no
     /// `Separation` or `DeviceN` array parses to.
     GreyAsBlack,
 }
@@ -381,8 +381,8 @@ pub struct Reading<'a> {
     cmyk_group: Option<&'a ColourSpace>,
     /// Whether §10.8.3's simulation is in force.
     separations: Separations,
-    /// What `DeviceGray` means beside a four-component intent: ISO 19005's section 6.2.4.3 in
-    /// a PDF/A file, or this reader's grey otherwise ([`GreyReading`]).
+    /// What `DeviceGray` means beside the intent: a CMYK intent's black ink, or this reader's
+    /// grey ([`GreyReading`]).
     grey: GreyReading,
 }
 

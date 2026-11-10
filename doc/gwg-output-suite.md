@@ -53,11 +53,10 @@ one is a failure. GWG's expected result is evidence about the standard, never th
 | 20.5, 20.6 ICC v4 images (205, 206) | ICC-CMS | pass | pass | images, not crosses | §8.6.5.5 |
 | 22.0 conversion indicator (220) | ICC-CMS | pass | pass | no `X` | §11.3.5.2 |
 | 22.1 output intent indicator (221) | ICC-CMS | pass | pass | no `X`; a light one before ADR 2757 (its `X` is drawn `/Perceptual`) | §11.3.5.2, §11.7.5.3 |
-| 23.0 four greys (230) | ICC-CMS | **fail** | pass | press: all four alike (DeviceGray since ADR 2758). Screen: DeviceGray, Separation Black and DeviceN's image half differ from DeviceCMYK (checked); the standard leaves the screen open, `doc/questions/Q810` | §10.3.2, §8.6.6.4, §14.11.5 |
+| 23.0 four greys (230) | ICC-CMS | pass | pass | all four alike in both views (checked). Press: a grey is the press's black ink (ADR 2758) and `Black` its colourant. Screen: the grey is previewed as the intent's black ink (A810, ADR 2765), and both `[/Black]` spaces follow it through their `DeviceGray` alternates | §10.3.2, §8.6.6.4, §14.11.5 |
 
 Counts by patch file (51): **CMYK** (27) screen 21 pass, 6 n/a; press 27 pass. **SPOT** (8) screen 8 n/a; press 8
-pass. **ICC-CMS** (16) screen 13 pass, 1 fail, 2 n/a; press 16 pass. In all: screen 34 pass, 1 fail, 16 n/a; press 51
-pass.
+pass. **ICC-CMS** (16) screen 14 pass, 2 n/a; press 16 pass. In all: screen 35 pass, 16 n/a; press 51 pass.
 
 **The test pages** (`*_CMYK_X4`, `*_SPOT_X4`, `*_ICC-CMS_X4`, `*_ALL_X4`, `*_ALL_REFERENCE`) draw without error in both
 views. They place each patch in an isolated transparency group; in the CMYK page's press view 1.0 and 1.1 show only a
@@ -88,14 +87,14 @@ faint `X` and 19.0–19.2 c none, which the harness checks (deficit 8 below).
    images; 19.0–19.2 b; 1.0 e, j). §8.6.7's colourants are named by the space "in which the painting takes place",
    the object's own; the nonzero mode does not apply to them. A shading *pattern* fill still paints under the state's
    blend mode, which no patch exercises under `op`. ADR 2737.
-7. **Half fixed, the other half asked — grey and black in other families on screen** (23.0's screen view). On the
-   simulated press a grey is the press's black ink (§10.3.2 on §10.8.3's CMYK device, ADR 2758), and it stays
-   `DeviceGray` to §8.6.7, so 23.0's and 3.0's press views pass. On screen the native colour space is RGB and §10.3.2's
-   sentence does not reach it. Its first sentence leaves how a device space is established to the processor, and
-   §14.11.5's `AToB` "may optionally be used" for a screen preview. So the standard does not decide, and
-   `doc/questions/Q810` asks the owner whether a CMYK intent's black ink is the screen's grey in every file, as A788
-   made it in a PDF/A one. Both `[/Black]` spaces revert to a `DeviceGray` alternate on a screen (§8.6.6.4), so
-   that answer decides all three failing halves.
+7. **Fixed — grey and black in other families** (23.0, both views). On the simulated press a grey is the press's
+   black ink (§10.3.2 on §10.8.3's CMYK device, ADR 2758), and it stays `DeviceGray` to §8.6.7. On screen §10.3.2's
+   sentence does not reach, and §14.11.5's `AToB` "may optionally be used" for a screen preview; the owner chose that a
+   grey is previewed as the intent's black ink whenever the selected intent is a CMYK profile, whatever its subtype
+   (`doc/questions/A810`, ADR 2765). Both `[/Black]` spaces revert to their `DeviceGray` alternates on a screen
+   (§8.6.6.4) and follow. The harness checks six halves on screen and five on the press.
+   ADR 2765's census: of 773 corpus files under a CMYK intent, page one moves on 43, all PDF/X, by a mean peak of 32
+   levels.
 8. **Fixed, and now pinned — in an isolated group, a `DeviceN` zero tint read as overprint mode 1** (test pages'
    19.x c). Since ADR 2736, a `DeviceN` naming process colourants paints them directly on the simulated press, and
    §8.6.7 confines OPM to `DeviceCMYK`. The harness checks 19.0, 19.1 and 19.2 c on the CMYK test page's press view.
