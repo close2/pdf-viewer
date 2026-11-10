@@ -5763,6 +5763,233 @@
     "superseded": false
   },
   {
+    "clause": "12.5.6.11",
+    "feature_id": "12.5.6.11.caret_identification",
+    "requirement": "A Caret annotation is a visual symbol indicating text edits; its annotation subtype is required to be Caret.",
+    "source_location": "ISO 32000-2 §12.5.6.11 and Table 183 Subtype, printed p. 493 / EC3 physical p. 508; source/spec-layout.txt:29571-29583",
+    "errata": "No change to subtype/description found. The no-AP construction is a documented project choice under ADR 1622/A72; Table 166 requires producers to provide AP except specified cases.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decide",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_caret_is_reported_whether_or_not_it_asks_for_a_paragraph_symbol",
+      "crates/pdf-model/tests/annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance"
+    ],
+    "verdict": "confirmed-ratified-refusal-not-rendered-geometry",
+    "evidence": "The known-subtype dispatch has a Caret-specific construction arm. The no-AP test asserts the deliberate refusal for absent Sy, Sy=P, and Sy=None with RD, including the refusal reason. Stored AP selection precedes construction, so the refusal does not suppress producer-supplied appearance streams.",
+    "test_command": null,
+    "test_result": "stamp-popup-reviewed-target.log: explicit popup PASS, absent optional Popup FAIL after valid stored AP/exact-xref controls. Existing refusal tests passed wave15; no Caret geometry certification.",
+    "parent_review": "Parent read source paragraphs/tables and effective edits, ratified A72 and selected ADRs, actual assertions, and reproduced public pointer interaction. Corrected draft Stamp classification, pagination and overrestriction of RD condition.",
+    "reviewer": "caret_stamp_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-ratified-refusal-not-rendered-geometry",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.11",
+    "feature_id": "12.5.6.11.rd_conditional_geometry",
+    "requirement": "Optional RD is four nonnegative differences between Rect and caret boundaries in left/top/right/bottom order; sums are strictly less than Rect width/height. A difference can occur when Sy paragraph symbol appears along with the caret; this example is not an only-if restriction on RD.",
+    "source_location": "ISO 32000-2 Table 183, printed p. 493 / EC3 physical p. 508; source/spec-layout.txt:29583-29598",
+    "errata": "EC3 #524 (physical page 508, objects 5303/5304) changes the RD type cell from rectangle to array. EC3 #608 (same page, objects 5307/5308) changes '. When' to ' when', joining the conditional sentence; the effective condition is that a difference may occur when the paragraph symbol is displayed along with the caret. The substantive constraints remain as printed.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::differences",
+      "crates/pdf-model/src/appearance.rs::construct Caret arm"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_caret_is_reported_whether_or_not_it_asks_for_a_paragraph_symbol"
+    ],
+    "verdict": "ratified-construction-refusal-geometry-unverified",
+    "evidence": "Caret refusal precedes RD consumption; the test checks refusal wording, not geometry. Parent corrected draft reading: effective #608 joins a sentence describing a possible cause of difference, not a restriction that RD exists only with Sy=P. Shared helper elsewhere does not certify Caret RD.",
+    "test_command": null,
+    "test_result": "stamp-popup-reviewed-target.log: explicit popup PASS, absent optional Popup FAIL after valid stored AP/exact-xref controls. Existing refusal tests passed wave15; no Caret geometry certification.",
+    "parent_review": "Parent read source paragraphs/tables and effective edits, ratified A72 and selected ADRs, actual assertions, and reproduced public pointer interaction. Corrected draft Stamp classification, pagination and overrestriction of RD condition.",
+    "reviewer": "caret_stamp_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "ratified-construction-refusal-geometry-unverified",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.11",
+    "feature_id": "12.5.6.11.sy_values_and_default",
+    "requirement": "Optional Sy may be P, which shall associate a new-paragraph symbol with the caret, or None, which associates no symbol; absent Sy defaults to None.",
+    "source_location": "Table183 Sy continuation, printed494/physical509 (not508 as draft stated).",
+    "errata": "EC3 #608 clarifies the antecedent for RD; it does not alter Sy, P/None, or the None default. #524 changes the RD type only.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::construct Caret arm"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_caret_is_reported_whether_or_not_it_asks_for_a_paragraph_symbol"
+    ],
+    "verdict": "ratified-refusal-symbol-defaults-inventoried",
+    "evidence": "The existing no-AP test exercises absent Sy, /P, and /None but asserts refusal in all cases; it does not verify a rendered paragraph symbol. The table says the pilcrow is associated with, and RD says displayed along with, the caret. Refusing all constructed marks is the A72 project decision; when an AP exists the AP route carries the visual representation. The clause does not create a standalone /Sy-as-artwork requirement that overrides that decision.",
+    "test_command": null,
+    "test_result": "stamp-popup-reviewed-target.log: explicit popup PASS, absent optional Popup FAIL after valid stored AP/exact-xref controls. Existing refusal tests passed wave15; no Caret geometry certification.",
+    "parent_review": "Parent read source paragraphs/tables and effective edits, ratified A72 and selected ADRs, actual assertions, and reproduced public pointer interaction. Corrected draft Stamp classification, pagination and overrestriction of RD condition.",
+    "reviewer": "caret_stamp_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "ratified-refusal-symbol-defaults-inventoried",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.12",
+    "feature_id": "12.5.6.12.stamp_markup_popup_entry",
+    "requirement": "Table 171 marks Stamp as a markup annotation, so Table 172 applies; its optional Popup entry is an indirect reference to a Popup annotation for entering/editing text associated with the markup annotation.",
+    "source_location": "Table171 Stamp row printed477/physical492; Table172 Popup printed479/physical494.",
+    "errata": "No effective EC3 change to Stamp markup classification or Table172 Popup entry found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/popup.rs::popup_of",
+      "crates/pdf-model/src/popup.rs::popups",
+      "crates/viewer-core/src/interact.rs::has_a_window"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/stamp_popup_spec_audit.rs::an_explicit_stamp_popup_is_the_positive_control",
+      "crates/viewer-core/tests/stamp_popup_spec_audit.rs::opening_a_stamp_without_a_popup_reference_still_displays_its_associated_note"
+    ],
+    "verdict": "confirmed-explicit-stamp-popup-consumer",
+    "evidence": "Parent corrected draft false non-markup claim: Stamp is Markup Yes. Public pointer activation of an AP-backed Stamp with reciprocal Popup/Parent opens one window with exact associated note text. Removing optional Popup leaves no openable window in current code; separate feature records that gap.",
+    "test_command": null,
+    "test_result": "stamp-popup-reviewed-target.log: explicit popup PASS, absent optional Popup FAIL after valid stored AP/exact-xref controls. Existing refusal tests passed wave15; no Caret geometry certification.",
+    "parent_review": "Parent read source paragraphs/tables and effective edits, ratified A72 and selected ADRs, actual assertions, and reproduced public pointer interaction. Corrected draft Stamp classification, pagination and overrestriction of RD condition.",
+    "reviewer": "caret_stamp_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-explicit-stamp-popup-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.12",
+    "feature_id": "12.5.6.12.stamp_identification_and_description",
+    "requirement": "A Stamp annotation is the required subtype; its described appearance is text or graphics intended to look stamped, and when opened it shall display a popup containing the associated note text.",
+    "source_location": "§12.5.6.12 paragraph and Table184 on printed494/physical509.",
+    "errata": "No EC3 change to this paragraph or Table 184 found. The physical-page 508 errata #524/#608 are confined to §12.5.6.11 Table 183 RD.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/popup.rs::popups",
+      "crates/pdf-model/src/popup.rs::own_window",
+      "crates/viewer-core/src/interact.rs::has_a_window",
+      "crates/viewer-core/src/interact.rs::activate_object"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/headless.rs::a_closed_popup_is_no_window_until_the_annotation_is_clicked",
+      "crates/viewer-core/tests/stamp_popup_spec_audit.rs::an_explicit_stamp_popup_is_the_positive_control",
+      "crates/viewer-core/tests/stamp_popup_spec_audit.rs::opening_a_stamp_without_a_popup_reference_still_displays_its_associated_note"
+    ],
+    "verdict": "implementation-gap-under-stated-activation-reading",
+    "evidence": "Public pointer test with supplied Contents and valid stored AP fails: zero windows after click, versus one with reciprocal Popup/Parent. Exact xref, complete nonempty AP interpretation and closed initial state pass. Parent adopts combined §12.5.1 activation/exhibition and §12.5.6.12 open-note reading: optional Popup removes an object-description requirement, not exhibition of the provided associated note. Alternative conditional reading (only open when a concrete Popup exists) was considered but would leave valid provided note text inaccessible. This is a stated source-based interpretation; no synthetic artwork or malformed-source premise is involved.",
+    "test_command": null,
+    "test_result": "stamp-popup-reviewed-target.log: explicit popup PASS, absent optional Popup FAIL after valid stored AP/exact-xref controls. Existing refusal tests passed wave15; no Caret geometry certification.",
+    "parent_review": "Parent read source paragraphs/tables and effective edits, ratified A72 and selected ADRs, actual assertions, and reproduced public pointer interaction. Corrected draft Stamp classification, pagination and overrestriction of RD condition.",
+    "reviewer": "caret_stamp_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap-under-stated-activation-reading",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.12",
+    "feature_id": "12.5.6.12.name_predefined_icons_recommendation",
+    "requirement": "Name is optional; PDF writers should include it and PDF readers should provide predefined appearances for at least the 14 listed standard names; extra names may be supported; absent Name defaults to Draft.",
+    "source_location": "ISO 32000-2 Table 184 Name, printed p. 494 / EC3 physical p. 509; source/spec-layout.txt:29630-29639",
+    "errata": "No EC3 change found. ADR 0109 distinguishes this SHOULD from Table 175's SHALL; ADR 1622/A72 ratifies the no-synthesis choice for stamp legends.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::construct Stamp arm",
+      "crates/pdf-model/src/annotation.rs::decide"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_stamps_appearance_is_reported_and_the_other_two_icons_are_drawn",
+      "crates/viewer-core/tests/stamp_popup_spec_audit.rs::an_explicit_stamp_popup_is_the_positive_control",
+      "crates/viewer-core/tests/stamp_popup_spec_audit.rs::opening_a_stamp_without_a_popup_reference_still_displays_its_associated_note"
+    ],
+    "verdict": "confirmed-documented-declined-recommendation",
+    "evidence": "The reader test checks an Approved stamp with no AP is reported and draws no synthetic artwork. This is an explicit project choice declining a recommendation, not a SHALL conformance failure. It does not assert the default Draft value, which is a model/default inventory item, nor prove that any listed icon must be drawn. No extension is needed to close a SHOULD.",
+    "test_command": null,
+    "test_result": "stamp-popup-reviewed-target.log: explicit popup PASS, absent optional Popup FAIL after valid stored AP/exact-xref controls. Existing refusal tests passed wave15; no Caret geometry certification.",
+    "parent_review": "Parent read source paragraphs/tables and effective edits, ratified A72 and selected ADRs, actual assertions, and reproduced public pointer interaction. Corrected draft Stamp classification, pagination and overrestriction of RD condition.",
+    "reviewer": "caret_stamp_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-documented-declined-recommendation",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.12",
+    "feature_id": "12.5.6.12.name_forbidden_for_nonstamp_it",
+    "requirement": "If IT is present and its value is not Stamp, Name shall be absent.",
+    "source_location": "ISO 32000-2 Table 184 Name final sentence, printed p. 494 / EC3 physical p. 509; source/spec-layout.txt:29639",
+    "errata": "No EC3 change found. This is a producer well-formedness condition; it does not state that a reader shall reject a file that violates it.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::construct Stamp arm"
+    ],
+    "test_refs": [],
+    "verdict": "unreviewed",
+    "evidence": "The no-AP constructor does not consume IT or Name, and stored AP bypasses construction. No producer path for constructing Stamp dictionaries was located in the assigned implementation. Reader-rejection behavior must not be inferred from the producer condition. This validity constraint remains inventoried, with no claim that current reader must police it.",
+    "test_command": null,
+    "test_result": "stamp-popup-reviewed-target.log: explicit popup PASS, absent optional Popup FAIL after valid stored AP/exact-xref controls. Existing refusal tests passed wave15; no Caret geometry certification.",
+    "parent_review": "Parent read source paragraphs/tables and effective edits, ratified A72 and selected ADRs, actual assertions, and reproduced public pointer interaction. Corrected draft Stamp classification, pagination and overrestriction of RD condition.",
+    "reviewer": "caret_stamp_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "unreviewed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.12",
+    "feature_id": "12.5.6.12.it_values_and_default",
+    "requirement": "Optional PDF 2.0 IT describes stamp intent with valid values StampSnapshot, StampImage, or Stamp; default is Stamp.",
+    "source_location": "ISO 32000-2 Table 184 IT, printed p. 494 / EC3 physical p. 509; source/spec-layout.txt:29640-29648",
+    "errata": "No EC3 change found. IT describes intent/source; this row defines valid producer values/default, not additional visual algorithm behavior.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::construct Stamp arm"
+    ],
+    "test_refs": [],
+    "verdict": "unreviewed",
+    "evidence": "IT is not read by the no-AP Stamp arm. The existing test uses only /Name /Approved. No producer path or consumer semantic requirement for synthesizing a snapshot/image/rubber-stamp distinction was found. The valid-value/default conditions are recorded but not verified by a test; no reader rejection obligation is inferred.",
+    "test_command": null,
+    "test_result": "stamp-popup-reviewed-target.log: explicit popup PASS, absent optional Popup FAIL after valid stored AP/exact-xref controls. Existing refusal tests passed wave15; no Caret geometry certification.",
+    "parent_review": "Parent read source paragraphs/tables and effective edits, ratified A72 and selected ADRs, actual assertions, and reproduced public pointer interaction. Corrected draft Stamp classification, pagination and overrestriction of RD condition.",
+    "reviewer": "caret_stamp_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "unreviewed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.12",
+    "feature_id": "12.5.6.12.version_scope",
+    "requirement": "Stamp subtype was introduced in PDF 1.3; IT was introduced in PDF 2.0.",
+    "source_location": "§12.5.6.12 and Table184 printed494/physical509.",
+    "errata": "No version change in EC3 found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::STANDARD_SUBTYPES",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::every_annotation_type_table_171_defines_is_answered_by_its_own_clause"
+    ],
+    "verdict": "producer-version-duty-inventoried-not-certified",
+    "evidence": "The subtype is in the known subtype table; the existing table-wide assertion verifies recognition/handler dispatch, not IT version gating. No independent evidence was located that the model gates IT by declared file version. The Table's PDF-version annotations describe availability and do not alone require version rejection.",
+    "test_command": null,
+    "test_result": "stamp-popup-reviewed-target.log: explicit popup PASS, absent optional Popup FAIL after valid stored AP/exact-xref controls. Existing refusal tests passed wave15; no Caret geometry certification.",
+    "parent_review": "Parent read source paragraphs/tables and effective edits, ratified A72 and selected ADRs, actual assertions, and reproduced public pointer interaction. Corrected draft Stamp classification, pagination and overrestriction of RD condition.",
+    "reviewer": "caret_stamp_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "producer-version-duty-inventoried-not-certified",
+    "superseded": false
+  },
+  {
     "clause": "7.7.1",
     "feature_id": "document_hierarchy_root_and_page_tree_relationship",
     "entry_kind": "direct",
@@ -29724,6 +29951,180 @@
     "parent_review_state": "parent-reviewed-partial-with-three-regressions",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "confirmed-selected-model-with-path-and-consumer-residual",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.1",
+    "feature_id": "activation_exhibits_associated_popup_object",
+    "requirement": "When a user activates an annotation, it exhibits its associated object; opening a popup with a text note is an example. This general duty does not state that every markup annotation must have a distinct Popup annotation object.",
+    "source_location": "§12.5.1, ISO printed pp. 465–466 / physical pp. 480–481.",
+    "errata": "No relevant EC3 change identified for this paragraph. Physical p. 480/printed p. 465; annotations physically on p. 510 concern other text, not the Popup clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/interact.rs::activate_object",
+      "crates/viewer-core/src/open/edits.rs::toggle_popup",
+      "crates/pdf-model/src/popup.rs::popups"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/headless.rs::a_closed_popup_is_no_window_until_the_annotation_is_clicked",
+      "crates/viewer-core/tests/headless.rs::a_host_may_open_a_popup_without_a_pointer",
+      "crates/viewer-core/tests/headless.rs::a_text_note_with_no_popup_is_opened_and_closed_by_its_activation",
+      "crates/viewer-core/tests/stamp_popup_spec_audit.rs::opening_a_stamp_without_a_popup_reference_still_displays_its_associated_note"
+    ],
+    "verdict": "partial-with-stamp-activation-gap",
+    "evidence": "Linked popup and Text own-window public tests support those routes. Parent additionally reproduced absent-Popup Stamp with stored AP/Contents failing on actual click while explicit-link control passes. Combined12.5.1 and12.5.6.12 reading requires provided note exhibition despite optional object-description link; alternative reading recorded in Stamp feature. This does not certify every subtype or require creating a new Popup PDF object.",
+    "test_command": null,
+    "test_result": "popup-page-appearance-target.log1PASS; stamp-popup-reviewed-target.log explicit-control1PASS/absent-link1FAIL; existing model/core tests pass wave15, only inspected assertions counted.",
+    "parent_review": "Parent read effective Popup/common clauses, actual assertions and selected ADRs. New page-appearance control passes; editing capability split out; Stamp absent-link interpretation adjudicated separately.",
+    "reviewer": "popup_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-with-stamp-activation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.2",
+    "feature_id": "table172_popup_optional_link_and_group_attribute",
+    "requirement": "Table 172 makes /Popup optional; when present it is an indirect reference to a Popup annotation for entering or editing the markup's associated text. /Popup is a group attribute, so a subordinate's corresponding entry is ignored in favor of the primary's.",
+    "source_location": "§12.5.6.2, Table 172 /Popup and group-attribute paragraph, ISO printed pp. 478–479 / physical pp. 493–494.",
+    "errata": "No relevant EC3 amendment found for Table 172 /Popup or its group-attribute enumeration on physical pp. 493–494.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/popup.rs::popup_of",
+      "crates/pdf-model/src/popup.rs::thread_window",
+      "crates/pdf-model/src/markup.rs::group_source"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/popup.rs::a_window_on_a_group_shows_the_primarys_words",
+      "crates/pdf-model/src/popup.rs::a_subordinates_own_popup_entry_is_ignored",
+      "crates/pdf-model/src/popup.rs::a_watermark_has_no_popup_window_and_a_square_has_one"
+    ],
+    "verdict": "confirmed-selected-linkage",
+    "evidence": "popup_of delegates to thread_window; the latter reads /Popup through group_source at each applicable point in the reply/group chain. The unit fixtures compare a grouped subordinate's own reference against the primary reference and check the resulting window and owner text. Markup /Popup is not required by Table 172; the implementation preserves absence as None. This verifies selected linkage/group behavior, not every markup subtype or UI convention for an omitted entry.",
+    "test_command": null,
+    "test_result": "popup-page-appearance-target.log1PASS; stamp-popup-reviewed-target.log explicit-control1PASS/absent-link1FAIL; existing model/core tests pass wave15, only inspected assertions counted.",
+    "parent_review": "Parent read effective Popup/common clauses, actual assertions and selected ADRs. New page-appearance control passes; editing capability split out; Stamp absent-link interpretation adjudicated separately.",
+    "reviewer": "popup_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-linkage",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.14",
+    "feature_id": "popup_association_no_appearance_or_own_actions",
+    "requirement": "Popup is associated with markup parent, identified by parent Popup entry, has no own AP/actions. Editing is inventoried in its own feature. Table171 classifies Popup non-markup.",
+    "source_location": "§12.5.6.1 Table 171 and §12.5.6.14 opening paragraph, ISO printed pp. 477, 495 / physical pp. 492, 510.",
+    "errata": "No EC3 amendment identified to Table 171's Popup classification or §12.5.6.14 opening paragraph. EC3 annotations physically on p. 510 include Issue #444 text on another preceding table and do not change Popup wording.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::STANDARD_SUBTYPES",
+      "crates/pdf-model/src/popup.rs::popup_of",
+      "crates/viewer-core/src/interact.rs::activate_object"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::every_annotation_type_table_171_defines_is_answered_by_its_own_clause",
+      "crates/pdf-model/src/popup.rs::a_watermark_has_no_popup_window_and_a_square_has_one",
+      "crates/viewer-core/tests/headless.rs::a_closed_popup_is_no_window_until_the_annotation_is_clicked",
+      "crates/pdf-model/tests/popup_page_appearance_audit.rs::linked_popup_has_no_page_mark_while_its_stored_ap_parent_paints"
+    ],
+    "verdict": "confirmed-selected-no-page-appearance-with-producer-constraints",
+    "evidence": "New complete PDF uses reciprocal Square/Popup links, valid stored parent AP and no Popup AP/actions. Red parent pixel control passes and Popup interior remains transparent. Prohibition on stored AP/actions is a producer constraint; this test does not require rejection of invalid dictionaries. Contrary to draft, popup_of does not generally filter non-markup subtype names; it specifically denies Watermark then follows thread_window. Association classification is not an implemented validation matrix.",
+    "test_command": null,
+    "test_result": "popup-page-appearance-target.log1PASS; stamp-popup-reviewed-target.log explicit-control1PASS/absent-link1FAIL; existing model/core tests pass wave15, only inspected assertions counted.",
+    "parent_review": "Parent read effective Popup/common clauses, actual assertions and selected ADRs. New page-appearance control passes; editing capability split out; Stamp absent-link interpretation adjudicated separately.",
+    "reviewer": "popup_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-no-page-appearance-with-producer-constraints",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.14",
+    "feature_id": "table186_subtype_and_parent_linkage_override",
+    "requirement": "Table 186 requires /Subtype /Popup. /Parent is optional but, if present, is an indirect reference; the parent's Contents, M, C and T override those of the Popup. A note says a parentless Popup's Contents is relevant as the annotation's own text; §12.5.6.2 separately says Popup shall not appear by itself and associates it with markup.",
+    "source_location": "§12.5.6.2 NOTE 3 and §12.5.6.14 Table 186 /Subtype and /Parent, ISO printed pp. 478, 495–496 / physical pp. 493, 510–511.",
+    "errata": "No EC3 change to Table 186 /Subtype or /Parent on physical pp. 510–511. NOTE 3 parentless Contents remains, in tension with §12.5.6.2's producer constraint against a Popup appearing alone; it is not a reader rejection instruction.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/popup.rs::read",
+      "crates/pdf-model/src/popup.rs::text",
+      "crates/pdf-model/src/popup.rs::popup_of"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/popup.rs::the_parents_four_entries_override_the_popups_own",
+      "crates/pdf-model/src/popup.rs::a_window_on_a_group_shows_the_primarys_words",
+      "crates/viewer-core/tests/headless.rs::a_document_that_opens_a_popup_window_says_so_before_anybody_clicks"
+    ],
+    "verdict": "confirmed-selected-with-recovery-policy",
+    "evidence": "read chooses the parent dictionary when resolvable and uses group_source for Contents/M/C/T, then records the optional Parent object id. The complete headless fixture states a reciprocal markup /Popup and Popup /Parent pair and asserts the parent's text/title/colour and default-open geometry. Model tests also provide conflicting values and assert override. The reader tolerates a parentless Popup using the clause's NOTE 3; the producer constraint that it not appear alone is not a required-reader refusal. Tests establish the override but not indirect-reference malformed-input policy or every field's malformed value behavior. Parent inspected unit: Contents/T conflict with Popup values; M/C are supplied only by parent, so those assertions prove use of parent values but not precedence over conflicting M/C. Full malformed-value behavior remains unverified.",
+    "test_command": null,
+    "test_result": "popup-page-appearance-target.log1PASS; stamp-popup-reviewed-target.log explicit-control1PASS/absent-link1FAIL; existing model/core tests pass wave15, only inspected assertions counted.",
+    "parent_review": "Parent read effective Popup/common clauses, actual assertions and selected ADRs. New page-appearance control passes; editing capability split out; Stamp absent-link interpretation adjudicated separately.",
+    "reviewer": "popup_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-with-recovery-policy",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.14",
+    "feature_id": "table186_open_defaults_closed",
+    "requirement": "/Open is optional and defaults false (the Popup is initially closed); true asks that it initially be displayed open.",
+    "source_location": "§12.5.6.14 Table 186 /Open, ISO printed p. 496 / physical p. 511.",
+    "errata": "No EC3 change to Table 186 /Open on physical p. 511.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/popup.rs::opens_with_the_page",
+      "crates/viewer-core/src/open/edits.rs::toggle_popup",
+      "crates/viewer-core/src/viewer/geometry.rs::popup_windows"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/headless.rs::a_document_that_opens_a_popup_window_says_so_before_anybody_clicks",
+      "crates/viewer-core/tests/headless.rs::a_closed_popup_is_no_window_until_the_annotation_is_clicked",
+      "crates/pdf-model/src/popup.rs::a_subordinates_own_popup_entry_is_ignored",
+      "crates/pdf-model/src/popup.rs::a_popup_with_no_parent_states_its_own_text"
+    ],
+    "verdict": "confirmed-with-text-subtype-composition",
+    "evidence": "The complete fixture helper with_a_popup supplies /Open true or false, and the tests query the public Popups answer before and after activation. The model's opens_with_the_page also ORs in /Open from a parent of subtype Text, as §12.5.6.4's independent open-text duty. The explicit closed test verifies closed state, while model tests provide the omitted-key default discriminator and check false versus true. Together these cover the default and opening source; toggle/close behavior is product policy beyond the initial-state clause. The actual omitted-Open false assertion is a_popup_with_no_parent_states_its_own_text, a deliberate parentless recovery fixture. The subordinate-reference test alone does not assert Open.",
+    "test_command": null,
+    "test_result": "popup-page-appearance-target.log1PASS; stamp-popup-reviewed-target.log explicit-control1PASS/absent-link1FAIL; existing model/core tests pass wave15, only inspected assertions counted.",
+    "parent_review": "Parent read effective Popup/common clauses, actual assertions and selected ADRs. New page-appearance control passes; editing capability split out; Stamp absent-link interpretation adjudicated separately.",
+    "reviewer": "popup_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-with-text-subtype-composition",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.14",
+    "feature_id": "popup_used_to_edit_parent_text",
+    "requirement": "A Popup annotation associated with a markup parent shall be used for editing the parent's text. This is an explicit clause sentence, but its grammatical subject is the Popup annotation; it does not directly say which markup subtype text an interactive processor must expose for editing or require a Popup annotation when the Table 172 entry is omitted.",
+    "source_location": "§12.5.6.14 opening paragraph, ISO printed p. 495 / physical p. 510; related §12.5.6.2 Table 172 /Popup is optional.",
+    "errata": "No EC3 correction identified to the editing-purpose sentence on physical p. 510.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/popup.rs::retypable",
+      "crates/pdf-model/src/popup.rs::retyped_by",
+      "crates/viewer-core/src/viewer/editing.rs::Edit::SetNoteText handling",
+      "crates/viewer-core/src/open/edits.rs::set_note_text"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/headless.rs::a_text_note_with_no_popup_is_opened_and_closed_by_its_activation",
+      "crates/viewer-core/tests/headless.rs::a_window_whose_text_is_not_a_note_s_offers_no_retyping_and_refuses_one",
+      "crates/pdf-model/tests/script_annotations.rs::a_script_retypes_a_text_note_and_its_window_shows_it",
+      "crates/viewer-core/tests/headless.rs::a_note_is_retyped_through_its_window_and_saved_as_its_contents"
+    ],
+    "verdict": "demonstrated-capability-gap-normative-assignment-unresolved",
+    "evidence": "There is a concrete, positively tested capability gap: `retypable` authorizes subtype Text only; `SetNoteText` rejects other parent markup, and `a_window_whose_text_is_not_a_note_s_offers_no_retyping_and_refuses_one` verifies that the displayed Square Contents cannot be edited. ADR 1721 explicitly declines script `contents` for other subtypes; ADR 1726 says non-Text markup windows have no keyboard. I found no owner ratification excluding these existing annotation text edits; CLAUDE.md's scope is closed and includes user edits to an open document. However, the sentence's subject is the Popup annotation and its use/purpose, while /Popup is an optional producer entry; neither directly specifies which interactive processor subtype matrix must be editable. Therefore the ledger's `implemented` claim does not establish this feature, but whether the demonstrated capability gap violates the processor's ISO obligations remains an open normative assignment. Parent read both ADR1721 and1726 and actual headless bodies: Text edit/save/reopen/undo succeeds, Square edit reports refusal and leaves original Contents. A supplied valid Square Popup makes optional absence irrelevant to this capability gap. No extra failing test is needed to prove refusal already explicitly tested; whole feature is not certified.",
+    "test_command": null,
+    "test_result": "popup-page-appearance-target.log1PASS; stamp-popup-reviewed-target.log explicit-control1PASS/absent-link1FAIL; existing model/core tests pass wave15, only inspected assertions counted.",
+    "parent_review": "Parent read effective Popup/common clauses, actual assertions and selected ADRs. New page-appearance control passes; editing capability split out; Stamp absent-link interpretation adjudicated separately.",
+    "reviewer": "popup_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "demonstrated-capability-gap-normative-assignment-unresolved",
     "superseded": false
   },
   {

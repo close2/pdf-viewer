@@ -1,6 +1,6 @@
 {
   "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
-  "checkpoint_utc": "2026-11-10T16:42:44.724169+00:00",
+  "checkpoint_utc": "2026-11-10T16:49:23.481633+00:00",
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
@@ -13,7 +13,7 @@
   "agents": {
     "associated_files_audit": "sound_movie_annotation_audit",
     "catalog_pages_audit": "file_attachment_annotation_audit",
-    "inapplicable_conditions_audit": "popup_annotation_audit plus ADR0674 explanation"
+    "inapplicable_conditions_audit": "screen_annotation_audit"
   },
   "next_candidates": [
     "ADR0674 frame closure vs inset-path degeneracy explanation",
@@ -31,7 +31,7 @@
     "manifest": "Parent verified exact binary/test set equality; assertions are not necessarily distinct defects.",
     "exact_manifest_match": true
   },
-  "latest_clippy": "clippy-text-annotations-clean.log",
+  "latest_clippy": "clippy-popup-square-complete.log",
   "new_failures_since_wave8": [
     "catalog Named OpenAction consumer missing",
     "page-visible neighbor omitted",
@@ -60,9 +60,7 @@
     "CLAUDE.md requires unsigned commits; use git -c commit.gpgsign=false commit because inherited global setting enables GPG."
   ],
   "branch": "audit/specification-evidence-2026-11-10",
-  "pending_parent_review": [
-    "caret_stamp_annotation_audit"
-  ],
+  "pending_parent_review": [],
   "pushed_commits": [
     "a299121c",
     "f413d15f",
@@ -83,8 +81,9 @@
     "d150b6c1",
     "45bf73c8",
     "73eeaa0f",
-    "806a6911"
+    "806a6911",
+    "8e8d6936"
   ],
-  "expected_failures_manifest_count": 51,
-  "broad_run_predates": "Two Text passes and two TextMarkup failures"
+  "expected_failures_manifest_count": 52,
+  "broad_run_predates": "Text2passes,TextMarkup2failures,Stamp1pass1failure,Popup1pass,Squarethreshold1pass"
 }

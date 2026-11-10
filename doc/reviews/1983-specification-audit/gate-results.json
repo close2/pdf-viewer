@@ -800,5 +800,35 @@
   "text_annotations_clippy": {
     "log": "clippy-text-annotations-clean.log",
     "exit": 0
+  },
+  "stamp_popup": {
+    "log": "stamp-popup-reviewed-target.log",
+    "passed": 1,
+    "expected_failed": 1,
+    "exit": 101
+  },
+  "popup_page_appearance": {
+    "log": "popup-page-appearance-target.log",
+    "passed": 1,
+    "exit": 0
+  },
+  "square_border_threshold": {
+    "log": "square-border-threshold-target.log",
+    "passed": 1,
+    "exit": 0
+  },
+  "stamp_popup_clippy": {
+    "log": "clippy-stamp-popup-clean.log",
+    "exit": 0
+  },
+  "text_no_rotate_mutation": {
+    "log": "text-no-rotate-mutation-driver.log",
+    "exit": 0,
+    "source_restored": true,
+    "result": "Both controls PASS; mutant existing test PASS,new test assertion FAIL"
+  },
+  "popup_square_complete_clippy": {
+    "log": "clippy-popup-square-complete.log",
+    "exit": 0
   }
 }

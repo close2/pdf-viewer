@@ -236,3 +236,34 @@ fn square_interior_ic_count_selects_gray_rgb_cmyk_or_transparency() {
         "no border was stated either"
     );
 }
+
+/// ADR0674's fallback threshold and the closing of the inner hole are different events.
+#[test]
+fn a_square_border_closes_its_hole_before_the_inset_path_degenerates() {
+    // For an80x60 rectangle the inner hole closes at width30, while the centerline
+    // rectangle degenerates at width60. Width35 still uses a valid path; opposing
+    // stroke bands overlap and fill the entire rectangle without the fallback.
+    let at_width = |width| {
+        render(&format!(
+            "<< /Type /Annot /Subtype /Square /Rect [10 10 90 70] /F 4 \
+             /C [0 1 0] /IC [1 0 0] /BS << /W {width} >> >>"
+        ))
+    };
+    let narrow = at_width(10);
+    assert_eq!(colour(&narrow, 50, 40), (255, 0, 0), "inner-hole control");
+    assert_eq!(colour(&narrow, 15, 40), (0, 255, 0), "border control");
+    for width in [30, 35, 60] {
+        let covered = at_width(width);
+        assert_eq!(extent(&covered), (10, 10, 89, 69));
+        for y in 10..70 {
+            for x in 10..90 {
+                assert_eq!(
+                    colour(&covered, x, y),
+                    (0, 255, 0),
+                    "width{width},({x},{y})"
+                );
+                assert_eq!(alpha(&covered, x, y), 255, "width{width},({x},{y})");
+            }
+        }
+    }
+}

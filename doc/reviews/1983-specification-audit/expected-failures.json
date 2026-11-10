@@ -286,6 +286,12 @@
       "test": "highlight_preserves_all_four_corners_of_a_counterclockwise_trapezoid",
       "evidence": "text-markup-orientation-target.log",
       "classification": "Quad reconstruction drops far corner and paints outside valid trapezoid; independent interior/exterior controls pass"
+    },
+    {
+      "binary": "viewer-core::stamp_popup_spec_audit",
+      "test": "opening_a_stamp_without_a_popup_reference_still_displays_its_associated_note",
+      "evidence": "stamp-popup-reviewed-target.log",
+      "classification": "Supplied Stamp note not exhibited on pointer activation without optional Popup; explicit-window and valid stored-AP controls pass; combined12.5.1/12.5.6.12 interpretation stated"
     }
   ]
 }

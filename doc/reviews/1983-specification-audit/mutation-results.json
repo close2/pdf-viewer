@@ -249,6 +249,40 @@
       "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/mutation-inverted-stroking.log"
     }
   ],
+  "text-no-rotate-mutation-results.json": [
+    {
+      "variant": "control",
+      "test_version": "existing",
+      "test": "a_text_annotation_behaves_as_though_both_flags_were_set",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "text-no-rotate-mutation-control-existing.log"
+    },
+    {
+      "variant": "control",
+      "test_version": "new",
+      "test": "a_text_annotation_is_upright_when_page_rotation_changes",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "text-no-rotate-mutation-control-new.log"
+    },
+    {
+      "variant": "text-implicit-norotate-removed",
+      "test_version": "existing",
+      "test": "a_text_annotation_behaves_as_though_both_flags_were_set",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "text-no-rotate-mutation-text-implicit-norotate-removed-existing.log"
+    },
+    {
+      "variant": "text-implicit-norotate-removed",
+      "test_version": "new",
+      "test": "a_text_annotation_is_upright_when_page_rotation_changes",
+      "returncode": 101,
+      "outcome": "assertion-failed",
+      "log": "text-no-rotate-mutation-text-implicit-norotate-removed-new.log"
+    }
+  ],
   "vertical-metrics-mutation-results.json": [
     {
       "name": "control",

@@ -1075,7 +1075,7 @@
         "source": "caret_stamp_annotation_audit/decisions.json",
         "decision_id": "Reader should not invent stamp legend icon artwork; distinguish SHOULD from Table175 SHALL",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -1815,8 +1815,8 @@
       {
         "source": "popup_annotation_audit/decisions.json",
         "decision_id": "ADR 0191 §§2–3: render Popup as host window; activate linked popup from markup or Popup object; opening/closing lifecycle",
-        "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "conclusion": "retain-architecture-with-activation-gap",
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -2643,7 +2643,7 @@
         "source": "popup_annotation_audit/decisions.json",
         "decision_id": "ADR 0294 §1: Text /Open and Popup /Open are independent opening conditions",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -2667,9 +2667,18 @@
   },
   {
     "path": "doc/adr/0295-the-entry-nobody-wired-and-the-file-behind-the-paperclip.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "file_attachment_annotation_audit/decisions.json",
+        "decision_id": "read_table_187_fs_at_annotation_activation",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0296-four-contradicted-pages-that-differ-in-one-entry-nobody-reads.md",
@@ -3913,14 +3922,14 @@
   },
   {
     "path": "doc/adr/0457-what-a-stand-in-costs-and-what-a-picture-is-of.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "caret_stamp_annotation_audit/decisions.json",
         "decision_id": "Caret refusal reason must describe unstated caret artwork, while acknowledging stated RD and pilcrow",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -4035,6 +4044,14 @@
     "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
+      {
+        "source": "file_attachment_annotation_audit/decisions.json",
+        "decision_id": "file_attachment_symbol_uses_rect_geometry_without_inheriting_text_icon_rules",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
       {
         "source": "text_annotation_audit/decisions.json",
         "decision_id": "ADR 0471 §12.5.6.4 synthesized icon anchor and fixed-size decision",
@@ -4788,7 +4805,7 @@
       {
         "source": "square_circle_annotation_audit/decisions.json",
         "decision_id": "When an inside border stroke covers the shape, fill the Square/Circle shape with the border colour rather than drawing an empty inset stroke",
-        "conclusion": "retain-with-qualification",
+        "conclusion": "retain-behavior-correct-geometric-explanation",
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
@@ -6198,9 +6215,18 @@
   },
   {
     "path": "doc/adr/0906-the-arm-swept-rather-than-corrected-a-fifth-time.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "file_attachment_annotation_audit/decisions.json",
+        "decision_id": "file_attachment_icons_are_recognized_symbols_under_a_should",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0907-a-requirement-written-as-a-statement-of-fact.md",
@@ -8656,7 +8682,7 @@
         "source": "caret_stamp_annotation_audit/decisions.json",
         "decision_id": "A72 construction boundary: choose missing quantities, do not invent a mark not stated by the clause",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -8966,14 +8992,14 @@
   },
   {
     "path": "doc/adr/1367-the-not-owed-bucket-re-read-two-rows-are-excluded-and-two-departed.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "caret_stamp_annotation_audit/decisions.json",
         "decision_id": "Formerly classify Caret/Stamp refusals as departed rather than owed reported behavior",
         "conclusion": "superseded",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -10391,8 +10417,8 @@
       {
         "source": "caret_stamp_annotation_audit/decisions.json",
         "decision_id": "Status §12.5.6.11/.12 as implemented documented choices because no unfulfilled SHALL remains",
-        "conclusion": "retain, with scope review",
-        "parent_accepted": false,
+        "conclusion": "revisit-whole-stamp-row-completion",
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -10906,9 +10932,18 @@
   },
   {
     "path": "doc/adr/1721-getannots-filters-are-table-167-as-the-page-is-drawn-and-a-note-s-text-is-a-reader-s-edit.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "popup_annotation_audit/decisions.json",
+        "decision_id": "ADR 1721 §2: script-visible text edits apply only to Text notes, other annotation Contents refused",
+        "conclusion": "revisit-unratified-editing-capability-boundary",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1722-a-popups-tab-leader-is-painted-over-the-toolkits-line-in-both-toolkits.md",
@@ -10945,9 +10980,18 @@
   },
   {
     "path": "doc/adr/1726-a-text-note-is-retyped-in-its-own-window-and-the-c-abi-hands-a-leader-over.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "popup_annotation_audit/decisions.json",
+        "decision_id": "ADR 1726 §2: popup editing is limited to Text note windows",
+        "conclusion": "revisit-unratified-editing-capability-boundary",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1727-a-reply-that-states-no-popup-is-a-comment-in-the-window-of-what-it-answers.md",
@@ -13624,14 +13668,14 @@
   },
   {
     "path": "doc/adr/2284-a-popup-s-parent-is-any-markup-annotation-but-sound.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "popup_annotation_audit/decisions.json",
         "decision_id": "ADR 2284 §§1–3: permissible Popup parent subtype scope",
-        "conclusion": "retain",
-        "parent_accepted": false,
+        "conclusion": "retain-with-bounded-scope-note",
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
