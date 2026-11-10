@@ -75,7 +75,10 @@ permanent) or an owner decision to acquire a specification.
   under every illuminant its `IL` field names — the white point §8.6.5.4's EXAMPLE, T.4 or the CIE's
   free data states, and a colour temperature's Planckian radiator (ADRs 1712, 1713) — are drawn as
   defined, and so are e-sRGB and e-sYCC, from the held PIMA 7667 bought under A348 (ADR 2292).
-  CIE Jab alone depends on unheld CIE Publication 131, whose purchase the owner declines.
+  CIE Jab depends on unheld CIE Publication 131, whose purchase the owner declines; and sYCC's
+  colours outside sRGB's gamut are clipped by the codec before a destination other than the screen,
+  where PIMA 7667's Annex C keeps them — effort only, priced against a writer's refusal (ADRs 2793,
+  2794). ROMM-RGB is drawn by the codec and pinned for neutrals while PIMA 7666 is unheld (Q825).
   Checking the restriction on a file is not a reader's job and is not counted as debt
   (ADR 1184); `pdf-archive` checks all of M.9.2 for ISO 19005 (ADRs 1383, 1399). The thirteen
   corpus codestreams a level off the reference software on the irreversible path are not debt:
@@ -236,7 +239,8 @@ and its `AES128ExposedMeta.pdf` and `AES256ExposedMeta.pdf` with `PDFBOX-5249.p1
 serial `60FFD550`), both published beside them; the census's fifth, `3006236.pdf`, has no key
 anywhere. `crates/pdf-syntax/tests/public_key_witnesses.rs` holds each recipient to its keystore.
 No document is known to be encrypted to a key a real reader holds, so the calibrated refusal is the
-state and the build stays untriggered.
+state and the build stays untriggered. **The trigger is lifted**: `doc/questions/A800` (2026-11-06)
+orders the build now, so this cluster is effort only and waits for a round to take it.
 
 - §7.6.5.1, §7.6.5.2, §7.6.5.3 — all three `reported`: the handler, its dictionary and its
   algorithms, refused by name before Table 23 is read; §7.6.5 above them is their aggregate.
@@ -275,9 +279,10 @@ row is in this bucket when its note names none of those three.
 No row is in this bucket at present.
 
 
-§7.4.9's buildable part is built: e-sRGB and e-sYCC are drawn from the held PIMA 7667 (A348),
-with extended-range and non-neutral fixtures (ADRs 2292, 2293). Its CIEJab part remains in the
-unheld-text bucket.
+§7.4.9's buildable part is built but for one piece: e-sRGB and e-sYCC are drawn from the held PIMA
+7667 (A348), with extended-range and non-neutral fixtures (ADRs 2292, 2293), and sYCC is held to its
+Annex C (ADR 2794); drawing sYCC by that annex rather than the codec is owed (ADR 2793). Its CIEJab
+part remains in the unheld-text bucket.
 
 §13.2.2 and §14.9.2.4 were here, and are `implemented`: `pdf_model::media` judges a rendition's
 viability by the clause's rules for the one player this program has — the hand-off, told nothing but

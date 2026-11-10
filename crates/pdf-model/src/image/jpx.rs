@@ -828,10 +828,12 @@ struct JpxColourChoice<'a> {
 /// The enumerated colour spaces the codec draws as their definitions state, besides CIE Lab.
 ///
 /// Part 1 Table I-10's sRGB (16) and greyscale (17), and T.801 Table M.25's CMYK (12), sYCC (18)
-/// and ROMM-RGB (21). The last two are the codec's conversions — sYCC's matrix and a ROMM-RGB
-/// profile — whose defining texts (IEC 61966-2-1 Amd. 1, PIMA 7666) this project does not hold;
-/// `tests/jpx_enumerated_spaces.rs` pins what the held texts do fix, that a colour of no chroma
-/// or of equal components is a neutral one. Two more T.801 Table M.25 lists are drawn by this
+/// and ROMM-RGB (21). The last two are the codec's conversions, a YCbCr matrix and a ROMM-RGB
+/// profile. sYCC's is held to PIMA 7667's normative Annex C, which converts the same sRGB-based
+/// BT.601 YCbCr to e-sRGB, and on a screen of sRGB's primaries its clipped answer is the codec's
+/// (ADR 2794); ROMM-RGB's defining text, PIMA 7666, is not held, and
+/// `tests/jpx_enumerated_spaces.rs` pins what the held texts fix of it, that three equal
+/// components are a neutral colour. Two more T.801 Table M.25 lists are drawn by this
 /// crate instead, from the held PIMA 7667 (A348): e-sRGB ([`E_SRGB`]) and e-sYCC ([`E_SYCC`]),
 /// which [`jpx_drawn`] reads. CIE Jab (19) depends on the unheld CIE Publication 131, whose
 /// purchase the owner declines, and takes §7.4.9's fallback (ADRs 1383, 2187, 2292).

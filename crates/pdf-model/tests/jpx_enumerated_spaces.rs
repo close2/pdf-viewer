@@ -15,9 +15,10 @@
 //! decides.
 //!
 //! **What an expected value may rest on.** The definitions behind two of the codes are in texts
-//! this project does not hold — IEC 61966-2-1 Amd. 1 (sYCC), PIMA 7666 (ROMM-RGB) — and CIE
-//! Publication 131 (CIEJab) is the third. PIMA 7667 (e-sRGB, e-sYCC) is held (A348), and those
-//! two codes' expected pixels are worked by hand from its equations, each test saying which. So
+//! this project does not hold — PIMA 7666 (ROMM-RGB) and CIE Publication 131 (CIEJab). PIMA 7667
+//! (e-sRGB, e-sYCC) is held (A348), and so is its normative Annex C, which converts the sRGB-based
+//! BT.601 YCbCr that T.801 enumerates as sYCC to e-sRGB (ADR 2794); those three codes' expected
+//! pixels are worked by hand from its equations, each test saying which. So
 //! where a test asserts a colour it is one the held texts fix: a luma-chroma colour with no chroma
 //! is neutral and an RGB colour of three equal components is neutral, whatever the coefficients;
 //! CIELab's samples are
@@ -482,6 +483,53 @@ fn sycc_with_no_chroma_is_neutral() {
     sandbox();
     let pixels = drawn(4, &jpx(THREE, (4, 3), &[enumerated(0, 18, &[])]));
     assert_near(&pixels[..1], &[[150, 150, 150]], "sYCC of no chroma");
+}
+
+/// sYCC (18) is drawn as PIMA 7667's normative Annex C converts it, worked by hand. The annex
+/// names the encoding "[t]he sRGB based YCbCr color encoding consistent with ITU-R BT.601-5, which
+/// is specified in a proposed amendment to ISO/IEC 15444-1 as sRGB YCC", and C.2 states the
+/// conversion "from m-bit sRGB YCC to n-bit e-sRGB": C7 gives `Y′` = `Y″` / 255, C8 gives each
+/// chroma `(C″ / 255 − 0.5) / 2` — e-sYCC's half-scale chroma — and B9 then gives e-sRGB's
+/// nonlinear components, which on this screen are the pixel × 255, clipped outside 0 to 1 as
+/// A.3's NOTE says (ADR 2794).
+///
+/// On [`E_SYCC_8`]'s four pixels:
+/// - (150, 128, 128): `Cb′` = `Cr′` = 0.000980, so `R′` = 0.588235 + 2.804 × 0.000980 = 0.590984
+///   (150.70), `G′` = 0.588235 − (0.6882 + 1.4282) × 0.000980 = 0.586160 (149.47), and `B′` =
+///   0.588235 + (3.544 + 0.0003) × 0.000980 = 0.591710 (150.89). C8's centre is half a level below C6's
+///   `2^(m−1)`, and the one-level tolerance holds either.
+/// - (150, 150, 150): `Cb′` = `Cr′` = 0.044118, so `R′` = 0.711942 (181.55), `G′` = 0.494873
+///   (126.19) and `B′` = 0.744601 (189.87) — where e-sYCC's undivided chroma draws (212, 103,
+///   228), so the assertion tells the two encodings apart.
+/// - (200, 128, 80): `Cr′` = −0.093137, so `R′` = 0.523157 (133.40), `G′` = 0.916658 (233.75)
+///   and `B′` = 0.787760 (200.88).
+/// - (128, 60, 128): `Cb′` = −0.132353, so `R′` = 0.504710 (128.70), `G′` = 0.591646 (150.87) and
+///   `B′` = 0.032902 (8.39).
+///
+/// And on [`THREE`]'s last two, which leave sRGB's gamut: (255, 128, 96) has `Cr′` = −0.061765,
+/// so `R′` = 0.826812 (210.84) and `G′` = 1.087538, past 1 and clipped to 255, with `B′` =
+/// 1.003456, clipped too; (0, 128, 96) has `R′` = −0.173188, clipped to 0, `G′` = 0.087538
+/// (22.32) and `B′` = 0.003456 (0.88).
+#[test]
+fn sycc_is_drawn_as_pima_7667_annex_c_converts_it() {
+    sandbox();
+    let pixels = drawn(4, &jpx(E_SYCC_8, (4, 3), &[enumerated(0, 18, &[])]));
+    assert_near(
+        &pixels,
+        &[
+            [151, 149, 151],
+            [182, 126, 190],
+            [133, 234, 201],
+            [129, 151, 8],
+        ],
+        "sYCC against Annex C's C7, C8 and B9",
+    );
+    let outside = drawn(4, &jpx(THREE, (4, 3), &[enumerated(0, 18, &[])]));
+    assert_near(
+        &outside[2..],
+        &[[211, 255, 255], [0, 22, 1]],
+        "sYCC outside sRGB's gamut, clipped on this screen",
+    );
 }
 
 /// ROMM-RGB (21): three equal components are neutral in any RGB space.
