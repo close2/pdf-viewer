@@ -1,6 +1,6 @@
 {
   "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
-  "checkpoint_utc": "2026-11-10T18:13:07.683783+00:00",
+  "checkpoint_utc": "2026-11-10T18:16:08.096450+00:00",
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
@@ -13,7 +13,7 @@
   "agents": {
     "associated_files_audit": "FDF script timing and optional absent-V rationale",
     "catalog_pages_audit": "JPXDecode",
-    "inapplicable_conditions_audit": "transparency groups"
+    "inapplicable_conditions_audit": "nonzero backdrop-removal and pattern shape/opacity"
   },
   "next_candidates": [
     "12.7.4.3 variable-text effective source and save regeneration",
@@ -21,15 +21,14 @@
     "12.7.6 form actions and serialization dependencies"
   ],
   "latest_broad": {
-    "log": "nextest-nine-crates-wave18.log",
-    "run": 5785,
-    "passed": 5720,
-    "expected_failed": 64,
-    "unexpected_failed": 1,
+    "log": "nextest-nine-crates-wave19.log",
+    "run": 5791,
+    "passed": 5725,
+    "expected_failed": 66,
+    "unexpected_failed": 0,
     "skipped": 53,
     "exit": 100,
-    "unexpected_test": "variable_text_da_tm_audit::saved_default_appearance_without_tm_gets_one_before_text_showing",
-    "resolution": "Test wrongly constrained relative order of independent colour/font operators. Corrected to require both before Tm; da-tm-target-reviewed.log3PASS. Final broad rerun pending."
+    "comparison": "Exact manifest match after excluding3GTKsupplemental assertions."
   },
   "latest_clippy": "clippy-fdf-fields-v3.log",
   "new_failures_since_wave8": [
@@ -61,9 +60,9 @@
   ],
   "branch": "audit/specification-evidence-2026-11-10",
   "pending_parent_review": [
-    "FDFfield flags/precedence",
-    "JPXDecode granular consumer review",
-    "transparency groups"
+    "JPXmask/input",
+    "FDFscript timing",
+    "nonzero removal/pattern shape-opacity"
   ],
   "pushed_commits": [
     "a299121c",
@@ -98,10 +97,11 @@
     "f542aed9",
     "0e3d7c09",
     "344107a1",
-    "2c9c864b"
+    "2c9c864b",
+    "d69f9227"
   ],
   "expected_failures_manifest_count": 69,
-  "broad_run_predates": "DAoperator-order assertion corrected and targeted3PASS; FDFStatus fixture exactxref strengthened1PASS. Final broad rerun pending after active drafts.",
+  "broad_run_predates": "No promoted test changes after broad19 yet; active image/FDFscript/pattern followups pending.",
   "expected_failures_by_scope": {
     "broad_nine_crates": 66,
     "gtk_supplemental": 3

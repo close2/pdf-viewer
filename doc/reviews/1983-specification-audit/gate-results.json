@@ -1046,5 +1046,15 @@
   "fdf_fields_clippy": {
     "log": "clippy-fdf-fields-v3.log",
     "exit": 0
+  },
+  "broad_wave19": {
+    "log": "nextest-nine-crates-wave19.log",
+    "run": 5791,
+    "passed": 5725,
+    "expected_failed": 66,
+    "unexpected_failed": 0,
+    "skipped": 53,
+    "exit": 100,
+    "comparison": "Exact manifest match after excluding3GTKsupplemental assertions."
   }
 }

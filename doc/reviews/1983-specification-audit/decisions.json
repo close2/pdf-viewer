@@ -7323,6 +7323,159 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/0237-a-second-accumulator-the-clause-divides-out-again.md",
+    "decision_id": "ADR 0237 group model; Normal-Do nonisolated nonknockout path",
+    "original_decision": "Use a nonisolated group representation and one-pass interpolation when the group is painted with Normal; the then-current model reported other Do modes and knockout combinations as unsupported/residual.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The Normal one-pass construction is still the current route and is supported by §11.4.4 and consumer tests. The older unsupported scope is stale: ADR1107 adds backdrop removal for a non-Normal nonknockout Do, and ADR1305 adds the result step for nonisolated knockout under its own mode. Keep the historical algorithm decision; do not repeat old limitations as current.",
+    "current_code_evidence": [
+      "crates/render-cpu/src/groups.rs::draw_group",
+      "crates/render-cpu/src/blend.rs::interpolate",
+      "crates/render-cpu/src/blend.rs::remove_backdrop"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_groups_element_blends_with_the_backdrop_the_group_is_painted_over",
+      "crates/pdf-model/tests/transparency_groups.rs::a_blend_mode_at_the_do_is_applied_to_the_group_as_one_object",
+      "crates/pdf-model/tests/transparency_groups.rs::a_knockout_group_under_a_mode_of_its_own_is_composited_as_one_object"
+    ],
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §11.4.4 NOTE 3 and §11.4.8; effective source physical pp. 423, 428"
+    ],
+    "changed_premise": "The successors implemented result-step paths that the original ADR described as outside its guarantee.",
+    "remaining_work": "Other raster backends may refuse these combinations; this audit establishes the CPU route only.",
+    "parent_review": "Selected decision only; historical ADR unchanged. Parent source/code/assertion review and broad19 execution.",
+    "reviewer": "transparency_groups_audit",
+    "source": "transparency_groups_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0307-the-initial-backdrop-a-knockout-group-hands-out.md",
+    "decision_id": "ADR 0307 initial backdrop for knockout group elements / Note 6",
+    "original_decision": "Distinguish true nonisolated knockout elements that blend against the group initial backdrop from corpus cases that only appear to require a second color space; retain the identified genuinely unresolved colored-element case.",
+    "current_conclusion": "retain",
+    "reason": "The core interpretation agrees with §11.4.6: knockout elements use the group initial backdrop; Note 6 gives that same backdrop to nested nonisolated groups. Current raster code explicitly carries it. This decision does not certify every knockout blend/color-space case.",
+    "current_code_evidence": [
+      "crates/render-cpu/src/groups.rs::knockout_on_backdrop",
+      "crates/render-cpu/src/blend.rs::knockout_average"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_group_inside_an_isolated_knockout_group_takes_the_transparency_note_6_gives_it",
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_group_may_be_an_element_of_a_knockout_group"
+    ],
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §11.4.6; effective source physical p. 426"
+    ],
+    "changed_premise": "",
+    "remaining_work": "Retain selected initial-backdrop interpretation only. Historical own-backdrop refusal is superseded by ADR0327/1305; do not preserve it as a current CPU limitation. Historical corpus populations not re-audited.",
+    "parent_review": "Selected decision only; historical ADR unchanged. Parent source/code/assertion review and broad19 execution.",
+    "reviewer": "transparency_groups_audit",
+    "source": "transparency_groups_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0554-a-knockout-stage-keeps-the-equality-a-union-keeps.md",
+    "decision_id": "ADR 0554 alpha-is-shape proof in knockout groups",
+    "original_decision": "Allow the group alpha-is-shape optimization for knockout groups when its proof condition holds, since shape and alpha recurrence coincide when relevant opacities are one.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "This proof-based optimization is consistent with the separate-shape requirement in §11.4.6 and current condition checks. A single pixel claim here does not prove all clipping-set intersections or all object kinds; shape and alpha are only interchangeable under the stated proof.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/content/transparency/shape.rs::group_alpha_is_shape",
+      "crates/render-cpu/src/groups.rs"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_knockout_group_of_opaque_marks_carries_its_shape",
+      "crates/pdf-model/tests/transparency_groups.rs::a_groups_opacity_does_not_become_its_shape_inside_a_knockout_group"
+    ],
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §11.4.6; effective source physical p. 426"
+    ],
+    "changed_premise": "",
+    "remaining_work": "No broad clipping or every-element-kind certification in this shard.",
+    "parent_review": "Selected decision only; historical ADR unchanged. Parent source/code/assertion review and broad19 execution.",
+    "reviewer": "transparency_groups_audit",
+    "source": "transparency_groups_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0582-the-seam-is-not-the-model.md",
+    "decision_id": "ADR 0582 correction of pointwise-union interpretation for raster seams",
+    "original_decision": "Withdraw the claim that antialias seam values themselves are the pointwise Union formula; the standard defines shape at points and rasterization may supply fractional shape coverage, so sampled pixel averaging is an approximation/departure from pointwise shape, not a normative expected seam value.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The correction remains necessary: §11.3.7.3 union is pointwise, while antialias coverage on the finite raster grid is an approximation to geometry. A raster tolerance gate can test a practical bound, but it cannot establish exact pointwise union. The current abutting_marks test header still states the superseded rationale, so documentation is internally inconsistent.",
+    "current_code_evidence": [
+      "crates/render-cpu/src/scan.rs",
+      "crates/render-cpu/src/compose.rs",
+      "crates/render-raster/tests/abutting_marks.rs"
+    ],
+    "test_evidence": [
+      "crates/render-raster/tests/abutting_marks.rs::two_abutting_marks_leave_no_more_than_the_union"
+    ],
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §11.2, §11.3.7.2 NOTE 1, §11.3.7.3; effective source physical pp. 412–417"
+    ],
+    "changed_premise": "The prior rationale treated an antialiased fractional raster sample as the normative pointwise set-union result; source distinguishes geometric point values from raster coverage.",
+    "remaining_work": "Parent should preserve an explicit stale-test-header documentation finding. No exact pixel seam is asserted by this ADR review. Already reviewed in compositing_formula_audit; no new whole-ADR claim and no new GPU execution.",
+    "parent_review": "Selected decision only; historical ADR unchanged. Parent source/code/assertion review and broad19 execution.",
+    "review_type": "cross_reference_only",
+    "reviewer": "transparency_groups_audit",
+    "source": "transparency_groups_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1107-the-groups-own-colour-when-the-file-composites-it-under-a-mode.md",
+    "decision_id": "ADR 1107 nonisolated nonknockout group under non-Normal Do mode",
+    "original_decision": "Perform §11.4.4 backdrop-removal result step for a nonisolated group the file composites under a blend mode instead of reporting it unsupported.",
+    "current_conclusion": "retain-algorithm-with-test-gap",
+    "reason": "The implementation removes the initial backdrop and composites the group as one object for non-Normal invocation blend. A pixel test compares distinct blend modes against isolated and Normal controls. Parent checked the fixture arithmetic: alpha0=alphagn=1 makes the removal factor zero and remove_backdrop takes its fast continue. Existing test cannot demonstrate the nonzero removal step; it proves selected mode/isolation results. Partial-alpha nonknockout consumer follow-up requested.",
+    "current_code_evidence": [
+      "crates/render-cpu/src/groups.rs::draw_group",
+      "crates/render-cpu/src/blend.rs::remove_backdrop"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_blend_mode_at_the_do_is_applied_to_the_group_as_one_object"
+    ],
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §11.4.3–11.4.4; effective source physical pp. 420–423"
+    ],
+    "changed_premise": "",
+    "remaining_work": "Add/review a nonzero-removal nonknockout oracle; current knockout partial-alpha fixture exercises another group construction. Broader backends remain outside scope.",
+    "parent_review": "Selected decision only; historical ADR unchanged. Parent source/code/assertion review and broad19 execution.",
+    "reviewer": "transparency_groups_audit",
+    "source": "transparency_groups_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1305-a-knockout-group-under-a-mode-of-its-own-takes-the-result-step.md",
+    "decision_id": "ADR 1305 nonisolated knockout group under non-Normal Do mode",
+    "original_decision": "Apply the result step to a nonisolated knockout group painted under its own non-Normal mode, extending the prior Normal-only construction condition.",
+    "current_conclusion": "retain",
+    "reason": "Current code and targeted tests implement the construction while retaining the knockout initial-backdrop rule. It corrects the earlier assumption that such inputs must be refused; no claim is made for every possible blend/color-space combination.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/content/transparency.rs::knockout_construction",
+      "crates/render-cpu/src/groups.rs::draw_group",
+      "crates/render-cpu/src/groups.rs::knockout_on_backdrop"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_knockout_group_under_a_mode_of_its_own_is_composited_as_one_object",
+      "crates/pdf-model/tests/transparency_groups.rs::a_knockout_groups_elements_blend_against_the_pages_own_backdrop"
+    ],
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §11.4.4 and §11.4.6; effective source physical pp. 423–426"
+    ],
+    "changed_premise": "ADR 1107 and ADR 1305 extend result-step handling to non-Normal invocation modes; original ADR 0237’s limited guarantee is not a global current restriction.",
+    "remaining_work": "Do not infer full knockout mode/space coverage from these selected consumer paths.",
+    "parent_review": "Selected decision only; historical ADR unchanged. Parent source/code/assertion review and broad19 execution.",
+    "reviewer": "transparency_groups_audit",
+    "source": "transparency_groups_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/0369-the-two-operators-a-deferred-clause-decides.md",
     "decision_id": "operator-semantics-are-deliberate-choices-where-ISO-defers",
     "original_decision": "§7.10.5.2 defers semantics normatively to PLRM3, so where no other ISO requirement resolves an operator detail, the implementation records a choice rather than claiming derivation.",

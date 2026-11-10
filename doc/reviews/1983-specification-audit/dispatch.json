@@ -1054,9 +1054,24 @@
       "state": "running"
     },
     {
-      "agent": "transparency_groups_followup_audit",
+      "agent": "transparency_groups_audit",
       "clauses": [
-        "11.4"
+        "11.4.1",
+        "11.4.2",
+        "11.4.3",
+        "11.4.4",
+        "11.4.5",
+        "11.4.6",
+        "11.4.7",
+        "11.4.8"
+      ],
+      "state": "parent-reviewed-partial"
+    },
+    {
+      "agent": "pattern_shape_opacity_audit",
+      "clauses": [
+        "11.3.7.2",
+        "11.4.4"
       ],
       "state": "running"
     }

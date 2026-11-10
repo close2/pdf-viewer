@@ -333,6 +333,36 @@
       "log": "text-no-rotate-mutation-text-implicit-norotate-removed-new.log"
     }
   ],
+  "tx-splice-mutation-results.json": [
+    {
+      "variant": "control",
+      "test": "need_appearances_rewrites_the_marked_content_region_and_keeps_the_rest",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "tx-splice-mutation-control-variable_text.log"
+    },
+    {
+      "variant": "control",
+      "test": "saved_tx_replacement_reaches_matching_emc_and_preserves_outside_paint",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "tx-splice-mutation-control-variable_text_tx_splice_audit.log"
+    },
+    {
+      "variant": "stop-at-first-nested-emc",
+      "test": "need_appearances_rewrites_the_marked_content_region_and_keeps_the_rest",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "tx-splice-mutation-stop-at-first-nested-emc-variable_text.log"
+    },
+    {
+      "variant": "stop-at-first-nested-emc",
+      "test": "saved_tx_replacement_reaches_matching_emc_and_preserves_outside_paint",
+      "returncode": 101,
+      "outcome": "assertion-failed",
+      "log": "tx-splice-mutation-stop-at-first-nested-emc-variable_text_tx_splice_audit.log"
+    }
+  ],
   "vertical-metrics-mutation-results.json": [
     {
       "name": "control",

@@ -659,10 +659,22 @@
   {
     "clause": "7.4.9",
     "ledger_status": "partial",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "jpx_mask_input_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "code-path-supported-no-valid-jpx-stencil-assertion-found": 1,
+      "covered-by-feature-tests-with-fixture-validity-caveat": 1,
+      "existing-ordinary-case-and-draft-image-mask-exception": 1,
+      "forward-reference-reader-policy-not-assessed-here": 1,
+      "implementation-check-found-existing-cited-test-uses-dct-not-jpx": 1,
+      "known-bounded-support-residual": 1,
+      "partial-implementation-and-test-fixture-scope": 1,
+      "producer-requirement-with-reader-tolerance": 1,
+      "selected-behavior-asserted-with-explicit-colour-space-residuals": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
@@ -4919,11 +4931,13 @@
   {
     "clause": "11.4.1",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "transparency_groups_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "transparency_groups_audit"
+    ],
     "feature_record_verdicts": {
       "confirmed-selected-consumer": 2
     },
@@ -4932,11 +4946,13 @@
   {
     "clause": "11.4.2",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "transparency_groups_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "transparency_groups_audit"
+    ],
     "feature_record_verdicts": {
       "code-supported": 1
     },
@@ -4945,11 +4961,13 @@
   {
     "clause": "11.4.3",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "transparency_groups_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "transparency_groups_audit"
+    ],
     "feature_record_verdicts": {
       "confirmed-selected-consumer": 2
     },
@@ -4958,11 +4976,13 @@
   {
     "clause": "11.4.4",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "transparency_groups_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "transparency_groups_audit"
+    ],
     "feature_record_verdicts": {
       "confirmed-selected-consumer": 2
     },
@@ -4971,11 +4991,13 @@
   {
     "clause": "11.4.5",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "transparency_groups_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "transparency_groups_audit"
+    ],
     "feature_record_verdicts": {
       "confirmed-selected-consumer": 1
     },
@@ -4984,11 +5006,13 @@
   {
     "clause": "11.4.6",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "transparency_groups_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "transparency_groups_audit"
+    ],
     "feature_record_verdicts": {
       "confirmed-selected-consumer": 3
     },
@@ -4997,11 +5021,13 @@
   {
     "clause": "11.4.7",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "transparency_groups_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "transparency_groups_audit"
+    ],
     "feature_record_verdicts": {
       "confirmed-selected-consumer": 1,
       "partial-color-management-scope": 1
@@ -5011,11 +5037,13 @@
   {
     "clause": "11.4.8",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "transparency_groups_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "transparency_groups_audit"
+    ],
     "feature_record_verdicts": {
       "confirmed-selected-corrected-text": 1
     },

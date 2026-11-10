@@ -3,16 +3,16 @@
   "adr_documents": 2233,
   "document_states": {
     "pending": 1963,
-    "selected-decision-units-reviewed": 249,
-    "review-in-progress": 21
+    "selected-decision-units-reviewed": 254,
+    "review-in-progress": 16
   },
   "decision_review_records": 414,
-  "parent_accepted_records": 408,
-  "cross_reference_records": 28,
+  "parent_accepted_records": 414,
+  "cross_reference_records": 29,
   "accepted_record_conclusions": {
-    "retain-with-qualification": 187,
+    "retain-with-qualification": 190,
     "revisit": 14,
-    "retain": 115,
+    "retain": 117,
     "superseded": 15,
     "superseded-in-part": 2,
     "cross-reference-only": 26,
@@ -57,6 +57,7 @@
     "revisit-false-figure-premise-and-quad-geometry": 1,
     "retain-api-with-citation-and-polygon-precision-qualification": 1,
     "retain-bounded": 1,
+    "retain-algorithm-with-test-gap": 1,
     "retain-geometry-with-rationale-correction": 1,
     "retain-layout-and-save-architecture-qualify-dictionary-initialization": 2,
     "revisit-compatibility-choice-that-replaces-explicit-default": 1,

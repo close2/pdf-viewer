@@ -41140,6 +41140,399 @@
     "superseded": false
   },
   {
+    "clause": "11.4.1",
+    "feature_id": "11.4.1-one-object-group",
+    "requirement": "Collect consecutive elements into a group result (colour, shape, opacity) and composite that result as one object; groups may nest.",
+    "source_location": "Printed p. 402; physical p. 417; source/spec-layout.txt around 24225–24263.",
+    "errata": "EC3 Issue #688 on physical p. 428 corrects two Latin a variables in §11.4.8 initialization to Greek α; no other substantive correction in this clause range was identified. Links/cross-references on other pages are not text changes.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/groups.rs::CpuRasterizer::draw_group",
+      "crates/render-cpu/src/groups.rs::group_buffer",
+      "crates/pdf-model/src/content/transparency.rs::transparency_group"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_group_is_composited_once_rather_than_object_by_object",
+      "crates/pdf-model/tests/transparency_groups.rs::a_form_becomes_a_group_only_for_the_transparency_subtype"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "The overlap test asserts equal overlap/alone red at 127 and contrasts with an ordinary form, where overlap differs. This discriminates one group-level alpha application from painting each member through it. Nested-group behavior has separate backdrop tests below.",
+    "remaining": "",
+    "parent_review": "Accepted partial: source/EC3, current CPU construction and selected discriminating assertions checked; broader device/colour-management residuals remain.",
+    "test_result": "Existing pdf-model consumers pass broad19. No render-raster/GPU execution added.",
+    "reviewer": "transparency_groups_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "11.4.1",
+    "feature_id": "11.4.1-group-invocation-inputs",
+    "requirement": "A group result may receive the ordinary compositing inputs (mask/constant shape, mask/constant opacity and blend mode) when painted with its backdrop.",
+    "source_location": "Printed p. 402; physical p. 417; source/spec-layout.txt around 24242–24261.",
+    "errata": "EC3 Issue #688 on physical p. 428 corrects two Latin a variables in §11.4.8 initialization to Greek α; no other substantive correction in this clause range was identified. Links/cross-references on other pages are not text changes.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/groups.rs::CpuRasterizer::draw_group",
+      "crates/render-cpu/src/groups.rs::group_buffer",
+      "crates/pdf-model/src/content/transparency.rs::transparency_group"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_groups_element_blends_with_the_backdrop_the_group_is_painted_over",
+      "crates/pdf-model/tests/transparency_groups.rs::a_blend_mode_at_the_do_is_applied_to_the_group_as_one_object"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "These fixtures apply group invocation alpha/mask and a non-Normal mode and inspect pixels both where the group paints and outside it. They cover selected combinations, not every input cross-product.",
+    "remaining": "Parent found ADR1107 nonknockout invocation fixture has alpha0=alphagn=1, so removal factor is zero. It distinguishes invocation blend/isolation but cannot prove nonzero removal arithmetic. A targeted partial-group-alpha nonknockout follow-up is running. ADR1305 has a discriminating partial-alpha knockout oracle, a separate construction.",
+    "parent_review": "Accepted partial: source/EC3, current CPU construction and selected discriminating assertions checked; broader device/colour-management residuals remain.",
+    "test_result": "Existing pdf-model consumers pass broad19. No render-raster/GPU execution added.",
+    "reviewer": "transparency_groups_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "11.4.2",
+    "feature_id": "11.4.2-stack-recurrence-notation",
+    "requirement": "The restated stack recurrence uses indexed source, result and blend values; Table 138 names shape, opacity, alpha and colour variables.",
+    "source_location": "Printed pp. 403–404; physical pp. 418–419; source/spec-layout.txt around 24264–24363.",
+    "errata": "EC3 Issue #688 on physical p. 428 corrects two Latin a variables in §11.4.8 initialization to Greek α; no other substantive correction in this clause range was identified. Links/cross-references on other pages are not text changes.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/groups.rs::CpuRasterizer::draw_group",
+      "crates/render-cpu/src/groups.rs::group_buffer",
+      "crates/pdf-model/src/content/transparency.rs::transparency_group"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_group_blends_with_the_page_behind_it"
+    ],
+    "verdict": "code-supported",
+    "evidence": "This is primarily notation and restatement of §11.3 stack compositing. Existing group consumer tests exercise selected recurrence results; this record does not claim independent coverage of every symbol/Table 138 entry or prove the general formula by exhaustive vectors.",
+    "remaining": "No additional test is justified solely for variable naming; broader formula coverage belongs to §11.3 audits.",
+    "parent_review": "Accepted partial: source/EC3, current CPU construction and selected discriminating assertions checked; broader device/colour-management residuals remain.",
+    "test_result": "Existing pdf-model consumers pass broad19. No render-raster/GPU execution added.",
+    "reviewer": "transparency_groups_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported",
+    "superseded": false
+  },
+  {
+    "clause": "11.4.3",
+    "feature_id": "11.4.3-nested-group-tree",
+    "requirement": "Nested groups are recursively represented as one element in their parent; distinguish group, initial and immediate backdrops.",
+    "source_location": "Printed p. 405; physical p. 420; source/spec-layout.txt around 24364–24396.",
+    "errata": "EC3 Issue #688 on physical p. 428 corrects two Latin a variables in §11.4.8 initialization to Greek α; no other substantive correction in this clause range was identified. Links/cross-references on other pages are not text changes.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/groups.rs::CpuRasterizer::draw_group",
+      "crates/render-cpu/src/groups.rs::group_buffer",
+      "crates/pdf-model/src/content/transparency.rs::transparency_group"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_group_inside_another_keeps_the_backdrop_alpha_it_composites_onto",
+      "crates/pdf-model/tests/transparency_groups.rs::a_group_inside_an_isolated_knockout_group_takes_the_transparency_note_6_gives_it"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "The nested nonisolated test uses a half-alpha outer backdrop and checks the inner group result and an unmarked pixel; an intentionally isolated inner variant differs. The separate nested knockout fixture tests the special initial-backdrop rule in §11.4.6 Note 6.",
+    "remaining": "",
+    "parent_review": "Accepted partial: source/EC3, current CPU construction and selected discriminating assertions checked; broader device/colour-management residuals remain.",
+    "test_result": "Existing pdf-model consumers pass broad19. No render-raster/GPU execution added.",
+    "reviewer": "transparency_groups_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "11.4.3",
+    "feature_id": "11.4.3-backdrop-included-once",
+    "requirement": "After group elements are computed, treat the result as one object on the group backdrop, whether the group began on inherited or transparent backdrop; the backdrop contribution must appear once.",
+    "source_location": "Printed p. 405; physical p. 420; source/spec-layout.txt around 24382–24396.",
+    "errata": "EC3 Issue #688 on physical p. 428 corrects two Latin a variables in §11.4.8 initialization to Greek α; no other substantive correction in this clause range was identified. Links/cross-references on other pages are not text changes.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/groups.rs::CpuRasterizer::draw_group",
+      "crates/render-cpu/src/groups.rs::group_buffer",
+      "crates/pdf-model/src/content/transparency.rs::transparency_group",
+      "crates/render-cpu/src/blend.rs::interpolate",
+      "crates/render-cpu/src/blend.rs::remove_backdrop"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_group_blends_with_the_page_behind_it",
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_groups_element_blends_with_the_backdrop_the_group_is_painted_over"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "The nonisolated group test distinguishes inherited-backdrop compositing from isolated behavior; the invocation alpha/mask case checks the backdrop contribution is not doubled and unmarked area remains unchanged. CPU code either performs a single interpolation for Normal or removes the backdrop and composites the group as one object under a non-Normal invocation blend.",
+    "remaining": "Parent found ADR1107 nonknockout invocation fixture has alpha0=alphagn=1, so removal factor is zero. It distinguishes invocation blend/isolation but cannot prove nonzero removal arithmetic. A targeted partial-group-alpha nonknockout follow-up is running. ADR1305 has a discriminating partial-alpha knockout oracle, a separate construction.",
+    "parent_review": "Accepted partial: source/EC3, current CPU construction and selected discriminating assertions checked; broader device/colour-management residuals remain.",
+    "test_result": "Existing pdf-model consumers pass broad19. No render-raster/GPU execution added.",
+    "reviewer": "transparency_groups_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "11.4.4",
+    "feature_id": "11.4.4-nonisolated-initial-backdrop-and-removal",
+    "requirement": "For nonisolated, nonknockout groups, initialize group-only shape/alpha to zero; composite member colours against a backdrop that includes the initial backdrop, then return group-only shape/alpha and colour with the initial backdrop factored out.",
+    "source_location": "Printed pp. 405–408; physical pp. 420–423; source/spec-layout.txt around 24397–24584.",
+    "errata": "EC3 Issue #688 on physical p. 428 corrects two Latin a variables in §11.4.8 initialization to Greek α; no other substantive correction in this clause range was identified. Links/cross-references on other pages are not text changes.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/groups.rs::CpuRasterizer::draw_group",
+      "crates/render-cpu/src/groups.rs::group_buffer",
+      "crates/pdf-model/src/content/transparency.rs::transparency_group",
+      "crates/render-cpu/src/blend.rs::remove_backdrop",
+      "crates/render-cpu/src/blend.rs::interpolate"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_group_blends_with_the_page_behind_it",
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_group_inside_another_keeps_the_backdrop_alpha_it_composites_onto",
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_groups_element_blends_with_the_backdrop_the_group_is_painted_over"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "Tests compare nonisolated against isolated controls, partial-alpha backdrop, group invocation effects and unmarked pixels. The code seeds nonisolated buffers with the current page and either uses exact Normal interpolation or explicit removal for another Do blend. Table 140 group shape/alpha are separately accumulated rather than returned with backdrop contribution. This is selected CPU evidence, not exhaustive color/alpha formula proof.",
+    "remaining": "Parent found ADR1107 nonknockout invocation fixture has alpha0=alphagn=1, so removal factor is zero. It distinguishes invocation blend/isolation but cannot prove nonzero removal arithmetic. A targeted partial-group-alpha nonknockout follow-up is running. ADR1305 has a discriminating partial-alpha knockout oracle, a separate construction.",
+    "parent_review": "Accepted partial: source/EC3, current CPU construction and selected discriminating assertions checked; broader device/colour-management residuals remain.",
+    "test_result": "Existing pdf-model consumers pass broad19. No render-raster/GPU execution added.",
+    "reviewer": "transparency_groups_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "11.4.4",
+    "feature_id": "11.4.4-note5-flattening-conditions",
+    "requirement": "Under Note 5 conditions (nonisolated group, same knockout attribute as parent, Normal result blend and shape/opacity inputs 1), grouped and separate composition are equivalent.",
+    "source_location": "Printed p. 408; physical p. 423; source/spec-layout.txt around 24578–24584.",
+    "errata": "EC3 Issue #688 on physical p. 428 corrects two Latin a variables in §11.4.8 initialization to Greek α; no other substantive correction in this clause range was identified. Links/cross-references on other pages are not text changes.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/groups.rs::CpuRasterizer::draw_group",
+      "crates/render-cpu/src/groups.rs::group_buffer",
+      "crates/pdf-model/src/content/transparency.rs::transparency_group"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_form_becomes_a_group_only_for_the_transparency_subtype",
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_group_blends_with_the_page_behind_it"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "Subtype test asserts display-list group counts only, including simple nonisolated flattening. The separate a_non_isolated_group_blends_with_the_page_behind_it compares actual grouped/ungrouped pixels and an isolated control. These are selected Note5 conditions, not all configurations.",
+    "remaining": "",
+    "parent_review": "Accepted partial: source/EC3, current CPU construction and selected discriminating assertions checked; broader device/colour-management residuals remain.",
+    "test_result": "Existing pdf-model consumers pass broad19. No render-raster/GPU execution added.",
+    "reviewer": "transparency_groups_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "11.4.5",
+    "feature_id": "11.4.5-isolation",
+    "requirement": "An isolated group starts on transparent initial backdrop; its group source colour/shape/alpha and internal blend effects do not depend on the group backdrop.",
+    "source_location": "Printed pp. 408–409; physical pp. 423–424; source/spec-layout.txt around 24585–24642.",
+    "errata": "EC3 Issue #688 on physical p. 428 corrects two Latin a variables in §11.4.8 initialization to Greek α; no other substantive correction in this clause range was identified. Links/cross-references on other pages are not text changes.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/groups.rs::CpuRasterizer::draw_group",
+      "crates/render-cpu/src/groups.rs::group_buffer",
+      "crates/pdf-model/src/content/transparency.rs::transparency_group"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_group_blends_with_the_page_behind_it",
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_group_inside_another_keeps_the_backdrop_alpha_it_composites_onto",
+      "crates/pdf-model/tests/transparency_groups.rs::a_blend_mode_at_the_do_is_applied_to_the_group_as_one_object"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "Paired isolated/nonisolated render controls produce visibly different pixels where internal Multiply sees the backdrop; alpha-preserving nested case checks nonisolated source result. group_buffer uses a transparent buffer for isolated groups. Color-space conversion at invocation is not independently certified here.",
+    "remaining": "",
+    "parent_review": "Accepted partial: source/EC3, current CPU construction and selected discriminating assertions checked; broader device/colour-management residuals remain.",
+    "test_result": "Existing pdf-model consumers pass broad19. No render-raster/GPU execution added.",
+    "reviewer": "transparency_groups_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "11.4.6",
+    "feature_id": "11.4.6-knockout-elements-use-initial-backdrop",
+    "requirement": "In a knockout group, each element composites with the initial backdrop, not preceding elements; binary shapes leave only the topmost element, while fractional shapes weight a partial replacement.",
+    "source_location": "Printed pp. 409–411; physical pp. 424–426; source/spec-layout.txt around 24643–24726.",
+    "errata": "EC3 Issue #688 on physical p. 428 corrects two Latin a variables in §11.4.8 initialization to Greek α; no other substantive correction in this clause range was identified. Links/cross-references on other pages are not text changes.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/groups.rs::CpuRasterizer::draw_group",
+      "crates/render-cpu/src/groups.rs::group_buffer",
+      "crates/pdf-model/src/content/transparency.rs::transparency_group",
+      "crates/render-cpu/src/groups.rs::knockout_on_backdrop",
+      "crates/render-cpu/src/blend.rs::knockout_average"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_knockout_group_paints_only_its_topmost_element",
+      "crates/pdf-model/tests/transparency_groups.rs::a_stated_shape_knocks_the_element_under_it_out_entirely",
+      "crates/pdf-model/tests/transparency_groups.rs::a_bare_constants_shape_weights_the_backdrop_at_a_half_covered_edge",
+      "crates/pdf-model/tests/transparency_groups.rs::the_object_is_added_to_the_backdrop_the_shape_left_behind"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "Binary-overlap tests assert topmost color; shape-vs-opacity controls distinguish complete knockout from alpha blending; half-shape test checks a fractional weighted result and untouched pixels. The raster represents fractional shape as coverage. Exact continuous pointwise coverage is not inferred from pixel coverage (see ADR0582).",
+    "remaining": "",
+    "parent_review": "Accepted partial: source/EC3, current CPU construction and selected discriminating assertions checked; broader device/colour-management residuals remain.",
+    "test_result": "Existing pdf-model consumers pass broad19. No render-raster/GPU execution added.",
+    "reviewer": "transparency_groups_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "11.4.6",
+    "feature_id": "11.4.6-isolation-independent-of-knockout",
+    "requirement": "Isolation and knockout are independent: isolated knockout starts transparent; nonisolated knockout uses its inherited group backdrop.",
+    "source_location": "Printed p. 411; physical p. 426; source/spec-layout.txt around 24715–24726.",
+    "errata": "EC3 Issue #688 on physical p. 428 corrects two Latin a variables in §11.4.8 initialization to Greek α; no other substantive correction in this clause range was identified. Links/cross-references on other pages are not text changes.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/groups.rs::CpuRasterizer::draw_group",
+      "crates/render-cpu/src/groups.rs::group_buffer",
+      "crates/pdf-model/src/content/transparency.rs::transparency_group"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_knockout_group_paints_only_its_topmost_element",
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_group_may_be_an_element_of_a_knockout_group",
+      "crates/pdf-model/tests/transparency_groups.rs::a_group_inside_an_isolated_knockout_group_takes_the_transparency_note_6_gives_it"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "Test families include isolated and nonisolated knockout groups and a nested group with distinct backdrop controls. They verify selected construction paths; not every color mode/alpha input combination.",
+    "remaining": "",
+    "parent_review": "Accepted partial: source/EC3, current CPU construction and selected discriminating assertions checked; broader device/colour-management residuals remain.",
+    "test_result": "Existing pdf-model consumers pass broad19. No render-raster/GPU execution added.",
+    "reviewer": "transparency_groups_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "11.4.6",
+    "feature_id": "11.4.6-note6-nested-nonisolated-backdrop",
+    "requirement": "When a nonisolated subgroup is nested in a knockout group, its initial backdrop is the outer group initial backdrop, not the inner immediate backdrop.",
+    "source_location": "Printed p. 411; physical p. 426; source/spec-layout.txt around 24727–24730.",
+    "errata": "EC3 Issue #688 on physical p. 428 corrects two Latin a variables in §11.4.8 initialization to Greek α; no other substantive correction in this clause range was identified. Links/cross-references on other pages are not text changes.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/groups.rs::CpuRasterizer::draw_group",
+      "crates/render-cpu/src/groups.rs::group_buffer",
+      "crates/pdf-model/src/content/transparency.rs::transparency_group"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_group_inside_an_isolated_knockout_group_takes_the_transparency_note_6_gives_it",
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_group_may_be_an_element_of_a_knockout_group"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "Three controls: isolated knockout outer supplies transparency and yields red; isolated ordinary outer lets the inner group blend with accumulated content and yields black; nonisolated knockout outer supplies white page and yields red. Each interpretation is complete. This discriminates initial versus immediate backdrop.",
+    "remaining": "",
+    "parent_review": "Accepted partial: source/EC3, current CPU construction and selected discriminating assertions checked; broader device/colour-management residuals remain.",
+    "test_result": "Existing pdf-model consumers pass broad19. No render-raster/GPU execution added.",
+    "reviewer": "transparency_groups_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "11.4.7",
+    "feature_id": "11.4.7-page-group-and-reference-page",
+    "requirement": "Treat top-level page content as an isolated page group over medium backdrop for ordinary output; imported/reference pages instead retain their page Group attributes and composite as a group, without media color.",
+    "source_location": "Printed pp. 411–412; physical pp. 426–427; source/spec-layout.txt around 24731–24796.",
+    "errata": "EC3 Issue #688 on physical p. 428 corrects two Latin a variables in §11.4.8 initialization to Greek α; no other substantive correction in this clause range was identified. Links/cross-references on other pages are not text changes.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/groups.rs::CpuRasterizer::draw_group",
+      "crates/render-cpu/src/groups.rs::group_buffer",
+      "crates/pdf-model/src/content/transparency.rs::transparency_group",
+      "crates/render-cpu/src/lib.rs::draw_shown",
+      "crates/pdf-model/src/content/transparency.rs::imported_page_group"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/reference_xobjects.rs::an_imported_page_is_composited_under_its_own_page_group",
+      "crates/pdf-model/tests/reference_xobjects.rs::an_imported_page_takes_the_constant_alpha_at_its_do_as_one_object"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "Reference page fixtures compare an imported page with and without its own Group settings and assert actual rendered colors; the CPU page raster starts transparent and medium is applied afterward. Selected page-group behavior is demonstrated.",
+    "remaining": "",
+    "parent_review": "Accepted partial: source/EC3, current CPU construction and selected discriminating assertions checked; broader device/colour-management residuals remain.",
+    "test_result": "Existing pdf-model consumers pass broad19. No render-raster/GPU execution added.",
+    "reviewer": "transparency_groups_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "11.4.7",
+    "feature_id": "11.4.7-page-blending-space-and-output-conversion",
+    "requirement": "Page-level compositing uses native output blending space unless page Group /CS selects another; convert full page result to output-native space when needed, with RelativeColorimetric default intent and implementation-dependent BPC.",
+    "source_location": "Printed pp. 412; physical p. 427; source/spec-layout.txt around 24777–24796.",
+    "errata": "EC3 Issue #688 on physical p. 428 corrects two Latin a variables in §11.4.8 initialization to Greek α; no other substantive correction in this clause range was identified. Links/cross-references on other pages are not text changes.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/groups.rs::CpuRasterizer::draw_group",
+      "crates/render-cpu/src/groups.rs::group_buffer",
+      "crates/pdf-model/src/content/transparency.rs::transparency_group",
+      "crates/pdf-model/src/content/transparency/blending_space.rs",
+      "crates/render-cpu/src/groups.rs::composite_in_own_space"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_calibrated_page_group_composites_its_component_and_leaves_by_the_curve",
+      "crates/pdf-model/tests/transparency_groups.rs::a_matrix_profile_page_group_composites_in_its_components",
+      "crates/pdf-model/tests/transparency_groups.rs::a_default_gray_takes_the_page_group_into_the_calibrated_space_it_names"
+    ],
+    "verdict": "partial-color-management-scope",
+    "evidence": "There are dedicated calibrated, ICC, and page group tests, and source paths select page blending spaces. However broad native device conversion, all rendering intents/BPC combinations, simulated-device requirements, and backend coverage are outside this bounded review. Do not treat implemented ledger status as full §11.4.7 certification.",
+    "remaining": "Parent should retain these explicit color-management residuals.",
+    "parent_review": "Accepted partial: source/EC3, current CPU construction and selected discriminating assertions checked; broader device/colour-management residuals remain.",
+    "test_result": "Existing pdf-model consumers pass broad19. No render-raster/GPU execution added.",
+    "reviewer": "transparency_groups_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-color-management-scope",
+    "superseded": false
+  },
+  {
+    "clause": "11.4.8",
+    "feature_id": "11.4.8-summary-and-erratum-alpha-initialization",
+    "requirement": "The summary restates general isolated/knockout equations; apply EC3’s corrected α (not Latin a) in group-alpha initialization and isolated initial-backdrop initialization.",
+    "source_location": "Printed p. 413; physical p. 428; source/spec-layout.txt around 24835–24890.",
+    "errata": "EC3 Issue #688 on physical p. 428 corrects two Latin a variables in §11.4.8 initialization to Greek α; no other substantive correction in this clause range was identified. Links/cross-references on other pages are not text changes.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/groups.rs::CpuRasterizer::draw_group",
+      "crates/render-cpu/src/groups.rs::group_buffer",
+      "crates/pdf-model/src/content/transparency.rs::transparency_group"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_group_inside_another_keeps_the_backdrop_alpha_it_composites_onto",
+      "crates/pdf-model/tests/transparency_groups.rs::a_stated_shape_knocks_the_element_under_it_out_entirely"
+    ],
+    "verdict": "confirmed-selected-corrected-text",
+    "evidence": "The EC3 annotation JSON records Issue #688 StrikeOut/Caret pairs on physical 428 (objects 4593/4594 and 4597/4598): α_g0=0 and α_0=0 if isolated. Annotation metadata confirms replacement of Latin a with Greek α; extracted spec-layout retains the struck source glyph, so effective reading follows the correction. The recurrence implementation separates group-only alpha from complete alpha and initializes the isolated backdrop accordingly. Existing group/backdrop assertions exercise the corrected semantic variables; no separate test is useful merely for Greek glyph spelling.",
+    "remaining": "",
+    "parent_review": "Accepted partial: source/EC3, current CPU construction and selected discriminating assertions checked; broader device/colour-management residuals remain.",
+    "test_result": "Existing pdf-model consumers pass broad19. No render-raster/GPU execution added.",
+    "reviewer": "transparency_groups_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-corrected-text",
+    "superseded": false
+  },
+  {
     "clause": "7.9.5",
     "feature_id": "rect-type",
     "requirement": "A rectangle is represented by an array of exactly four numbers naming two diagonally opposite corners.",
@@ -44700,7 +45093,7 @@
       "crates/pdf-model/tests/variable_text_tx_splice_audit.rs::saved_tx_replacement_reaches_matching_emc_and_preserves_outside_paint"
     ],
     "verdict": "confirmed-selected-saved-appearance-consumer",
-    "evidence": "spliced starts at the lexically recognized /Tx name, counts BMC and BDC as opens and EMC as closes, and ends when the nesting depth returns to zero. The existing raster test proves simple paired replacement and no-tag append behavior, but a single-level pair cannot distinguish stopping at the first EMC from finding the matching EMC. The draft uses a balanced nested Span section with distinct paint after its inner EMC and checks saved output pixels, with before/after controls. Parent promoted and ran the saved-PDF test: PASS. Removed NeedAppearances to prevent a baseline rewrite; initial V and old AP text now match. Exact source/saved xrefs, complete interpretation, old/new text, all six baseline paint bands, retained outside bands and removed nested inside bands are asserted. The literal ActualText token trap remains outside the true Tx boundary.",
+    "evidence": "spliced starts at the lexically recognized /Tx name, counts BMC and BDC as opens and EMC as closes, and ends when the nesting depth returns to zero. The existing raster test proves simple paired replacement and no-tag append behavior, but a single-level pair cannot distinguish stopping at the first EMC from finding the matching EMC. The draft uses a balanced nested Span section with distinct paint after its inner EMC and checks saved output pixels, with before/after controls. Parent promoted and ran the saved-PDF test: PASS. Removed NeedAppearances to prevent a baseline rewrite; initial V and old AP text now match. Exact source/saved xrefs, complete interpretation, old/new text, all six baseline paint bands, retained outside bands and removed nested inside bands are asserted. The literal ActualText token trap remains outside the true Tx boundary. Isolated mutation changing matching-depth cutoff0 to1 leaves the old simple-pair test passing and fails the new nested consumer. Both original-code controls pass. Isolated source restored; root production untouched. This mutation targets nested matching, not the independent literal-token trap.",
     "remaining": "Balanced valid marked-content save consumer only; malformed/unmatched recovery remains outside scope.",
     "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p pdf-model --test variable_text_tx_splice_audit",
     "test_result": "tx-splice-target.log:1PASS; clippy-tx-splice-clean.log PASS.",
@@ -44726,7 +45119,7 @@
       "crates/pdf-model/tests/variable_text_tx_splice_audit.rs::saved_tx_replacement_reaches_matching_emc_and_preserves_outside_paint"
     ],
     "verdict": "confirmed-selected-saved-appearance-consumer",
-    "evidence": "find_tx_marked_content asks pdf_syntax::Lexer for a Name token equal to Tx followed by a BMC keyword. That avoids matching characters inside a PDF literal string. Existing replacement assertions use only a real /Tx BMC sequence. The draft places the string /Tx BMC inside a legal ActualText property value before the real sequence, then proves the preceding painted region survives the saved rewrite. Parent promoted and ran the saved-PDF test: PASS. Removed NeedAppearances to prevent a baseline rewrite; initial V and old AP text now match. Exact source/saved xrefs, complete interpretation, old/new text, all six baseline paint bands, retained outside bands and removed nested inside bands are asserted. The literal ActualText token trap remains outside the true Tx boundary.",
+    "evidence": "find_tx_marked_content asks pdf_syntax::Lexer for a Name token equal to Tx followed by a BMC keyword. That avoids matching characters inside a PDF literal string. Existing replacement assertions use only a real /Tx BMC sequence. The draft places the string /Tx BMC inside a legal ActualText property value before the real sequence, then proves the preceding painted region survives the saved rewrite. Parent promoted and ran the saved-PDF test: PASS. Removed NeedAppearances to prevent a baseline rewrite; initial V and old AP text now match. Exact source/saved xrefs, complete interpretation, old/new text, all six baseline paint bands, retained outside bands and removed nested inside bands are asserted. The literal ActualText token trap remains outside the true Tx boundary. Isolated mutation changing matching-depth cutoff0 to1 leaves the old simple-pair test passing and fails the new nested consumer. Both original-code controls pass. Isolated source restored; root production untouched. This mutation targets nested matching, not the independent literal-token trap.",
     "remaining": "Balanced valid marked-content save consumer only; malformed/unmatched recovery remains outside scope.",
     "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p pdf-model --test variable_text_tx_splice_audit",
     "test_result": "tx-splice-target.log:1PASS; clippy-tx-splice-clean.log PASS.",
@@ -44753,7 +45146,7 @@
       "crates/pdf-model/tests/variable_text_tx_splice_audit.rs::saved_tx_replacement_reaches_matching_emc_and_preserves_outside_paint"
     ],
     "verdict": "confirmed-selected-saved-appearance-consumer",
-    "evidence": "The existing test draws a blue square outside an unmarked stream and verifies it remains when new text is appended; its paired fixture puts the square inside Tx and verifies it is removed. The new saved-PDF draft has independent pre-tag and post-matching-EMC colored bands and asserts both remain, while all original paint inside nested Tx is removed. Parent promoted and ran the saved-PDF test: PASS. Removed NeedAppearances to prevent a baseline rewrite; initial V and old AP text now match. Exact source/saved xrefs, complete interpretation, old/new text, all six baseline paint bands, retained outside bands and removed nested inside bands are asserted. The literal ActualText token trap remains outside the true Tx boundary.",
+    "evidence": "The existing test draws a blue square outside an unmarked stream and verifies it remains when new text is appended; its paired fixture puts the square inside Tx and verifies it is removed. The new saved-PDF draft has independent pre-tag and post-matching-EMC colored bands and asserts both remain, while all original paint inside nested Tx is removed. Parent promoted and ran the saved-PDF test: PASS. Removed NeedAppearances to prevent a baseline rewrite; initial V and old AP text now match. Exact source/saved xrefs, complete interpretation, old/new text, all six baseline paint bands, retained outside bands and removed nested inside bands are asserted. The literal ActualText token trap remains outside the true Tx boundary. Isolated mutation changing matching-depth cutoff0 to1 leaves the old simple-pair test passing and fails the new nested consumer. Both original-code controls pass. Isolated source restored; root production untouched. This mutation targets nested matching, not the independent literal-token trap.",
     "remaining": "Balanced valid marked-content save consumer only; malformed/unmatched recovery remains outside scope.",
     "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p pdf-model --test variable_text_tx_splice_audit",
     "test_result": "tx-splice-target.log:1PASS; clippy-tx-splice-clean.log PASS.",
