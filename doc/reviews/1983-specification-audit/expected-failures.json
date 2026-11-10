@@ -238,6 +238,12 @@
       "test": "writer_uses_cr_for_contents_paragraphs",
       "evidence": "markup-state-ink-reviewed-target.log",
       "classification": "EC3#90 ContentsproducerCRrule;ADR1798explicitlydeferredwriterhalf;singlelinecontrolpasses"
+    },
+    {
+      "binary": "pdf-model::line_ending_endpoint_spec_audit",
+      "test": "line_endings_use_the_l_coordinate_pairs_even_with_leader_lines",
+      "evidence": "line-ending-endpoint-target.log",
+      "classification": "Table178 literal LE-to-L endpoint mapping conflicts with ADR0192 construction; no-LL controls pass, Figure80 premise unsupported"
     }
   ]
 }

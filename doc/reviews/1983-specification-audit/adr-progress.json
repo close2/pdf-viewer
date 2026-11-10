@@ -794,9 +794,18 @@
   },
   {
     "path": "doc/adr/0075-a-refusal-that-was-reading-the-clause-right.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "line_annotation_audit/decisions.json",
+        "decision_id": "draw-line-with-leaders-by-interpreting-signed-LL-and-zero-as-no-leaders",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0076-the-files-inside-the-file.md",
@@ -1015,9 +1024,18 @@
   },
   {
     "path": "doc/adr/0106-an-optional-entry-must-not-erase-what-the-clause-states.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "line_annotation_audit/decisions.json",
+        "decision_id": "unrecognized-optional-ending-or-unplaceable-caption-does-not-erase-required-line",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0107-a-pattern-is-a-group-and-the-alpha-belongs-to-it.md",
@@ -1104,6 +1122,14 @@
         "conclusion": "retain",
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "font_subset_audit/decisions.json",
+        "decision_id": "ADR 0115 FontKey identity",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "decision-review",
         "duplicates_decision": null
       },
       {
@@ -1739,15 +1765,49 @@
   },
   {
     "path": "doc/adr/0192-ten-shapes-with-no-size.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "line_annotation_audit/decisions.json",
+        "decision_id": "draw-table179-endings-using-documented-size-and-shape-choices",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "line_annotation_audit/decisions.json",
+        "decision_id": "place-line-endings-on-line-proper-when-LL-displaces-it",
+        "conclusion": "reconsider-literal-table-conflict",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0193-a-construction-is-not-a-form-xobject.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "free_text_annotation_audit/decisions.json",
+        "decision_id": "Bound constructed appearances only where the governing subtype clause bounds its marks by Rect; stored Form XObject appearances retain their required BBox clip",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "line_annotation_audit/decisions.json",
+        "decision_id": "do-not-bound-constructed-line-by-Rect",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0194-three-platforms-and-one-confinement.md",
@@ -2060,9 +2120,18 @@
   },
   {
     "path": "doc/adr/0238-the-one-annotation-whose-text-is-the-annotation.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "free_text_annotation_audit/decisions.json",
+        "decision_id": "Construct FreeText text directly in the page appearance from Table 177 and permit a person to create a new box by dragging",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0239-an-icon-a-fit-and-four-codes-that-name-a-side.md",
@@ -2564,6 +2633,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "free_text_annotation_audit/decisions.json",
+        "decision_id": "A user retyping source FreeText changes the text object and regenerates its stale appearance rather than continuing to display the producer's prior AP",
+        "conclusion": "retain-scoped-edit-regeneration",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -2749,9 +2826,18 @@
   },
   {
     "path": "doc/adr/0329-the-line-that-says-which-place-the-note-is-about.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "free_text_annotation_audit/decisions.json",
+        "decision_id": "Draw Table 177 callout CL with valid FreeTextCallout intent, independent of the text box inset, and keep the constructed line in page default user space",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0330-the-page-a-thousand-neighbours-are-copied-for.md",
@@ -3333,9 +3419,18 @@
   },
   {
     "path": "doc/adr/0409-the-caption-a-figure-drew-and-a-sentence-did-not.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "line_annotation_audit/decisions.json",
+        "decision_id": "draw-Cap-caption-and-use-CP-CO-and-figures-for-positioning",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0410-the-verdict-reached-without-asking-anybody.md",
@@ -4274,9 +4369,18 @@
   },
   {
     "path": "doc/adr/0593-the-fifth-fill-and-the-count-that-was-four-in-four-places.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "line_annotation_audit/decisions.json",
+        "decision_id": "apply-EC3-515-fill-to-RClosedArrow-through-shared-Ending-filled-rule",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0596-the-floor-that-was-a-widget-list.md",
@@ -8916,9 +9020,18 @@
   },
   {
     "path": "doc/adr/1425-a-machine-face-is-written-subset-embedded-and-under-its-licence.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_subset_audit/decisions.json",
+        "decision_id": "ADR 1425 §2 Names",
+        "conclusion": "revise",
+        "parent_accepted": false,
+        "review_type": "decision-review",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1427-a-rank-over-a-growing-population-is-a-comparison-with-a-named-member.md",
@@ -9030,9 +9143,18 @@
   },
   {
     "path": "doc/adr/1449-a-cff-machine-face-is-subset-as-a-bare-cid-keyed-program.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_subset_audit/decisions.json",
+        "decision_id": "ADR 1449 CFF subset form and closure",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "decision-review",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1450-a-cff-machine-face-is-a-cid-font-type-0-in-memory.md",
@@ -10113,15 +10235,33 @@
   },
   {
     "path": "doc/adr/1634-rich-text-is-laid-out-in-the-subset-chapter-27-names.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "free_text_annotation_audit/decisions.json",
+        "decision_id": "Apply the supported XFA 3.3 chapter 27 rich-text and default-style subset for FreeText Table 177 /RC and /DS",
+        "conclusion": "retain-scoped-rich-text-routing",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1635-the-plain-entry-is-the-text-and-a-rich-value-regenerates-whole.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "free_text_annotation_audit/decisions.json",
+        "decision_id": "Use RC formatting only when it describes the Contents text, otherwise retain Contents as the displayed text; regenerate the whole changed FreeText appearance",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1636-the-cubic-spline-is-not-a-knot.md",

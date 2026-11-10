@@ -1,6 +1,6 @@
 {
   "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
-  "checkpoint_utc": "2026-11-10T16:08:47.553504+00:00",
+  "checkpoint_utc": "2026-11-10T16:17:59.814917+00:00",
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
@@ -11,9 +11,9 @@
     "warning": "Percent is account allowance, not convertible fixed tokens; counters may lag. Continue extending while useful work and room remain."
   },
   "agents": {
-    "associated_files_audit": "free_text_annotation_audit",
-    "catalog_pages_audit": "font_subset_audit",
-    "inapplicable_conditions_audit": "line_annotation_audit"
+    "associated_files_audit": "square_circle_annotation_audit",
+    "catalog_pages_audit": "font_subset_audit draft refinement",
+    "inapplicable_conditions_audit": "polygon_polyline_audit"
   },
   "next_candidates": [
     "12.5.6.2 markup common entries and reply threading",
@@ -31,7 +31,7 @@
     "exit": 100,
     "manifest": "Parent verified exact binary/test set equality; assertions are not necessarily distinct defects."
   },
-  "latest_clippy": "clippy-markup-state-ink-final.log",
+  "latest_clippy": "clippy-free-text-line-final.log",
   "new_failures_since_wave8": [
     "catalog Named OpenAction consumer missing",
     "page-visible neighbor omitted",
@@ -76,7 +76,9 @@
     "a1fa6e70",
     "671a5ab3",
     "6ada0e99",
-    "3ebb419a"
+    "3ebb419a",
+    "efa78384"
   ],
-  "expected_failures_manifest_count": 43
+  "expected_failures_manifest_count": 44,
+  "broad_run_predates": "FreeText/Line four passing tests and one endpoint failure"
 }

@@ -2,17 +2,17 @@
   "warning": "Records can overlap or cross-reference prior reviews. Selected units do not establish that every decision in an ADR was reviewed; no whole document is marked complete.",
   "adr_documents": 2233,
   "document_states": {
-    "pending": 2045,
-    "selected-decision-units-reviewed": 172,
-    "review-in-progress": 16
+    "pending": 2033,
+    "selected-decision-units-reviewed": 182,
+    "review-in-progress": 18
   },
-  "decision_review_records": 281,
-  "parent_accepted_records": 281,
+  "decision_review_records": 297,
+  "parent_accepted_records": 294,
   "cross_reference_records": 22,
   "accepted_record_conclusions": {
-    "retain-with-qualification": 144,
+    "retain-with-qualification": 150,
     "revisit": 14,
-    "retain": 75,
+    "retain": 79,
     "superseded": 13,
     "superseded-in-part": 2,
     "cross-reference-only": 22,
@@ -23,7 +23,10 @@
     "retain-with-boundary": 1,
     "retain-with-ec3-qualification": 1,
     "retain-with-clause-boundary": 1,
+    "retain-scoped-edit-regeneration": 1,
+    "retain-scoped-rich-text-routing": 1,
     "retain-as-project-policy": 1,
+    "reconsider-literal-table-conflict": 1,
     "reconsider-premise-for-tiling-patterns": 1,
     "retain-reader-policy": 1,
     "retain-with-bounded-scope-note": 1

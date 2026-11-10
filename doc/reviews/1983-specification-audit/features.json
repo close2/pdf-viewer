@@ -16309,6 +16309,436 @@
     "superseded": false
   },
   {
+    "clause": "12.5.6.6",
+    "feature_id": "12.5.6.6.always_visible_no_popup_state",
+    "requirement": "A FreeText annotation displays text directly on the page, has no open/closed state, and its text shall always be visible rather than being displayed in a popup.",
+    "source_location": "ISO 32000-2 §12.5.6.6, printed p. 484 / physical p. 499; source/spec-layout.txt:29070-29077",
+    "errata": "No EC3 amendment found to the opening paragraph.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::free_text",
+      "crates/pdf-model/src/annotation.rs::decide"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_free_text_annotation_draws_its_contents",
+      "crates/pdf-model/tests/free_text_annotation_spec_audit.rs"
+    ],
+    "verdict": "confirmed-selected-standalone-construction",
+    "evidence": "The no-AP appearance path constructs visible text on the page. The cited raster test checks ink, but its helper places the FreeText annotation in /AcroForm /Fields; the new standalone draft keeps it only in page /Annots. Popup/open-state independence is not separately asserted. Parent promoted standalone annotation-only fixtures and verified nonempty text ink, complete interpretation and exact xrefs. No all-flags or every open-state interaction certification.",
+    "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
+    "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-standalone-construction",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.6",
+    "feature_id": "12.5.6.6.table177.subtype_required",
+    "requirement": "The producer's FreeText annotation dictionary shall state /Subtype /FreeText.",
+    "source_location": "ISO 32000-2 §12.5.6.6 Table 177 /Subtype, printed p. 484 / physical p. 499; source/spec-layout.txt:29079-29084",
+    "errata": "No EC3 amendment found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs",
+      "crates/pdf-model/src/appearance.rs::is_free_text"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_free_text_annotation_draws_its_contents"
+    ],
+    "verdict": "reader-path-tested-producer-duty",
+    "evidence": "The consumer dispatches by subtype. Existing fixture states the required subtype. Missing or wrong subtype handling is recovery behavior, not a second producer-side obligation.",
+    "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
+    "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
+    "remaining_work": "Reader dispatch tested; every writer subtype duty is not certified by a fixture that supplies the key.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "reader-path-tested-producer-duty",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.6",
+    "feature_id": "12.5.6.6.table177.da_required_and_used",
+    "requirement": "A producer shall supply /DA as the default appearance string used to format the annotation text, subject to an existing /AP taking precedence.",
+    "source_location": "ISO 32000-2 §12.5.6.6 Table 177 /DA, printed p. 484 / physical p. 499; source/spec-layout.txt:29084-29088",
+    "errata": "No EC3 amendment found to /DA.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::free_text_layout",
+      "crates/pdf-model/src/appearance.rs::annotation"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_free_text_annotation_draws_its_contents",
+      "crates/pdf-model/tests/variable_text.rs::a_free_text_annotation_the_file_states_is_retyped_redrawn_and_written_back"
+    ],
+    "verdict": "implementation-and-precedence-tested-with-scope-qualification",
+    "evidence": "The no-AP reader requires a usable DA (with existing AcroForm fallback behavior) and uses it for variable text. Stored AP is selected before constructed FreeText; retyping replaces stale appearance per ADR 0304/1635. Existing drawing fixture puts /DA on the annotation. DA missing/malformed recovery is not claimed by Table 177's producer requirement.",
+    "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
+    "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-and-precedence-tested-with-scope-qualification",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.6",
+    "feature_id": "12.5.6.6.table177.quadding_codes_and_default",
+    "requirement": "Optional /Q selects left (0), centered (1), or right (2) text quadding; absent /Q defaults to left justification.",
+    "source_location": "ISO 32000-2 §12.5.6.6 Table 177 /Q, printed p. 484 / physical p. 499; source/spec-layout.txt:29089-29094",
+    "errata": "No EC3 amendment found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::free_text_layout",
+      "crates/pdf-model/src/variable_text.rs::Quadding::read"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_free_text_annotation_draws_its_contents",
+      "crates/pdf-model/tests/free_text_annotation_spec_audit.rs::freetext_missing_q_matches_zero_and_right_quadding_is_a_discriminating_control"
+    ],
+    "verdict": "confirmed-selected-quadding-default-and-values",
+    "evidence": "Borderless standalone FreeText: missing Q equals Q0; Q1 centers visible glyph bounds and Q2 shifts the same text toward the right edge. All pass. The first draft measured border ink and failed for the wrong reason; it was corrected rather than reported as a product defect.",
+    "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
+    "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-quadding-default-and-values",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.6",
+    "feature_id": "12.5.6.6.table177.rc_ds_xfa33",
+    "requirement": "Optional /RC supplies rich text used to generate the FreeText appearance; optional /DS supplies the XFA 3.3 default style. The Table 177 NOTE excludes the popup-window interpretation because FreeText has no open state.",
+    "source_location": "ISO 32000-2 §12.5.6.6 Table 177 /RC and /DS, printed p. 484 / physical p. 499; source/spec-layout.txt:29095-29105",
+    "errata": "No EC3 amendment found to /RC or /DS.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/rich_text.rs::for_free_text",
+      "crates/pdf-model/src/appearance.rs::free_text_layout"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/rich_text.rs::a_free_text_annotations_rich_text_is_drawn_formatted",
+      "crates/pdf-model/tests/rich_text.rs::a_free_text_annotations_contents_wins_where_its_rich_text_disagrees"
+    ],
+    "verdict": "covered-by-rich-text-shards-cross-reference",
+    "evidence": "The rich-text shard reviews chapter-27 supported formatting and the Contents/RC character relationship. This audit does not duplicate that coverage. The FreeText route uses the RC+DS root and reports unsupported or conflicting text.",
+    "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
+    "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "covered-by-rich-text-shards-cross-reference",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.6",
+    "feature_id": "12.5.6.6.table177.callout_coordinates_and_intent_condition",
+    "requirement": "Optional /CL has four numbers for start/end or six for start/knee/end, in default user space; it is meaningful only with /IT /FreeTextCallout. /IT is optional, permits FreeText, FreeTextCallout, FreeTextTypeWriter, and defaults to FreeText; TypeWriter states that no callout line is drawn.",
+    "source_location": "ISO 32000-2 §12.5.6.6 Table 177 /CL and /IT, printed pp. 484-485 / physical pp. 499-500; source/spec-layout.txt:29109-29144",
+    "errata": "No substantive EC3 change to /CL or /IT located. EC3 #299 at physical p. 500 is in the neighboring /BS version cell, and #524 there changes /RD's type cell.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::callout"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_callout_lines_knee_is_where_its_third_pair_of_coordinates_puts_it",
+      "crates/pdf-model/tests/variable_text.rs::a_callout_line_is_drawn_only_under_the_intent_that_makes_it_meaningful",
+      "crates/pdf-model/tests/variable_text.rs::a_callout_this_reader_cannot_read_is_named_rather_than_invented"
+    ],
+    "verdict": "tested-with-fixture-conformance-qualification",
+    "evidence": "Actual pixel tests discriminate 4-point versus 6-point line geometry, intent, and malformed lengths. Their helper likewise reuses the AcroForm /Fields arrangement noted above; the independent tests drafted here do not retest callout behavior. The clause's line geometry is a consumer behavior; the table does not say a non-callout /CL shall produce a line.",
+    "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
+    "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "tested-with-fixture-conformance-qualification",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.6",
+    "feature_id": "12.5.6.6.table177.border_effect_entries",
+    "requirement": "Optional /BE supplies a border effect in conjunction with /BS; optional /BS supplies the border line width and dash pattern. With /RD, BS/BE apply to the inner rectangle's border.",
+    "source_location": "ISO 32000-2 §12.5.6.6 Table 177 /BE, /RD, /BS, printed p. 485 / physical p. 500; source/spec-layout.txt:29145-29164",
+    "errata": "EC3 #299 annotates Table 177 /BS's version label: PDF 1.6 is struck and PDF 1.3 inserted (physical p. 500, annotations 5221/5223). EC3 #524 corrects /RD Type from rectangle to array (physical p. 500, annotations 5234/5235); this does not alter the four-value order or geometry. Base /BS is optional and the version correction affects producer version conformance only.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::free_text_border",
+      "crates/pdf-model/src/appearance.rs::differences",
+      "crates/pdf-model/src/appearance.rs",
+      "crates/pdf-model/src/cloud.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_free_texts_border_is_drawn_at_the_width_its_entries_state",
+      "crates/pdf-model/tests/variable_text.rs::a_free_texts_cloudy_border_is_scalloped_rather_than_refused",
+      "crates/pdf-model/tests/variable_text.rs::a_free_texts_inner_rectangle_moves_its_text_and_not_its_callout"
+    ],
+    "verdict": "covered-by-border-and-callout-shards-cross-reference",
+    "evidence": "The border shard separately audits common border geometry and tested width/effects. This FreeText review confirms the FreeText consumer passes the /RD inner rectangle. No duplicate border audit is claimed.",
+    "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
+    "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "covered-by-border-and-callout-shards-cross-reference",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.6",
+    "feature_id": "12.5.6.6.table177.rd_inset_order_and_bounds",
+    "requirement": "Optional /RD is a four-number array of nonnegative left, top, right, bottom differences; top+bottom must be less than Rect height and left+right less than Rect width. It defines the inner text rectangle, and BS/BE border that inner rectangle.",
+    "source_location": "ISO 32000-2 §12.5.6.6 Table 177 /RD, printed p. 485 / physical p. 500; source/spec-layout.txt:29152-29161",
+    "errata": "EC3 #524 at physical p. 500 changes the /RD Type cell from rectangle to array. No change to semantic values, order, constraints, or inner-rectangle relationship.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::free_text",
+      "crates/pdf-model/src/appearance.rs::differences",
+      "crates/pdf-model/src/appearance.rs::free_text_frame"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_free_texts_inner_rectangle_moves_its_text_and_not_its_callout",
+      "crates/pdf-model/tests/free_text_annotation_spec_audit.rs::freetext_rd_independently_insets_each_edge_of_the_text_box"
+    ],
+    "verdict": "confirmed-selected-independent-inset-consumers",
+    "evidence": "Each inset changes alone with border width zero: left/right translate glyph bounds by 24/30 points without vertical movement; top shifts both vertical bounds by 12 without horizontal movement; bottom removes nonempty text below y28 while every pixel above is unchanged. These pass. The bundled draft could pass on border movement alone; rejected and replaced. Producer nonnegative/sum constraints are inventoried, not reader-rejection duties.",
+    "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
+    "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-independent-inset-consumers",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.6",
+    "feature_id": "12.5.6.6.table177.line_ending_endpoint_and_default",
+    "requirement": "Optional /LE is meaningful only when /CL is present, specifies the line-ending style at coordinate (x1,y1), and defaults to None.",
+    "source_location": "ISO 32000-2 §12.5.6.6 Table 177 /LE, printed p. 485 / physical p. 500; source/spec-layout.txt:29165-29170",
+    "errata": "No EC3 amendment found to Table 177 /LE. EC3 #515 concerns the separate Table 179 RClosedArrow row; prior annotation-subtype audit covers it.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::callout",
+      "crates/pdf-model/src/appearance.rs::Ending"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_callouts_line_ending_decorates_the_end_the_table_names"
+    ],
+    "verdict": "covered-by-callout-shard-cross-reference",
+    "evidence": "The existing test checks a selected LE style at the endpoint named by the table. This shard does not duplicate line-ending subtype geometries.",
+    "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
+    "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "covered-by-callout-shard-cross-reference",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.6",
+    "ledger_status": "implemented",
+    "test_refs": [],
+    "verdict": "inventoried-producer-version-duty",
+    "evidence": "The Table 177 version marker classifies conforming producer use. No reader obligation to suppress or reject this entry solely because the file header names an earlier version was found in this clause.",
+    "feature_id": "12.5.6.6.table177.q_version",
+    "requirement": "Table 177 marks /Q as PDF 1.4; this version marker constrains conforming producers and is not a reader-side header gate.",
+    "source_location": "ISO 32000-2 §12.5.6.6 Table 177 /Q version cell, printed p. 484 / physical p. 499; source/spec-layout.txt:29089-29091",
+    "errata": "No EC3 change.",
+    "code_locations": [],
+    "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
+    "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
+    "remaining_work": "This review has not traced every writer against this minimum version. Absence of a reader version gate does not discharge producer obligations.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "inventoried-producer-version-duty",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.6",
+    "ledger_status": "implemented",
+    "test_refs": [],
+    "verdict": "inventoried-producer-version-duty",
+    "evidence": "The Table 177 version marker classifies conforming producer use. No reader obligation to suppress or reject this entry solely because the file header names an earlier version was found in this clause.",
+    "feature_id": "12.5.6.6.table177.rc_version",
+    "requirement": "Table 177 marks /RC as PDF 1.5; this version marker constrains conforming producers and is not a reader-side header gate.",
+    "source_location": "ISO 32000-2 §12.5.6.6 Table 177 /RC version cell, printed p. 484 / physical p. 499; source/spec-layout.txt:29095-29100",
+    "errata": "No EC3 change.",
+    "code_locations": [],
+    "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
+    "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
+    "remaining_work": "This review has not traced every writer against this minimum version. Absence of a reader version gate does not discharge producer obligations.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "inventoried-producer-version-duty",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.6",
+    "ledger_status": "implemented",
+    "test_refs": [],
+    "verdict": "inventoried-producer-version-duty",
+    "evidence": "The Table 177 version marker classifies conforming producer use. No reader obligation to suppress or reject this entry solely because the file header names an earlier version was found in this clause.",
+    "feature_id": "12.5.6.6.table177.ds_version",
+    "requirement": "Table 177 marks /DS as PDF 1.5; this version marker constrains conforming producers and is not a reader-side header gate.",
+    "source_location": "ISO 32000-2 §12.5.6.6 Table 177 /DS version cell, printed p. 484 / physical p. 499; source/spec-layout.txt:29101-29105",
+    "errata": "No EC3 change.",
+    "code_locations": [],
+    "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
+    "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
+    "remaining_work": "This review has not traced every writer against this minimum version. Absence of a reader version gate does not discharge producer obligations.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "inventoried-producer-version-duty",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.6",
+    "ledger_status": "implemented",
+    "test_refs": [],
+    "verdict": "inventoried-producer-version-duty",
+    "evidence": "The Table 177 version marker classifies conforming producer use. No reader obligation to suppress or reject this entry solely because the file header names an earlier version was found in this clause.",
+    "feature_id": "12.5.6.6.table177.cl_version",
+    "requirement": "Table 177 marks /CL as PDF 1.6; this version marker constrains conforming producers and is not a reader-side header gate.",
+    "source_location": "ISO 32000-2 §12.5.6.6 Table 177 /CL version cell, printed p. 484 / physical p. 499; source/spec-layout.txt:29109-29117",
+    "errata": "No EC3 change.",
+    "code_locations": [],
+    "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
+    "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
+    "remaining_work": "This review has not traced every writer against this minimum version. Absence of a reader version gate does not discharge producer obligations.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "inventoried-producer-version-duty",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.6",
+    "ledger_status": "implemented",
+    "test_refs": [],
+    "verdict": "inventoried-producer-version-duty",
+    "evidence": "The Table 177 version marker classifies conforming producer use. No reader obligation to suppress or reject this entry solely because the file header names an earlier version was found in this clause.",
+    "feature_id": "12.5.6.6.table177.it_version",
+    "requirement": "Table 177 marks /IT as PDF 1.6; this version marker constrains conforming producers and is not a reader-side header gate.",
+    "source_location": "ISO 32000-2 §12.5.6.6 Table 177 /IT version cell, printed p. 485 / physical p. 500; source/spec-layout.txt:29127-29142",
+    "errata": "No EC3 change.",
+    "code_locations": [],
+    "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
+    "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
+    "remaining_work": "This review has not traced every writer against this minimum version. Absence of a reader version gate does not discharge producer obligations.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "inventoried-producer-version-duty",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.6",
+    "ledger_status": "implemented",
+    "test_refs": [],
+    "verdict": "inventoried-producer-version-duty",
+    "evidence": "The Table 177 version marker classifies conforming producer use. No reader obligation to suppress or reject this entry solely because the file header names an earlier version was found in this clause.",
+    "feature_id": "12.5.6.6.table177.be_version",
+    "requirement": "Table 177 marks /BE as PDF 1.6; this version marker constrains conforming producers and is not a reader-side header gate.",
+    "source_location": "ISO 32000-2 §12.5.6.6 Table 177 /BE version cell, printed p. 485 / physical p. 500; source/spec-layout.txt:29145-29149",
+    "errata": "No EC3 change.",
+    "code_locations": [],
+    "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
+    "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
+    "remaining_work": "This review has not traced every writer against this minimum version. Absence of a reader version gate does not discharge producer obligations.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "inventoried-producer-version-duty",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.6",
+    "ledger_status": "implemented",
+    "test_refs": [],
+    "verdict": "inventoried-producer-version-duty",
+    "evidence": "The Table 177 version marker classifies conforming producer use. No reader obligation to suppress or reject this entry solely because the file header names an earlier version was found in this clause.",
+    "feature_id": "12.5.6.6.table177.rd_version",
+    "requirement": "Table 177 marks /RD as PDF 1.6; this version marker constrains conforming producers and is not a reader-side header gate.",
+    "source_location": "ISO 32000-2 §12.5.6.6 Table 177 /RD version cell, printed p. 485 / physical p. 500; source/spec-layout.txt:29150-29161",
+    "errata": "EC3 #524 changes the type cell, not the version label.",
+    "code_locations": [],
+    "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
+    "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
+    "remaining_work": "This review has not traced every writer against this minimum version. Absence of a reader version gate does not discharge producer obligations.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "inventoried-producer-version-duty",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.6",
+    "ledger_status": "implemented",
+    "test_refs": [],
+    "verdict": "inventoried-producer-version-duty",
+    "evidence": "The Table 177 version marker classifies conforming producer use. No reader obligation to suppress or reject this entry solely because the file header names an earlier version was found in this clause.",
+    "feature_id": "12.5.6.6.table177.bs_version",
+    "requirement": "Table 177 marks /BS as PDF 1.3 (EC3); this version marker constrains conforming producers and is not a reader-side header gate.",
+    "source_location": "ISO 32000-2 §12.5.6.6 Table 177 /BS version cell, printed p. 485 / physical p. 500; source/spec-layout.txt:29162-29164",
+    "errata": "EC3 #299 strikes PDF 1.6 and inserts PDF 1.3 at physical p. 500, objects 5221 and 5223.",
+    "code_locations": [],
+    "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
+    "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
+    "remaining_work": "This review has not traced every writer against this minimum version. Absence of a reader version gate does not discharge producer obligations.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "inventoried-producer-version-duty",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.6",
+    "ledger_status": "implemented",
+    "test_refs": [],
+    "verdict": "inventoried-producer-version-duty",
+    "evidence": "The Table 177 version marker classifies conforming producer use. No reader obligation to suppress or reject this entry solely because the file header names an earlier version was found in this clause.",
+    "feature_id": "12.5.6.6.table177.le_version",
+    "requirement": "Table 177 marks /LE as PDF 1.6; this version marker constrains conforming producers and is not a reader-side header gate.",
+    "source_location": "ISO 32000-2 §12.5.6.6 Table 177 /LE version cell, printed p. 485 / physical p. 500; source/spec-layout.txt:29165-29170",
+    "errata": "No EC3 change.",
+    "code_locations": [],
+    "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
+    "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
+    "remaining_work": "This review has not traced every writer against this minimum version. Absence of a reader version gate does not discharge producer obligations.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "inventoried-producer-version-duty",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.6",
+    "feature_id": "12.5.6.6.table177.intent_names_and_default",
+    "requirement": "IT defaults to FreeText; allowed values are FreeText, FreeTextCallout and FreeTextTypeWriter. Callout geometry is meaningful only for FreeTextCallout; TypeWriter draws no callout.",
+    "source_location": "Table 177 physical500/printed485",
+    "errata": "No semantic amendment found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::callout"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_callout_line_is_drawn_only_under_the_intent_that_makes_it_meaningful"
+    ],
+    "verdict": "partial-selected-intent-consumer",
+    "evidence": "Parent inventoried default and all three names separately from the version marker. Existing callout test contrasts callout, absent and TypeWriter intent; generic intent semantics remain shared with Table172. Fixture uses FreeText in Fields and construction fallback.",
+    "parent_review": "Parent read Table177 and actual callout branch; no whole-clause certification.",
+    "reviewer": "free_text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-selected-intent-consumer",
+    "superseded": false
+  },
+  {
     "clause": "7.10.5",
     "feature_id": "type4-clause-scope",
     "requirement": "Aggregate row for Type 4 calculator functions; the independent requirements are in 7.10.5.1–7.10.5.3.",
@@ -23790,6 +24220,290 @@
     "parent_review_state": "reviewed-with-tests",
     "reviewer_ledger_status": "implemented (7.2.4)",
     "reviewer_verdict": "no-independent-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.7",
+    "feature_id": "line_subtype_and_single_straight_line",
+    "requirement": "A Line annotation represents one straight line on the page; its subtype shall be Line, and when opened it shall display a popup containing the associated note text.",
+    "source_location": "§12.5.6.7 opening paragraph and Table 178; printed p.486 / physical p.501.",
+    "errata": "No semantic EC3 change identified to the opening line or popup requirement.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::line",
+      "crates/pdf-model/src/popup.rs::popups",
+      "crates/viewer-core/src/viewer/geometry.rs::popup_windows"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_line_annotations_leader_lines_put_the_line_where_the_clause_says",
+      "crates/viewer-core/tests/line_annotation_popup_spec_audit.rs::activating_a_line_annotation_opens_its_associated_note_popup"
+    ],
+    "verdict": "confirmed-selected-public-popup-consumer",
+    "evidence": "The line constructor reads `/L` and strokes one segment (or the segment translated by `/LL`). The popup reader walks page annotations, reads `/Popup` parents generically, and the viewer returns open popup windows. Existing public popup consumer coverage is subtype-specific for Ink and Text, not Line. A complete-PDF public Viewer test draft is supplied in tests.rs to assert Line activation reveals its associated Contents; producer-required AP is provided so this is not an absent-appearance construction fixture. Parent promoted complete stored-AP fixture: closed state, activation, exactly one popup, exact parent, note and title all pass.",
+    "test_command": null,
+    "test_result": "New diagonal caption and public popup PASS in free-text-line-target.log; endpoint regression FAILS in line-ending-endpoint-target.log. Existing tests ran in broad wave14; review is bounded to described assertions.",
+    "parent_review": "Parent read effective Tables178/179 and visually inspected Figure80 on physical503. Read actual leader, ending, caption, intent and measurement assertions and corresponding code. Missing-AP construction tests are policy witnesses, not producer-conformance certificates.",
+    "reviewer": "line_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-public-popup-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.7",
+    "feature_id": "required_line_geometry_and_leader_endpoints",
+    "requirement": "`/L` is four default-user-space coordinates. Without `/LL` they are the line endpoints; if `/LL` is present they are the leader endpoints instead. The line proper is displaced perpendicular to the line by signed `/LL`; positive is clockwise from the first-to-second direction and negative is the opposite. `/LL` defaults to zero and produces no leaders.",
+    "source_location": "Table 178 `/L` and `/LL`, printed p.486 / physical p.501; Figure 80 printed p.488 / physical p.503.",
+    "errata": "No effective EC3 semantic change identified for `/L` or `/LL`.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::line",
+      "crates/pdf-model/src/appearance.rs::perpendicular"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_line_annotations_leader_lines_put_the_line_where_the_clause_says",
+      "crates/pdf-model/tests/annotations.rs::a_negative_leader_length_reverses_the_side"
+    ],
+    "verdict": "confirmed-selected-raster",
+    "evidence": "The positive test asserts line ink at the y=30 displaced segment, no ink on the middle of the original y=50 segment, and leader ink at the stated endpoint locations. The negative test asserts the opposite side and excludes the positive side, discriminating an absolute-value implementation. Missing `/LL` and explicit zero behavior are described in implementation but no separate default-vs-zero equality oracle was cited; this remains a narrow default-value assertion residual.",
+    "test_command": null,
+    "test_result": "New diagonal caption and public popup PASS in free-text-line-target.log; endpoint regression FAILS in line-ending-endpoint-target.log. Existing tests ran in broad wave14; review is bounded to described assertions.",
+    "parent_review": "Parent read effective Tables178/179 and visually inspected Figure80 on physical503. Read actual leader, ending, caption, intent and measurement assertions and corresponding code. Missing-AP construction tests are policy witnesses, not producer-conformance certificates.",
+    "reviewer": "line_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-raster",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.7",
+    "feature_id": "border_style_applies_to_line",
+    "requirement": "Optional `/BS` supplies line width and dash pattern; the shared annotation color `/C` strokes the line. This audit cross-references the accepted common border audit for border semantics.",
+    "source_location": "Table 178 `/BS`, printed p.486 / physical p.501; §12.5.4.",
+    "errata": "No line-specific EC3 change. Shared border details are covered by annotation_border_audit.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::line",
+      "crates/pdf-model/src/appearance.rs::Border::read"
+    ],
+    "test_refs": [
+      "scratchpad/r1983/spec-audit/annotation_border_audit/features.json"
+    ],
+    "verdict": "cross-reference-only",
+    "evidence": "The line path passes `C` and its resolved group source to `Border::read`, applies it before painting. Shared width, dash, and absent-border behavior are not recertified here.",
+    "test_command": null,
+    "test_result": "New diagonal caption and public popup PASS in free-text-line-target.log; endpoint regression FAILS in line-ending-endpoint-target.log. Existing tests ran in broad wave14; review is bounded to described assertions.",
+    "parent_review": "Parent read effective Tables178/179 and visually inspected Figure80 on physical503. Read actual leader, ending, caption, intent and measurement assertions and corresponding code. Missing-AP construction tests are policy witnesses, not producer-conformance certificates.",
+    "reviewer": "line_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "cross-reference-only",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.7",
+    "feature_id": "line_endings_two_slots_default_and_table179_names",
+    "requirement": "Optional `/LE` is two endpoint-specific ending names in `/L` order, defaulting to None at both ends. Table 179 names Square, Circle, Diamond, OpenArrow, ClosedArrow, None, Butt, ROpenArrow, RClosedArrow, and Slash. Table179 shape constraints are independently inventoried below; style pairwise inequality alone cannot certify them.",
+    "source_location": "Table 178 `/LE` and Table 179, printed pp.486–489 / physical pp.501–504.",
+    "errata": "EC3 Issue #513 is an editorial note: printed row height obscures the end of OpenArrow's description and conversion text splits the word `arrowhead`; it does not revise the style. Issue #515 adds the interior-colour fill sentence to RClosedArrow. Physical p.504 / printed p.489. No other semantic change to the ten names identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::line_endings",
+      "crates/pdf-model/src/appearance.rs::Ending",
+      "crates/pdf-model/src/appearance.rs::draw_endings"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::each_of_table_179_s_line_endings_draws_its_own_shape",
+      "crates/pdf-model/tests/annotations.rs::a_line_ending_is_drawn_and_an_empty_caption_owes_nothing",
+      "crates/pdf-model/tests/line_ending_endpoint_spec_audit.rs::line_endings_use_the_l_coordinate_pairs_even_with_leader_lines"
+    ],
+    "verdict": "implementation-conflicts-with-literal-endpoint-rule",
+    "evidence": "Existing style-difference tests do not cover nonzero LL. New independent first/second Square/None controls at LL absent pass. With LL20, both fill centers are at y30 rather than the y50 coordinates in L that Table178 LE expressly names. Current draw_endings receives proper, the displaced segment. ADR0192 consciously chooses that placement and says Figure80 draws an arrowhead on the line proper; parent image inspection found no such arrowhead, only separate measurement arrows. The figure does not support that premise. Regression records the literal table reading; historical ADR and production code remain unchanged.",
+    "test_command": null,
+    "test_result": "New diagonal caption and public popup PASS in free-text-line-target.log; endpoint regression FAILS in line-ending-endpoint-target.log. Existing tests ran in broad wave14; review is bounded to described assertions.",
+    "parent_review": "Parent read effective Tables178/179 and visually inspected Figure80 on physical503. Read actual leader, ending, caption, intent and measurement assertions and corresponding code. Missing-AP construction tests are policy witnesses, not producer-conformance certificates.",
+    "remaining_work": "Resolve the documented interpretation conflict in implementation work; current placement does not satisfy the table literal. No universal size/artwork certification or absent-LE/default equivalence claim.",
+    "reviewer": "line_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-conflicts-with-literal-endpoint-rule",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.7",
+    "feature_id": "line_ending_interior_fill_five_styles",
+    "requirement": "Square, Circle, Diamond, ClosedArrow and RClosedArrow are filled with `/IC` when present; the five open/unfilled or None styles do not use `/IC` for fill. `/IC` component count selects no color, Gray, RGB, or CMYK as Table 178 states. IC components shall be in [0,1]; fixture coverage does not certify all color-space paths.",
+    "source_location": "Table178 IC physical501/printed486; Table179 physical504/printed489",
+    "errata": "EC3 Issue #515 supplies the fifth fill case, RClosedArrow, by appending `filled with the annotation's interior colour, if any` to that row. Issue #513 only repairs obscured OpenArrow text editorially.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::Ending::filled",
+      "crates/pdf-model/src/appearance.rs::draw_ending",
+      "crates/pdf-model/src/appearance.rs::colour"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::only_the_five_endings_table_179_fills_use_the_interior_colour"
+    ],
+    "verdict": "confirmed-selected-raster",
+    "evidence": "The test varies only `/IC` and asserts pixels differ for the five specified filled styles and remain identical for OpenArrow, ROpenArrow, Butt, Slash, and None. It explicitly includes RClosedArrow, guarding the EC3 correction. The broader Table166 color component domain is shared behavior and not independently certified here.",
+    "test_command": null,
+    "test_result": "New diagonal caption and public popup PASS in free-text-line-target.log; endpoint regression FAILS in line-ending-endpoint-target.log. Existing tests ran in broad wave14; review is bounded to described assertions.",
+    "parent_review": "Parent read effective Tables178/179 and visually inspected Figure80 on physical503. Read actual leader, ending, caption, intent and measurement assertions and corresponding code. Missing-AP construction tests are policy witnesses, not producer-conformance certificates.",
+    "reviewer": "line_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-raster",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.7",
+    "feature_id": "line_leader_extension_offset_and_length_constraints",
+    "requirement": "Optional `/LLE` extends leaders beyond the line proper by a nonnegative distance and defaults to zero; optional `/LLO` leaves a nonnegative gap between each `/L` endpoint and the leader start. `/LL` is required by the writer if `/LLE` is present. That conditional is a producer constraint; no reader-rejection requirement is asserted.",
+    "source_location": "Table 178 `/LL`, `/LLE`, `/LLO`, printed pp.486–487 / physical pp.501–502; Figure 80 printed p.488 / physical p.503.",
+    "errata": "No semantic EC3 change identified to these entries.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::line"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_leader_line_has_an_offset_before_it_and_an_extension_beyond_it",
+      "crates/pdf-model/tests/annotations.rs::a_negative_leader_length_reverses_the_side"
+    ],
+    "verdict": "confirmed-selected-raster",
+    "evidence": "The raster test asserts an empty gap before the leader, visible leader interior, extension beyond the line proper, and no ink past the extension end. The implementation clamps negative LLE/LLO to zero as a recovery/policy choice; the standard's nonnegative condition is a writer requirement and does not mandate rejection. The test does not exercise absent-vs-explicit-zero LLE/LLO defaults.",
+    "test_command": null,
+    "test_result": "New diagonal caption and public popup PASS in free-text-line-target.log; endpoint regression FAILS in line-ending-endpoint-target.log. Existing tests ran in broad wave14; review is bounded to described assertions.",
+    "parent_review": "Parent read effective Tables178/179 and visually inspected Figure80 on physical503. Read actual leader, ending, caption, intent and measurement assertions and corresponding code. Missing-AP construction tests are policy witnesses, not producer-conformance certificates.",
+    "remaining_work": "Producer conditional LL, nonnegative lengths and minimum versions are not certified by reader fixtures; absent/zero default equality remains partial.",
+    "reviewer": "line_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-raster",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.7",
+    "feature_id": "line_caption_text_requirement_and_default",
+    "requirement": "If `/Cap` is true, replicate annotation text from `/Contents` or `/RC` as a caption, rendered appropriately to content including writing direction; `/Cap` defaults false. Empty source text supplies no caption content. The producer's AP obligation is separate and shared with the common annotation AP audit.",
+    "source_location": "Table 178 `/Cap`, printed p.487 / physical p.502; Figures 81–82 printed p.488 / physical p.503.",
+    "errata": "No effective EC3 semantic change identified to `/Cap`.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::caption",
+      "crates/pdf-model/src/appearance.rs::line"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_captioned_line_draws_its_contents_where_cp_states",
+      "crates/pdf-model/tests/annotations.rs::a_line_ending_is_drawn_and_an_empty_caption_owes_nothing"
+    ],
+    "verdict": "confirmed-selected-raster",
+    "evidence": "The caption test contrasts Cap true with an otherwise identical uncaptioned line, requires added display-list commands, and asserts ink in Top and default Inline bands; the empty-content test checks that absent text does not create an unsupported caption. Existing test uses Contents, not RC or non-LTR writing direction; these content variants remain open assertion coverage, while rich-text source reading is cross-referenced to the rich-note audit.",
+    "test_command": null,
+    "test_result": "New diagonal caption and public popup PASS in free-text-line-target.log; endpoint regression FAILS in line-ending-endpoint-target.log. Existing tests ran in broad wave14; review is bounded to described assertions.",
+    "parent_review": "Parent read effective Tables178/179 and visually inspected Figure80 on physical503. Read actual leader, ending, caption, intent and measurement assertions and corresponding code. Missing-AP construction tests are policy witnesses, not producer-conformance certificates.",
+    "reviewer": "line_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-raster",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.7",
+    "feature_id": "caption_position_default_and_offsets",
+    "requirement": "`/CP` is meaningful only with Cap true; Inline centers text inside the line and is default, Top places it on top. `/CO` is meaningful only with Cap true and defaults [0,0]; its first component shifts along the line (+right/-left), second shifts perpendicular (+up/-down).",
+    "source_location": "Table 178 `/CP` and `/CO`, printed p.487 / physical p.502; Figures 81–82 printed p.488 / physical p.503.",
+    "errata": "No semantic EC3 change identified to caption position entries.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::caption",
+      "crates/pdf-model/src/appearance.rs::caption_offset"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_captioned_line_draws_its_contents_where_cp_states",
+      "crates/pdf-model/tests/annotations.rs::a_caption_this_table_cannot_place_is_named_and_the_line_is_still_drawn",
+      "crates/pdf-model/tests/line_caption_spec_audit.rs::caption_co_defaults_and_offsets_follow_the_diagonal_line_axes"
+    ],
+    "verdict": "confirmed-selected-default-and-diagonal-axis-consumer",
+    "evidence": "Existing raster tests distinguish Top and Inline/default placement; a positive perpendicular CO moves the caption off its old band and into higher rows; malformed CP and CO are reported while the required line remains. The unrun scratch draft compares omitted CO to explicit [0,0] and compares glyph-outline transforms for diagonal-line CO [10,-8] against the independently calculated line-axis translation, jointly testing positive-along-line and negative-perpendicular components without an absolute font baseline. Parent compiled and ran the diagonal test: missing CO equals [0,0], and every glyph transform shifts by (18/sqrt2,2/sqrt2) for [10,-8]. Caption produces nonempty fill commands and interpretation is complete. Both translation components and unchanged linear transform are checked.",
+    "test_command": null,
+    "test_result": "New diagonal caption and public popup PASS in free-text-line-target.log; endpoint regression FAILS in line-ending-endpoint-target.log. Existing tests ran in broad wave14; review is bounded to described assertions.",
+    "parent_review": "Parent read effective Tables178/179 and visually inspected Figure80 on physical503. Read actual leader, ending, caption, intent and measurement assertions and corresponding code. Missing-AP construction tests are policy witnesses, not producer-conformance certificates.",
+    "reviewer": "line_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-default-and-diagonal-axis-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.7",
+    "feature_id": "line_intent_names_are_subtype_scoped_metadata",
+    "requirement": "IT may specify LineArrow or LineDimension as intended function. This table does not prescribe different geometry for them. Unknown-value reporting is implementation policy, not a normative obligation.",
+    "source_location": "Table 178 `/IT`, printed p.487 / physical p.502.",
+    "errata": "No effective EC3 change identified to the two valid intent names.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::intent"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::an_intent_is_read_against_the_table_its_own_subtype_names"
+    ],
+    "verdict": "confirmed-selected-model",
+    "evidence": "The table-driven assertion checks both valid Line intents, a Line value valid only for another subtype, other-subtype controls, and absent `/IT`; `Intent` is metadata and is not consumed by the line constructor.",
+    "test_command": null,
+    "test_result": "New diagonal caption and public popup PASS in free-text-line-target.log; endpoint regression FAILS in line-ending-endpoint-target.log. Existing tests ran in broad wave14; review is bounded to described assertions.",
+    "parent_review": "Parent read effective Tables178/179 and visually inspected Figure80 on physical503. Read actual leader, ending, caption, intent and measurement assertions and corresponding code. Missing-AP construction tests are policy witnesses, not producer-conformance certificates.",
+    "reviewer": "line_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-model",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.7",
+    "feature_id": "line_measure_dictionary_scales_user_space_geometry",
+    "requirement": "Optional `/Measure` specifies scale and units for the line. The measurement function applies scale to the `/L` line segment and does not change length when `/LL` translates it perpendicular to itself.",
+    "source_location": "Table 178 `/Measure`, printed p.487 / physical p.502; §12.9.2/Table 267 for conversion ordering.",
+    "errata": "No effective EC3 change identified to the Table178 `/Measure` entry; the common number-format arithmetic is inherited from §12.9.2 and is not exhaustively re-audited here.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/measurement.rs::annotation_measurement",
+      "crates/pdf-model/src/measurement.rs::Measure"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::an_annotations_own_measure_states_the_units_its_geometry_is_in"
+    ],
+    "verdict": "confirmed-selected-model",
+    "evidence": "For a 3-4-5 line, the test specifies an x scale of two and asserts 10 m, then asserts the identical result with `/LL 20`; it also checks no measure gives None. UI presentation of measure values is not exercised: the API is public but source search shows no current viewer measuring-tool caller, so user-facing measurement remains a documented consumer gap, not an unimplemented line parse.",
+    "test_command": null,
+    "test_result": "New diagonal caption and public popup PASS in free-text-line-target.log; endpoint regression FAILS in line-ending-endpoint-target.log. Existing tests ran in broad wave14; review is bounded to described assertions.",
+    "parent_review": "Parent read effective Tables178/179 and visually inspected Figure80 on physical503. Read actual leader, ending, caption, intent and measurement assertions and corresponding code. Missing-AP construction tests are policy witnesses, not producer-conformance certificates.",
+    "reviewer": "line_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-model",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.7",
+    "feature_id": "table179_shape_descriptions_and_versions",
+    "requirement": "Square, Circle and Diamond describe their named shapes; OpenArrow has two short lines at an acute angle; ClosedArrow adds a third closing edge; reverse arrows reverse direction. Butt is short and perpendicular; Slash is approximately 30 degrees clockwise from perpendicular. None has no ending. Butt/reverse arrows begin at PDF1.5, Slash at1.6.",
+    "source_location": "Table179 physical504/printed489",
+    "errata": "EC3 #513 clarifies obscured OpenArrow text; #515 adds reverse closed fill.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::draw_ending"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::each_of_table_179_s_line_endings_draws_its_own_shape",
+      "crates/pdf-model/tests/annotations.rs::a_reversed_arrowhead_is_not_the_one_it_reverses"
+    ],
+    "verdict": "partial-shape-and-version-inventory",
+    "evidence": "Different-pixel assertions discriminate conflated styles and fill tests discriminate IC use; they do not alone establish every angle/edge or producer minimum version. ADR0192 chooses dimensions and an acute 60-degree arrow apex; those choices are not canonical specification artwork.",
+    "parent_review": "Parent added shape descriptions and version constraints omitted from draft names-only inventory.",
+    "reviewer": "line_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-shape-and-version-inventory",
     "superseded": false
   },
   {

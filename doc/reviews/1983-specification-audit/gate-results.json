@@ -730,5 +730,19 @@
     "unexpected": 0,
     "exit": 100,
     "manifest": "Parent verified exact binary/test set equality; assertions are not necessarily distinct defects."
+  },
+  "free_text_line": {
+    "logs": [
+      "free-text-borderless-target.log",
+      "free-text-line-target.log",
+      "line-ending-endpoint-target.log"
+    ],
+    "reviewed_pass": 4,
+    "expected_fail": 1,
+    "qualification": "Initial FreeText failure was border contamination of oracle, corrected before acceptance."
+  },
+  "free_text_line_clippy": {
+    "log": "clippy-free-text-line-final.log",
+    "exit": 0
   }
 }
