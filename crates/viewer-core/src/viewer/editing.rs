@@ -331,6 +331,11 @@ impl Viewer {
             not_written(open);
             return;
         }
+        if !proceed && matches!(held, crate::open::Held::PrintCancelled { .. }) {
+            // And a print the `postPrint` its `prePrint` pushed (ADR 2777).
+            Self::not_printed(open);
+            return;
+        }
         if !proceed && !answered_either_way {
             // §12.11.6's question is the one whose `no` has something to undo: a document held
             // before it was processed was never opened, no `Event::Opened` named it, and leaving
@@ -369,7 +374,13 @@ impl Viewer {
                 } else {
                     crate::Fidelity::Degraded
                 };
-                Self::begin_printing(document, open, sheet, fidelity, events);
+                let policy = self.restrictions.under(open.restrictions);
+                Self::begin_printing(document, open, policy, (sheet, fidelity), events);
+            }
+            // The print whose `prePrint` script declined it, the scripts before it having run:
+            // what the `yes` releases is the intent (ADR 2777).
+            crate::open::Held::PrintCancelled { sheet, fidelity } => {
+                Self::print_intent(document, open, sheet, fidelity, events);
             }
             // A conversion changes no document either: the `yes` releases the file to the host
             // for the target and profile the question was asked about (ADR 1954).
@@ -386,15 +397,10 @@ impl Viewer {
                 media,
             }),
             crate::open::Held::Print(sheet) => {
-                let granted = Self::faithfulness(
-                    document,
-                    open,
-                    self.restrictions.under(open.restrictions),
-                    sheet,
-                    events,
-                );
+                let policy = self.restrictions.under(open.restrictions);
+                let granted = Self::faithfulness(document, open, policy, sheet, events);
                 if let Some(fidelity) = granted {
-                    Self::begin_printing(document, open, sheet, fidelity, events);
+                    Self::begin_printing(document, open, policy, (sheet, fidelity), events);
                 }
             }
         }

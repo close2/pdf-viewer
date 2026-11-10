@@ -1732,6 +1732,10 @@ fn describe_restriction(operation: Operation, restriction: Restriction) -> Strin
         Restriction::SaveCancelled => {
             "its XFA form's preSave script set $event.cancelAction (XFA 3.3 page 402)".to_owned()
         }
+        // The same flag under `prePrint`, asked by the window that prints (ADR 2777).
+        Restriction::PrintCancelled => {
+            "its XFA form's prePrint script set $event.cancelAction (XFA 3.3 page 399)".to_owned()
+        }
     }
 }
 

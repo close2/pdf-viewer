@@ -57,7 +57,7 @@ impl Viewer {
                 };
                 let under = policy.under(open.restrictions);
                 if let Some(fidelity) = Self::faithfulness(id, open, under, sheet, events) {
-                    Self::begin_printing(id, open, sheet, fidelity, events);
+                    Self::begin_printing(id, open, under, (sheet, fidelity), events);
                 }
             }
             Standing::Warn(notes) => {
@@ -68,7 +68,7 @@ impl Viewer {
                 let under = policy.under(open.restrictions);
                 let granted = Self::faithfulness(id, open, under, sheet, events);
                 if let Some(fidelity) = granted {
-                    Self::begin_printing(id, open, sheet, fidelity, events);
+                    Self::begin_printing(id, open, under, (sheet, fidelity), events);
                 }
                 events.push(Event::Warned {
                     document: id,
@@ -197,6 +197,81 @@ impl Viewer {
         }
     }
 
+    /// The scripts that run before a print, and the print if they do not decline it.
+    ///
+    /// Table 200's `/WP`, "before printing a document", and then XFA 3.3 page 388's `prePrint`,
+    /// "just before rendering for print begins": both before the intent is set, so that what a
+    /// script writes into a field is on the paper (ADRs 1614, 2777). **A `prePrint` script may
+    /// decline the print**, by setting `$event.cancelAction`, which page 399 says cancels
+    /// "whatever action fired the event"; a print is the reader's own, so that is a document's
+    /// restriction on its reader and is asked at the reader's level for
+    /// `pdf_model::restriction::Operation::Print`, here, as a save's `preSave` is: `off` prints,
+    /// `warn` prints and says so, `ask` holds the print for [`Command::Answer`], and `on` prints
+    /// nothing, says why, and fires the `postPrint` page 400's cleanup owes the `prePrint` that
+    /// fired.
+    pub(super) fn begin_printing(
+        id: DocumentId,
+        open: &mut Open,
+        policy: crate::RestrictionPolicy,
+        (sheet, fidelity): (crate::Sheet, crate::Fidelity),
+        events: &mut Vec<Event>,
+    ) {
+        use crate::notes::{Standing as Worded, restricted};
+        use pdf_model::restriction::{Operation, Restriction, Verdict};
+
+        open.view.run_document_scripts(
+            &open.document,
+            pdf_model::view::DocumentTrigger::WillPrint,
+            open.page_index,
+        );
+        let before = open.view.activate_form_before_print(&open.document);
+        if before.changed {
+            open.stale();
+        }
+        let operation = Operation::Print;
+        let asserted = if before.cancelled {
+            vec![Restriction::PrintCancelled]
+        } else {
+            Vec::new()
+        };
+        match policy.level(operation).level().verdict(asserted) {
+            Verdict::Proceed => Self::print_intent(id, open, sheet, fidelity, events),
+            Verdict::Warn(restrictions) => {
+                Self::print_intent(id, open, sheet, fidelity, events);
+                events.push(Event::Warned {
+                    document: id,
+                    operation,
+                    notes: restricted(operation, &restrictions, Worded::Warned),
+                });
+            }
+            Verdict::Refuse(restrictions) => {
+                events.push(Event::Refused {
+                    document: id,
+                    operation,
+                    notes: restricted(operation, &restrictions, Worded::Refused),
+                });
+                Self::not_printed(open);
+            }
+            Verdict::Ask(restrictions) => {
+                open.asking = Some(crate::open::Held::PrintCancelled { sheet, fidelity });
+                events.push(Event::Asking {
+                    document: id,
+                    operation,
+                    notes: restricted(operation, &restrictions, Worded::Asked),
+                });
+            }
+        }
+    }
+
+    /// A print the reader's level did not let go ahead after a `prePrint` script declined it:
+    /// XFA 3.3 page 400's cleanup fires the `postPrint` the `prePrint` pushed, while Table 200's
+    /// `/DP`, "after printing a document", does not run, since nothing was printed (ADR 2777).
+    pub(super) fn not_printed(open: &mut Open) {
+        if open.view.activate_form_after_print(&open.document) {
+            open.stale();
+        }
+    }
+
     /// Puts one document into print intent, and says so.
     ///
     /// Three statements about the *output* rather than about the document, which is why they go
@@ -208,20 +283,13 @@ impl Viewer {
     ///
     /// `fidelity` is Table 22 bit 12's answer, decided by [`Self::faithfulness`] before this is
     /// reached and carried on the grant so that a host knows what its dialogue may offer.
-    pub(super) fn begin_printing(
+    pub(super) fn print_intent(
         id: DocumentId,
         open: &mut Open,
         sheet: crate::Sheet,
         fidelity: crate::Fidelity,
         events: &mut Vec<Event>,
     ) {
-        // Table 200's `/WP`, "before printing a document": before the intent is set, so that what
-        // the script writes into a field is on the paper (ADR 1614).
-        open.view.run_document_scripts(
-            &open.document,
-            pdf_model::view::DocumentTrigger::WillPrint,
-            open.page_index,
-        );
         open.printing = Some(sheet);
         open.view
             .set_purpose(pdf_model::optional_content::Purpose::Print);
@@ -262,6 +330,9 @@ impl Viewer {
             pdf_model::view::DocumentTrigger::DidPrint,
             open.page_index,
         );
+        // XFA 3.3 page 388's `postPrint`, "just after the rendered form has been sent to the
+        // printer", beside it (ADR 2777).
+        open.view.activate_form_after_print(&open.document);
         open.stale();
     }
 }

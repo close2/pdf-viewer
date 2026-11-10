@@ -1272,6 +1272,193 @@ fn a_pre_save_cancel_action_is_asked_at_the_reader_s_level_for_save() {
     }
 }
 
+/// A sheet of A4 at 300 dots per inch, the one every print here asks for.
+fn a4() -> viewer_core::Sheet {
+    viewer_core::Sheet {
+        media: Some([0.0, 0.0, 595.0, 842.0]),
+        scale: 300.0 / 72.0,
+        page_scale: 1.0,
+    }
+}
+
+/// Whether the events hold a print's grant.
+fn printing(events: &[Event]) -> bool {
+    events
+        .iter()
+        .any(|event| matches!(event, Event::Printing { .. }))
+}
+
+/// XFA 3.3 page 388: `prePrint` "fires just before rendering for print begins", and `postPrint`
+/// "just after the rendered form has been sent to the printer, spooler, or output destination". So
+/// `Units`, which a `prePrint` bound to `$host` sets to 4, reads 4 once the print begins and before
+/// a page is pulled, and `Total`, which a `postPrint` sets to 9, stays empty until the print
+/// operation ends; at `off` neither runs (ADR 1616), and the print goes ahead the same.
+#[test]
+fn a_print_runs_its_pre_print_event_before_the_pages_and_its_post_print_event_after() {
+    let fields = "<field name=\"Units\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"prePrint\" ref=\"$host\"><script>4</script></event></field>\
+                  <field name=\"Total\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"postPrint\" ref=\"$host\"><script>9</script></event></field>";
+    for (scripting, units, total) in [
+        (Scripting::Run(Arc::new(Calculators::default())), "4", "9"),
+        (Scripting::Off, "", ""),
+    ] {
+        let mut viewer = opened_on(scripting, hybrid(fields, "<Units/><Total/>"));
+        viewer.handle(Command::Presented).for_each(drop);
+        let began: Vec<Event> = viewer
+            .handle(Command::Print(viewer_core::Printing::Start(a4())))
+            .collect();
+        assert!(printing(&began), "the print goes ahead");
+        assert_eq!(
+            value(&viewer, "Units"),
+            units,
+            "prePrint ran before the pages"
+        );
+        assert_eq!(value(&viewer, "Total"), "", "postPrint waits for the end");
+        viewer
+            .handle(Command::Print(viewer_core::Printing::Finish))
+            .for_each(drop);
+        assert_eq!(value(&viewer, "Total"), total);
+    }
+}
+
+/// Opens a hybrid form whose `prePrint` script declines the print, under one level for the
+/// reader's `print`, and asks to print it.
+fn printed_under(level: RestrictionLevel) -> (Viewer, Vec<Event>) {
+    let fields = "<field name=\"Units\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"prePrint\" ref=\"$host\"><script>cancel</script></event>\
+                  </field>\
+                  <field name=\"Total\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"postPrint\" ref=\"$host\"><script>9</script></event></field>";
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Restrict(RestrictionScope::Window(
+            RestrictionPolicy::default().with(Operation::Print, level),
+        )))
+        .for_each(drop);
+    viewer
+        .handle(Command::Scripts(Scripting::Run(Arc::new(
+            Calculators::default(),
+        ))))
+        .for_each(drop);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: hybrid(fields, "<Units/><Total/>").into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    viewer.handle(Command::Presented).for_each(drop);
+    let events = viewer
+        .handle(Command::Print(viewer_core::Printing::Start(a4())))
+        .collect();
+    (viewer, events)
+}
+
+/// XFA 3.3 page 399: "[t]he cancelAction flag is used to cancel whatever action fired the event",
+/// and `prePrint` is the pre-event of a print. A print is the reader's own, so the document
+/// declining it is asked at the reader's level for `print` (`CLAUDE.md`, ADR 2777): `off` prints
+/// and says nothing, `warn` prints and says why, `on` prints nothing and says why, and `ask` prints
+/// on a `yes` and not on a `no`. Wherever nothing is printed, page 400's cleanup fires the
+/// `postPrint` its `prePrint` pushed, so `Total`, which `postPrint` sets to 9, reads 9.
+#[test]
+fn a_pre_print_cancel_action_is_asked_at_the_reader_s_level_for_print() {
+    let said = |events: &[Event]| {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Warned { operation, .. } => Some(("warned", *operation)),
+                Event::Refused { operation, .. } => Some(("refused", *operation)),
+                Event::Asking { operation, .. } => Some(("asking", *operation)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let (viewer, events) = printed_under(RestrictionLevel::Off);
+    assert!(printing(&events), "off prints");
+    assert_eq!(said(&events), [], "off says nothing");
+    assert_eq!(value(&viewer, "Total"), "", "postPrint waits for the end");
+
+    let (_, events) = printed_under(RestrictionLevel::Warn);
+    assert!(printing(&events), "warn prints");
+    assert_eq!(said(&events), [("warned", Operation::Print)]);
+
+    let (viewer, events) = printed_under(RestrictionLevel::On);
+    assert!(!printing(&events), "on prints nothing");
+    assert_eq!(said(&events), [("refused", Operation::Print)]);
+    assert_eq!(value(&viewer, "Total"), "9", "the cleanup fires postPrint");
+
+    for (proceed, printed, total) in [(true, true, ""), (false, false, "9")] {
+        let (mut viewer, events) = printed_under(RestrictionLevel::Ask);
+        assert!(!printing(&events), "ask prints nothing before the answer");
+        assert_eq!(said(&events), [("asking", Operation::Print)]);
+        let answered: Vec<Event> = viewer
+            .handle(Command::Answer {
+                document: DOCUMENT,
+                proceed,
+            })
+            .collect();
+        assert_eq!(printing(&answered), printed, "answered {proceed}");
+        assert_eq!(value(&viewer, "Total"), total, "answered {proceed}");
+    }
+}
+
+/// The sentences reported as the document closes.
+fn closing(viewer: &mut Viewer) -> Vec<String> {
+    viewer
+        .handle(Command::Close(DOCUMENT))
+        .filter_map(|event| match event {
+            Event::Reported { notes, .. } => Some(notes),
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}
+
+/// XFA 3.3 page 388: `docClose` "fires at the very end of processing if and only if all
+/// validations succeeded", success being "nothing worse than a warning (no errors)". The event's
+/// script here is `unrunnable`, which this test's runner refuses by name, so the report says
+/// whether it ran. `Units` carries a null test at the level `error` (page 384): empty, it fails,
+/// and the event does not run and the report says why; filled, every validation succeeds and the
+/// event runs. At `off` no script runs, and nothing is validated for it (ADR 1616).
+#[test]
+fn the_close_runs_the_doc_close_event_only_where_every_validation_succeeded() {
+    let fields = "<field name=\"Units\"><ui><textEdit/></ui><value><text/></value>\
+                  <validate nullTest=\"error\"/>\
+                  <event activity=\"docClose\" ref=\"$host\"><script>unrunnable</script>\
+                  </event></field>\
+                  <field name=\"Total\"><ui><textEdit/></ui><value><text/></value></field>";
+    let ran = |notes: &[String]| notes.iter().any(|note| note.contains("\"unrunnable\""));
+    let withheld = |notes: &[String]| {
+        notes
+            .iter()
+            .any(|note| note.contains("docClose events are not run") && note.contains("Units"))
+    };
+
+    let mut viewer = opened_on(
+        Scripting::Run(Arc::new(Calculators::default())),
+        hybrid(fields, "<Units/><Total/>"),
+    );
+    viewer.handle(Command::Presented).for_each(drop);
+    let notes = closing(&mut viewer);
+    assert!(!ran(&notes) && withheld(&notes), "{notes:?}");
+
+    let mut viewer = opened_on(
+        Scripting::Run(Arc::new(Calculators::default())),
+        hybrid(fields, "<Units/><Total/>"),
+    );
+    viewer.handle(Command::Presented).for_each(drop);
+    enter(&mut viewer, "Units", "3");
+    let notes = closing(&mut viewer);
+    assert!(ran(&notes) && !withheld(&notes), "{notes:?}");
+
+    let mut viewer = opened_on(Scripting::Off, hybrid(fields, "<Units/><Total/>"));
+    viewer.handle(Command::Presented).for_each(drop);
+    let notes = closing(&mut viewer);
+    assert!(!ran(&notes) && !withheld(&notes), "{notes:?}");
+}
+
 /// XFA 3.3 page 447: "after any attempted submit operation", the client runs the form's
 /// `postSubmit` events "\[w]hether or not the submit succeeded". A host whose submission ended
 /// with no form data to hand back — declined, unsent, unanswered or answered with something else —

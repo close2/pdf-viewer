@@ -46,6 +46,9 @@ pub(crate) enum Occasion {
     Save,
     /// A form submitted to a server (page 1340, page 447).
     Submit,
+    /// The very end of processing, where page 388 fires `docClose` only if every validation
+    /// succeeded (ADR 2777).
+    Close,
 }
 
 impl Occasion {
@@ -66,6 +69,10 @@ impl Occasion {
                  cancels and a warning lets go ahead, and whether this submit is cancelled is its \
                  host\'s submit policy\'s to say"
             }
+            Self::Close => {
+                "the form's validations are run as it closes, and its docClose events fire only \
+                 where none of them fails at the level error (XFA 3.3 page 388)"
+            }
         }
     }
 
@@ -74,6 +81,7 @@ impl Occasion {
         match self {
             Self::Save => "saved",
             Self::Submit => "submitted",
+            Self::Close => "left",
         }
     }
 }
@@ -93,6 +101,7 @@ pub(crate) fn before(
     let asked = match occasion {
         Occasion::Save => config.validates_on_save(),
         Occasion::Submit => config.validates_on_submit(),
+        Occasion::Close => true,
     };
     if !asked {
         return Vec::new();
@@ -132,6 +141,7 @@ pub(crate) fn verdicts(
     let asked = match occasion {
         Occasion::Save => config.validates_on_save(),
         Occasion::Submit => config.validates_on_submit(),
+        Occasion::Close => true,
     };
     if !asked {
         return Vec::new();
@@ -173,6 +183,41 @@ pub(crate) fn verdicts(
         }
     }
     found
+}
+
+/// The null and datatype tests that fail at the level `error` as the form closes, one sentence
+/// each, for page 388's condition on `docClose`: it fires "if and only if all validations
+/// succeeded", success being nothing worse than a warning (ADR 2777). A null test fails at the
+/// level its `nullTest` gives (page 384) and a datatype test always at `error` (page 386); a
+/// `warning` or a `disabled` null test does not stand in the way.
+pub(crate) fn erring_at_close(
+    (template, locales): (&Template, &LocaleSet),
+    fields: &[(String, Change)],
+) -> Vec<String> {
+    let mut erring = Vec::new();
+    for (name, value) in fields {
+        let Some(target) = template.resolve(name) else {
+            continue;
+        };
+        let Some(container) = template.get(target) else {
+            continue;
+        };
+        if !matches!(container.class, Class::Field | Class::ExclGroup) {
+            continue;
+        }
+        let tested = Tested {
+            occasion: Occasion::Close,
+            template,
+            locales,
+            target,
+            container,
+        };
+        if container.pictures.null_test == NullTest::Error {
+            erring.extend(tested.null_failure(name, value));
+        }
+        erring.extend(tested.datatype_failure(name, value));
+    }
+    erring
 }
 
 /// What page 382's format test makes of a field's content once it changed (page 396; ADR 2727).

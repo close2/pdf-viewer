@@ -356,10 +356,10 @@ pub(crate) fn what_a_print_does_not_do(document: &Document) -> Vec<String> {
 /// form's XDP packets and its XML data (ADR 2771). A reader
 /// whose level lets scripts run also carries out the form's calculations, its validation scripts
 /// and the events its containers raise when it is shown, at a person's entry, focus, click and
-/// pointer, at a choice list's selection, at a save and a submit and at a change of validation
-/// state, with how a person committed or abandoned a field's value, in `FormCalc` and in
-/// JavaScript (ADRs 2524, 2525, 2545, 2566, 2584, 2606, 2627, 2647, 2696, 2702, 2706, 2707, 2726,
-/// 2738, 2755, 2756), as ledger row K.2 lists them. So what is not carried out is its other
+/// pointer, at a choice list's selection, at a save, a submit and a print, as it closes and at a
+/// change of validation state, with how a person committed or abandoned a field's value, in
+/// `FormCalc` and in JavaScript (ADRs 2524, 2525, 2545, 2566, 2584, 2606, 2627, 2647, 2696, 2702,
+/// 2706, 2707, 2726, 2738, 2755, 2756, 2777), as ledger row K.2 lists them. So what is not carried out is its other
 /// events, a submit that asks to be signed or encrypted, and its scripts where scripts do not run.
 fn xfa_form(document: &Document, notes: &mut Vec<String>) {
     let Some(stated) = pdf_model::xfa::stated(document) else {
@@ -380,10 +380,11 @@ fn xfa_form(document: &Document, notes: &mut Vec<String>) {
                           a script — \
                           what only the XFA resource states beyond that is not carried out, its \
                           calculations, its validation scripts and the scripts of the events a \
-                          person's actions, the form's opening, a save, a submit and a change of \
-                          validation state raise, in FormCalc and JavaScript, excepted where \
-                          this reader lets scripts run, a save those scripts decline being \
-                          written or not at the level set for it, and its other events and a \
+                          person's actions, the form's opening and closing, a save, a submit, a \
+                          print and a change of validation state raise, in FormCalc and \
+                          JavaScript, excepted where this reader lets scripts run, a save or a \
+                          print those scripts decline going ahead or not at the level set for \
+                          it, and its other events and a \
                           submit that asks to be signed or encrypted are not"
             .to_owned(),
         (true, true) => format!(
@@ -683,6 +684,12 @@ pub(crate) fn restricted(
             Restriction::SaveCancelled => format!(
                 "this document's XFA form has a preSave script that set $event.cancelAction, \
                  which XFA 3.3 page 402 says causes the save to abort — {tail}"
+            ),
+            // The same flag under `prePrint`, which page 399 has cancel "whatever action fired
+            // the event" (ADR 2777).
+            Restriction::PrintCancelled => format!(
+                "this document's XFA form has a prePrint script that set $event.cancelAction, \
+                 which XFA 3.3 page 399 says cancels the print — {tail}"
             ),
         })
         .collect()

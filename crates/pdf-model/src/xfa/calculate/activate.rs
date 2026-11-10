@@ -48,6 +48,14 @@
 //!   puts after the Form DOM's `ready` and before rendering; after each, the calculations that
 //!   depend on what the events changed. An event whose `ref` names an object this reader raises
 //!   no event for is named in the report as not run (ADR 2606).
+//! - A print ([`Stimulus::PrePrint`], [`Stimulus::PostPrint`]): the `prePrint` events bound to
+//!   the application just before rendering for print begins and the `postPrint` events once the
+//!   rendered form has gone to the printer (page 388), each followed by the calculations that
+//!   depend on what they changed; a `prePrint` script's `cancelAction` asks for the print to
+//!   abort, as page 399 has the flag cancel "whatever action fired the event" (ADR 2777).
+//! - The close ([`Stimulus::DocClose`]): every container's validations, and then the `docClose`
+//!   events bound to the application where none fails at the level `error`, page 388's "if and
+//!   only if all validations succeeded" (ADR 2777).
 //! - **What an activity on an object reaches** (pages 404 and 706–707): the events bound to the
 //!   object — its own whose `ref` is `$`, and those of any container whose `ref` names it, the
 //!   "come-from" notation — each run as its holder's script (ADR 2699).
@@ -359,9 +367,37 @@ pub enum Stimulus<'a> {
         /// Its button's on value, as [`Self::PreSubmit`]'s.
         button: Option<&'a str>,
     },
+    /// Rendering for print is about to begin (page 388's `prePrint`): the `prePrint` events bound
+    /// to the application (`ref="$host"`) and the calculations that depend on what they changed,
+    /// so that what a script writes is on the paper. A script that sets `$event.cancelAction`
+    /// asks for the print to abort ([`Activation::cancelled`]; ADR 2777).
+    PrePrint,
+    /// The rendered form has been sent to the printer, or the print did not take place (page
+    /// 388's `postPrint`, and page 400's cleanup of the `prePrint` that fired): the `postPrint`
+    /// events bound to the application.
+    PostPrint,
+    /// The very end of processing (page 388's `docClose`): every container's validations are run,
+    /// and the `docClose` events bound to the application fire where none of them fails at the
+    /// level `error`, page 388's "nothing worse than a warning" (ADR 2777).
+    DocClose,
 }
 
 impl Stimulus<'_> {
+    /// The activity of a pre- or post-event of an action — a save's or a print's, which page 388
+    /// binds to the application, or a submit's, which page 389 binds to the Form DOM — and `""`
+    /// for any other stimulus.
+    fn action_activity(&self) -> &'static str {
+        match self {
+            Self::PreSave => "preSave",
+            Self::PostSave => "postSave",
+            Self::PrePrint => "prePrint",
+            Self::PostPrint => "postPrint",
+            Self::PreSubmit { .. } => "preSubmit",
+            Self::PostSubmit { .. } => "postSubmit",
+            _ => "",
+        }
+    }
+
     /// What the stimulus is to a `submit` an event performs under it.
     fn origin(&self) -> Origin {
         match *self {
@@ -369,6 +405,7 @@ impl Stimulus<'_> {
                 Origin::Click((clicked.to_owned(), button.map(str::to_owned)))
             }
             Self::PreSubmit { .. } | Self::PostSubmit { .. } => Origin::Submitting,
+            Self::DocClose => Origin::Closing,
             _ => Origin::Other,
         }
     }
@@ -383,6 +420,10 @@ enum Origin {
     Click((String, Option<String>)),
     /// A submit's own `preSubmit` or `postSubmit`, under which a `submit` is not performed.
     Submitting,
+    /// The document's close, under which a `submit` is not performed either: page 388 says
+    /// `docClose` comes too late to modify the document, and the data a submit may return is
+    /// merged back into the Data DOM (page 389), which is gone by then (ADR 2777).
+    Closing,
     /// Any other, which gives the `preSubmit` events no primary event, as page 398 leaves to a
     /// secondary one.
     Other,
@@ -830,14 +871,14 @@ impl Resource {
                 let node: Vec<usize> = session.form.named(field).into_iter().collect();
                 session.settle(Seeds::Dismissed(&node));
             }
-            Stimulus::PreSave => session.action("preSave", None, &Bound::Host),
-            Stimulus::PostSave => session.action("postSave", None, &Bound::Host),
-            Stimulus::PreSubmit { clicked, button } => {
-                session.action("preSubmit", clicked.map(|c| (c, button)), &Bound::Form);
+            Stimulus::PreSave | Stimulus::PostSave | Stimulus::PrePrint | Stimulus::PostPrint => {
+                session.action(stimulus.action_activity(), None, &Bound::Host);
             }
-            Stimulus::PostSubmit { clicked, button } => {
-                session.action("postSubmit", clicked.map(|c| (c, button)), &Bound::Form);
+            Stimulus::PreSubmit { clicked, button } | Stimulus::PostSubmit { clicked, button } => {
+                let from = clicked.map(|c| (c, button));
+                session.action(stimulus.action_activity(), from, &Bound::Form);
             }
+            Stimulus::DocClose => self.closed(&mut session, fields, &initial),
             Stimulus::Ready => {
                 session.unfollowed();
                 session.fire("ready", None, &Bound::Form);
@@ -925,6 +966,55 @@ impl Resource {
             }
         }
         validate::grouped(&self.config, failed)
+    }
+
+    /// Page 388's `docClose`, "at the very end of processing if and only if all validations
+    /// succeeded", success being "nothing worse than a warning (no errors)": every container's
+    /// null, datatype, format and script tests are run over what the form holds now, and the
+    /// `docClose` events bound to the application fire, followed by the calculations they wake,
+    /// only where none fails at the level `error`; otherwise the report names each failure and
+    /// says the events are not run. The verdicts are not kept: a closing form announces no change
+    /// of validation state. A form with no `docClose` event is not validated at all, and neither
+    /// is one where no script runs: nothing a `docClose` event performs could then be carried out,
+    /// its scripts being passed over and a `submit` under it not performed (ADR 2777).
+    fn closed(
+        &self,
+        session: &mut Session<'_, '_, '_>,
+        fields: &[(String, Change)],
+        initial: &[Scalar],
+    ) {
+        if !session.scripted() || !self.has_activity("docClose") {
+            return;
+        }
+        let values = session.values_now(fields, initial);
+        let mut erring = validate::erring_at_close((&self.template, &self.locales), &values);
+        let (formats, _) = session.format_tests((&self.template, &self.locales), &values, None);
+        let (tested, _) = session.script_tests(None);
+        for failed in formats.iter().chain(&tested) {
+            if failed.level == Level::Error {
+                let test = match failed.test {
+                    Test::Format => "format",
+                    _ => "script",
+                };
+                erring.push(format!(
+                    "{} fails its {test} test at the level error (XFA 3.3 pages 384–385)",
+                    failed.container
+                ));
+            }
+        }
+        if session.ended.is_some() {
+            return;
+        }
+        if erring.is_empty() {
+            session.fire("docClose", None, &Bound::Host);
+            session.settle(Seeds::Changed);
+        } else {
+            session.say(format!(
+                "its docClose events are not run, since page 388 fires them only where every \
+                 validation succeeded with nothing worse than a warning: {}",
+                erring.join("; ")
+            ));
+        }
     }
 
     /// Fires the `validationState` events page 396 asks for: every object's when it is first
@@ -1827,7 +1917,9 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
     /// A `submit` under a submit's own `preSubmit` or `postSubmit` is not performed: page 446
     /// pairs each pre-event with its post-event around one transaction and says nothing of a
     /// transaction begun inside another, and one begun there would start the next submit at every
-    /// answer a server sends, so it is said instead — a choice where the pages are silent.
+    /// answer a server sends, so it is said instead — a choice where the pages are silent. One
+    /// under `docClose` is said too, since the document it would answer into is closing (ADR
+    /// 2777).
     fn perform(&mut self, activity: &str, node: usize, performs: &Performs) {
         let label = self.label(node);
         match performs {
@@ -1839,6 +1931,11 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
                 Ok(_) if self.origin == Origin::Submitting => self.say(format!(
                     "{label}: its {activity} event's submit is not performed: it would begin a \
                      submit inside the one under way (XFA 3.3 page 446)"
+                )),
+                Ok(_) if self.origin == Origin::Closing => self.say(format!(
+                    "{label}: its {activity} event's submit is not performed: the document is \
+                     closing, and page 388 says docClose comes too late to change it, while the \
+                     data a submit may return is merged back into it (XFA 3.3 page 389)"
                 )),
                 Ok(_) if self.submits.len() >= MAX_SUBMITS => self.say(format!(
                     "{label}: its {activity} event's submit is not performed: the activation \

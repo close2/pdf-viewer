@@ -3781,3 +3781,172 @@ fn where_no_script_runs_the_merge_still_puts_every_field_to_its_format_test() {
     );
     assert!(activation.edits.is_empty(), "{:?}", activation.edits);
 }
+
+/// XFA 3.3 page 388: `prePrint` and `postPrint` are application events, bound by the `ref` `$host`
+/// (page 387), the first "just before rendering for print begins" and the second "just after the
+/// rendered form has been sent to the printer". So a print's first half runs the `prePrint` bound
+/// to `$host` and nothing else, and its second half the `postPrint`; one bound to the Form DOM or
+/// to its own field names an object that prints nothing, and does not run.
+#[test]
+fn a_print_runs_the_applications_pre_print_and_then_its_post_print_events() {
+    let template = [
+        field("Pre", &bound("prePrint", "$host", "pre")),
+        field("Alias", &bound("prePrint", "xfa.host", "alias")),
+        field("Post", &bound("postPrint", "$host", "post")),
+        field("OnForm", &bound("prePrint", "$form", "form")),
+        field("Own", &bound("prePrint", "", "own")),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [
+        ("Pre", ""),
+        ("Alias", ""),
+        ("Post", ""),
+        ("OnForm", ""),
+        ("Own", ""),
+        ("Log", ""),
+    ];
+    let before = act(&template, &values, None, Stimulus::PrePrint);
+    assert_eq!(before.ended, Ended::Settled, "{:?}", before.report);
+    assert_eq!(log(&before).as_deref(), Some("pre!alias!"));
+    assert!(!before.cancelled);
+    let after = act(&template, &values, None, Stimulus::PostPrint);
+    assert_eq!(log(&after).as_deref(), Some("post!"));
+}
+
+/// XFA 3.3 page 399: "[t]he cancelAction flag is used to cancel whatever action fired the event",
+/// and the flag is cleared "[a]t the beginning of the action": a `prePrint` script reads it clear,
+/// sets it, and the activation says the print is cancelled; its `postPrint`, page 400's matching
+/// post-event, cancels nothing.
+#[test]
+fn a_pre_print_script_that_sets_cancel_action_cancels_the_print() {
+    let template = [
+        field(
+            "Printer",
+            "<event activity=\"prePrint\" ref=\"$host\"><script>Log = Concat(Log, \
+             $event.cancelAction, \"!\")\n$event.cancelAction = 1</script></event>",
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("Printer", ""), ("Log", "")];
+    let cancelled = act(&template, &values, None, Stimulus::PrePrint);
+    assert_eq!(
+        log(&cancelled).as_deref(),
+        Some("0!"),
+        "{:?}",
+        cancelled.report
+    );
+    assert!(cancelled.cancelled);
+    assert!(!act(&template, &values, None, Stimulus::PostPrint).cancelled);
+}
+
+/// XFA 3.3 page 388: `docClose` "fires at the very end of processing if and only if all
+/// validations succeeded. Success in this case is defined as generating nothing worse than a
+/// warning (no errors)". So it runs over a form that fails nothing, or fails only at `warning`, and
+/// not over one a test fails at `error`: the null test at the level its `nullTest` gives (page 384),
+/// the format test at its `formatTest`'s (pages 384–385, the picture `AAA-999` refusing the
+/// canonical `ABC-123`), the script test at its `scriptTest`'s (page 385), and the datatype test,
+/// whose response "is equivalent to a level of error" (page 386), for text no decimal holds. Where
+/// it does not run, the report names the failure.
+#[test]
+fn doc_close_runs_only_where_no_validation_fails_at_the_level_error() {
+    let listener = field("Closer", &bound("docClose", "$host", "close"));
+    let amount = |attributes: &str| {
+        field(
+            "Amount",
+            &validate("Amount &lt; 10", attributes, None)
+                .replace("<validate ", "<validate nullTest=\"disabled\" "),
+        )
+    };
+    let decimal = "<field name=\"Count\"><ui><numericEdit/></ui><value><decimal/></value></field>";
+    let required = field("Required", "<validate nullTest=\"error\"/>");
+    let wanted = field("Wanted", "<validate nullTest=\"warning\"/>");
+    let cases = [
+        (String::new(), ("", ""), true),
+        (required.clone(), ("Required", ""), false),
+        (required, ("Required", "x"), true),
+        (wanted, ("Wanted", ""), true),
+        (coded("formatTest=\"error\""), ("Code", "ABC-123"), false),
+        (coded("formatTest=\"warning\""), ("Code", "ABC-123"), true),
+        (amount("scriptTest=\"error\""), ("Amount", "50"), false),
+        (amount("scriptTest=\"warning\""), ("Amount", "50"), true),
+        (decimal.to_owned(), ("Count", "many"), false),
+        (decimal.to_owned(), ("Count", "12"), true),
+    ];
+    for (tested, held, runs) in cases {
+        let template = [tested.as_str(), listener.as_str(), &field("Log", "")].concat();
+        let mut values = vec![("Closer", ""), ("Log", "")];
+        if !held.0.is_empty() {
+            values.push(held);
+        }
+        let closed = act(&template, &values, None, Stimulus::DocClose);
+        assert_eq!(
+            closed.ended,
+            Ended::Settled,
+            "{tested}: {:?}",
+            closed.report
+        );
+        let withheld = closed
+            .report
+            .iter()
+            .any(|sentence| sentence.contains("docClose events are not run"));
+        assert_eq!(
+            (log(&closed).as_deref(), withheld),
+            if runs {
+                (Some("close!"), false)
+            } else {
+                (None, true)
+            },
+            "{tested} holding {held:?}: {:?}",
+            closed.report
+        );
+    }
+}
+
+/// XFA 3.3 page 388: `docClose` "comes too late to modify the saved document", and page 389 has
+/// the data a submit may return merged back into the Data DOM, which is closing. So a `submit` in
+/// a `docClose` event's place is said and not held (ADR 2777); a `docClose` the form does not have
+/// leaves the close with nothing to do and nothing to say.
+#[test]
+fn a_doc_close_event_s_submit_is_said_and_not_held() {
+    let template = [
+        field(
+            "Closer",
+            "<event activity=\"docClose\" ref=\"$host\"><submit format=\"pdf\" \
+             target=\"https://example.invalid/close\"/></event>",
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let closed = act(
+        &template,
+        &[("Closer", ""), ("Log", "")],
+        None,
+        Stimulus::DocClose,
+    );
+    assert!(closed.submits.is_empty(), "{:?}", closed.submits);
+    assert!(
+        closed
+            .report
+            .iter()
+            .any(|sentence| sentence.contains("the document is closing")
+                && sentence.contains("page 389")),
+        "{:?}",
+        closed.report
+    );
+
+    let plain = [
+        field("Required", "<validate nullTest=\"error\"/>"),
+        field("Log", ""),
+    ]
+    .concat();
+    let quiet = act(
+        &plain,
+        &[("Required", ""), ("Log", "")],
+        None,
+        Stimulus::DocClose,
+    );
+    assert!(quiet.report.is_empty(), "{:?}", quiet.report);
+    assert_eq!(log(&quiet), None);
+}

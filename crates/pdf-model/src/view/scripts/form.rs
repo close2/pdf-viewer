@@ -13,6 +13,9 @@
 //! [`ViewState::activate_form_before_save`], [`ViewState::activate_form_after_save`],
 //! [`ViewState::activate_form_before_submit`] and [`ViewState::activate_form_after_submit`] the
 //! pre- and post-events pages 388–389 fire around a save and a submit (ADR 2702), and
+//! [`ViewState::activate_form_before_print`], [`ViewState::activate_form_after_print`] and
+//! [`ViewState::activate_form_on_close`] page 388's around a print and at the close (ADR 2777),
+//! and
 //! [`ViewState::activate_form_before_selection`] and [`ViewState::activate_form_on_selection`] the
 //! `enter` and `exit` page 392 fires around a choice list's selection commit (ADR 2707). Every
 //! activation is given the validation state of the form's containers the view state keeps, whose
@@ -564,6 +567,42 @@ impl ViewState {
             .changed
     }
 
+    /// Runs the `prePrint` events bound to the application, which page 388 fires "just before
+    /// rendering for print begins", followed by the calculations that depend on what they changed
+    /// (page 379). A host calls it before the pages are interpreted for paper, so that what the
+    /// scripts wrote is printed. [`FormAction::changed`] is whether a value changed.
+    ///
+    /// **[`FormAction::cancelled`] does not cancel the print here**, for the save's reason
+    /// ([`Self::activate_form_before_save`]): page 399 has `cancelAction` cancel "whatever action
+    /// fired the event", and a print is the reader's own, so the caller asks its level with
+    /// `crate::restriction::Restriction::PrintCancelled` against
+    /// `crate::restriction::Operation::Print` (ADR 2777).
+    pub fn activate_form_before_print(&mut self, document: &Document) -> FormAction {
+        self.run_form(document, Raised::Action(Stimulus::PrePrint), Instant::now())
+    }
+
+    /// Runs the `postPrint` events bound to the application, which page 388 fires "just after the
+    /// rendered form has been sent to the printer, spooler, or output destination". A host calls
+    /// it when the print operation ends, and after a print the reader's level declined, page
+    /// 400's cleanup of the `prePrint` that fired. Answers whether a value changed.
+    pub fn activate_form_after_print(&mut self, document: &Document) -> bool {
+        self.run_form(
+            document,
+            Raised::Action(Stimulus::PostPrint),
+            Instant::now(),
+        )
+        .changed
+    }
+
+    /// Runs page 388's `docClose`, "at the very end of processing if and only if all validations
+    /// succeeded": every container's validations, and the `docClose` events bound to the
+    /// application where none fails at the level `error`. A host calls it as the document closes;
+    /// what the scripts change is not written anywhere, as page 388 says the event "comes too
+    /// late to modify the saved document", and what they say is reported (ADR 2777).
+    pub fn activate_form_on_close(&mut self, document: &Document) {
+        self.run_form(document, Raised::Action(Stimulus::DocClose), Instant::now());
+    }
+
     /// Runs the `preSubmit` events bound to the Form DOM, which page 389 fires before the data is
     /// validated and submitted so that a script "has the chance to examine and alter the data
     /// before it is submitted", followed by the calculations that depend on what they changed,
@@ -726,9 +765,11 @@ impl ViewState {
         };
         // The pointer crosses widgets on nearly every movement, and a form with no event of the
         // crossing has nothing to run, so it is not given a whole activation of the form.
+        // A form with no `docClose` event is not validated as it closes either (ADR 2777).
         let crossing = match raised {
             Raised::MouseEnter(..) => Some("mouseEnter"),
             Raised::MouseExit(..) => Some("mouseExit"),
+            Raised::Action(Stimulus::DocClose) => Some("docClose"),
             _ => None,
         };
         if crossing.is_some_and(|activity| !resource.has_activity(activity)) {

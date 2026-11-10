@@ -811,6 +811,19 @@ pub(crate) enum Held {
     /// run, so a `yes` writes the log as it stands and a `no` fires only the `postSave` XFA 3.3
     /// page 400's cleanup owes.
     Save,
+    /// A print an XFA form's `prePrint` script declined — `crate::Command::Print`, asked as
+    /// `pdf_model::restriction::Operation::Print` after §7.6.4.2's bits 3 and 12 let it through
+    /// (ADR 2777).
+    ///
+    /// The sheet and the fidelity already decided are carried, for [`Self::Print`]'s reason, and
+    /// the scripts before a print have run, so a `yes` puts the document into print intent and a
+    /// `no` fires only the `postPrint` XFA 3.3 page 400's cleanup owes.
+    PrintCancelled {
+        /// The sheet the print was asked about.
+        sheet: crate::Sheet,
+        /// Table 22 bit 12's answer.
+        fidelity: crate::Fidelity,
+    },
     /// A copy, with the text already taken in both of §14.8.2.5's orders — `crate::Command::Copy`.
     Copy {
         /// §14.8.2.5's logical content order, where the structure tree reached the whole

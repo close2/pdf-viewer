@@ -35,7 +35,8 @@
 //! `$event.cancelAction`, the document declining its reader's save (XFA 3.3 page 402). It is not
 //! read from the file but from what the form's scripts did, so [`asserted`] never returns it; the
 //! caller that ran them hands [`Restriction::SaveCancelled`] to [`Level::verdict`] itself, as
-//! [`media`]'s caller does (ADR 2763).
+//! [`media`]'s caller does (ADR 2763). A `prePrint` script's is the same flag against a print,
+//! [`Restriction::PrintCancelled`] (ADR 2777).
 //!
 //! # Why a reason and not a boolean
 //!
@@ -523,6 +524,12 @@ pub enum Restriction {
     /// `preSave` events of the save being asked about, which is why nothing in [`asserted`]
     /// produces it: the caller that ran them is the only one that knows (ADR 2763).
     SaveCancelled,
+    /// An XFA form's `prePrint` script that set `$event.cancelAction`, the flag page 399 says
+    /// cancels "whatever action fired the event" — the document declining its reader's print.
+    ///
+    /// Asserted only against [`Operation::Print`], by the caller that ran the `prePrint` events
+    /// of the print being asked about, for [`Self::SaveCancelled`]'s reason (ADR 2777).
+    PrintCancelled,
 }
 
 /// What §13.2.4.2's Table 286 `/TF` asserts against [`Operation::HandOverMedia`] in this document.

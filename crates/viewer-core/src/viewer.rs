@@ -389,8 +389,8 @@ impl Viewer {
                 fragment,
             } => self.open(id, bytes, password.as_ref(), fragment.as_deref(), events),
             Command::Close(id) => {
-                // Table 200's `/WC`, "before closing a document", and what it said goes out
-                // before the document does (ADR 1614).
+                // Table 200's `/WC`, "before closing a document", and XFA's `docClose`, and what
+                // they said goes out before the document does (ADRs 1614, 2777).
                 if let Some(open) = self.documents.get_mut(&id) {
                     let page = open.page_index;
                     open.view.run_document_scripts(
@@ -398,6 +398,9 @@ impl Viewer {
                         pdf_model::view::DocumentTrigger::WillClose,
                         page,
                     );
+                    // XFA 3.3 page 388's `docClose`, "at the very end of processing", after it
+                    // (ADR 2777).
+                    open.view.activate_form_on_close(&open.document);
                 }
                 self.say_what_scripts_said(events);
                 if self.documents.remove(&id).is_some() {
