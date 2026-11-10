@@ -5216,10 +5216,14 @@
   {
     "clause": "11.6.5.1",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "soft_mask_dictionary_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "missing-test": 2
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {

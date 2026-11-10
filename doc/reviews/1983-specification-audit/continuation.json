@@ -99,7 +99,8 @@
     "d69f9227",
     "ebdaf464",
     "ae9ba43f",
-    "ecfbeaee"
+    "ecfbeaee",
+    "983af7f9"
   ],
   "expected_failures_manifest_count": 70,
   "broad_run_predates": "One promoted Alpha/TR integration added after broad20; targeted1PASS.",

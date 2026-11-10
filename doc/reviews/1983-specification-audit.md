@@ -130,7 +130,7 @@ is locally excluded from Git because it includes licensed source extracts.
 parent review overrides. It preserves superseded pilot evidence and separates
 execution from verdicts; overlapping review records are not a feature denominator.
 
-The live weekly allowance started at 52%; the check at 11:00 UTC on November 10 was 60%.
+The live weekly allowance started at 52%; the check at 19:28 UTC on November 10 was 85%.
 The owner allocated approximately 40 percentage points of the full weekly limit.
 Stop assigning new batches at 87% and reserve the remainder through approximately
 92% for review and handover. Weekly allowance is not a fixed token quantity;
@@ -1288,3 +1288,6 @@ Broad wave20 matches the manifest exactly: 5,798 tests run, 5,731 passed, 67 exp
 The §11.5 review adds one passing complete-PDF Alpha-mask transfer regression: inverted quarter/three-quarter group alpha produces gray64/191, and transformed zero outside the group produces black. All RGB channels, opaque page alpha, exact source xref and complete interpretation are checked; Clippy passes. Selected shared-derivation architecture remains supported. The explicit owner-ratified CIE-luminosity departure remains a departure, not conformance evidence. Historical AIS and CMYK refusal limits in ADR0027 are not treated as current.
 
 The DCTDecode review confirms meaningful generated baseline and ColorTransform precedence assertions, including the explicit default over RGB component identifiers. The old ADR1177/1183 debts are superseded by1183/2468. A tracked progressive JPEG has a held raster golden, but that ignored corpus gate was not executed in broad20; no current progressive pass is claimed. The external Adobe5116 marker rules remain a separate followup. A test comment misattributes APP14 transform2 to Table13, whose dictionary namespace only defines0/1; this documentation finding is recorded without editing historical rationale or production code.
+
+
+The Alpha/TR test was mutation-calibrated in an isolated source copy. Dropping transfer only when constructing an Alpha-mask request leaves both previous PDF tests passing (luminosity transfer and alpha without transfer), but fails the new integration assertion. All three controls pass, and the mutated source was restored. This verifies the specific missing combination rather than claiming the older tests were generally ineffective. A newly noticed mask-knockout limitation is being checked against the broad completed-row wording; it is not covered by the selected normal-group consumers above.

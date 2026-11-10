@@ -329,6 +329,50 @@
       "log": "redaction-quad-precedence-mutation-quadpoints-ignored-new.log"
     }
   ],
+  "soft-mask-derivation-mutation-results.json": [
+    {
+      "variant": "control",
+      "test": "a_transfer_function_maps_every_mask_value_including_the_one_outside_the_box",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "soft-mask-derivation-mutation-control-a_transfer_function_maps_every_mask_value_including_the_one_outside_the_box.log"
+    },
+    {
+      "variant": "control",
+      "test": "an_alpha_mask_reads_the_groups_alpha_and_ignores_its_colour",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "soft-mask-derivation-mutation-control-an_alpha_mask_reads_the_groups_alpha_and_ignores_its_colour.log"
+    },
+    {
+      "variant": "control",
+      "test": "a_pdf_alpha_soft_mask_applies_transfer_to_group_alpha_and_to_zero_outside",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "soft-mask-derivation-mutation-control-a_pdf_alpha_soft_mask_applies_transfer_to_group_alpha_and_to_zero_outside.log"
+    },
+    {
+      "variant": "alpha-transfer-dropped",
+      "test": "a_transfer_function_maps_every_mask_value_including_the_one_outside_the_box",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "soft-mask-derivation-mutation-alpha-transfer-dropped-a_transfer_function_maps_every_mask_value_including_the_one_outside_the_box.log"
+    },
+    {
+      "variant": "alpha-transfer-dropped",
+      "test": "an_alpha_mask_reads_the_groups_alpha_and_ignores_its_colour",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "soft-mask-derivation-mutation-alpha-transfer-dropped-an_alpha_mask_reads_the_groups_alpha_and_ignores_its_colour.log"
+    },
+    {
+      "variant": "alpha-transfer-dropped",
+      "test": "a_pdf_alpha_soft_mask_applies_transfer_to_group_alpha_and_to_zero_outside",
+      "returncode": 101,
+      "outcome": "assertion-failed",
+      "log": "soft-mask-derivation-mutation-alpha-transfer-dropped-a_pdf_alpha_soft_mask_applies_transfer_to_group_alpha_and_to_zero_outside.log"
+    }
+  ],
   "text-no-rotate-mutation-results.json": [
     {
       "variant": "control",
