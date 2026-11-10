@@ -614,9 +614,11 @@ fn read_revocation_requirement(
 /// with its trust point's constraints, and a count of the anchors given by trusted-list reference.
 ///
 /// `acceptablePolicySet`, `nameConstraints` and `policyConstraints` are RFC 5280 section 6.1.1's
-/// inputs, read as TR 102 272's are (ADR 2724). A `userCertPath` other than `asInSignature` true is
-/// kept by name, so that a condition stating one is never called met. `asInSignature` true asks for the path the
-/// signature carries, which is the only one [`super::certification_path::search`] builds.
+/// inputs, read as TR 102 272's are (ADR 2724). `userCertPath`'s `path` is the certification path
+/// clause 4.22.5.1 mandates, which [`super::certification_path::search`] builds over in place of
+/// the signature's certificates (ADR 2781); `asInSignature` true asks for the path the signature
+/// carries, which is what the search builds otherwise, and `asInSignature` false names no path at
+/// all, so it is kept by name and a condition stating it is never called met.
 pub(super) fn read_trust_trees<'a>(
     value: &Value<'a>,
     budget: &mut Budget,
@@ -634,6 +636,7 @@ pub(super) fn read_trust_trees<'a>(
         )?;
         let mut path_length = None;
         let mut unprocessed = Vec::new();
+        let mut mandated_path = None;
         let mut inputs = crate::trust::PathInputs::default();
         while let Some(member) = members.next_value()? {
             match context_number(&member) {
@@ -652,10 +655,30 @@ pub(super) fn read_trust_trees<'a>(
                 )?,
                 Some(4) => {
                     let choice = explicit(&member, "userCertPath")?;
-                    let as_in_signature = context_number(&choice) == Some(0)
-                        && boolean(&explicit(&choice, "userCertPath")?, "asInSignature")?;
-                    if !as_in_signature {
-                        unprocessed.push("mandated certification path");
+                    match context_number(&choice) {
+                        Some(0) => {
+                            if !boolean(&explicit(&choice, "userCertPath")?, "asInSignature")? {
+                                unprocessed
+                                    .push("userCertPath asInSignature false, naming no path");
+                            }
+                        }
+                        Some(1) => {
+                            let path = need(
+                                Some(explicit(&choice, "userCertPath")?),
+                                SEQUENCE,
+                                "userCertPath.path",
+                            )?;
+                            let mut certificates = Vec::new();
+                            let mut entries = path.children()?;
+                            while let Some(certificate) = entries.next_value()? {
+                                budget.take()?;
+                                let certificate =
+                                    need(Some(certificate), SEQUENCE, "userCertPath.path")?;
+                                certificates.push(Cow::Borrowed(certificate.encoding()));
+                            }
+                            mandated_path = Some(certificates);
+                        }
+                        _ => return Err(malformed("userCertPath")),
                     }
                 }
                 _ => return Err(malformed("CertificateTrustPoint")),
@@ -679,6 +702,7 @@ pub(super) fn read_trust_trees<'a>(
                         reliable_until,
                         inputs: inputs.clone(),
                         unprocessed: unprocessed.clone(),
+                        mandated_path: mandated_path.clone(),
                     });
                 }
                 IA5_STRING => trees.trusted_lists = trees.trusted_lists.saturating_add(1),

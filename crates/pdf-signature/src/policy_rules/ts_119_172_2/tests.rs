@@ -839,6 +839,63 @@ fn the_xml_signing_certificate_trust_conditions_are_judged_on_the_path() {
     );
 }
 
+/// Clause 4.22.5.1 item 5's `UseCertPath` in the XML syntax: `X509Certificate`s are the path the
+/// trust point mandates, built over in place of the signature's certificates, and `AsInSignature`
+/// is the signature's own path (ADR 2781).
+#[test]
+fn the_xml_mandated_certification_path_is_the_one_validated() {
+    use crate::policy_rules::certification_path::tests::{WITHIN, cms, hierarchy};
+    let held = hierarchy();
+    let mut alone = cms(&held.signer, &held.intermediate);
+    alone.certificates.truncate(1);
+    let root = encode(&held.root);
+    let intermediate = encode(&held.intermediate);
+    let conditions = |extra: &str| {
+        rule(
+            &format!(
+                "<SigningCertRules><SigningCertTrustConditions><SignerTrustTrees>\
+                 <CertificateTrustPoint><TrustAnchors><X509CertificateBased>{root}\
+                 </X509CertificateBased></TrustAnchors>{extra}\
+                 </CertificateTrustPoint></SignerTrustTrees><SignerRevTrust><CertificateRevReq>\
+                 <EndRevReq>nocheck</EndRevReq><CACerts>nocheck</CACerts></CertificateRevReq>\
+                 </SignerRevTrust></SigningCertTrustConditions></SigningCertRules>"
+            ),
+            None,
+        )
+    };
+    let trust =
+        |c: &policy_rules::Constraint| matches!(c, policy_rules::Constraint::TrustPath { .. });
+    let facts = facts(None).validated_at(WITHIN);
+    let verdicts = |extra: &str, signed: &SignedData<'_>| {
+        verdict_of(&judged(&[conditions(extra)], signed, &facts), trust)
+    };
+    let mandated =
+        format!("<UseCertPath><X509Certificate>{intermediate}</X509Certificate></UseCertPath>");
+    assert_eq!(
+        verdicts("", &alone),
+        [Verdict::NotEvaluated],
+        "the control: the signature alone carries no certificate between the signer and the root"
+    );
+    assert_eq!(
+        verdicts(&mandated, &alone),
+        [Verdict::Met],
+        "clause 4.22.5.1 item 5: the path given explicitly is the one used"
+    );
+    assert_eq!(
+        verdicts("<UseCertPath><AsInSignature/></UseCertPath>", &alone),
+        [Verdict::NotEvaluated],
+        "AsInSignature: the signature's own certificates, which do not reach the root"
+    );
+    assert_eq!(
+        verdicts(
+            &format!("<PathLenConstraint>0</PathLenConstraint>{mandated}"),
+            &alone
+        ),
+        [Verdict::Met],
+        "clause 4.22.5.1 item 5: where the path contradicts item 1, the path has preference"
+    );
+}
+
 /// Clause 4.22.5's `AcceptablePolicySet`, clause 4.22.3's `NameConstraints` and clause 4.22.4's
 /// `PolicyConstraints` in the XML syntax, read as RFC 5280 section 6.1.1's inputs for the path to
 /// the trust point (ADR 2724): each `GeneralSubTree`'s `Base` is a base-64 DER `GeneralName`.

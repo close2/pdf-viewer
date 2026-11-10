@@ -23,21 +23,26 @@
 //! indeterminate (step 2 a), a trust point past the instant it was reliable until is indeterminate
 //! (steps 1 a and 3), and a chain that RFC 5280 section 6.1 refuses is a failure of the path. A
 //! condition is met only where a path validated to a trust point within its length, and it is
-//! *not evaluated* — never met — where the trust point also states a mandated path, or where an
-//! anchor the policy names by trusted-list reference is one this program cannot read, because a
-//! trusted list is fetched from a network it does not use.
+//! *not evaluated* — never met — where an anchor the policy names by trusted-list reference is one
+//! this program cannot read, because a trusted list is fetched from a network it does not use.
 //!
-//! A trust point's acceptable policy set, name constraints and policy constraints are RFC 5280
-//! section 6.1.1's inputs (c) and (e) to (i) for the path built to it (RFC 3125 section 6.6.1, TR
-//! 102 272 clause 6.6.1, TS 119 172-2 clauses 4.22.3 to 4.22.5), so each is [`TrustPoint::inputs`]
-//! and [`crate::trust::validate_constrained`] evaluates it with the policy tree and the name
-//! constraints of every certificate on the path (ADR 2724). The host's own anchors are validated
-//! under section 6.1.1's defaults, which is why a path can be the host's and fail a policy's trust
-//! point, and each sentence says which of the two it is about.
+//! # A certification path the policy mandates
 //!
-//! A time-stamp trust condition asks the same question of the authority that issued the
-//! signature's time-stamp token, so [`search_authority`] is the same search from that authority's
-//! certificate over the certificates the token carries (ADR 2720).
+//! TS 119 172-2 clause 4.22.5.1 item 5, which TS 119 172-3 clause 4.22.5.1 adopts, lets a trust
+//! point name the certification path to be used, either by listing it or by pointing at the path
+//! the signature itself provides (`UseCertPath`'s `AsInSignature`, `userCertPath`'s
+//! `asInSignature`). The second is what the search always builds. The first is a list of
+//! certificates, and the path is built from the signer's certificate over *those* in place of the
+//! ones the signature carries, so that the signature's own certificates cannot stand in for the
+//! policy's (ADR 2781). The clause states no order for the list, so the order is the one issuer and
+//! subject names give a path; a path is the mandated one where every certificate the list holds is
+//! on it, the signer's and the trust point's own counted as on it, and a validated path that leaves
+//! one off is not evaluated rather than broken, since the search answers with the first path that
+//! validates and does not ask whether a longer one through the certificate left off would have.
+//! Where the listed path contradicts the trust point's other components, the clause gives the path
+//! precedence over them: a mandated path longer than `pathLenConstraint` is not refused for it, and
+//! one that RFC 5280 section 6.1 refuses under the trust point's policy and name inputs and validates
+//! under section 6.1.1's defaults is met, each component that yielded named in the sentence.
 //!
 //! # Bounds
 //!
@@ -115,6 +120,10 @@ pub struct TrustPoint<'a> {
     pub inputs: PathInputs,
     /// The members the trust point states that this program does not process, by name.
     pub unprocessed: Vec<&'static str>,
+    /// TS 119 172-2 clause 4.22.5.1 item 5's certification path the trust point mandates — the
+    /// `X509Certificate`s of `UseCertPath`, the `path` of TS 119 172-3's `userCertPath` — each DER;
+    /// `None` where the member is absent or names the path the signature carries.
+    pub mandated_path: Option<Vec<Cow<'a, [u8]>>>,
 }
 
 /// A `CertificateTrustTrees`: the trust points one condition admits.
@@ -147,6 +156,16 @@ pub enum Found {
         /// The policies the path is valid for under the trust point's acceptable policy set, in its
         /// domain — RFC 5280 section 6.1.6's output; `None` where the trust point states no set.
         policies: Option<Vec<Vec<u8>>>,
+        /// `Some` where the path is the one the trust point mandates, holding the members of that
+        /// trust point its content contradicted and which yielded to it (TS 119 172-2 clause
+        /// 4.22.5.1 item 5); `None` where the path is built over the signature's certificates.
+        mandated: Option<Vec<&'static str>>,
+    },
+    /// A path validated over the certificates the trust point mandates, but this many of them are
+    /// not on it, so it is not the path the policy says shall be used.
+    MandatedPathNotFollowed {
+        /// The mandated certificates the path left off.
+        left_off: usize,
     },
     /// A path validated, but it holds more CA certificates below the trust point than its
     /// `pathLenConstraint` admits.
@@ -419,18 +438,17 @@ fn search_from(
         return outcome(Found::NoSignerCertificate, unexamined);
     };
     // The certificates the signature carries, and nothing else: a path the policy's full-path
-    // requirement reads is the one the signature itself holds.
-    let carried: Vec<_> = cms
+    // requirement reads is the one the signature itself holds, unless a trust point mandates its
+    // own, which [`pool`] puts in their place.
+    let carried: Vec<(&[u8], Certificate<'_>)> = cms
         .certificates
         .iter()
         .take(trust::MAX_CANDIDATES)
-        .filter_map(|value| x509::read(*value).ok().map(|read| (*value, read)))
+        .filter_map(|value| x509::read(*value).ok().map(|read| (value.encoding(), read)))
         .collect();
-    let others: Vec<Certificate<'_>> = carried.iter().map(|(_, read)| *read).collect();
-    // The policy's revocation requirement is its own finding; the path is asked without material.
-    let material = Material::none();
     let mut readable = 0_usize;
     let mut longer = None;
+    let mut not_followed = None;
     let mut refused = None;
     let mut past = None;
     for point in trees.points.iter().take(MAX_TRUST_POINTS) {
@@ -438,20 +456,20 @@ fn search_from(
             unexamined = unexamined.saturating_add(1);
             continue;
         };
+        let Some(pool) = pool(point, &carried) else {
+            unexamined = unexamined.saturating_add(1);
+            continue;
+        };
         readable = readable.saturating_add(1);
-        let held = [anchor];
-        let anchors = TrustAnchors::of(&held);
-        let validation = trust::validate_constrained(
-            &target,
-            &others,
-            &anchors,
-            &material,
-            at,
-            purpose,
-            &point.inputs,
-        );
-        let validated = validation.path;
-        match validation.trust {
+        let Attempt {
+            trust,
+            path,
+            left_off,
+            policies,
+            evaluated,
+            mut yielded,
+        } = attempt(point, &anchor, &pool, &target, signer, at, purpose);
+        match trust {
             Trust::Anchored { length, .. } => {
                 // EN 319 102-1 clause 5.2.6.4 steps 1 a) and 3): a trust anchor past its sunset
                 // date makes the chain indeterminate rather than validated.
@@ -461,33 +479,40 @@ fn search_from(
                     past.get_or_insert_with(|| until.spelled.clone());
                     continue;
                 }
-                let path = owned_path(&validated, &carried, &target, signer, &point.certificate);
+                if left_off > 0 {
+                    not_followed.get_or_insert((Found::MandatedPathNotFollowed { left_off }, path));
+                    continue;
+                }
                 let intermediates = length.saturating_sub(1);
                 if let Some(limit) = point.path_length
                     && i64::try_from(intermediates).is_ok_and(|held| held > limit)
                 {
-                    longer.get_or_insert((
-                        Found::Longer {
-                            intermediates,
-                            limit,
-                        },
-                        path,
-                    ));
-                    continue;
+                    if point.mandated_path.is_some() {
+                        yielded.push("pathLenConstraint");
+                    } else {
+                        longer.get_or_insert((
+                            Found::Longer {
+                                intermediates,
+                                limit,
+                            },
+                            path,
+                        ));
+                        continue;
+                    }
                 }
                 return Search {
-                    found: reached(point, length, validation.policies),
+                    found: reached(point, length, policies, evaluated, yielded),
                     unexamined,
                     path: Some(path),
                 };
             }
             Trust::Refused { refusal, .. } => {
-                refused.get_or_insert((refusal, evaluated(&point.inputs)));
+                refused.get_or_insert((refusal, evaluated));
             }
             Trust::NoPathToAnyAnchor { .. } | Trust::NoAnchorSupplied => {}
         }
     }
-    if let Some((found, path)) = longer {
+    if let Some((found, path)) = longer.or(not_followed) {
         return Search {
             found,
             unexamined,
@@ -504,25 +529,134 @@ fn search_from(
     outcome(found, unexamined)
 }
 
-/// [`Found::Reached`] for a path validated to `point`, with the members section 6.1 evaluated and,
-/// where the trust point states an acceptable policy set, the policies the path is valid for.
-fn reached(point: &TrustPoint<'_>, length: usize, policies: trust::Policies) -> Found {
+/// [`Found::Reached`] for a path validated to `point`, with the members section 6.1 evaluated, the
+/// policies the path is valid for where the trust point states an acceptable set, and the members
+/// that yielded where the path is the one it mandates.
+fn reached(
+    point: &TrustPoint<'_>,
+    length: usize,
+    policies: trust::Policies,
+    evaluated: Vec<&'static str>,
+    yielded: Vec<&'static str>,
+) -> Found {
     Found::Reached {
         length,
         unprocessed: point.unprocessed.clone(),
-        evaluated: evaluated(&point.inputs),
+        evaluated,
         policies: point
             .inputs
             .policy_set
             .is_some()
             .then_some(policies.user_constrained),
+        mandated: point.mandated_path.is_some().then_some(yielded),
     }
+}
+
+/// One trust point's validation, as [`search_from`] judges it.
+struct Attempt {
+    trust: Trust,
+    /// The path that validated, owned; read only where `trust` is anchored.
+    path: Path,
+    /// The mandated certificates the path left off; zero where nothing is mandated.
+    left_off: usize,
+    policies: trust::Policies,
+    /// The members section 6.1 evaluated as its inputs, by name.
+    evaluated: Vec<&'static str>,
+    /// The members that yielded to a mandated path, by name.
+    yielded: Vec<&'static str>,
+}
+
+/// Validates the path to `point` over `pool`. Where the trust point mandates a path and its policy
+/// and name inputs refuse it, clause 4.22.5.1 item 5 gives the path precedence, so it is validated
+/// again under section 6.1.1's defaults and, where that validates, those inputs are the ones that
+/// yielded.
+fn attempt(
+    point: &TrustPoint<'_>,
+    anchor: &Certificate<'_>,
+    pool: &[(&[u8], Certificate<'_>)],
+    target: &Certificate<'_>,
+    signer: crate::der::Value<'_>,
+    at: Instant,
+    purpose: Purpose,
+) -> Attempt {
+    // The policy's revocation requirement is its own finding; the path is asked without material.
+    let material = Material::none();
+    let others: Vec<Certificate<'_>> = pool.iter().map(|(_, read)| *read).collect();
+    let held = [*anchor];
+    let anchors = TrustAnchors::of(&held);
+    let validate = |inputs: &PathInputs| {
+        trust::validate_constrained(target, &others, &anchors, &material, at, purpose, inputs)
+    };
+    let mut validation = validate(&point.inputs);
+    let mut evaluated = evaluated(&point.inputs);
+    let mut yielded = Vec::new();
+    if point.mandated_path.is_some()
+        && !matches!(validation.trust, Trust::Anchored { .. })
+        && !evaluated.is_empty()
+    {
+        let unconstrained = validate(&PathInputs::default());
+        if matches!(unconstrained.trust, Trust::Anchored { .. }) {
+            validation = unconstrained;
+            yielded = std::mem::take(&mut evaluated);
+        }
+    }
+    Attempt {
+        path: owned_path(&validation.path, pool, target, signer, &point.certificate),
+        left_off: if point.mandated_path.is_some() {
+            left_off(pool, &validation.path, target, &point.certificate)
+        } else {
+            0
+        },
+        trust: validation.trust,
+        policies: validation.policies,
+        evaluated,
+        yielded,
+    }
+}
+
+/// The certificates a path to `point` is built over: the ones the trust point mandates where it
+/// mandates a path (clause 4.22.5.1 item 5), else the ones the signature carries. `None` where a
+/// mandated certificate does not read, or the list holds more than the [`trust::MAX_PATH_LENGTH`]
+/// certificates the walk builds a path of plus the trust point's own, so the mandated path cannot
+/// be followed by this program and the trust point is counted unexamined.
+fn pool<'p>(
+    point: &'p TrustPoint<'_>,
+    carried: &[(&'p [u8], Certificate<'p>)],
+) -> Option<Vec<(&'p [u8], Certificate<'p>)>> {
+    let Some(mandated) = &point.mandated_path else {
+        return Some(carried.to_vec());
+    };
+    if mandated.len() > trust::MAX_PATH_LENGTH.saturating_add(1) {
+        return None;
+    }
+    mandated
+        .iter()
+        .map(|encoding| x509::parse(encoding).ok().map(|read| (&**encoding, read)))
+        .collect()
+}
+
+/// How many of the mandated certificates are not on the validated path. The signer's certificate
+/// and the trust point's own are on every path to it, so a list that holds either is not short of
+/// them.
+fn left_off(
+    pool: &[(&[u8], Certificate<'_>)],
+    validated: &[&Certificate<'_>],
+    target: &Certificate<'_>,
+    trust_point: &[u8],
+) -> usize {
+    pool.iter()
+        .filter(|(encoding, read)| {
+            read.tbs != target.tbs
+                && *encoding != trust_point
+                && !validated.iter().any(|held| held.tbs == read.tbs)
+        })
+        .count()
 }
 
 /// The validated path, owned, with the trust point's certificate appended.
 fn owned_path(
     validated: &[&Certificate<'_>],
-    carried: &[(crate::der::Value<'_>, Certificate<'_>)],
+    pool: &[(&[u8], Certificate<'_>)],
     target: &Certificate<'_>,
     signer: crate::der::Value<'_>,
     trust_point: &[u8],
@@ -533,10 +667,9 @@ fn owned_path(
             let encoding = if certificate.tbs == target.tbs {
                 signer.encoding()
             } else {
-                carried
-                    .iter()
+                pool.iter()
                     .find(|(_, read)| read.tbs == certificate.tbs)
-                    .map_or(&[][..], |(value, _)| value.encoding())
+                    .map_or(&[][..], |(encoding, _)| *encoding)
             };
             PathCertificate {
                 encoding: encoding.to_vec(),
@@ -699,6 +832,7 @@ pub(super) fn sentence(
             unprocessed,
             evaluated,
             policies,
+            mandated,
         } => reached_words(
             f,
             *length,
@@ -706,6 +840,11 @@ pub(super) fn sentence(
             unprocessed,
             evaluated,
             policies.as_deref(),
+            mandated.as_deref(),
+        )?,
+        Found::MandatedPathNotFollowed { left_off } => write!(
+            f,
+            "a path from {whose} certificate validates to one of the policy's own trust points over the certificates that trust point mandates, but {left_off} of them are not on it, so it is not the certification path TS 119 172-2 clause 4.22.5.1 item 5 says shall be used"
         )?,
         Found::Longer {
             intermediates,
@@ -755,11 +894,23 @@ fn reached_words(
     unprocessed: &[&'static str],
     evaluated: &[&'static str],
     policies: Option<&[Vec<u8>]>,
+    mandated: Option<&[&'static str]>,
 ) -> std::fmt::Result {
     write!(
         f,
         "a path of {length} certificate(s) from {whose} validates to one of the policy's own trust points under RFC 5280 section 6.1"
     )?;
+    match mandated {
+        Some([]) => f.write_str(
+            ", over the certification path that trust point mandates (TS 119 172-2 clause 4.22.5.1 item 5)",
+        )?,
+        Some(yielded) => write!(
+            f,
+            ", over the certification path that trust point mandates, whose content contradicts its {}, and TS 119 172-2 clause 4.22.5.1 item 5 gives the mandated path preference",
+            yielded.join(", ")
+        )?,
+        None => {}
+    }
     if !evaluated.is_empty() {
         write!(
             f,

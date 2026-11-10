@@ -59,6 +59,7 @@ fn point(certificate: &[u8]) -> TrustPoint<'_> {
         reliable_until: None,
         inputs: crate::trust::PathInputs::default(),
         unprocessed: Vec::new(),
+        mandated_path: None,
     }
 }
 
@@ -98,6 +99,7 @@ fn a_path_to_the_policys_own_trust_point_meets_the_condition() {
             unprocessed: Vec::new(),
             evaluated: Vec::new(),
             policies: None,
+            mandated: None,
         },
         "TR 102 272 clause 6.6.1: the trust point starts path processing, and RFC 5280 section 6.1 validates the signer and its intermediate under it"
     );
@@ -282,4 +284,155 @@ fn a_full_path_reference_needs_a_hash_of_every_certificate_below_the_trust_point
         Some(false),
         "no attribute references nothing"
     );
+}
+
+/// A trust point mandating `certificates` as its certification path.
+fn mandating<'a>(trust_point: &'a [u8], certificates: &[&'a [u8]]) -> TrustPoint<'a> {
+    TrustPoint {
+        mandated_path: Some(certificates.iter().map(|der| Cow::Borrowed(*der)).collect()),
+        ..point(trust_point)
+    }
+}
+
+/// The fixture signer's `SignedData`, carrying the signer's certificate and nothing above it.
+fn carrying_the_signer_alone(held: &Hierarchy) -> SignedData<'_> {
+    let mut signed = cms(&held.signer, &held.intermediate);
+    signed.certificates.truncate(1);
+    signed
+}
+
+/// A certificate of another fixture hierarchy, issued by nobody this one names.
+fn unrelated() -> Vec<u8> {
+    hex(crate::policy_rules::revocation_checks::tests::fixtures::INTERMEDIATE)
+}
+
+#[test]
+fn a_mandated_path_supplies_the_certificates_the_signature_does_not_carry() {
+    let held = hierarchy();
+    let signed = carrying_the_signer_alone(&held);
+    // The control: over the signature's own certificates no chain reaches the root.
+    let found = search(&trees(vec![point(&held.root)]), &signed, &at(WITHIN));
+    assert_eq!(found.found, Found::NoChain);
+    // TS 119 172-2 clause 4.22.5.1 item 5: the component names the certification path to be used,
+    // here listed explicitly; the intermediate it lists completes the path.
+    let mandated = trees(vec![mandating(&held.root, &[&held.intermediate])]);
+    let found = search(&mandated, &signed, &at(WITHIN));
+    assert_eq!(
+        found.found,
+        Found::Reached {
+            length: 2,
+            unprocessed: Vec::new(),
+            evaluated: Vec::new(),
+            policies: None,
+            mandated: Some(Vec::new()),
+        }
+    );
+    assert_eq!(found.verdict(), Verdict::Met);
+    let path = found.path.expect("a path that validated is handed out");
+    assert_eq!(
+        path.certificates()
+            .iter()
+            .map(|certificate| certificate.encoding.as_slice())
+            .collect::<Vec<_>>(),
+        [&held.signer[..], &held.intermediate[..], &held.root[..]],
+        "signer, the policy's intermediate, trust point"
+    );
+    // A list naming the signer's and the trust point's own certificates as well is the same path.
+    let whole = trees(vec![mandating(
+        &held.root,
+        &[&held.signer, &held.intermediate, &held.root],
+    )]);
+    assert_eq!(search(&whole, &signed, &at(WITHIN)).verdict(), Verdict::Met);
+}
+
+#[test]
+fn a_mandated_path_replaces_the_certificates_the_signature_carries() {
+    let held = hierarchy();
+    let other = unrelated();
+    // The signature carries the intermediate, and the policy mandates a path without it: the
+    // signature's certificate does not stand in for the policy's (clause 4.22.5.1 item 5), so no
+    // chain reaches the trust point, which EN 319 102-1 clause 5.2.6.4 calls indeterminate.
+    let found = searched(
+        &trees(vec![mandating(&held.root, &[&other])]),
+        &held,
+        &at(WITHIN),
+    );
+    assert_eq!(found.found, Found::NoChain);
+    assert_eq!(found.verdict(), Verdict::NotEvaluated);
+    // A path validates over the intermediate, but the other certificate the policy lists is not on
+    // it, so it is not the path the clause says is to be used.
+    let found = searched(
+        &trees(vec![mandating(&held.root, &[&held.intermediate, &other])]),
+        &held,
+        &at(WITHIN),
+    );
+    assert_eq!(found.found, Found::MandatedPathNotFollowed { left_off: 1 });
+    assert_eq!(found.verdict(), Verdict::NotEvaluated);
+    // A mandated certificate this program cannot read leaves the path unfollowed: counted, never
+    // broken.
+    let found = searched(
+        &trees(vec![mandating(&held.root, &[&[0x30, 0x00]])]),
+        &held,
+        &at(WITHIN),
+    );
+    assert_eq!(found.unexamined, 1);
+    assert_eq!(found.verdict(), Verdict::NotEvaluated);
+}
+
+#[test]
+fn a_mandated_path_has_preference_over_the_components_it_contradicts() {
+    let held = hierarchy();
+    let signed = carrying_the_signer_alone(&held);
+    // pathLenConstraint zero admits no CA certificate below the trust point, and the mandated path
+    // holds one. Clause 4.22.5.1 item 5: where the path's content contradicts an earlier component
+    // of the trust point, the path's requirements take precedence.
+    let mut short = mandating(&held.root, &[&held.intermediate]);
+    short.path_length = Some(0);
+    let found = search(&trees(vec![short]), &signed, &at(WITHIN));
+    assert_eq!(
+        found.found,
+        Found::Reached {
+            length: 2,
+            unprocessed: Vec::new(),
+            evaluated: Vec::new(),
+            policies: None,
+            mandated: Some(vec!["pathLenConstraint"]),
+        }
+    );
+    assert_eq!(found.verdict(), Verdict::Met);
+    // An acceptable policy set no certificate asserts, with an explicit policy required from the
+    // start: RFC 5280 section 6.1.5 (g) refuses the path under these inputs (the control, without
+    // a mandated path), and the mandated path has preference over them.
+    let inputs = crate::trust::PathInputs {
+        policy_set: Some(vec![vec![0x2A, 0x03, 0x04]]),
+        require_explicit_policy: Some(0),
+        ..crate::trust::PathInputs::default()
+    };
+    let constrained = TrustPoint {
+        inputs: inputs.clone(),
+        ..point(&held.root)
+    };
+    let found = searched(&trees(vec![constrained]), &held, &at(WITHIN));
+    assert!(
+        matches!(found.found, Found::Refused(..)),
+        "{:?}",
+        found.found
+    );
+    assert_eq!(found.verdict(), Verdict::Broken);
+    let preferred = TrustPoint {
+        inputs,
+        ..mandating(&held.root, &[&held.intermediate])
+    };
+    let found = search(&trees(vec![preferred]), &signed, &at(WITHIN));
+    assert!(
+        matches!(
+            &found.found,
+            Found::Reached { evaluated, mandated: Some(yielded), .. }
+                if evaluated.is_empty()
+                    && *yielded == ["acceptable policy set", "policy constraints"]
+        ),
+        "{:?}",
+        found.found
+    );
+    assert_eq!(found.verdict(), Verdict::Met);
 }

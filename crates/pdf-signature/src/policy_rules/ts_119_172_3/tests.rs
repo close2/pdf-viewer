@@ -717,6 +717,43 @@ fn the_signing_certificate_trust_conditions_are_judged_on_a_path_to_the_policys_
     );
 }
 
+/// Clause 4.22.5.1 item 5's `userCertPath` `path [1]` names the certification path to be used,
+/// which the search builds over in place of the signature's certificates (ADR 2781): over a
+/// signature carrying the signer's certificate alone, the policy's intermediate completes the path,
+/// and without it no chain reaches the root.
+#[test]
+fn a_trust_points_mandated_path_is_the_one_validated() {
+    use crate::policy_rules::certification_path::tests::{WITHIN, cms, hierarchy};
+    let held = hierarchy();
+    let no_check = seq(&[seq(&[enumeration(4), enumeration(4)])]);
+    let rule = |extra: Vec<Vec<u8>>| {
+        let mut members = vec![seq(&[seq(std::slice::from_ref(&held.root))])];
+        members.extend(extra);
+        let point = seq(&members);
+        basic(
+            6,
+            &seq(&[seq(&[seq(&[point]), no_check.clone()]), enumeration(1)]),
+            None,
+        )
+    };
+    let facts = facts(None).validated_at(WITHIN);
+    let trust =
+        |c: &policy_rules::Constraint| matches!(c, policy_rules::Constraint::TrustPath { .. });
+    let mut alone = cms(&held.signer, &held.intermediate);
+    alone.certificates.truncate(1);
+    let mandated = judged(
+        &[rule(vec![tagged(
+            4,
+            &tagged(1, &seq(std::slice::from_ref(&held.intermediate))),
+        )])],
+        &alone,
+        &facts,
+    );
+    assert_eq!(verdict_of(&mandated, trust), [Verdict::Met]);
+    let unmandated = judged(&[rule(vec![])], &alone, &facts);
+    assert_eq!(verdict_of(&unmandated, trust), [Verdict::NotEvaluated]);
+}
+
 /// Clause 4.22.3's name constraints and 4.22.4's policy constraints of a trust point, and clause
 /// 4.22.5's acceptable policy set, evaluated as RFC 5280 section 6.1.1's inputs for the path to it
 /// (ADR 2724), each met and unmet over the fixture hierarchy, whose certificates assert no policy.

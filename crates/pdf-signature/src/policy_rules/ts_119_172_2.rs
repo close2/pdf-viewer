@@ -692,10 +692,23 @@ impl<'t> Reader<'t> {
             }
             let mut unprocessed = Vec::new();
             let inputs = self.path_inputs(point, &mut unprocessed)?;
+            // Clause 4.22.5.1 item 5: `AsInSignature` is the path the search builds anyway, and the
+            // `X509Certificate` list is the path it builds over instead (ADR 2781).
+            let mut mandated_path = None;
             if let Some(path) = self.optional(point, "UseCertPath")?
                 && self.optional(path, "AsInSignature")?.is_none()
             {
-                unprocessed.push("mandated certification path");
+                let mut certificates = Vec::new();
+                for certificate in self.all(path, Space::Policy, "X509Certificate")? {
+                    self.budget.take()?;
+                    let der = base64(&self.element(certificate)?.text)
+                        .ok_or(malformed("UseCertPath.X509Certificate"))?;
+                    certificates.push(std::borrow::Cow::Owned(der));
+                }
+                if certificates.is_empty() {
+                    return Err(malformed("UseCertPath"));
+                }
+                mandated_path = Some(certificates);
             }
             let anchors =
                 self.required(point, "TrustAnchors", "CertificateTrustPoint.TrustAnchors")?;
@@ -723,6 +736,7 @@ impl<'t> Reader<'t> {
                     reliable_until,
                     inputs: inputs.clone(),
                     unprocessed: unprocessed.clone(),
+                    mandated_path: mandated_path.clone(),
                 });
             }
             let lists = self.all(anchors, Space::Policy, "TAsInTrustedList")?.len();

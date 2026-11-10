@@ -941,6 +941,8 @@ fn read_trust_trees<'a>(
             reliable_until: None,
             inputs,
             unprocessed,
+            // RFC 3125 and TR 102 272 clause 6.6.1 state no path for a trust point to mandate.
+            mandated_path: None,
         });
     }
     Ok(trees)
