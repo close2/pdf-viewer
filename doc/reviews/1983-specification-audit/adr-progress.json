@@ -3513,14 +3513,14 @@
   },
   {
     "path": "doc/adr/0442-the-column-the-third-host-could-not-hold.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "reprojection_adr_audit/decisions.json",
         "decision_id": "0442-exact-composition-comparison",
         "conclusion": "superseded",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -3534,14 +3534,14 @@
   },
   {
     "path": "doc/adr/0444-the-half-pixel-a-comparison-could-not-see-past.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "reprojection_adr_audit/decisions.json",
         "decision_id": "0444-1-half-device-pixel-agreement-bound",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -3549,7 +3549,7 @@
         "source": "reprojection_adr_audit/decisions.json",
         "decision_id": "0444-1-maximum-affine-disagreement-at-raster-corners",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -4398,14 +4398,14 @@
   },
   {
     "path": "doc/adr/0657-the-frame-nobody-will-look-at.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "reprojection_adr_audit/decisions.json",
         "decision_id": "0657-interrupt-only-frames-that-cannot-stand-in",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -6016,14 +6016,14 @@
   },
   {
     "path": "doc/adr/0934-what-was-left-of-the-matrix-that-cancels-the-page.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "watermark_audit/decisions.json",
         "decision_id": "0934-fixedprint-transformed-rectangle-and-media-origin",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -6031,7 +6031,7 @@
         "source": "watermark_audit/decisions.json",
         "decision_id": "0934-page-rotation-cancellation-choice",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -6039,7 +6039,7 @@
         "source": "watermark_audit/decisions.json",
         "decision_id": "0934-fixedprint-keeps-bbox-and-fixed-point-input-rect",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -6669,7 +6669,7 @@
         "source": "watermark_audit/decisions.json",
         "decision_id": "1057-watermark-has-no-popup-or-pointer-interaction",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -6677,7 +6677,7 @@
         "source": "watermark_audit/decisions.json",
         "decision_id": "1057-defers-print-tiling-and-n-up",
         "conclusion": "superseded",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -7481,7 +7481,7 @@
         "source": "watermark_audit/decisions.json",
         "decision_id": "1180-print-paper-arrives-after-grant-and-targets-core-rendering",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -7627,14 +7627,14 @@
   },
   {
     "path": "doc/adr/1204-a-page-on-a-sheet-is-where-matrix-b-stops-being-the-identity.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "watermark_audit/decisions.json",
         "decision_id": "1204-nup-cell-media-and-cancel-page-scale",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -7642,7 +7642,7 @@
         "source": "watermark_audit/decisions.json",
         "decision_id": "1204-nup-grid-and-centering-conventions",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }

@@ -3,17 +3,17 @@
   "adr_documents": 2233,
   "document_states": {
     "pending": 2062,
-    "selected-decision-units-reviewed": 151,
-    "review-in-progress": 20
+    "selected-decision-units-reviewed": 156,
+    "review-in-progress": 15
   },
   "decision_review_records": 260,
-  "parent_accepted_records": 248,
+  "parent_accepted_records": 260,
   "cross_reference_records": 21,
   "accepted_record_conclusions": {
-    "retain-with-qualification": 124,
+    "retain-with-qualification": 129,
     "revisit": 14,
-    "retain": 66,
-    "superseded": 11,
+    "retain": 71,
+    "superseded": 13,
     "superseded-in-part": 1,
     "cross-reference-only": 21,
     "revisit-policy-consistency": 1,

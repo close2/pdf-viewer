@@ -651,5 +651,16 @@
     "log": "clippy-vertical-program-metrics-final.log",
     "exit": 0,
     "initial": "Fixed similar names, doc backticks, checked cast and is_multiple_of; justified the long fixture builder lint."
+  },
+  "watermark_oc_flags": {
+    "log": "watermark-oc-flags-target-v2.log",
+    "watermark_passed": 1,
+    "oc_flags_passed": 2,
+    "exit": 0,
+    "initial": "Parent mistakenly changed public content::interpret_with path; restored after compile failure."
+  },
+  "watermark_oc_flags_clippy": {
+    "log": "clippy-watermark-oc-flags.log",
+    "exit": 0
   }
 }

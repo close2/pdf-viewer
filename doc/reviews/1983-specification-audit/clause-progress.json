@@ -3370,10 +3370,16 @@
   {
     "clause": "8.11.3.3",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
-    "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "review_state": "partial-parent-review",
+    "artifact_directories": [
+      "annotation_oc_flags_audit"
+    ],
+    "parent_reviewed_artifacts": [
+      "annotation_oc_flags_audit"
+    ],
+    "feature_record_verdicts": {
+      "confirmed-selected-model-raster": 2
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
@@ -5466,21 +5472,23 @@
     "artifact_directories": [
       "annotation_appearance_audit",
       "annotation_dictionary_audit",
-      "annotation_flags_audit"
+      "annotation_flags_audit",
+      "annotation_oc_flags_audit"
     ],
     "parent_reviewed_artifacts": [
       "annotation_appearance_audit",
       "annotation_dictionary_audit",
-      "annotation_flags_audit"
+      "annotation_flags_audit",
+      "annotation_oc_flags_audit"
     ],
     "feature_record_verdicts": {
       "confirmed-as-informative-scope": 1,
       "confirmed-model-display-value; host-display-not-replayed": 1,
+      "confirmed-selected-conjunction-consumer": 1,
       "confirmed-selected-consumer": 2,
-      "cross-reference-only": 2,
+      "cross-reference-only": 3,
       "inventoried-producer-constraint": 1,
       "partial": 3,
-      "partial-assertion-gap": 1,
       "partial-cross-reference": 6
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
@@ -5491,11 +5499,13 @@
     "review_state": "partial-parent-review",
     "artifact_directories": [
       "annotation_flags_audit",
-      "annotation_lock_policy_audit"
+      "annotation_lock_policy_audit",
+      "annotation_oc_flags_audit"
     ],
     "parent_reviewed_artifacts": [
       "annotation_flags_audit",
-      "annotation_lock_policy_audit"
+      "annotation_lock_policy_audit",
+      "annotation_oc_flags_audit"
     ],
     "feature_record_verdicts": {
       "conditional-scope-unactivated": 1,
@@ -5503,6 +5513,7 @@
       "confirmed-on-screen; print scope unresolved": 1,
       "confirmed-screen-behavior-and-print-defect": 1,
       "confirmed-selected-consumer": 5,
+      "confirmed-selected-model-raster": 1,
       "implemented-with-policy-departure": 1,
       "partial-with-discriminating-recovery-control": 1,
       "partially-tested": 1,
@@ -5768,18 +5779,20 @@
   {
     "clause": "12.5.6.22",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "watermark_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "watermark_audit"
+    ],
     "feature_record_verdicts": {
       "cell target and scale handoff tested; no n-up watermark raster-through-print-host test found": 1,
       "conditional-scope-unactivated; no tiling selection or multi-sheet composition path found": 1,
+      "confirmed-selected-defaults-and-placement": 1,
       "matrix rotation and translation raster behavior tested": 1,
       "model and public print-query consumer exercised": 1,
       "model scale cancellation and host n-up geometry tested at separate seams": 1,
-      "non-default H/V and media-origin tested; omitted H/V defaults draft only": 1,
       "pointer and popup consumer tests have controls": 1,
       "producer constraint is not reader behavior; no false conformance test proposed": 1,
       "subtype dispatch exercised; malformed producer combinations have no reader-prescribed rejection": 1,

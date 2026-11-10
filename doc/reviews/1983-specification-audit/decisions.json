@@ -4179,6 +4179,104 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/0444-the-half-pixel-a-comparison-could-not-see-past.md",
+    "decision_id": "0444-1-half-device-pixel-agreement-bound",
+    "original_decision": "Accept multi-page stale reprojection when page-derived placement transforms differ by at most half a device pixel, claiming that this keeps every feature in the same pixel; this bound is the display grid's own quantisation and is separated empirically from ordinary-scroll residuals and zoom rearrangements.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "A maximum displacement bound is a useful, measured-in-device-units approximation policy for deciding whether to reuse one placement across a column. The mathematical inference that any displacement below 0.5 necessarily preserves each feature's pixel cell is false without a phase assumption: a point arbitrarily near a pixel boundary can cross it under an arbitrarily small displacement. The actual sampler is filtered, so pixel values also change continuously with subpixel phase. In addition, one_placement measures pre-snap disagreement, then snaps a pure translation by up to 0.5 per axis; the reported `within` is not the total error of the returned transform relative to every page. Keep 0.5 as an intentional threshold on inter-page transform disagreement, but do not describe it as same-cell identity, unchanged raster features, or a final-placement error bound. Empirical scroll/zoom separation supports this chosen threshold for the measured column, not a universal quantization theorem. A point at x=0.49 moved to0.51 crosses a nearest-sample cell boundary with only0.02 displacement. Independently rounded x/y translation adds up to sqrt(0.5) displacement; within reports disagreement before that snap, not final output error.",
+    "current_code_evidence": [
+      "crates/viewer-device/src/stale/placement.rs::AGREEMENT",
+      "crates/viewer-device/src/stale/placement.rs::disagreement",
+      "crates/viewer-device/src/stale/placement.rs::one_placement",
+      "crates/viewer-device/src/stale/placement.rs::snapped",
+      "crates/viewer-device/src/renderer/window.rs::present",
+      "crates/viewer-device/src/renderer/window.rs::superseded",
+      "crates/viewer-device/src/stale/canvas.rs::bilinear"
+    ],
+    "test_evidence": [
+      "crates/viewer-device/src/stale/tests.rs::a_scroll_of_a_real_column_is_carried_and_a_zoom_of_one_is_still_refused",
+      "crates/viewer-device/src/stale/tests.rs::a_scroll_stand_in_lands_on_whole_pixels",
+      "crates/viewer-device/src/stale/tests.rs::a_zoom_of_a_real_column_stands_in_from_its_last_frame_page_by_page"
+    ],
+    "spec_or_external_sources": "No PDF clause imposes this stale-frame tolerance; it is a rendering/latency policy. ADR 0444's own measured population is scroll residual 0–0.000183 px versus zoom disagreement 1.25–2.75 px. ADR 0064 concerns page raster extent rounding and top-edge origin, not preservation of pixel cells under reprojection.",
+    "changed_premise": "The original inference from half the device-pixel spacing to preservation of the same pixel cell has no unconditional mathematical basis. Current code itself describes filtered sampling as continuous in placement, and the presentation layer uses linear filtering.",
+    "remaining_work": "Future documentation/comment correction should distinguish at-most0.5 pre-snap disagreement, separate axis snapping and an approximate temporary frame. No guarantee of same pixel-cell identity or final displacement<=0.5 follows. Production and historical ADRs unchanged.",
+    "parent_review": "Root read ADR0444 decision1, selected0442/0064/0657 and current placement code, scroll/snap assertion bodies. No source mutation or new helper test needed for the mathematical counterexample; historical performance not rerun.",
+    "reviewer": "reprojection_adr_audit",
+    "source": "reprojection_adr_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0444-the-half-pixel-a-comparison-could-not-see-past.md",
+    "decision_id": "0444-1-maximum-affine-disagreement-at-raster-corners",
+    "original_decision": "Measure the maximum Euclidean difference between two affine placements over the whole rectangular texture by evaluating the four corners; the norm of the affine difference is convex and reaches its maximum at an extreme point.",
+    "current_conclusion": "retain",
+    "reason": "For an affine displacement vector d(p), the norm ||d(p)|| is convex. Every point in a rectangle is a convex combination of its vertices, so convexity bounds its value by the largest vertex value. The implementation's four-corner maximum is therefore exact in real arithmetic for the declared rectangle; this argument is separate from the invalid implication that a <0.5 displacement preserves pixel membership. `TargetSpec` dimensions are bounded by 2^24 and exactly representable in f32, though transform evaluation remains floating-point arithmetic.",
+    "current_code_evidence": [
+      "crates/viewer-device/src/stale/placement.rs::disagreement",
+      "crates/viewer-device/src/stale/placement.rs::one_placement"
+    ],
+    "test_evidence": [
+      "crates/viewer-device/src/stale/tests.rs::a_scroll_of_a_real_column_is_carried_and_a_zoom_of_one_is_still_refused",
+      "crates/viewer-device/src/stale/tests.rs::a_zoom_of_a_real_column_stands_in_from_its_last_frame_page_by_page"
+    ],
+    "spec_or_external_sources": "The four-corner result is an affine geometry fact, not an ISO requirement. The quads test checks per-page corner mapping under real zoom/scale changes; the threshold comparison for one whole placement remains internal to `disagreement`.",
+    "changed_premise": "No defect found in the maximum-at-vertices argument. Existing scenarios exercise scale and translation, but do not appear to use a rotated/sheared placement in the one-placement disagreement path.",
+    "remaining_work": "No new test is required to claim a spec obligation. If the internal helper's exact max contract is to be regression-tested, a small unit test in placement.rs using a 3×4 target and a 90-degree transform has an independent expected maximum sqrt(50); do not turn it into a pixel-identity assertion.",
+    "parent_review": "Root read ADR0444 decision1, selected0442/0064/0657 and current placement code, scroll/snap assertion bodies. No source mutation or new helper test needed for the mathematical counterexample; historical performance not rerun.",
+    "reviewer": "reprojection_adr_audit",
+    "source": "reprojection_adr_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0442-the-column-the-third-host-could-not-hold.md",
+    "decision_id": "0442-exact-composition-comparison",
+    "original_decision": "Compare page-derived placements exactly and refuse a column reprojection when floating-point inverse compositions differ, because no tolerance had a measured purpose.",
+    "current_conclusion": "superseded",
+    "reason": "ADR 0444 superseded the exact comparison for the multi-page one-placement path after real scrolls produced f32 inverse residuals. Exact `depicts` still serves the separate question whether a frame is already of the exact requested arrangement; it does not compose through an inverse and ADR 0444 explicitly retained it.",
+    "current_code_evidence": [
+      "crates/viewer-device/src/stale/placement.rs::depicts",
+      "crates/viewer-device/src/stale/placement.rs::one_placement"
+    ],
+    "test_evidence": [
+      "crates/viewer-device/src/stale/tests.rs::a_scroll_of_a_real_column_is_carried_and_a_zoom_of_one_is_still_refused"
+    ],
+    "spec_or_external_sources": "ADR 0442 §'What a reprojection means when the frame is several pages'; ADR 0444 Decision 1 and its scroll/zoom measurement.",
+    "changed_premise": "Measured ordinary-scroll inverse roundoff demonstrated that exact composition equality rejected visually near-identical placements.",
+    "remaining_work": "No additional work on the old decision; preserve exact `depicts` scope separately from tolerant composition.",
+    "parent_review": "Root read ADR0444 decision1, selected0442/0064/0657 and current placement code, scroll/snap assertion bodies. No source mutation or new helper test needed for the mathematical counterexample; historical performance not rerun.",
+    "reviewer": "reprojection_adr_audit",
+    "source": "reprojection_adr_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0657-the-frame-nobody-will-look-at.md",
+    "decision_id": "0657-interrupt-only-frames-that-cannot-stand-in",
+    "original_decision": "A frame in flight may be interrupted when the view has moved and `could_stand_in` decides it cannot depict or carry to the requested view; this uses `carrying` under ADR 0444's half-pixel bound.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The interrupt policy's structural distinction between a frame that can still serve as a temporary stand-in and one that cannot remains coherent. Its one dependency on ADR 0444 should be interpreted as a chosen geometric approximation tolerance, not a proof that the user sees the identical pixel assignment. This qualification does not establish that the interrupt policy itself is wrong.",
+    "current_code_evidence": [
+      "crates/viewer-device/src/stale/placement.rs::carrying",
+      "crates/viewer-device/src/stale.rs::could_stand_in",
+      "crates/viewer-device/src/renderer/window.rs::superseded"
+    ],
+    "test_evidence": [
+      "crates/viewer-device/src/stale/tests.rs::a_scroll_of_a_real_column_is_carried_and_a_zoom_of_one_is_still_refused",
+      "crates/viewer-device/src/stale/tests.rs::a_late_frame_becomes_the_base"
+    ],
+    "spec_or_external_sources": "ADR 0657 §2 explicitly reuses carrying over AGREEMENT; ADR 0444 Decision 1.",
+    "changed_premise": "The inherited same-pixel wording is too strong, but the policy relies on bounded displacement rather than a normative PDF property.",
+    "remaining_work": "Ensure any policy explanation describes the tolerated stand-in as approximate; no code/test change is supported by this review alone.",
+    "parent_review": "Root read ADR0444 decision1, selected0442/0064/0657 and current placement code, scroll/snap assertion bodies. No source mutation or new helper test needed for the mathematical counterexample; historical performance not rerun.",
+    "reviewer": "reprojection_adr_audit",
+    "source": "reprojection_adr_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/0358-the-width-a-file-states-is-a-statement-about-the-shape.md",
     "decision_id": "substitute_stretch_to_match_stated_widths",
     "original_decision": "Scale a substituted outline horizontally to the median ratio of the PDF's Widths to the substitute face's own advances, based on Table 109's statement that Widths shall be consistent with the actual font-program widths.",
@@ -4970,6 +5068,204 @@
     "reviewer": "viewer_preferences_audit",
     "source": "viewer_preferences_audit/decisions.json",
     "parent_review_state": "parent-reviewed-partial-with-policy-and-host-gaps",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0934-what-was-left-of-the-matrix-that-cancels-the-page.md",
+    "decision_id": "0934-fixedprint-transformed-rectangle-and-media-origin",
+    "original_decision": "Compute the fixed-print transformed upright rectangle and substitute it for the annotation rectangle in appearance steps 2 and 3; use the target-media origin and H/V percentages; preserve Rect's separate role in later adjustment and appearance BBox processing.",
+    "current_conclusion": "retain",
+    "reason": "The source bullets name this exact substitution and scoping. Existing raster tests discriminate matrix translation, upright envelope, MediaBox origin, and target-media placement. The implementation follows the scoped handoff in decide/placement.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/annotation.rs::fixed_print",
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::placement"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/annotations.rs::a_fixed_print_watermark_is_placed_against_the_media",
+      "crates/pdf-model/tests/annotations.rs::a_fixed_prints_rotating_matrix_gives_an_upright_rectangle",
+      "crates/pdf-model/tests/annotations.rs::a_fixed_print_is_measured_from_the_media_boxs_own_corner"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 §12.5.6.22 and Tables 193/194, printed pp. 501–503 (physical pp. 516–518); §12.5.5 appearance algorithm.",
+    "changed_premise": "The earlier blocker that the B transform lacked a derivation was superseded by reading the post-example media/tiling/n-up paragraphs and the page-space origin; that premise remains resolved.",
+    "remaining_work": "Default regression now passes. Tiling remains conditional; native output and rotated-page interpretation remain separate.",
+    "parent_review": "Selected decision unit only. Root read0934, selected1057,1180 and1204 against source and assertions. No native printer replay or whole-ADR certification.",
+    "reviewer": "watermark_audit",
+    "source": "watermark_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0934-what-was-left-of-the-matrix-that-cancels-the-page.md",
+    "decision_id": "0934-page-rotation-cancellation-choice",
+    "original_decision": "Do not cancel page /Rotate as part of B; preserve the behavior of other annotations, with NoRotate as the explicit departure.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The spec explicitly requires cancellation of scaling and rotation in the stated B paragraph, and §12.5.6.22's screen sentence asks for matching other annotations. The record argues that the on-screen exception/NoRotate flag differentiates the cases. Current tests cover matrix rotation of Rect and general NoRotate but not a rotated-page watermark raster. Retain this interpretation provisionally and add a discriminating page /Rotate control before calling it empirically locked.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/annotation.rs::fixed_print",
+      "crates/pdf-model/src/annotation.rs::ViewGeometry::adjustment",
+      "crates/pdf-model/src/content/annotations.rs::draw_annotation"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/annotations.rs::a_fixed_prints_rotating_matrix_gives_an_upright_rectangle",
+      "crates/pdf-model/tests/annotations.rs::a_no_rotate_annotation_pivots_about_its_own_corner"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 §12.5.3, §12.5.5, §12.5.6.22; no EC3 change found.",
+    "changed_premise": "The media/target distinction is now implemented; it does not independently settle page /Rotate interpretation.",
+    "remaining_work": "If this decision is being promoted again, use a non-square watermark on a /Rotate page with and without NoRotate, and compare independently calculated extents.",
+    "parent_review": "Selected decision unit only. Root read0934, selected1057,1180 and1204 against source and assertions. No native printer replay or whole-ADR certification.",
+    "reviewer": "watermark_audit",
+    "source": "watermark_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0934-what-was-left-of-the-matrix-that-cancels-the-page.md",
+    "decision_id": "0934-fixedprint-keeps-bbox-and-fixed-point-input-rect",
+    "original_decision": "Limit the FixedPrint rectangle substitution to algorithm steps 2 and 3; retain stated Rect for the appearance BBox substitute and §12.5.3 fixed point.",
+    "current_conclusion": "retain",
+    "reason": "The normative bullet explicitly confines the replacement to steps 2 and 3. Code computes the transformed rectangle for placement then applies view-dependent adjustment around the stated Rect. No evidence suggests a changed scope.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::fixed_print",
+      "crates/pdf-model/src/annotation.rs::ViewGeometry::adjustment"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/annotations.rs::a_fixed_print_watermark_is_placed_against_the_media",
+      "crates/pdf-model/tests/annotations.rs::a_no_zoom_annotation_keeps_its_size_when_the_page_is_magnified"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 §12.5.5 steps 1–3 and §12.5.6.22 two algorithm bullets.",
+    "changed_premise": "None identified.",
+    "remaining_work": "The separate NoZoom-on-printed-watermark subtype interaction is already identified by parent; do not count it as a newly discovered FixedPrint gap.",
+    "parent_review": "Selected decision unit only. Root read0934, selected1057,1180 and1204 against source and assertions. No native printer replay or whole-ADR certification.",
+    "reviewer": "watermark_audit",
+    "source": "watermark_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1057-a-cloud-is-a-shall-behind-a-silence-and-a-watermark-has-no-window.md",
+    "decision_id": "1057-watermark-has-no-popup-or-pointer-interaction",
+    "original_decision": "Treat the clause's no-popup/no-interactive-elements sentence as a subtype-level interaction suppression, including pointer hit-testing and popup association.",
+    "current_conclusion": "retain",
+    "reason": "The clause sentence directly imposes this; pointer and popup paths both dispatch through the implemented subtype rule. Existing tests use Square controls, so they prove the special suppression rather than globally disabling interaction.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/popup.rs::popup_of",
+      "crates/pdf-model/src/popup.rs::read",
+      "crates/pdf-model/src/view/annotations.rs::annotation_at"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/annotations.rs::a_watermark_is_not_under_the_pointer_and_a_square_is",
+      "crates/pdf-model/src/popup.rs::a_watermark_has_no_popup_window_and_a_square_has_one"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 §12.5.6.22, printed p. 501 / physical p. 516.",
+    "changed_premise": "None; later print work did not change the no-interaction sentence.",
+    "remaining_work": "No remaining test gap identified for the reviewed interaction paths.",
+    "parent_review": "Selected decision unit only. Root read0934, selected1057,1180 and1204 against source and assertions. No native printer replay or whole-ADR certification.",
+    "reviewer": "watermark_audit",
+    "source": "watermark_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1057-a-cloud-is-a-shall-behind-a-silence-and-a-watermark-has-no-window.md",
+    "decision_id": "1057-defers-print-tiling-and-n-up",
+    "original_decision": "Keep tiling and n-up requirements out of the then-current model because there was no print path, leaving the clause partial.",
+    "current_conclusion": "superseded",
+    "reason": "ADR 1204 explicitly carries the expired premise forward after a print path and n-up composition existed; it implements the cell and scale representation, while tiling remains unavailable as a user-selectable operation. This audit found no reason to restore the old deferral for n-up.",
+    "current_code_evidence": [
+      "crates/viewer-host/src/printing.rs::placed",
+      "crates/viewer-host/src/printing.rs::cell",
+      "crates/viewer-core/src/viewer/printing.rs::paper_of",
+      "crates/pdf-model/src/annotation.rs::target_media"
+    ],
+    "test_evidence": [
+      "crates/viewer-host/src/printing.rs::tests::an_n_up_sheet_places_each_page_in_its_own_cell_at_the_factor_the_core_cancels",
+      "crates/pdf-model/tests/print_intent.rs::a_page_placed_on_the_media_keeps_the_watermarks_size_and_not_the_pages"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 §12.5.6.22 post-example page tiling and n-up bullets; ADR 1204.",
+    "changed_premise": "Print operation and n-up geometry now exist. No host currently offers page tiling, so that condition remains unactivated.",
+    "remaining_work": "No tiling test is appropriate until a processor selects and composes multiple tiles.",
+    "parent_review": "Selected decision unit only. Root read0934, selected1057,1180 and1204 against source and assertions. No native printer replay or whole-ADR certification.",
+    "reviewer": "watermark_audit",
+    "source": "watermark_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1180-a-print-operation-has-two-ends-and-only-one-window-has-a-printer.md",
+    "decision_id": "1180-print-paper-arrives-after-grant-and-targets-core-rendering",
+    "original_decision": "Carry selected paper after authorization as a non-authorizing update; core PrintPage uses the print purpose and current sheet to create output; GTK hosts the printer path while other hosts preview or expose their existing boundaries.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The model test proves purpose-specific target media, viewer-core's test proves paper can change after grant and the watermark's output location changes without a new question, and host tests prove n-up geometry. ADR 1180 says native GTK printing was compiled/reviewed but not driven; therefore assertions support the command/core boundary and geometry, not physical printer output. The source's conditional tiling feature remains unselected.",
+    "current_code_evidence": [
+      "crates/viewer-core/src/viewer/printing.rs",
+      "crates/viewer-core/src/viewer/printing.rs::paper_of",
+      "crates/viewer-host/src/printing.rs::placed",
+      "crates/viewer-gtk/src/host/printing.rs"
+    ],
+    "test_evidence": [
+      "crates/viewer-core/tests/printing.rs::a_sheet_chosen_after_the_grant_moves_a_fixed_print_watermark_and_asks_nothing",
+      "crates/pdf-model/tests/print_intent.rs::a_fixed_print_watermark_goes_against_the_sheet_when_the_sheet_is_known",
+      "crates/viewer-host/src/printing.rs::tests::an_n_up_sheet_places_each_page_in_its_own_cell_at_the_factor_the_core_cancels"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 §12.5.6.22; ADR 1180 §8 records the GTK path was not driven.",
+    "changed_premise": "The print/core/host geometry is present, but native printer behavior is not demonstrated by these tests.",
+    "remaining_work": "A real host/print-path integration test would need a deterministic print backend or test harness; do not infer printer spooling from model and host-geometry assertions.",
+    "parent_review": "Selected decision unit only. Root read0934, selected1057,1180 and1204 against source and assertions. No native printer replay or whole-ADR certification.",
+    "reviewer": "watermark_audit",
+    "source": "watermark_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1204-a-page-on-a-sheet-is-where-matrix-b-stops-being-the-identity.md",
+    "decision_id": "1204-nup-cell-media-and-cancel-page-scale",
+    "original_decision": "Represent an n-up cell in page coordinates with page_scale and cancel the page's scale when placing the FixedPrint rectangle; every page's mark uses the cell as target media.",
+    "current_conclusion": "retain",
+    "reason": "This follows the post-example n-up bullet and is supported by independently distinct seams: the model measures percentages against the passed media and divides extent by page_scale; host placement derives a cell target and scale; tests assert both sets of quantities. No end-to-end watermark raster through the host's print callback was found, but the handoff matches.",
+    "current_code_evidence": [
+      "crates/viewer-host/src/printing.rs::placed",
+      "crates/viewer-host/src/printing.rs::cell",
+      "crates/pdf-model/src/annotation.rs::fixed_print",
+      "crates/viewer-core/src/viewer/printing.rs::paper_of"
+    ],
+    "test_evidence": [
+      "crates/viewer-host/src/printing.rs::tests::an_n_up_sheet_places_each_page_in_its_own_cell_at_the_factor_the_core_cancels",
+      "crates/pdf-model/tests/print_intent.rs::a_page_placed_on_the_media_keeps_the_watermarks_size_and_not_the_pages"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 §12.5.6.22 second post-example bullet; ADR 1204 §§2–3.",
+    "changed_premise": "Print path and n-up choices now exist; this justifies revisiting ADR 1057's older deferral.",
+    "remaining_work": "A print-job integration assertion could verify a watermark's display-list coordinates for both cells, but no model or geometry assertion currently contradicts the chosen handoff.",
+    "parent_review": "Selected decision unit only. Root read0934, selected1057,1180 and1204 against source and assertions. No native printer replay or whole-ADR certification.",
+    "reviewer": "watermark_audit",
+    "source": "watermark_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1204-a-page-on-a-sheet-is-where-matrix-b-stops-being-the-identity.md",
+    "decision_id": "1204-nup-grid-and-centering-conventions",
+    "original_decision": "For page counts, split the longer paper axis for two-up and both axes for four-up; center each page inside its cell.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "These are implementation choices, not ISO obligations. Current host unit tests cover a two-up grid and scale modes; they should be described as RFC/owner choices and not as a normative conformance rule. Four-up behavior is named by the code's count/grid logic but the inspected assertion is the two-up case.",
+    "current_code_evidence": [
+      "crates/viewer-host/src/printing.rs::PagesPerSheet::grid",
+      "crates/viewer-host/src/printing.rs::geometry",
+      "crates/viewer-host/src/printing.rs::cell"
+    ],
+    "test_evidence": [
+      "crates/viewer-host/src/printing.rs::tests::an_n_up_sheet_places_each_page_in_its_own_cell_at_the_factor_the_core_cancels",
+      "crates/viewer-host/src/printing.rs::tests::a_single_page_placed_at_its_own_size_is_the_clauses_usual_case"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 §12.5.6.22 specifies effects after n-up is selected, not its grid or centering convention; RFC 0004 §6 and ADR 1204 §§4,6.",
+    "changed_premise": "None; clarify that these remain choices as host options expand.",
+    "remaining_work": "Four-up and the geometry-to-watermark consumer seam are delegated for focused tests; no defect demonstrated.",
+    "parent_review": "Selected decision unit only. Root read0934, selected1057,1180 and1204 against source and assertions. No native printer replay or whole-ADR certification.",
+    "reviewer": "watermark_audit",
+    "source": "watermark_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
     "parent_accepted": true
   }
 ]

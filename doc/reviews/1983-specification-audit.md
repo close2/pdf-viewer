@@ -1049,3 +1049,38 @@ ADR0049 was also corrected in the audit: its decision concerns CID indexing into
 Type1 embedding, not the adjacent CFF signature-dispatch test. The actual corpus regression compares
 glyph shape, which distinguishes the wrong substitute; it can return early without its corpus file.
 Historical archive conversions and external font-format conformance were not freshly certified.
+
+
+## Watermarks and combined annotation visibility
+
+Three new raster tests pass. The watermark test compares omitted Matrix/H/V against explicit
+identity/zero defaults and an independently displaced positive control. The annotation test varies
+layer state, Hidden, Print and NoView across screen and print; every positive requires the full
+expected extent, and every negative requires no visible pixels. A second annotation test checks
+OCMD AllOff with the opposite layer-state outcome. All fixtures have exact cross-reference tables,
+no recovery, page/form resources and nonempty stored appearances. Clippy passes.
+
+The watermark review supports media-box display, known/unknown print media, transformed rectangle
+placement and page-scale cancellation at the inspected consumers. Tiling remains conditional on an
+operation no current host selects. Model scale cancellation and host cell geometry are tested
+separately; a composed n-up consumer test is the next step. No physical printer output is certified,
+and the ADR0934 page-Rotate interpretation remains provisional. FixedPrint does not create a second
+report of the existing NoZoom print defect.
+
+
+## Reconsidering the half-pixel ADR premise
+
+ADR0444’s four-corner maximum is sound: the norm of an affine displacement is convex, so its value
+inside a rectangle cannot exceed the maximum at a corner. Its next inference is false. A point at
+0.49 can move to0.51 across a nearest-sample cell boundary with a displacement of only0.02. A bound
+below half a pixel therefore does not guarantee that every feature stays in the same pixel cell.
+The measured scroll/zoom separation supports a chosen approximation threshold, not that theorem.
+
+Current code also accepts equality at0.5, while some prose says strictly below. More significantly,
+it measures inter-page disagreement before snapping the selected translation independently on each
+axis. That snap can add up to0.5 per axis, so the reported `within` is not final placement error.
+The temporary-frame policy can remain useful with these limits stated accurately. ADR0442’s former
+exact composition comparison is superseded; exact `depicts` still answers a different question.
+ADR0657’s interruption policy inherits the approximation, without becoming a pixel-identity guarantee.
+No production code or historical ADR was rewritten, and no failing conformance test was invented
+for a zero-error contract the product does not have.

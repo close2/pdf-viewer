@@ -3501,10 +3501,11 @@
       "crates/pdf-model/src/optional_content.rs"
     ],
     "test_refs": [
-      "crates/pdf-model/tests/optional_content.rs::an_annotation_carrying_oc_is_not_drawn_when_its_group_is_off"
+      "crates/pdf-model/tests/optional_content.rs::an_annotation_carrying_oc_is_not_drawn_when_its_group_is_off",
+      "crates/pdf-model/tests/annotation_oc_flags_audit.rs"
     ],
-    "verdict": "partial-assertion-gap",
-    "evidence": "Parent rejects draft claim that optional_content_config_audit exercises annotations; it contains no annotation fixture. Existing optional_content.rs test holds F4 constant and tests group off/on. It does not discriminate combined flag+OC gating; focused follow-up delegated.",
+    "verdict": "confirmed-selected-conjunction-consumer",
+    "evidence": "Parent rejects draft claim that optional_content_config_audit exercises annotations; it contains no annotation fixture. Existing optional_content.rs test holds F4 constant and tests group off/on. It does not discriminate combined flag+OC gating; focused follow-up delegated. Follow-up now passes10purpose/OC/flagcases plusOCMD AllOff control; see annotation_oc_flags_audit. This closes the selected conjunction gap without recertifying all optional content.",
     "remaining": "Full OC/OCMD semantics and Table 167 are delegated.",
     "test_command": null,
     "test_result": "Selected existing targets ran in broadwave12; newly promoted NM target1pass annotation-dictionary-target.log. Corpus tests can early-return and are not certified by counts.",
@@ -3512,7 +3513,7 @@
     "reviewer": "annotation_dictionary_audit",
     "parent_review_state": "parent-reviewed-partial-with-page-local-name-test",
     "reviewer_ledger_status": "departed",
-    "reviewer_verdict": "partial-assertion-gap",
+    "reviewer_verdict": "confirmed-selected-conjunction-consumer",
     "superseded": false
   },
   {
@@ -4062,6 +4063,111 @@
     "parent_review_state": "parent-reviewed-partial-public-four-level-contents-policy",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "conditional-scope-unactivated",
+    "superseded": false
+  },
+  {
+    "clause": "8.11.3.3",
+    "feature_id": "annotation-oc-and-flags-are-joint-visibility-gates",
+    "requirement": "Before drawing an annotation with /OC, determine visibility from that optional-content entry together with its /F annotation flags. If invisible, the annotation shall not be drawn. Both the optional-content condition and the output-appropriate flag condition must allow it.",
+    "source_location": "ISO 32000-2 Table 166 `/OC`, printed p.469 / physical p.484; §8.11.3.3, printed p. 283 / physical p. 298; §12.5.3 Table 167, printed pp. 471–472 / physical pp. 486–487.",
+    "errata": "No effective EC3 change to the selected conjunction rule identified. Other Table166 corrections and annotation notes are covered separately; this is not a claim that the pages contain only navigation marks.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/annotations.rs::draw_annotation",
+      "crates/pdf-model/src/content/marked.rs::shows_optional_content",
+      "crates/pdf-model/src/annotation.rs::displayed"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/optional_content.rs::an_annotation_carrying_oc_is_not_drawn_when_its_group_is_off",
+      "crates/pdf-model/tests/annotation_oc_flags_audit.rs::annotation_oc_and_flags_both_gate_visibility_for_screen_and_print"
+    ],
+    "verdict": "confirmed-selected-model-raster",
+    "evidence": "Ten cases vary OCG on/off, F0/F4/F2/F6/F36 and View/Print. Every positive requires the full expected extent20..79; negatives require no alpha-bearing pixels. Hidden, missing Print and NoView each discriminate a different gate. Root added no-recovery assertion and retained the correct public content::interpret_with API.",
+    "test_result": "2 passed in watermark-oc-flags-target-v2.log; Clippy passes clippy-watermark-oc-flags.log.",
+    "parent_review": "Parent read Table166 OC physical484/printed469 and §8.11.3.3 physical298/printed283; reviewed complete fixtures and full-raster positive/negative assertions. No native host interaction claim.",
+    "reviewer": "annotation_oc_flags_audit",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "reviewer_ledger_status": "12.5.2 is marked departed as a broad row; 8.11.3.3 and 12.5.3 are implemented",
+    "reviewer_verdict": "confirmed-selected-model-raster",
+    "superseded": false
+  },
+  {
+    "clause": "8.11.3.3",
+    "feature_id": "annotation-oc-accepts-group-or-membership-dictionary",
+    "requirement": "An annotation /OC value may be an optional content group or an optional content membership dictionary; membership visibility is decided by the dictionary's groups and policy or visibility expression.",
+    "source_location": "Table 166 `/OC`, printed p.469 / physical p.484; §8.11.3.3, printed p. 283 / physical p. 298; membership dictionary policy Table 97 / §8.11.2.2.",
+    "errata": "No effective EC3 change to the selected conjunction rule identified. Other Table166 corrections and annotation notes are covered separately; this is not a claim that the pages contain only navigation marks.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/annotations.rs::draw_annotation",
+      "crates/pdf-model/src/content/marked.rs::shows_optional_content",
+      "crates/pdf-model/src/optional_content.rs::visibility",
+      "crates/pdf-model/src/optional_content.rs::membership"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/optional_content.rs::an_annotation_carrying_oc_is_not_drawn_when_its_group_is_off",
+      "crates/pdf-model/tests/annotation_oc_flags_audit.rs::an_annotation_oc_membership_dictionary_uses_its_policy_with_print_flags"
+    ],
+    "verdict": "confirmed-selected-model-raster",
+    "evidence": "Exact-xref PDF1.7 uses OCMD AllOff over one group. With F4, Print has extent20..79 in each axis when group off and no alpha-bearing pixels when on. This selected policy does not certify all OCMD expressions.",
+    "test_result": "2 passed in watermark-oc-flags-target-v2.log; Clippy passes clippy-watermark-oc-flags.log.",
+    "parent_review": "Parent read Table166 OC physical484/printed469 and §8.11.3.3 physical298/printed283; reviewed complete fixtures and full-raster positive/negative assertions. No native host interaction claim.",
+    "reviewer": "annotation_oc_flags_audit",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "reviewer_ledger_status": "12.5.2 broad status departed; 8.11.3.3 implemented",
+    "reviewer_verdict": "confirmed-selected-model-raster",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "annotation-oc-uses-screen-versus-print-flag-conditions",
+    "requirement": "An annotation with /OC is screen-visible only if group visibility and screen flags allow it; print-visible only if group visibility and Print/Hidden flags allow it. The Print bit does not suppress screen display; NoView suppresses screen but does not itself suppress print; Hidden suppresses both.",
+    "source_location": "§8.11.3.3 printed p. 283 / physical p. 298; §12.5.3 Table 167 printed pp. 471–472 / physical pp. 486–487.",
+    "errata": "No effective EC3 change to the selected conjunction rule identified. Other Table166 corrections and annotation notes are covered separately; this is not a claim that the pages contain only navigation marks.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::displayed",
+      "crates/pdf-model/src/annotation.rs::stated_flags",
+      "crates/pdf-model/src/content/annotations.rs::draw_annotation"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/print_intent.rs::table_167s_print_bit_decides_the_printed_page_and_the_view_bits_decide_the_screen",
+      "crates/pdf-model/tests/optional_content.rs::an_annotation_carrying_oc_is_not_drawn_when_its_group_is_off",
+      "crates/pdf-model/tests/annotation_oc_flags_audit.rs::annotation_oc_and_flags_both_gate_visibility_for_screen_and_print"
+    ],
+    "verdict": "confirmed-selected-model-raster",
+    "evidence": "Ten cases vary OCG on/off, F0/F4/F2/F6/F36 and View/Print. Every positive requires the full expected extent20..79; negatives require no alpha-bearing pixels. Hidden, missing Print and NoView each discriminate a different gate. Root added no-recovery assertion and retained the correct public content::interpret_with API.",
+    "test_result": "2 passed in watermark-oc-flags-target-v2.log; Clippy passes clippy-watermark-oc-flags.log.",
+    "parent_review": "Parent read Table166 OC physical484/printed469 and §8.11.3.3 physical298/printed283; reviewed complete fixtures and full-raster positive/negative assertions. No native host interaction claim.",
+    "reviewer": "annotation_oc_flags_audit",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "reviewer_ledger_status": "12.5.3 implemented; 8.11.3.3 implemented",
+    "reviewer_verdict": "confirmed-selected-model-raster",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.2",
+    "feature_id": "annotation-without-oc-remains-under-normal-flag-rules",
+    "requirement": "Because Table 166 makes /OC optional, annotations without /OC do not acquire a group-visibility gate; their ordinary flag conditions continue to govern rendering.",
+    "source_location": "Table 166 `/OC`, printed p.469 / physical p.484; §12.5.3 Table 167 printed pp. 471–472 / physical pp. 486–487.",
+    "errata": "No effective EC3 change to the selected conjunction rule identified. Other Table166 corrections and annotation notes are covered separately; this is not a claim that the pages contain only navigation marks.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/content/annotations.rs::draw_annotation",
+      "crates/pdf-model/src/annotation.rs::displayed"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotation_flags_audit.rs"
+    ],
+    "verdict": "cross-reference-only",
+    "evidence": "The new OC conjunction tests always supply OC. Normal no-OC flag behavior is a cross-reference to the accepted annotation flag audit, not an additional control in this target. Parent removed an invented test name.",
+    "test_result": "2 passed in watermark-oc-flags-target-v2.log; Clippy passes clippy-watermark-oc-flags.log.",
+    "parent_review": "Parent read Table166 OC physical484/printed469 and §8.11.3.3 physical298/printed283; reviewed complete fixtures and full-raster positive/negative assertions. No native host interaction claim.",
+    "remaining": "No new claim about malformed OC values or full flag coverage.",
+    "reviewer": "annotation_oc_flags_audit",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "reviewer_ledger_status": "12.5.2 broad status departed; 12.5.3 implemented",
+    "reviewer_verdict": "cross-reference-only",
     "superseded": false
   },
   {
@@ -35507,6 +35613,330 @@
     "parent_review_state": "parent-reviewed-partial-with-policy-and-host-gaps",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.22",
+    "feature_id": "watermark-subtype-required",
+    "requirement": "A producer's watermark annotation has /Subtype /Watermark (Table 193 required entry). The clause gives no special recovery rule for a mismatched subtype.",
+    "source_location": "§12.5.6.22 and Table 193, printed pp. 501–502 / physical pp. 516–517; source/spec-layout.txt §12.5.6.22, source PDF objects on physical pages 516–517.",
+    "errata": "The EC3 annotation index has only section/table link annotations at physical pp. 492 and 516; no substantive correction to this requirement was found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::is_watermark",
+      "crates/pdf-model/src/annotation.rs::fixed_print"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_fixed_print_watermark_is_placed_against_the_media",
+      "crates/pdf-model/tests/annotations.rs::a_watermark_is_not_under_the_pointer_and_a_square_is"
+    ],
+    "verdict": "subtype dispatch exercised; malformed producer combinations have no reader-prescribed rejection",
+    "evidence": "The renderer dispatches the placement transform only for Watermark. Existing fixed-print raster test and pointer test exercise Watermark, with a Square positive control for pointer eligibility. No consequence for wrong /Subtype is inferred.",
+    "parent_review": "Parent read effective §12.5.6.22/Tables193–194, selected model, public print and host geometry assertions, and actual ADR decisions. Native printing and page-rotation interpretation remain qualified.",
+    "test_result": "Existing consumers ran in wave12; new omitted-default raster target passes in watermark-oc-flags-target-v2.log.",
+    "reviewer": "watermark_audit",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "subtype dispatch exercised; malformed producer combinations have no reader-prescribed rejection",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.22",
+    "feature_id": "fixedprint-optional-and-absent-preserves-normal-rect",
+    "requirement": "Table 193 makes /FixedPrint optional. If absent, draw without special consideration of target-media dimensions.",
+    "source_location": "Table 193, printed p. 502 / physical p. 517.",
+    "errata": "No substantive EC3 correction found; physical-page annotation search returned only a table link.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::fixed_print",
+      "crates/pdf-model/src/annotation.rs::placement"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_fixed_print_watermark_is_placed_against_the_media"
+    ],
+    "verdict": "tested with fixed and no-FixedPrint raster controls",
+    "evidence": "The test checks the fixed mark at its transformed media-relative coordinates and the same fixture without /FixedPrint at its /Rect coordinates.",
+    "parent_review": "Parent read effective §12.5.6.22/Tables193–194, selected model, public print and host geometry assertions, and actual ADR decisions. Native printing and page-rotation interpretation remain qualified.",
+    "test_result": "Existing consumers ran in wave12; new omitted-default raster target passes in watermark-oc-flags-target-v2.log.",
+    "reviewer": "watermark_audit",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "tested with fixed and no-FixedPrint raster controls",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.22",
+    "feature_id": "fixedprint-screen-uses-page-mediabox",
+    "requirement": "On-screen interactive display uses MediaBox dimensions as the target media so watermark scrolling and zoom match other annotations.",
+    "source_location": "§12.5.6.22, printed p. 501 / physical p. 516; Table 193, printed p. 502 / physical p. 517.",
+    "errata": "No substantive EC3 correction found. The base text's parenthetical reference calls Table 29 a catalog table, but the stated MediaBox is a page entry in Table 31; this citation mismatch does not change the identified geometry.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::target_media",
+      "crates/pdf-model/src/content/annotations.rs::draw_annotation"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/print_intent.rs::a_fixed_print_watermark_goes_against_the_sheet_when_the_sheet_is_known"
+    ],
+    "verdict": "tested against conflicting supplied sheet and MediaBox values",
+    "evidence": "The actual test supplies a 200×200 TargetMedia even in Purpose::View, asserts screen coordinates using the 100×100 MediaBox, and separately asserts print uses the named sheet. This verifies the purpose branch, not merely parsing.",
+    "parent_review": "Parent read effective §12.5.6.22/Tables193–194, selected model, public print and host geometry assertions, and actual ADR decisions. Native printing and page-rotation interpretation remain qualified.",
+    "test_result": "Existing consumers ran in wave12; new omitted-default raster target passes in watermark-oc-flags-target-v2.log.",
+    "reviewer": "watermark_audit",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "tested against conflicting supplied sheet and MediaBox values",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.22",
+    "feature_id": "fixedprint-print-known-target-media",
+    "requirement": "FixedPrint placement is relative to target-media dimensions when known; H/V percentages are distances from the media's own lower-left origin.",
+    "source_location": "Table 193 and Table 194, printed p. 502 / physical p. 517; B transform paragraph, printed pp. 502–503 / physical pp. 517–518.",
+    "errata": "No substantive EC3 correction found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::target_media",
+      "crates/pdf-model/src/annotation.rs::fixed_print",
+      "crates/viewer-core/src/viewer/printing.rs::paper_of"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/print_intent.rs::a_fixed_print_watermark_goes_against_the_sheet_when_the_sheet_is_known",
+      "crates/viewer-core/tests/printing.rs::a_sheet_chosen_after_the_grant_moves_a_fixed_print_watermark_and_asks_nothing"
+    ],
+    "verdict": "model and public print-query consumer exercised",
+    "evidence": "The model test asserts screen, print with a known 200×200 sheet, and print with no target. Viewer-core separately changes the chosen paper after Print::Start and checks the display-list ink moves without a second authorization event.",
+    "parent_review": "Parent read effective §12.5.6.22/Tables193–194, selected model, public print and host geometry assertions, and actual ADR decisions. Native printing and page-rotation interpretation remain qualified.",
+    "test_result": "Existing consumers ran in wave12; new omitted-default raster target passes in watermark-oc-flags-target-v2.log.",
+    "reviewer": "watermark_audit",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "model and public print-query consumer exercised",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.22",
+    "feature_id": "fixedprint-unknown-target-falls-back-to-mediabox",
+    "requirement": "When target-media dimensions are unknown at draw time, use the page MediaBox dimensions.",
+    "source_location": "Table 193, printed p. 502 / physical p. 517; Table 194 H/V rows, same pages.",
+    "errata": "No substantive EC3 correction found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::target_media",
+      "crates/pdf-model/src/annotation.rs::fixed_print"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/print_intent.rs::a_fixed_print_watermark_goes_against_the_sheet_when_the_sheet_is_known"
+    ],
+    "verdict": "tested as Print with absent sheet",
+    "evidence": "The test asserts Purpose::Print with paper=None places the mark from the 100×100 MediaBox, independently from its known-sheet arm.",
+    "parent_review": "Parent read effective §12.5.6.22/Tables193–194, selected model, public print and host geometry assertions, and actual ADR decisions. Native printing and page-rotation interpretation remain qualified.",
+    "test_result": "Existing consumers ran in wave12; new omitted-default raster target passes in watermark-oc-flags-target-v2.log.",
+    "reviewer": "watermark_audit",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "tested as Print with absent sheet",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.22",
+    "feature_id": "watermark-no-popup-or-interactive-elements",
+    "requirement": "A watermark annotation shall have no popup window nor other interactive elements.",
+    "source_location": "§12.5.6.22, printed p. 501 / physical p. 516.",
+    "errata": "No substantive EC3 correction found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/popup.rs::popup_of",
+      "crates/pdf-model/src/popup.rs::read",
+      "crates/pdf-model/src/view/annotations.rs::annotation_at"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_watermark_is_not_under_the_pointer_and_a_square_is",
+      "crates/pdf-model/src/popup.rs::a_watermark_has_no_popup_window_and_a_square_has_one"
+    ],
+    "verdict": "pointer and popup consumer tests have controls",
+    "evidence": "The pointer test contrasts a watermark and a square; the popup unit test checks a watermark returns no window and a square's popup remains available.",
+    "parent_review": "Parent read effective §12.5.6.22/Tables193–194, selected model, public print and host geometry assertions, and actual ADR decisions. Native printing and page-rotation interpretation remain qualified.",
+    "test_result": "Existing consumers ran in wave12; new omitted-default raster target passes in watermark-oc-flags-target-v2.log.",
+    "reviewer": "watermark_audit",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "pointer and popup consumer tests have controls",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.22",
+    "feature_id": "fixedprint-dictionary-type-required-producer-side",
+    "requirement": "A producer's fixed-print dictionary has /Type /FixedPrint (Table 194 required entry). The clause states no reader action for a missing or mismatched Type.",
+    "source_location": "Table 194, printed p. 502 / physical p. 517.",
+    "errata": "No substantive EC3 correction found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::fixed_print"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_fixed_print_watermark_is_placed_against_the_media"
+    ],
+    "verdict": "producer constraint is not reader behavior; no false conformance test proposed",
+    "evidence": "The consumer reaches the dictionary through Table 193 /FixedPrint and applies geometry without reading /Type. No consequence for malformed producer data is stated; refusing it would invent one.",
+    "parent_review": "Parent read effective §12.5.6.22/Tables193–194, selected model, public print and host geometry assertions, and actual ADR decisions. Native printing and page-rotation interpretation remain qualified.",
+    "test_result": "Existing consumers ran in wave12; new omitted-default raster target passes in watermark-oc-flags-target-v2.log.",
+    "reviewer": "watermark_audit",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "producer constraint is not reader behavior; no false conformance test proposed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.22",
+    "feature_id": "fixedprint-matrix-transforms-rect-to-upright-envelope",
+    "requirement": "Translate Rect to origin, transform it by FixedPrint Matrix to a quadrilateral, then use the smallest upright rectangle enclosing it in place of the annotation rectangle for appearance algorithm steps 2 and 3. Matrix defaults to identity; it SHOULD provide reasonable offset for unprintable margins when positioning near an edge.",
+    "source_location": "Table 194 and algorithm bullets, printed pp. 502–503 / physical pp. 517–518.",
+    "errata": "No substantive EC3 correction found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::fixed_print",
+      "crates/pdf-model/src/annotation.rs::transformed",
+      "crates/pdf-model/src/annotation.rs::decided"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_fixed_prints_rotating_matrix_gives_an_upright_rectangle",
+      "crates/pdf-model/tests/annotations.rs::a_fixed_print_watermark_is_placed_against_the_media"
+    ],
+    "verdict": "matrix rotation and translation raster behavior tested",
+    "evidence": "The quarter-turn test uses a non-square Rect and asserts the upright output extents; the translated matrix test asserts the moved extent. These discriminate envelope substitution from rotating the appearance. The test bodies are complete-PDF raster assertions.",
+    "parent_review": "Parent read effective §12.5.6.22/Tables193–194, selected model, public print and host geometry assertions, and actual ADR decisions. Native printing and page-rotation interpretation remain qualified.",
+    "test_result": "Existing consumers ran in wave12; new omitted-default raster target passes in watermark-oc-flags-target-v2.log.",
+    "remaining": "The margin recommendation is producer-side; no printer-margin capability is inferred from a screen raster.",
+    "reviewer": "watermark_audit",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "matrix rotation and translation raster behavior tested",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.22",
+    "feature_id": "fixedprint-h-and-v-percentages-and-defaults",
+    "requirement": "H and V independently translate by a percentage of target-media width and height; 1 is 100%, 0 is 0%, defaults are 0. Negative values should not be used (producer recommendation).",
+    "source_location": "Table 194, printed p. 502 / physical p. 517.",
+    "errata": "No substantive EC3 correction found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::fixed_print"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/watermark_defaults_audit.rs::omitted_fixed_print_matrix_h_and_v_match_their_explicit_defaults"
+    ],
+    "verdict": "confirmed-selected-defaults-and-placement",
+    "evidence": "Complete PDF1.7, exact xref/no recovery, nonempty transparent-medium raster. Omitted Matrix/H/V and explicit identity/zero give extent (0,0,39,39); H0.25/V0.5 gives (25,50,64,89). Existing tests separately exercise matrix rotation, target media and nonzero media origin.",
+    "parent_review": "Parent read effective §12.5.6.22/Tables193–194, selected model, public print and host geometry assertions, and actual ADR decisions. Native printing and page-rotation interpretation remain qualified.",
+    "test_result": "Existing consumers ran in wave12; new omitted-default raster target passes in watermark-oc-flags-target-v2.log.",
+    "reviewer": "watermark_audit",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-defaults-and-placement",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.22",
+    "feature_id": "fixedprint-cancel-page-placement-scale",
+    "requirement": "The B transform cancels scaling/rotation used to place a page on a different output medium; the mark retains specified size and alignment.",
+    "source_location": "§12.5.6.22 B paragraph and post-example print cases, printed pp. 502–503 / physical pp. 517–518.",
+    "errata": "No substantive EC3 correction found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::fixed_print",
+      "crates/pdf-model/src/view.rs::TargetMedia",
+      "crates/viewer-host/src/printing.rs::placed"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/print_intent.rs::a_page_placed_on_the_media_keeps_the_watermarks_size_and_not_the_pages",
+      "crates/viewer-host/src/printing.rs::tests::an_n_up_sheet_places_each_page_in_its_own_cell_at_the_factor_the_core_cancels"
+    ],
+    "verdict": "model scale cancellation and host n-up geometry tested at separate seams",
+    "evidence": "The model test asserts the same corner with 1x and 2x page_scale, where the mark's source-space width halves; the host test asserts each cell's media dimensions, page_scale, scale and cell positions, including that cells tile the sheet without overlap. No end-to-end raster of watermarks through the native print dialog was found. Scale cancellation is tested; page rotation is an interpretation retained provisionally, not established by the non-square Rect/Matrix rotation test.",
+    "parent_review": "Parent read effective §12.5.6.22/Tables193–194, selected model, public print and host geometry assertions, and actual ADR decisions. Native printing and page-rotation interpretation remain qualified.",
+    "test_result": "Existing consumers ran in wave12; new omitted-default raster target passes in watermark-oc-flags-target-v2.log.",
+    "reviewer": "watermark_audit",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "model scale cancellation and host n-up geometry tested at separate seams",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.22",
+    "feature_id": "fixedprint-tiling-watermark-per-sheet",
+    "requirement": "If page tiling is selected, print the watermark at its specified size and position on each output page.",
+    "source_location": "Post-example first bullet, printed p. 503 / physical p. 518.",
+    "errata": "No substantive EC3 correction found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::target_media",
+      "crates/pdf-model/src/annotation.rs::fixed_print",
+      "crates/viewer-host/src/printing.rs::placed"
+    ],
+    "test_refs": [],
+    "verdict": "conditional-scope-unactivated; no tiling selection or multi-sheet composition path found",
+    "evidence": "The core can accept a target rectangle and page_scale for one rendering, but no host exposes page tiling or composes repeated tiles. Because the normative sentence is conditional on tiling being selected, this is an unactivated capability, not evidence of a current wrong rendering.",
+    "parent_review": "Parent read effective §12.5.6.22/Tables193–194, selected model, public print and host geometry assertions, and actual ADR decisions. Native printing and page-rotation interpretation remain qualified.",
+    "test_result": "Existing consumers ran in wave12; new omitted-default raster target passes in watermark-oc-flags-target-v2.log.",
+    "reviewer": "watermark_audit",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "conditional-scope-unactivated; no tiling selection or multi-sheet composition path found",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.22",
+    "feature_id": "fixedprint-nup-cell-placement-and-size",
+    "requirement": "If n-up is selected, preserve specified watermark size and position it as though target-media dimensions were one cell, avoiding overlap with annotations from other pages.",
+    "source_location": "Post-example second bullet, printed p. 503 / physical p. 518.",
+    "errata": "No substantive EC3 correction found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-host/src/printing.rs::placed",
+      "crates/viewer-host/src/printing.rs::cell",
+      "crates/pdf-model/src/annotation.rs::fixed_print"
+    ],
+    "test_refs": [
+      "crates/viewer-host/src/printing.rs::tests::an_n_up_sheet_places_each_page_in_its_own_cell_at_the_factor_the_core_cancels",
+      "crates/pdf-model/tests/print_intent.rs::a_page_placed_on_the_media_keeps_the_watermarks_size_and_not_the_pages"
+    ],
+    "verdict": "cell target and scale handoff tested; no n-up watermark raster-through-print-host test found",
+    "evidence": "The host's unit assertions inspect media geometry and non-overlapping cell positions; the model test independently verifies scale cancellation. This split proves the intended handoff inputs, not full native print integration.",
+    "parent_review": "Parent read effective §12.5.6.22/Tables193–194, selected model, public print and host geometry assertions, and actual ADR decisions. Native printing and page-rotation interpretation remain qualified.",
+    "test_result": "Existing consumers ran in wave12; new omitted-default raster target passes in watermark-oc-flags-target-v2.log.",
+    "reviewer": "watermark_audit",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "cell target and scale handoff tested; no n-up watermark raster-through-print-host test found",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.3 / 12.5.6.22",
+    "feature_id": "watermark-nozoom-interaction-screen-versus-print",
+    "requirement": "The watermark's screen flag adjustment and FixedPrint placement are separate transformations. Table 167 NoZoom changes screen appearance size; §12.5.6.22 fixes print size against target media.",
+    "source_location": "§12.5.3 and Table 167 printed pp. 471–472 / physical pp. 486–487; §12.5.6.22 printed pp. 501–503 / physical pp. 516–518.",
+    "errata": "No substantive EC3 correction found.",
+    "ledger_status": "unmapped",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decide",
+      "crates/pdf-model/src/annotation.rs::fixed_print",
+      "crates/pdf-model/src/annotation.rs::ViewGeometry::adjustment"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_no_zoom_annotation_keeps_its_size_when_the_page_is_magnified",
+      "crates/pdf-model/tests/print_intent.rs::a_page_placed_on_the_media_keeps_the_watermarks_size_and_not_the_pages"
+    ],
+    "verdict": "screen flag is tested generally; print NoZoom subtype interaction not isolated here",
+    "evidence": "decide applies view_flags adjustment after fixed_print computes its rectangle. Parent has already identified that retained screen NoZoom adjustment shrinks a printed Square; this audit does not relabel that known subtype-scoping concern as a new watermark defect. No watermark-specific NoZoom print assertion was found.",
+    "parent_review": "Parent read effective §12.5.6.22/Tables193–194, selected model, public print and host geometry assertions, and actual ADR decisions. Native printing and page-rotation interpretation remain qualified.",
+    "test_result": "Existing consumers ran in wave12; new omitted-default raster target passes in watermark-oc-flags-target-v2.log.",
+    "reviewer": "watermark_audit",
+    "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "screen flag is tested generally; print NoZoom subtype interaction not isolated here",
     "superseded": false
   }
 ]

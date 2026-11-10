@@ -740,7 +740,7 @@
       "clauses": [
         "12.5.6.22"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-qualified-evidence"
     },
     {
       "agent": "cidfont_cmap_validation_audit",
@@ -760,6 +760,25 @@
       "agent": "annotation_oc_flags_audit",
       "clauses": [
         "12.5.2 and8.11.3.3"
+      ],
+      "state": "parent-reviewed-partial-with-qualified-evidence"
+    },
+    {
+      "agent": "reprojection_adr_audit",
+      "clauses": [],
+      "state": "parent-reviewed-partial-with-qualified-evidence"
+    },
+    {
+      "agent": "opentype_selection_audit",
+      "clauses": [
+        "9.9.1 glyphselection"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "watermark_nup_consumer_audit",
+      "clauses": [
+        "12.5.6.22 nup"
       ],
       "state": "running"
     }
