@@ -189,6 +189,12 @@ impl ViewState {
             },
             Entered::Cleared => value,
         };
+        // What of typed characters the field's `DoNotScroll` room takes, measured once: the
+        // value written and whether the typing filled the field both read it.
+        let taken = match value {
+            Entered::Text(text) => Some(accepted(document, &taking, text)),
+            _ => None,
+        };
         let entry = match value {
             Entered::Cleared => Entry {
                 value: None,
@@ -199,7 +205,7 @@ impl ViewState {
                 // so what §12.7.4.3 lays out. Encoded once, here, rather than again at the save:
                 // the appearance and the file then carry the same bytes by construction.
                 value: Some(Object::String(
-                    pdf_syntax::text_string::encode_text_string(&accepted(document, &taking, text))
+                    pdf_syntax::text_string::encode_text_string(taken.as_deref().unwrap_or(text))
                         .into(),
                 )),
                 indices: None,
@@ -222,7 +228,8 @@ impl ViewState {
         // The whole text, before `accepted` cuts it to the field's room, is XFA's `fullText`.
         if let Entered::Text(whole) = value {
             self.begin_typing(document, name, &taking);
-            self.hold_typing(name, Some(whole));
+            let full = scripts::fills(document, &taking, whole, taken.as_deref().unwrap_or(whole));
+            self.hold_typing(name, Some((whole, full)));
         } else {
             self.uncommitted.remove(name);
             self.hold_typing(name, None);

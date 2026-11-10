@@ -597,17 +597,7 @@ impl Typed {
         let field = crate::appearance::Field::read(document, widget, super::FieldValue::Stored);
         match field.kind {
             Some(crate::appearance::FieldKind::Text) => {
-                let mut fits = super::fields::accepted(document, taking, text);
-                let limit = field
-                    .chain()
-                    .into_iter()
-                    .find_map(|dictionary| document.get_key(dictionary, "MaxLen").as_integer())
-                    .and_then(|limit| usize::try_from(limit).ok());
-                if let Some(limit) = limit
-                    && fits.chars().count() > limit
-                {
-                    fits = fits.chars().take(limit).collect();
-                }
+                let (fits, _) = room(document, taking, &field, text);
                 let full = fits.len() < text.len();
                 Self {
                     change: if full { fits } else { text.to_owned() },
@@ -628,6 +618,71 @@ impl Typed {
             },
         }
     }
+}
+
+/// What of `text` the text field `field`, whose widgets are `taking`, takes — its longest prefix
+/// within the rectangle Table 231's `DoNotScroll` holds the field to and within Table 232's
+/// `/MaxLen` characters — with that `/MaxLen`, where the field states one.
+fn room(
+    document: &Document,
+    taking: &[ObjectId],
+    field: &crate::appearance::Field,
+    text: &str,
+) -> (String, Option<usize>) {
+    within_max_len(
+        document,
+        field,
+        super::fields::accepted(document, taking, text),
+    )
+}
+
+/// `fits`, the text a field's `DoNotScroll` room took, cut to its Table 232 `/MaxLen`
+/// characters, with that `/MaxLen` where the field states one.
+fn within_max_len(
+    document: &Document,
+    field: &crate::appearance::Field,
+    mut fits: String,
+) -> (String, Option<usize>) {
+    let limit = field
+        .chain()
+        .into_iter()
+        .find_map(|dictionary| document.get_key(dictionary, "MaxLen").as_integer())
+        .and_then(|limit| usize::try_from(limit).ok());
+    if let Some(limit) = limit
+        && fits.chars().count() > limit
+    {
+        fits = fits.chars().take(limit).collect();
+    }
+    (fits, limit)
+}
+
+/// Whether `text` fills the text field whose widgets are `taking` to its room, which a hybrid
+/// form's field reads as its `full` event (XFA 3.3 pages 391 and 406; ADR 2783): more offered than
+/// [`room`] takes, which is page 391's "tries to enter more content", or as many characters as
+/// Table 232's `/MaxLen`, which is page 406's "types the last allowed character". The `/MaxLen` is
+/// the interactive form's statement of the template's `maxChars`, with which §K.2 requires it to
+/// be consistent. A field that is no text field is never full. `scrolled` is what of `text` the
+/// field's `DoNotScroll` room takes, which the caller has measured already.
+pub(in crate::view) fn fills(
+    document: &Document,
+    taking: &[ObjectId],
+    text: &str,
+    scrolled: &str,
+) -> bool {
+    let Some(&widget) = taking.first() else {
+        return false;
+    };
+    let object = document.get(widget);
+    let Some(widget) = object.as_dict() else {
+        return false;
+    };
+    let field = crate::appearance::Field::read(document, widget, super::FieldValue::Stored);
+    if field.kind != Some(crate::appearance::FieldKind::Text) {
+        return false;
+    }
+    let (fits, limit) = within_max_len(document, &field, scrolled.to_owned());
+    let taken = fits.chars().count();
+    taken < text.chars().count() || limit.is_some_and(|limit| taken >= limit)
 }
 
 /// The export value of the option of Table 233's `/Opt` whose text a person sees is `shown`:

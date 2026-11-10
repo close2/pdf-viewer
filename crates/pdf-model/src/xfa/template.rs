@@ -271,7 +271,10 @@ pub(crate) enum Bound {
     /// `$host` or `xfa.host`, the application, whose `docReady` fires after the Form DOM's `ready`
     /// and before the document is rendered (pages 387–388 and 704).
     Host,
-    /// Any other SOM expression — `$layout`, another container — as the event states it: the
+    /// `$layout` or `xfa.layout`, the Layout DOM (page 91's table), whose `ready` fires "when the
+    /// layout is complete but rendering has not yet begun" (page 388; ADR 2783).
+    Layout,
+    /// Any other SOM expression — `$data`, another container — as the event states it: the
     /// inverted notation of page 404, which this reader does not follow.
     Other(String),
 }
@@ -283,6 +286,7 @@ impl Bound {
             None | Some("$") => Self::Own,
             Some("$form" | "xfa.form") => Self::Form,
             Some("$host" | "xfa.host") => Self::Host,
+            Some("$layout" | "xfa.layout") => Self::Layout,
             Some(other) => Self::Other(other.to_owned()),
         }
     }
@@ -559,6 +563,24 @@ impl Template {
     /// The container at an index this template handed out.
     pub(crate) fn get(&self, index: usize) -> Option<&Container> {
         self.containers.get(index)
+    }
+
+    /// Whether the container at `index` is of the page background: a `pageSet`, a `pageArea`, or
+    /// a container inside one, which page 388's note has the layout process assign to the form
+    /// only after the Form DOM's `ready` has fired (ADR 2783). The walk up is bounded by the
+    /// number of containers, so a parent chain that loops ends.
+    pub(crate) fn in_page_background(&self, index: usize) -> bool {
+        let mut at = Some(index);
+        for _ in 0..=self.containers.len() {
+            let Some(container) = at.and_then(|at| self.containers.get(at)) else {
+                return false;
+            };
+            if matches!(container.class, Class::PageSet | Class::PageArea) {
+                return true;
+            }
+            at = container.parent;
+        }
+        false
     }
 
     /// Why this template is not an XFAF form's, if it is not: page 333's test, a `subformSet`

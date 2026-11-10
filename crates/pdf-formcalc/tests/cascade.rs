@@ -1375,41 +1375,89 @@ fn ready(template: &str, values: &[(&str, &str)]) -> Activation {
     activate(template, values, Stimulus::Ready, Limits::DEFAULT)
 }
 
-/// Page 388: the Form DOM's `ready` fires once its merge is done, and the application's `docReady`
-/// after it, whatever the document order of the fields carrying them. A `ready` bound to the field
-/// itself names an object that generates no `ready`, which page 703 requires its `ref` to name, so
-/// it fires nothing; one bound to `$layout` is not raised by this reader and is named in the report
-/// as not run.
+/// Page 388: the Form DOM's `ready` fires once its merge is done, the Layout DOM's "when the
+/// layout is complete but rendering has not yet begun", and the application's `docReady` "before
+/// the document is rendered" and after the Form DOM's `ready`, whatever the document order of the
+/// fields carrying them; this reader runs the Layout DOM's between the two (ADR 2783), under both
+/// of page 91's spellings. A `ready` bound to the field itself names an object that generates no
+/// `ready`, which page 703 requires its `ref` to name, so it fires nothing; one bound to `$data`,
+/// which page 388 says the event does not apply to, is named in the report as not run.
 #[test]
-fn ready_runs_the_form_doms_events_and_then_the_applications() {
+fn ready_runs_the_form_doms_events_then_the_layout_doms_then_the_applications() {
     let template = [
         field("Doc", &bound("docReady", "$host", "doc")),
+        field("Layout", &bound("ready", "$layout", "layout")),
         field("Form", &bound("ready", "$form", "form")),
         field("Alias", &bound("ready", "xfa.form", "alias")),
+        field("Laid", &bound("ready", "xfa.layout", "laid")),
         field("Own", &bound("ready", "", "own")),
-        field("Layout", &bound("ready", "$layout", "layout")),
+        field("Data", &bound("ready", "$data", "data")),
         field("Log", ""),
     ]
     .concat();
     let values = [
         ("Doc", ""),
+        ("Layout", ""),
         ("Form", ""),
         ("Alias", ""),
+        ("Laid", ""),
         ("Own", ""),
-        ("Layout", ""),
+        ("Data", ""),
         ("Log", ""),
     ];
     let activation = ready(&template, &values);
     assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
-    assert_eq!(log(&activation).as_deref(), Some("form!alias!doc!"));
+    assert_eq!(
+        log(&activation).as_deref(),
+        Some("form!alias!layout!laid!doc!")
+    );
     assert!(
-        activation.report.iter().any(|sentence| sentence.contains(
-            "its ready event is bound to $layout, which this reader raises no event for"
-        )),
+        activation.report.iter().any(|sentence| sentence
+            .contains("its ready event is bound to $data, which this reader raises no event for")),
         "{:?}",
         activation.report
     );
     assert_eq!(activation.report.len(), 1, "{:?}", activation.report);
+}
+
+/// Page 388's note: when the Form DOM's `ready` fires "the layout process has not run, so page
+/// background has not yet been assigned to the form", and so it "cannot propagate to objects
+/// (such as fields and subforms) within page background", where the Layout DOM's `ready` "can
+/// propagate to all objects". A field on a master page hears the second and not the first; a
+/// field of the form's body hears both (ADR 2783).
+#[test]
+fn the_page_background_hears_the_layout_doms_ready_and_not_the_form_doms() {
+    let template = [
+        format!(
+            "<pageSet><pageArea name=\"Master\">{}</pageArea></pageSet>",
+            field(
+                "Stamp",
+                &[
+                    bound("ready", "$form", "stampForm"),
+                    bound("ready", "$layout", "stampLayout"),
+                ]
+                .concat()
+            )
+        ),
+        field(
+            "Body",
+            &[
+                bound("ready", "$form", "bodyForm"),
+                bound("ready", "$layout", "bodyLayout"),
+            ]
+            .concat(),
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let activation = ready(&template, &[("Body", ""), ("Log", "")]);
+    assert_eq!(activation.ended, Ended::Settled, "{:?}", activation.report);
+    assert_eq!(
+        log(&activation).as_deref(),
+        Some("bodyForm!stampLayout!bodyLayout!"),
+        "{:?}",
+        activation.report
+    );
 }
 
 /// No other stimulus raises `ready`: a merge runs the calculations and the `initialize` events, and
@@ -1755,7 +1803,7 @@ fn a_hundred_thousand_unfollowed_events_are_reported_within_the_cap() {
     let listening =
         "<event activity=\"click\" listen=\"refAndDescendents\"><submit/></event>".repeat(100_000);
     let fields: String = (0..100_000)
-        .map(|at| field(&format!("f{at}"), &bound("ready", "$layout", "x")))
+        .map(|at| field(&format!("f{at}"), &bound("ready", "$data", "x")))
         .collect();
     let template = [
         format!("<subform name=\"A\">{listening}</subform>"),
@@ -3632,6 +3680,7 @@ fn a_change_reads_the_whole_text_and_whether_an_arrow_made_it() {
         let typing = [Some(Typing {
             whole: "123456".to_owned(),
             arrows,
+            full: false,
         })];
         let activation = held(
             &template,
@@ -3669,6 +3718,73 @@ fn a_change_reads_the_whole_text_and_whether_an_arrow_made_it() {
             .any(|said| said.contains("$event.fullText: the click event does not set it")),
         "{:?}",
         clicked.report
+    );
+}
+
+/// XFA 3.3 page 391: a field's `full` "fires when the user has entered the maximum allowed amount
+/// of content into the field and tries to enter more content", and page 406's second rule fires
+/// `change` and then `full` for the same change of state. Page 399's row has `full` set `change`,
+/// `fullText`, `newText` and `prevText` and not `name`, so the window's `123456`, cut to the
+/// field's `1234`, reads `123456|1234|1234` after `change`, a read of `$event.name` is refused,
+/// and an entry that did not fill the field runs `change` alone (ADR 2783).
+#[test]
+fn a_full_field_runs_its_full_event_after_its_change_event() {
+    let template = [
+        field(
+            "Amount",
+            "<event activity=\"change\"><script>Log = Concat(Log, \"change+\")</script></event>\
+             <event activity=\"full\"><script>Log = Concat(Log, \"full:\", $event.fullText, \
+             \"|\", $event.change, \"|\", $event.newText)</script></event>",
+        ),
+        field(
+            "Other",
+            "<event activity=\"full\"><script>Log = $event.name</script></event>",
+        ),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("Amount", "1234"), ("Other", "1"), ("Log", "")];
+    let entry = |short: &str, full: bool| {
+        let typed = [name(short)];
+        let typing = [Some(Typing {
+            whole: "123456".to_owned(),
+            arrows: false,
+            full,
+        })];
+        held(
+            &template,
+            &values,
+            Stimulus::Entry {
+                entered: &typed,
+                before: &[],
+                typing: &typing,
+            },
+            None,
+        )
+    };
+    let filled = entry("Amount", true);
+    assert_eq!(
+        log(&filled).as_deref(),
+        Some("change+full:123456|1234|1234"),
+        "{:?}",
+        filled.report
+    );
+    let room_left = entry("Amount", false);
+    assert_eq!(
+        log(&room_left).as_deref(),
+        Some("change+"),
+        "{:?}",
+        room_left.report
+    );
+    let named = entry("Other", true);
+    assert_eq!(log(&named), None, "{:?}", named.report);
+    assert!(
+        named
+            .report
+            .iter()
+            .any(|said| said.contains("$event.name: the full event does not set it")),
+        "{:?}",
+        named.report
     );
 }
 

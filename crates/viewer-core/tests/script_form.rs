@@ -62,6 +62,11 @@ fn hybrid_of(fields: &str, data: &str, named: &[&str]) -> Vec<u8> {
 
 /// [`hybrid_of`], each widget's field holding the `/V` given beside its name.
 fn hybrid_valued(fields: &str, data: &str, named: &[(&str, &str)]) -> Vec<u8> {
+    hybrid_stating(fields, data, named, "")
+}
+
+/// [`hybrid_valued`], each widget's field stating the entries `entries` as well.
+fn hybrid_stating(fields: &str, data: &str, named: &[(&str, &str)], entries: &str) -> Vec<u8> {
     let stream = |text: &str| {
         format!(
             "<< /Length {} >>\nstream\n{text}\nendstream",
@@ -79,7 +84,7 @@ fn hybrid_valued(fields: &str, data: &str, named: &[(&str, &str)]) -> Vec<u8> {
     let widget = |(name, v): (&str, &str), y: u32| {
         format!(
             "<< /Type /Annot /Subtype /Widget /FT /Tx /Parent 4 0 R /T ({name}[0]) /P 3 0 R \
-             /V ({v}) /Rect [20 {y} 220 {}] /F 4 /DA (/Helv 12 Tf 0 g) >>",
+             /V ({v}) /Rect [20 {y} 220 {}] /F 4 /DA (/Helv 12 Tf 0 g) {entries} >>",
             y.saturating_add(20)
         )
     };
@@ -974,26 +979,39 @@ fn the_pointer_crossing_a_widget_runs_the_mouse_enter_and_mouse_exit_of_its_fiel
 }
 
 /// XFA 3.3 page 388: the Form DOM's `ready` runs once the form is shown, which is the open
-/// sequence's end, through the runner the reader's level supplied, and at `off` nothing runs; an
-/// event bound to `$layout`, which this reader raises nothing for, is named in the document's
-/// report as not run (ADR 2606).
+/// sequence's end, and the Layout DOM's `ready` "when the layout is complete but rendering has
+/// not yet begun", which for a static form's layout, the pages the file holds, is the same end
+/// (ADR 2783), through the runner the reader's level supplied, and at `off` nothing runs; an
+/// event bound to `$data`, which page 388 says the event does not apply to, is named in the
+/// document's report as not run (ADR 2606).
 #[test]
 fn the_ready_event_runs_when_the_form_is_presented_and_an_unfollowed_one_is_reported() {
     let fields = "<field name=\"Units\"><ui><textEdit/></ui><value><text/></value>\
                   <event activity=\"ready\" ref=\"$form\"><script>4</script></event></field>\
                   <field name=\"Total\"><ui><textEdit/></ui><value><text/></value>\
-                  <event activity=\"ready\" ref=\"$layout\"><script>9</script></event></field>";
-    let data = "<Units>1</Units><Total/>";
-    for (scripting, units, reported) in [
-        (Scripting::Run(Arc::new(Calculators::default())), "4", true),
-        (Scripting::Off, "", false),
+                  <event activity=\"ready\" ref=\"$layout\"><script>9</script></event></field>\
+                  <field name=\"Spare\"><ui><textEdit/></ui><value><text/></value>\
+                  <event activity=\"ready\" ref=\"$data\"><script>5</script></event></field>";
+    let data = "<Units>1</Units><Total/><Spare/>";
+    for (scripting, units, total, reported) in [
+        (
+            Scripting::Run(Arc::new(Calculators::default())),
+            "4",
+            "9",
+            true,
+        ),
+        (Scripting::Off, "", "", false),
     ] {
-        let mut viewer = opened_on(scripting, hybrid(fields, data));
+        let mut viewer = opened_on(
+            scripting,
+            hybrid_of(fields, data, &["Units", "Total", "Spare"]),
+        );
         assert_eq!(value(&viewer, "Units"), "", "nothing runs at the open");
         let mut events: Vec<Event> = viewer.handle(Command::Presented).collect();
         events.extend(viewer.handle(Command::Presented));
         assert_eq!(value(&viewer, "Units"), units);
-        assert_eq!(value(&viewer, "Total"), "", "a $layout ready is not run");
+        assert_eq!(value(&viewer, "Total"), total, "the Layout DOM's ready");
+        assert_eq!(value(&viewer, "Spare"), "", "a $data ready is not run");
         let said: Vec<String> = events
             .iter()
             .filter_map(|event| match event {
@@ -1003,10 +1021,40 @@ fn the_ready_event_runs_when_the_form_is_presented_and_an_unfollowed_one_is_repo
             .collect();
         let said = said.join("\n");
         assert_eq!(
-            said.contains("its ready event is bound to $layout"),
+            said.contains("its ready event is bound to $data"),
             reported,
             "{said}"
         );
+        assert!(!said.contains("$layout"), "{said}");
+    }
+}
+
+/// XFA 3.3 page 391: a field's `full` event "fires when the user has entered the maximum allowed
+/// amount of content into the field and tries to enter more content", and page 406's second rule
+/// fires it as the last allowed character is typed. The field's Table 232 `/MaxLen` of 3 is the
+/// form's maximum, so typing `12` runs no `full`, and typing `123` and `1234` each run it, whose
+/// script writes `7`; at `off` no script runs (ADR 2783).
+#[test]
+fn a_field_typed_to_its_max_len_runs_its_full_event() {
+    let fields = "<field name=\"Units\"><ui><textEdit/></ui><value><text maxChars=\"3\"/></value>\
+                  <event activity=\"full\"><script>7</script></event></field>\
+                  <field name=\"Total\"><ui><textEdit/></ui><value><text/></value></field>";
+    let data = "<Units/><Total/>";
+    for (scripting, typed, expected) in [
+        (Scripting::Run(Arc::new(Calculators::default())), "12", "12"),
+        (Scripting::Run(Arc::new(Calculators::default())), "123", "7"),
+        (
+            Scripting::Run(Arc::new(Calculators::default())),
+            "1234",
+            "7",
+        ),
+        (Scripting::Off, "123", "123"),
+    ] {
+        let bytes = hybrid_stating(fields, data, &[("Units", ""), ("Total", "")], "/MaxLen 3");
+        let mut viewer = opened_on(scripting, bytes);
+        viewer.handle(Command::Presented).for_each(drop);
+        enter(&mut viewer, "Units", typed);
+        assert_eq!(value(&viewer, "Units"), expected, "typed {typed}");
     }
 }
 

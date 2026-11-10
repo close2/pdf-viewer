@@ -114,8 +114,8 @@ pub struct Replaced {
 }
 
 /// What the window said of a person's typing into a field before its commit (pages 402–403): the
-/// whole text it handed the field, before the field's limits cut it, and whether an arrow key made
-/// the selection.
+/// whole text it handed the field, before the field's limits cut it, whether an arrow key made
+/// the selection, and whether the typing filled the field to its room (page 391's `full`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Typing {
     /// `fullText`: the whole text the window handed, which page 402 calls the full (untruncated)
@@ -123,6 +123,10 @@ pub struct Typing {
     pub whole: String,
     /// `keyDown`: whether an arrow key was used to make the selection (page 402).
     pub arrows: bool,
+    /// Whether the field holds the maximum allowed amount of content once the window's text is
+    /// in it, the last allowed character typed or more offered than it takes, which fires its
+    /// `full` events after its `change` (pages 391 and 406; ADR 2783).
+    pub full: bool,
 }
 
 impl Replaced {
@@ -145,6 +149,12 @@ impl Replaced {
     pub fn with_typing(mut self, typing: Option<Typing>) -> Self {
         self.typing = typing;
         self
+    }
+
+    /// What the window said of the typing before the commit, where it said.
+    #[must_use]
+    pub fn typing(&self) -> Option<&Typing> {
+        self.typing.as_ref()
     }
 
     /// `newText` (page 400): `change` between `selStart` and `selEnd` of `prevText`.
@@ -320,6 +330,13 @@ pub(super) fn property(
             event.name
         )
     };
+    // Page 399's row for a field's `full` sets `change`, `fullText`, the two content types,
+    // `newText`, `prevText` and `target`, and page 400 adds `selStart` and `selEnd` "[w]hen a
+    // change or full event occurs"; it sets no `name` and no `keyDown`, which the row for
+    // `change` lists and this one does not (ADR 2783).
+    if event.name == "full" && matches!(name, "name" | "keyDown") {
+        return Err(unset());
+    }
     if name == "cancelAction" {
         return match event.cancel {
             Some(_) => Ok(Named::Property(containers)),

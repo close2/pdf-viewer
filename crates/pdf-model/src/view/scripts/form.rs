@@ -282,19 +282,21 @@ impl ViewState {
         self.activate_form(document, Raised::Entry { name, before }, Instant::now())
     }
 
-    /// Holds what the window handed the field `name` a person is typing into, `whole` before the
-    /// field's limits cut it, with whether an arrow key made it as the window last said
-    /// ([`Self::set_keys`]), until the commit's `change` event reads them as `$event.fullText`
-    /// and `$event.keyDown` (XFA 3.3 page 402; ADR 2732). `None` forgets the field: a choice or a
-    /// clear is whole when it is made and no typing is under way.
-    pub(in crate::view) fn hold_typing(&mut self, name: &str, whole: Option<&str>) {
-        let Some(whole) = whole else {
+    /// Holds what the window handed the field `name` a person is typing into, the whole text
+    /// before the field's limits cut it and whether it fills the field to its room, with whether
+    /// an arrow key made it as the window last said ([`Self::set_keys`]), until the commit's
+    /// `change` event reads them as `$event.fullText` and `$event.keyDown` and its `full` event
+    /// fires where the field is full (XFA 3.3 pages 391, 402 and 406; ADRs 2732, 2783). `None`
+    /// forgets the field: a choice or a clear is whole when it is made and no typing is under way.
+    pub(in crate::view) fn hold_typing(&mut self, name: &str, typed: Option<(&str, bool)>) {
+        let Some((whole, full)) = typed else {
             self.scripting.form_typing.remove(name);
             return;
         };
         let typing = crate::xfa::Typing {
             whole: whole.to_owned(),
             arrows: self.scripting.keys.arrows,
+            full,
         };
         if let Some(held) = self.scripting.form_typing.get_mut(name) {
             *held = typing;

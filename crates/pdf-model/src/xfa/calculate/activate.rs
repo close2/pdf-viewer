@@ -9,9 +9,11 @@
 //!
 //! **The order** (page 379, restated by the rules of pages 404–407):
 //!
-//! - A person's entry ([`Stimulus::Entry`]): the field's `change` events, then the calculations
-//!   that depend on the value, then the validations. Page 391 says a `change` event is the
-//!   person's own and a calculation or a merge does not fire it.
+//! - A person's entry ([`Stimulus::Entry`]): the field's `change` events, then its `full` events
+//!   where the entry filled the field to its room, then the calculations that depend on the
+//!   value, then the validations. Page 391 says a `change` event is the person's own and a
+//!   calculation or a merge does not fire it; page 406's second rule puts `change` before `full`
+//!   for the same change of state (ADR 2783).
 //! - The completion of a merge ([`Stimulus::Merge`]): every calculation, then the validations,
 //!   then the `initialize` events. Page 379's general order puts events first; page 407's third
 //!   rule is the specific one for this stimulus and puts the `initialize` events last, so the
@@ -44,10 +46,15 @@
 //!   calculations that depend on what they changed (ADR 2647).
 //! - The end of the open sequence ([`Stimulus::Ready`]): the `ready` events bound to the Form DOM
 //!   by `ref`, which page 388 fires once the merge, its calculations and its validations are done
-//!   (page 213's step 7), then the `docReady` events bound to the application, which page 388
-//!   puts after the Form DOM's `ready` and before rendering; after each, the calculations that
-//!   depend on what the events changed. An event whose `ref` names an object this reader raises
-//!   no event for is named in the report as not run (ADR 2606).
+//!   (page 213's step 7), except those of the containers of the page background, which the form
+//!   `ready` "cannot propagate to"; then the `ready` events bound to the Layout DOM, which fire
+//!   "when the layout is complete but rendering has not yet begun" and reach every container;
+//!   then the `docReady` events bound to the application, which page 388 puts after the Form
+//!   DOM's `ready` and before rendering; after each, the calculations that depend on what the
+//!   events changed. A static form's layout is the pages the file holds, complete when the
+//!   document opens and changed by nothing a person or a script does, so the Layout DOM's
+//!   `ready` fires once (ADR 2783). An event whose `ref` names an object this reader raises no
+//!   event for is named in the report as not run (ADR 2606).
 //! - A print ([`Stimulus::PrePrint`], [`Stimulus::PostPrint`]): the `prePrint` events bound to
 //!   the application just before rendering for print begins and the `postPrint` events once the
 //!   rendered form has gone to the printer (page 388), each followed by the calculations that
@@ -326,7 +333,9 @@ pub enum Stimulus<'a> {
         field: &'a str,
     },
     /// The open sequence has ended (pages 388 and 704): the `ready` events bound to the Form DOM
-    /// (`ref="$form"`), then the `docReady` events bound to the application (`ref="$host"`).
+    /// (`ref="$form"`) of every container outside the page background, then the `ready` events
+    /// bound to the Layout DOM (`ref="$layout"`) of every container, then the `docReady` events
+    /// bound to the application (`ref="$host"`; ADR 2783).
     Ready,
     /// A person dismissed the warning page 642 presents for an entry into the field `field`,
     /// whose calculation's `override` is `warning`: the calculated value is left undisturbed, so
@@ -815,9 +824,7 @@ impl Resource {
                 before,
                 typing,
             } => {
-                typed = session.typed(entered, before, typing);
-                session.fire("change", Some(&typed), &Bound::Own);
-                session.settle(Seeds::Entered(&typed));
+                typed = session.entered(entered, before, typing);
             }
             Stimulus::Merge => session.settle(Seeds::All),
             Stimulus::Exit {
@@ -882,6 +889,8 @@ impl Resource {
             Stimulus::Ready => {
                 session.unfollowed();
                 session.fire("ready", None, &Bound::Form);
+                session.settle(Seeds::Changed);
+                session.fire("ready", None, &Bound::Layout);
                 session.settle(Seeds::Changed);
                 session.fire("docReady", None, &Bound::Host);
                 session.settle(Seeds::Changed);
@@ -1374,16 +1383,54 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
         typed
     }
 
+    /// A person's entry into the fields `names`: their `change` events, then the `full` events of
+    /// those it filled to their room — page 406's second rule, `change` before `full` for the same
+    /// change of state — and the calculations that depend on the values. Answers the fields
+    /// entered, which the validations read.
+    fn entered(
+        &mut self,
+        names: &[String],
+        before: &[Option<String>],
+        typing: &[Option<super::Typing>],
+    ) -> Vec<usize> {
+        let typed = self.typed(names, before, typing);
+        self.fire("change", Some(&typed), &Bound::Own);
+        let filled = self.filled(&typed);
+        if !filled.is_empty() {
+            self.fire("full", Some(&filled), &Bound::Own);
+        }
+        self.settle(Seeds::Entered(&typed));
+        typed
+    }
+
+    /// The fields of `typed` whose entry filled them to their room, as the window said
+    /// ([`super::Typing::full`]): page 391's `full` "fires when the user has entered the maximum
+    /// allowed amount of content into the field and tries to enter more content", and page 406's
+    /// second rule fires it as the last allowed character is typed as well (ADR 2783).
+    fn filled(&self, typed: &[usize]) -> Vec<usize> {
+        typed
+            .iter()
+            .copied()
+            .filter(|node| {
+                self.replaced
+                    .get(node)
+                    .and_then(|replaced| replaced.typing())
+                    .is_some_and(|typing| typing.full)
+            })
+            .collect()
+    }
+
     /// The primary event `activity` on the container `node` is (page 398's table), or `None` for
     /// an activity no person's action raises. The table sets `name` and `target` for every event
     /// of a field and for a subform's `enter` and `exit`, and nothing for an exclusion group's;
-    /// a field's `change` sets what the entry replaced as well.
+    /// a field's `change` and `full` set what the entry replaced as well.
     fn primary(&self, activity: &str, node: usize) -> Option<Event> {
-        const PRIMARY: [&str; 9] = [
+        const PRIMARY: [&str; 10] = [
             "change",
             "click",
             "enter",
             "exit",
+            "full",
             "mouseDown",
             "mouseEnter",
             "mouseExit",
@@ -1405,20 +1452,21 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
         let class = self.template.get(node)?.class;
         let named = !matches!(class, Class::ExclGroup) || activity == "validationState";
         let replaced = match (activity, class) {
-            ("change", Class::Field) => self.replaced.get(&node).cloned(),
+            ("change" | "full", Class::Field) => self.replaced.get(&node).cloned(),
             _ => None,
         };
         let mut event = Event::new(activity, node, named, replaced);
         // Page 398's table has every one of these events of a field set `modifier` and `shift`,
         // a field's `exit` set `commitKey` and its `change` the two content types, which page
         // 403 says are always the same in this version of XFA.
-        if class == Class::Field && activity != "validationState" {
+        // A field's `full` sets neither (page 399's row).
+        if class == Class::Field && !matches!(activity, "validationState" | "full") {
             event = event.with_keys(self.keys);
         }
         if class == Class::Field {
             match activity {
                 "exit" => event = event.with_commit_key(self.committed),
-                "change" => event = event.with_content_type(self.entry(node)),
+                "change" | "full" => event = event.with_content_type(self.entry(node)),
                 _ => {}
             }
         }
@@ -1696,7 +1744,13 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
     /// exclusion group it happens on is followed by the events that hear it from above (page 387):
     /// those bound to each enclosing container that listen, innermost first, and then those bound
     /// to the Form DOM that listen. An activity on a DOM or the application ([`Bound::Form`],
-    /// [`Bound::Host`]) happens on no container, so nothing contains it and it reaches no further.
+    /// [`Bound::Layout`], [`Bound::Host`]) happens on no container, so nothing contains it and it
+    /// reaches no further.
+    ///
+    /// The Form DOM's `ready` skips the containers of the page background: page 388's note has
+    /// the layout assign the page background to the form after that event, so it "cannot
+    /// propagate to objects (such as fields and subforms) within page background", where the
+    /// Layout DOM's `ready` "can propagate to all objects" (ADR 2783).
     fn fire(&mut self, activity: &str, only: Option<&[usize]>, bound: &Bound) {
         let nodes: Vec<usize> = match only {
             Some(only) => only.to_vec(),
@@ -1714,6 +1768,12 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
                 continue;
             };
             let Some(heard) = &heard else {
+                if *bound == Bound::Form
+                    && activity == "ready"
+                    && self.template.in_page_background(node)
+                {
+                    continue;
+                }
                 let own: Vec<(usize, usize)> = (0..container.events.len())
                     .filter(|&at| {
                         container.events.get(at).is_some_and(|event| {
@@ -1786,7 +1846,7 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
                             continue;
                         }
                         Bound::Other(reference) => reference,
-                        Bound::Form | Bound::Host => continue,
+                        Bound::Form | Bound::Host | Bound::Layout => continue,
                     };
                     let path = Step::path(reference);
                     // `$form`, `$layout` and the other qualified names are refused before any
