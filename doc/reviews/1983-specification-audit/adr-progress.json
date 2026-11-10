@@ -1006,6 +1006,14 @@
     "whole_document_complete": false,
     "review_records": [
       {
+        "source": "fdf_pages_import_audit/decisions.json",
+        "decision_id": "0091-template-pages-are-added-on-import",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
         "source": "named_pages_residual_audit/decisions.json",
         "decision_id": "named-page-conformance-diagnostic-checks-visible-and-template-invariants",
         "conclusion": "retain-with-qualification",
@@ -2149,6 +2157,14 @@
     "review_records": [
       {
         "source": "dct_decode_audit/decisions.json",
+        "decision_id": "ADR 0203",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "dct_marker_reference_audit/decisions.json",
         "decision_id": "ADR 0203",
         "conclusion": "retain",
         "parent_accepted": true,
@@ -6758,6 +6774,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "fdf_pages_import_audit/decisions.json",
+        "decision_id": "0907-table252-rename-outcomes-and-algorithm",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -7757,9 +7781,18 @@
   },
   {
     "path": "doc/adr/1070-the-file-a-form-selects-is-one-the-document-carries.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "fdf_pages_import_audit/decisions.json",
+        "decision_id": "1070-table252-fields-and-rename-false",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1071-a-timestamp-is-established-by-what-comes-after-it.md",
@@ -8587,6 +8620,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "dct_marker_reference_audit/decisions.json",
+        "decision_id": "ADR 1183",
+        "conclusion": "retain-separate-marker-reader-only",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -8995,9 +9036,18 @@
   },
   {
     "path": "doc/adr/1239-a-second-file-a-document-names-is-asked-for-while-the-first-is-being-applied.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "fdf_pages_import_audit/decisions.json",
+        "decision_id": "1239-template-tref-f-external-page-question-and-copy",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1240-a-file-select-field-gets-a-chooser-and-the-gate-is-asked-twice.md",
@@ -13807,9 +13857,18 @@
   },
   {
     "path": "doc/adr/2154-a-departure-s-neighbour-that-stops-short-says-so.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "fdf_pages_import_audit/decisions.json",
+        "decision_id": "2154-template-pages-not-persisted-are-reported",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2156-the-reader-s-other-words-are-read-once-beside-the-settings-and-cross-the-handle.md",

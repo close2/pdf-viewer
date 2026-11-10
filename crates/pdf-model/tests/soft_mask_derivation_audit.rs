@@ -1,7 +1,8 @@
 //! Integration regression for ISO 32000-2 §11.5.2.
 //!
-//! Existing PDF-level `/TR` coverage is luminosity-only and existing alpha transfer
-//! coverage constructs `SoftMask` directly. This complete PDF joins those two routes.
+//! Existing generated PDF `/TR` coverage is luminosity-only; the ignored corpus golden
+//! also holds an Alpha/TR page. This independent arithmetic regression exercises the
+//! parser-to-render combination in the ordinary test suite.
 
 #![expect(
     clippy::expect_used,

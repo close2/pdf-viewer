@@ -1291,3 +1291,9 @@ The DCTDecode review confirms meaningful generated baseline and ColorTransform p
 
 
 The Alpha/TR test was mutation-calibrated in an isolated source copy. Dropping transfer only when constructing an Alpha-mask request leaves both previous PDF tests passing (luminosity transfer and alpha without transfer), but fails the new integration assertion. All three controls pass, and the mutated source was restored. This verifies the specific missing combination rather than claiming the older tests were generally ineffective. A newly noticed mask-knockout limitation is being checked against the broad completed-row wording; it is not covered by the selected normal-group consumers above.
+
+
+Coverage qualification for the Alpha/TR addition: the ignored corpus golden already holds `smask_alpha_oob_transfer.pdf`; its actual dictionary uses Alpha and a nonidentity Type2 transfer. It was not run in this checkpoint or mutation experiment. The new test adds a small, always-run generated fixture with independent arithmetic assertions; the earlier missing-combination wording applies to the selected generated tests, not all complete-PDF coverage.
+
+
+The Adobe marker reference is now available: [Adobe Technical Note5116](https://pdfa.org/norm-refs/5116.DCT_Filter.pdf). The selected marker review supports the separate Adobe-prefix recognition path, while retaining missing foreign-marker assertions and broader codec/writer behavior as work remaining. Its optional unknown-value rejection policy does not justify a mandatory rejection regression. The older PostScript capability list cannot override PDF's direct progressive-JPEG requirement. This narrows the previously unheld-source residual without claiming full reference conformance.

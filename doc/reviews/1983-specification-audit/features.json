@@ -9975,7 +9975,7 @@
     ],
     "verdict": "partial-forward-reference-not-fully-audited",
     "evidence": "The code walks JPEG marker segments to the first scan and reads an Adobe APP14 segment, rather than searching arbitrary entropy bytes; tests assert the specific 0/1/2 transform semantics and precedence. ADR 1183 explicitly records that Technical Note #5116 is not held. These assertions do not certify all of the externally incorporated PostScript marker recognition, ignore and error rules, so the clause-wide ledger status must not be read as a standalone audit of this forward reference.",
-    "remaining": "The exact rules of Adobe Technical Note #5116 remain unreviewed in this bounded audit. Preserve the cross-reference as delegated rather than treating selective APP14 tests as full TN conformance.",
+    "remaining": "Source now located and selected §§6,18 reviewed in dct_marker_reference_audit; full marker/codec/writer compliance and foreign-APP14 assertion remain outstanding.",
     "parent_review": "Accepted partial: effective PDF source and current code/test bodies reviewed; full JPEG/Adobe reference not certified.",
     "test_result": "Generated pdf-model tests PASS in broad20. Ignored raster-golden and pdf-sandbox encoder tests inspected, not newly executed.",
     "reviewer": "dct_decode_audit",
@@ -10003,6 +10003,119 @@
     "parent_review_state": "parent-reviewed-partial",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "informative-context-not-a-separate-shall",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.8",
+    "feature_id": "tn5116_appn_non_adobe_skip",
+    "requirement": "TN5116 §§6,18: skip foreign APPn/APP14 markers; Adobe identifier selects its extension.",
+    "source_location": "ISO Table13 physical64/printed49; Adobe TN5116 §§6,18 printed8,27, one-based physical8,27. https://pdfa.org/norm-refs/5116.DCT_Filter.pdf",
+    "errata": "No EC3 annotation at ISO physical p.64 changes this reference sentence.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/dct.rs::adobe_transform",
+      "crates/pdf-model/src/image/dct.rs::decode_jpeg"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/colour_transform.rs::a_marked_three_component_frame_ignores_a_contradicting_entry",
+      "crates/pdf-model/tests/colour_transform.rs::a_three_component_entry_of_one_matches_the_marker_spelling_of_it"
+    ],
+    "verdict": "partial-forward-reference",
+    "evidence": "adobe_transform walks header marker segments, considers APP14 only, requires payload prefix Adobe, and does not search entropy bytes. Existing generated JPEG tests cover actual Adobe-prefixed APP14 transform 0/1 semantics and resulting pixels. No current test separately supplies a valid foreign APP14 payload and shows it is skipped; parser body supports that reading, but tests do not independently assert it.",
+    "remaining": "Missing discriminating foreign-APP14 assertion remains a test gap even though the parser looks correct. Other marker policy remains separate.",
+    "test_command": "Not run; scratch-only audit.",
+    "test_result": "Existing test bodies inspected; prior shard reports generated pdf-model tests PASS in broad20.",
+    "source_url": "https://pdfa.org/norm-refs/5116.DCT_Filter.pdf",
+    "parent_review": "Accepted partial. Parent independently read Adobe-authored source §§6,18 through PDF Association host and current marker parser; no whole-reference compliance claim.",
+    "reviewer": "dct_marker_reference_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-forward-reference",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.8",
+    "feature_id": "tn5116_app14_recognition_envelope",
+    "requirement": "TN5116 §18 defines the Adobe marker envelope and permits extension.",
+    "source_location": "ISO Table13 physical64/printed49; Adobe TN5116 §§6,18 printed8,27, one-based physical8,27. https://pdfa.org/norm-refs/5116.DCT_Filter.pdf",
+    "errata": "No EC3 amendment to the reference sentence.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/dct.rs::adobe_transform"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/colour_transform.rs::a_marked_three_component_frame_ignores_a_contradicting_entry",
+      "crates/pdf-model/tests/dct_components.rs::a_three_component_frame_marked_transform_zero_is_three_components"
+    ],
+    "verdict": "partial-forward-reference",
+    "evidence": "Parser checks Adobe prefix and reads payload byte11 using bounded segment slices. Canonical tests assert pixels, but do not vary envelope fields. Version/flags and duplicate/short segments lack selected independent assertions; no mandatory malformed-input rejection is inferred.",
+    "remaining": "Precise treatment of duplicate Adobe APP14 segments and short Adobe-prefixed segments is not specified in the consulted TN passage; no reader rejection rule is inferred. Internal zune-jpeg marker handling was not exhaustively certified.",
+    "test_command": "Not run; scratch-only audit.",
+    "test_result": "Existing test bodies inspected; no new test draft.",
+    "source_url": "https://pdfa.org/norm-refs/5116.DCT_Filter.pdf",
+    "parent_review": "Accepted partial. Parent independently read Adobe-authored source §§6,18 through PDF Association host and current marker parser; no whole-reference compliance claim.",
+    "reviewer": "dct_marker_reference_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-forward-reference",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.8",
+    "feature_id": "tn5116_flags_and_unknown_transform_error_option",
+    "requirement": "TN5116 §18 allows rejection of unrecognized essential flags or transforms; it does not require universal rejection.",
+    "source_location": "ISO Table13 physical64/printed49; Adobe TN5116 §§6,18 printed8,27, one-based physical8,27. https://pdfa.org/norm-refs/5116.DCT_Filter.pdf",
+    "errata": "No EC3 amendment to the reference sentence.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/dct.rs::adobe_transform",
+      "crates/pdf-model/src/image/dct.rs::colour_transform",
+      "crates/pdf-model/src/image/dct.rs::decode_jpeg"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/colour_transform.rs::a_marked_three_component_frame_ignores_a_contradicting_entry",
+      "crates/pdf-model/tests/colour_transform.rs::a_three_component_frame_whose_entry_says_one_is_transformed_to_rgb",
+      "crates/pdf-model/tests/dct_components.rs::a_three_component_frame_marked_transform_two_is_not_converted_as_ycck"
+    ],
+    "verdict": "partial-optional-error-policy-not-a-mandatory-rejection-gap",
+    "evidence": "Parser ignores flags and unknown transform returns None, leaving subsequent decoder behavior relevant. Existing known-value tests cannot certify that path. Need controlling PDF semantics before asserting an exact unknown-value result.",
+    "remaining": "Whether the referenced PostScript handling's non-error path for unknown essential bits implies a particular output remains unreviewed; no invented reject assertion is appropriate. Full unknown-essential-flag semantic behavior remains a bounded residual.",
+    "test_command": "Not run; scratch-only audit.",
+    "test_result": "Existing test bodies inspected; no new test draft.",
+    "source_url": "https://pdfa.org/norm-refs/5116.DCT_Filter.pdf",
+    "parent_review": "Accepted partial. Parent independently read Adobe-authored source §§6,18 through PDF Association host and current marker parser; no whole-reference compliance claim.",
+    "reviewer": "dct_marker_reference_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-optional-error-policy-not-a-mandatory-rejection-gap",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.8",
+    "feature_id": "tn5116_full_dct_marker_forward_reference",
+    "requirement": "ISO Table13 incorporates Adobe marker rules, with applicability constrained by the direct PDF requirements.",
+    "source_location": "ISO Table13 physical64/printed49; Adobe TN5116 §§6,18 printed8,27, one-based physical8,27. https://pdfa.org/norm-refs/5116.DCT_Filter.pdf",
+    "errata": "No EC3 amendment to this sentence on physical p.64.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/dct.rs::adobe_transform",
+      "crates/pdf-model/src/image/dct.rs::decode_jpeg"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/colour_transform.rs",
+      "crates/pdf-model/tests/dct_components.rs"
+    ],
+    "verdict": "external-forward-reference-partial",
+    "evidence": "The source is now available, so the earlier unheld-reference premise is obsolete. Current bounded review covers selected recognition paths only. A full codec/writer audit remains outstanding. Direct PDF progressive support prevents mechanically applying the older PostScript rejection list to PDF readers; remaining applicability conflicts need explicit resolution.",
+    "remaining": "Do not treat Adobe APP14 color-transform tests as whole TN conformance. Remaining exact marker behavior includes duplicated/short Adobe marker behavior, codec-level handling of other APPn/unsupported markers, and unknown essential-flag semantics; producer-side output compliance is also outside this consumer-focused followup.",
+    "test_command": "Not run; scratch-only audit.",
+    "test_result": "Not applicable; followup maps current parser and existing assertions only.",
+    "source_url": "https://pdfa.org/norm-refs/5116.DCT_Filter.pdf",
+    "parent_review": "Accepted partial. Parent independently read Adobe-authored source §§6,18 through PDF Association host and current marker parser; no whole-reference compliance claim.",
+    "reviewer": "dct_marker_reference_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "external-forward-reference-partial",
     "superseded": false
   },
   {
@@ -36290,10 +36403,11 @@
     "test_refs": [
       "crates/pdf-model/tests/soft_masks.rs::a_transfer_function_maps_every_mask_value_including_the_one_outside_the_box",
       "crates/pdf-render/src/soft_mask.rs::the_transfer_function_maps_the_derived_value",
-      "crates/pdf-model/tests/soft_mask_derivation_audit.rs::a_pdf_alpha_soft_mask_applies_transfer_to_group_alpha_and_to_zero_outside"
+      "crates/pdf-model/tests/soft_mask_derivation_audit.rs::a_pdf_alpha_soft_mask_applies_transfer_to_group_alpha_and_to_zero_outside",
+      "crates/pdf-model/tests/raster_golden.rs::the_first_page_of_every_tracked_document_draws_what_it_drew"
     ],
     "verdict": "confirmed-with-new-complete-pdf-test",
-    "evidence": "Complete PDF1.7 uses valid resources, exact xref, Alpha mask with .25/.75 alpha and inversion TR. All RGB channels assert64/191 within1 on opaque white; outsideBBox asserts0 because TR(0)=1. Black group colors and irrelevant BC1 distinguish alpha from luminosity. Complete interpretation and source no-recovery controls pass. New test closes selected parser-to-render combination; not all function kinds/backends.",
+    "evidence": "Complete PDF1.7 uses valid resources, exact xref, Alpha mask with .25/.75 alpha and inversion TR. All RGB channels assert64/191 within1 on opaque white; outsideBBox asserts0 because TR(0)=1. Black group colors and irrelevant BC1 distinguish alpha from luminosity. Complete interpretation and source no-recovery controls pass. New test closes selected parser-to-render combination; not all function kinds/backends. Coverage qualification: existing raster_golden.tsv holds smask_alpha_oob_transfer.pdf, whose actual dictionary is Alpha with Type2 TR C0.5/C1.1. That ignored corpus gate was not run in broad20 or this mutation. The new gap closed is selected always-run generated arithmetic coverage, not absence of every PDF-level assertion.",
     "test_command": null,
     "test_result": "Existing selected pdf-model and render-cpu tests PASS in broad20; pdf-render unit tests inspected, not newly run. New Alpha/TR integration1PASS; pdf-model all-target ClippyPASS.",
     "parent_review": "Accepted selected derivation evidence; source physical429–430 and current code/assertion bodies reviewed. No whole-group-kind or GPU equivalence claim.",

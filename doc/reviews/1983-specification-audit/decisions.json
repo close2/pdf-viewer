@@ -2386,6 +2386,46 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/1183-table-13s-entry-is-read-and-one-reading-stays-a-departure.md",
+    "decision_id": "ADR 1183",
+    "original_decision": "Read Table 13's /ColorTransform from DecodeParms, rank Adobe APP14 before the parameter and default, and retain a documented departure for RGB component identifiers under the default case.",
+    "current_conclusion": "retain-separate-marker-reader-only",
+    "reason": "Current decoder-facing distinction and ranking remain supported. The historical default departure is superseded byADR2468 and is not retained here. Availability of TN5116 permits a narrower source-based followup but does not certify all marker handling.",
+    "test_evidence": "colour_transform.rs pixel-level canonical APP14 and precedence tests; dct_components.rs canonical transform 0 and robustness-only transform 2/three-component test.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 §7.4.8 Table 13, physical p.64",
+      "Adobe Technical Note #5116 §§6,18 (PDF Association hosted copy, https://pdfa.org/norm-refs/5116.DCT_Filter.pdf)"
+    ],
+    "changed_premise": "Prior claim that the note was not held is now superseded: a normative-reference catalog links the original 24 November 1992 Adobe PDF. Reading it narrows the residual but does not establish all PDF consumer behavior.",
+    "remaining_work": "Separate audit of other TN marker types/codec handling and producer-side marker generation; determine unknown-essential-flag semantics only from a controlling PDF requirement.",
+    "parent_review": "Selected marker-reading or four-channel decision only.",
+    "current_code_evidence": "crates/pdf-model/src/image/dct.rs::adobe_transform and colour_transform; decode_jpeg consumes the result before selecting output component colorspace.",
+    "reviewer": "dct_marker_reference_audit",
+    "source": "dct_marker_reference_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0203-four-components-stay-four-whichever-transform-spells-them.md",
+    "decision_id": "ADR 0203",
+    "original_decision": "Preserve four JPEG frame components and explicitly convert Adobe YCCK to CMYK rather than allowing the decoder to composite away K.",
+    "current_conclusion": "retain",
+    "reason": "The current four-channel route remains independently evidenced by actual code and tests. TN #5116 §13 discusses Adobe's color-coordinate transforms, and §18 supplies marker metadata; this marker followup does not invalidate the four-channel preservation decision or certify every YCCK marker form.",
+    "test_evidence": "colour_transform.rs four-component marker/entry tests and dct_components.rs; corpus arithmetic/pixel evidence recorded by ADR 0203.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 §7.4.8 Table 13, physical p.64",
+      "Adobe Technical Note #5116 §§13,18 (PDF Association hosted copy, https://pdfa.org/norm-refs/5116.DCT_Filter.pdf)"
+    ],
+    "changed_premise": "The referenced TN is now directly available; it confirms the Adobe transform namespace is distinct from Table 13's parameter values.",
+    "remaining_work": "No re-audit of YCCK conversion arithmetic in this narrow marker task.",
+    "parent_review": "Selected marker-reading or four-channel decision only.",
+    "current_code_evidence": "dct.rs::decode_jpeg requests YCCK/CMYK for four-component frames; decode_jpeg applies ycck_to_cmyk for the selected transform.",
+    "reviewer": "dct_marker_reference_audit",
+    "source": "dct_marker_reference_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/0035-an-images-colour-space-is-the-one-a-fill-gets.md",
     "decision_id": "0035.image_colour_space_uses_current_resources_and_default_substitution",
     "original_decision": "Resolve an image XObject's ColorSpace through the same colour parser as content operators, using resources in force so §8.6.5.6's default remapping applies to the image's selected device family.",

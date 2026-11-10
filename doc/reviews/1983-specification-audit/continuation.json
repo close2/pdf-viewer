@@ -12,7 +12,7 @@
   },
   "agents": {
     "associated_files_audit": "FDFpagesimport",
-    "catalog_pages_audit": "DCTAdobe marker reference",
+    "catalog_pages_audit": "softmaskspot alternate",
     "inapplicable_conditions_audit": "softmaskdictionary"
   },
   "next_candidates": [
@@ -59,8 +59,8 @@
   "branch": "audit/specification-evidence-2026-11-10",
   "pending_parent_review": [
     "FDFpagesimport",
-    "DCTAdobe marker reference",
-    "softmaskdictionary"
+    "softmaskdictionaryMatrix/KO",
+    "softmaskspot"
   ],
   "pushed_commits": [
     "a299121c",
@@ -100,7 +100,8 @@
     "ebdaf464",
     "ae9ba43f",
     "ecfbeaee",
-    "983af7f9"
+    "983af7f9",
+    "a9e9d399"
   ],
   "expected_failures_manifest_count": 70,
   "broad_run_predates": "One promoted Alpha/TR integration added after broad20; targeted1PASS.",

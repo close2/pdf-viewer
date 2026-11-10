@@ -1117,10 +1117,17 @@
       "clauses": [
         "7.4.8"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial"
     },
     {
       "agent": "soft_mask_dictionary_audit",
+      "clauses": [
+        "11.6.5.1"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "soft_mask_spot_audit",
       "clauses": [
         "11.6.5.1"
       ],
