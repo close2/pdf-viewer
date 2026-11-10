@@ -653,7 +653,8 @@
     "review_state": "partial-parent-review",
     "artifact_directories": [
       "dct_decode_audit",
-      "dct_marker_reference_audit"
+      "dct_marker_reference_audit",
+      "foreign_app14_audit"
     ],
     "parent_reviewed_artifacts": [
       "dct_decode_audit",
@@ -665,6 +666,7 @@
       "external-forward-reference-partial": 1,
       "frame-data-source-and-parameter-location-asserted": 1,
       "informative-context-not-a-separate-shall": 1,
+      "missing-discriminating-marker-ignore-test": 1,
       "partial-forward-reference": 2,
       "partial-forward-reference-not-fully-audited": 1,
       "partial-optional-error-policy-not-a-mandatory-rejection-gap": 1,
@@ -5118,13 +5120,16 @@
     "ledger_status": "departed",
     "review_state": "partial-parent-review",
     "artifact_directories": [
-      "soft_mask_derivation_audit"
+      "soft_mask_derivation_audit",
+      "soft_mask_dictionary_audit"
     ],
     "parent_reviewed_artifacts": [
-      "soft_mask_derivation_audit"
+      "soft_mask_derivation_audit",
+      "soft_mask_dictionary_audit"
     ],
     "feature_record_verdicts": {
-      "confirmed": 3
+      "confirmed": 3,
+      "implementation-gap": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
@@ -5221,14 +5226,22 @@
   {
     "clause": "11.6.5.1",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
+      "soft_mask_dictionary_audit",
+      "soft_mask_spot_audit"
+    ],
+    "parent_reviewed_artifacts": [
       "soft_mask_dictionary_audit"
     ],
-    "parent_reviewed_artifacts": [],
     "feature_record_verdicts": {
-      "cross-reference": 1,
-      "missing-test": 1
+      "bounded-exception-not-exercised": 1,
+      "code-supported-no-mask-specific-spot-consumer-assertion": 1,
+      "code-supported-not-executed": 2,
+      "confirmed": 2,
+      "confirmed-with-discriminating-consumer": 1,
+      "missing-discriminating-mask-specific-consumer-test": 1,
+      "no-independent-requirement": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
@@ -7051,7 +7064,7 @@
     "feature_record_verdicts": {
       "ambiguous": 1,
       "code-supported-not-executed": 3,
-      "confirmed": 2,
+      "confirmed": 3,
       "implementation-gap": 3,
       "missing-test": 1
     },

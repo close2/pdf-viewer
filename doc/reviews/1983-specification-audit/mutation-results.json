@@ -373,6 +373,36 @@
       "log": "soft-mask-derivation-mutation-alpha-transfer-dropped-a_pdf_alpha_soft_mask_applies_transfer_to_group_alpha_and_to_zero_outside.log"
     }
   ],
+  "soft-mask-matrix-mutation-results.json": [
+    {
+      "variant": "control",
+      "test": "the_masks_coordinate_system_is_the_one_in_force_at_the_gs",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "soft-mask-matrix-mutation-control-soft_masks.log"
+    },
+    {
+      "variant": "control",
+      "test": "a_mask_applies_its_form_matrix_before_the_ctm_at_gs",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "soft-mask-matrix-mutation-control-soft_mask_dictionary_audit.log"
+    },
+    {
+      "variant": "reverse-mask-matrix",
+      "test": "the_masks_coordinate_system_is_the_one_in_force_at_the_gs",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "soft-mask-matrix-mutation-reverse-mask-matrix-soft_masks.log"
+    },
+    {
+      "variant": "reverse-mask-matrix",
+      "test": "a_mask_applies_its_form_matrix_before_the_ctm_at_gs",
+      "returncode": 101,
+      "outcome": "assertion-failed",
+      "log": "soft-mask-matrix-mutation-reverse-mask-matrix-soft_mask_dictionary_audit.log"
+    }
+  ],
   "text-no-rotate-mutation-results.json": [
     {
       "variant": "control",

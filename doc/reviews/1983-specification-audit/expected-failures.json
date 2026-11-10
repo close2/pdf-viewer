@@ -403,6 +403,12 @@
       "test": "fdf_doc_before_after_and_after_perms_scripts_reach_the_import_runner_in_order",
       "evidence": "fdf-script-order-target.log",
       "classification": "Enabled ordinary script runner receives no FDFTable248 scripts; stale blanket exclusion despite amended in-document scope. FailsatDoc; laterorder/rights assertionsnotexecuted."
+    },
+    {
+      "binary": "pdf-model::soft_mask_dictionary_audit",
+      "test": "a_luminosity_soft_mask_respects_a_knockout_group_against_normal_control",
+      "evidence": "soft-mask-dictionary-target.log",
+      "classification": "Luminosity mask source Ktrue treatedasordinary group: overlap63 instead128; normalandunaffectedcontrolsPASS. CIEYdeparturedoesnotcoverthis."
     }
   ]
 }

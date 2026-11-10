@@ -4,16 +4,16 @@
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
-    "last_weekly_used_percent": 85,
+    "last_weekly_used_percent": 86,
     "target_approx_percent": 92,
     "stop_new_work_near_percent": 87,
     "probe": "python scratchpad/r1983/spec-audit/usage.py",
     "warning": "Percent is account allowance, not convertible fixed tokens; counters may lag. Continue extending while useful work and room remain."
   },
   "agents": {
-    "associated_files_audit": "FDFpagesimport",
-    "catalog_pages_audit": "softmaskspot alternate",
-    "inapplicable_conditions_audit": "softmaskdictionary"
+    "associated_files_audit": "FDFremoteFdictionary",
+    "catalog_pages_audit": "foreignAPP14 ready; spotrevision",
+    "inapplicable_conditions_audit": "damagedmaskconsumer"
   },
   "next_candidates": [
     "Continue these bounded shards until stop-new87percent; preserve remainingwork ratherthan weaken review."
@@ -28,7 +28,7 @@
     "exit": 100,
     "comparison": "Exact manifest match excluding3 GTK supplemental assertions. Nextest reports67.125s; wrapper reports3014s."
   },
-  "latest_clippy": "clippy-soft-mask-derivation.log",
+  "latest_clippy": "clippy-soft-mask-dictionary.log",
   "new_failures_since_wave8": [
     "catalog Named OpenAction consumer missing",
     "page-visible neighbor omitted",
@@ -58,9 +58,11 @@
   ],
   "branch": "audit/specification-evidence-2026-11-10",
   "pending_parent_review": [
-    "FDFpagesimport",
-    "softmaskdictionaryMatrix/KO",
-    "softmaskspot"
+    "FDFpages3tests",
+    "softmaskspot",
+    "foreignAPP14",
+    "damagedmaskconsumer",
+    "FDFremoteFdictionary"
   ],
   "pushed_commits": [
     "a299121c",
@@ -101,12 +103,13 @@
     "ae9ba43f",
     "ecfbeaee",
     "983af7f9",
-    "a9e9d399"
+    "a9e9d399",
+    "b0dcb662"
   ],
-  "expected_failures_manifest_count": 70,
-  "broad_run_predates": "One promoted Alpha/TR integration added after broad20; targeted1PASS.",
+  "expected_failures_manifest_count": 71,
+  "broad_run_predates": "Broad20predatesAlphaTR1PASS andmaskdictionary1PASS1expectedFAIL. Nextbroadafterremainingpromotions.",
   "expected_failures_by_scope": {
-    "broad_nine_crates": 67,
+    "broad_nine_crates": 68,
     "gtk_supplemental": 3
   }
 }

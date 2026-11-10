@@ -1108,5 +1108,15 @@
   "soft_mask_derivation_clippy": {
     "log": "clippy-soft-mask-derivation.log",
     "exit": 0
+  },
+  "soft_mask_dictionary": {
+    "log": "soft-mask-dictionary-target.log",
+    "passed": 1,
+    "expected_failed": 1,
+    "exit": 101
+  },
+  "soft_mask_dictionary_clippy": {
+    "log": "clippy-soft-mask-dictionary.log",
+    "exit": 0
   }
 }

@@ -1122,14 +1122,38 @@
     {
       "agent": "soft_mask_dictionary_audit",
       "clauses": [
-        "11.6.5.1"
+        "11.6.5.1",
+        "11.5.3",
+        "11.6.6",
+        "11.6.4.3"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-defect"
     },
     {
       "agent": "soft_mask_spot_audit",
       "clauses": [
         "11.6.5.1"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "damaged_mask_consumer_audit",
+      "clauses": [
+        "11.6.5.1"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "fdf_remote_reference_audit",
+      "clauses": [
+        "12.7.8.3.3"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "foreign_app14_audit",
+      "clauses": [
+        "7.4.8"
       ],
       "state": "running"
     }

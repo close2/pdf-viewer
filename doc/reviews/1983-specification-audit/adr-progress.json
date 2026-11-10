@@ -368,6 +368,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "soft_mask_dictionary_audit/decisions.json",
+        "decision_id": "carry-mask-commands-not-pixels-and-share-value-derivation; /AIS-not-read",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -1009,6 +1017,14 @@
         "source": "fdf_pages_import_audit/decisions.json",
         "decision_id": "0091-template-pages-are-added-on-import",
         "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "fdf_pages_import_audit/decisions.json",
+        "decision_id": "0091-one-fdf-page-dictionary-with-multiple-templates",
+        "conclusion": "revisit",
         "parent_accepted": false,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
@@ -2806,9 +2822,18 @@
   },
   {
     "path": "doc/adr/0271-a-page-that-derives-one-constant-four-billion-times.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "soft_mask_dictionary_audit/decisions.json",
+        "decision_id": "reuse-the-transparent-pixel-derivation-as-mask-outside-value",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0272-the-press-was-the-documents-and-the-engine-was-already-here.md",
@@ -3597,6 +3622,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "soft_mask_dictionary_audit/decisions.json",
+        "decision_id": "draw-and-report-a-damaged-soft-mask-G-prefix",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -4338,9 +4371,18 @@
   },
   {
     "path": "doc/adr/0456-two-bounds-one-belonging-to-a-decoder-and-one-to-the-page-underneath-a-mask.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "soft_mask_dictionary_audit/decisions.json",
+        "decision_id": "mask-group-patterns-use-the-matrix-composed-at-gs-as-their-parent-space",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0457-what-a-stand-in-costs-and-what-a-picture-is-of.md",
@@ -15842,9 +15884,18 @@
   },
   {
     "path": "doc/adr/2508-a-non-isolated-luminosity-mask-group-is-drawn-over-its-backdrop-and-no-longer-reported.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "soft_mask_dictionary_audit/decisions.json",
+        "decision_id": "state-BC-for-nonisolated-luminosity-mask-but-keep-knockout-departure-report",
+        "conclusion": "revisit",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2510-a-toolkit-window-holds-the-picture-it-had-for-one-refresh-after-a-zoom-and-stands-in-only-where-the-frame-has-not-landed.md",
