@@ -1755,9 +1755,18 @@
   },
   {
     "path": "doc/adr/0181-a-form-says-whether-it-has-signatures.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "interactive_form_structure_audit/decisions.json",
+        "decision_id": "sigflags_bit1_gates_signature_field_walk",
+        "conclusion": "retain-as-policy-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0182-the-document-opens-beside-the-window.md",
@@ -1936,9 +1945,18 @@
   },
   {
     "path": "doc/adr/0197-a-field-that-may-not-scroll.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "text_choice_fields_audit/decisions.json",
+        "decision_id": "interactive_do_not_scroll_accepts_only_measured_prefix",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0198-a-windows-whole-frame-is-a-thing-a-test-can-look-at.md",
@@ -2326,15 +2344,33 @@
   },
   {
     "path": "doc/adr/0247-a-boundary-that-cannot-fail-to-compile.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "text_choice_fields_audit/decisions.json",
+        "decision_id": "password_field_value_carries_obscured_status_and_is_not_persisted",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0248-a-list-box-can-hold-several-and-one-string-could-not-say-which.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "text_choice_fields_audit/decisions.json",
+        "decision_id": "choice_edits_are_indexed_and_write_value_plus_index_list",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0249-the-quotations-nobody-was-checking.md",
@@ -2371,6 +2407,14 @@
         "conclusion": "retain",
         "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "text_choice_fields_audit/decisions.json",
+        "decision_id": "ec3_table_amendments_are_read_from_pdf_annotations",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
     ]
@@ -4797,9 +4841,18 @@
   },
   {
     "path": "doc/adr/0660-the-quotation-that-hid-by-being-wrong.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "text_choice_fields_audit/decisions.json",
+        "decision_id": "global_name_string_to_string_erratum_is_semantically_editorial_here",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0663-the-numerator-a-ranking-never-required.md",
@@ -5175,9 +5228,18 @@
   },
   {
     "path": "doc/adr/0736-a-dictionary-no-name-reaches-is-a-widget.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "interactive_form_structure_audit/decisions.json",
+        "decision_id": "effective_optional_T_and_unnamed_root_widget",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0737-a-view-is-a-question-and-an-answer-that-goes-back.md",
@@ -7772,9 +7834,18 @@
   },
   {
     "path": "doc/adr/1159-a-flag-that-names-nobody.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "interactive_form_structure_audit/decisions.json",
+        "decision_id": "NeedAppearances_residual_and_constructed_field_names",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1160-what-time-it-is-is-an-input-a-host-supplies.md",
@@ -8270,9 +8341,18 @@
   },
   {
     "path": "doc/adr/1216-a-condition-the-clause-does-not-state.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "text_choice_fields_audit/decisions.json",
+        "decision_id": "file_select_uses_reader_chosen_bytes_and_shared_host_route",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1217-a-patchs-fineness-is-a-question-in-device-pixels-so-the-patch-travels.md",
@@ -11462,9 +11542,18 @@
   },
   {
     "path": "doc/adr/1787-a-commit-applies-its-own-edit-and-only-an-undo-replays-the-log.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "text_choice_fields_audit/decisions.json",
+        "decision_id": "explicit_commit_is_distinct_from_set_field_and_executes_once",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1790-a-walk-is-granted-in-the-order-it-asked-and-a-stopped-wait-is-a-line.md",
@@ -14728,9 +14817,18 @@
   },
   {
     "path": "doc/adr/2448-the-range-of-field-inheritance-is-unlimited-each-field-resolved-once-and-a-cycle-found-without-a-set.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "interactive_form_structure_audit/decisions.json",
+        "decision_id": "unbounded_field_inheritance_and_cycle_detection",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2449-a-widget-whose-parent-names-no-object-is-a-field-of-its-own.md",
@@ -16081,9 +16179,18 @@
   },
   {
     "path": "doc/adr/2707-a-choice-list-s-selection-commit-fires-its-exit-and-the-next-its-enter-again.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "text_choice_fields_audit/decisions.json",
+        "decision_id": "choice_list_selection_commit_is_delivered_as_explicit_host_commit",
+        "conclusion": "revisit",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2708-under-the-assumed-inks-intent-a-grey-inside-a-soft-mask-moves-and-the-pages-blending-space-does-not.md",

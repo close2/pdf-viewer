@@ -885,5 +885,20 @@
   "widget_redaction_clippy": {
     "log": "clippy-widget-redaction-reviewed.log",
     "exit": 0
+  },
+  "redaction_quad_precedence": {
+    "log": "redaction-quad-precedence-target.log",
+    "passed": 3,
+    "exit": 0
+  },
+  "redaction_quad_precedence_mutation": {
+    "log": "redaction-quad-precedence-mutation-driver.log",
+    "exit": 0,
+    "source_restored": true,
+    "result": "Both controls PASS; mutant oldPASS/newFAIL"
+  },
+  "redaction_precedence_clippy": {
+    "log": "clippy-redaction-precedence-clean.log",
+    "exit": 0
   }
 }

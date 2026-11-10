@@ -30888,18 +30888,19 @@
     ],
     "test_refs": [
       "crates/pdf-transform/tests/redact.rs::text_inside_a_quadpoints_region_is_removed_and_outside_it_is_byte_identical",
-      "crates/pdf-transform/tests/redact.rs::one_glyph_is_removed_from_the_middle_of_a_show_operator"
+      "crates/pdf-transform/tests/redact.rs::one_glyph_is_removed_from_the_middle_of_a_show_operator",
+      "crates/pdf-transform/tests/redaction_projection_spec_audit.rs::redaction_quadpoints_choose_content_inside_a_larger_rect"
     ],
-    "verdict": "code-supported-existing-oracle-does-not-discriminate-precedence",
-    "evidence": "`region_boxes` reads nonempty QuadPoints boxes first and otherwise falls back to Rect. The first test removes text from a QuadPoints band while preserving bytes outside; the second uses a Rect-only region and checks one glyph is removed with the surviving text/advance preserved. The mapping from arbitrary quadrilateral to a bounding box/intersection is a documented interpretation choice under A64, not treated as text the clause states unambiguously. Existing cited QuadPoints fixture uses a bow-tie order, not Table182 counterclockwise order, and shares its bounding extent with Rect; this alone does not discriminate QuadPoints-over-Rect precedence. Source/code supports intended region selection, but this assertion is weaker than the feature claim.",
+    "verdict": "confirmed-selected-region-precedence-with-mutation-control",
+    "evidence": "Old fixture uses bow-tie ordering and equal Rect/QuadPoints bounds, so it cannot prove precedence. New valid CCW regions are strictly inside a larger Rect containing KEEP and SECRET: no QuadPoints removes both; lower quad removes only SECRET; upper quad removes only KEEP. Source and reopened output are exact-xref/complete, before text contains both. All controls pass. Isolated mutation ignoring QuadPoints leaves old assertion PASS and makes new test FAIL; both original controls PASS. Source restored and compared to live tree.",
     "remaining": "The transform chooses bounding-box intersection for 'within' content; that under-specified region-membership rule is explicitly a choice. Malformed /QuadPoints recovery is not specified by this subclause and is not inferred here.",
     "test_command": null,
-    "test_result": "redaction-projection-reviewed-target-v2.log:2PASS. Broad16 predates target; no universal content-removal certification.",
+    "test_result": "redaction-quad-precedence-target.log:3PASS; redaction-quad-precedence-mutation-driver.log:controls bothPASS,mutant oldPASS/newFAIL.",
     "parent_review": "Partial source/ADR/test review. Parent rejected blanket RO authoring attribution, added required stored Redact AP, survivor/reopen/extraction/no-overlay-pixel controls, and used PDF2.0 for Projection.",
     "reviewer": "redaction_annotation_audit",
     "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
     "reviewer_ledger_status": "departed",
-    "reviewer_verdict": "code-supported-existing-oracle-does-not-discriminate-precedence",
+    "reviewer_verdict": "confirmed-selected-region-precedence-with-mutation-control",
     "superseded": false
   },
   {

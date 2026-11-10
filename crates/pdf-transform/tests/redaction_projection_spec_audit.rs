@@ -99,6 +99,10 @@ fn projection_without_runtime_has_no_constructed_mark_but_keeps_a_stored_appeara
 }
 
 fn redaction_pdf(with_ro: bool) -> Vec<u8> {
+    redaction_pdf_with_geometry(with_ro, "/Rect [10 40 130 66]")
+}
+
+fn redaction_pdf_with_geometry(with_ro: bool, geometry: &str) -> Vec<u8> {
     let content = "BT /F1 12 Tf 20 150 Td (KEEP) Tj ET BT /F1 12 Tf 20 50 Td (SECRET) Tj ET";
     let length = content.len();
     let ro_entry = if with_ro { " /RO 7 0 R" } else { "" };
@@ -111,7 +115,7 @@ fn redaction_pdf(with_ro: bool) -> Vec<u8> {
         stream_object(&format!("<< /Length {length} >>"), content),
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
         format!(
-            "<< /Type /Annot /Subtype /Redact /Rect [10 40 130 66] /F 4 /AP << /N 8 0 R >>{ro_entry} >>"
+            "<< /Type /Annot /Subtype /Redact {geometry} /F 4 /AP << /N 8 0 R >>{ro_entry} >>"
         ),
         stream_object(
             "<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Resources << >> /Length __LENGTH__ >>",
@@ -199,4 +203,52 @@ fn assert_redacted(bytes: &[u8]) {
         [0, 0, 0, 0],
         "RO was not composed at its stated origin"
     );
+}
+
+#[test]
+fn redaction_quadpoints_choose_content_inside_a_larger_rect() {
+    let cases = [
+        ("/Rect [0 0 180 180]", false, false),
+        (
+            "/Rect [0 0 180 180] /QuadPoints [10 40 130 40 130 66 10 66]",
+            true,
+            false,
+        ),
+        (
+            "/Rect [0 0 180 180] /QuadPoints [10 140 130 140 130 166 10 166]",
+            false,
+            true,
+        ),
+    ];
+    for (geometry, keep, secret) in cases {
+        let input = redaction_pdf_with_geometry(false, geometry);
+        let parsed = Document::open(input.clone()).expect("complete source");
+        assert!(!parsed.was_recovered());
+        let page = Pages::new(&parsed).get(0).expect("source page");
+        let before = pdf_model::interpret(&parsed, &page);
+        assert!(before.is_complete(), "{:?}", before.unsupported);
+        assert!(before.text.contains("KEEP") && before.text.contains("SECRET"));
+        let (report, bytes) = apply_redaction(&input);
+        assert!(
+            report.refused.is_empty() && report.departures.is_empty(),
+            "{report:?}"
+        );
+        let result = Document::open(bytes).expect("reopen result");
+        assert!(!result.was_recovered());
+        let page = Pages::new(&result).get(0).expect("result page");
+        let after = pdf_model::interpret(&result, &page);
+        assert!(after.is_complete(), "{:?}", after.unsupported);
+        assert_eq!(
+            after.text.contains("KEEP"),
+            keep,
+            "{geometry}: {:?}",
+            after.text
+        );
+        assert_eq!(
+            after.text.contains("SECRET"),
+            secret,
+            "{geometry}: {:?}",
+            after.text
+        );
+    }
 }

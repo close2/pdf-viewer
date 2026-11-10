@@ -249,6 +249,40 @@
       "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/mutation-inverted-stroking.log"
     }
   ],
+  "redaction-quad-precedence-mutation-results.json": [
+    {
+      "variant": "control",
+      "test_version": "existing",
+      "test": "text_inside_a_quadpoints_region_is_removed_and_outside_it_is_byte_identical",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "redaction-quad-precedence-mutation-control-existing.log"
+    },
+    {
+      "variant": "control",
+      "test_version": "new",
+      "test": "redaction_quadpoints_choose_content_inside_a_larger_rect",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "redaction-quad-precedence-mutation-control-new.log"
+    },
+    {
+      "variant": "quadpoints-ignored",
+      "test_version": "existing",
+      "test": "text_inside_a_quadpoints_region_is_removed_and_outside_it_is_byte_identical",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "redaction-quad-precedence-mutation-quadpoints-ignored-existing.log"
+    },
+    {
+      "variant": "quadpoints-ignored",
+      "test_version": "new",
+      "test": "redaction_quadpoints_choose_content_inside_a_larger_rect",
+      "returncode": 101,
+      "outcome": "assertion-failed",
+      "log": "redaction-quad-precedence-mutation-quadpoints-ignored-new.log"
+    }
+  ],
   "text-no-rotate-mutation-results.json": [
     {
       "variant": "control",
