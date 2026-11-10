@@ -1,0 +1,671 @@
+{
+  "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
+  "batches": [
+    {
+      "agent": "source_inventory",
+      "state": "structural-inventory-reviewed",
+      "semantic_coverage": false
+    },
+    {
+      "agent": "syntax_pilot",
+      "clauses": [
+        "7.3 and descendants",
+        "7.5 and descendants"
+      ],
+      "state": "partial-review-handed-over",
+      "acceptance": "Only specifically inspected assertions qualify; pending records remain unreviewed.",
+      "features": 70,
+      "confirmed_features": 26
+    },
+    {
+      "agent": "graphics_pilot",
+      "clauses": [
+        "8.4 and descendants",
+        "8.5 and descendants"
+      ],
+      "state": "partial-review-handed-over",
+      "acceptance": "Source inventory plus selected assertion reviews; generic code pointers not accepted as semantic evidence.",
+      "unreviewed_features": 86
+    },
+    {
+      "agent": "annex_q_audit",
+      "clauses": [
+        "Q",
+        "Q.1",
+        "Q.2",
+        "Q.3",
+        "Q.4",
+        "Q.5"
+      ],
+      "state": "reviewed-with-findings",
+      "features": 15,
+      "confirmed_gaps": 2,
+      "pending": "Q.1 policy consumer has no dedicated selection test."
+    },
+    {
+      "agent": "filters_ascii_runlength",
+      "clauses": [
+        "7.4.2",
+        "7.4.3",
+        "7.4.5"
+      ],
+      "state": "reviewed-with-findings"
+    },
+    {
+      "agent": "annex_i_audit",
+      "clauses": [
+        "I",
+        "I.1",
+        "I.2",
+        "I.3"
+      ],
+      "state": "partial-review-with-findings"
+    },
+    {
+      "agent": "object_xref_streams",
+      "clauses": [
+        "7.5.7",
+        "7.5.8",
+        "7.5.8.1",
+        "7.5.8.2",
+        "7.5.8.3",
+        "7.5.8.4"
+      ],
+      "state": "partial-review-with-tests",
+      "features": 20,
+      "new_tests": 6
+    },
+    {
+      "agent": "lexical_conventions",
+      "clauses": [
+        "7.1",
+        "7.2",
+        "7.2.1",
+        "7.2.2",
+        "7.2.3",
+        "7.2.4"
+      ],
+      "state": "reviewed-with-tests",
+      "features": 11,
+      "new_tests": 4
+    },
+    {
+      "agent": "extgstate_defaults",
+      "clauses": [
+        "8.4.5 selected Table57 entries"
+      ],
+      "state": "partial-review-with-tests",
+      "features": 16,
+      "new_tests": 4
+    },
+    {
+      "agent": "dates",
+      "clauses": [
+        "7.9.4"
+      ],
+      "state": "partial-review-with-findings"
+    },
+    {
+      "agent": "trees_rectangles",
+      "clauses": [
+        "7.9.5",
+        "7.9.6",
+        "7.9.7"
+      ],
+      "state": "partial-review-with-tests"
+    },
+    {
+      "agent": "text_strings",
+      "clauses": [
+        "7.9",
+        "7.9.1",
+        "7.9.2 and descendants",
+        "7.9.3"
+      ],
+      "state": "partial-review-with-findings"
+    },
+    {
+      "agent": "graphics_stack_paths",
+      "clauses": [
+        "8.4.2",
+        "8.5",
+        "8.5.1",
+        "8.5.2",
+        "8.5.2.1",
+        "8.5.2.2",
+        "8.5.4"
+      ],
+      "state": "partial-review-with-tests",
+      "features": 27,
+      "new_tests": 9
+    },
+    {
+      "agent": "flate_lzw_predictors",
+      "clauses": [
+        "7.4.4",
+        "7.4.4.1",
+        "7.4.4.2",
+        "7.4.4.3",
+        "7.4.4.4"
+      ],
+      "state": "partial-review-with-tests",
+      "features": 27,
+      "new_tests": 2,
+      "mutation": "ignore clear reset killed"
+    },
+    {
+      "agent": "type3_fonts",
+      "clauses": [
+        "9.6.4",
+        "9.6.5.3"
+      ],
+      "state": "partial-review-with-tests",
+      "features": 31,
+      "new_tests": 3
+    },
+    {
+      "agent": "literal_strings_names",
+      "clauses": [
+        "7.3.4",
+        "7.3.4.1",
+        "7.3.4.2",
+        "7.3.4.3",
+        "7.3.5"
+      ],
+      "state": "partial-review-with-tests"
+    },
+    {
+      "agent": "basic_objects",
+      "clauses": [
+        "7.3.1",
+        "7.3.2",
+        "7.3.3",
+        "7.3.6",
+        "7.3.7",
+        "7.3.9",
+        "7.3.10"
+      ],
+      "state": "reviewed-with-findings",
+      "new_tests": 7,
+      "features": 29
+    },
+    {
+      "agent": "lzw_full_table",
+      "clauses": [
+        "7.4.4.2",
+        "7.4.4.4"
+      ],
+      "state": "focused-followup-confirmed",
+      "new_tests": 1
+    },
+    {
+      "agent": "stroke_parameters",
+      "clauses": [
+        "8.4.3",
+        "8.4.3.1",
+        "8.4.3.2",
+        "8.4.3.3",
+        "8.4.3.4",
+        "8.4.3.5",
+        "8.4.3.6"
+      ],
+      "state": "partial-review-with-tests",
+      "new_tests": 4,
+      "features": 28
+    },
+    {
+      "agent": "type3_residual_tests",
+      "clauses": [
+        "9.6.4",
+        "9.6.5.3"
+      ],
+      "state": "reviewed-with-findings",
+      "new_tests": 5
+    },
+    {
+      "agent": "path_painting",
+      "clauses": [
+        "8.5.3",
+        "8.5.3.1",
+        "8.5.3.2",
+        "8.5.3.3",
+        "8.5.3.3.1",
+        "8.5.3.3.2",
+        "8.5.3.3.3"
+      ],
+      "state": "parent-reviewed-tests-passed-with-residuals"
+    },
+    {
+      "agent": "annex_o_identifiers",
+      "clauses": [
+        "O",
+        "O.1",
+        "O.2",
+        "O.2.1"
+      ],
+      "state": "parent-reviewed-tests-passed"
+    },
+    {
+      "agent": "annex_o_open_parameters",
+      "clauses": [
+        "O.2.2"
+      ],
+      "state": "parent-reviewed-tests-passed-with-residuals"
+    },
+    {
+      "agent": "annex_k_audit",
+      "clauses": [
+        "K",
+        "K.1",
+        "K.2"
+      ],
+      "state": "parent-reviewed-tests-passed-with-residuals"
+    },
+    {
+      "agent": "file_structure_audit",
+      "clauses": [
+        "7.5.1",
+        "7.5.2",
+        "7.5.3",
+        "7.5.4",
+        "7.5.5",
+        "7.5.6"
+      ],
+      "state": "parent-reviewed-with-findings-and-residuals"
+    },
+    {
+      "agent": "ef_host_route",
+      "clauses": [
+        "O.2.1 ef host opening"
+      ],
+      "state": "parent-reviewed-actual-host-test-passed",
+      "new_tests": 1
+    },
+    {
+      "agent": "stream_objects_audit",
+      "clauses": [
+        "7.3.8",
+        "7.3.8.1",
+        "7.3.8.2",
+        "7.4.1"
+      ],
+      "state": "parent-reviewed-tests-passed-with-residuals"
+    },
+    {
+      "agent": "annex_e_audit",
+      "clauses": [
+        "E",
+        "E.1",
+        "E.2"
+      ],
+      "state": "parent-reviewed-conditional-scope-with-residuals"
+    },
+    {
+      "agent": "functions_general_audit",
+      "clauses": [
+        "7.10",
+        "7.10.1",
+        "7.10.3",
+        "7.10.4"
+      ],
+      "state": "parent-reviewed-with-findings-and-residuals"
+    },
+    {
+      "agent": "annex_l_audit",
+      "clauses": [
+        "L"
+      ],
+      "state": "parent-reviewed-tests-passed-with-residuals"
+    },
+    {
+      "agent": "functions_sampled_audit",
+      "clauses": [
+        "7.10.2"
+      ],
+      "state": "parent-reviewed-tests-passed-with-residuals"
+    },
+    {
+      "agent": "functions_calculator_audit",
+      "clauses": [
+        "7.10.5",
+        "7.10.5.1",
+        "7.10.5.2",
+        "7.10.5.3"
+      ],
+      "state": "parent-reviewed-with-findings-and-residuals"
+    },
+    {
+      "agent": "adr_ledger_review",
+      "clauses": [
+        "ADR1035",
+        "ADR1599",
+        "ADR1622"
+      ],
+      "state": "parent-reviewed-with-qualifications"
+    },
+    {
+      "agent": "adr_writer_departures_review",
+      "clauses": [
+        "ADR0855",
+        "ADR1461",
+        "ADR2346"
+      ],
+      "state": "parent-reviewed-with-corrections-and-qualifications"
+    },
+    {
+      "agent": "filespec_audit",
+      "clauses": [
+        "7.11.1",
+        "7.11.2",
+        "7.11.3"
+      ],
+      "state": "parent-reviewed-tests-passed-with-residuals"
+    },
+    {
+      "agent": "embedded_files_audit",
+      "clauses": [
+        "7.11.4 and descendants",
+        "7.11.5"
+      ],
+      "state": "parent-reviewed-tests-passed-with-residuals"
+    },
+    {
+      "agent": "type4_plrm_arithmetic",
+      "clauses": [
+        "7.10.5.2 arithmeticoperators"
+      ],
+      "state": "parent-reviewed-with-findings-and-tests"
+    },
+    {
+      "agent": "catalog_pages_audit",
+      "clauses": [
+        "7.7.1",
+        "7.7.2",
+        "7.7.3 and descendants"
+      ],
+      "state": "parent-reviewed-partial-table-inventory-with-corrections"
+    },
+    {
+      "agent": "associated_files_audit",
+      "clauses": [
+        "14.13 and descendants",
+        "7.11.4.1 associated ModDate",
+        "7.11.3 Desc producer condition"
+      ],
+      "state": "parent-reviewed-with-writer-findings-and-assertion-corrections"
+    },
+    {
+      "agent": "type4_plrm_other_operators",
+      "clauses": [
+        "7.10.5.2 remaining21 operators"
+      ],
+      "state": "parent-reviewed-with-corrections-and-tests"
+    },
+    {
+      "agent": "inapplicable_conditions_audit",
+      "clauses": [
+        "all32 baseline inapplicable rows"
+      ],
+      "state": "parent-reviewed-condition-only-with-qualifications"
+    },
+    {
+      "agent": "content_resources_audit",
+      "clauses": [
+        "7.8 and descendants"
+      ],
+      "state": "parent-reviewed-partial-with-policy-regression"
+    },
+    {
+      "agent": "metadata_audit",
+      "clauses": [
+        "14.3 and descendants"
+      ],
+      "state": "parent-reviewed-partial-with-writer-regression"
+    },
+    {
+      "agent": "adr_guidelines_review",
+      "clauses": [
+        "ADR2440 decision units"
+      ],
+      "state": "parent-reviewed-with-policy-qualifications"
+    },
+    {
+      "agent": "viewer_preferences_audit",
+      "clauses": [
+        "12.2",
+        "7.7.2 PageMode/PageLayout consumers"
+      ],
+      "state": "parent-reviewed-partial-with-policy-and-host-gaps"
+    },
+    {
+      "agent": "inline_images_audit",
+      "clauses": [
+        "8.9.7 and descendants"
+      ],
+      "state": "parent-reviewed-partial-with-six-reader-writer-proofs"
+    },
+    {
+      "agent": "pattern_resource_repair_audit",
+      "clauses": [
+        "7.8.3 selected writer/reader repair"
+      ],
+      "state": "parent-reviewed-with-discriminating-policy-regressions"
+    },
+    {
+      "agent": "font_cache_identity_audit",
+      "clauses": [
+        "7.8.3 font cache identity",
+        "9.6 selected font dictionary consumers"
+      ],
+      "state": "parent-reviewed-with-discriminating-test"
+    },
+    {
+      "agent": "text_state_audit",
+      "clauses": [
+        "9.3 and descendants"
+      ],
+      "state": "parent-reviewed-partial-with-strengthened-tests"
+    },
+    {
+      "agent": "destinations_audit",
+      "clauses": [
+        "12.3.2 and descendants"
+      ],
+      "state": "parent-reviewed-partial-with-consumer-test"
+    },
+    {
+      "agent": "inline_images_residual_audit",
+      "clauses": [
+        "8.9.7 selected residuals"
+      ],
+      "state": "parent-reviewed-partial-with-six-reader-writer-proofs"
+    },
+    {
+      "agent": "destinations_residual_audit",
+      "clauses": [
+        "12.3.2 selected consumer residuals"
+      ],
+      "state": "parent-reviewed-with-four-geometry-regressions"
+    },
+    {
+      "agent": "text_positioning_audit",
+      "clauses": [
+        "9.4 and descendants"
+      ],
+      "state": "parent-reviewed-partial-with-five-position-tests"
+    },
+    {
+      "agent": "outlines_labels_audit",
+      "clauses": [
+        "12.3.3",
+        "12.4.2"
+      ],
+      "state": "parent-reviewed-partial-with-label-consumer-test"
+    },
+    {
+      "agent": "image_samples_decode_audit",
+      "clauses": [
+        "8.9.3",
+        "8.9.5.2",
+        "8.9.5.3"
+      ],
+      "state": "parent-reviewed-partial-with-two-pixel-tests"
+    },
+    {
+      "agent": "text_state_residual_audit",
+      "clauses": [
+        "9.3 selected defaults/vertical/hidden clip"
+      ],
+      "state": "parent-reviewed-partial-with-three-controls"
+    },
+    {
+      "agent": "outlines_residual_audit",
+      "clauses": [
+        "12.3.3 selected panel/count residual"
+      ],
+      "state": "parent-reviewed-partial-with-panel-test-and-gtk-limit"
+    },
+    {
+      "agent": "form_xobjects_audit",
+      "clauses": [
+        "8.10 and descendants"
+      ],
+      "state": "parent-reviewed-partial-with-eight-tests-and-adr-corrections"
+    },
+    {
+      "agent": "link_annotations_audit",
+      "clauses": [
+        "12.5.6.5"
+      ],
+      "state": "parent-reviewed-partial-with-findings"
+    },
+    {
+      "agent": "optional_content_config_audit",
+      "clauses": [
+        "8.11.4 selected initialization/configuration"
+      ],
+      "state": "parent-reviewed-partial-with-three-initialization-tests"
+    },
+    {
+      "agent": "image_dictionary_consistency_audit",
+      "clauses": [
+        "8.9.5.1 selected errors"
+      ],
+      "state": "parent-reviewed-with-two-error-regressions"
+    },
+    {
+      "agent": "action_dictionaries_audit",
+      "clauses": [
+        "12.6.1",
+        "12.6.2"
+      ],
+      "state": "parent-reviewed-partial-with-findings"
+    },
+    {
+      "agent": "link_annotations_residual_audit",
+      "clauses": [
+        "12.5.6.5 QuadPoints and H"
+      ],
+      "state": "parent-reviewed-partial-with-findings"
+    },
+    {
+      "agent": "alternate_images_audit",
+      "clauses": [
+        "8.9.5.4"
+      ],
+      "state": "parent-reviewed-partial-with-two-tests-and-open-interpretation"
+    },
+    {
+      "agent": "action_triggers_audit",
+      "clauses": [
+        "12.6.3"
+      ],
+      "state": "parent-reviewed-partial-with-three-tests-and-corrected-layout-premise"
+    },
+    {
+      "agent": "archive_action_promotion_audit",
+      "clauses": [
+        "12.6.2 selected archive preservation"
+      ],
+      "state": "parent-reviewed-with-two-passing-semantic-tests"
+    },
+    {
+      "agent": "default_colour_spaces_audit",
+      "clauses": [
+        "8.6.5.6 default colour spaces"
+      ],
+      "state": "parent-reviewed-partial-with-five-tests-and-cache-successor-correction"
+    },
+    {
+      "agent": "image_coordinates_audit",
+      "clauses": [
+        "8.9.4"
+      ],
+      "state": "parent-reviewed-partial-with-three-affine-tests"
+    },
+    {
+      "agent": "page_visibility_triggers_audit",
+      "clauses": [
+        "12.6.3"
+      ],
+      "state": "parent-reviewed-with-two-visibility-regressions"
+    },
+    {
+      "agent": "mixed_action_order_audit",
+      "clauses": [
+        "12.6.2"
+      ],
+      "state": "parent-reviewed-with-mixed-chain-ordering-regression"
+    },
+    {
+      "agent": "image_interpolation_audit",
+      "clauses": [
+        "8.9.5.3"
+      ],
+      "state": "parent-reviewed-partial-with-hint-test-and-successor-corrections"
+    },
+    {
+      "agent": "tiling_patterns_audit",
+      "clauses": [
+        "8.7.1",
+        "8.7.2 and descendants"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "image_masking_audit",
+      "clauses": [
+        "8.9.6 and descendants"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "document_trigger_timing_audit",
+      "clauses": [
+        "12.6.3 Table200 consumer timing"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "presentations_audit",
+      "clauses": [
+        "12.4.4 and descendants"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "simple_font_widths_audit",
+      "clauses": [
+        "9.6.2/9.6.3 selected widths"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "font_descriptors_audit",
+      "clauses": [
+        "9.8 and descendants"
+      ],
+      "state": "running"
+    }
+  ]
+}

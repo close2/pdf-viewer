@@ -1,6 +1,8 @@
 //! The host driven with no `QApplication`: a document opened at a stated viewport and every
 //! question the C++ side asks answered from this side alone.
 
+mod ef_host_route;
+
 use super::forms::describe_kind;
 use super::panels::{flatten, pages_panel_index};
 use super::{Host, PANELS};

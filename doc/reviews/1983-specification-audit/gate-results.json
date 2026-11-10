@@ -1,0 +1,475 @@
+{
+  "nextest_five_crates": {
+    "log": "nextest-five-crates.log",
+    "exit": 100,
+    "passed": 4686,
+    "failed": 10,
+    "skipped": 50,
+    "unexpected_failures": 0
+  },
+  "format_five_crates": {
+    "exit": 0,
+    "scope": "all audit tests through Type3, literal strings, graphics nine-test target"
+  },
+  "docs_current": {
+    "exit": 0,
+    "log": "docs-current.log",
+    "scope": "workspace rustdoc with warnings denied; C++ build script warnings emitted"
+  },
+  "conformance_current": {
+    "exit": 101,
+    "log": "conformance-current.log",
+    "cause": "existing vendored zune-heic README references nonexistent zune-benches"
+  },
+  "format_six_crates": {
+    "exit": 0,
+    "scope": "all tests through Type3 residual, LZW full table, basic objects, stroke additions"
+  },
+  "clippy_six_crates": {
+    "exit": 0,
+    "log": "clippy-six-crates-followup-fixed.log"
+  },
+  "nextest_six_crates": {
+    "exit": 100,
+    "log": "nextest-six-crates-followup.log",
+    "passed": 4960,
+    "failed": 13,
+    "skipped": 50,
+    "unexpected_failures": 0
+  },
+  "nextest_eight_crates_wave3": {
+    "log": "nextest-eight-crates-wave3.log",
+    "exit": 100,
+    "passed": 5198,
+    "failed": 15,
+    "skipped": 52,
+    "unexpected_failures": 0,
+    "scope": "through first8 function tests; later coefficient/header tests not included"
+  },
+  "clippy_new_wave": {
+    "log": "clippy-new-wave-fixed.log",
+    "exit": 0,
+    "scope": "pdf-syntax pdf-model viewer-core pdf-colour all targets through first8 function tests"
+  },
+  "qt_host_route": {
+    "log": "nextest-qt-ef-route.log",
+    "exit": 0,
+    "passed": 47,
+    "skipped": 1
+  },
+  "clippy_qt_host_route": {
+    "log": "clippy-qt-ef-route-fixed.log",
+    "exit": 0
+  },
+  "nextest_eight_crates_wave4": {
+    "log": "nextest-eight-crates-wave4.log",
+    "exit": 100,
+    "passed": 5233,
+    "failed": 16,
+    "skipped": 52,
+    "unexpected_failures": 0,
+    "scope": "includes all promoted tests through inherited resources and calculator operators;16th failure is logical right-shift zero-fill"
+  },
+  "clippy_operators_pages": {
+    "log": "clippy-operators-pages-fixed.log",
+    "exit": 0,
+    "scope": "pdf-colour pdf-model viewer-core pdf-transform all targets"
+  },
+  "adr_vfs_existing": {
+    "log": "adr-vfs-existing-tests.log",
+    "exit": 0,
+    "passed": 22
+  },
+  "adr_vfs_confined_consent": {
+    "log": "adr-vfs-confined-consent.log",
+    "exit": 0,
+    "passed": 1
+  },
+  "function_mutations": {
+    "log": "function-mutations.log",
+    "exit": 0,
+    "controls_passed": 2,
+    "mutants_killed": 2,
+    "scope": "ignore exponent; reverse sample dimensions; isolated worktree restored"
+  },
+  "filespec_desc_writer": {
+    "log": "filespec-writer-reviewed-target.log",
+    "exit": 101,
+    "expected_failures": 1,
+    "cause": "document-home EmbeddedFiles specification omits required Desc; positive described-file control passed"
+  },
+  "associated_file_date_writer": {
+    "log": "associated-file-date-semantic-control.log",
+    "exit": 101,
+    "expected_failures": 1,
+    "cause": "PDF/A-4f archive preservation emits associated file without required ModDate; semantic known-date control passed"
+  },
+  "bitshift_isolated_experiment": {
+    "control_log": "bitshift-isolated-baseline.log",
+    "experiment_log": "bitshift-isolated-logical-shift-experiment.log",
+    "baseline_passed": 7,
+    "baseline_expected_failed": 1,
+    "experiment_passed": 8,
+    "scope": "unsigned logical shift in isolated worktree only; production restored"
+  },
+  "clippy_associated_writers": {
+    "log": "clippy-associated-writers-fixed.log",
+    "exit": 0,
+    "scope": "pdf-model pdf-transform all targets"
+  },
+  "catalog_page_writer": {
+    "log": "catalog-page-writer-reviewed-target.log",
+    "exit": 0,
+    "passed": 1
+  },
+  "guidelines_policy": {
+    "log": "guidelines-decision-reviewed-target.log",
+    "exit": 0,
+    "passed": 1
+  },
+  "annotation_af": {
+    "log": "annotation-associated-files-reviewed-target.log",
+    "exit": 0,
+    "passed": 3,
+    "scope": "trailerID length corrected afterward; final broad run pending"
+  },
+  "associated_examples": {
+    "log": "associated-examples-reviewed-fixed-target.log",
+    "exit": 0,
+    "passed": 2
+  },
+  "adr_page_existing": {
+    "log": "adr-page-existing-assertions.log",
+    "exit": 0,
+    "passed": 51
+  },
+  "clippy_catalog_writer": {
+    "log": "clippy-catalog-writer-fixed.log",
+    "exit": 0
+  },
+  "clippy_guidelines_annotation": {
+    "log": "clippy-guidelines-annotation-fixed.log",
+    "exit": 0
+  },
+  "clippy_associated_examples": {
+    "log": "clippy-associated-examples-fixed.log",
+    "exit": 0
+  },
+  "nextest_eight_crates_wave5": {
+    "log": "nextest-eight-crates-wave5.log",
+    "exit": 100,
+    "run": 5264,
+    "passed": 5244,
+    "failed": 20,
+    "skipped": 52,
+    "unexpected_failures": 0,
+    "scope": "through metadata/content resources; one new failure is explicitly malformed-input report policy"
+  },
+  "clippy_eight_crates_wave5": {
+    "log": "clippy-eight-crates-wave5.log",
+    "exit": 0
+  },
+  "format_eight_crates_wave5": {
+    "exit": 0
+  },
+  "pattern_resource_discriminating": {
+    "log": "pattern-resource-discriminating-targets.log",
+    "exit": 101,
+    "failed": 2,
+    "scope": "two profiles, same preservation-policy defect; validcontrolpass"
+  },
+  "font_cache_identity": {
+    "log": "font-cache-identity-target.log",
+    "exit": 0,
+    "passed": 1
+  },
+  "print_clip_independent": {
+    "log": "print-clip-independent-target.log",
+    "exit": 0,
+    "passed": 1
+  },
+  "clippy_font_print_final": {
+    "log": "clippy-font-print-final.log",
+    "exit": 0
+  },
+  "clippy_pattern_resource_audit": {
+    "log": "clippy-pattern-resource-audit.log",
+    "exit": 0
+  },
+  "inline_dictionary_target": {
+    "log": "inline-images-reviewed-fixed-target.log",
+    "passed": 1,
+    "scope": "reader target only; writer draft failed a fixed-length test bug in same run"
+  },
+  "inline_writer_target": {
+    "log": "inline-images-independent-extent-target.log",
+    "passed": 1,
+    "exit": 0
+  },
+  "destinations_fitv_target": {
+    "log": "destinations-fitv-valid-action-target.log",
+    "passed": 1,
+    "exit": 0
+  },
+  "text_state_units_target": {
+    "log": "text-state-units-reviewed-target.log",
+    "passed": 1,
+    "exit": 0
+  },
+  "inline_residual_target": {
+    "log": "inline-images-residual-corrected-target.log",
+    "passed": 3,
+    "exit": 0
+  },
+  "clippy_inline_destination": {
+    "log": "clippy-inline-destination-fixed.log",
+    "exit": 0
+  },
+  "clippy_text_inline_residual": {
+    "log": "clippy-text-inline-residual-fixed.log",
+    "exit": 0
+  },
+  "nextest_eight_crates_wave6": {
+    "log": "nextest-eight-crates-wave6.log",
+    "exit": 100,
+    "passed": 5253,
+    "failed": 22,
+    "skipped": 52,
+    "unexpected_failures": 0,
+    "scope": "through inline residuals, text spacing, FitV; predates added text clipping test"
+  },
+  "clippy_eight_crates_wave6": {
+    "log": "clippy-eight-crates-wave6.log",
+    "exit": 0
+  },
+  "fmt_eight_crates_wave6": {
+    "log": "fmt-eight-crates-wave6.log",
+    "exit": 0
+  },
+  "text_clipping_timing_target": {
+    "log": "text-clipping-timing-target.log",
+    "exit": 0,
+    "passed": 1
+  },
+  "destinations_residual_target": {
+    "log": "destinations-residual-controls-target.log",
+    "passed": 0,
+    "failed": 4,
+    "expected_failures": 4,
+    "exit": 101
+  },
+  "clippy_destinations_residual": {
+    "log": "clippy-destinations-residual-fixed.log",
+    "exit": 0
+  },
+  "clippy_text_clipping": {
+    "log": "clippy-text-clipping.log",
+    "exit": 0
+  },
+  "inline_residual_expanded": {
+    "log": "inline-images-residual-expanded-target.log",
+    "exit": 0,
+    "passed": 6
+  },
+  "destination_causal_experiment": {
+    "log": "destination-causal-check.log",
+    "baseline_failed": 2,
+    "isolated_coordinate_change_passed": 2,
+    "production_restored": true
+  },
+  "text_positioning_target": {
+    "log": "text-positioning-reviewed-target.log",
+    "exit": 0,
+    "passed": 4
+  },
+  "page_labels_consumer": {
+    "log": "page-labels-consumer-target.log",
+    "exit": 0,
+    "passed": 1
+  },
+  "clippy_text_positioning_inline_writer": {
+    "log": "clippy-text-positioning-inline-writer.log",
+    "exit": 0
+  },
+  "page_labels_empty": {
+    "log": "page-labels-empty-reviewed-target.log",
+    "exit": 101,
+    "passed": 1,
+    "failed": 1,
+    "expected_failures": 1
+  },
+  "outline_count_panel": {
+    "log": "outline-count-panel-target.log",
+    "exit": 0,
+    "passed": 1
+  },
+  "text_positioning_expanded": {
+    "log": "text-positioning-expanded-target.log",
+    "exit": 0,
+    "passed": 5
+  },
+  "clippy_page_labels_host": {
+    "log": "clippy-page-labels-host-fixed.log",
+    "exit": 0,
+    "scope": "before added empty-label test"
+  },
+  "text_image_residual_controls": {
+    "log": "text-image-residual-controls-target.log",
+    "exit": 0,
+    "passed": 4
+  },
+  "image_byte_order": {
+    "log": "image-samples-byte-order-target.log",
+    "exit": 0,
+    "passed": 2
+  },
+  "clippy_text_image_outline": {
+    "log": "clippy-text-image-outline-final.log",
+    "exit": 0,
+    "scope": "viewer-ui viewer-host pdf-model alltargets; before added16bit test"
+  },
+  "nextest_nine_crates_wave7": {
+    "log": "nextest-nine-crates-wave7.log",
+    "exit": 100,
+    "run": 5611,
+    "failed": 27,
+    "passed": 5584,
+    "skipped": 53,
+    "unexpected_failures": 0,
+    "scope": "through16bit sample test; before linkhighlight test; viewer-ui outline separately passed"
+  },
+  "image_byte_order_mutation": {
+    "log": "image-byte-order-mutation.log",
+    "old_baseline_pass": true,
+    "new_baseline_pass": true,
+    "old_test_survives_byte_reversal": true,
+    "new_test_kills_byte_reversal": true,
+    "isolated_source_restored": true
+  },
+  "link_highlighting_target": {
+    "log": "link-highlighting-target.log",
+    "exit": 0,
+    "passed": 1
+  },
+  "image_dictionary_consistency": {
+    "log": "image-dictionary-consistency-target.log",
+    "exit": 101,
+    "failed": 2,
+    "expected_failures": 2
+  },
+  "optional_config_expanded": {
+    "log": "optional-config-expanded-target.log",
+    "exit": 0,
+    "passed": 3
+  },
+  "link_actions_reviewed": {
+    "log": "link-actions-reviewed-target.log",
+    "exit": 100,
+    "run": 6,
+    "passed": 3,
+    "failed": 3,
+    "expected_failures": 3
+  },
+  "clippy_link_actions": {
+    "log": "clippy-link-actions-fixed.log",
+    "exit": 0,
+    "scope": "pdf-model viewer-core alltargets"
+  },
+  "form_xobjects_expanded": {
+    "log": "form-xobjects-expanded-target.log",
+    "exit": 0,
+    "passed": 8
+  },
+  "clippy_form_xobjects": {
+    "log": "clippy-form-xobjects.log",
+    "exit": 0
+  },
+  "nextest_nine_crates_wave8": {
+    "log": "nextest-nine-crates-wave8.log",
+    "exit": 100,
+    "run": 5631,
+    "passed": 5599,
+    "failed": 32,
+    "skipped": 53,
+    "unexpected_failures": 0,
+    "scope": "through eight form tests; before archive promotion and alternate fallback additions"
+  },
+  "alternates_action_promotion": {
+    "log": "alternates-action-promotion-target.log",
+    "exit": 0,
+    "passed": 3
+  },
+  "alternate_order_expanded": {
+    "log": "alternate-order-expanded-target.log",
+    "exit": 0,
+    "passed": 2
+  },
+  "clippy_alternates_action_promotion": {
+    "log": "clippy-alternates-action-promotion-fixed.log",
+    "exit": 0,
+    "scope": "before adding ordered two-visible alternate test"
+  },
+  "alternate_order_mutation": {
+    "log": "alternate-order-mutation.log",
+    "old_baseline_pass": true,
+    "new_baseline_pass": true,
+    "old_test_survives_last_visible": true,
+    "new_test_kills_last_visible": true,
+    "isolated_source_restored": true
+  },
+  "action_triggers": {
+    "log": "action-triggers-reviewed-fixed-target.log",
+    "passed": 2,
+    "failed": 1,
+    "expected_failures": 1
+  },
+  "clippy_action_triggers": {
+    "log": "clippy-action-triggers-final.log",
+    "exit": 0
+  },
+  "page_visibility": {
+    "log": "image-coordinates-page-visibility-target.log",
+    "failed": 2,
+    "expected_failures": 2
+  },
+  "image_coordinates": {
+    "log": "default-colour-image-coordinates-target.log",
+    "passed": 3
+  },
+  "default_colour_spaces": {
+    "log": "default-colour-expanded-target.log",
+    "passed": 5
+  },
+  "clippy_default_colour_expanded": {
+    "log": "clippy-default-colour-expanded.log",
+    "exit": 0
+  },
+  "interpolation_mixed_action": {
+    "log": "interpolation-mixed-action-target.log",
+    "passed": 1,
+    "failed": 1,
+    "expected_failures": 1
+  },
+  "clippy_interpolation_mixed_action": {
+    "log": "clippy-interpolation-mixed-action.log",
+    "exit": 0
+  },
+  "nextest_nine_crates_wave9": {
+    "log": "nextest-nine-crates-wave9.log",
+    "exit": 100,
+    "run": 5650,
+    "passed": 5614,
+    "failed": 36,
+    "skipped": 53,
+    "unexpected_failures": 0,
+    "scope": "through default colors5, coordinates3, interpolation1, mixed actions1, page visibility2 and action triggers3"
+  },
+  "interpolation_mutation": {
+    "log": "interpolation-mutation.log",
+    "old_baseline_pass": true,
+    "new_baseline_pass": true,
+    "old_test_survives_dropped_parser_flag": true,
+    "new_test_kills_dropped_parser_flag": true,
+    "isolated_source_restored": true
+  }
+}

@@ -1037,3 +1037,6 @@ fn a_name_a_type_3_glyph_looks_up_and_no_page_defines_is_defined_empty_in_the_fo
         assert_eq!(dark_pixels(&output), dark_pixels(&source));
     }
 }
+
+#[path = "pattern_resource_audit.rs"]
+mod pattern_resource_audit;

@@ -1,0 +1,203 @@
+{
+  "warning": "Audit regressions intentionally fail; they are not ignored or changed to expect incorrect behavior. Entries are individual assertions, not distinct defects.",
+  "failures": [
+    {
+      "binary": "pdf-archive",
+      "test": "survey::graphics_state::annex_q_audit_tests::a_q2_transparent_state_restored_before_painting_does_not_mark_the_page",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-archive",
+      "test": "survey::graphics_state::annex_q_audit_tests::q2_blend_mode_arrays_use_the_first_recognised_mode",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-colour::calculator_operators_spec_audit",
+      "test": "type4_right_bitshift_inserts_zero_bits_for_negative_values",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-colour::functions_spec_audit",
+      "test": "stitching_domain_start_bound_uses_its_explicit_degenerate_encode_value",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-model::file_specification_writer_audit",
+      "test": "document_home_file_spec_has_table43_desc",
+      "evidence": "filespec-writer-reviewed-target.log"
+    },
+    {
+      "binary": "pdf-model::text_strings_spec_audit",
+      "test": "a_pdfdocencoded_fdf_status_is_not_mistaken_for_a_unicode_marker",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-model::text_strings_spec_audit",
+      "test": "a_text_string_language_escape_overrides_property_list_language",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-model::text_strings_spec_audit",
+      "test": "a_text_string_language_escape_overrides_the_catalog_language",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-model::type3_residual_audit",
+      "test": "d1_ignores_color_related_extgstate_changes_and_continues",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-syntax::ascii85_runlength_boundaries",
+      "test": "ascii85_tilde_followed_by_anything_but_greater_than_is_an_error",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-syntax::ascii85_runlength_boundaries",
+      "test": "ascii85_windowed_reader_reports_a_malformed_eod_marker",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-syntax::file_structure_audit",
+      "test": "an_incremental_update_repeats_a_second_class_trailer_entry",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-syntax::spec_basic_objects",
+      "test": "a_cold_wrong_generation_reference_is_undefined",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-syntax::spec_basic_objects",
+      "test": "a_warm_wrong_generation_reference_is_undefined",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-transform::annex_i_insert_version",
+      "test": "inserting_a_newer_pdf_uses_the_newer_version",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-transform::archive",
+      "test": "associated_files_date_audit::associated_archive_file_does_not_omit_the_table45_required_modification_date",
+      "evidence": "associated-file-date-semantic-control.log"
+    },
+    {
+      "binary": "pdf-transform::date_spec_audit",
+      "test": "metadata_editing_does_not_publish_an_incomplete_numeric_field",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-transform::date_spec_audit",
+      "test": "metadata_editing_does_not_publish_an_out_of_range_month",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-transform::metadata_requirements_audit",
+      "test": "pieceinfo_keeps_required_moddate_when_update_requests_removal",
+      "evidence": "metadata-content-expanded-target.log",
+      "classification": "ISO Table 349 conditional writer requirement"
+    },
+    {
+      "binary": "pdf-model::content_resources_audit",
+      "test": "hidden_gs_lookup_that_changes_visible_state_is_reported",
+      "evidence": "metadata-content-expanded-target.log",
+      "classification": "project recovery/reporting policy consistency; malformed input, not ISO conformance"
+    },
+    {
+      "binary": "pdf-transform::archive",
+      "test": "reader_resources::pattern_resource_audit::part2_pattern_resource_repair_preserves_the_readers_marks_or_refuses",
+      "evidence": "pattern-resource-discriminating-targets.log",
+      "classification": "mechanical preservation-policy failure on malformed source; not ISO malformed-input reader conformance"
+    },
+    {
+      "binary": "pdf-transform::archive",
+      "test": "reader_resources::pattern_resource_audit::part4_pattern_resource_repair_preserves_the_readers_marks_or_refuses",
+      "evidence": "pattern-resource-discriminating-targets.log",
+      "classification": "mechanical preservation-policy failure on malformed source; not ISO malformed-input reader conformance"
+    },
+    {
+      "binary": "viewer-core::destinations_residual_audit",
+      "test": "fitbh_fits_the_content_width_and_places_top_in_default_user_space",
+      "evidence": "destinations-residual-controls-target.log",
+      "classification": "specified destination geometry"
+    },
+    {
+      "binary": "viewer-core::destinations_residual_audit",
+      "test": "fitbv_fits_the_content_height_and_transforms_left_from_user_space",
+      "evidence": "destinations-residual-controls-target.log",
+      "classification": "specified destination geometry"
+    },
+    {
+      "binary": "viewer-core::destinations_residual_audit",
+      "test": "xyz_null_coordinates_and_zero_zoom_retain_the_current_window_values",
+      "evidence": "destinations-residual-controls-target.log",
+      "classification": "specified destination geometry"
+    },
+    {
+      "binary": "viewer-core::destinations_residual_audit",
+      "test": "xyz_null_coordinates_retain_user_position_when_zoom_changes_on_the_same_page",
+      "evidence": "destinations-residual-controls-target.log",
+      "classification": "specified destination geometry"
+    },
+    {
+      "binary": "viewer-host::page_labels_audit",
+      "test": "an_explicit_empty_page_label_is_not_replaced_by_the_unlabelled_fallback",
+      "evidence": "page-labels-empty-reviewed-target.log",
+      "classification": "specified empty label discarded by viewer query; model and nonempty range control pass"
+    },
+    {
+      "binary": "pdf-model::image_dictionary_consistency_audit",
+      "test": "an_image_decode_array_with_fewer_pairs_than_its_colour_space_errors",
+      "evidence": "image-dictionary-consistency-target.log",
+      "classification": "explicit ISO8.9.5.1 reader error requirement for inconsistent image dictionary; malformed-input case with mandated response"
+    },
+    {
+      "binary": "pdf-model::image_dictionary_consistency_audit",
+      "test": "an_image_decode_array_with_extra_pairs_for_its_colour_space_errors",
+      "evidence": "image-dictionary-consistency-target.log",
+      "classification": "explicit ISO8.9.5.1 reader error requirement for inconsistent image dictionary; malformed-input case with mandated response"
+    },
+    {
+      "binary": "pdf-model::action_next_occurrences_audit",
+      "test": "next_array_reads_each_occurrence_even_when_two_entries_share_an_object",
+      "evidence": "link-actions-reviewed-target.log",
+      "classification": "Table196 ordered array occurrence requirement; non-cyclic repeated reference, interpretation stated in report"
+    },
+    {
+      "binary": "pdf-model::link_highlighting_residual_audit",
+      "test": "an_unstated_link_mode_still_defaults_to_invert_when_a_down_appearance_exists",
+      "evidence": "link-actions-reviewed-target.log",
+      "classification": "Table176 default I; ADR0123 deliberate implicit-P policy extends widget rationale to Link"
+    },
+    {
+      "binary": "viewer-core::link_quadpoints_audit",
+      "test": "link_pressed_highlight_uses_quadpoints_active_region_not_the_larger_rect",
+      "evidence": "link-actions-reviewed-target.log",
+      "classification": "Table176 H active-area requirement; QuadPoints honored for activation but not pointer appearance"
+    },
+    {
+      "binary": "viewer-core::action_triggers_spec_audit",
+      "test": "catalog_open_action_executes_a_supported_non_goto_action",
+      "evidence": "action-triggers-reviewed-fixed-target.log",
+      "classification": "Table29 catalog OpenAction action dictionary consumer; supported Named action works through Link but not catalog"
+    },
+    {
+      "binary": "viewer-core::page_visibility_triggers_audit",
+      "test": "newly_visible_neighbor_gets_pv_before_it_becomes_current",
+      "evidence": "image-coordinates-page-visibility-target.log",
+      "classification": "Table197 visible set distinct from current-page lifecycle; documented restriction in ADR1750/1752"
+    },
+    {
+      "binary": "viewer-core::page_visibility_triggers_audit",
+      "test": "page_remaining_visible_does_not_get_pi_when_current_page_changes",
+      "evidence": "image-coordinates-page-visibility-target.log",
+      "classification": "Table197 visible set distinct from current-page lifecycle; documented restriction in ADR1750/1752"
+    },
+    {
+      "binary": "viewer-core::mixed_action_order_audit",
+      "test": "a_next_script_observes_preceding_non_script_action_state",
+      "evidence": "interpolation-mixed-action-target.log",
+      "classification": "Table196 Next execution order across supported script and non-script actions; documented ADR1602/1750/1752 limitation"
+    }
+  ]
+}

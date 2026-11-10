@@ -1,0 +1,27 @@
+{
+  "warning": "Records can overlap or cross-reference prior reviews. Selected units do not establish that every decision in an ADR was reviewed; no whole document is marked complete.",
+  "adr_documents": 2233,
+  "document_states": {
+    "pending": 2126,
+    "selected-decision-units-reviewed": 97,
+    "review-in-progress": 10
+  },
+  "decision_review_records": 170,
+  "parent_accepted_records": 166,
+  "cross_reference_records": 10,
+  "accepted_record_conclusions": {
+    "retain-with-qualification": 86,
+    "revisit": 14,
+    "retain": 40,
+    "superseded": 9,
+    "revisit-policy-consistency": 1,
+    "retain-with-boundary": 1,
+    "cross-reference-only": 10,
+    "retain-with-ec3-qualification": 1,
+    "retain-with-clause-boundary": 1,
+    "reconsider-premise-for-tiling-patterns": 1,
+    "retain-reader-policy": 1,
+    "retain-with-bounded-scope-note": 1
+  },
+  "issues": []
+}

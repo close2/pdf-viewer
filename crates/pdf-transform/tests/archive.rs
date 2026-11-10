@@ -16570,3 +16570,9 @@ mod kept_modification_date;
 mod machine_face;
 #[path = "archive/twin_codes.rs"]
 mod twin_codes;
+
+#[path = "archive/associated_files_date_audit.rs"]
+mod associated_files_date_audit;
+
+#[path = "archive/action_promotion_audit.rs"]
+mod action_promotion_audit;

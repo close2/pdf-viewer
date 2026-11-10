@@ -105,3 +105,7 @@ impl Walk<'_> {
         blends(self.document, dict)
     }
 }
+
+#[cfg(test)]
+#[path = "graphics_state/annex_q_audit_tests.rs"]
+mod annex_q_audit_tests;

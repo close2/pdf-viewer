@@ -1,0 +1,158 @@
+{
+  "alternate-order-mutation-results.json": [
+    {
+      "arm": "baseline",
+      "target": "optional_content",
+      "test": "a_base_image_with_no_group_shows_the_first_visible_alternate",
+      "exit": 0,
+      "log": "alternate-order-baseline-optional_content.log"
+    },
+    {
+      "arm": "baseline",
+      "target": "alternate_images_audit",
+      "test": "the_first_of_two_visible_alternates_wins_in_array_order",
+      "exit": 0,
+      "log": "alternate-order-baseline-alternate_images_audit.log"
+    },
+    {
+      "arm": "last_visible",
+      "target": "optional_content",
+      "test": "a_base_image_with_no_group_shows_the_first_visible_alternate",
+      "exit": 0,
+      "log": "alternate-order-last_visible-optional_content.log"
+    },
+    {
+      "arm": "last_visible",
+      "target": "alternate_images_audit",
+      "test": "the_first_of_two_visible_alternates_wins_in_array_order",
+      "exit": 101,
+      "log": "alternate-order-last_visible-alternate_images_audit.log"
+    }
+  ],
+  "before-strengthening-mutation-results.json": [
+    {
+      "name": "control",
+      "returncode": 0,
+      "outcome": "survived",
+      "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/mutation-control.log"
+    },
+    {
+      "name": "reversed-fill-precedence",
+      "returncode": 101,
+      "outcome": "killed",
+      "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/mutation-reversed-fill-precedence.log"
+    },
+    {
+      "name": "missing-fill-inheritance",
+      "returncode": 101,
+      "outcome": "killed",
+      "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/mutation-missing-fill-inheritance.log"
+    },
+    {
+      "name": "inverted-stroking",
+      "returncode": 0,
+      "outcome": "survived",
+      "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/mutation-inverted-stroking.log"
+    }
+  ],
+  "function-mutation-results.json": [
+    {
+      "name": "ignore-exponent",
+      "arm": "control",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/function-mutation-ignore-exponent-control.log"
+    },
+    {
+      "name": "ignore-exponent",
+      "arm": "mutated",
+      "returncode": 101,
+      "outcome": "assertion-failed",
+      "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/function-mutation-ignore-exponent-mutated.log"
+    },
+    {
+      "name": "reverse-sample-dimensions",
+      "arm": "control",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/function-mutation-reverse-sample-dimensions-control.log"
+    },
+    {
+      "name": "reverse-sample-dimensions",
+      "arm": "mutated",
+      "returncode": 101,
+      "outcome": "assertion-failed",
+      "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/function-mutation-reverse-sample-dimensions-mutated.log"
+    }
+  ],
+  "interpolation-mutation-results.json": [
+    {
+      "arm": "baseline",
+      "package": "pdf-render",
+      "test": "interpolate_decides_a_magnified_image_and_nothing_else",
+      "exit": 0,
+      "log": "interpolation-baseline-pdf-render.log"
+    },
+    {
+      "arm": "baseline",
+      "package": "pdf-model",
+      "test": "ordinary_image_interpolation_hint_is_parsed_and_honored_on_magnified_reflected_images",
+      "exit": 0,
+      "log": "interpolation-baseline-pdf-model.log"
+    },
+    {
+      "arm": "ignore_flag",
+      "package": "pdf-render",
+      "test": "interpolate_decides_a_magnified_image_and_nothing_else",
+      "exit": 0,
+      "log": "interpolation-ignore_flag-pdf-render.log"
+    },
+    {
+      "arm": "ignore_flag",
+      "package": "pdf-model",
+      "test": "ordinary_image_interpolation_hint_is_parsed_and_honored_on_magnified_reflected_images",
+      "exit": 101,
+      "log": "interpolation-ignore_flag-pdf-model.log"
+    }
+  ],
+  "lzw-mutation-results.json": [
+    {
+      "name": "control",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/lzw-mutation-control.log"
+    },
+    {
+      "name": "ignore-clear",
+      "returncode": 101,
+      "outcome": "assertion-failed",
+      "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/lzw-mutation-ignore-clear.log"
+    }
+  ],
+  "mutation-results.json": [
+    {
+      "name": "control",
+      "returncode": 0,
+      "outcome": "survived",
+      "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/mutation-control.log"
+    },
+    {
+      "name": "reversed-fill-precedence",
+      "returncode": 101,
+      "outcome": "killed",
+      "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/mutation-reversed-fill-precedence.log"
+    },
+    {
+      "name": "missing-fill-inheritance",
+      "returncode": 101,
+      "outcome": "killed",
+      "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/mutation-missing-fill-inheritance.log"
+    },
+    {
+      "name": "inverted-stroking",
+      "returncode": 101,
+      "outcome": "killed",
+      "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/mutation-inverted-stroking.log"
+    }
+  ]
+}
