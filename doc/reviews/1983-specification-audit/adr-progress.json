@@ -77,6 +77,14 @@
     "whole_document_complete": false,
     "review_records": [
       {
+        "source": "annotation_appearance_audit/decisions.json",
+        "decision_id": "draw_stored_appearances_without_synthesizing_missing_subtype_art",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      },
+      {
         "source": "form_xobjects_audit/decisions.json",
         "decision_id": "appearance-stream-runs-through-form-machinery",
         "conclusion": "retain",
@@ -359,9 +367,18 @@
   },
   {
     "path": "doc/adr/0030-constructing-an-appearance-and-the-two-roles-of-one-key.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_appearance_audit/decisions.json",
+        "decision_id": "stored_vs_constructed_annotation_parameters",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0031-encryption-and-what-a-locked-file-is.md",
@@ -799,9 +816,18 @@
   },
   {
     "path": "doc/adr/0086-a-classification-against-a-careless-bitfield.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_descriptor_cid_audit/decisions.json",
+        "decision_id": "panose_priority_and_fd_use_boundary",
+        "conclusion": "retain-Panose-choice; superseded-FD-deferral",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0087-the-one-form-action-that-is-a-picture.md",
@@ -1158,14 +1184,14 @@
   },
   {
     "path": "doc/adr/0133-the-fourteen-fonts-a-processor-is-said-to-have.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "simple_font_widths_audit/decisions.json",
         "decision_id": "standard14_fonts_compiled_in",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       }
@@ -2044,14 +2070,14 @@
   },
   {
     "path": "doc/adr/0253-the-seventy-six-were-read-and-the-instrument-was-half-blind.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "simple_font_widths_audit/decisions.json",
         "decision_id": "errata_sweep_finds_retired_font_obligations",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       }
@@ -2328,14 +2354,14 @@
   },
   {
     "path": "doc/adr/0293-a-border-that-shall-be-inside-and-an-entry-that-shall-be-ignored.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "annotation_border_audit/decisions.json",
         "decision_id": "0293-underline-inside-rect-and-border-precedence",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2781,7 +2807,7 @@
   },
   {
     "path": "doc/adr/0358-the-width-a-file-states-is-a-statement-about-the-shape.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
@@ -2796,7 +2822,7 @@
         "source": "simple_font_widths_audit/decisions.json",
         "decision_id": "substitute_stretch_to_match_stated_widths",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       }
@@ -3337,14 +3363,14 @@
   },
   {
     "path": "doc/adr/0432-the-border-a-default-draws-and-a-census-measured.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "annotation_border_audit/decisions.json",
         "decision_id": "0432-free-text-default-border-black",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -3397,9 +3423,18 @@
   },
   {
     "path": "doc/adr/0439-the-shape-a-lossy-name-makes-and-where-else-it-lived.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_appearance_audit/decisions.json",
+        "decision_id": "appearance_state_keys_are_exact_binary_names",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0440-the-half-of-an-erratum-the-marker-could-not-see.md",
@@ -4010,9 +4045,18 @@
   },
   {
     "path": "doc/adr/0579-the-group-a-sentence-named-and-nobody-read.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_appearance_audit/decisions.json",
+        "decision_id": "appearance_group_values_and_flattening_report",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0582-the-seam-is-not-the-model.md",
@@ -4289,14 +4333,14 @@
   },
   {
     "path": "doc/adr/0674-the-border-a-stroke-could-not-draw.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "annotation_border_audit/decisions.json",
         "decision_id": "0674-oversized-border-fills-rect-when-frame-closes",
-        "conclusion": "retain",
-        "parent_accepted": false,
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -6444,14 +6488,14 @@
   },
   {
     "path": "doc/adr/1057-a-cloud-is-a-shall-behind-a-silence-and-a-watermark-has-no-window.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "annotation_border_audit/decisions.json",
         "decision_id": "1057-cloud-effect-obligation-and-chosen-scallop-geometry",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -6494,14 +6538,14 @@
   },
   {
     "path": "doc/adr/1061-a-bevel-is-a-shall-behind-a-silence-and-its-light-comes-from-one-corner.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "annotation_border_audit/decisions.json",
         "decision_id": "1061-relief-geometry-for-B-and-I",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -6569,9 +6613,18 @@
   },
   {
     "path": "doc/adr/1074-a-glyph-class-is-decided-by-the-character.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_descriptor_cid_audit/decisions.json",
+        "decision_id": "fd_membership_and_refusal_policy",
+        "conclusion": "retain-with-Table-123-matrix-coverage-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1075-a-bound-is-printed-beside-the-population-it-bounds.md",
@@ -7013,9 +7066,18 @@
   },
   {
     "path": "doc/adr/1165-twelve-departures-re-derived-and-the-one-whose-premise-expired.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_appearance_audit/decisions.json",
+        "decision_id": "rederive_appearance_opacity_departure",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1166-the-documents-that-came-after-a-departure.md",
@@ -7165,9 +7227,18 @@
   },
   {
     "path": "doc/adr/1179-table-167-states-two-answers-and-the-output-decides-which.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_appearance_audit/decisions.json",
+        "decision_id": "annotation_flags_depend_on_render_output_purpose",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1180-a-print-operation-has-two-ends-and-only-one-window-has-a-printer.md",
@@ -7429,9 +7500,18 @@
   },
   {
     "path": "doc/adr/1220-a-sentence-with-no-modal-verb-is-not-a-debt.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_descriptor_cid_audit/decisions.json",
+        "decision_id": "fd_reader_override_vs_writer_validation",
+        "conclusion": "retain-with-effective-EC3-correction",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1221-table-124-is-one-function-read-in-the-writing-direction.md",
@@ -11992,7 +12072,7 @@
         "source": "simple_font_widths_audit/decisions.json",
         "decision_id": "archive_standard_font_with_descriptor_and_laid_out_widths",
         "conclusion": "cross-reference-only",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "cross_reference_only",
         "duplicates_decision": null
       }
@@ -12138,14 +12218,14 @@
   },
   {
     "path": "doc/adr/2178-a-simple-fonts-widths-array-states-the-range-the-reader-already-uses.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "simple_font_widths_audit/decisions.json",
         "decision_id": "archive_repair_short_long_width_arrays",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       }
@@ -12165,14 +12245,14 @@
   },
   {
     "path": "doc/adr/2181-last-char-bounds-the-widths-that-a-font-states.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "simple_font_widths_audit/decisions.json",
         "decision_id": "reader_stops_at_lastchar_and_uses_missingwidth_outside",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       }
@@ -12924,9 +13004,18 @@
   },
   {
     "path": "doc/adr/2319-a-push-buttons-single-appearance-stream-is-the-one-entry-of-a-subdictionary-its-state-selects.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_appearance_audit/decisions.json",
+        "decision_id": "single_push_button_stream_under_as_selected_subdictionary",
+        "conclusion": "cross-reference-only",
+        "parent_accepted": false,
+        "review_type": "cross_reference_only",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2320-a-show-string-s-loop-state-is-one-struct-and-its-glyph-loop-is-one-method-per-step-of-9-4-4.md",
@@ -14773,7 +14862,7 @@
         "source": "simple_font_widths_audit/decisions.json",
         "decision_id": "pdfa_simple_font_widths_checker_and_rewriter",
         "conclusion": "cross-reference-only",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "cross_reference_only",
         "duplicates_decision": null
       }
@@ -14781,14 +14870,14 @@
   },
   {
     "path": "doc/adr/2687-an-embedded-standard-font-with-no-widths-is-laid-out-by-its-published-metrics.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "simple_font_widths_audit/decisions.json",
         "decision_id": "embedded_standard14_no_widths_uses_published_metrics",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       }
@@ -15162,9 +15251,18 @@
   },
   {
     "path": "doc/adr/2752-an-appearance-dictionary-stating-no-entry-is-taken-away-as-a-restatement-of-the-file.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_appearance_audit/decisions.json",
+        "decision_id": "archive_treats_empty_ap_as_absent",
+        "conclusion": "cross-reference-only",
+        "parent_accepted": false,
+        "review_type": "cross_reference_only",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2753-a-shown-code-a-truetype-program-reaches-no-glyph-for-is-given-a-glyph-that-draws-nothing.md",

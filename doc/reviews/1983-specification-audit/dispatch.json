@@ -661,7 +661,7 @@
       "clauses": [
         "9.6.2/9.6.3 selected widths"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-four-tests-and-ec3-policy-corrections"
     },
     {
       "agent": "font_descriptors_audit",
@@ -682,12 +682,28 @@
       "clauses": [
         "12.5.4"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory"
     },
     {
       "agent": "annotation_appearance_audit",
       "clauses": [
         "12.5.5"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "annotation_flags_audit",
+      "clauses": [
+        "12.5.3"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "font_descriptor_cid_audit",
+      "clauses": [
+        "9.8.3.1",
+        "9.8.3.2",
+        "9.8.3.3"
       ],
       "state": "running"
     }

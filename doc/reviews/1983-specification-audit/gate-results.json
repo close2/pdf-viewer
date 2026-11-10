@@ -523,5 +523,41 @@
     "log": "document-timing-residual-target.log",
     "passed": 2,
     "exit": 0
+  },
+  "simple_font_widths": {
+    "log": "simple-font-widths-target.log",
+    "passed": 4,
+    "exit": 0
+  },
+  "font_units": {
+    "log": "font-unit-target.log",
+    "passed": 370,
+    "exit": 0
+  },
+  "annotation_border": {
+    "log": "annotation-border-phase-target.log",
+    "passed": 4,
+    "exit": 0
+  },
+  "clippy_presentations_residual": {
+    "log": "clippy-presentations-residual-final.log",
+    "exit": 0
+  },
+  "clippy_widths_border_initial": {
+    "log": "clippy-font-widths-borders.log",
+    "exit": 0,
+    "scope": "Before independent border phase control addition"
+  },
+  "broad_wave11": {
+    "log": "nextest-nine-crates-wave11.log",
+    "run": 5677,
+    "passed": 5639,
+    "expected_failed": 38,
+    "skipped": 53,
+    "unexpected": 0
+  },
+  "clippy_widths_borders_final": {
+    "log": "clippy-widths-borders-final.log",
+    "exit": 0
   }
 }

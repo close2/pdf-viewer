@@ -12,9 +12,9 @@ a reference does not establish that its assertions prove the associated feature.
 
 ## Latest checkpoint
 
-The latest broad run covered nine crates: **5,663 tests run, 5,625 passed, 38 expected audit
+The latest broad run covered nine crates: **5,677 tests run, 5,639 passed, 38 expected audit
 failures, 53 skipped, no unexpected failures**. Several failures share a cause. This includes
-the tiling-pattern, image-mask and document-event tests, with two additional masking failures. Production behavior, ledger statuses and
+the presentation, held-operation, font-width and border-default tests. Production behavior, ledger statuses and
 historical ADRs remain unchanged. Selected assertion reviews and isolated mutation checks have
 exposed both implementation gaps and passing tests unable to detect their stated defect.
 
@@ -863,3 +863,43 @@ policy admits the job. The test checks decrypted script bytes as well as callbac
 `DS` follows the successful write internally; it precedes emission of the public `Saved` event,
 so no assertion claims the opposite. These six new tests pass independently of the earlier
 wave10 totals. Full host-by-host operation timing remains open.
+
+## Font-width premises and annotation-border defaults
+
+The new width target passes four complete-PDF consumer tests, and the separate pdf-font unit
+target passes all 370 tests. The embedded TrueType fixture checks actual glyph origins from
+the declared width array; it observes the first three advances through four glyphs. The
+standard-font cases characterize deterministic fallback and partial dictionaries under the
+effective PDF 2.0 reading. They do not establish ISO 32000-1 producer conformance.
+
+EC3 #47/#48 strikes Table 109's all-or-none/override paragraph and replaces the compatibility
+mandate with a cross-reference. The availability paragraph in §9.6.2.2 is deleted and the
+preceding paragraph becomes informative. ADRs 0133, 0358 and 2687 repeat retired mandatory
+premises. Their useful implementation choices can stand, but those quotations no longer supply
+the claimed requirement. ADR 2686's archival profile context is separate and has not been
+invalidated by this reading. EC3 #453 also makes mismatched actual glyph widths and MissingWidth
+implementation-dependent. The Courier 600-versus-400 test was therefore renamed and classified
+as policy evidence. The corpus width test has a non-vacuity bound but tolerates some mismatches;
+it is a mapping regression screen, not a comprehensive producer validator.
+
+ADR 0358's current implementation condenses substitute outlines by a bounded median. Its
+assertion meaningfully checks width and unchanged height, but an advance does not generally
+bound a glyph's ink: overhang is possible. That rationale needs qualification independently
+of the retired standard-font quotations. No substitution behavior is changed by this audit.
+
+Four border tests pass. They isolate omitted BS width/style, default dash array and phase,
+default no-effect BE, and Table 168's explicit requirement to use solid for an unknown style.
+The unknown-style sentence was absent from the draft inventory. Default-versus-explicit dash
+equality alone could pass with two equally wrong phases, so the test also compares independently
+authored page strokes at phases zero and one. Every fixture checks that parsing required no
+cross-reference recovery. Cloud-specific preservation of BS width/dash remains a recorded gap.
+
+The border ADR review retains the inside placement, precedence, cloud and relief decisions with
+their chosen geometry distinguished from ISO requirements. ADR 0674's two thresholds are not
+identical: an inward border band covers the whole rectangle at half its smaller dimension,
+whereas the inset stroke path degenerates at the full dimension. The existing tests cover both
+and pass; the inaccurate explanation is not evidence of a current rendering defect.
+
+Broad wave11 includes these additions: 5,677 run, 5,639 pass, exactly the same 38 manifested
+failures, 53 skipped and no unexpected failures. The pdf-font 370-test run is separate from
+that total. Warning-denied Clippy passes for the changed model/core test targets.

@@ -2475,6 +2475,458 @@
     "superseded": false
   },
   {
+    "clause": "12.5.4",
+    "feature_id": "border-inside-annotation-rect",
+    "requirement": "Any constructed annotation border is drawn completely inside /Rect, including underline style U.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:11194; printed clause text. Table 168 at :11196.",
+    "errata": "None changes this requirement. EC3 #287 concerns /BS precedence in Table 166, §12.5.2.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::Border::inset",
+      "crates/pdf-model/src/appearance.rs::Border::outline",
+      "crates/pdf-model/src/appearance.rs::Border::draw"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::an_underline_border_is_drawn_inside_the_rectangle_rather_than_across_its_edge",
+      "crates/pdf-model/tests/annotations.rs::a_link_border_is_drawn_inside_its_rectangle_in_its_own_colour"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Existing assertions inspect actual pixels: the underline reaches the rectangle's bottom boundary without being cut to half-width, and the link border's extent remains inside /Rect. ADR 0293 records the formerly missed underline half-stroke and its fix; ADR 0675 measures outside ink separately.",
+    "test_command": "cargo test -p pdf-model --test annotation_border_audit",
+    "test_result": "4passed, annotation-border-phase-target.log; existing referenced model tests passed broad wave10.",
+    "parent_review": "Selected consumer/assertion/source review, not full subtype or annotation coverage.",
+    "reviewer": "annotation_border_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.4",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:11196, Table 168 W row.",
+    "errata": "No applicable EC3 annotation found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::Border::from_style_dictionary",
+      "crates/pdf-model/src/appearance.rs::Border::strokes"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_free_texts_border_is_drawn_at_the_width_its_entries_state",
+      "crates/pdf-model/tests/annotation_border_audit.rs::an_empty_border_style_defaults_to_one_point_solid"
+    ],
+    "test_command": "cargo test -p pdf-model --test annotation_border_audit",
+    "test_result": "4passed, annotation-border-phase-target.log; existing referenced model tests passed broad wave10.",
+    "feature_id": "bs-width-default",
+    "requirement": "Absent /BS /W defaults to border width 1 point.",
+    "verdict": "confirmed",
+    "evidence": "Root adds emptyBS plus W-only/S-only/explicit1-solid equality, wide/dashed difference controls, and absolute one-pixel edge thickness. This closes the isolated default gap.",
+    "parent_review": "Selected consumer/assertion/source review, not full subtype or annotation coverage.",
+    "reviewer": "annotation_border_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.4",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:11196, Table 168 W row.",
+    "errata": "No applicable EC3 annotation found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::Border::from_style_dictionary",
+      "crates/pdf-model/src/appearance.rs::Border::strokes"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_free_texts_border_is_drawn_at_the_width_its_entries_state"
+    ],
+    "test_command": "cargo test -p pdf-model --test annotation_border_audit",
+    "test_result": "4passed, annotation-border-phase-target.log; existing referenced model tests passed broad wave10.",
+    "feature_id": "bs-width-zero",
+    "requirement": "A stated border width of 0 suppresses the border.",
+    "verdict": "confirmed",
+    "evidence": "The free-text test renders a stated zero width and asserts there are no inked rows.",
+    "parent_review": "Selected consumer/assertion/source review, not full subtype or annotation coverage.",
+    "reviewer": "annotation_border_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.4",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:11196, Table 168 S row.",
+    "errata": "No applicable EC3 annotation found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::Border::from_style_dictionary",
+      "crates/pdf-model/src/appearance.rs::Border::outline",
+      "crates/pdf-model/src/appearance.rs::Border::relief"
+    ],
+    "test_command": "cargo test -p pdf-model --test annotation_border_audit",
+    "test_result": "4passed, annotation-border-phase-target.log; existing referenced model tests passed broad wave10.",
+    "feature_id": "bs-style-solid",
+    "requirement": "If /S is absent or S, draw a solid rectangle; S is the default.",
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_free_texts_border_is_drawn_at_the_width_its_entries_state",
+      "crates/pdf-model/tests/annotation_border_audit.rs::an_empty_border_style_defaults_to_one_point_solid"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Root adds emptyBS plus W-only/S-only/explicit1-solid equality, wide/dashed difference controls, and absolute one-pixel edge thickness. This closes the isolated default gap.",
+    "parent_review": "Selected consumer/assertion/source review, not full subtype or annotation coverage.",
+    "reviewer": "annotation_border_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.4",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:11196, Table 168 S row.",
+    "errata": "No applicable EC3 annotation found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::Border::from_style_dictionary",
+      "crates/pdf-model/src/appearance.rs::Border::outline",
+      "crates/pdf-model/src/appearance.rs::Border::relief"
+    ],
+    "test_command": "cargo test -p pdf-model --test annotation_border_audit",
+    "test_result": "4passed, annotation-border-phase-target.log; existing referenced model tests passed broad wave10.",
+    "feature_id": "bs-style-dashed",
+    "requirement": "If /S is D, draw a dashed rectangle using /D or its Table 168 default.",
+    "test_refs": [
+      "crates/pdf-model/tests/annotation_border_audit.rs::a_dashed_border_without_a_pattern_uses_the_table_168_default"
+    ],
+    "verdict": "confirmed",
+    "evidence": "New raster equality omittedD versus[3], active[1 3] difference and visible-mark control pass. Root adds independently authored page stroke[3]phase0 equality and phase1 difference, so equal incorrect annotation phases cannot pass.",
+    "parent_review": "Selected consumer/assertion/source review, not full subtype or annotation coverage.",
+    "reviewer": "annotation_border_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.4",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:11196, Table 168 S row.",
+    "errata": "No applicable EC3 annotation found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::Border::from_style_dictionary",
+      "crates/pdf-model/src/appearance.rs::Border::outline",
+      "crates/pdf-model/src/appearance.rs::Border::relief"
+    ],
+    "test_command": "cargo test -p pdf-model --test annotation_border_audit",
+    "test_result": "4passed, annotation-border-phase-target.log; existing referenced model tests passed broad wave10.",
+    "feature_id": "bs-style-bevelled",
+    "requirement": "If /S is B on an annotation whose /BS defines a border, render a simulated raised rectangle.",
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_squares_border_style_raises_nothing_and_a_links_is_drawn_in_relief"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The same test proves scope: Square /BS states line style only and does not get relief; Link /BS is a border and gets the chosen raised relief.",
+    "parent_review": "Selected consumer/assertion/source review, not full subtype or annotation coverage.",
+    "reviewer": "annotation_border_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.4",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:11196, Table 168 S row.",
+    "errata": "No applicable EC3 annotation found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::Border::from_style_dictionary",
+      "crates/pdf-model/src/appearance.rs::Border::outline",
+      "crates/pdf-model/src/appearance.rs::Border::relief"
+    ],
+    "test_command": "cargo test -p pdf-model --test annotation_border_audit",
+    "test_result": "4passed, annotation-border-phase-target.log; existing referenced model tests passed broad wave10.",
+    "feature_id": "bs-style-inset",
+    "requirement": "If /S is I on an annotation whose /BS defines a border, render a simulated recessed rectangle.",
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::an_inset_border_is_shaded_on_the_top_and_left_and_lit_on_the_bottom_and_right"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Pixel assertions check inverse relief on all four sides of a widget border.",
+    "parent_review": "Selected consumer/assertion/source review, not full subtype or annotation coverage.",
+    "reviewer": "annotation_border_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.4",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:11196, Table 168 S row.",
+    "errata": "No applicable EC3 annotation found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::Border::from_style_dictionary",
+      "crates/pdf-model/src/appearance.rs::Border::outline",
+      "crates/pdf-model/src/appearance.rs::Border::relief"
+    ],
+    "test_command": "cargo test -p pdf-model --test annotation_border_audit",
+    "test_result": "4passed, annotation-border-phase-target.log; existing referenced model tests passed broad wave10.",
+    "feature_id": "bs-style-underline",
+    "requirement": "If /S is U, draw one line along the bottom of the annotation rectangle, wholly inside it.",
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::an_underline_border_is_drawn_inside_the_rectangle_rather_than_across_its_edge"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Raster test checks the line inside placement and width after ADR 0293.",
+    "parent_review": "Selected consumer/assertion/source review, not full subtype or annotation coverage.",
+    "reviewer": "annotation_border_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.4",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:11196, Table 168 S row.",
+    "errata": "No applicable EC3 annotation found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::Border::from_style_dictionary",
+      "crates/pdf-model/src/appearance.rs::Border::outline",
+      "crates/pdf-model/src/appearance.rs::Border::relief"
+    ],
+    "test_command": "cargo test -p pdf-model --test annotation_border_audit",
+    "test_result": "4passed, annotation-border-phase-target.log; existing referenced model tests passed broad wave10.",
+    "feature_id": "bs-style-subtype-scope",
+    "requirement": "For Line, Square, Circle and Ink, /BS supplies line width and dash pattern only; B/I semantics do not apply as annotation-border styles.",
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_squares_border_style_raises_nothing_and_a_links_is_drawn_in_relief"
+    ],
+    "verdict": "partial",
+    "evidence": "Pair compares Square and Link with identical B style: Square draws its own simple line; Link receives the chosen border relief. The body distinguishes Table 180 semantics. Square/Link pair does not execute Line/Circle/Ink consumers; their general scope is source/code evidence only here.",
+    "parent_review": "Selected consumer/assertion/source review, not full subtype or annotation coverage.",
+    "reviewer": "annotation_border_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.4",
+    "feature_id": "dash-array-format-phase-and-default",
+    "requirement": "For D style, /D defines the graphics-state dash array; its phase is zero; omitted /D defaults to [3].",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:11196, Table 168 D row.",
+    "errata": "No applicable EC3 annotation found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::Border::from_style_dictionary",
+      "crates/pdf-model/src/appearance.rs::Border::apply"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotation_border_audit.rs::a_dashed_border_without_a_pattern_uses_the_table_168_default"
+    ],
+    "verdict": "confirmed",
+    "evidence": "New raster equality omittedD versus[3], active[1 3] difference and visible-mark control pass. Root adds independently authored page stroke[3]phase0 equality and phase1 difference, so equal incorrect annotation phases cannot pass.",
+    "test_command": "cargo test -p pdf-model --test annotation_border_audit",
+    "test_result": "4passed, annotation-border-phase-target.log; existing referenced model tests passed broad wave10.",
+    "parent_review": "Selected consumer/assertion/source review, not full subtype or annotation coverage.",
+    "reviewer": "annotation_border_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.4",
+    "feature_id": "be-effect-styles-and-default",
+    "requirement": "/BE /S=C requests the cloudy effect; /S=S means no effect and is the default.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:11198, Table 169 S row.",
+    "errata": "No applicable EC3 annotation found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::cloudy",
+      "crates/pdf-model/src/appearance.rs::square_or_circle",
+      "crates/pdf-model/src/appearance.rs::free_text_border",
+      "crates/pdf-model/src/appearance.rs::polygon"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_cloudy_square_is_scalloped_inside_its_rectangle",
+      "crates/pdf-model/tests/annotations.rs::a_cloudy_circle_has_a_cusp_where_the_straight_ellipse_has_none",
+      "crates/pdf-model/tests/annotations.rs::a_cloudy_polygon_bulges_outward_and_a_polylines_effect_is_not_meaningful",
+      "crates/pdf-model/tests/variable_text.rs::a_free_texts_cloudy_border_is_scalloped_rather_than_refused",
+      "crates/pdf-model/tests/annotation_border_audit.rs::a_border_effect_without_a_style_defaults_to_no_effect"
+    ],
+    "verdict": "partial-confirmed-with-new-test",
+    "evidence": "C effect has discriminating raster tests across all clause-authorized annotation subtypes. Code returns None unless /S is C, which implements S/default as no effect, but cited tests do not compare absent /S or explicit S to C. Draft adds this missing control. Root corrected stray literal backslashes in draft PDF dictionaries and promoted complete fixtures with recovery check. EmptyBE and explicitS/I2 equal ordinary border; C visibly differs. This closes selected no-effect default, not every cloudy width/dash combination.",
+    "test_command": "cargo test -p pdf-model --test annotation_border_audit",
+    "test_result": "4passed, annotation-border-phase-target.log; existing referenced model tests passed broad wave10.",
+    "parent_review": "Selected consumer/assertion/source review, not full subtype or annotation coverage.",
+    "reviewer": "annotation_border_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-confirmed-with-new-test",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.4",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:11198, Table 169 I row.",
+    "errata": "No applicable EC3 annotation found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::cloudy",
+      "crates/pdf-model/src/cloud.rs::radius"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_cloudy_circle_has_a_cusp_where_the_straight_ellipse_has_none",
+      "crates/pdf-model/tests/annotations.rs::a_cloudy_polygon_bulges_outward_and_a_polylines_effect_is_not_meaningful"
+    ],
+    "test_command": "cargo test -p pdf-model --test annotation_border_audit",
+    "test_result": "4passed, annotation-border-phase-target.log; existing referenced model tests passed broad wave10.",
+    "feature_id": "be-intensity-default",
+    "requirement": "For a C effect, omitted /I defaults to 0.",
+    "verdict": "confirmed",
+    "evidence": "The circle test has /S /C with /I omitted and asserts its default-radius cusp pixel.",
+    "parent_review": "Selected consumer/assertion/source review, not full subtype or annotation coverage.",
+    "reviewer": "annotation_border_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.4",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:11198, Table 169 I row.",
+    "errata": "No applicable EC3 annotation found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::cloudy",
+      "crates/pdf-model/src/cloud.rs::radius"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_cloudy_circle_has_a_cusp_where_the_straight_ellipse_has_none",
+      "crates/pdf-model/tests/annotations.rs::a_cloudy_polygon_bulges_outward_and_a_polylines_effect_is_not_meaningful"
+    ],
+    "test_command": "cargo test -p pdf-model --test annotation_border_audit",
+    "test_result": "4passed, annotation-border-phase-target.log; existing referenced model tests passed broad wave10.",
+    "feature_id": "be-intensity-range-and-scope",
+    "requirement": "/I is meaningful only for C and its stated valid range is 0 through 2.",
+    "verdict": "partially-tested",
+    "evidence": "Polygon /I 2 is tested and code does not read /I unless S=C. Values outside the valid range are malformed input behavior; this audit asserts no extra conformance rule for them.",
+    "parent_review": "Selected consumer/assertion/source review, not full subtype or annotation coverage.",
+    "reviewer": "annotation_border_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partially-tested",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.4",
+    "feature_id": "bs-presence-overrides-border",
+    "requirement": "If /BS is present, /Border is ignored, including its corner radii; precedence is mandatory under effective EC3 #287 wording.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:11194 links to Table 166, §12.5.2; Table 166 entry quoted in doc/adr/0293-a-border-that-shall-be-inside-and-an-entry-that-shall-be-ignored.md.",
+    "errata": "EC3 #287, effective Completed Review: errata-read.md row p.483; scratchpad/r1983/spec-audit/source/errata_annotations.json Issue #287 annotation objects 4946 and 4952, physical page 483. The Caret replacement states 'shall be ignored'. Base Markdown remains 'is ignored'.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::Border::geometry",
+      "crates/pdf-model/src/appearance.rs::border_width"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_border_style_dictionary_ignores_the_border_arrays_corner_radii"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Pair of valid consumer fixtures differs only by /BS presence: without /BS the stated nonzero radii round the corner; with /BS the corner is square. Also checks resulting border remains inside /Rect. The test supports precedence for radii and width/style by code branch; the source and effective annotation establish normative shall.",
+    "test_command": "cargo test -p pdf-model --test annotation_border_audit",
+    "test_result": "4passed, annotation-border-phase-target.log; existing referenced model tests passed broad wave10.",
+    "parent_review": "Selected consumer/assertion/source review, not full subtype or annotation coverage.",
+    "reviewer": "annotation_border_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.4",
+    "feature_id": "border_style_optional_type",
+    "requirement": "Optional Type, if present, names Border.",
+    "source_location": "Table168/169, physical488–489/printed473–474",
+    "errata": "No effective change to these cells identified; BS/Border precedence separately amended by#287.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs"
+    ],
+    "test_refs": [],
+    "verdict": "producer-constraint",
+    "evidence": "Retained missing inventory entry; no reader rejection obligation inferred.",
+    "test_result": "New border target4passed.",
+    "reviewer": "annotation_border_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "producer-constraint",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.4",
+    "feature_id": "unknown_border_style_requires_solid_default",
+    "requirement": "Interactive processors shall tolerate an unrecognized border style and use S.",
+    "source_location": "Table168/169, physical488–489/printed473–474",
+    "errata": "No effective change to these cells identified; BS/Border precedence separately amended by#287.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotation_border_audit.rs::an_unknown_border_style_uses_solid_even_with_a_dash_array"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Parent found an omitted normative sentence in Table168 S row. Complete Link fixture with FutureStyle and D[1 3] equals solid and differs from dashed; this is expressly specified fallback, not an invented recovery rule.",
+    "test_result": "New border target4passed.",
+    "reviewer": "annotation_border_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.4",
+    "feature_id": "cloud_preserves_bs_width_and_dash",
+    "requirement": "Table169 C requires BS width and dash array honored.",
+    "source_location": "Table168/169, physical488–489/printed473–474",
+    "errata": "No effective change to these cells identified; BS/Border precedence separately amended by#287.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs"
+    ],
+    "test_refs": [],
+    "verdict": "partial",
+    "evidence": "Parent adds missing conditional requirement to inventory. Existing clouds prove geometry but this pass has no independently discriminating cloud dash/width assertion; retain as follow-up.",
+    "test_result": "New border target4passed.",
+    "reviewer": "annotation_border_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.4",
+    "feature_id": "absent_border_and_bs_default",
+    "requirement": "When neither Border nor BS is present, draw a solid one-point border.",
+    "source_location": "Table168/169, physical488–489/printed473–474",
+    "errata": "No effective change to these cells identified; BS/Border precedence separately amended by#287.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_free_texts_border_is_drawn_at_the_width_its_entries_state"
+    ],
+    "verdict": "partial",
+    "evidence": "Existing FreeText test compares missing/zero/wide and BS precedence with non-vacuous raster thickness assertions. Other subtype-specific exceptions still apply; new emptyBS test covers a different condition.",
+    "test_result": "New border target4passed.",
+    "reviewer": "annotation_border_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
     "feature_id": "12.6.2.table196.next_removal_preserves_reachable_recursive_order",
     "clause": "12.6.2",
     "requirement": "A Next array is performed in array order, each action followed by its own Next subtree; when a forbidden action is removed, the surviving reachable sequence must retain that order.",
@@ -24123,6 +24575,244 @@
     "test_result": "New presentations target4passed; existing relevant core/model/host targets passed wave10.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "unreviewed",
+    "superseded": false
+  },
+  {
+    "feature_id": "table109_width_entries_required_and_pre20_standard14_exception",
+    "clause": "9.6.2.1",
+    "verdict": "partial",
+    "requirement": "FirstChar, LastChar, Widths, and FontDescriptor are required for simple Type 1/TrueType fonts except that each is optional in PDF 1.0–1.7 for the standard 14 fonts. EC3 removes the old all-four-or-none rule; the table's per-entry standard-14 exception remains.",
+    "source_location": "ISO 32000-2 §9.6.2.1 Table 109 rows FirstChar, LastChar, Widths, FontDescriptor; EC3 Issue #47/#48, physical PDF page 329 (printed page 314), strikeout over the FontDescriptor-row paragraph.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/metrics.rs",
+      "crates/pdf-font/src/loading.rs",
+      "crates/pdf-archive/src/table/fonts.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/simple_font_widths_audit.rs::pdf_17_standard_fourteen_may_omit_the_width_fields_and_uses_published_metrics",
+      "crates/pdf-model/tests/simple_font_widths_audit.rs::pdf_17_standard_fourteen_can_state_widths_without_a_fontdescriptor"
+    ],
+    "evidence": "The reader accepts both the all-omitted standard Courier dictionary and a partial dictionary with FirstChar/LastChar/Widths but no FontDescriptor; interpreted glyph origins expose the selected metric. The first is a current fallback policy, not proof that PDF 2.0 normatively requires published metrics. The complete PDF1.7 inputs are consumed under effective PDF2.0 rules; the partial dictionary is not claimed conforming under separate ISO32000-1 producer rules. Presence/indirection remain producer constraints, not an inferred rejection duty.",
+    "test_command": "cargo test -p pdf-model --test simple_font_widths_audit; cargo test -p pdf-font --lib",
+    "test_result": "4 new consumer tests pass; pdf-font370 unit tests pass (simple-font-widths-target.log and font-unit-target.log).",
+    "remaining_work": "No PDF2.0 producer/writer conformance certification; required-entry absence and malformed shapes remain separate.",
+    "parent_review": "Bounded width review. Root read effective Table109 and EC3#47/#48/#453, actual metrics/fallback consumers, selected ADRs and assertion bodies. Not full font/program/profile certification.",
+    "reviewer": "simple_font_widths_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-ec3-policy-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "feature_id": "firstchar_lastchar_bound_widths_indexing",
+    "clause": "9.6.2.1",
+    "verdict": "confirmed",
+    "requirement": "Widths contains one width for each character code from FirstChar through LastChar; element i gives the width for code FirstChar+i.",
+    "source_location": "ISO 32000-2 §9.6.2.1 Table 109 /Widths and adjacent text.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/metrics.rs::stated_widths",
+      "crates/pdf-model/src/content/text/show.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/metrics.rs::trailing_array_entries_do_not_extend_last_char",
+      "crates/pdf-model/tests/simple_font_widths_audit.rs::embedded_truetype_widths_are_indexed_from_firstchar_and_place_each_glyph"
+    ],
+    "evidence": "The existing unit assertion bounds a trailing array entry at LastChar. The draft's four consecutive character codes have different expected origins at the C/D transition, and its embedded TrueType program's actual advances agree with all four stated values; this exercises the Table 109 mapping through text placement. Parent confirms four glyph marks are required (non-vacuous) and notes only the first three advances are observable. The overlong unit fixture is malformed recovery evidence; the embedded consumer supplies the valid indexed case.",
+    "test_command": "cargo test -p pdf-model --test simple_font_widths_audit; cargo test -p pdf-font --lib",
+    "test_result": "4 new consumer tests pass; pdf-font370 unit tests pass (simple-font-widths-target.log and font-unit-target.log).",
+    "remaining_work": "Short/reversed malformed ranges and overlong arrays are recovery/repair behavior, not claimed as ISO reader obligations here.",
+    "parent_review": "Bounded width review. Root read effective Table109 and EC3#47/#48/#453, actual metrics/fallback consumers, selected ADRs and assertion bodies. Not full font/program/profile certification.",
+    "reviewer": "simple_font_widths_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-ec3-policy-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "feature_id": "width_units_drive_text_glyph_origins",
+    "clause": "9.6.2.1",
+    "verdict": "confirmed",
+    "requirement": "Width values are in glyph-space units where 1000 units equal one text-space unit; the selected font width controls horizontal text advance and glyph placement.",
+    "source_location": "ISO 32000-2 §9.6.2.1, text following Table 109; text showing/advance rules are outside this clause and consumed through §9.4.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/metrics.rs::simple_widths",
+      "crates/pdf-model/src/content/text/show.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/simple_font_widths_audit.rs::embedded_truetype_widths_are_indexed_from_firstchar_and_place_each_glyph",
+      "crates/pdf-model/tests/simple_font_widths_audit.rs::mismatched_missingwidth_characterizes_the_readers_layout_policy"
+    ],
+    "evidence": "Embedded TrueType consumer asserts four glyph origins at10,26.008,42.016,59.344 from integer widths667/667/722. It observes A/B/C advances, not final D advance. The separate mismatched MissingWidth case is implementation-policy evidence under EC3#453.",
+    "test_command": "cargo test -p pdf-model --test simple_font_widths_audit; cargo test -p pdf-font --lib",
+    "test_result": "4 new consumer tests pass; pdf-font370 unit tests pass (simple-font-widths-target.log and font-unit-target.log).",
+    "remaining_work": "The parent should verify rendered command semantics if promoting; no pixel-raster claim is made.",
+    "parent_review": "Bounded width review. Root read effective Table109 and EC3#47/#48/#453, actual metrics/fallback consumers, selected ADRs and assertion bodies. Not full font/program/profile certification.",
+    "reviewer": "simple_font_widths_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-ec3-policy-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "feature_id": "codes_outside_width_range_use_missingwidth",
+    "clause": "9.6.2.1",
+    "verdict": "policy-characterized",
+    "requirement": "For a code outside the FirstChar..LastChar width range, the width is obtained from the font descriptor's MissingWidth entry (Table 120 default applies if that entry is absent). EC3#453 makes results implementation-dependent when the actual glyph widths disagree with MissingWidth.",
+    "source_location": "ISO 32000-2 §9.6.2.1 text following Table 109; Table 120 /MissingWidth.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/metrics.rs::simple_widths",
+      "crates/pdf-font/src/loading.rs",
+      "crates/pdf-model/src/content/text/show.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/simple_font_widths_audit.rs::mismatched_missingwidth_characterizes_the_readers_layout_policy"
+    ],
+    "evidence": "Parent rejected the draft normative classification: Courier B is actually600 units while MissingWidth is400. The renamed passing test pins this reader choosing400, which #453 permits but does not uniquely require. B starts at22 after in-range A; C starts at30 after B. No glyph after C is observed, so the test proves B advance, not C advance.",
+    "test_command": "cargo test -p pdf-model --test simple_font_widths_audit; cargo test -p pdf-font --lib",
+    "test_result": "4 new consumer tests pass; pdf-font370 unit tests pass (simple-font-widths-target.log and font-unit-target.log).",
+    "remaining_work": "Table 120's general descriptor defaults are not fully audited in this shard.",
+    "parent_review": "Bounded width review. Root read effective Table109 and EC3#47/#48/#453, actual metrics/fallback consumers, selected ADRs and assertion bodies. Not full font/program/profile certification.",
+    "errata": "EC3#453 physical360/printed345, strikeout4330 and caret4331 in Table120; index heading9.8.2 is a page-straddle artifact.",
+    "reviewer": "simple_font_widths_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-ec3-policy-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "policy-characterized",
+    "superseded": false
+  },
+  {
+    "feature_id": "stated_widths_consistent_with_embedded_font_program",
+    "clause": "9.6.2.1",
+    "verdict": "partial",
+    "requirement": "The producer-stated Widths shall be consistent with the actual widths in the embedded font program.",
+    "source_location": "ISO 32000-2 §9.6.2.1, sentence following Table 109 /Widths.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/metrics.rs::stated_widths",
+      "crates/pdf-font/src/loading.rs::program_advance",
+      "crates/pdf-model/src/content/text/show.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/loading.rs::the_pdf_widths_agree_with_the_font_programs_own_advances",
+      "crates/pdf-model/tests/simple_font_widths_audit.rs::embedded_truetype_widths_are_indexed_from_firstchar_and_place_each_glyph"
+    ],
+    "evidence": "The corpus comparison inspects stated and embedded advances but is not a reader rejection test. The valid TrueType draft chooses table widths that agree with Liberation Sans hmtx; ordinary layout uses the dictionary metrics while program_advance exposes the embedded metric separately. Existing corpus test requires >200 comparable widths and allows up to7 mismatches plus a5% bound. It skips zeros/unreachable glyphs; it is a mapping regression screen, not exhaustive producer conformance validation.",
+    "test_command": "cargo test -p pdf-model --test simple_font_widths_audit; cargo test -p pdf-font --lib",
+    "test_result": "4 new consumer tests pass; pdf-font370 unit tests pass (simple-font-widths-target.log and font-unit-target.log).",
+    "remaining_work": "This is a producer conformance requirement. No reader SHALL-to-reject inconsistent dictionaries was identified, and no mismatch is asserted as an error.",
+    "parent_review": "Bounded width review. Root read effective Table109 and EC3#47/#48/#453, actual metrics/fallback consumers, selected ADRs and assertion bodies. Not full font/program/profile certification.",
+    "reviewer": "simple_font_widths_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-ec3-policy-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "feature_id": "truetype_simple_fonts_reuse_table109_width_rules",
+    "clause": "9.6.3",
+    "verdict": "partial",
+    "requirement": "TrueType simple fonts use the Table 109 FirstChar/LastChar/Widths behavior, with their outlines and advances read from TrueType/OpenType font programs.",
+    "source_location": "ISO 32000-2 §9.6.3, paragraph referring to the general simple-font entries; §9.6.2.1 Table 109.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/truetype.rs",
+      "crates/pdf-font/src/metrics.rs",
+      "crates/pdf-model/src/content/text/show.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/simple_font_widths_audit.rs::embedded_truetype_widths_are_indexed_from_firstchar_and_place_each_glyph",
+      "crates/pdf-font/src/loading.rs::the_program_states_an_advance_of_its_own"
+    ],
+    "evidence": "The scratch complete PDF embeds a TrueType font and checks actual glyph command origins driven by the stated widths. It does not audit the full sfnt mapping, variation-font name generation, or all §9.6.3 rules.",
+    "test_command": "cargo test -p pdf-model --test simple_font_widths_audit; cargo test -p pdf-font --lib",
+    "test_result": "4 new consumer tests pass; pdf-font370 unit tests pass (simple-font-widths-target.log and font-unit-target.log).",
+    "remaining_work": "TrueType outline selection, cmap rules, and all non-width requirements of §9.6.3 remain outside this shard.",
+    "parent_review": "Bounded width review. Root read effective Table109 and EC3#47/#48/#453, actual metrics/fallback consumers, selected ADRs and assertion bodies. Not full font/program/profile certification.",
+    "reviewer": "simple_font_widths_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-ec3-policy-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "feature_id": "ec3_removes_standard14_all_or_none_override_text",
+    "clause": "9.6.2.1",
+    "verdict": "confirmed",
+    "requirement": "The old all-four-present-or-absent rule and accompanying assertion that stating the fields enables overriding a standard-14 font are struck by EC3; do not apply them as effective PDF 2.0 requirements.",
+    "source_location": "EC3 Issue #47/#48, physical PDF page 329 (printed page 314); annotation geometry overlaps the FontDescriptor row paragraph in Table 109.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/metrics.rs",
+      "crates/pdf-font/src/loading.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/simple_font_widths_audit.rs::pdf_17_standard_fourteen_can_state_widths_without_a_fontdescriptor"
+    ],
+    "evidence": "The source PDF annotation strikeout targets the complete old paragraph, including the all-or-none sentence and the standard-font override clause. The PDF 1.7 partial standard Courier case is accepted and its stated widths place the glyphs. Parent inspected strikeout12053 and caret12055, compatibility strikeout12061/caret12063 on physical329. Cross-reference replacement remains; deletion does not itself make the fixture ISO32000-1-conforming.",
+    "test_command": "cargo test -p pdf-model --test simple_font_widths_audit; cargo test -p pdf-font --lib",
+    "test_result": "4 new consumer tests pass; pdf-font370 unit tests pass (simple-font-widths-target.log and font-unit-target.log).",
+    "remaining_work": "Do not generalize this deletion into a rule that arbitrary malformed combinations must be accepted.",
+    "parent_review": "Bounded width review. Root read effective Table109 and EC3#47/#48/#453, actual metrics/fallback consumers, selected ADRs and assertion bodies. Not full font/program/profile certification.",
+    "reviewer": "simple_font_widths_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-ec3-policy-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "feature_id": "standard14_metrics_availability_is_not_a_current_reader_shall",
+    "clause": "9.6.2.2",
+    "verdict": "confirmed",
+    "requirement": "EC3 strikes the standard-14 availability SHALL and the §9.6.2.1 processor SHALL to provide missing standard-font widths/descriptor data. Published-metric fallback remains a useful implementation choice; the remaining optionality is not itself a mandate for a particular fallback source.",
+    "source_location": "EC3 Issue #47/#48, physical PDF pages 329–330 (printed pages 314–315): strikeout on the compatibility paragraph and standard-font availability paragraph; caret/NOTE changes demote the preceding paragraph.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/standard_metrics.rs",
+      "crates/pdf-font/src/metrics.rs",
+      "crates/pdf-font/src/loading.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/simple_font_widths_audit.rs::pdf_17_standard_fourteen_may_omit_the_width_fields_and_uses_published_metrics",
+      "crates/pdf-font/src/standard_metrics.rs::known_widths_are_what_the_specification_says"
+    ],
+    "evidence": "The reader's published metrics allow the valid omitted-field PDF 1.7 fixture to place Courier glyphs at 600/1000 em. That proves current behavior, not the removed reader SHALL. The conformance obligation applies to producer statements; availability and implementation quality are distinct. Physical330 caret4098 makes the preceding paragraph informative,4102/4104 changes shall to are required to, and4110 strikes the standalone availability sentence. This retires the quoted mandate, not the general rendering obligation or desirability of deterministic substitutes.",
+    "test_command": "cargo test -p pdf-model --test simple_font_widths_audit; cargo test -p pdf-font --lib",
+    "test_result": "4 new consumer tests pass; pdf-font370 unit tests pass (simple-font-widths-target.log and font-unit-target.log).",
+    "remaining_work": "ADR claims relying on the retired SHALL are qualified in decisions.json; no production behavior change is proposed.",
+    "parent_review": "Bounded width review. Root read effective Table109 and EC3#47/#48/#453, actual metrics/fallback consumers, selected ADRs and assertion bodies. Not full font/program/profile certification.",
+    "reviewer": "simple_font_widths_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-ec3-policy-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "feature_id": "width_array_malformed_shapes_and_pdfa_rules_bounded_out",
+    "clause": "9.6.2.1",
+    "verdict": "unreviewed",
+    "requirement": "Malformed short/reversed/overlong Widths recovery and PDF/A/ISO 32000-1 all-or-none writer/validator rules are outside this PDF 2.0 valid-input reader audit except for identifying the boundary.",
+    "source_location": "Table 109 cardinality statement; PDF/A requirement appears in the separate ISO 19005 profile and ISO 32000-1 Table 111, not as a PDF 2.0 reader rule.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/metrics.rs",
+      "crates/pdf-archive/src/table/fonts.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/metrics.rs::a_short_array_has_no_invented_widths_and_a_reversed_range_has_none",
+      "crates/pdf-archive/src/table/fonts.rs::a_simple_font_states_its_widths_unless_a_standard_one_states_none_of_the_four"
+    ],
+    "evidence": "Those assertions and consumers exist, but are not promoted here to a general ISO 32000-2 reader duty. The archive assertion belongs to a different profile/conformance context.",
+    "test_command": "cargo test -p pdf-model --test simple_font_widths_audit; cargo test -p pdf-font --lib",
+    "test_result": "4 new consumer tests pass; pdf-font370 unit tests pass (simple-font-widths-target.log and font-unit-target.log).",
+    "remaining_work": "No full malformed-font recovery or PDF/A conformance review in this shard.",
+    "parent_review": "Bounded width review. Root read effective Table109 and EC3#47/#48/#453, actual metrics/fallback consumers, selected ADRs and assertion bodies. Not full font/program/profile certification.",
+    "reviewer": "simple_font_widths_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-ec3-policy-corrections",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "unreviewed",
     "superseded": false

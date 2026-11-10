@@ -1,30 +1,30 @@
 {
   "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
-  "checkpoint_utc": "2026-11-10T14:36:52.006118+00:00",
+  "checkpoint_utc": "2026-11-10T14:44:18.526435+00:00",
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
-    "last_weekly_used_percent": 71,
+    "last_weekly_used_percent": 72,
     "target_approx_percent": 92,
     "stop_new_work_near_percent": 87,
     "probe": "python scratchpad/r1983/spec-audit/usage.py",
     "warning": "Percent is account allowance, not convertible fixed tokens; counters may lag. Continue extending while useful work and room remain."
   },
   "agents": {
-    "associated_files_audit": "annotation_border_audit",
+    "associated_files_audit": "annotation_flags_audit",
     "catalog_pages_audit": "annotation_appearance_audit",
-    "inapplicable_conditions_audit": "font_descriptors_audit"
+    "inapplicable_conditions_audit": "font_descriptor_cid_audit"
   },
   "next_candidates": [],
   "latest_broad": {
-    "log": "nextest-nine-crates-wave10.log",
-    "run": 5663,
-    "passed": 5625,
+    "log": "nextest-nine-crates-wave11.log",
+    "run": 5677,
+    "passed": 5639,
     "expected_failed": 38,
     "skipped": 53,
     "unexpected": 0
   },
-  "latest_clippy": "clippy-masking-timing-final.log",
+  "latest_clippy": "clippy-widths-borders-final.log",
   "new_failures_since_wave8": [
     "catalog Named OpenAction consumer missing",
     "page-visible neighbor omitted",
@@ -49,18 +49,20 @@
     "Source physical page=printed+15; annotation indexes use physical. Do not assert no page marks when checking wrong pagination.",
     "Filter image/base64 lines before printing spec Markdown.",
     "Review draft assertions and valid fixtures: agents have inverted assertions, omitted CalRGB array brackets, wrong imports and stale ADR mechanisms.",
-    "Accepted partial records are not complete-clause/whole-ADR certification."
+    "Accepted partial records are not complete-clause/whole-ADR certification.",
+    "CLAUDE.md requires unsigned commits; use git -c commit.gpgsign=false commit because inherited global setting enables GPG."
   ],
   "branch": "audit/specification-evidence-2026-11-10",
   "pending_parent_review": [
-    "simple_font_widths_audit",
     "font_descriptors_audit",
-    "annotation_border_audit",
-    "annotation_appearance_audit"
+    "annotation_appearance_audit",
+    "annotation_flags_audit",
+    "font_descriptor_cid_audit"
   ],
   "pushed_commits": [
     "a299121c",
     "f413d15f",
-    "44a167d1"
+    "44a167d1",
+    "ebc9f42b"
   ]
 }

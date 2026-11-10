@@ -3785,19 +3785,34 @@
   {
     "clause": "9.6.2.1",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
-    "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "review_state": "partial-parent-review",
+    "artifact_directories": [
+      "simple_font_widths_audit"
+    ],
+    "parent_reviewed_artifacts": [
+      "simple_font_widths_audit"
+    ],
+    "feature_record_verdicts": {
+      "confirmed": 3,
+      "partial": 2,
+      "policy-characterized": 1,
+      "unreviewed": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
     "clause": "9.6.2.2",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
-    "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "review_state": "partial-parent-review",
+    "artifact_directories": [
+      "simple_font_widths_audit"
+    ],
+    "parent_reviewed_artifacts": [
+      "simple_font_widths_audit"
+    ],
+    "feature_record_verdicts": {
+      "confirmed": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
@@ -3812,10 +3827,16 @@
   {
     "clause": "9.6.3",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
-    "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "review_state": "partial-parent-review",
+    "artifact_directories": [
+      "simple_font_widths_audit"
+    ],
+    "parent_reviewed_artifacts": [
+      "simple_font_widths_audit"
+    ],
+    "feature_record_verdicts": {
+      "partial": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
@@ -4121,19 +4142,30 @@
   {
     "clause": "9.8.3.2",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "font_descriptor_cid_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "supported as a conditional input; malformed length is ignored for substitution, with no general reader rejection inferred": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
     "clause": "9.8.3.3",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "font_descriptor_cid_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "optional recommendation; no reader debt": 1,
+      "reader behavior present; Table 123 collection matrix needs a discriminating test; supplement handling is a scoped residual": 1,
+      "reader behavior supported; do not count validator rejection as required": 1,
+      "supported for substitution attributes that this reader consumes": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
@@ -5399,13 +5431,19 @@
   {
     "clause": "12.5.4",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "annotation_border_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "annotation_border_audit"
+    ],
     "feature_record_verdicts": {
-      "confirmed": 1
+      "confirmed": 12,
+      "partial": 3,
+      "partial-confirmed-with-new-test": 1,
+      "partially-tested": 1,
+      "producer-constraint": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
