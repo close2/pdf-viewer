@@ -11324,7 +11324,7 @@
     "entry_kind": "direct",
     "requirement": "A FileAttachment annotation is identified by /Subtype /FileAttachment; this is a required producer entry and is recognized by the reader's annotation dispatch.",
     "source_location": "§12.5.6.15, Table 187, one-based physical p. 511 / printed p. 496",
-    "errata": "No semantic EC3 amendment to Table187/12.5.6.15 on physical511. Nearby #676 on physical512 targets Screen Table190, not Movie.",
+    "errata": "No semantic EC3 amendment to Table187/12.5.6.15 on physical511. EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change.",
     "ledger_status": "implemented",
     "code_locations": [
       "crates/pdf-model/src/annotation.rs::STANDARD_SUBTYPES",
@@ -11354,7 +11354,7 @@
     "entry_kind": "direct",
     "requirement": "Table 187 requires /FS to identify the file associated with this annotation. Activating the annotation exhibits/extracts that associated file; the section's NOTE describes the extraction and view-or-store opportunity, while §12.5.1 supplies the general activation behavior.",
     "source_location": "§12.5.6.15 opening paragraph and Table 187 /FS; §12.5.1 activation, one-based physical p. 511 / printed p. 496 for Table 187",
-    "errata": "No semantic EC3 amendment to Table187/12.5.6.15 on physical511. Nearby #676 on physical512 targets Screen Table190, not Movie.",
+    "errata": "No semantic EC3 amendment to Table187/12.5.6.15 on physical511. EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change.",
     "ledger_status": "implemented",
     "code_locations": [
       "crates/pdf-model/src/attachment.rs::of_annotation",
@@ -11384,7 +11384,7 @@
     "entry_kind": "conditional",
     "requirement": "When Contents is present, interactive processor shall use it rather than optional FileSpec Desc. The clause provides no nonempty-string exception.",
     "source_location": "§12.5.6.15 paragraph immediately before Table 187, one-based physical p. 511 / printed p. 496; Table 166 /Contents and Table 43 /Desc are forward references",
-    "errata": "No semantic EC3 amendment to Table187/12.5.6.15 on physical511. Nearby #676 on physical512 targets Screen Table190, not Movie.",
+    "errata": "No semantic EC3 amendment to Table187/12.5.6.15 on physical511. EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change.",
     "ledger_status": "implemented",
     "code_locations": [
       "crates/pdf-model/src/attachment.rs::of_annotation"
@@ -11411,7 +11411,7 @@
     "entry_kind": "direct",
     "requirement": "Table 187's optional /Name names the displayed icon and defaults to PushPin. Writers should include it. Readers should provide predefined appearances for at least Graph, PushPin, Paperclip, and Tag; this is a recommendation, not a SHALL.",
     "source_location": "Table 187 /Name, one-based physical p. 511 / printed p. 496",
-    "errata": "No semantic EC3 amendment to Table187/12.5.6.15 on physical511. Nearby #676 on physical512 targets Screen Table190, not Movie.",
+    "errata": "No semantic EC3 amendment to Table187/12.5.6.15 on physical511. EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change.",
     "ledger_status": "implemented",
     "code_locations": [
       "crates/pdf-model/src/appearance.rs::symbol_icon",
@@ -11441,7 +11441,7 @@
     "entry_kind": "forward-reference",
     "requirement": "Stored annotation appearance selection and placement are governed by §12.5.5 and Table 166 /AP, not by this subtype-specific clause. When a usable normal appearance is present, /Name's predefined symbol is only relevant to the constructed-appearance path.",
     "source_location": "§12.5.5 (forward reference from the general annotation appearance rules); Table 166 /AP; §12.5.6.15 Table 187 /Name",
-    "errata": "No semantic EC3 amendment to Table187/12.5.6.15 on physical511. Nearby #676 on physical512 targets Screen Table190, not Movie.",
+    "errata": "No semantic EC3 amendment to Table187/12.5.6.15 on physical511. EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change.",
     "ledger_status": "implemented",
     "code_locations": [
       "crates/pdf-model/src/annotation.rs::decided",
@@ -30815,6 +30815,484 @@
     "superseded": false
   },
   {
+    "clause": "12.5.6.18",
+    "feature_id": "table190_screen_subtype_and_title",
+    "requirement": "Table 190 requires /Subtype /Screen. /T is an optional title; its mere presence does not require a reader action in this clause.",
+    "source_location": "Screen opening printed497/physical512; Table190 and P/AP prose printed498/physical513. Parent verified actual layout page, not nearby heading.",
+    "errata": "#676physical512 is typographic Movie in Table189 T, not Screen. Physical513 #42 is within neighboring Widget text, not these Screen rules.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::stored_appearance",
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::every_annotation_type_table_171_defines_is_answered_by_its_own_clause",
+      "crates/pdf-model/tests/annotations.rs::a_screen_annotation_without_an_appearance_draws_nothing_and_is_not_a_gap"
+    ],
+    "verdict": "partial-dispatch-tested-title-not-consumer",
+    "evidence": "Screen is in the standard-subtype table and the dispatch test confirms a recognized subtype avoids the unknown-subtype catch-all. The Screen-specific paired test directly asserts absent AP and positive AP. No requirement here says a title must be surfaced by a particular host; `/T` is metadata and action/UI fields are not independently tested by these citations.",
+    "test_command": null,
+    "test_result": "screen-states-reviewed-target.log:4PASS; selected old assertion bodies inspected. No playback, trap generation or full press-workflow certification.",
+    "parent_review": " EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change. Added missing TrapNet LastModified; strengthened pixel and exact handoff assertions and added two-state AS test. No whole-clause certification.",
+    "reviewer": "screen_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-dispatch-tested-title-not-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.18",
+    "feature_id": "table190_mk_icon_is_input_for_stored_ap",
+    "requirement": "Optional /MK is an appearance-characteristics dictionary; its /I icon is an input used in generating the appearance referenced by /AP. It does not direct the reader to synthesize a default Screen appearance when /AP is absent.",
+    "source_location": "Screen opening printed497/physical512; Table190 and P/AP prose printed498/physical513. Parent verified actual layout page, not nearby heading.",
+    "errata": "#676physical512 is typographic Movie in Table189 T, not Screen. Physical513 #42 is within neighboring Widget text, not these Screen rules.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::stored_appearance",
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_screen_annotation_without_an_appearance_draws_nothing_and_is_not_a_gap"
+    ],
+    "verdict": "confirmed-selected-no-reader-obligation-to-generate",
+    "evidence": "The test's bare Screen contains no AP and asserts no marks, then a paired Screen with stored AP asserts its extent. The production dispatch does not construct an appearance for Screen; it either draws the file's stored appearance through the common path or returns Nothing. The optional /MK `/I` language describes an input when an appearance is generated by a producer, not an obligation for this reader to create one. No test is owed for a generation duty under the cited row.",
+    "test_command": null,
+    "test_result": "screen-states-reviewed-target.log:4PASS; selected old assertion bodies inspected. No playback, trap generation or full press-workflow certification.",
+    "parent_review": " EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change. Added missing TrapNet LastModified; strengthened pixel and exact handoff assertions and added two-state AS test. No whole-clause certification.",
+    "reviewer": "screen_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-no-reader-obligation-to-generate",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.18",
+    "feature_id": "screen_a_aa_activation_and_trigger_actions",
+    "requirement": "Optional /A names the action to perform when the Screen annotation is activated. Optional /AA defines behavior for trigger events. These are reader-facing action routes; their action subtype/event semantics belong to §§12.6.3–12.6.4.",
+    "source_location": "Screen opening printed497/physical512; Table190 and P/AP prose printed498/physical513. Parent verified actual layout page, not nearby heading.",
+    "errata": "#676physical512 is typographic Movie in Table189 T, not Screen. Physical513 #42 is within neighboring Widget text, not these Screen rules.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::stored_appearance",
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/renditions.rs::a_viable_clip_is_reported_and_handed_over_at_the_default_level",
+      "crates/viewer-core/tests/renditions.rs::a_screen_annotation_its_page_does_not_list_executes_nothing"
+    ],
+    "verdict": "code-supported-with-screen-rendition-consumer",
+    "evidence": "activate_object reads `/A` through the generic action dispatcher. A Screen Rendition action reaches Rendition::unplaced, then viability/restriction handling and an Event::Media handoff. The public positive test asserts the actual handed-off clip; the negative test asserts a Screen absent from its page Annots is not executed. Playback/decode itself is excluded by A254. The generic trigger pipeline is subtype-independent and owned by §12.6.3; this shard does not recertify its event matrix.",
+    "test_command": null,
+    "test_result": "screen-states-reviewed-target.log:4PASS; selected old assertion bodies inspected. No playback, trap generation or full press-workflow certification.",
+    "parent_review": " EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change. Added missing TrapNet LastModified; strengthened pixel and exact handoff assertions and added two-state AS test. No whole-clause certification.",
+    "reviewer": "screen_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-with-screen-rendition-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.18",
+    "feature_id": "screen_p_is_valid_for_rendition_action",
+    "requirement": "When a Screen annotation is referenced by a rendition action, its /P must reference a valid page object and the annotation must be in that page's /Annots array for the action to be valid. The condition applies because this implementation now performs the in-scope media handoff; actual clip playback remains excluded.",
+    "source_location": "Screen opening printed497/physical512; Table190 and P/AP prose printed498/physical513. Parent verified actual layout page, not nearby heading.",
+    "errata": "#676physical512 is typographic Movie in Table189 T, not Screen. Physical513 #42 is within neighboring Widget text, not these Screen rules.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/action.rs::Rendition::unplaced",
+      "crates/viewer-core/src/interact.rs::rendered"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/renditions.rs::a_screen_annotation_its_page_does_not_list_executes_nothing",
+      "crates/viewer-core/tests/screen_annotation_audit.rs::rendition_action_requires_screen_p_to_be_its_page"
+    ],
+    "verdict": "confirmed-selected-page-and-membership-preconditions",
+    "evidence": "New actual Command::Activate handoff asserts exact clip.mp4/moov, with no Open handoff. Changing only P to Catalog suppresses handoff and reports non-Page. Exact xref controls pass. Existing test covers valid Page missing annotation membership. Rendition::unplaced checks both. ADR0901 exclusion premise is superseded.",
+    "test_command": null,
+    "test_result": "screen-states-reviewed-target.log:4PASS; selected old assertion bodies inspected. No playback, trap generation or full press-workflow certification.",
+    "parent_review": " EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change. Added missing TrapNet LastModified; strengthened pixel and exact handoff assertions and added two-state AS test. No whole-clause certification.",
+    "reviewer": "screen_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-page-and-membership-preconditions",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.18",
+    "feature_id": "screen_normal_ap_used_for_default_view_and_print",
+    "requirement": "The normal appearance in /AP provides the Screen's visual appearance for printing and default display when a media clip is not playing. Without /AP, the Screen has no default visual appearance and shall not be printed.",
+    "source_location": "Screen opening printed497/physical512; Table190 and P/AP prose printed498/physical513. Parent verified actual layout page, not nearby heading.",
+    "errata": "#676physical512 is typographic Movie in Table189 T, not Screen. Physical513 #42 is within neighboring Widget text, not these Screen rules.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::stored_appearance",
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_screen_annotation_without_an_appearance_draws_nothing_and_is_not_a_gap",
+      "crates/pdf-model/tests/print_intent.rs::table_167s_print_bit_decides_the_printed_page_and_the_view_bits_decide_the_screen",
+      "crates/viewer-core/tests/screen_annotation_audit.rs::screen_without_ap_is_not_printed_but_stored_normal_ap_is"
+    ],
+    "verdict": "confirmed-selected-view-print",
+    "evidence": "Complete PDF tests exact transparent center without AP and opaque red stored AP in both View and Print; interpretation complete and xref exact. Screen clause explicitly directs no default appearance when AP absent; no playback asserted.",
+    "test_command": null,
+    "test_result": "screen-states-reviewed-target.log:4PASS; selected old assertion bodies inspected. No playback, trap generation or full press-workflow certification.",
+    "parent_review": " EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change. Added missing TrapNet LastModified; strengthened pixel and exact handoff assertions and added two-state AS test. No whole-clause certification.",
+    "reviewer": "screen_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-view-print",
+    "superseded": false
+  },
+  {
+    "clause": "14.11.3",
+    "feature_id": "printer_mark_normal_appearance",
+    "requirement": "The visual presentation of a PrinterMark shall be a Form XObject in the normal /AP entry.",
+    "source_location": "§14.11.3 appearance paragraph, §14.11.3 ISO printed pp. 818–819 / physical pp. 833–834; Tables 398–399.",
+    "errata": "No EC3 annotations on physical pp. 514, 833–834 alter the PrinterMark rules; the relevant pages have no Issue annotations.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::stored_appearance",
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::no_table_171_subtype_is_refused_with_the_catch_all_s_sentence (negative/missing AP only)",
+      "crates/viewer-core/tests/screen_annotation_audit.rs::printer_mark_and_legacy_trapnet_render_their_stored_appearance_for_view_and_print"
+    ],
+    "verdict": "confirmed-selected-stored-appearance-consumer",
+    "evidence": "New valid fixture with F68 renders exact red pixel in View/Print. TrapNet is sole/last annotation, has named normal state plus mandatory LastModified. Parent corrected draft missing change-tracking entry. Does not certify producer validation or regeneration.",
+    "test_command": null,
+    "test_result": "screen-states-reviewed-target.log:4PASS; selected old assertion bodies inspected. No playback, trap generation or full press-workflow certification.",
+    "parent_review": " EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change. Added missing TrapNet LastModified; strengthened pixel and exact handoff assertions and added two-state AS test. No whole-clause certification.",
+    "reviewer": "screen_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-stored-appearance-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "14.11.3",
+    "feature_id": "printer_mark_alternate_normal_states",
+    "requirement": "If multiple normal appearance streams are supplied, they are alternate appearances; /AS designates the selected state.",
+    "source_location": "§14.11.3 appearance paragraph, §14.11.3 ISO printed pp. 818–819 / physical pp. 833–834; Tables 398–399.",
+    "errata": "No EC3 annotations on physical pp. 514, 833–834 alter the PrinterMark rules; the relevant pages have no Issue annotations.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::stored_appearance",
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::the_pointer_chooses_between_an_annotations_appearances (Widget only)",
+      "crates/viewer-core/tests/screen_annotation_audit.rs::printer_mark_and_trapnet_as_select_the_named_normal_appearance"
+    ],
+    "verdict": "confirmed-selected-alternate-normal-states",
+    "evidence": "The common appearance resolver selects named normal states. The existing state test exercises Widget, so it does not independently prove PrinterMark uses /AS. This draft uses the single-appearance case only; alternate-state subtype-specific assertion remains residual. Parent added two actual normal alternatives: AS Red and Blue select exact distinct center pixels under both View and Print for both subtypes. All fixtures complete.",
+    "test_command": null,
+    "test_result": "screen-states-reviewed-target.log:4PASS; selected old assertion bodies inspected. No playback, trap generation or full press-workflow certification.",
+    "parent_review": " EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change. Added missing TrapNet LastModified; strengthened pixel and exact handoff assertions and added two-state AS test. No whole-clause certification.",
+    "reviewer": "screen_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-alternate-normal-states",
+    "superseded": false
+  },
+  {
+    "clause": "14.11.3",
+    "feature_id": "printer_mark_flags",
+    "requirement": "/AP and /F are required; when there is more than one normal appearance /AS is required. Print and ReadOnly flags shall be set and all other flags clear.",
+    "source_location": "§14.11.3 flag paragraph and Table 398, §14.11.3 ISO printed pp. 818–819 / physical pp. 833–834; Tables 398–399.",
+    "errata": "No EC3 annotations on physical pp. 514, 833–834 alter the PrinterMark rules; the relevant pages have no Issue annotations.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::stored_appearance",
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/print_intent.rs::table_167s_print_bit_decides_the_printed_page_and_the_view_bits_decide_the_screen (Square only)",
+      "crates/viewer-core/tests/screen_annotation_audit.rs::printer_mark_and_legacy_trapnet_render_their_stored_appearance_for_view_and_print"
+    ],
+    "verdict": "confirmed-selected-stored-appearance-consumer",
+    "evidence": "New valid fixture with F68 renders exact red pixel in View/Print. TrapNet is sole/last annotation, has named normal state plus mandatory LastModified. Parent corrected draft missing change-tracking entry. Does not certify producer validation or regeneration.",
+    "test_command": null,
+    "test_result": "screen-states-reviewed-target.log:4PASS; selected old assertion bodies inspected. No playback, trap generation or full press-workflow certification.",
+    "parent_review": " EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change. Added missing TrapNet LastModified; strengthened pixel and exact handoff assertions and added two-state AS test. No whole-clause certification.",
+    "reviewer": "screen_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-stored-appearance-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "14.11.3",
+    "feature_id": "printer_mark_rollover_down_never_displayed_or_printed",
+    "requirement": "Informative NOTE2 says PrinterMark R/D are never displayed or printed; normative text requires normal AP and ReadOnly flag.",
+    "source_location": "§14.11.3 appearance paragraph, §14.11.3 ISO printed pp. 818–819 / physical pp. 833–834; Tables 398–399.",
+    "errata": "No EC3 annotations on physical pp. 514, 833–834 alter the PrinterMark rules; the relevant pages have no Issue annotations.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::stored_appearance",
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::the_pointer_chooses_between_an_annotations_appearances (Widget control only)"
+    ],
+    "verdict": "informative-cross-reference-with-unverified-subtype-matrix",
+    "evidence": "Parent corrected draft SHALL wording: source is a NOTE. Shared stored selector can choose R/D from view state, while real pointer eligibility rejects ReadOnly nonwidgets; direct forced pointer state would not prove reachable UI behavior. No subtype-specific R/D consumer matrix was run; do not infer a defect from the generic selector alone.",
+    "test_command": null,
+    "test_result": "screen-states-reviewed-target.log:4PASS; selected old assertion bodies inspected. No playback, trap generation or full press-workflow certification.",
+    "parent_review": " EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change. Added missing TrapNet LastModified; strengthened pixel and exact handoff assertions and added two-state AS test. No whole-clause certification.",
+    "reviewer": "screen_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "informative-cross-reference-with-unverified-subtype-matrix",
+    "superseded": false
+  },
+  {
+    "clause": "14.11.3",
+    "feature_id": "printer_mark_trimbox_recommendation_and_labels",
+    "requirement": "The Rect should not intersect TrimBox (recommendation). Table 398 /MN is optional arbitrary mark identity; Table 399 /MarkStyle and /Colorants are optional labels/metadata, with colorant keys matching colorant names.",
+    "source_location": "§14.11.3 final paragraph and Tables 398–399, §14.11.3 ISO printed pp. 818–819 / physical pp. 833–834; Tables 398–399.",
+    "errata": "No EC3 annotations on physical pp. 514, 833–834 alter the PrinterMark rules; the relevant pages have no Issue annotations.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::stored_appearance",
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [],
+    "verdict": "no-screen-reader-duty-for-press-and-metadata",
+    "evidence": "Optional label/provenance entries and nonintersection SHOULD do not themselves require press operations. Parent rejected draft premise that repository cannot calculate separations: it has separation simulation. Selected metadata entries still do not independently impose a display obligation.",
+    "test_command": null,
+    "test_result": "screen-states-reviewed-target.log:4PASS; selected old assertion bodies inspected. No playback, trap generation or full press-workflow certification.",
+    "parent_review": " EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change. Added missing TrapNet LastModified; strengthened pixel and exact handoff assertions and added two-state AS test. No whole-clause certification.",
+    "reviewer": "screen_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-screen-reader-duty-for-press-and-metadata",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.21",
+    "feature_id": "trapnet_at_most_one_and_last_in_annots",
+    "requirement": "A page shall have at most one TrapNet annotation, and it shall be the last element in /Annots. This is a PDF producer/page-order constraint.",
+    "source_location": "§12.5.6.21 paragraph, ISO printed p. 500 / physical p. 515.",
+    "errata": "No EC3 annotations on physical pp. 515 or 841–842 affect TrapNet. Effective source includes the PDF 2.0 deprecation sentence.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::stored_appearance",
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [],
+    "verdict": "writer-constraint-reader-order-not-rejection",
+    "evidence": "The renderer traverses page annotations in Annots order; it does not enforce cardinality or reorder/reject a nonconforming page. One valid TrapNet draft is last by construction.",
+    "test_command": null,
+    "test_result": "screen-states-reviewed-target.log:4PASS; selected old assertion bodies inspected. No playback, trap generation or full press-workflow certification.",
+    "parent_review": " EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change. Added missing TrapNet LastModified; strengthened pixel and exact handoff assertions and added two-state AS test. No whole-clause certification.",
+    "reviewer": "screen_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "writer-constraint-reader-order-not-rejection",
+    "superseded": false
+  },
+  {
+    "clause": "14.11.6.2",
+    "feature_id": "trapnet_normal_appearance_and_alternates",
+    "requirement": "The trap-network form XObject shall be specified as normal /AP. If multiple networks are supplied, named normal appearances are alternatives selected by /AS.",
+    "source_location": "§14.11.6.2 appearance paragraphs, §14.11.6.2 ISO printed pp. 826–827 / physical pp. 841–842; Table 403.",
+    "errata": "No EC3 annotations on physical pp. 515 or 841–842 affect TrapNet. Effective source includes the PDF 2.0 deprecation sentence.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::stored_appearance",
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/screen_annotation_audit.rs::printer_mark_and_legacy_trapnet_render_their_stored_appearance_for_view_and_print",
+      "crates/viewer-core/tests/screen_annotation_audit.rs::printer_mark_and_trapnet_as_select_the_named_normal_appearance"
+    ],
+    "verdict": "confirmed-selected-alternate-normal-states",
+    "evidence": "New valid fixture with F68 renders exact red pixel in View/Print. TrapNet is sole/last annotation, has named normal state plus mandatory LastModified. Parent corrected draft missing change-tracking entry. Does not certify producer validation or regeneration. Parent added two actual normal alternatives: AS Red and Blue select exact distinct center pixels under both View and Print for both subtypes. All fixtures complete.",
+    "test_command": null,
+    "test_result": "screen-states-reviewed-target.log:4PASS; selected old assertion bodies inspected. No playback, trap generation or full press-workflow certification.",
+    "parent_review": " EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change. Added missing TrapNet LastModified; strengthened pixel and exact handoff assertions and added two-state AS test. No whole-clause certification.",
+    "reviewer": "screen_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-alternate-normal-states",
+    "superseded": false
+  },
+  {
+    "clause": "14.11.6.2",
+    "feature_id": "trapnet_required_entries_and_flags",
+    "requirement": "/AP, /AS, and /F shall be present; Print and ReadOnly shall be set and every other flag clear.",
+    "source_location": "§14.11.6.2 appearance and flag paragraph, §14.11.6.2 ISO printed pp. 826–827 / physical pp. 841–842; Table 403.",
+    "errata": "No EC3 annotations on physical pp. 515 or 841–842 affect TrapNet. Effective source includes the PDF 2.0 deprecation sentence.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::stored_appearance",
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/print_intent.rs::table_167s_print_bit_decides_the_printed_page_and_the_view_bits_decide_the_screen (Square only)",
+      "crates/viewer-core/tests/screen_annotation_audit.rs::printer_mark_and_legacy_trapnet_render_their_stored_appearance_for_view_and_print"
+    ],
+    "verdict": "confirmed-selected-stored-appearance-consumer",
+    "evidence": "New valid fixture with F68 renders exact red pixel in View/Print. TrapNet is sole/last annotation, has named normal state plus mandatory LastModified. Parent corrected draft missing change-tracking entry. Does not certify producer validation or regeneration.",
+    "test_command": null,
+    "test_result": "screen-states-reviewed-target.log:4PASS; selected old assertion bodies inspected. No playback, trap generation or full press-workflow certification.",
+    "parent_review": " EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change. Added missing TrapNet LastModified; strengthened pixel and exact handoff assertions and added two-state AS test. No whole-clause certification.",
+    "reviewer": "screen_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-stored-appearance-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "14.11.6.2",
+    "feature_id": "trapnet_rollover_down_never_printed",
+    "requirement": "Informative NOTE1 says TrapNet R/D are never printed; normative normal-AP and flags rules supply the operative behavior.",
+    "source_location": "§14.11.6.2 appearance paragraph, §14.11.6.2 ISO printed pp. 826–827 / physical pp. 841–842; Table 403.",
+    "errata": "No EC3 annotations on physical pp. 515 or 841–842 affect TrapNet. Effective source includes the PDF 2.0 deprecation sentence.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::stored_appearance",
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::the_pointer_chooses_between_an_annotations_appearances (Widget only)"
+    ],
+    "verdict": "informative-cross-reference-with-unverified-subtype-matrix",
+    "evidence": "Parent corrected draft SHALL wording: source is a NOTE. Shared stored selector can choose R/D from view state, while real pointer eligibility rejects ReadOnly nonwidgets; direct forced pointer state would not prove reachable UI behavior. No subtype-specific R/D consumer matrix was run; do not infer a defect from the generic selector alone.",
+    "test_command": null,
+    "test_result": "screen-states-reviewed-target.log:4PASS; selected old assertion bodies inspected. No playback, trap generation or full press-workflow certification.",
+    "parent_review": " EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change. Added missing TrapNet LastModified; strengthened pixel and exact handoff assertions and added two-state AS test. No whole-clause certification.",
+    "reviewer": "screen_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "informative-cross-reference-with-unverified-subtype-matrix",
+    "superseded": false
+  },
+  {
+    "clause": "14.11.6.2",
+    "feature_id": "table403_version_annotstates_lastmodified_condition",
+    "requirement": "/Version and /AnnotStates, when used, must describe the objects and annotation states affecting a trap network; they are mutually exclusive with /LastModified. If neither pair is supplied, /LastModified is required. A writer generating a new trap network must validate prior networks and regenerate stale networks.",
+    "source_location": "§14.11.6.2 state paragraphs and Table 403, §14.11.6.2 ISO printed pp. 826–827 / physical pp. 841–842; Table 403.",
+    "errata": "No EC3 amendment at physical pages 841–842.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [],
+    "verdict": "writer-condition-not-reached",
+    "evidence": "This conditional authoring duty is real, but no reachable trap-network generator exists. Reader rendering/preservation does not entail rejection or regeneration. Parent distinguishes the mandatory valid-file change-tracking fields from conditional regeneration. New reader fixture includes LastModified. Existing-content writer preservation/staleness across every transform is not certified.",
+    "test_command": null,
+    "test_result": "screen-states-reviewed-target.log:4PASS; selected old assertion bodies inspected. No playback, trap generation or full press-workflow certification.",
+    "parent_review": " EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change. Added missing TrapNet LastModified; strengthened pixel and exact handoff assertions and added two-state AS test. No whole-clause certification.",
+    "reviewer": "screen_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "writer-condition-not-reached",
+    "superseded": false
+  },
+  {
+    "clause": "14.11.6.2",
+    "feature_id": "table403_fontfauxing_optional_provenance",
+    "requirement": "/FontFauxing is optional and records fauxed font information for the trap process.",
+    "source_location": "§14.11.6.2 Table 403, §14.11.6.2 ISO printed pp. 826–827 / physical pp. 841–842; Table 403.",
+    "errata": "No EC3 amendment at physical pages 841–842.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [],
+    "verdict": "optional-provenance-no-reader-obligation",
+    "evidence": "No trap generator or press consumer exists. Optional provenance does not create an independent display obligation.",
+    "test_command": null,
+    "test_result": "screen-states-reviewed-target.log:4PASS; selected old assertion bodies inspected. No playback, trap generation or full press-workflow certification.",
+    "parent_review": " EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change. Added missing TrapNet LastModified; strengthened pixel and exact handoff assertions and added two-state AS test. No whole-clause certification.",
+    "reviewer": "screen_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "optional-provenance-no-reader-obligation",
+    "superseded": false
+  },
+  {
+    "clause": "14.11.6.2",
+    "feature_id": "trapnet_page_lastmodified_staleness",
+    "requirement": "If the page LastModified is newer than the trap network’s LastModified, the existing network is invalid and shall be regenerated.",
+    "source_location": "§14.11.6.2 state paragraphs, §14.11.6.2 ISO printed pp. 826–827 / physical pp. 841–842; Table 403.",
+    "errata": "No EC3 amendment at physical pages 841–842.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::stored_appearance",
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [],
+    "verdict": "writer-condition-not-reached",
+    "evidence": "This is a conditional regeneration direction to a trap-producing writer, not a reader MUST-reject. Current reachable code has no regeneration path.",
+    "test_command": null,
+    "test_result": "screen-states-reviewed-target.log:4PASS; selected old assertion bodies inspected. No playback, trap generation or full press-workflow certification.",
+    "parent_review": " EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change. Added missing TrapNet LastModified; strengthened pixel and exact handoff assertions and added two-state AS test. No whole-clause certification.",
+    "reviewer": "screen_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "writer-condition-not-reached",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.21",
+    "feature_id": "deprecated_trapnet_recommendation",
+    "requirement": "Trap networks are deprecated in PDF 2.0. §3.15 recommends that PDF processors ignore deprecated features; it is a SHOULD recommendation, not a MUST reader rejection. This product elects to render a stored TrapNet AP for compatibility.",
+    "source_location": "3.15 printed8/physical23,12.5.6.21 printed500/physical515,14.11.6.2 printed826/physical841.",
+    "errata": "No EC3 change to deprecation status on the relevant physical pages.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::stored_appearance",
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/screen_annotation_audit.rs::printer_mark_and_legacy_trapnet_render_their_stored_appearance_for_view_and_print"
+    ],
+    "verdict": "confirmed-with-qualified-recommendation-departure",
+    "evidence": "The accepted row's choice to keep TrapNet in Standard Subtypes and render an available stored appearance is reachable. The standard's `should ignore` recommendation does not mandate refusal; ledger `implemented` means the feature is supported, not that the PDF 2.0 SHOULD is followed. This is a documented choice against a recommendation rather than a conformance failure. Do not treat malformed TrapNet properties as a reason to reject in a reader absent a separate SHALL.",
+    "test_command": null,
+    "test_result": "screen-states-reviewed-target.log:4PASS; selected old assertion bodies inspected. No playback, trap generation or full press-workflow certification.",
+    "parent_review": " EC3#676 on physical512 changes bold Movie to plain text in Table189 T row; parent verified exact bbox against extracted words. No semantic change. Added missing TrapNet LastModified; strengthened pixel and exact handoff assertions and added two-state AS test. No whole-clause certification.",
+    "reviewer": "screen_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-with-qualified-recommendation-departure",
+    "superseded": false
+  },
+  {
     "feature_id": "table109_width_entries_required_and_pre20_standard14_exception",
     "clause": "9.6.2.1",
     "verdict": "partial",
@@ -31050,6 +31528,300 @@
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-ec3-policy-corrections",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "unreviewed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.16",
+    "feature_id": "12.5.6.16.subtype_and_sound_required",
+    "requirement": "Subtype is required to be Sound; Table188 Sound is a required stream defining the sound to be played on activation.",
+    "source_location": "Table188 Sound, printed497/physical512 (clause opening printed496/physical511). Parent verified actual page text.",
+    "errata": "No semantic EC3 change to Sound/Movie clauses. #676physical512 changes bold Movie to plain text in Table189 T row; exact bounding-box match verified by parent. It is not Table190/Screen as the draft claimed.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::STANDARD_SUBTYPES",
+      "crates/pdf-model/src/media/deprecated.rs::sound",
+      "crates/viewer-core/src/interact/deprecated_media.rs::exhibited"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/movies_and_sounds.rs::a_sound_is_handed_over_by_its_file",
+      "crates/viewer-core/tests/movies_and_sounds.rs::a_sound_holding_its_own_samples_is_handed_over_as_a_wave_file",
+      "crates/viewer-core/tests/sound_movie_annotation_audit.rs::clicking_sound_and_movie_annotations_hands_off_their_media_files"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Sound is in the Table171 known subtype list. media::sound resolves the required stream, chooses its external /F or in-stream samples, and returns a Clip; activation maps Sound annotations to Event::Media. Existing tests assert URL and exact RIFF bytes. The scratch pointer test supplies the required sound stream and a stored AP, then checks the Event::Media at the actual public click path. New pointer test has two nonempty stored appearances, exact xref, exact single URL per clicked annotation, and no media on opening or unrelated click. It passes; no playback is claimed.",
+    "test_command": null,
+    "test_result": "sound-movie-reviewed-target.log:2PASS; existing named assertions inspected and passed prior broad run, not full media encoding certification.",
+    "parent_review": "Parent read subtype source and Table306, selected actual ADR texts/A631, code and assertion bodies. New complete-PDF target passes both tests; scope limited to media-file handoff and selected appearance policy.",
+    "reviewer": "sound_movie_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.16",
+    "feature_id": "12.5.6.16.activation_scope_and_deprecation",
+    "requirement": "The PDF 1.2 Sound annotation is deprecated in PDF 2.0 and superseded by §13.2. On activation the sound shall be played; under the ratified scope, the in-scope behavior is handing the media file to the machine's player, while audio decoding/presentation remains excluded.",
+    "source_location": "ISO 32000-2 §12.5.6.16 opening paragraphs, printed p. 496 / physical p. 511; source/spec-layout.txt:29771-29790; scope-ratifications.md §Clause13",
+    "errata": "No semantic EC3 change to Sound/Movie clauses. #676physical512 changes bold Movie to plain text in Table189 T row; exact bounding-box match verified by parent. It is not Table190/Screen as the draft claimed.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/interact/deprecated_media.rs::exhibited",
+      "crates/viewer-core/src/viewer/pointer.rs click-release path",
+      "crates/pdf-model/src/media/deprecated.rs::sound",
+      "doc/scope-ratifications.md §Clause13"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/movies_and_sounds.rs::a_sound_is_handed_over_by_its_file",
+      "crates/viewer-core/tests/movies_and_sounds.rs::a_sound_holding_its_own_samples_is_handed_over_as_a_wave_file",
+      "crates/viewer-core/tests/sound_movie_annotation_audit.rs::clicking_sound_and_movie_annotations_hands_off_their_media_files"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The pointer release path calls interact::exhibited for an activated annotation; Sound reaches media::sound and is handed out as Event::Media. Existing Sound tests assert the file/sample payload, not actual audio playback. Scope ratification A254/A631 admits this file hand-off and excludes decoding/presentation. PDF 1.7 in the draft keeps the legacy subtype within its original version range; no PDF2.0 version rejection is inferred from the deprecated annotation. New pointer test has two nonempty stored appearances, exact xref, exact single URL per clicked annotation, and no media on opening or unrelated click. It passes; no playback is claimed.",
+    "test_command": null,
+    "test_result": "sound-movie-reviewed-target.log:2PASS; existing named assertions inspected and passed prior broad run, not full media encoding certification.",
+    "parent_review": "Parent read subtype source and Table306, selected actual ADR texts/A631, code and assertion bodies. New complete-PDF target passes both tests; scope limited to media-file handoff and selected appearance policy.",
+    "reviewer": "sound_movie_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.16",
+    "feature_id": "12.5.6.16.name_icon_should_names_and_additional",
+    "requirement": "Optional Name specifies the displayed icon; writers should include it and readers should provide appearances for Speaker and Mic. Additional names may be supported; absent Name defaults to Speaker.",
+    "source_location": "Table188 Sound, printed497/physical512 (clause opening printed496/physical511). Parent verified actual page text.",
+    "errata": "No semantic EC3 change to Sound/Movie clauses. #676physical512 changes bold Movie to plain text in Table189 T row; exact bounding-box match verified by parent. It is not Table190/Screen as the draft claimed.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::symbol_icon",
+      "crates/pdf-model/src/icon.rs::sound",
+      "crates/pdf-model/src/icon.rs::DEFAULT_SOUND_NAME"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_stamps_appearance_is_reported_and_the_other_two_icons_are_drawn",
+      "crates/viewer-core/tests/sound_movie_annotation_audit.rs::a_sound_without_name_uses_the_chosen_speaker_icon_default"
+    ],
+    "verdict": "confirmed-selected-default-and-artwork-policy",
+    "evidence": "Parent strengthened draft to compare actual display-list commands, not Debug strings. Absent Name equals explicit Speaker and differs from Mic; all three nonempty complete interpretations and exact xref controls pass. No-AP construction is isolated policy evidence, not a missing-AP synthesis SHALL.",
+    "test_command": null,
+    "test_result": "sound-movie-reviewed-target.log:2PASS; existing named assertions inspected and passed prior broad run, not full media encoding certification.",
+    "parent_review": "Parent read subtype source and Table306, selected actual ADR texts/A631, code and assertion bodies. New complete-PDF target passes both tests; scope limited to media-file handoff and selected appearance policy.",
+    "reviewer": "sound_movie_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-default-and-artwork-policy",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.16",
+    "feature_id": "12.5.6.16.sound_markup_classification",
+    "requirement": "Table171 classifies Sound as a markup annotation; this makes Table172's optional markup entries, including Popup, applicable. This classification itself does not prescribe additional Sound popup behavior beyond clauses that state one.",
+    "source_location": "ISO 32000-2 Table171, printed p. 477 / physical p. 492; source/spec-layout.txt:28669-28672",
+    "errata": "No semantic EC3 change to Sound/Movie clauses. #676physical512 changes bold Movie to plain text in Table189 T row; exact bounding-box match verified by parent. It is not Table190/Screen as the draft claimed.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/popup.rs::popup_of",
+      "crates/pdf-model/src/markup.rs::group_source"
+    ],
+    "test_refs": [],
+    "verdict": "no-independent-requirement",
+    "evidence": "Table171 marks Sound markup;12.5.6.2 explicitly excepts Sound from the text-note Popup rule. Shared markup coverage is a cross-reference only, not independently certified by a generic headless citation.",
+    "test_command": null,
+    "test_result": "sound-movie-reviewed-target.log:2PASS; existing named assertions inspected and passed prior broad run, not full media encoding certification.",
+    "parent_review": "Parent read subtype source and Table306, selected actual ADR texts/A631, code and assertion bodies. New complete-PDF target passes both tests; scope limited to media-file handoff and selected appearance policy.",
+    "reviewer": "sound_movie_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.17",
+    "feature_id": "12.5.6.17.subtype_movie_required",
+    "requirement": "Subtype is required to be Movie; the Movie dictionary is required and describes static movie characteristics; the annotation rectangle locates the annotation.",
+    "source_location": "ISO 32000-2 §12.5.6.17 and Table189, printed p. 497 / EC3 physical p. 512; source/spec-layout.txt:29813-29835",
+    "errata": "No semantic EC3 change to Sound/Movie clauses. #676physical512 changes bold Movie to plain text in Table189 T row; exact bounding-box match verified by parent. It is not Table190/Screen as the draft claimed.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::STANDARD_SUBTYPES",
+      "crates/pdf-model/src/media/deprecated.rs::movie",
+      "crates/pdf-model/src/appearance.rs::movie_poster"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/movies_and_sounds.rs::an_activated_movie_annotation_hands_its_movie_over_and_says_what_the_player_is_not_told",
+      "crates/pdf-model/tests/movie_poster.rs::a_stream_poster_is_drawn_fitted_and_centred_in_the_rectangle"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Movie is recognized; movie_poster and media::movie both require the Movie dictionary, while Table306 /F is handed off on activation. The test fixture includes a nonempty movie file source. Table189 /Movie is a producer SHALL; the consumer reports when absent, but no mandatory reader rejection behavior is inferred from that producer condition.",
+    "test_command": null,
+    "test_result": "sound-movie-reviewed-target.log:2PASS; existing named assertions inspected and passed prior broad run, not full media encoding certification.",
+    "parent_review": "Parent read subtype source and Table306, selected actual ADR texts/A631, code and assertion bodies. New complete-PDF target passes both tests; scope limited to media-file handoff and selected appearance policy.",
+    "reviewer": "sound_movie_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.17",
+    "feature_id": "12.5.6.17.title_optional_action_lookup",
+    "requirement": "Optional T is the movie annotation title; movie actions may use this title to reference the annotation.",
+    "source_location": "ISO 32000-2 Table189 T, printed p. 497 / EC3 physical p. 512; source/spec-layout.txt:29828-29832",
+    "errata": "No semantic EC3 change to Sound/Movie clauses. #676physical512 changes bold Movie to plain text in Table189 T row; exact bounding-box match verified by parent. It is not Table190/Screen as the draft claimed.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/media/deprecated.rs::movie_name",
+      "crates/pdf-model/src/action.rs movie action reading",
+      "crates/viewer-core/src/interact/deprecated_media.rs::exhibited"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/movies_and_sounds.rs::a_movie_action_finds_its_annotation_by_title_and_hands_the_movie_over"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The assertion checks a Play action finds /T (intro) on the target page and hands the matching embedded bytes over, while a mismatching title produces no media and a reason. T is optional; the annotation activation test separately supplies no title and still hands off its movie.",
+    "test_command": null,
+    "test_result": "sound-movie-reviewed-target.log:2PASS; existing named assertions inspected and passed prior broad run, not full media encoding certification.",
+    "parent_review": "Parent read subtype source and Table306, selected actual ADR texts/A631, code and assertion bodies. New complete-PDF target passes both tests; scope limited to media-file handoff and selected appearance policy.",
+    "reviewer": "sound_movie_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.17",
+    "feature_id": "12.5.6.17.activation_a_boolean_dictionary_and_default",
+    "requirement": "Optional A says whether/how to activate: dictionary must be a Movie activation dictionary; true plays with default parameters; false means the movie shall not be played; default is true.",
+    "source_location": "ISO 32000-2 Table189 A, printed p. 497 / EC3 physical p. 512; source/spec-layout.txt:29835-29848",
+    "errata": "No semantic EC3 change to Sound/Movie clauses. #676physical512 changes bold Movie to plain text in Table189 T row; exact bounding-box match verified by parent. It is not Table190/Screen as the draft claimed.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/media/deprecated.rs::movie",
+      "crates/viewer-core/src/interact/deprecated_media.rs::exhibited"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/movies_and_sounds.rs::a_movie_annotation_whose_activation_is_false_hands_nothing_over",
+      "crates/viewer-core/tests/movies_and_sounds.rs::a_click_on_a_movie_annotation_hands_its_movie_over",
+      "crates/viewer-core/tests/movies_and_sounds.rs::an_activated_movie_annotation_hands_its_movie_over_and_says_what_the_player_is_not_told"
+    ],
+    "verdict": "confirmed",
+    "evidence": "A=false is asserted to emit no Event::Media and to report the false flag. Pointer activation of the Movie fixture with A absent asserts a hand-off, covering default true. A dictionary-form activation is handed off while its Table307 Mode setting is explicitly reported as not passed to the player; playback parameters are outside the in-scope handoff.",
+    "test_command": null,
+    "test_result": "sound-movie-reviewed-target.log:2PASS; existing named assertions inspected and passed prior broad run, not full media encoding certification.",
+    "parent_review": "Parent read subtype source and Table306, selected actual ADR texts/A631, code and assertion bodies. New complete-PDF target passes both tests; scope limited to media-file handoff and selected appearance policy.",
+    "reviewer": "sound_movie_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.17",
+    "feature_id": "12.5.6.17.activation_scope_and_deprecation",
+    "requirement": "The PDF1.2 Movie annotation is deprecated in PDF2.0 and superseded by §13.2. Activation says play the movie; current ratified scope admits its media file hand-off and excludes decoding/presenting the movie.",
+    "source_location": "ISO 32000-2 §12.5.6.17 opening paragraph, printed p. 497 / physical p. 512; source/spec-layout.txt:29813-29825; scope-ratifications.md §Clause13",
+    "errata": "No semantic EC3 change to Sound/Movie clauses. #676physical512 changes bold Movie to plain text in Table189 T row; exact bounding-box match verified by parent. It is not Table190/Screen as the draft claimed.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/viewer/pointer.rs click-release path",
+      "crates/viewer-core/src/interact/deprecated_media.rs::exhibited",
+      "crates/pdf-model/src/media/deprecated.rs::movie",
+      "doc/scope-ratifications.md §Clause13"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/movies_and_sounds.rs::a_click_on_a_movie_annotation_hands_its_movie_over",
+      "crates/viewer-core/tests/movies_and_sounds.rs::an_activated_movie_annotation_hands_its_movie_over_and_says_what_the_player_is_not_told"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Pointer activation and Command::Activate both reach the movie exhibitor, which reads the Movie dictionary and passes its file as Event::Media. Scope ratification says handing the file to the player is in scope while media decoding/presentation remains excluded. The conformance claim is about handing over the media, not playing video within this process. New pointer test has two nonempty stored appearances, exact xref, exact single URL per clicked annotation, and no media on opening or unrelated click. It passes; no playback is claimed.",
+    "test_command": null,
+    "test_result": "sound-movie-reviewed-target.log:2PASS; existing named assertions inspected and passed prior broad run, not full media encoding certification.",
+    "parent_review": "Parent read subtype source and Table306, selected actual ADR texts/A631, code and assertion bodies. New complete-PDF target passes both tests; scope limited to media-file handoff and selected appearance policy.",
+    "reviewer": "sound_movie_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.17",
+    "feature_id": "12.5.6.17.poster_stream_true_false_default",
+    "requirement": "A Movie's Table306 Poster stream must contain an image XObject to display as the poster; true retrieves a frame from the movie, false displays no poster, and absent defaults false. The stream image is in-scope still-page content; frame decoding is excluded.",
+    "source_location": "ISO 32000-2 §13.4 Table306 /Poster, reached through the required Movie dictionary; printed p. 639 / physical p. 654; source/spec-layout.txt:38581-38590; ADR1561 and scope-ratifications.md §Clause13",
+    "errata": "No semantic EC3 change to Sound/Movie clauses. #676physical512 changes bold Movie to plain text in Table189 T row; exact bounding-box match verified by parent. It is not Table190/Screen as the draft claimed.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::movie_poster",
+      "crates/pdf-model/tests/movie_poster.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/movie_poster.rs::a_stream_poster_is_drawn_fitted_and_centred_in_the_rectangle",
+      "crates/pdf-model/tests/movie_poster.rs::a_poster_retrieved_from_the_movie_file_is_refused_and_reported",
+      "crates/pdf-model/tests/movie_poster.rs::a_false_poster_draws_nothing_and_owes_nothing",
+      "crates/pdf-model/tests/movie_poster.rs::an_absent_poster_is_the_default_false",
+      "crates/pdf-model/tests/movie_poster.rs::a_poster_stream_that_is_not_an_image_is_reported"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The tests assert the colored image's placement with pixels, refusal when true would require decoding the file, no pixels/no report for false or omitted Poster, and a report for a non-image stream. The fixtures omit AP intentionally to exercise the movie-poster constructor; because Table166 requires a producer AP for this nondegenerate annotation, these are reader fallback/robustness evidence rather than proof of a conforming producer's AP. Stored AP takes precedence through the shared annotation decision path.",
+    "test_command": null,
+    "test_result": "sound-movie-reviewed-target.log:2PASS; existing named assertions inspected and passed prior broad run, not full media encoding certification.",
+    "parent_review": "Parent read subtype source and Table306, selected actual ADR texts/A631, code and assertion bodies. New complete-PDF target passes both tests; scope limited to media-file handoff and selected appearance policy.",
+    "reviewer": "sound_movie_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.17",
+    "feature_id": "12.5.6.17.movie_nonmarkup_classification",
+    "requirement": "Table171 classifies Movie as non-markup, unlike Sound; Table172 markup-specific entries such as Popup do not apply to Movie.",
+    "source_location": "ISO 32000-2 Table171, printed p. 477 / physical p. 492; source/spec-layout.txt:28672-28674",
+    "errata": "No semantic EC3 change to Sound/Movie clauses. #676physical512 changes bold Movie to plain text in Table189 T row; exact bounding-box match verified by parent. It is not Table190/Screen as the draft claimed.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::STANDARD_SUBTYPES",
+      "crates/pdf-model/src/popup.rs::popup_of"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/movies_and_sounds.rs::a_click_on_a_movie_annotation_hands_its_movie_over"
+    ],
+    "verdict": "no-independent-requirement",
+    "evidence": "The classification is an input to shared markup handling rather than a separate Movie action. The Movie clause states playback/appearance, not a popup; this audit does not treat absence of a movie popup as a defect. Shared Table172 behavior is not re-audited here.",
+    "test_command": null,
+    "test_result": "sound-movie-reviewed-target.log:2PASS; existing named assertions inspected and passed prior broad run, not full media encoding certification.",
+    "parent_review": "Parent read subtype source and Table306, selected actual ADR texts/A631, code and assertion bodies. New complete-PDF target passes both tests; scope limited to media-file handoff and selected appearance policy.",
+    "reviewer": "sound_movie_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.16",
+    "feature_id": "12.5.6.16_17.pdf_version_deprecation",
+    "requirement": "Both subtypes originate in PDF1.2; Table171 marks them deprecated in PDF2.0 and each clause says the features are superseded by the general multimedia framework. The document's deprecated-part definition says such a part should be ignored, not that a reader shall reject it or version-gate all compatibility support.",
+    "source_location": "Table171 physical491–492; Sound/Movie physical511–512; deprecated definition3.15 printed8/physical23. Draft3.49 was the referenced PDF processor definition, not deprecated.",
+    "errata": "No semantic EC3 change to Sound/Movie clauses. #676physical512 changes bold Movie to plain text in Table189 T row; exact bounding-box match verified by parent. It is not Table190/Screen as the draft claimed.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::STANDARD_SUBTYPES",
+      "crates/pdf-model/src/media/deprecated.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/movies_and_sounds.rs PDF1.7 test fixtures"
+    ],
+    "verdict": "qualified-declined-recommendation-legacy-compatibility",
+    "evidence": "The implementation retains support and the tested fixtures are PDF1.7, where the legacy features are in their original declared versions. No PDF2.0 gating was found in this path. Because the normative deprecated-part rule is SHOULD-ignore and scope/owner decisions explicitly preserve media hand-off, no mandatory PDF2.0 rejection or handling defect is inferred here.",
+    "test_command": null,
+    "test_result": "sound-movie-reviewed-target.log:2PASS; existing named assertions inspected and passed prior broad run, not full media encoding certification.",
+    "parent_review": "Parent read subtype source and Table306, selected actual ADR texts/A631, code and assertion bodies. New complete-PDF target passes both tests; scope limited to media-file handoff and selected appearance policy.",
+    "reviewer": "sound_movie_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-strengthened-consumer-controls",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "qualified-declined-recommendation-legacy-compatibility",
     "superseded": false
   },
   {

@@ -2,17 +2,17 @@
   "warning": "Records can overlap or cross-reference prior reviews. Selected units do not establish that every decision in an ADR was reviewed; no whole document is marked complete.",
   "adr_documents": 2233,
   "document_states": {
-    "pending": 2013,
-    "selected-decision-units-reviewed": 199,
-    "review-in-progress": 21
+    "pending": 2008,
+    "selected-decision-units-reviewed": 205,
+    "review-in-progress": 20
   },
-  "decision_review_records": 343,
-  "parent_accepted_records": 333,
+  "decision_review_records": 354,
+  "parent_accepted_records": 343,
   "cross_reference_records": 25,
   "accepted_record_conclusions": {
-    "retain-with-qualification": 165,
+    "retain-with-qualification": 167,
     "revisit": 14,
-    "retain": 87,
+    "retain": 91,
     "superseded": 14,
     "superseded-in-part": 2,
     "cross-reference-only": 25,
@@ -35,28 +35,15 @@
     "retain-with-bounded-scope-note": 2,
     "retain-architecture-with-activation-gap": 1,
     "revisit-unratified-editing-capability-boundary": 2,
+    "resolve-selected-source-reading-with-limits": 1,
+    "retain-condition-grounding-with-recommendation-qualification": 1,
+    "retain-normative-distinction-original-refusal-superseded": 1,
+    "retain-poster-behavior-status-rationale-superseded": 1,
     "retain-behavior-correct-geometric-explanation": 1,
     "retain-policy-with-derivation-qualification": 1,
     "revisit-false-figure-premise-and-quad-geometry": 1,
     "retain-api-with-citation-and-polygon-precision-qualification": 1,
     "retain-bounded": 1
   },
-  "issues": [
-    {
-      "source": "screen_annotation_audit/decisions.json",
-      "missing_adr": "doc/adr/0901-a-screen-with-no-appearance-is-not-a-gap.md"
-    },
-    {
-      "source": "screen_annotation_audit/decisions.json",
-      "missing_adr": "doc/adr/0906-the-appearance-less-sweep-covers-the-known-subtypes.md"
-    },
-    {
-      "source": "screen_annotation_audit/decisions.json",
-      "missing_adr": "doc/adr/1035-the-remaining-annotation-statuses-have-a-specific-reader-duty-or-an-exclusion.md"
-    },
-    {
-      "source": "screen_annotation_audit/decisions.json",
-      "missing_adr": "doc/adr/1535-deprecated-annotations-are-read-but-not-written.md"
-    }
-  ]
+  "issues": []
 }

@@ -1,6 +1,6 @@
 {
   "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
-  "checkpoint_utc": "2026-11-10T16:58:07.864019+00:00",
+  "checkpoint_utc": "2026-11-10T17:03:33.039231+00:00",
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
@@ -13,7 +13,7 @@
   "agents": {
     "associated_files_audit": "widget_annotation_audit",
     "catalog_pages_audit": "redaction_annotation_audit",
-    "inapplicable_conditions_audit": "screen_annotation_audit"
+    "inapplicable_conditions_audit": "interactive_form_structure_audit"
   },
   "next_candidates": [
     "Interactive form field semantics and effective errata",
@@ -30,7 +30,7 @@
     "manifest": "Parent verified exact binary/test set equality; assertions are not necessarily distinct defects.",
     "exact_manifest_match": true
   },
-  "latest_clippy": "clippy-attachment-complete-clean.log",
+  "latest_clippy": "clippy-sound-screen-reviewed-clean.log",
   "new_failures_since_wave8": [
     "catalog Named OpenAction consumer missing",
     "page-visible neighbor omitted",
@@ -59,10 +59,7 @@
     "CLAUDE.md requires unsigned commits; use git -c commit.gpgsign=false commit because inherited global setting enables GPG."
   ],
   "branch": "audit/specification-evidence-2026-11-10",
-  "pending_parent_review": [
-    "sound_movie_annotation_audit",
-    "screen_annotation_audit"
-  ],
+  "pending_parent_review": [],
   "pushed_commits": [
     "a299121c",
     "f413d15f",
@@ -85,8 +82,9 @@
     "73eeaa0f",
     "806a6911",
     "8e8d6936",
-    "8525fa69"
+    "8525fa69",
+    "efe33bfc"
   ],
   "expected_failures_manifest_count": 53,
-  "broad_run_predates": "Text2passes,TextMarkup2failures,Stamp1pass1failure,Popup1pass,Squarethreshold1pass; FileAttachment3passes1failure"
+  "broad_run_predates": "Text2passes,TextMarkup2failures,Stamp1pass1failure,Popup1pass,Squarethreshold1pass; FileAttachment3passes1failure; Sound/Movie2passes,Screen/marks4passes"
 }

@@ -1082,8 +1082,8 @@
       {
         "source": "sound_movie_annotation_audit/decisions.json",
         "decision_id": "Sound icon recommendation is implemented with Speaker/Mic artwork while artwork itself is a project choice",
-        "conclusion": "retain",
-        "parent_accepted": false,
+        "conclusion": "retain-normative-distinction-original-refusal-superseded",
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -1244,6 +1244,14 @@
         "decision_id": "0123-widget-implicit-default-invert-to-push-when-down-appearance-exists",
         "conclusion": "revisit",
         "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "widget_annotation_audit/decisions.json",
+        "decision_id": "Default /H with no /D versus required down appearance",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -1714,6 +1722,14 @@
         "decision_id": "0177-general-pointer-state-with-link-specific-activation",
         "conclusion": "retain-with-qualification",
         "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "widget_annotation_audit/decisions.json",
+        "decision_id": "Make widget /H reachable through annotation hit-testing, with subtype-scoped highlight semantics",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2226,9 +2242,18 @@
   },
   {
     "path": "doc/adr/0239-an-icon-a-fit-and-four-codes-that-name-a-side.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "widget_annotation_audit/decisions.json",
+        "decision_id": "Initially refuse /TP caption placements 2–5 and implement icon fitting",
+        "conclusion": "superseded",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0240-one-band-two-readers-and-a-population-that-was-not-the-one-named.md",
@@ -2271,9 +2296,18 @@
   },
   {
     "path": "doc/adr/0245-a-page-without-the-pictures-somebody-else-is-drawing.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "widget_annotation_audit/decisions.json",
+        "decision_id": "Allow a host to delegate appearances for widgets it actually renders as controls",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0246-the-second-host-and-the-one-word-it-cost.md",
@@ -6193,9 +6227,26 @@
   },
   {
     "path": "doc/adr/0901-a-shall-in-the-prose-after-the-table.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "redaction_annotation_audit/decisions.json",
+        "decision_id": "screen_clause_specific_no_default_appearance",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "screen_annotation_audit/decisions.json",
+        "decision_id": "A no-AP Screen is not a gap; vacate /P because rendition playback is excluded",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0902-the-guard-is-the-best-of-fifty-and-every-figure-is-a-first-pass.md",
@@ -6230,6 +6281,14 @@
         "source": "file_attachment_annotation_audit/decisions.json",
         "decision_id": "file_attachment_icons_are_recognized_symbols_under_a_should",
         "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "screen_annotation_audit/decisions.json",
+        "decision_id": "Report missing required appearances for PrinterMark and TrapNet",
+        "conclusion": "retain",
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
@@ -6965,6 +7024,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "screen_annotation_audit/decisions.json",
+        "decision_id": "Unresolved TrapNet writer-versus-reader attribution in status review",
+        "conclusion": "resolve-selected-source-reading-with-limits",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -7333,6 +7400,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "widget_annotation_audit/decisions.json",
+        "decision_id": "Select widget MK icon and caption entries from pointer state and fall back to normal when that optional state entry is absent",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -7524,15 +7599,33 @@
   },
   {
     "path": "doc/adr/1123-relocating-a-producer-written-appearance-onto-its-own-page.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "redaction_annotation_audit/decisions.json",
+        "decision_id": "relocate_only_file_stated_marks",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1124-a-redaction-removes-the-bytes-and-refuses-what-it-cannot-clear.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "redaction_annotation_audit/decisions.json",
+        "decision_id": "redaction_removes_content_as_new_file_and_names_refusals",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1125-the-transfer-function-at-an-antialiased-edge.md",
@@ -8699,6 +8792,14 @@
         "decision_id": "1299-a72-transition-quantities",
         "conclusion": "retain",
         "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "widget_annotation_audit/decisions.json",
+        "decision_id": "Choose and report the missing caption share for Table192 TP codes 2–5",
+        "conclusion": "retain",
+        "parent_accepted": false,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -9901,6 +10002,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "screen_annotation_audit/decisions.json",
+        "decision_id": "Ground inapplicability in an actual condition rather than a heading or unrelated quotation",
+        "conclusion": "retain-condition-grounding-with-recommendation-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -10008,14 +10117,14 @@
   },
   {
     "path": "doc/adr/1561-a-movie-poster-is-fitted-into-its-rectangle.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "sound_movie_annotation_audit/decisions.json",
         "decision_id": "Draw stream-form Movie poster and choose Table250 default fitting; refuse retrieval from movie file",
-        "conclusion": "retain",
-        "parent_accepted": false,
+        "conclusion": "retain-poster-behavior-status-rationale-superseded",
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -10444,6 +10553,14 @@
         "decision_id": "departed_is_reserved_for_unfulfilled_shall",
         "conclusion": "retain",
         "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "redaction_annotation_audit/decisions.json",
+        "decision_id": "departure_tracks_unmet_shall_not_should",
+        "conclusion": "retain",
+        "parent_accepted": false,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -11326,6 +11443,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "widget_annotation_audit/decisions.json",
+        "decision_id": "Keep §12.5.6.19 as implemented after assertion and code-path audit",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -11997,14 +12122,14 @@
   },
   {
     "path": "doc/adr/1946-the-clause-13-entry-excludes-the-player-and-admits-the-page.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "sound_movie_annotation_audit/decisions.json",
         "decision_id": "A254 admits media-file hand-off while excluding in-process audio/video decoding and presentation",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -12060,14 +12185,14 @@
   },
   {
     "path": "doc/adr/1960-viability-is-judged-for-the-hand-off-and-a-form-xobject-clip-is-the-players.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "screen_annotation_audit/decisions.json",
         "decision_id": "Admit rendition media handoff while excluding playback",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -14255,14 +14380,14 @@
   },
   {
     "path": "doc/adr/2382-a-movies-file-and-a-sounds-file-cross-through-the-renditions-hand-off.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "sound_movie_annotation_audit/decisions.json",
         "decision_id": "Use Event::Media as the player hand-off for legacy Sound and Movie activations",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -14318,14 +14443,14 @@
   },
   {
     "path": "doc/adr/2398-a-sound-s-own-samples-cross-as-a-riff-wave-file-this-side-writes.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "sound_movie_annotation_audit/decisions.json",
         "decision_id": "Wrap inline Sound samples as RIFF WAVE on hand-off",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }

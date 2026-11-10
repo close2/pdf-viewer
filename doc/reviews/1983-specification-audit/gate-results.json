@@ -845,5 +845,19 @@
   "file_attachment_clippy": {
     "log": "clippy-attachment-complete-clean.log",
     "exit": 0
+  },
+  "sound_movie_annotations": {
+    "log": "sound-movie-reviewed-target.log",
+    "passed": 2,
+    "exit": 0
+  },
+  "screen_annotation_states": {
+    "log": "screen-states-reviewed-target.log",
+    "passed": 4,
+    "exit": 0
+  },
+  "sound_screen_clippy": {
+    "log": "clippy-sound-screen-reviewed-clean.log",
+    "exit": 0
   }
 }
