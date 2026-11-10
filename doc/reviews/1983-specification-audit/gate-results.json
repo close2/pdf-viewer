@@ -911,5 +911,30 @@
   "form_fields_clippy": {
     "log": "clippy-forms-reviewed-v2.log",
     "exit": 0
+  },
+  "broad_wave17": {
+    "log": "nextest-nine-crates-wave17.log",
+    "run": 5762,
+    "passed": 5704,
+    "expected_failed": 58,
+    "skipped": 53,
+    "unexpected": 0,
+    "exit": 100,
+    "exact_manifest_match": true
+  },
+  "signature_visibility": {
+    "log": "signature-visibility-target.log",
+    "passed": 1,
+    "exit": 0
+  },
+  "variable_text_resources": {
+    "log": "variable-text-resource-target-v5.log",
+    "passed": 1,
+    "expected_failed": 1,
+    "exit": 101
+  },
+  "signature_variable_clippy": {
+    "log": "clippy-variable-text-resources-clean.log",
+    "exit": 0
   }
 }

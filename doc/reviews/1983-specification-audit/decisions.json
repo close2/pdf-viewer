@@ -5676,6 +5676,107 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/0284-a-shall-that-was-called-signing-behaviour.md",
+    "decision_id": "0284:lock-is-active-only-after-signing",
+    "original_decision": "Read and enforce a signed field's /Lock as a field-value restriction; do not activate it on an unsigned prepared field. Treat /SV as a signing-handler constraint, not a reader/verification feature.",
+    "current_conclusion": "Retain the separation. Current field_locks reads only signed signature fields and Table237 remains unconsumed; inspected code matches the selected scope.",
+    "reason": "§12.7.5.5 says the named field values cease changing after the signature has been signed; Note 1 says unsigned fields can carry later-signing information. Table237 explicitly governs signing and no signing handler is present. Its old deliberate omission of Table236 P was subsequently superseded by ADR1156; retain the selected signed-Lock versus signer-SV separation, not the whole historical ADR unchanged.",
+    "current_code_evidence": [
+      "crates/pdf-signature/src/signature.rs::field_locks",
+      "crates/pdf-model/src/restriction.rs::asserted",
+      "crates/pdf-model/src/appearance.rs::regenerates"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/forms_data.rs::a_signed_signature_field_locks_the_fields_its_lock_names (signed/unsigned controls and All/Include/Exclude assertions)"
+    ],
+    "spec_or_external_sources": [
+      "ISO 32000-2 §12.7.5.5, Notes 1–3, Tables 235–237",
+      "EC3 #131 physical p560/printed p545; #159 and #680 physical p561/printed p546"
+    ],
+    "changed_premise": "No premise change found. EC3 edits /P, /DigestMethod and /V are included; they do not expand /SV into a reader duty.",
+    "remaining_work": "If signing is added, implement and test Table237 constraints at the signer boundary; no test is justified for behavior with no current consumer.",
+    "parent_review": "Selected decision only; historical ADR unchanged. Parent distinguishes signed-field restriction policy from signing capability.",
+    "reviewer": "signature_fields_audit",
+    "source": "signature_fields_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-save-consumer-controls",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0212-a-refusal-that-can-become-a-question.md",
+    "decision_id": "0212:restrictions-are-owner-controlled",
+    "original_decision": "Represent document restrictions as reasons and let the owner choose Off/On/Ask/Warn policy; restrictions default to Off.",
+    "current_conclusion": "Retain for Table236 lock permissions. Signature field locks flow through restriction policy and do not hard-code refusal.",
+    "reason": "The lock is a reader-facing restriction on subsequent field changes; the repository owner explicitly requires restriction levels. ADR1156 extends this policy to lock /P permissions.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/restriction.rs::asserted",
+      "crates/viewer-core/src/viewer/editing.rs",
+      "crates/viewer-core/src/notes.rs"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/forms_data.rs::a_signed_signature_field_locks_the_fields_its_lock_names",
+      "crates/pdf-model/tests/forms_data.rs::a_signed_locks_permission_entry_states_what_may_still_be_changed"
+    ],
+    "spec_or_external_sources": [
+      "ISO 32000-2 §12.7.5.5 Table236",
+      "CLAUDE.md restriction policy"
+    ],
+    "changed_premise": "No change; owner policy is directly documented and is not reopened by this audit.",
+    "remaining_work": "None for this bounded decision; seed-value signer semantics are separate.",
+    "parent_review": "Selected decision only; historical ADR unchanged. Parent distinguishes signed-field restriction policy from signing capability.",
+    "reviewer": "signature_fields_audit",
+    "source": "signature_fields_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-save-consumer-controls",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1156-the-permission-a-lock-states-over-the-document.md",
+    "decision_id": "1156:table236-p-is-reader-policy",
+    "original_decision": "Treat signed Table236 /P as a document-wide permission restriction, compose it with existing permissions, and expose it under owner-controlled levels.",
+    "current_conclusion": "Retain; current tests distinguish level 1/2/3, absent and invalid value outcomes. EC3 #131's DSS/timestamp carveout remains to be bounded against save operations, though current save path inspection was not exhaustive.",
+    "reason": "Table236 says permissions are for the document and applies them to incremental changes; EC3 #131 clarifies DSS/timestamp-only updates are not changes in this sense.",
+    "current_code_evidence": [
+      "crates/pdf-signature/src/signature.rs::field_lock_permissions",
+      "crates/pdf-model/src/restriction.rs::asserted",
+      "crates/viewer-core/src/notes.rs"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/forms_data.rs::a_signed_locks_permission_entry_states_what_may_still_be_changed"
+    ],
+    "spec_or_external_sources": [
+      "ISO 32000-2 §12.7.5.5 Table236 /P",
+      "EC3 #131, annotation object 13809 on physical p560 (printed p545)"
+    ],
+    "changed_premise": "No new erratum premise: ADR1156 explicitly discusses #131 and then-current lack of DSS/timestamp-only writes. Current targeted save files show no such authoring route, but whole-program writer census is not certified.",
+    "remaining_work": "Check DSS/timestamp-only operations in the save/write shard; do not duplicate or assert a prohibition for update kinds outside the reached path.",
+    "parent_review": "Selected decision only; historical ADR unchanged. Parent distinguishes signed-field restriction policy from signing capability.",
+    "reviewer": "signature_fields_audit",
+    "source": "signature_fields_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-save-consumer-controls",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0295-the-entry-nobody-wired-and-the-file-behind-the-paperclip.md",
+    "decision_id": "0295:seed-values-remain-outside-current-signing-scope",
+    "original_decision": "The entry inventory identified signer seed values among intentional capability refusals, not a live reader obligation.",
+    "current_conclusion": "Retain as a scope decision; no signer appears in current reachable routes, so lack of Table237 processing is not an implementation defect in the reader.",
+    "reason": "Table237's duties are addressed to a signature handler at signing time. Verification reads already-created signature dictionaries and does not select handler, encoding, digest, reasons, certificate, timestamp or appearance.",
+    "current_code_evidence": [
+      "crates/pdf-signature/src/signature.rs::read (reads signature-dictionary fields, not field /SV)",
+      "Repository search across pdf-signature, pdf-model, viewer-core and viewer-host found no SV/SeedValue consumer"
+    ],
+    "test_evidence": [],
+    "spec_or_external_sources": [
+      "ISO 32000-2 §12.7.5.5 Table237 and text after it"
+    ],
+    "changed_premise": "EC3 #159 and #680 update Table237 text and are now included, but still address signer behavior; no new consumer capability appeared.",
+    "remaining_work": "No work until an interactive signing feature is in scope; keep individual Table237 rows inventoried as signer-side backlog.",
+    "parent_review": "Selected decision only; historical ADR unchanged. Parent distinguishes signed-field restriction policy from signing capability.",
+    "reviewer": "signature_fields_audit",
+    "source": "signature_fields_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-save-consumer-controls",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/0358-the-width-a-file-states-is-a-statement-about-the-shape.md",
     "decision_id": "substitute_stretch_to_match_stated_widths",
     "original_decision": "Scale a substituted outline horizontally to the median ratio of the PDF's Widths to the substitute face's own advances, based on Table 109's statement that Widths shall be consistent with the actual font-program widths.",
@@ -6884,6 +6985,129 @@
     "reviewer": "type4_plrm_other_operators",
     "source": "type4_plrm_other_operators/decisions.json",
     "parent_review_state": "parent-reviewed-with-corrections-and-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0032-variable-text-and-the-splice-a-clause-describes.md",
+    "decision_id": "variable_text_layout_and_tx_region_splicing",
+    "original_decision": "Implement the variable-text layout contract including DA/DR resolution and update an existing widget appearance by replacing its Tx marked-content region or appending when absent; keep implementation-defined layout choices separate from normative behavior.",
+    "current_conclusion": "retain-layout-and-save-architecture-qualify-dictionary-initialization",
+    "reason": "The focused text, quadding, auto-size, text-positioning, and Tx assertions still support the chosen layout and splice. The ADR also states that DR resources merge into existing stream Resources, but current assertions reviewed here do not pin same-name precedence or missing-name copy; that evidence gap does not disprove the implementation. New save-consumer resource merge controls pass. A separate exact BBox assertion fails for newly created Widget AP: page Rect is copied instead of origin0,0 plus width/height. Existing array-presence check was too weak; retain architecture without certifying all written dictionary entries.",
+    "current_code_evidence": "variable_text::bytes reads raw DA bytes; appearance::regenerate calls spliced and with_default_resources; view::writing::write_appearance persists the resulting content and resources.",
+    "test_evidence": "variable_text_resource_merge_audit: resource-copy/collision/inherited-DA PASS; new-AP BBox FAIL after complete saved-value controls.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 §12.7.4.3 and Table228",
+      "EC3 #318, physical p.548 / printed p.533",
+      "doc/adr/0032-variable-text-and-the-splice-a-clause-describes.md"
+    ],
+    "changed_premise": "The effective EC3 Table228 DA type is byte string, whereas Markdown and the original ADR’s summary say string. The parser preserves raw bytes; no separate semantic text decoding is needed.",
+    "remaining_work": "Correct missing-AP writer coordinate convention in separate implementation work. Investigate collision-dependent quadding metrics; retain delegated rich-text/matrix limits.",
+    "parent_review": "Selected decision only; parent tested resource save route and found new-AP BBox origin deviation. No historical rewrite.",
+    "reviewer": "variable_text_field_audit",
+    "source": "variable_text_field_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-save-consumer-controls",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0130-the-appearance-is-written-rather-than-owed.md",
+    "decision_id": "save_each_changed_widget_appearance",
+    "original_decision": "Write the same widget appearance bytes the viewer constructs when a field value changes, preserving the existing form stream object/dictionary, and set NeedAppearances only for widgets where construction is incomplete.",
+    "current_conclusion": "retain-layout-and-save-architecture-qualify-dictionary-initialization",
+    "reason": "The public save route calls for_saving→regenerate and preserves the stream object, matching the chosen route. Its prose claims resource merge and cites external mutool inspection; a self-contained saved-object assertion for the clause’s resource collision/copy rule is still missing. NeedAppearances policy itself is the Forms owner’s shard. New save-consumer resource merge controls pass. A separate exact BBox assertion fails for newly created Widget AP: page Rect is copied instead of origin0,0 plus width/height. Existing array-presence check was too weak; retain architecture without certifying all written dictionary entries.",
+    "current_code_evidence": "view/writing.rs::write_appearance replaces the existing stream ID with form_stream output; appearance.rs::for_saving uses regenerate and passes merged resources through variable_text::for_a_file.",
+    "test_evidence": "variable_text_resource_merge_audit: resource-copy/collision/inherited-DA PASS; new-AP BBox FAIL after complete saved-value controls.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 §12.7.4.3; §7.5.6",
+      "doc/adr/0130-the-appearance-is-written-rather-than-owed.md"
+    ],
+    "changed_premise": "No requirement premise changed; direct test evidence has not yet caught up with the ADR’s external inspection claim.",
+    "remaining_work": "Correct missing-AP writer coordinate convention in separate implementation work. Investigate collision-dependent quadding metrics; retain delegated rich-text/matrix limits.",
+    "parent_review": "Selected decision only; parent tested resource save route and found new-AP BBox origin deviation. No historical rewrite.",
+    "reviewer": "variable_text_field_audit",
+    "source": "variable_text_field_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-save-consumer-controls",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0112-a-stand-in-may-not-fall-short.md",
+    "decision_id": "report_missing_dr_font_and_use_checked_standin",
+    "original_decision": "For a DA font absent from DR, use a checked stand-in only when it can represent the field value; report failures rather than asserting a spec-mandated reader recovery.",
+    "current_conclusion": "retain",
+    "reason": "The DA/DR match is a writer SHALL; the reader fallback is an explicit recovery policy. Existing assertions verify the visible text and report and do not confuse the two. The resource merge test uses defined standard fonts and does not overlap this decision.",
+    "current_code_evidence": "appearance::default_resources reads DR; variable_text::lay_out resolves names; with_stand_in_font only adds an invented font where DR lacks one.",
+    "test_evidence": "variable_text::a_font_the_default_resources_lack_is_stood_in_for_and_named; a_da_naming_a_standard_fourteen_abbreviation_is_drawn_from_the_binary.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 §12.7.4.3 and §9.6.2.2",
+      "doc/adr/0112-a-stand-in-may-not-fall-short.md"
+    ],
+    "changed_premise": "No change; absence remains a producer defect with a documented reader recovery.",
+    "remaining_work": "None for the missing-resource recovery choice; copy/preserve merge needs its separate test.",
+    "parent_review": "Selected decision only; parent tested resource save route and found new-AP BBox origin deviation. No historical rewrite.",
+    "reviewer": "variable_text_field_audit",
+    "source": "variable_text_field_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-save-consumer-controls",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0183-a-resource-name-the-standard-defines.md",
+    "decision_id": "exact_standard_14_resource_abbreviation",
+    "original_decision": "When an unresolved Tf resource name is exactly one of the fourteen standard font names, use the corresponding compiled standard font; arbitrary names stay unresolved/reported.",
+    "current_conclusion": "retain",
+    "reason": "The direct standard-font test asserts a visible result for an exact abbreviation and keeps the standard-font path distinct from arbitrary-name stand-in recovery.",
+    "current_code_evidence": "variable_text::Resolution and pdf-font standard-name dispatch supply exact names; default_resources does not rewrite a document-defined resource.",
+    "test_evidence": "variable_text::a_da_naming_a_standard_fourteen_abbreviation_is_drawn_from_the_binary; variable_text::a_font_the_default_resources_lack_is_stood_in_for_and_named.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 §9.6.2.2; §12.7.4.3",
+      "doc/adr/0183-a-resource-name-the-standard-defines.md"
+    ],
+    "changed_premise": "No changed premise found.",
+    "remaining_work": "None within this clause’s direct resource-name behavior.",
+    "parent_review": "Selected decision only; parent tested resource save route and found new-AP BBox origin deviation. No historical rewrite.",
+    "reviewer": "variable_text_field_audit",
+    "source": "variable_text_field_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-save-consumer-controls",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0304-the-annotation-the-producer-wrote.md",
+    "decision_id": "free_text_retyping_rebuilds_whole_appearance",
+    "original_decision": "For retyped FreeText annotations, replace the whole appearance instead of applying the widget Tx splice because the annotation’s entire appearance is its variable text.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "This is a subtype-scoped interpretation of the same §12.7.4.3 paragraph, not a reason to change widget splicing. FreeText save code does regenerate whole and its own tests inspect output appearance. Parent read its page-coordinate BBox rationale: it concerns retyped FreeText, not authority to disregard the Widget-specific initialization bullet.",
+    "current_code_evidence": "view/writing.rs::write_retypings calls write_retyped_appearance for FreeText; widget writing separately calls appearance::for_saving.",
+    "test_evidence": "saving.rs has FreeText retyping assertions and appearance tests; this shard does not recertify that subtype path.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 §12.5.6.6; §12.7.4.3",
+      "doc/adr/0304-the-annotation-the-producer-wrote.md"
+    ],
+    "changed_premise": "No changed premise; scope is subtype-specific.",
+    "remaining_work": "Cross-reference only; no additional widget work.",
+    "parent_review": "Selected decision only; parent tested resource save route and found new-AP BBox origin deviation. No historical rewrite.",
+    "review_type": "cross_reference_only",
+    "reviewer": "variable_text_field_audit",
+    "source": "variable_text_field_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-save-consumer-controls",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1159-a-flag-that-names-nobody.md",
+    "decision_id": "need_appearances_names_widgets_not_constructed",
+    "original_decision": "Keep NeedAppearances as a writer residual for visible widgets without supplied appearance streams, while report names identify the missing widgets.",
+    "current_conclusion": "cross-reference-only",
+    "reason": "The Forms owner assigned ADR1159 writer residual controls. This shard does not re-audit Table224’s flag rule; only its public save route is used to exercise §12.7.4.3 resources.",
+    "current_code_evidence": "view/writing.rs::owe_appearances is called after appearance writing and only when Update.owed is nonempty.",
+    "test_evidence": "saving.rs::nothing_is_owed_to_the_next_reader_when_every_stream_was_written is cited by the adjacent owned audit; no duplicate test is proposed here.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 §12.7.3 Table224; §12.7.4.3",
+      "doc/adr/1159-a-flag-that-names-nobody.md"
+    ],
+    "changed_premise": "No new premise reviewed; overlap excluded by parent assignment.",
+    "remaining_work": "Owner’s ADR1159 controls remain responsible for its disposition.",
+    "parent_review": "Selected decision only; parent tested resource save route and found new-AP BBox origin deviation. No historical rewrite.",
+    "review_type": "cross_reference_only",
+    "reviewer": "variable_text_field_audit",
+    "source": "variable_text_field_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-save-consumer-controls",
     "parent_accepted": true
   },
   {

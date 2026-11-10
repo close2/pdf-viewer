@@ -422,9 +422,18 @@
   },
   {
     "path": "doc/adr/0032-variable-text-and-the-splice-a-clause-describes.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "variable_text_field_audit/decisions.json",
+        "decision_id": "variable_text_layout_and_tx_region_splicing",
+        "conclusion": "retain-layout-and-save-architecture-qualify-dictionary-initialization",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0033-a-stroke-with-no-length-and-the-commands-a-path-loses.md",
@@ -1111,9 +1120,18 @@
   },
   {
     "path": "doc/adr/0112-a-stand-in-may-not-fall-short.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "variable_text_field_audit/decisions.json",
+        "decision_id": "report_missing_dr_font_and_use_checked_standin",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0113-the-only-default-bounding-box-the-standard-states.md",
@@ -1304,9 +1322,18 @@
   },
   {
     "path": "doc/adr/0130-the-appearance-is-written-rather-than-owed.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "variable_text_field_audit/decisions.json",
+        "decision_id": "save_each_changed_widget_appearance",
+        "conclusion": "retain-layout-and-save-architecture-qualify-dictionary-initialization",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0131-the-glyph-cache-and-the-sixteenth-of-a-pixel-it-costs.md",
@@ -1803,6 +1830,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "variable_text_field_audit/decisions.json",
+        "decision_id": "exact_standard_14_resource_abbreviation",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -1972,6 +2007,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "text_maxlen_audit/decisions.json",
+        "decision_id": "DoNotScroll-prefix-at-the-acceptance-boundary",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -2088,14 +2131,14 @@
   },
   {
     "path": "doc/adr/0212-a-refusal-that-can-become-a-question.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "signature_fields_audit/decisions.json",
         "decision_id": "0212:restrictions-are-owner-controlled",
         "conclusion": "Retain for Table236 lock permissions. Signature field locks flow through restriction policy and do not hard-code refusal.",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2261,6 +2304,14 @@
         "decision_id": "Keep the field value and the widget appearance state synchronized when this reader changes a checkbox/radio value",
         "conclusion": "retain",
         "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "text_maxlen_audit/decisions.json",
+        "decision_id": "carry-MaxLen-as-control-data",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2680,14 +2731,14 @@
   },
   {
     "path": "doc/adr/0284-a-shall-that-was-called-signing-behaviour.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "signature_fields_audit/decisions.json",
         "decision_id": "0284:lock-is-active-only-after-signing",
         "conclusion": "Retain the separation. Current field_locks reads only signed signature fields and Table237 remains unconsumed; inspected code matches the selected scope.",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2821,7 +2872,7 @@
         "source": "signature_fields_audit/decisions.json",
         "decision_id": "0295:seed-values-remain-outside-current-signing-scope",
         "conclusion": "Retain as a scope decision; no signer appears in current reachable routes, so lack of Table237 processing is not an implementation defect in the reader.",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2912,6 +2963,14 @@
         "conclusion": "retain-scoped-edit-regeneration",
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "variable_text_field_audit/decisions.json",
+        "decision_id": "free_text_retyping_rebuilds_whole_appearance",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "cross_reference_only",
         "duplicates_decision": null
       }
     ]
@@ -4523,6 +4582,14 @@
     "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
+      {
+        "source": "text_maxlen_audit/decisions.json",
+        "decision_id": "zero-MaxLen-is-not-a-comb-cell-count",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
       {
         "source": "text_positioning_audit/decisions.json",
         "decision_id": "issue-373-Tstar-is-Td-not-TD",
@@ -7903,14 +7970,14 @@
   },
   {
     "path": "doc/adr/1156-the-permission-a-lock-states-over-the-document.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "signature_fields_audit/decisions.json",
         "decision_id": "1156:table236-p-is-reader-policy",
         "conclusion": "Retain; current tests distinguish level 1/2/3, absent and invalid value outcomes. EC3 #131's DSS/timestamp carveout remains to be bounded against save operations, though current save path inspection was not exhaustive.",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -7939,6 +8006,14 @@
         "conclusion": "retain-with-qualification",
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "variable_text_field_audit/decisions.json",
+        "decision_id": "need_appearances_names_widgets_not_constructed",
+        "conclusion": "cross-reference-only",
+        "parent_accepted": true,
+        "review_type": "cross_reference_only",
         "duplicates_decision": null
       }
     ]

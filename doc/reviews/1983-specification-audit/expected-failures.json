@@ -328,6 +328,12 @@
       "test": "document_timestamp_existence_scans_signature_fields_even_without_sigflags_bit_one",
       "evidence": "forms-reviewed-target-v3.log",
       "classification": "SigFlagsgate hidesfieldcandidate; ordinarysignature APIpromise vs timestamp12.8.5.2explicitreaderSHALL distinguished. Exactrange/setbitpositivecontrols pass."
+    },
+    {
+      "binary": "pdf-model::variable_text_resource_merge_audit",
+      "test": "a_new_variable_text_appearance_uses_origin_and_widget_dimensions",
+      "evidence": "variable-text-resource-target-v5.log",
+      "classification": "New non-rich Widget AP BBox copies page Rect instead of clause12.7.4.3 local origin and dimensions; other save/interpretation controls pass."
     }
   ]
 }

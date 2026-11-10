@@ -945,19 +945,44 @@
       "clauses": [
         "12.7.4.3"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-save-consumer-controls"
     },
     {
       "agent": "signature_fields_audit",
       "clauses": [
         "12.7.5.5"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-save-consumer-controls"
     },
     {
       "agent": "text_maxlen_audit",
       "clauses": [
         "12.7.5.3"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "form_actions_audit",
+      "clauses": [
+        "12.7.6",
+        "12.7.6.1",
+        "12.7.6.2",
+        "12.7.6.3",
+        "12.7.6.4"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "choice_commit_host_audit",
+      "clauses": [
+        "12.7.5.4"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "blend_functions_audit",
+      "clauses": [
+        "11.3.5"
       ],
       "state": "running"
     }

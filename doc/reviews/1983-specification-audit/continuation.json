@@ -1,19 +1,19 @@
 {
   "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
-  "checkpoint_utc": "2026-11-10T17:29:29.154214+00:00",
+  "checkpoint_utc": "2026-11-10T17:39:41.233379+00:00",
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
-    "last_weekly_used_percent": 80,
+    "last_weekly_used_percent": 81,
     "target_approx_percent": 92,
     "stop_new_work_near_percent": 87,
     "probe": "python scratchpad/r1983/spec-audit/usage.py",
     "warning": "Percent is account allowance, not convertible fixed tokens; counters may lag. Continue extending while useful work and room remain."
   },
   "agents": {
-    "associated_files_audit": "signature_fields_audit",
-    "catalog_pages_audit": "variable_text_field_audit then nativechoicecommitdraft",
-    "inapplicable_conditions_audit": "text_maxlen_audit"
+    "associated_files_audit": "form_actions_audit",
+    "catalog_pages_audit": "choice_commit_host_audit then collision-metrics follow-up",
+    "inapplicable_conditions_audit": "text_maxlen_audit test revisions then blend_functions_audit"
   },
   "next_candidates": [
     "12.7.4.3 variable-text effective source and save regeneration",
@@ -21,17 +21,16 @@
     "12.7.6 form actions and serialization dependencies"
   ],
   "latest_broad": {
-    "log": "nextest-nine-crates-wave16.log",
-    "run": 5745,
-    "passed": 5692,
-    "expected_failed": 53,
+    "log": "nextest-nine-crates-wave17.log",
+    "run": 5762,
+    "passed": 5704,
+    "expected_failed": 58,
     "skipped": 53,
     "unexpected": 0,
     "exit": 100,
-    "exact_manifest_match": true,
-    "manifest": "Exact binary/test equality checked by parent; failing assertions are not necessarily distinct defects."
+    "exact_manifest_match": true
   },
-  "latest_clippy": "clippy-forms-reviewed-v2.log",
+  "latest_clippy": "clippy-variable-text-resources-clean.log",
   "new_failures_since_wave8": [
     "catalog Named OpenAction consumer missing",
     "page-visible neighbor omitted",
@@ -60,7 +59,9 @@
     "CLAUDE.md requires unsigned commits; use git -c commit.gpgsign=false commit because inherited global setting enables GPG."
   ],
   "branch": "audit/specification-evidence-2026-11-10",
-  "pending_parent_review": [],
+  "pending_parent_review": [
+    "text_maxlen_audit (GTK draft revision)"
+  ],
   "pushed_commits": [
     "a299121c",
     "f413d15f",
@@ -88,8 +89,9 @@
     "63b0a7f3",
     "42094fb2",
     "e6d0f25c",
-    "bb80d98a"
+    "bb80d98a",
+    "e10c4146"
   ],
-  "expected_failures_manifest_count": 58,
-  "broad_run_predates": "Widget3pass1fail;redaction3pass;forms6pass4fail"
+  "expected_failures_manifest_count": 59,
+  "broad_run_predates": "Signaturevisibility1pass;variabletextresources1pass1fail"
 }
