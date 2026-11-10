@@ -1,5 +1,5 @@
 {
   "scope": "Accepted feature records only, exact Rust function citations only; does not validate assertions, #[test], or unqualified/file-only references.",
-  "checked": 2264,
+  "checked": 2285,
   "issues": []
 }

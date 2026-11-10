@@ -250,6 +250,24 @@
       "test": "positive_ll_places_the_proper_line_opposite_the_clockwise_leaders",
       "evidence": "line-leader-direction-target.log",
       "classification": "Table178 signed direction and Figure80: existing ADR0075/tests invert displacement from leader endpoints to proper line"
+    },
+    {
+      "binary": "pdf-model::polygon_polyline_spec_audit",
+      "test": "polyline_ic_fills_closed_endings_but_not_open_endings",
+      "evidence": "polygon-polyline-effective-ec3-target.log",
+      "classification": "PolyLine IC discarded before ending fill; Line and open-style controls pass"
+    },
+    {
+      "binary": "pdf-model::polygon_polyline_spec_audit",
+      "test": "polygon_path_strokes_its_closing_edge_while_polyline_path_stays_open",
+      "evidence": "polygon-polyline-effective-ec3-target.log",
+      "classification": "Ordinary Polygon Path not closed for stroking; explicit segments, ignored Vertices and open PolyLine controls pass"
+    },
+    {
+      "binary": "pdf-model::polygon_polyline_spec_audit",
+      "test": "polyline_first_ending_is_at_first_vertex_not_second_vertex",
+      "evidence": "polygon-polyline-effective-ec3-target.log",
+      "classification": "First style placed on second vertex; plain-line and last-endpoint controls pass"
     }
   ]
 }

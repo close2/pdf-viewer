@@ -5800,13 +5800,22 @@
   {
     "clause": "12.5.6.9",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "polygon_polyline_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "polygon_polyline_audit"
+    ],
     "feature_record_verdicts": {
-      "implementation-gap": 1
+      "confirmed-path-operations-with-version-fixture-residual": 1,
+      "confirmed-selected-effective-path-precedence": 1,
+      "confirmed-selected-model-metadata": 1,
+      "confirmed-selected-model-with-path-and-consumer-residual": 1,
+      "cross-reference-confirmed-selected-raster": 1,
+      "cross-reference-with-shape-smoke": 1,
+      "implementation-gap": 2,
+      "implementation-gap-first-ending-at-second-vertex": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },

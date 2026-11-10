@@ -29324,6 +29324,249 @@
     "superseded": false
   },
   {
+    "clause": "12.5.6.9",
+    "feature_id": "polygon_and_polyline_subtype_closure",
+    "requirement": "Polygon annotations display closed polygons; PolyLine annotations are similar except the first and last vertices are not implicitly connected. Table 181 requires the matching Polygon or PolyLine subtype.",
+    "source_location": "§12.5.6.9 opening paragraph and Table 181 `/Subtype`; printed p.491 / physical p.506.",
+    "errata": "EC3 #444 modifies the Table181 Vertices text, not the Polygon/PolyLine distinction. No effective EC3 change to the subtype names or closure distinction identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::polygon",
+      "crates/pdf-model/src/appearance.rs::polyline"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_polygons_interior_colour_fills_it_and_a_polylines_does_not",
+      "crates/pdf-model/tests/annotations.rs::a_polygons_line_endings_are_not_meaningful_and_a_path_polylines_are_named",
+      "crates/pdf-model/tests/polygon_polyline_spec_audit.rs::polygon_path_strokes_its_closing_edge_while_polyline_path_stays_open"
+    ],
+    "verdict": "implementation-gap",
+    "evidence": "Vertices is passed to polyline(...,closed), which closes before paint. Ordinary Path is written then painted without closing; contrary to the draft, there is no later close call either. New PDF2.0 fixture includes required decoy Vertices, ignored per effective EC3, and a stored ID. Explicit PolyLine segments draw, decoy and closing diagonal stay empty. Polygon closing-diagonal assertion fails transparent versus opaque black. No AP intentionally exercises construction policy.",
+    "test_command": null,
+    "test_result": "Three new regressions fail after controls in polygon-polyline-effective-ec3-target.log; clippy-polygon-polyline.log PASS. Existing targets were run in broad wave14.",
+    "parent_review": "Parent read effective Table181 including both pages of EC3 #444, source branches and actual old/new assertions. Corrected missing erratum, imagined late close call, wrong draft endpoint control and discovered first-vertex defect.",
+    "reviewer": "polygon_polyline_audit",
+    "parent_review_state": "parent-reviewed-partial-with-three-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.9",
+    "feature_id": "required_subtype_specific_vertices_coordinates",
+    "requirement": "Vertices is a required array of alternating x/y default-user-space coordinates. Effective EC3 #444 requires it to be ignored if Path is present; Path/Vertices coexistence is not forbidden.",
+    "source_location": "Table 181 `/Vertices`, printed p.491 / physical p.506.",
+    "errata": "EC3 #444 physical506 objects5276/5277 removes the unless-Path parenthetical but retains Required and adds ignore-if-Path. Physical507 objects5289/5290 also replaces not-be-present with be-ignored in the Path cell. There is no remaining mutual-exclusion rule.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::polygon",
+      "crates/pdf-model/src/appearance.rs::points",
+      "crates/pdf-model/src/appearance.rs::pairs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_cloudy_polygon_bulges_outward_and_a_polylines_effect_is_not_meaningful",
+      "crates/pdf-model/tests/annotations.rs::a_polygons_interior_colour_fills_it_and_a_polylines_does_not",
+      "crates/pdf-model/tests/annotations.rs::an_annotations_own_measure_states_the_units_its_geometry_is_in",
+      "crates/pdf-model/tests/polygon_polyline_spec_audit.rs::polygon_path_strokes_its_closing_edge_while_polyline_path_stays_open"
+    ],
+    "verdict": "confirmed-selected-effective-path-precedence",
+    "evidence": "Current path-first branch ignores the decoy Vertices in the new PDF2.0 test: two explicit Path segments draw, the distant decoy triangle does not. This discriminates effective precedence; producer array constraints remain separate.",
+    "test_command": null,
+    "test_result": "Three new regressions fail after controls in polygon-polyline-effective-ec3-target.log; clippy-polygon-polyline.log PASS. Existing targets were run in broad wave14.",
+    "parent_review": "Parent read effective Table181 including both pages of EC3 #444, source branches and actual old/new assertions. Corrected missing erratum, imagined late close call, wrong draft endpoint control and discovered first-vertex defect.",
+    "reviewer": "polygon_polyline_audit",
+    "parent_review_state": "parent-reviewed-partial-with-three-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-effective-path-precedence",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.9",
+    "feature_id": "pdf20_path_grammar_and_precedence_over_vertices",
+    "requirement": "PDF 2.0 Path is an array of path-operator operand arrays: first is a two-number moveto; later two-number arrays are lineto; six-number arrays are curveto; arrays are processed in order and current graphics state controls width/dash. If Path is present, Vertices is not to be present and is ignored per EC3's corrected Vertices text.",
+    "source_location": "Table 181 `/Path`, printed p.492 / physical p.507; Table181 `/Vertices`, printed p.491 / physical p.506.",
+    "errata": "EC3 #444 physical506 objects5276/5277 removes the unless-Path parenthetical but retains Required and adds ignore-if-Path. Physical507 objects5289/5290 also replaces not-be-present with be-ignored in the Path cell. There is no remaining mutual-exclusion rule.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::path_segments",
+      "crates/pdf-model/src/appearance.rs::write_path",
+      "crates/pdf-model/src/appearance.rs::polygon"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_cloudy_path_polygon_follows_its_curve",
+      "crates/pdf-model/tests/annotations.rs::a_polygons_line_endings_are_not_meaningful_and_a_path_polylines_are_named",
+      "crates/pdf-model/tests/annotations.rs::an_ink_annotations_path_is_drawn_and_outranks_its_ink_list"
+    ],
+    "verdict": "confirmed-path-operations-with-version-fixture-residual",
+    "evidence": "`path_segments` requires an initial two-number Move, maps later pairs to Line and triples of pairs to Curve, and `write_path` emits m/l/c in order. The polygon-cloud test asserts ink at the curve's crown and no ink at the chord, but all current cited Path fixtures are generated by the `%PDF-1.7` annotations helper, despite Path's PDF2.0 version. The scratch tests use PDF2.0 headers and a trailer ID. No normative rejection claim is made for malformed Path arrays, whose lengths and first-move rules constrain producers.",
+    "test_command": null,
+    "test_result": "Three new regressions fail after controls in polygon-polyline-effective-ec3-target.log; clippy-polygon-polyline.log PASS. Existing targets were run in broad wave14.",
+    "parent_review": "Parent read effective Table181 including both pages of EC3 #444, source branches and actual old/new assertions. Corrected missing erratum, imagined late close call, wrong draft endpoint control and discovered first-vertex defect.",
+    "reviewer": "polygon_polyline_audit",
+    "parent_review_state": "parent-reviewed-partial-with-three-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-path-operations-with-version-fixture-residual",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.9",
+    "feature_id": "polyline_line_endings_only_and_vertices_endpoint_mapping",
+    "requirement": "Optional `/LE` is meaningful only for PolyLine. Its two styles correspond to the first and last coordinate pairs in Vertices and default to None at both ends. Polygon has no exposed ends because its vertices connect implicitly.",
+    "source_location": "Table 181 `/LE`, printed p.491 / physical p.506; Table179 line-ending names printed pp.488–489 / physical pp.503–504.",
+    "errata": "EC3 #515 modifies Table179's RClosedArrow fill semantics, not this Table181 endpoint wording. EC3 #444 changes the Path/Vertices relation and creates an unresolved interaction for endpoint styles when Path is used.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::polygon",
+      "crates/pdf-model/src/appearance.rs::line_endings",
+      "crates/pdf-model/src/appearance.rs::draw_endings"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_polylines_endings_follow_its_first_and_last_leg",
+      "crates/pdf-model/tests/annotations.rs::a_polygons_line_endings_are_not_meaningful_and_a_path_polylines_are_named",
+      "crates/pdf-model/tests/annotations.rs::a_line_ending_style_the_table_does_not_have_is_reported_beside_the_line",
+      "crates/pdf-model/tests/polygon_polyline_spec_audit.rs::polyline_first_ending_is_at_first_vertex_not_second_vertex"
+    ],
+    "verdict": "implementation-gap-first-ending-at-second-vertex",
+    "evidence": "Existing named first/last-leg test only asserts some pixel difference from no endings. Current first draw_endings call pairs [endings0,None] with [second,first], placing its first style at the second vertex. Parent regression uses three collinear vertices: plain geometry equals Line, last Square matches Line as a control, but first Square does not. It draws at x50 instead of first x20. The test compares whole rasters without making artwork dimensions normative. Path/LE remains unresolved after correcting both EC3 #444 cells to ignored Vertices.",
+    "test_command": null,
+    "test_result": "Three new regressions fail after controls in polygon-polyline-effective-ec3-target.log; clippy-polygon-polyline.log PASS. Existing targets were run in broad wave14.",
+    "parent_review": "Parent read effective Table181 including both pages of EC3 #444, source branches and actual old/new assertions. Corrected missing erratum, imagined late close call, wrong draft endpoint control and discovered first-vertex defect.",
+    "reviewer": "polygon_polyline_audit",
+    "parent_review_state": "parent-reviewed-partial-with-three-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap-first-ending-at-second-vertex",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.9",
+    "feature_id": "border_style_on_shape_strokes",
+    "requirement": "Optional `/BS` supplies the width and dash pattern for the polygon or polyline line. The shared border dictionary's styles, width and dash rules are cross-referenced to the accepted common border audit.",
+    "source_location": "Table181 `/BS`, printed p.491 / physical p.506; §12.5.4 and Table168.",
+    "errata": "No Table181-specific EC3 change identified; shared border details are cross-referenced.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::polygon",
+      "crates/pdf-model/src/appearance.rs::Border::read"
+    ],
+    "test_refs": [
+      "scratchpad/r1983/spec-audit/annotation_border_audit/features.json",
+      "crates/pdf-model/tests/annotations.rs::a_polygons_interior_colour_fills_it_and_a_polylines_does_not"
+    ],
+    "verdict": "cross-reference-with-shape-smoke",
+    "evidence": "Both subtypes pass the shared `/C` group source and BS to Border::read; the shape test confirms the blue stroke is present at the polyline's edge. Shared dash/width behavior is not recertified here.",
+    "test_command": null,
+    "test_result": "Three new regressions fail after controls in polygon-polyline-effective-ec3-target.log; clippy-polygon-polyline.log PASS. Existing targets were run in broad wave14.",
+    "parent_review": "Parent read effective Table181 including both pages of EC3 #444, source branches and actual old/new assertions. Corrected missing erratum, imagined late close call, wrong draft endpoint control and discovered first-vertex defect.",
+    "reviewer": "polygon_polyline_audit",
+    "parent_review_state": "parent-reviewed-partial-with-three-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "cross-reference-with-shape-smoke",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.9",
+    "feature_id": "ic_color_semantics_polygon_vs_polyline_endings",
+    "requirement": "`/IC` components are 0–1; 0 components means transparent, 1/3/4 choose DeviceGray/RGB/CMYK. For PolyLine, IC fills only the line endings; for Polygon it fills the entire shape.",
+    "source_location": "Table181 `/IC`, printed p.491 / physical p.506; Table179 at printed pp.488–489 / physical pp.503–504.",
+    "errata": "EC3 #515 adds RClosedArrow to Table179's filled ending set and therefore governs filled PolyLine endings too. No change to Table181's subtype-specific IC sentence identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::polygon",
+      "crates/pdf-model/src/appearance.rs::colour",
+      "crates/pdf-model/src/appearance.rs::draw_ending"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_polygons_interior_colour_fills_it_and_a_polylines_does_not",
+      "crates/pdf-model/tests/polygon_polyline_spec_audit.rs::polyline_ic_fills_closed_endings_but_not_open_endings"
+    ],
+    "verdict": "implementation-gap",
+    "evidence": "Current PolyLine sets interior to None and passes it to both ending calls; existing interior test has no LE. Parent repaired the draft positive control, which requested a first arrow but sampled a second endpoint, and uses a last Square to avoid conflating the new first-endpoint defect. Line Square red-center and PolyLine OpenArrow IC/no-IC controls pass; PolyLine Square fill/no-fill rasters are identical, so required IC fill fails. No AP construction-policy scope is explicit.",
+    "test_command": null,
+    "test_result": "Three new regressions fail after controls in polygon-polyline-effective-ec3-target.log; clippy-polygon-polyline.log PASS. Existing targets were run in broad wave14.",
+    "parent_review": "Parent read effective Table181 including both pages of EC3 #444, source branches and actual old/new assertions. Corrected missing erratum, imagined late close call, wrong draft endpoint control and discovered first-vertex defect.",
+    "reviewer": "polygon_polyline_audit",
+    "parent_review_state": "parent-reviewed-partial-with-three-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.9",
+    "feature_id": "be_polygon_only_cloud_border_effect",
+    "requirement": "Optional `/BE`, meaningful only for Polygon, shall describe an effect applied to the border described by BS; its visual details are cross-referenced to Table169/cloud implementation audit.",
+    "source_location": "Table181 `/BE`, printed p.491 / physical p.506; §12.5.4; Table169.",
+    "errata": "No Table181-specific EC3 semantic change identified to BE. Table181's PDF2.0 Path geometry can be used as the polygon outline for the effect.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::polygon",
+      "crates/pdf-model/src/appearance.rs::cloudy",
+      "crates/pdf-model/src/cloud.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_cloudy_polygon_bulges_outward_and_a_polylines_effect_is_not_meaningful",
+      "crates/pdf-model/tests/annotations.rs::a_cloudy_path_polygon_follows_its_curve",
+      "crates/pdf-model/tests/cloudy_border_audit.rs"
+    ],
+    "verdict": "cross-reference-confirmed-selected-raster",
+    "evidence": "The polygon branch alone reads BE and passes the polygon vertices/path outline to the shared cloud builder. Tests assert outward cloud apex and absence on the straight chord; the polyline control carrying the same BE stays straight and emits no report. The Path cloud test exercises curve following but uses a PDF1.7 helper despite Path being PDF2.0; the new PDF2.0 ordinary-path closure draft separately avoids relying on BE. Numeric cloud radius/shape remains the implementation choice recorded under ADR1057, not a Table181 dimension.",
+    "test_command": null,
+    "test_result": "Three new regressions fail after controls in polygon-polyline-effective-ec3-target.log; clippy-polygon-polyline.log PASS. Existing targets were run in broad wave14.",
+    "parent_review": "Parent read effective Table181 including both pages of EC3 #444, source branches and actual old/new assertions. Corrected missing erratum, imagined late close call, wrong draft endpoint control and discovered first-vertex defect.",
+    "reviewer": "polygon_polyline_audit",
+    "parent_review_state": "parent-reviewed-partial-with-three-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "cross-reference-confirmed-selected-raster",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.9",
+    "feature_id": "subtype_intent_is_valid_metadata",
+    "requirement": "Optional `/IT` is metadata. Valid values are PolygonCloud, PolyLineDimension, and PolygonDimension, each describing intended function; they do not alter polygon or polyline geometry. IT is PDF1.6; both dimension values are PDF1.7. These version markers constrain producers, not a required reader header gate.",
+    "source_location": "Table181 `/IT`, printed p.492 / physical p.507.",
+    "errata": "No effective EC3 semantic change identified to the listed intent values.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::intent"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::an_intent_is_read_against_the_table_its_own_subtype_names"
+    ],
+    "verdict": "confirmed-selected-model-metadata",
+    "evidence": "The table-driven assertion checks all three listed values against their subtype-specific metadata, cross-subtype values, unknown value, and absent IT. The same shared test also checks Line intent rows; no shape construction consumes Intent.",
+    "test_command": null,
+    "test_result": "Three new regressions fail after controls in polygon-polyline-effective-ec3-target.log; clippy-polygon-polyline.log PASS. Existing targets were run in broad wave14.",
+    "parent_review": "Parent read effective Table181 including both pages of EC3 #444, source branches and actual old/new assertions. Corrected missing erratum, imagined late close call, wrong draft endpoint control and discovered first-vertex defect.",
+    "reviewer": "polygon_polyline_audit",
+    "parent_review_state": "parent-reviewed-partial-with-three-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-model-metadata",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.9",
+    "feature_id": "measure_scale_and_units_apply_to_geometry",
+    "requirement": "Optional `/Measure` specifies scale and units applicable to the polygon or polyline annotation; Table267 formatting and number-format arithmetic are inherited from the measurement audit. Polygon perimeter includes the closing segment; PolyLine length does not. Measure is introduced in PDF1.7; writer version conformity remains unverified.",
+    "source_location": "Table181 `/Measure`, printed p.492 / physical p.507; Table267 and §12.9.2 for the common measurement arithmetic.",
+    "errata": "No Table181-specific EC3 change to Measure identified. Common Table267 arithmetic is cross-referenced, not re-audited here.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/measurement.rs::annotation_measurement",
+      "crates/pdf-model/src/measurement.rs::Measure"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::an_annotations_own_measure_states_the_units_its_geometry_is_in"
+    ],
+    "verdict": "confirmed-selected-model-with-path-and-consumer-residual",
+    "evidence": "For one 3x4 rectangle vertices and an x scale of 2, the test asserts polygon length 28m and area 48sqm; for the same open PolyLine it asserts 20m and no area. It also asserts no measure yields None and a Path polygon yields None. That last behavior is current model policy, not a Table181 instruction to ignore Measure for Path. Since Path can contain curves and Table181 says Measure applies to the annotation, whether the API should supply curve length/area is unresolved here; no current viewer measurement UI calls the public API, as cross-referenced by the line annotation audit.",
+    "test_command": null,
+    "test_result": "Three new regressions fail after controls in polygon-polyline-effective-ec3-target.log; clippy-polygon-polyline.log PASS. Existing targets were run in broad wave14.",
+    "parent_review": "Parent read effective Table181 including both pages of EC3 #444, source branches and actual old/new assertions. Corrected missing erratum, imagined late close call, wrong draft endpoint control and discovered first-vertex defect.",
+    "reviewer": "polygon_polyline_audit",
+    "parent_review_state": "parent-reviewed-partial-with-three-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-model-with-path-and-consumer-residual",
+    "superseded": false
+  },
+  {
     "clause": "12.4.4",
     "feature_id": "presentation-availability-is-optional",
     "requirement": "An interactive processor may offer presentation mode; this permission does not require every processor or host to provide it.",

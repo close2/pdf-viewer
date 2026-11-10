@@ -403,6 +403,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "square_circle_annotation_audit/decisions.json",
+        "decision_id": "Use a constructed content stream for Square/Circle without AP and derive rectangle/ellipse, /IC fill, /C stroke, and /RD inset geometry",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -1788,7 +1796,7 @@
         "source": "polygon_polyline_audit/decisions.json",
         "decision_id": "0192-line-ending-geometry-and-subtype-ic",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -1818,9 +1826,9 @@
       {
         "source": "polygon_polyline_audit/decisions.json",
         "decision_id": "0193-default-user-space-geometry-not-clipped-to-rect",
-        "conclusion": "retain",
-        "parent_accepted": false,
-        "review_type": "selected-decision-unit",
+        "conclusion": "cross-reference-only",
+        "parent_accepted": true,
+        "review_type": "cross_reference_only",
         "duplicates_decision": null
       }
     ]
@@ -2560,6 +2568,14 @@
         "decision_id": "border_style_scope_is_subtype_specific",
         "conclusion": "retain-with-qualification",
         "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "square_circle_annotation_audit/decisions.json",
+        "decision_id": "Do not apply Table168 B/I relief styles to Square/Circle /BS because Table180 permits only width and dash",
+        "conclusion": "retain",
+        "parent_accepted": false,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -4395,6 +4411,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "square_circle_annotation_audit/decisions.json",
+        "decision_id": "Keep Square/Circle /BS styles limited to width and dash; distinguish border style from the line the annotation itself draws",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -4648,6 +4672,14 @@
         "decision_id": "0674-oversized-border-fills-rect-when-frame-closes",
         "conclusion": "retain-with-qualification",
         "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "square_circle_annotation_audit/decisions.json",
+        "decision_id": "When an inside border stroke covers the shape, fill the Square/Circle shape with the border colour rather than drawing an empty inset stroke",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -5506,9 +5538,18 @@
   },
   {
     "path": "doc/adr/0825-a-rectangle-of-no-area-stops-only-the-marks-it-places.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "square_circle_annotation_audit/decisions.json",
+        "decision_id": "A Square whose /Rect has no area draws nothing because its clause places the shape inside /Rect",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0827-the-note-that-says-a-cell-is-evaluated-once-is-not-the-one-three-places-cited.md",
@@ -6878,6 +6919,14 @@
         "source": "polygon_polyline_audit/decisions.json",
         "decision_id": "1057-polygon-cloud-effect-scope",
         "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "square_circle_annotation_audit/decisions.json",
+        "decision_id": "Apply a cloudy /BE to Square/Circle borders; choose scallop construction and keep its outer reach on the shape's border band",
+        "conclusion": "retain-with-qualification",
         "parent_accepted": false,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
@@ -6945,6 +6994,14 @@
         "decision_id": "1061-relief-geometry-for-B-and-I",
         "conclusion": "retain-with-qualification",
         "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "square_circle_annotation_audit/decisions.json",
+        "decision_id": "Use relief styles for a border where the governing subtype actually defines /BS as a border; do not extend the relief to Square/Circle lines",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -11044,7 +11101,7 @@
         "source": "polygon_polyline_audit/decisions.json",
         "decision_id": "1784-polygon-le-ignored-and-path-polyline-le-named",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }

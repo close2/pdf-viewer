@@ -843,6 +843,13 @@
       "clauses": [
         "12.5.6.9"
       ],
+      "state": "parent-reviewed-partial-with-three-regressions"
+    },
+    {
+      "agent": "text_markup_annotation_audit",
+      "clauses": [
+        "12.5.6.10"
+      ],
       "state": "running"
     }
   ]

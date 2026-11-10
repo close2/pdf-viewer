@@ -753,5 +753,14 @@
   "line_leader_clippy": {
     "log": "clippy-line-leader-final.log",
     "exit": 0
+  },
+  "polygon_polyline": {
+    "log": "polygon-polyline-effective-ec3-target.log",
+    "expected_fail": 3,
+    "exit": 101
+  },
+  "polygon_polyline_clippy": {
+    "log": "clippy-polygon-polyline.log",
+    "exit": 0
   }
 }
