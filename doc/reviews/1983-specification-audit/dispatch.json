@@ -992,6 +992,28 @@
         "12.7.4.3"
       ],
       "state": "parent-reviewed-partial-with-consumer-tests"
+    },
+    {
+      "agent": "variable_text_da_tm_audit",
+      "clauses": [
+        "12.7.4.3"
+      ],
+      "state": "parent-reviewed-partial-with-consumer-tests"
+    },
+    {
+      "agent": "blend_gray_consumer_audit",
+      "clauses": [
+        "11.3.5.3"
+      ],
+      "state": "parent-reviewed-partial-with-consumer-tests"
+    },
+    {
+      "agent": "named_pages_residual_audit",
+      "clauses": [
+        "12.7.7",
+        "12.7.8.3.1"
+      ],
+      "state": "parent-reviewed-partial-with-consumer-tests"
     }
   ]
 }

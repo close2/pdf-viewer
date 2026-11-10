@@ -2,15 +2,15 @@
   "warning": "Records can overlap or cross-reference prior reviews. Selected units do not establish that every decision in an ADR was reviewed; no whole document is marked complete.",
   "adr_documents": 2233,
   "document_states": {
-    "pending": 1977,
-    "selected-decision-units-reviewed": 239,
-    "review-in-progress": 17
+    "pending": 1971,
+    "selected-decision-units-reviewed": 241,
+    "review-in-progress": 21
   },
-  "decision_review_records": 398,
-  "parent_accepted_records": 396,
-  "cross_reference_records": 27,
+  "decision_review_records": 405,
+  "parent_accepted_records": 399,
+  "cross_reference_records": 28,
   "accepted_record_conclusions": {
-    "retain-with-qualification": 181,
+    "retain-with-qualification": 183,
     "revisit": 14,
     "retain": 111,
     "superseded": 15,
@@ -56,6 +56,7 @@
     "revisit-false-figure-premise-and-quad-geometry": 1,
     "retain-api-with-citation-and-polygon-precision-qualification": 1,
     "retain-bounded": 1,
+    "retain-geometry-with-rationale-correction": 1,
     "retain-layout-and-save-architecture-qualify-dictionary-initialization": 2,
     "revisit-compatibility-choice-that-replaces-explicit-default": 1,
     "revisit-whole-widget-completion-evidence": 1

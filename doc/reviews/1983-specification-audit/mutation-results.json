@@ -81,6 +81,22 @@
       "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/mutation-inverted-stroking.log"
     }
   ],
+  "blend-oracle-mutation-results.json": [
+    {
+      "variant": "control",
+      "test": "opaque_separable_modes_match_table_134_at_an_interior_pixel",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "blend-oracle-mutation-control.log"
+    },
+    {
+      "variant": "hardlight-mapped-to-overlay",
+      "test": "opaque_separable_modes_match_table_134_at_an_interior_pixel",
+      "returncode": 101,
+      "outcome": "assertion-failed",
+      "log": "blend-oracle-mutation-hardlight-mapped-to-overlay.log"
+    }
+  ],
   "free-text-inset-mutation-results.json": [
     {
       "variant": "control",

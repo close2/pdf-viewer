@@ -1437,6 +1437,24 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/0047-the-three-modes-the-oracle-got-wrong.md",
+    "decision_id": "nonseparable-clause-arithmetic-as-reference",
+    "original_decision": "Keep the CPU's nonseparable arithmetic separate from GPU implementation and compare implementations, with direct formula reasoning as the reference.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "This focused Gray/ClipColor probe adds no reason to change the architecture. The test observes results through a complete PDF and formula-derived values; cross-backend equality remains supporting evidence rather than the normative oracle. Gray's neutral identities mean output alone cannot prove which internal conversion steps occurred.",
+    "current_code_evidence": "The Gray page-group interpretation path selects Compositing::Grey; render-cpu's nonseparable implementation operates on RGB channel triples. The module-header explanation of old dependency overflow behavior is stale, as recorded in blend_functions_audit/findings.txt; no edit here.",
+    "test_evidence": "Existing helper tests and CMYK consumers were inspected. New scratch draft proposes full-PDF Gray mode results and a red/blue Hue ClipColor consumer oracle; neither was run in this shard. Parent completePDF consumers2PASS; architecture decision already reviewed in blend_functions_audit.",
+    "spec_or_external_sources": "ISO 32000-2 §11.3.5.3 gray-space paragraph, Table 135, ClipColor/SetLum equations; EC3 Issue #345 limits the figures to illustrative use.",
+    "changed_premise": "There is a generic DeviceGray page-group test, but it tests Normal conversion; the direct helper Saturation test is not a PDF consumer. A composed gray/nonseparable consumer test was absent in inspected references.",
+    "remaining_work": "Gray internal conversion is observationally indistinguishable for these neutral operands; no defect inferred.",
+    "parent_review": "Selected decision only; historical ADR unchanged.",
+    "review_type": "cross_reference_only",
+    "reviewer": "blend_gray_consumer_audit",
+    "source": "blend_gray_consumer_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/0109-a-shall-about-a-picture-the-standard-never-draws.md",
     "decision_id": "Reader should not invent stamp legend icon artwork; distinguish SHOULD from Table175 SHALL",
     "original_decision": "Do not compose Stamp no-AP artwork merely because a standard Name is present; refusal is documented because the standard supplies legends but no graphic treatment. Table175 text-icon artwork is separate because that clause requires predefined appearances.",
@@ -4951,6 +4969,23 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/0091-the-page-that-is-not-in-the-page-tree.md",
+    "decision_id": "named-page-conformance-diagnostic-checks-visible-and-template-invariants",
+    "original_decision": "Read both name trees, check visible-page membership and template invariants, and import named template pages through FDF.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The reader/import strategy remains appropriate and the imported-template path is covered. The diagnostic decision is narrower than reader acceptance. Its implementation misses absent or non-name /Type values even though they do not satisfy the stated /Type /Template requirement; the explicit Type check should be strengthened if the diagnostic is intended to report every named-template invariant.",
+    "current_code_evidence": "crates/pdf-model/src/named_page.rs::NamedPages::disagreements checks /Type only when it resolves to a name; /Parent and /B checks are present. FDF page import is implemented in forms_data.rs and interact.rs.",
+    "test_evidence": "Existing named-page tests cover valid Template, explicit Page, Parent, B, and visible page outside tree. Parent ran the added valid/wrong-type pair (pass) and absent/non-name Type cases (expected failures). Existing viewer named_pages_and_threads.rs exercises FDF template import. Status consumer test is separate and passed in fdf-status-target-v2.log.",
+    "spec_or_external_sources": "ISO32000-2 §12.7.7 physical572/printed557; current NamedPages API; ADR0091 selected diagnostic decision.",
+    "changed_premise": "The new diagnostic assertions expose absent/non-name Type omissions. Historical external-template, Rename and ECMAScript exclusions are outside this selected decision and not assumed current.",
+    "remaining_work": "If preserving the diagnostic's all-invariants claim, report absent/non-name /Type as a disagreement and add passing controls after the fix. Revisit the broad consequence sentence that no requirement fails without saying so; do not carry forward ADR 0091's external-template/refusal or Rename/no-field-merge decisions as this decision unit.",
+    "parent_review": "Selected decision only; historical ADR unchanged.",
+    "reviewer": "named_pages_residual_audit",
+    "source": "named_pages_residual_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/0015-truetype-character-mapping.md",
     "decision_id": "0015-simple-truetype-opentype-code-to-glyph-procedure",
     "original_decision": "Resolve simple TrueType/OpenType codes using §9.6.5.4's ordered routes rather than a direct code-as-Unicode or per-code glyph-index shortcut.",
@@ -7225,6 +7260,26 @@
     "reviewer": "type4_plrm_other_operators",
     "source": "type4_plrm_other_operators/decisions.json",
     "parent_review_state": "parent-reviewed-with-corrections-and-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1247-a-fields-room-is-the-chord-the-box-leaves-the-line.md",
+    "decision_id": "layout-room-follows-the-full-invertible-tm-linear-map",
+    "original_decision": "Use the full inverse image of the annotation box to calculate the room available to each line under any invertible Tm linear part; the room is the chord each baseline leaves through that transformed box. Keep the producer's linear matrix terms and position the line within that room.",
+    "current_conclusion": "retain-geometry-with-rationale-correction",
+    "reason": "The decision is a layout policy for the source clause's open-ended 'appropriate' positions and is backed by scaled, turned, mirrored, sheared and general-matrix raster assertions. This follow-up adds saved-appearance checks without changing the geometry choice. The separate ISO SHALL to replace only translations makes serialized preservation a directly testable requirement. Parent found a reversed logical implication in ADR1247: its sentence that determinant cannot be zero unless a and b are both zero is false (a=1,b=2,c=2,d=4 is a counterexample). The needed statement is that a=b=0 implies determinant0, hence an invertible matrix has at least one nonzero coefficient. Actual Frame::of tests the determinant directly and Room comment states the correct direction. Existing singular-matrix test covers that counterexample and passes. This is a prose rationale defect, not evidence the chord algorithm is wrong.",
+    "current_code_evidence": "pdf-model/src/variable_text.rs::Frame/Room/Stack computes transformed-box chords; write_lines emits the computed origin with `frame.linear` retained. appearance::regenerate and view::writing::write_appearance use this layout for saved /Tx content.",
+    "test_evidence": "variable_text.rs tests `a_da_whose_text_matrix_scales_is_measured_in_the_space_it_scales_from`, quarter-turn, mirror, shear, both-axes turn and wrapped-line fixtures assert actual raster geometry. New saved AP drafts inspect emitted Tm terms/positions and output pixels; not executed yet. Parent saved tests3PASS; existing a_da_whose_text_matrix_has_no_inverse_says_it_flattens_every_glyph passes broad18 and includes1,2,2,4. New test initially overconstrained colour/font order; corrected to require both before Tm, then3PASS.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 §12.7.4.3, printed p.534 / physical p.549",
+      "doc/adr/1247-a-fields-room-is-the-chord-the-box-leaves-the-line.md"
+    ],
+    "changed_premise": "No changed premise identified. This shard checks that the selected matrix policy reaches persisted AP output, rather than only direct rendering.",
+    "remaining_work": "Correct mathematical wording in future ADR follow-on; no historical ADR or production change in this audit.",
+    "parent_review": "Selected decision only; historical ADR unchanged.",
+    "reviewer": "variable_text_da_tm_audit",
+    "source": "variable_text_da_tm_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
     "parent_accepted": true
   },
   {

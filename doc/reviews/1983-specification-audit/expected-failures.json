@@ -373,6 +373,18 @@
       "test": "saved_quadding_uses_the_font_that_the_appearance_resource_name_resolves_to",
       "evidence": "forms-metric-target.log",
       "classification": "Right quadding measured with DR font disagrees with preserved AP font: final ink right edge167 instead178."
+    },
+    {
+      "binary": "pdf-model::named_pages_spec_audit",
+      "test": "a_template_without_type_is_reported_as_not_a_template",
+      "evidence": "da-gray-named-target.log",
+      "classification": "NamedPages diagnostic omits missing/non-name Type; API/document-conformance reporting gap, not mandatory reader rejection. Valid Template and wrong Page controls pass."
+    },
+    {
+      "binary": "pdf-model::named_pages_spec_audit",
+      "test": "a_template_with_non_name_type_is_reported_as_not_a_template",
+      "evidence": "da-gray-named-target.log",
+      "classification": "NamedPages diagnostic omits missing/non-name Type; API/document-conformance reporting gap, not mandatory reader rejection. Valid Template and wrong Page controls pass."
     }
   ]
 }

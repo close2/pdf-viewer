@@ -6092,6 +6092,63 @@
     "superseded": false
   },
   {
+    "clause": "11.3.5.3",
+    "feature_id": "gray-space-nonseparable-blend-results",
+    "requirement": "For blending in a gray space, convert to RGB, perform the blend in RGB, then convert back to gray; Table 135 on neutral colors returns backdrop for Hue/Saturation/Color and source for Luminosity.",
+    "source_location": "§11.3.5.3 Gray conversion paragraph physical411/printed396; Table135 physical413/printed398.",
+    "errata": "EC3 Issue #345 at physical pp.407–408 (printed pp.392–393) applies only to illustrative RGB/CMYK figures; no formula or gray-conversion change.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/transparency/blending_space.rs::own_space_compositing maps DeviceGray to Compositing::Grey",
+      "crates/pdf-model/src/content.rs::interpreted uses Compositing::Grey for a one-component page group",
+      "crates/render-cpu/src/blend.rs::NonSeparable::blend evaluates Table 135 over RGB components"
+    ],
+    "test_refs": [
+      "crates/render-cpu/src/blend.rs::saturation_over_grey_changes_nothing",
+      "crates/pdf-model/tests/transparency_groups.rs::a_page_group_of_one_component_paints_every_mark_in_its_grey",
+      "crates/pdf-model/tests/blend_gray_consumer_audit.rs::nonseparable_modes_on_a_devicegray_page_group_follow_gray_table135_results"
+    ],
+    "verdict": "confirmed-selected-pdf-blend-consumer",
+    "evidence": "Current code keeps Gray blend components neutral in RGB channel storage and the nonseparable implementation operates on RGB triples. Table 135's neutral-color identities mean the expected visible gray is directly computable: the first three modes preserve backdrop gray, Luminosity takes source gray. Existing helper tests and generic Gray-group tests do not join those behaviors in a complete PDF consumer assertion. The draft supplies opaque controls for all four modes and Normal. Because the output identities hold whether or not an implementation literally performs a visible RGB→Gray roundtrip, this test validates consumer output but cannot distinguish the internal conversion steps. Parent executed complete PDF fixtures: four DeviceGray nonseparable results and Normal control pass; RGB Hue red-over-blue yields94 rather than pre-clipping207. This proves selected visible results, not an observable internal Gray conversion sequence.",
+    "test_command": "not run; scratch draft only",
+    "test_result": "da-gray-named-target.log:2 blend consumers PASS; exact xref/no recovery and complete interpretation asserted.",
+    "parent_review": "Accepted partial: effective source, actual code and promoted consumer assertions reviewed. No whole clause certification.",
+    "reviewer": "blend_gray_consumer_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-pdf-blend-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.5.3",
+    "feature_id": "rgb-hue-clipcolor-consumer",
+    "requirement": "Hue uses SetLum(SetSat(Cs, Sat(Cb)), Lum(Cb)); ClipColor applies the specified range correction while preserving the target luminosity when the intermediate falls below zero or above one.",
+    "source_location": "ISO 32000-2:2020 §11.3.5.3 helper definitions printed pp.396–397 / physical pp.411–412; Table 135 printed p.398 / physical p.413",
+    "errata": "No formula change. EC3 #345 precludes using Figures 72–73 as precise expected-pixel references.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/blend.rs::clip_colour",
+      "crates/render-cpu/src/blend.rs::set_lum",
+      "crates/render-cpu/src/blend.rs::set_sat",
+      "crates/render-cpu/src/blend.rs::NonSeparable::blend"
+    ],
+    "test_refs": [
+      "crates/render-cpu/src/blend.rs::hue_of_red_over_blue_is_the_clauses_arithmetic",
+      "crates/pdf-model/tests/transparency_groups.rs::every_non_separable_mode_agrees_with_the_clause_over_four_components",
+      "crates/pdf-model/tests/blend_gray_consumer_audit.rs::hue_consumer_clips_the_red_blue_result_to_the_table135_value"
+    ],
+    "verdict": "confirmed-selected-pdf-blend-consumer",
+    "evidence": "The existing CPU unit test directly expects the red channel 0.367 after ClipColor but does not interpret a PDF. The CMYK consumer fixture has independent calculations for all four modes and says ClipColor's two branches are load-bearing, but the simpler red/blue RGB PDF draft would assert 94 against 207 for the pre-ClipColor result. This is a consumer-level test opportunity, not evidence of a current defect. Parent executed complete PDF fixtures: four DeviceGray nonseparable results and Normal control pass; RGB Hue red-over-blue yields94 rather than pre-clipping207. This proves selected visible results, not an observable internal Gray conversion sequence.",
+    "test_command": "not run; scratch draft only",
+    "test_result": "da-gray-named-target.log:2 blend consumers PASS; exact xref/no recovery and complete interpretation asserted.",
+    "parent_review": "Accepted partial: effective source, actual code and promoted consumer assertions reviewed. No whole clause certification.",
+    "reviewer": "blend_gray_consumer_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-pdf-blend-consumer",
+    "superseded": false
+  },
+  {
     "clause": "12.5.6.11",
     "feature_id": "12.5.6.11.caret_identification",
     "requirement": "A Caret annotation is a visual symbol indicating text edits; its annotation subtype is required to be Caret.",
@@ -29502,6 +29559,110 @@
     "superseded": false
   },
   {
+    "clause": "12.7.7",
+    "feature_id": "12.7.7:visible-page-tree-membership",
+    "requirement": "A visible named page remains in the page tree and is referenced in the Pages name tree.",
+    "source_location": "§12.7.7 Named pages, physical572/printed557. EC3#176 on same page amends following FDF MIME prose, not named-page rules.",
+    "errata": "No applicable EC3 issue annotation found on this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/named_page.rs::NamedPages::disagreements",
+      "crates/pdf-model/src/page.rs::Pages::index_of"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/named_page.rs::a_document_that_breaks_the_clauses_own_rule_is_named",
+      "crates/pdf-model/src/named_page.rs::a_well_formed_document_and_an_empty_one_both_agree"
+    ],
+    "verdict": "existing-coverage",
+    "evidence": "The named-page implementation compares the visible name-tree target against the page tree; existing named-page tests cover a visible page and a named target outside the tree. This residual audit does not repeat that coverage.",
+    "test_command": "Parent-run existing named-page test target; no Cargo invoked by this shard.",
+    "test_result": "da-gray-named-target.log: valid/wrong-Type control PASS; missing/non-name Type2expectedFAIL. Existing named-page tests executed broad18.",
+    "parent_review": "Accepted partial: effective source, actual code and promoted consumer assertions reviewed. No whole clause certification.",
+    "reviewer": "named_pages_residual_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "existing-coverage",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.7",
+    "feature_id": "12.7.7:template-type-and-page-keys",
+    "requirement": "An invisible named page is referenced in Templates, has /Type /Template, and has neither /Parent nor /B.",
+    "source_location": "§12.7.7 Named pages, physical572/printed557. EC3#176 on same page amends following FDF MIME prose, not named-page rules.",
+    "errata": "No applicable EC3 issue annotation found on this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/named_page.rs::NamedPages::disagreements"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/named_page.rs::a_document_that_breaks_the_clauses_own_rule_is_named",
+      "crates/pdf-model/src/named_page.rs::a_well_formed_document_and_an_empty_one_both_agree",
+      "crates/pdf-model/tests/named_pages_spec_audit.rs::template_type_diagnostic_has_valid_and_wrong_type_controls",
+      "crates/pdf-model/tests/named_pages_spec_audit.rs::a_template_without_type_is_reported_as_not_a_template",
+      "crates/pdf-model/tests/named_pages_spec_audit.rs::a_template_with_non_name_type_is_reported_as_not_a_template"
+    ],
+    "verdict": "diagnostic-api-gap",
+    "evidence": "The existing diagnostic reports explicit wrong /Type /Page and checks /Parent and /B. Draft controls establish valid Template and wrong Page behavior. The missing and non-name /Type assertions fail current implementation: the diagnostic only reports a type mismatch when /Type resolves to a name. This is an ADR-backed conformance-diagnostic completeness issue, not a requirement that the PDF reader reject such input.",
+    "test_command": "Parent ran named-pages drafts; one control test passed and the two missing/non-name type assertions failed as expected.",
+    "test_result": "da-gray-named-target.log: valid/wrong-Type control PASS; missing/non-name Type2expectedFAIL. Existing named-page tests executed broad18.",
+    "parent_review": "Accepted partial: effective source, actual code and promoted consumer assertions reviewed. No whole clause certification.",
+    "reviewer": "named_pages_residual_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "diagnostic-api-gap",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.7",
+    "feature_id": "12.7.7:fdf-import-use",
+    "requirement": "A template named by the FDF page-import mechanism can be resolved and added to the target document.",
+    "source_location": "§12.7.7 Named pages, physical572/printed557. EC3#176 on same page amends following FDF MIME prose, not named-page rules.",
+    "errata": "No applicable EC3 issue annotation found on this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs",
+      "crates/viewer-core/src/interact.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/named_pages_and_threads.rs"
+    ],
+    "verdict": "existing-coverage",
+    "evidence": "The public viewer test exercises adding a named template through FDF import and page navigation. This residual review does not certify script-driven page creation; the historical ADR exclusion is not assumed to describe all current script capabilities.",
+    "test_command": "Existing viewer integration test inspected.",
+    "test_result": "da-gray-named-target.log: valid/wrong-Type control PASS; missing/non-name Type2expectedFAIL. Existing named-page tests executed broad18.",
+    "parent_review": "Accepted partial: effective source, actual code and promoted consumer assertions reviewed. No whole clause certification.",
+    "reviewer": "named_pages_residual_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "existing-coverage",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.1",
+    "feature_id": "Table246/Status-display",
+    "requirement": "If FDF /Status is present, the status string shall be displayed to indicate the action result.",
+    "source_location": "Table246 Status physical575/printed560, under12.7.8.3.1 General.",
+    "errata": "No applicable EC3 issue annotation found on Table 246.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::FormsData::read",
+      "crates/viewer-core/src/interact.rs::import_data"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/fdf_status_consumer_audit.rs::importing_fdf_displays_status_and_absence_has_no_status_message"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Public Viewer Link activation emits NeedsFile for answer.fdf; supplying FDF Status emits the matching host-facing Reported note; absent Status emits no invented status note. Parent final sourcePDF and suppliedFDF both have exact xref/no-recovery controls. This proves the public report boundary, not actual window display. Original draft omitted FDF xref, which12.7.8.2 allows; final fixture has one. Draft citation to nonexistent viewer.rs test removed.",
+    "test_command": "Parent executed focused viewer test; see fdf-status-target-v2.log.",
+    "test_result": "fdf-status-target-v2.log:1PASS; final fixture write refactor Clippy PASS.",
+    "parent_review": "Accepted partial: effective source, actual code and promoted consumer assertions reviewed. No whole clause certification.",
+    "reviewer": "named_pages_residual_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
     "clause": "7.5.7",
     "feature_id": "7.5.7:overview",
     "requirement": "Object streams are optional; their use requires PDF 1.5-capable reading, and stream compression filters are not required.",
@@ -43602,6 +43763,100 @@
     "parent_review_state": "parent-reviewed-with-corrections-and-tests",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.3",
+    "feature_id": "saved_tm_preserves_linear_part_and_replaces_nonzero_translation",
+    "entry_kind": "direct",
+    "requirement": "For a /DA with Tm, replace its horizontal and vertical translation with layout positions based on value and /Q, while keeping the matrix's nontranslation components.",
+    "source_location": "§12.7.4.3 DA/Tm/auto-size paragraphs, physical549/printed534; Table228 physical548/printed533.",
+    "errata": "EC3#318 adds byte qualification to DA string in Table228 physical548 and related prose549. #393 corrects an example reference. Neither changes the selected matrix/auto-size obligations.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/variable_text.rs::Frame::read",
+      "crates/pdf-model/src/variable_text.rs::write_lines",
+      "crates/pdf-model/src/appearance.rs::regenerate",
+      "crates/pdf-model/src/view/writing.rs::write_appearance"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_da_whose_text_matrix_scales_is_measured_in_the_space_it_scales_from",
+      "crates/pdf-model/tests/variable_text.rs::a_da_whose_text_matrix_turns_a_quarter_runs_the_line_up_the_box",
+      "crates/pdf-model/tests/variable_text.rs::a_da_whose_text_matrix_mirrors_puts_the_quadded_line_at_the_other_edge",
+      "crates/pdf-model/tests/variable_text.rs::a_da_whose_text_matrix_shears_keeps_the_line_where_the_box_states",
+      "crates/pdf-model/tests/variable_text_da_tm_audit.rs::saved_da_tm_keeps_linear_terms_and_replaces_nonzero_translation_for_quadding"
+    ],
+    "verdict": "confirmed-selected-saved-appearance-consumer",
+    "evidence": "Existing raster tests distinguish scaling, rotation, mirroring, shear and arbitrary invertible matrices on widgets with no stored AP. They check actual layout behavior, but do not inspect a saved replacement AP. The draft uses an existing /Tx stream, a nonidentity linear matrix with nonzero DA translation, and left/right controls; it asserts serialized linear terms remain, the original translation is gone, Q changes the computed origin, and the saved rendering ends at the widget edge. Parent uses an initially empty V and matching empty Tx AP, valid regardless of Q and DA matrix. Exact source/saved xrefs, complete interpretation and whole new value are checked. Present Tm retains scale2 and replaces both translation components; no-Tm inserts one after both colour and font state but does not constrain their independent relative order; long auto-sized value writes a positive font size below12. Pixel bounds alone would not prove full fit because of clipping, so size reduction and full text checks accompany them.",
+    "remaining": "Selected persisted scale/translation/order/auto-size only; dynamic geometry tests cover other transforms separately. No full typography certification.",
+    "test_command": null,
+    "test_result": "da-tm-target-reviewed.log:3PASS; Clippy final-v2 PASS.",
+    "parent_review": "Accepted partial: effective source, actual code and promoted consumer assertions reviewed. No whole clause certification.",
+    "reviewer": "variable_text_da_tm_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-saved-appearance-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.3",
+    "feature_id": "saved_da_without_tm_inserts_matrix_before_text",
+    "entry_kind": "direct",
+    "requirement": "When /DA contains no Tm, insert a text matrix in the generated appearance after the DA string and before variable-text positioning/showing operators.",
+    "source_location": "§12.7.4.3 DA/Tm/auto-size paragraphs, physical549/printed534; Table228 physical548/printed533.",
+    "errata": "EC3#318 adds byte qualification to DA string in Table228 physical548 and related prose549. #393 corrects an example reference. Neither changes the selected matrix/auto-size obligations.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/variable_text.rs::Frame::read",
+      "crates/pdf-model/src/variable_text.rs::write_lines",
+      "crates/pdf-model/src/appearance.rs::regenerate",
+      "crates/pdf-model/src/view/writing.rs::write_appearance"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::quadding_moves_the_line_within_its_box",
+      "crates/pdf-model/tests/variable_text.rs::need_appearances_rewrites_the_marked_content_region_and_keeps_the_rest",
+      "crates/pdf-model/tests/variable_text_da_tm_audit.rs::saved_default_appearance_without_tm_gets_one_before_text_showing"
+    ],
+    "verdict": "confirmed-selected-saved-appearance-consumer",
+    "evidence": "Existing no-AP raster tests use DA without Tm and show appropriate placement; NeedAppearances tests check marked-content replacement but only assert pixels. They do not inspect insertion ordering in the saved AP. The draft opens a valid stored appearance, saves a changed value with DA lacking Tm, and asserts one generated Tm occurs after Tf and before Tj plus right-quadded saved rendering. Parent uses an initially empty V and matching empty Tx AP, valid regardless of Q and DA matrix. Exact source/saved xrefs, complete interpretation and whole new value are checked. Present Tm retains scale2 and replaces both translation components; no-Tm inserts one after both colour and font state but does not constrain their independent relative order; long auto-sized value writes a positive font size below12. Pixel bounds alone would not prove full fit because of clipping, so size reduction and full text checks accompany them.",
+    "remaining": "Selected persisted scale/translation/order/auto-size only; dynamic geometry tests cover other transforms separately. No full typography certification.",
+    "test_command": null,
+    "test_result": "da-tm-target-reviewed.log:3PASS; Clippy final-v2 PASS.",
+    "parent_review": "Accepted partial: effective source, actual code and promoted consumer assertions reviewed. No whole clause certification.",
+    "reviewer": "variable_text_da_tm_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-saved-appearance-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.3",
+    "feature_id": "saved_zero_da_size_resolves_to_positive_readable_size",
+    "entry_kind": "direct",
+    "requirement": "A zero size operand in /DA means the processor computes an implementation-dependent font size (auto-sizing).",
+    "source_location": "§12.7.4.3 DA/Tm/auto-size paragraphs, physical549/printed534; Table228 physical548/printed533.",
+    "errata": "EC3#318 adds byte qualification to DA string in Table228 physical548 and related prose549. #393 corrects an example reference. Neither changes the selected matrix/auto-size obligations.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/variable_text.rs::auto_size",
+      "crates/pdf-model/src/variable_text.rs::field_text",
+      "crates/pdf-model/src/appearance.rs::regenerate",
+      "crates/pdf-model/src/view/writing.rs::write_appearance"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_zero_size_is_auto_sized_until_the_value_fits",
+      "crates/pdf-model/tests/variable_text_da_tm_audit.rs::saved_zero_size_da_is_written_as_a_readable_positive_font_size"
+    ],
+    "verdict": "confirmed-selected-saved-appearance-consumer",
+    "evidence": "The existing positive test uses both a long and short value, asserts no refusal, bounds text to the widget and asserts the short value is larger. It is meaningful coverage of runtime auto-size. The scratch test targets the distinct saved AP route: it changes the value under an existing stored stream, checks the resulting Tf size is positive and checks the saved page remains readable within the widget. Parent uses an initially empty V and matching empty Tx AP, valid regardless of Q and DA matrix. Exact source/saved xrefs, complete interpretation and whole new value are checked. Present Tm retains scale2 and replaces both translation components; no-Tm inserts one after both colour and font state but does not constrain their independent relative order; long auto-sized value writes a positive font size below12. Pixel bounds alone would not prove full fit because of clipping, so size reduction and full text checks accompany them.",
+    "remaining": "Selected persisted scale/translation/order/auto-size only; dynamic geometry tests cover other transforms separately. No full typography certification.",
+    "test_command": null,
+    "test_result": "da-tm-target-reviewed.log:3PASS; Clippy final-v2 PASS.",
+    "parent_review": "Accepted partial: effective source, actual code and promoted consumer assertions reviewed. No whole clause certification.",
+    "reviewer": "variable_text_da_tm_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-saved-appearance-consumer",
     "superseded": false
   },
   {

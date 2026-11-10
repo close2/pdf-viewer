@@ -981,5 +981,44 @@
   "choice_metric_forms_blend_clippy": {
     "log": "clippy-choice-metric-form-blend-final.log",
     "exit": 0
+  },
+  "broad_wave18": {
+    "log": "nextest-nine-crates-wave18.log",
+    "run": 5785,
+    "passed": 5720,
+    "expected_failed": 64,
+    "unexpected_failed": 1,
+    "skipped": 53,
+    "exit": 100,
+    "unexpected_test": "variable_text_da_tm_audit::saved_default_appearance_without_tm_gets_one_before_text_showing",
+    "resolution": "Test wrongly constrained relative order of independent colour/font operators. Corrected to require both before Tm; da-tm-target-reviewed.log3PASS. Final broad rerun pending."
+  },
+  "saved_da_tm": {
+    "log": "da-tm-target-reviewed.log",
+    "passed": 3,
+    "expected_failed": 0,
+    "exit": 0
+  },
+  "gray_blend_consumers": {
+    "log": "da-gray-named-target.log",
+    "passed": 2,
+    "expected_failed": 0,
+    "exit": 0
+  },
+  "named_page_diagnostics": {
+    "log": "da-gray-named-target.log",
+    "passed": 1,
+    "expected_failed": 2,
+    "exit": 101
+  },
+  "fdf_status_consumer": {
+    "log": "fdf-status-target-v2.log",
+    "passed": 1,
+    "expected_failed": 0,
+    "exit": 0
+  },
+  "da_gray_named_status_clippy": {
+    "log": "clippy-da-gray-named-status-final-v2.log",
+    "exit": 0
   }
 }

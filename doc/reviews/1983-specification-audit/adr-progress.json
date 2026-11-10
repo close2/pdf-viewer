@@ -597,6 +597,14 @@
         "source": "blend_gray_consumer_audit/decisions.json",
         "decision_id": "nonseparable-clause-arithmetic-as-reference",
         "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "cross_reference_only",
+        "duplicates_decision": null
+      },
+      {
+        "source": "compositing_formula_audit/decisions.json",
+        "decision_id": "§11.3.6 custom premultiplied compositor for the four nonseparable modes",
+        "conclusion": "retain-with-qualification",
         "parent_accepted": false,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
@@ -960,9 +968,18 @@
   },
   {
     "path": "doc/adr/0091-the-page-that-is-not-in-the-page-tree.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "named_pages_residual_audit/decisions.json",
+        "decision_id": "named-page-conformance-diagnostic-checks-visible-and-template-invariants",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0092-two-string-types-and-an-image-that-is-not-there.md",
@@ -2316,9 +2333,18 @@
   },
   {
     "path": "doc/adr/0234-a-shape-is-not-an-alpha-and-one-group-can-tell.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "compositing_formula_audit/decisions.json",
+        "decision_id": "Carry a stated shape beside a knockout element only when shape differs from coverage/alpha",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0235-a-form-is-a-description-and-a-check-box-is-a-name.md",
@@ -3881,9 +3907,18 @@
   },
   {
     "path": "doc/adr/0415-the-flag-whose-refusal-was-inverted.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "compositing_formula_audit/decisions.json",
+        "decision_id": "/AIS changes whether masks/constants are shape or opacity, not alpha product",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0416-a-budget-spent-by-eight-other-files.md",
@@ -3899,9 +3934,18 @@
   },
   {
     "path": "doc/adr/0418-the-library-had-two-answers-and-the-mask-was-blamed.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "compositing_formula_audit/decisions.json",
+        "decision_id": "high-precision tiny-skia pipeline for §11.3.6 Normal weighted averages",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0419-four-renderers-four-floors-and-the-clause-states-one-of-them.md",
@@ -4460,9 +4504,18 @@
   },
   {
     "path": "doc/adr/0492-the-shape-a-group-has-when-its-opacity-is-one.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "compositing_formula_audit/decisions.json",
+        "decision_id": "Use group alpha as shape only when its opacity is known to be one",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0493-the-population-a-flag-could-not-reach.md",
@@ -4767,9 +4820,18 @@
   },
   {
     "path": "doc/adr/0582-the-seam-is-not-the-model.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "compositing_formula_audit/decisions.json",
+        "decision_id": "Reclassify pointwise union versus per-pixel antialias seam as rasterization/averaging qualification",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0583-several-rectangles-are-one-object.md",
@@ -8807,14 +8869,14 @@
   },
   {
     "path": "doc/adr/1247-a-fields-room-is-the-chord-the-box-leaves-the-line.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "variable_text_da_tm_audit/decisions.json",
         "decision_id": "layout-room-follows-the-full-invertible-tm-linear-map",
-        "conclusion": "retain",
-        "parent_accepted": false,
+        "conclusion": "retain-geometry-with-rationale-correction",
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
