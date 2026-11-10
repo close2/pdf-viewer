@@ -720,5 +720,15 @@
   "markup_state_ink_clippy": {
     "log": "clippy-markup-state-ink-final.log",
     "exit": 0
+  },
+  "broad_wave14": {
+    "log": "nextest-nine-crates-wave14.log",
+    "run": 5713,
+    "passed": 5670,
+    "expected_failed": 43,
+    "skipped": 53,
+    "unexpected": 0,
+    "exit": 100,
+    "manifest": "Parent verified exact binary/test set equality; assertions are not necessarily distinct defects."
   }
 }

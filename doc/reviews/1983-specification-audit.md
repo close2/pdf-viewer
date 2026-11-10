@@ -12,14 +12,14 @@ a reference does not establish that its assertions prove the associated feature.
 
 ## Latest checkpoint
 
-The latest broad run covered nine crates: **5,698 tests run, 5,657 passed, 41 expected audit
+The latest broad run covered nine crates: **5,713 tests run, 5,670 passed, 43 expected audit
 failures, 53 skipped, no unexpected failures**. Several failures share a cause. This includes
 the presentation, held-operation, font-width, border and annotation-state tests. Production behavior, ledger statuses and
 historical ADRs remain unchanged. Selected assertion reviews and isolated mutation checks have
 exposed both implementation gaps and passing tests unable to detect their stated defect.
 
-Since that broad run, the new OpenType target adds four passing cases and one confirmed failure;
-the failure manifest now contains 43 assertions, including the subsequently reproduced note-paragraph writer failure. The watermark n-up consumer and PaintType tests also pass.
+This run includes the PaintType, OpenType, n-up watermark, markup, annotation-state and ink additions.
+The observed failures exactly match the committed manifest.
 
 This remains a partial audit. The reproducible continuation inventory and per-clause/ADR progress
 are committed in [the audit evidence directory](1983-specification-audit/), with full local working data
@@ -1135,3 +1135,6 @@ Markup review also distinguishes individual Table 172 duties, optional defaults,
 The annotation-state regression passes through a comment-only reply to the later state update. It asserts the user, model, state and source object, plus an empty result for the leaf itself. Missing required T or StateModel in existing fixtures is tolerant recovery, not a rule supplied by the standard. The state model has no native-host consumer, and this clause does not independently demand a comments panel.
 
 Ink tests now distinguish a bent three-point InkList and a genuinely bowed cubic Path from a shortcut or chord; both pass. The Path fixture deliberately exercises missing-AP construction policy and is not a conforming PDF 2.0 writer witness. A separate complete PDF with a stored appearance proves public activation opens the Ink note's popup with its exact text. In an isolated checkout, replacing cubic drawing with a straight chord leaves the old collinear test passing but makes the new cubic test fail; both unmodified controls pass. The mutation was restored and checked against live source. This directly demonstrates the old assertion's limit without alleging a production curve defect.
+
+
+Broad checkpoint wave 14: all nine crates ran 5,713 tests, with 5,670 passing, 43 expected audit failures and 53 skipped. The exact binary/test failure set equals the manifest; there are no unexpected failures. Runtime was 60.950 seconds, with compilation making the full command 200 seconds. The new Type1/OpenType and Contents paragraph failures are included. Targeted Clippy checks passed after the latest test additions.
