@@ -830,5 +830,20 @@
   "popup_square_complete_clippy": {
     "log": "clippy-popup-square-complete.log",
     "exit": 0
+  },
+  "file_attachment_routing_description": {
+    "log": "file-attachment-routing-description-target.log",
+    "passed": 1,
+    "expected_failed": 1,
+    "exit": 101
+  },
+  "file_attachment_icon": {
+    "log": "file-attachment-icon-target.log",
+    "passed": 2,
+    "exit": 0
+  },
+  "file_attachment_clippy": {
+    "log": "clippy-attachment-complete-clean.log",
+    "exit": 0
   }
 }

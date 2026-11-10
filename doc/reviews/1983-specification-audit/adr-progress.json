@@ -1080,6 +1080,14 @@
         "duplicates_decision": null
       },
       {
+        "source": "sound_movie_annotation_audit/decisions.json",
+        "decision_id": "Sound icon recommendation is implemented with Speaker/Mic artwork while artwork itself is a project choice",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
         "source": "text_annotation_audit/decisions.json",
         "decision_id": "ADR 0109 §§2–3 seven required names; artwork, default and added-name policy",
         "conclusion": "retain-with-qualification",
@@ -2667,14 +2675,14 @@
   },
   {
     "path": "doc/adr/0295-the-entry-nobody-wired-and-the-file-behind-the-paperclip.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "file_attachment_annotation_audit/decisions.json",
         "decision_id": "read_table_187_fs_at_annotation_activation",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -4048,7 +4056,7 @@
         "source": "file_attachment_annotation_audit/decisions.json",
         "decision_id": "file_attachment_symbol_uses_rect_geometry_without_inheriting_text_icon_rules",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -6215,14 +6223,14 @@
   },
   {
     "path": "doc/adr/0906-the-arm-swept-rather-than-corrected-a-fifth-time.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "file_attachment_annotation_audit/decisions.json",
         "decision_id": "file_attachment_icons_are_recognized_symbols_under_a_should",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -10000,9 +10008,18 @@
   },
   {
     "path": "doc/adr/1561-a-movie-poster-is-fitted-into-its-rectangle.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "sound_movie_annotation_audit/decisions.json",
+        "decision_id": "Draw stream-form Movie poster and choose Table250 default fitting; refuse retrieval from movie file",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1563-ci-on-main-is-read-from-the-public-interface-and-the-raster-examples-are-the-trees.md",
@@ -11980,9 +11997,18 @@
   },
   {
     "path": "doc/adr/1946-the-clause-13-entry-excludes-the-player-and-admits-the-page.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "sound_movie_annotation_audit/decisions.json",
+        "decision_id": "A254 admits media-file hand-off while excluding in-process audio/video decoding and presentation",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1948-a-tagged-page-is-copied-in-its-structure-s-pieces-and-its-artifacts-stay-out.md",
@@ -12034,9 +12060,18 @@
   },
   {
     "path": "doc/adr/1960-viability-is-judged-for-the-hand-off-and-a-form-xobject-clip-is-the-players.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "screen_annotation_audit/decisions.json",
+        "decision_id": "Admit rendition media handoff while excluding playback",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1961-table-286s-temporary-file-is-a-restriction-and-the-clip-is-handed-to-the-host.md",
@@ -14220,9 +14255,18 @@
   },
   {
     "path": "doc/adr/2382-a-movies-file-and-a-sounds-file-cross-through-the-renditions-hand-off.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "sound_movie_annotation_audit/decisions.json",
+        "decision_id": "Use Event::Media as the player hand-off for legacy Sound and Movie activations",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2384-table-380s-decoration-and-position-reach-the-accessibility-tree-on-the-elements-own-text.md",
@@ -14274,9 +14318,18 @@
   },
   {
     "path": "doc/adr/2398-a-sound-s-own-samples-cross-as-a-riff-wave-file-this-side-writes.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "sound_movie_annotation_audit/decisions.json",
+        "decision_id": "Wrap inline Sound samples as RIFF WAVE on hand-off",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2399-a-rich-media-annotation-s-assets-are-listed-and-saved-from-its-page.md",

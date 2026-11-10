@@ -11319,6 +11319,152 @@
     "superseded": false
   },
   {
+    "clause": "12.5.6.15",
+    "feature_id": "file_attachment_subtype_is_recognized",
+    "entry_kind": "direct",
+    "requirement": "A FileAttachment annotation is identified by /Subtype /FileAttachment; this is a required producer entry and is recognized by the reader's annotation dispatch.",
+    "source_location": "§12.5.6.15, Table 187, one-based physical p. 511 / printed p. 496",
+    "errata": "No semantic EC3 amendment to Table187/12.5.6.15 on physical511. Nearby #676 on physical512 targets Screen Table190, not Movie.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::STANDARD_SUBTYPES",
+      "crates/pdf-model/src/appearance.rs::construct",
+      "crates/viewer-core/src/viewer/pointer.rs::attached_files"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_stamps_appearance_is_reported_and_the_other_two_icons_are_drawn",
+      "crates/viewer-core/tests/headless.rs::a_click_on_a_file_attachment_annotation_extracts_its_file",
+      "crates/viewer-core/tests/file_attachment_annotation_audit.rs::clicking_attachment_activates_its_own_filespec_not_a_name_tree_file"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The model dispatch recognizes FileAttachment and routes it to the subtype-specific symbol-icon arm; activation checks the subtype before reading Table 187 /FS. Existing consumer assertions exercise a real annotation and exact extracted filename and bytes. The subtype requirement is a writer constraint; no independent malformed-subtype recovery rule is inferred here.",
+    "remaining": "Recognition and activation covered by self-contained stored-AP fixture; malformed subtype recovery not certified.",
+    "test_command": "Targeted cargo tests with RUSTFLAGS=-Dwarnings; see gate-results.json.",
+    "test_result": "file-attachment-routing-description-target.log: routing PASS.",
+    "parent_review": "Parent read Table187, actual helpers/assertions and selected ADR passages; corrected unreferenced-AP confusion, empty-string exclusion and ADR0906 attribution. New complete-PDF controls reviewed and executed.",
+    "reviewer": "file_attachment_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regression",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.15",
+    "feature_id": "required_fs_payload_is_the_attachment_activated",
+    "entry_kind": "direct",
+    "requirement": "Table 187 requires /FS to identify the file associated with this annotation. Activating the annotation exhibits/extracts that associated file; the section's NOTE describes the extraction and view-or-store opportunity, while §12.5.1 supplies the general activation behavior.",
+    "source_location": "§12.5.6.15 opening paragraph and Table 187 /FS; §12.5.1 activation, one-based physical p. 511 / printed p. 496 for Table 187",
+    "errata": "No semantic EC3 amendment to Table187/12.5.6.15 on physical511. Nearby #676 on physical512 targets Screen Table190, not Movie.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/attachment.rs::of_annotation",
+      "crates/viewer-core/src/viewer/pointer.rs::attached_files",
+      "crates/viewer-core/src/viewer/pointer.rs::exhibit",
+      "crates/viewer-core/src/viewer/pointer.rs::hand_over"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/headless.rs::a_click_on_a_file_attachment_annotation_extracts_its_file",
+      "crates/viewer-core/tests/file_attachment_annotation_audit.rs::clicking_attachment_activates_its_own_filespec_not_a_name_tree_file"
+    ],
+    "verdict": "confirmed-selected-consumer-routing",
+    "evidence": "Complete PDF has two annotations with distinct FS payloads and third catalog name-tree decoy. Both exact filenames/bytes match clicked annotation; opening and unrelated click do not extract. Exact xref and complete nonempty stored AP controls pass. Public pointer path reaches of_annotation and Event::Extracted.",
+    "remaining": "The NOTE uses informative wording for the view-or-store opportunity; this audit does not turn it into a requirement that a host launch an external application or write to disk. `Event::Extracted` is the viewer-core boundary, and host-side saving/viewing is policy. The general file specification and embedded-stream decoding requirements remain delegated to the accepted filespec/embedded-stream audits.",
+    "test_command": "Targeted cargo tests with RUSTFLAGS=-Dwarnings; see gate-results.json.",
+    "test_result": "file-attachment-routing-description-target.log: routing PASS.",
+    "parent_review": "Parent read Table187, actual helpers/assertions and selected ADR passages; corrected unreferenced-AP confusion, empty-string exclusion and ADR0906 attribution. New complete-PDF controls reviewed and executed.",
+    "reviewer": "file_attachment_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regression",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer-routing",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.15",
+    "feature_id": "contents_description_takes_precedence_over_filespec_desc",
+    "entry_kind": "conditional",
+    "requirement": "When Contents is present, interactive processor shall use it rather than optional FileSpec Desc. The clause provides no nonempty-string exception.",
+    "source_location": "§12.5.6.15 paragraph immediately before Table 187, one-based physical p. 511 / printed p. 496; Table 166 /Contents and Table 43 /Desc are forward references",
+    "errata": "No semantic EC3 amendment to Table187/12.5.6.15 on physical511. Nearby #676 on physical512 targets Screen Table190, not Movie.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/attachment.rs::of_annotation"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/attachment.rs::a_file_attachments_description_is_the_annotations_contents_and_not_the_specifications_desc",
+      "crates/viewer-core/tests/file_attachment_annotation_audit.rs::a_present_empty_attachment_contents_does_not_reveal_the_filespec_description"
+    ],
+    "verdict": "implementation-gap-empty-contents-precedence",
+    "evidence": "Existing unit covers nonempty override and absent fallback. New complete-PDF public attachment-reader control passes omitted/nonempty cases, but Contents() exposes conflicting Desc. Empty text is valid, not malformed. of_annotation only overrides for nonempty text. Assertion permits None or empty string; it forbids disclosure of the lower-precedence description.",
+    "remaining": "Failure is at public Attachment reader boundary, not a claim of observed desktop tooltip behavior. General file-spec decoding remains separate.",
+    "test_command": "Targeted cargo tests with RUSTFLAGS=-Dwarnings; see gate-results.json.",
+    "test_result": "file-attachment-routing-description-target.log: empty Contents assertion FAIL; omitted/nonempty controls PASS.",
+    "parent_review": "Parent read Table187, actual helpers/assertions and selected ADR passages; corrected unreferenced-AP confusion, empty-string exclusion and ADR0906 attribution. New complete-PDF controls reviewed and executed.",
+    "reviewer": "file_attachment_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regression",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap-empty-contents-precedence",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.15",
+    "feature_id": "name_default_and_predefined_icon_recommendation",
+    "entry_kind": "direct",
+    "requirement": "Table 187's optional /Name names the displayed icon and defaults to PushPin. Writers should include it. Readers should provide predefined appearances for at least Graph, PushPin, Paperclip, and Tag; this is a recommendation, not a SHALL.",
+    "source_location": "Table 187 /Name, one-based physical p. 511 / printed p. 496",
+    "errata": "No semantic EC3 amendment to Table187/12.5.6.15 on physical511. Nearby #676 on physical512 targets Screen Table190, not Movie.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::symbol_icon",
+      "crates/pdf-model/src/icon.rs::DEFAULT_FILE_ATTACHMENT_NAME",
+      "crates/pdf-model/src/icon.rs::file_attachment"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_stamps_appearance_is_reported_and_the_other_two_icons_are_drawn",
+      "crates/pdf-model/tests/annotations.rs::an_icon_is_square_and_centred_in_a_rectangle_that_is_not",
+      "crates/pdf-model/tests/file_attachment_icon_audit.rs::attachment_name_defaults_to_pushpin_and_the_chosen_four_icons_differ"
+    ],
+    "verdict": "confirmed-selected-default-and-artwork-policy",
+    "evidence": "`symbol_icon` defaults an absent Name to the Table 187 PushPin constant and maps a present name through `icon::file_attachment`; it reports a nonstandard name rather than silently treating it as an absent one. The square/centering test has no /AP and exercises the generated PushPin fallback. The four-name loop in `a_stamps_appearance_is_reported_and_the_other_two_icons_are_drawn` also has no /AP key: `pdf_with` adds a separate form object, but the annotation string passed by `interpret_icon` does not reference it. Thus its loop exercises generated Graph, PushPin, Paperclip and Tag; however, each assertion only requires a nonempty command list, so a regression mapping all four names to one glyph could pass. Current code maps the names to separate figure definitions. New complete-PDF raster test with required FS proves absent Name equals explicit PushPin and all four selected glyph outputs are nonempty and pairwise different. Old helper extra AP object is unreferenced, so old tests did exercise fallback; their weakness was assertion strength.",
+    "remaining": "No-AP cases exercise chosen construction policy, not producer conformance. Distinct artwork is a project guard, not prescribed ISO pixels. SHOULD remains recommendation.",
+    "test_command": "Targeted cargo tests with RUSTFLAGS=-Dwarnings; see gate-results.json.",
+    "test_result": "file-attachment-icon-target.log: default/distinctness PASS.",
+    "parent_review": "Parent read Table187, actual helpers/assertions and selected ADR passages; corrected unreferenced-AP confusion, empty-string exclusion and ADR0906 attribution. New complete-PDF controls reviewed and executed.",
+    "reviewer": "file_attachment_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regression",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-default-and-artwork-policy",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.15",
+    "feature_id": "stored_normal_appearance_precedes_name_icon_fallback",
+    "entry_kind": "forward-reference",
+    "requirement": "Stored annotation appearance selection and placement are governed by §12.5.5 and Table 166 /AP, not by this subtype-specific clause. When a usable normal appearance is present, /Name's predefined symbol is only relevant to the constructed-appearance path.",
+    "source_location": "§12.5.5 (forward reference from the general annotation appearance rules); Table 166 /AP; §12.5.6.15 Table 187 /Name",
+    "errata": "No semantic EC3 amendment to Table187/12.5.6.15 on physical511. Nearby #676 on physical512 targets Screen Table190, not Movie.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/appearance.rs::construct",
+      "crates/pdf-model/src/appearance.rs::symbol_icon"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::an_appearance_is_scaled_and_translated_onto_the_annotation_rectangle",
+      "crates/pdf-model/tests/file_attachment_icon_audit.rs::attachment_stored_appearance_wins_over_every_icon_name"
+    ],
+    "verdict": "confirmed-selected-stored-appearance-precedence",
+    "evidence": "The actual annotation route chooses the stored normal appearance before invoking subtype construction; `symbol_icon` is the absent-appearance fallback. `a_stamps_appearance_is_reported_and_the_other_two_icons_are_drawn` does not test this precedence: its annotation strings omit /AP and the form object supplied by `pdf_with` is unreferenced. The broader §12.5.5 tests exercise stored appearance geometry for other annotations. This is a cross-reference, not an additional standalone SHALL in §12.5.6.15. New stored red AP control paints and differs from fallback; absent, Tag and unknown Name produce exact same full raster as stored PushPin AP.",
+    "remaining": "This cross-reference supports common appearance selection, not an additional independent Table187 duty.",
+    "test_command": "Targeted cargo tests with RUSTFLAGS=-Dwarnings; see gate-results.json.",
+    "test_result": "file-attachment-icon-target.log: stored-AP precedence PASS.",
+    "parent_review": "Parent read Table187, actual helpers/assertions and selected ADR passages; corrected unreferenced-AP confusion, empty-string exclusion and ADR0906 attribution. New complete-PDF controls reviewed and executed.",
+    "reviewer": "file_attachment_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regression",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-stored-appearance-precedence",
+    "superseded": false
+  },
+  {
     "clause": "7.5.1",
     "feature_id": "7.5.1:four-parts",
     "requirement": "A basic PDF file has a one-line version header, body of document objects, cross-reference information, and a trailer locating cross-reference and special objects; later updates append elements.",

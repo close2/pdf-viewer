@@ -2196,6 +2196,71 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/0295-the-entry-nobody-wired-and-the-file-behind-the-paperclip.md",
+    "decision_id": "read_table_187_fs_at_annotation_activation",
+    "original_decision": "Read Table 187's /FS on the annotation activation path and expose the embedded bytes through the existing Event::Extracted boundary; do not eagerly walk every page to add annotations to the document-wide attachment list.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "Retain direct FS activation and lazy page access: new public pointer test discriminates exact clicked payload from two alternatives. Qualify description logic: present-empty Contents incorrectly falls back to Desc; no source exception supports this.",
+    "current_code_evidence": "`crates/pdf-model/src/attachment.rs::of_annotation` follows the annotation's FS to its FileSpec, reads its EF stream, applies annotation Contents as the description override, and returns that Attachment. `crates/viewer-core/src/viewer/pointer.rs::attached_files` invokes this only for FileAttachment and for the object under the pointer; `exhibit` passes its result to `hand_over`, which decodes the selected stream and emits Event::Extracted.",
+    "test_evidence": "crates/viewer-core/tests/file_attachment_annotation_audit.rs routing PASS with positive and negative controls; empty description FAIL after absent/nonempty controls PASS.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 §12.5.6.15, printed p. 496 / physical p. 511; Table 187 /FS",
+      "ISO 32000-2 §12.5.1 annotation activation",
+      "ISO 32000-2 §§7.11.3–7.11.4 file specifications and embedded files",
+      "doc/conformance/ledger.toml row 12.5.6.15"
+    ],
+    "changed_premise": "The core routing capability described in the ADR has been implemented. Current issue is assertion strength for exact per-annotation selection, not missing architecture. The NOTE's view-or-store phrase is informative and does not require a desktop launch or filesystem write by viewer-core.",
+    "remaining_work": "Separate production follow-up should correct present-empty Contents precedence; no architecture change inferred.",
+    "parent_review": "Selected ADR text checked; no whole-document certification or historical edit.",
+    "reviewer": "file_attachment_annotation_audit",
+    "source": "file_attachment_annotation_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regression",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0906-the-arm-swept-rather-than-corrected-a-fifth-time.md",
+    "decision_id": "file_attachment_icons_are_recognized_symbols_under_a_should",
+    "original_decision": "Correct the stale `appearance::construct` module-header claim that FileAttachment, Sound and Stamp all lacked clause-supported icon artwork; sweep the Table 171 population and preserve the already-existing FileAttachment and Sound icon handlers.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The ADR did not introduce the icon handler; it corrected a stale refusal description and swept the Table 171 population. Table 187 remains a SHOULD and its four names/default are unchanged by EC3. The actual test helper confirms the all-four fixtures omit /AP; the extra appearance object is not referenced by the annotation. Thus the tests exercise generated icons and establish nonempty output for each, but do not distinguish correct per-name glyph selection from all names mapping to one same glyph. The code uses separate figure definitions, and the symbol-vs-legend explanation remains a reasonable implementation rationale rather than a SHALL.",
+    "current_code_evidence": "`appearance::construct` routes FileAttachment to `symbol_icon` only after the stored appearance route has been considered. `symbol_icon` uses `DEFAULT_FILE_ATTACHMENT_NAME` for absent /Name and `icon::file_attachment` for the provided names. `icon.rs` defines Graph, PushPin, Paperclip and Tag.",
+    "test_evidence": "crates/pdf-model/tests/file_attachment_icon_audit.rs both tests PASS: absent Name equals PushPin, all four selected glyphs differ, stored AP overrides standard/unknown/absent Name. Old unreferenced form did not bypass fallback.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 Table 187 /Name, printed p. 496 / physical p. 511",
+      "ISO 32000-2 §12.5.5 stored appearance rules",
+      "doc/adr/0471-the-size-a-clause-states-and-the-rectangle-that-did-not.md, FileAttachment-specific geometry discussion"
+    ],
+    "changed_premise": "No normative premise changed. The annotation test fixtures exercise generated appearance; remaining uncertainty is shape discrimination, not whether the fallback path ran.",
+    "remaining_work": "No new test gap for these selected icon assertions. Keep recommendation/artwork policy separate from mandatory behavior.",
+    "parent_review": "Selected ADR text checked; no whole-document certification or historical edit.",
+    "reviewer": "file_attachment_annotation_audit",
+    "source": "file_attachment_annotation_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regression",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0471-the-size-a-clause-states-and-the-rectangle-that-did-not.md",
+    "decision_id": "file_attachment_symbol_uses_rect_geometry_without_inheriting_text_icon_rules",
+    "original_decision": "Leave FileAttachment and Sound icons inscribed in /Rect because their clauses do not say that the icon is point-anchored or fixed-size; test FileAttachment's inscribing behavior instead of borrowing §12.5.6.4 Text rules.",
+    "current_conclusion": "retain",
+    "reason": "This remains a well-bounded distinction: Table 187 describes the icon Name but gives no geometry, whereas §12.5.6.4 explicitly defines Text's fixed-size/anchor behavior. The Table 187 default symbol route takes the largest square in /Rect. No EC3 change intersects §12.5.6.15. Geometry is a project choice where the FileAttachment clause is silent, not a requirement to inherit Text behavior.",
+    "current_code_evidence": "`appearance::symbol_icon` computes the largest square inside the FileAttachment rectangle and draws the selected symbol there. The `Name` dispatch remains separate from `Text`'s anchored-icon route.",
+    "test_evidence": "`crates/pdf-model/tests/annotations.rs::an_icon_is_square_and_centred_in_a_rectangle_that_is_not` uses a FileAttachment with no /AP and PushPin Name, compares the nonsquare rectangle to the centered square, and asserts both off-center alternatives differ. This is a discriminating geometry assertion for the chosen behavior.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 §12.5.6.15 Table 187, printed p. 496 / physical p. 511",
+      "ISO 32000-2 §12.5.6.4 Text annotation geometry",
+      "ISO 32000-2 §12.5.3 and EC3 Issue #34 on implementation-dependent rendered appearance when no appearance dictionary is present",
+      "doc/adr/0471-the-size-a-clause-states-and-the-rectangle-that-did-not.md"
+    ],
+    "changed_premise": "No current change identified. EC3 Issue #34 clarifies that no-appearance rendering is implementation dependent; that reinforces that this icon geometry is a project choice rather than an ISO-mandated /Rect mapping.",
+    "remaining_work": "No required work. Do not make the FileAttachment rectangle placement a reader-mandated rule in this clause.",
+    "parent_review": "Selected ADR text checked; no whole-document certification or historical edit.",
+    "reviewer": "file_attachment_annotation_audit",
+    "source": "file_attachment_annotation_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regression",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/0115-a-resource-name-is-scoped-to-the-dictionary-that-defines-it.md",
     "decision_id": "font_cache_identity_is_resource_dictionary_identity",
     "original_decision": "Cache a loaded font by its defining dictionary's object identity, not by the resource-name text, because a page and Form can reuse /F1 for distinct fonts.",

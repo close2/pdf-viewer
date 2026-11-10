@@ -879,7 +879,7 @@
       "clauses": [
         "12.5.6.15"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-consumer-regression"
     },
     {
       "agent": "sound_movie_annotation_audit",
@@ -895,6 +895,21 @@
         "12.5.6.18",
         "12.5.6.20",
         "12.5.6.21"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "widget_annotation_audit",
+      "clauses": [
+        "12.5.6.19"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "redaction_annotation_audit",
+      "clauses": [
+        "12.5.6.23",
+        "12.5.6.24"
       ],
       "state": "running"
     }

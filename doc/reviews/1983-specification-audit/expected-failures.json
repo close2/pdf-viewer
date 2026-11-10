@@ -292,6 +292,12 @@
       "test": "opening_a_stamp_without_a_popup_reference_still_displays_its_associated_note",
       "evidence": "stamp-popup-reviewed-target.log",
       "classification": "Supplied Stamp note not exhibited on pointer activation without optional Popup; explicit-window and valid stored-AP controls pass; combined12.5.1/12.5.6.12 interpretation stated"
+    },
+    {
+      "binary": "viewer-core::file_attachment_annotation_audit",
+      "test": "a_present_empty_attachment_contents_does_not_reveal_the_filespec_description",
+      "evidence": "file-attachment-routing-description-target.log",
+      "classification": "Present empty Contents incorrectly exposes lower-precedence Filespec Desc at public Attachment reader boundary"
     }
   ]
 }

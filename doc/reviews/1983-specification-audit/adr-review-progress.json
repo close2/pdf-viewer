@@ -2,17 +2,17 @@
   "warning": "Records can overlap or cross-reference prior reviews. Selected units do not establish that every decision in an ADR was reviewed; no whole document is marked complete.",
   "adr_documents": 2233,
   "document_states": {
-    "pending": 2018,
-    "selected-decision-units-reviewed": 197,
-    "review-in-progress": 18
+    "pending": 2013,
+    "selected-decision-units-reviewed": 199,
+    "review-in-progress": 21
   },
-  "decision_review_records": 333,
-  "parent_accepted_records": 330,
+  "decision_review_records": 343,
+  "parent_accepted_records": 333,
   "cross_reference_records": 25,
   "accepted_record_conclusions": {
-    "retain-with-qualification": 163,
+    "retain-with-qualification": 165,
     "revisit": 14,
-    "retain": 86,
+    "retain": 87,
     "superseded": 14,
     "superseded-in-part": 2,
     "cross-reference-only": 25,
@@ -41,5 +41,22 @@
     "retain-api-with-citation-and-polygon-precision-qualification": 1,
     "retain-bounded": 1
   },
-  "issues": []
+  "issues": [
+    {
+      "source": "screen_annotation_audit/decisions.json",
+      "missing_adr": "doc/adr/0901-a-screen-with-no-appearance-is-not-a-gap.md"
+    },
+    {
+      "source": "screen_annotation_audit/decisions.json",
+      "missing_adr": "doc/adr/0906-the-appearance-less-sweep-covers-the-known-subtypes.md"
+    },
+    {
+      "source": "screen_annotation_audit/decisions.json",
+      "missing_adr": "doc/adr/1035-the-remaining-annotation-statuses-have-a-specific-reader-duty-or-an-exclusion.md"
+    },
+    {
+      "source": "screen_annotation_audit/decisions.json",
+      "missing_adr": "doc/adr/1535-deprecated-annotations-are-read-but-not-written.md"
+    }
+  ]
 }
