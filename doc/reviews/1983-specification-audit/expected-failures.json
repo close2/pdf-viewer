@@ -198,6 +198,16 @@
       "test": "a_next_script_observes_preceding_non_script_action_state",
       "evidence": "interpolation-mixed-action-target.log",
       "classification": "Table196 Next execution order across supported script and non-script actions; documented ADR1602/1750/1752 limitation"
+    },
+    {
+      "binary": "pdf-model::image_masking_audit",
+      "test": "ec3_image_mask_ignores_its_own_mask_and_colour_space_entries",
+      "evidence": "image-masking-six-target.log"
+    },
+    {
+      "binary": "pdf-model::image_masking_audit",
+      "test": "an_image_mask_with_more_than_one_bit_per_component_reports_inconsistency",
+      "evidence": "image-masking-six-target.log"
     }
   ]
 }

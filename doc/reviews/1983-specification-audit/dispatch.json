@@ -640,14 +640,14 @@
       "clauses": [
         "8.9.6 and descendants"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections"
     },
     {
       "agent": "document_trigger_timing_audit",
       "clauses": [
         "12.6.3 Table200 consumer timing"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-two-operation-consumer-tests"
     },
     {
       "agent": "presentations_audit",
@@ -667,6 +667,13 @@
       "agent": "font_descriptors_audit",
       "clauses": [
         "9.8 and descendants"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "document_trigger_timing_residual_audit",
+      "clauses": [
+        "12.6.3 Table200 held/refused operations"
       ],
       "state": "running"
     }

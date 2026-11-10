@@ -1357,6 +1357,107 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/1614-table-200-is-five-moments-a-host-marks-and-none-of-them-a-question.md",
+    "decision_id": "1614-D1-operation-timing",
+    "original_decision": "viewer-core owns the five Table 200 calls: WC before close, WS before save serialization, DS after a successful write, WP when a granted print starts, and DP when an active print ends.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "Current call paths support the stated ordering. Close runs WillClose and emits its report before removing the document and emitting Closed. Save runs WillSave before XFA preSave and before serialization; DidSave follows only an Ok write. Print runs WillPrint only once policy/fidelity grants the job and DidPrint only when an active job is finished. A later XFA preSave event may cause the reader-level save policy to hold or refuse the write after WS, so WS is before an attempted save path and does not guarantee a file is written. That XFA condition is separate from Table 200 JavaScript event.rc.",
+    "current_code_evidence": [
+      "crates/viewer-core/src/viewer.rs::Command::Close",
+      "crates/viewer-core/src/viewer/editing.rs::before_save",
+      "crates/viewer-core/src/viewer/editing.rs::written_with_scripts",
+      "crates/viewer-core/src/viewer/editing.rs::write",
+      "crates/viewer-core/src/viewer/printing.rs::print",
+      "crates/viewer-core/src/viewer/printing.rs::begin_printing",
+      "crates/viewer-core/src/viewer/printing.rs::end_printing"
+    ],
+    "test_evidence": [
+      "crates/viewer-core/tests/document_trigger_timing_audit.rs::catalog_document_triggers_bracket_public_viewer_operations",
+      "crates/viewer-core/tests/document_trigger_timing_audit.rs::print_triggers_follow_a_successful_start_and_active_finish"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 sponsored EC3 PDF pp. 524-525 (printed 509-510), Table 200; no applicable EC3 amendment identified.",
+    "changed_premise": "XFA preSave cancellation was added to the save path after ADR 1614; ADR 2763 replaced the earlier decision that a preSave cancellation is merely reported and the save always writes. Table 200 JS rc remains non-vetoing, but the whole save operation may have a separate later XFA decision.",
+    "remaining_work": "Two strengthened public Viewer tests pass. Combined XFA-held/refused-save and encrypted-print timing assigned to document_trigger_timing_residual_audit; full host integration remains pending.",
+    "parent_review": "Selected decision unit only. Root read ADR1614 and2763, checked current consumer call sites, and executed2public Viewer regressions; no whole-host/whole-ADR certification.",
+    "reviewer": "document_trigger_timing_audit",
+    "source": "document_trigger_timing_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-two-operation-consumer-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1614-table-200-is-five-moments-a-host-marks-and-none-of-them-a-question.md",
+    "decision_id": "1614-D2-event-rc-is-not-an-operation-veto",
+    "original_decision": "A Table 200 script that sets event.rc false does not veto close, save, or print; this is the project's reader policy alongside the table's timing requirements.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The source paragraph after Table 200 defines timing for mouse trigger constraints and Table 200's rows say the ECMAScript action shall be performed at its event moment; neither specifies event.rc semantics. The project non-veto rule is therefore an architectural policy, not an independent ISO condition. Current document trigger runner accepts edits while its rc value does not gate the operation. XFA preSave uses a different cancelAction and is handled through the reader's Save restriction levels after WS; it does not contradict the Table 200 policy.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/view/script_sites.rs::ViewState::run_document_scripts",
+      "crates/viewer-core/src/viewer/editing.rs::before_save",
+      "crates/viewer-core/src/viewer/editing.rs::save",
+      "crates/viewer-core/src/viewer/printing.rs::begin_printing",
+      "crates/viewer-core/src/viewer.rs::Command::Close"
+    ],
+    "test_evidence": [
+      "crates/viewer-core/tests/document_trigger_timing_audit.rs::catalog_document_triggers_bracket_public_viewer_operations",
+      "crates/viewer-core/tests/document_trigger_timing_audit.rs::print_triggers_follow_a_successful_start_and_active_finish"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 sponsored EC3 PDF Table 200; project policy basis: CLAUDE.md principle 3 as cited in ADR 1614.",
+    "changed_premise": "ADR 2763 adds a separate reader-level decision for XFA cancelAction on save. It does not make Table 200 event.rc actionable.",
+    "remaining_work": "Two strengthened public Viewer tests pass. Combined XFA-held/refused-save and encrypted-print timing assigned to document_trigger_timing_residual_audit; full host integration remains pending.",
+    "parent_review": "Selected decision unit only. Root read ADR1614 and2763, checked current consumer call sites, and executed2public Viewer regressions; no whole-host/whole-ADR certification.",
+    "reviewer": "document_trigger_timing_audit",
+    "source": "document_trigger_timing_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-two-operation-consumer-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/2702-a-save-and-a-submit-fire-their-pre-and-post-events-and-a-submit-s-cancel-action-aborts-it.md",
+    "decision_id": "2702-D5-save-cancel-action-writes (superseded by 2763-D2)",
+    "original_decision": "A save's XFA preSave cancelAction was reported and the file was written.",
+    "current_conclusion": "superseded",
+    "reason": "ADR 2763 expressly revises decision 5 of ADR 2702: XFA save cancellation is passed to the reader's Save policy after WS/preSave. The current code does so. This matters to Table 200 timing because WS precedes that later hold/refusal, while DS follows only a successful write.",
+    "current_code_evidence": [
+      "crates/viewer-core/src/viewer/editing.rs::save",
+      "crates/viewer-core/src/viewer/editing.rs::before_save",
+      "crates/viewer-core/src/viewer/editing.rs::write"
+    ],
+    "test_evidence": [
+      "crates/viewer-core/tests/script_form.rs::a_pre_save_cancel_action_is_asked_at_the_reader_s_level_for_save"
+    ],
+    "spec_or_external_sources": "XFA 3.3 pp. 388, 400, 402 as reviewed in ADR 2763; outside ISO Table 200 itself.",
+    "changed_premise": "The reader-level Operation::Save policy and SaveCancelled reason now exist; ADR 2702 stated that this policy was not built.",
+    "remaining_work": "No unreviewed parts of ADR 2702 are evaluated here; test whether adding Table 200 WS/DS to the XFA cancel fixture would clarify their interaction.",
+    "parent_review": "Selected decision unit only. Root read ADR1614 and2763, checked current consumer call sites, and executed2public Viewer regressions; no whole-host/whole-ADR certification.",
+    "reviewer": "document_trigger_timing_audit",
+    "source": "document_trigger_timing_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-two-operation-consumer-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/2763-a-save-an-xfa-form-s-pre-save-script-declines-is-asked-at-the-reader-s-level.md",
+    "decision_id": "2763-D2-save-policy-after-ws-and-presave",
+    "original_decision": "Viewer save asks the reader's Save level after /WS and XFA preSave; a held/refused save is not a completed Table 200 /DS event, though XFA cleanup may fire postSave.",
+    "current_conclusion": "retain",
+    "reason": "Current save path runs before_save (WillSave, then XFA preSave) before verdict, and write is entered only on Verdict::Proceed/Warn or an affirmative held-save answer. written_with_scripts runs DidSave only when ViewState::save succeeds. XFA postSave cleanup on cancellation is distinct from catalog /DS.",
+    "current_code_evidence": [
+      "crates/viewer-core/src/viewer/editing.rs::save",
+      "crates/viewer-core/src/viewer/editing.rs::before_save",
+      "crates/viewer-core/src/viewer/editing.rs::write",
+      "crates/viewer-core/src/viewer/editing.rs::written_with_scripts"
+    ],
+    "test_evidence": [
+      "crates/viewer-core/tests/script_form.rs::a_pre_save_cancel_action_is_asked_at_the_reader_s_level_for_save"
+    ],
+    "spec_or_external_sources": "XFA 3.3 pp. 388, 400, 402 as recorded in ADR 2763; ISO 32000-2 Table 200 /DS says after saving.",
+    "changed_premise": "The later implementation has the Save operation and reader-level policy ADR 2702 originally said did not exist.",
+    "remaining_work": "Existing tests do not combine catalog /WS and /DS with an XFA preSave cancellation. A focused combined regression remains optional.",
+    "parent_review": "Selected decision unit only. Root read ADR1614 and2763, checked current consumer call sites, and executed2public Viewer regressions; no whole-host/whole-ADR certification.",
+    "reviewer": "document_trigger_timing_audit",
+    "source": "document_trigger_timing_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-two-operation-consumer-tests",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/0115-a-resource-name-is-scoped-to-the-dictionary-that-defines-it.md",
     "decision_id": "font_cache_identity_is_resource_dictionary_identity",
     "original_decision": "Cache a loaded font by its defining dictionary's object identity, not by the resource-name text, because a page and Form can reuse /F1 for distinct fonts.",
@@ -1925,6 +2026,200 @@
     "reviewer": "image_interpolation_audit",
     "source": "image_interpolation_audit/decisions.json",
     "parent_review_state": "parent-reviewed-partial-with-hint-test-and-successor-corrections",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0023-image-masking.md",
+    "decision_id": "read_mask_once_and_split_color_key_from_stencil",
+    "original_decision": "Parse the /Mask value once, applying color-key ranges to raw samples before Decode and image stencils after image decoding.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The effective §8.9.6.4 domain is explicitly pre-Decode, while §8.9.6.3 requires composing a second image mask with the base image. Current code has distinct MaskEntry variants and the unpack path applies color keys before Decode; the explicit-mask path combines the decoded rasters. New draft fixtures discriminate the pre-Decode ordering. Malformed range-array reporting remains a project policy unless a reader requirement is separately identified.",
+    "current_code_evidence": "image/mask.rs dispatches array and stream forms; image/unpack.rs computes raw-value key membership before applying Decode; mask.rs and combine.rs apply an explicit stencil after decoding.",
+    "test_evidence": "image_masks.rs assertions cover ranges, inclusive ends, Indexed indices and explicit stencils. Scratch tests add Decode [1 0] raw-key ordering and a 2x1 stencil over a 4x2 image with an unmasked control. Root: image_masking_audit6run4pass2expectedfail; ordinary precedence/pre-Decode/coarse-grid/green-background controls pass.",
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §§8.9.6.2–8.9.6.4",
+      "ISO 32000-2:2020 Table 87",
+      "EC3 physical PDF pp. 274–275 (printed pp. 259–260)"
+    ],
+    "changed_premise": "The preference/allocation-ceiling split is ADR0451 §2, not ADR0456. Current mask.rs incorrectly cites0456, which concerns the JBIG2 decoder limit and pattern-parent space. Parent read both ADRs and current combined_grid/worth_combining code.",
+    "remaining_work": "Four positive consumer tests pass. Arbitrary scale/grid-ratio sampling remains partial. The source comment pointing to ADR0456 is stale; production comments are unchanged in this audit.",
+    "review_type": "reviewed_decision_unit",
+    "parent_review": "Assertions and code branches inspected; not a whole-ADR or whole-mask certification.",
+    "reviewer": "image_masking_audit",
+    "source": "image_masking_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0023-image-masking.md",
+    "decision_id": "explicit_mask_finer_grid",
+    "original_decision": "Combine explicit image masks and the base image on the finer grid per axis using nearest-neighbour sampling, originally with a fixed MAX_MASK_GRID cap.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The standard requires coincident unit-square boundaries but does not prescribe this internal raster grid; the finer-grid rule is an implementation choice that preserves either source raster's detail. ADR 0451 supersedes the original fixed grid cap with distinct preference and allocation ceiling policies. Existing tests check a finer mask; the scratch test checks a coarser mask over the entire base unit square.",
+    "current_code_evidence": "image/combine.rs::combine_on_the_finer_grid chooses per-axis maxima and maps each source to that combined grid; refusal bounds now use the later policy rather than the original cap.",
+    "test_evidence": "image_masks.rs::a_mask_finer_than_its_image_keeps_its_own_resolution checks the finer direction; the scratch complete PDF asserts both halves across both rows for a 2x1 stencil over a 4x2 base and includes an unmasked positive control. Root: image_masking_audit6run4pass2expectedfail; ordinary precedence/pre-Decode/coarse-grid/green-background controls pass.",
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §8.9.6.3",
+      "doc/adr/0451-three-surfaces-a-page-was-drawn-on-and-none-of-them-its-own.md"
+    ],
+    "changed_premise": "The preference/allocation-ceiling split is ADR0451 §2, not ADR0456. Current mask.rs incorrectly cites0456, which concerns the JBIG2 decoder limit and pattern-parent space. Parent read both ADRs and current combined_grid/worth_combining code.",
+    "remaining_work": "Four positive consumer tests pass. Arbitrary scale/grid-ratio sampling remains partial. The source comment pointing to ADR0456 is stale; production comments are unchanged in this audit.",
+    "review_type": "reviewed_decision_unit",
+    "parent_review": "The standard does not mandate finer-grid implementation; only its unit-square relation is treated as normative.",
+    "reviewer": "image_masking_audit",
+    "source": "image_masking_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0023-image-masking.md",
+    "decision_id": "codec_color_key_refusal",
+    "original_decision": "Refuse color-key masking on filtered images, including lossy codecs, because samples were unavailable or unreliable.",
+    "current_conclusion": "superseded",
+    "reason": "ADR 0832 replaced the blanket codec refusal for filter-delivered samples it can compare; ADR 1121 addressed JPX's codestream-defined precision. The current implementation has DCT and JPX routes, and existing tests assert hit/miss outputs. The §8.9.6.4 note warns of producer-side unexpected results; it is not a reader exemption.",
+    "current_code_evidence": "mask.rs sends key ranges into the decoded-sample route; dct.rs applies the mask with JPEG samples; jpx.rs derives the sample domain from codestream precision and the model tests exercise it.",
+    "test_evidence": "dct_components.rs checks masked hits, misses and all-components behavior; image_masks.rs checks 8-, 12- and 16-bit JPX ranges. These are existing tests; this shard adds no duplicate codec tests. Root: image_masking_audit6run4pass2expectedfail; ordinary precedence/pre-Decode/coarse-grid/green-background controls pass.",
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §8.9.6.4 and NOTE 2",
+      "ISO 32000-2:2020 Table 87",
+      "doc/adr/0832-a-colour-key-reaches-a-filtered-image-and-table-87-says-what-its-samples-are.md",
+      "doc/adr/1121-a-colour-keys-domain-is-stated-in-the-image-data.md"
+    ],
+    "changed_premise": "Yes: ADR 0832 established reachable filter samples for DCT and other paths; ADR 1121 supplied the JPX sample domain from codestream metadata. The original blanket refusal no longer describes current code. Parent correction: ADR1121 only admitted unsigned8-bit or Indexed domains and retained the deep/signed refusal. ADR1242 carries unsigned sample precision through16bits; current12/16-bit tests belong to that successor.",
+    "remaining_work": "The selected sample-domain principle is retained; the original8-bit pipeline limit is superseded by ADR1242. Signed, differing-channel-depth and >16-bit color-key behavior remain beyond this selected review; no codec conformance certification.",
+    "review_type": "reviewed_decision_unit",
+    "parent_review": "Reviewed the selected color-key refusal unit and successors, not every historical measurement in the ADRs.",
+    "reviewer": "image_masking_audit",
+    "source": "image_masking_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0023-image-masking.md",
+    "decision_id": "report_non_image_mask_value",
+    "original_decision": "When /Mask is a stream that is not an image mask, report the unsupported entry and draw the base image without the mask.",
+    "current_conclusion": "retain-as-project-policy",
+    "reason": "Table 87 and §8.9.6.3 describe /Mask as an image mask and §8.9.6.2 defines that form. These are producer constraints; the clauses do not prescribe this particular reader diagnostic or fallback. Existing tests prove the project behavior, but it is not claimed as an ISO-mandated rejection rule.",
+    "current_code_evidence": "image/mask.rs::explicit_entry recognizes an image-mask stream and returns a report for an ordinary image stream; the base image then renders unmasked.",
+    "test_evidence": "image_masks.rs::a_mask_that_is_not_an_image_mask_is_reported checks the unsupported report and base-image pixels. Root: image_masking_audit6run4pass2expectedfail; ordinary precedence/pre-Decode/coarse-grid/green-background controls pass.",
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §8.9.6.2",
+      "ISO 32000-2:2020 §8.9.6.3",
+      "ISO 32000-2:2020 Table 87 /Mask row"
+    ],
+    "changed_premise": "No identified change; this is deliberately a project recovery policy beyond an explicit reader SHALL.",
+    "remaining_work": "None for this bounded policy review; malformed input behavior elsewhere remains out of scope.",
+    "review_type": "reviewed_decision_unit",
+    "parent_review": "No conformance gap is alleged from lack of this exact fallback.",
+    "reviewer": "image_masking_audit",
+    "source": "image_masking_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0023-image-masking.md",
+    "decision_id": "smask_precedence_over_dictionary_mask",
+    "original_decision": "An image's /SMask or nonzero /SMaskInData overrides /Mask; expose that as MaskEntry::Overridden.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "§11.6.4.3 and the effective Table 87 entries own this precedence. EC3 Issue #215 on physical PDF pp. 274–275 (printed pp. 259–260) is material: the effective /SMask text says it overrides /Mask and the current graphics-state soft mask; nonzero /SMaskInData similarly overrides /Mask and excludes /SMask. Current code gives an image /SMask precedence over both explicit and array /Mask forms. Existing tests cover explicit-mask precedence; the scratch test adds array precedence.",
+    "current_code_evidence": "image/mask.rs::mask_entry checks the image's /SMask before reading /Mask and returns Overridden; dispatch and soft_mask routes carry the selected mask.",
+    "test_evidence": "Existing image_masks.rs::a_soft_mask_overrides_an_explicit_mask verifies explicit-mask precedence. Scratch test compares a color-key-only control with an otherwise identical opaque SMask image, requiring red to reappear while blue remains visible. Root: image_masking_audit6run4pass2expectedfail; ordinary precedence/pre-Decode/coarse-grid/green-background controls pass.",
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §11.6.4.3",
+      "ISO 32000-2:2020 Table 87 /SMask and /SMaskInData rows",
+      "EC3 physical PDF pp. 274–275 (printed pp. 259–260), Issue #215"
+    ],
+    "changed_premise": "The precedence premise remains; EC3 Issue #215 amends the effective Table 87 wording and must be read as applying to the printed-page entries it strikes/adds, not inferred from annotation section tags.",
+    "remaining_work": "Passing new colour-key/SMask control complements existing explicit-mask precedence. Separate EC3 ImageMask-true ignore rule fails for a stream Mask; do not conflate that defect with SMask precedence. SMaskInData/current-state interactions remain partial.",
+    "review_type": "reviewed_decision_unit",
+    "parent_review": "This test checks only the conditional precedence needed to determine whether a §8.9.6 /Mask branch applies.",
+    "reviewer": "image_masking_audit",
+    "source": "image_masking_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0173-a-mask-is-not-a-coloured-figure.md",
+    "decision_id": "clear_uncoloured_for_soft_mask_group",
+    "original_decision": "Clear the Type 3 d1 uncoloured restriction while interpreting a soft-mask group, then restore it so the group's images and colors can form opacity.",
+    "current_conclusion": "cross-reference-only",
+    "reason": "This decision concerns §8.6.8 and §11.6.5.2 soft-mask group interpretation, not stencil or explicit/color-key mask algorithms. The already-tracked Type 3 d1-alpha issue is expressly not duplicated in this shard.",
+    "current_code_evidence": "No independent inspection of the full group state-restoration branch in this shard; the ADR is cited only to bound a known adjacent issue.",
+    "test_evidence": "No test is counted here; the existing Type 3 d1-alpha report/test belongs to its own audit.",
+    "spec_or_external_sources": [
+      "doc/adr/0173-a-mask-is-not-a-coloured-figure.md",
+      "ISO 32000-2:2020 §§8.6.8, 11.6.5.2"
+    ],
+    "changed_premise": "Not reviewed as an independent decision unit in this shard.",
+    "remaining_work": "Reconcile in the Type 3/soft-mask shard if that shard owns the adjacent interaction.",
+    "review_type": "cross_reference_only",
+    "parent_review": "Cited to avoid rediscovering the tracked prior issue.",
+    "reviewer": "image_masking_audit",
+    "source": "image_masking_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0832-a-colour-key-reaches-a-filtered-image-and-table-87-says-what-its-samples-are.md",
+    "decision_id": "color_key_on_filter_delivered_samples",
+    "original_decision": "Apply color-key masks to samples delivered by DCT, CCITT, JBIG2 and other filters; the lossy-codec note is not a reader exemption.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "This follows §8.9.6.4's SHALL and Table 87 sample-domain wording. The ADR's original JPX refusal is not current: ADR 1121 records the codestream-domain successor and current JPX tests. Current DCT assertions exercise ranges against decoder output; no mask is claimed where /SMask or SMaskInData overrides it.",
+    "current_code_evidence": "color-key ranges are carried through image dispatch; DCT's component conversion preserves a per-pixel key result; other sample routes pass values to unpack; JPX has a separate precision/domain route.",
+    "test_evidence": "dct_components.rs asserts both an in-range masked sample and an out-of-range painted sample; image_masks.rs includes JPX precision tests. The draft in this shard addresses only pre-Decode ordering, not a duplicate codec route. Root: image_masking_audit6run4pass2expectedfail; ordinary precedence/pre-Decode/coarse-grid/green-background controls pass.",
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §8.9.6.4",
+      "ISO 32000-2:2020 Table 87",
+      "doc/adr/1121-a-colour-keys-domain-is-stated-in-the-image-data.md"
+    ],
+    "changed_premise": "Yes: JPX refusal was superseded by ADR 1121's codestream-precision premise; DCT and other filter routes remain as ADR 0832 describes. Parent correction: ADR1121 only admitted unsigned8-bit or Indexed domains and retained the deep/signed refusal. ADR1242 carries unsigned sample precision through16bits; current12/16-bit tests belong to that successor.",
+    "remaining_work": "The selected sample-domain principle is retained; the original8-bit pipeline limit is superseded by ADR1242. Signed, differing-channel-depth and >16-bit color-key behavior remain beyond this selected review; no codec conformance certification.",
+    "review_type": "reviewed_decision_unit",
+    "parent_review": "Review covers the color-key decision only, not all of ADR 0832's census or historical page-ranking evidence.",
+    "reviewer": "image_masking_audit",
+    "source": "image_masking_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1121-a-colour-keys-domain-is-stated-in-the-image-data.md",
+    "decision_id": "jpx_color_key_sample_precision",
+    "original_decision": "Use JPX codestream precision as the color-key sample domain rather than Table 87's ignored /BitsPerComponent entry.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "Use the codestream domain rather than ignored dictionary BPC. Existing8-bit test deliberately supplies BPC4 yet masks sample200;12-bit test separates true3000 from old8-bit187 and0..255;16-bit test separates65535 from65534. ADR1242 supplies deep precision, correcting the draft attribution to1121.",
+    "current_code_evidence": "image/jpx.rs::jpx_sample_domain derives the bit depth from the codestream route; mask.rs validates key bounds against that domain before color conversion.",
+    "test_evidence": "image_masks.rs::a_colour_key_over_an_eight_bit_jpeg_2000_image_is_applied, ::a_colour_key_over_a_twelve_bit_jpeg_2000_image_is_compared_in_twelve_bits, and ::a_sixteen_bit_jpeg_2000_colour_key_reaches_the_top_of_its_domain use precision-sensitive endpoints and controls. Root: image_masking_audit6run4pass2expectedfail; ordinary precedence/pre-Decode/coarse-grid/green-background controls pass.",
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §§7.4.9, 8.9.5.1, 8.9.5.2 and 8.9.6.4",
+      "EC3 Issue #215 at physical PDF p. 274 (printed p. 259)"
+    ],
+    "changed_premise": "No; the codestream precision remains the current source of sample depth. EC3 #215's altered Table 87 filter-entry condition was checked at the physical annotation page. Parent correction: ADR1121 only admitted unsigned8-bit or Indexed domains and retained the deep/signed refusal. ADR1242 carries unsigned sample precision through16bits; current12/16-bit tests belong to that successor.",
+    "remaining_work": "The selected sample-domain principle is retained; the original8-bit pipeline limit is superseded by ADR1242. Signed, differing-channel-depth and >16-bit color-key behavior remain beyond this selected review; no codec conformance certification.",
+    "review_type": "reviewed_decision_unit",
+    "parent_review": "Only the color-key-domain decision and endpoint assertions were inspected.",
+    "reviewer": "image_masking_audit",
+    "source": "image_masking_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1277-a-mask-is-image-data-and-a-codec-an-inline-image-may-use-is-decoded.md",
+    "decision_id": "writer_mask_preservation_and_codec_decode",
+    "original_decision": "Treat masks as image data for writer/redaction operations and decode inline-image-supported codecs where transformations require it.",
+    "current_conclusion": "cross-reference-only",
+    "reason": "ADR 1277 governs writer/redaction preservation and related image-data transformations. This shard audits reader-side §8.9.6 interpretation and does not re-evaluate writer preservation policy or inline-image codec handling.",
+    "current_code_evidence": "No independent writer-path review is made in this shard; reader mask dispatch is inspected separately under ADR 0023.",
+    "test_evidence": "No ADR 1277 test is counted here. Writer/redaction tests and inline codec tests belong to their own assigned clauses.",
+    "spec_or_external_sources": [
+      "doc/adr/1277-a-mask-is-image-data-and-a-codec-an-inline-image-may-use-is-decoded.md"
+    ],
+    "changed_premise": "Not reviewed as an independent decision unit in this shard.",
+    "remaining_work": "Writer and redaction handling remain outside the current audit.",
+    "review_type": "cross_reference_only",
+    "parent_review": "Listed because the selected ADR explicitly includes masking but its operative scope is writer transformation.",
+    "reviewer": "image_masking_audit",
+    "source": "image_masking_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
     "parent_accepted": true
   },
   {

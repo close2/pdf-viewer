@@ -12,10 +12,9 @@ a reference does not establish that its assertions prove the associated feature.
 
 ## Latest checkpoint
 
-The latest broad run covered nine crates: **5,650 tests run, 5,614 passed, 36 expected audit
+The latest broad run covered nine crates: **5,663 tests run, 5,625 passed, 38 expected audit
 failures, 53 skipped, no unexpected failures**. Several failures share a cause. This includes
-new action-trigger and mixed-chain ordering findings, five passing default-color tests and
-four passing image-coordinate/interpolation tests. Production behavior, ledger statuses and
+the tiling-pattern, image-mask and document-event tests, with two additional masking failures. Production behavior, ledger statuses and
 historical ADRs remain unchanged. Selected assertion reviews and isolated mutation checks have
 exposed both implementation gaps and passing tests unable to detect their stated defect.
 
@@ -789,3 +788,44 @@ that issue concerns Type 3 resource lookup. The actual nearby pattern amendments
 index uses one-based physical page numbers. Producer constraints remain inventory entries even
 when the clause specifies no reader refusal. Zero-extent BBox behavior and sampled colour images
 inside coloured cells remain explicit test residuals; no entire pattern clause is certified.
+
+
+## Image-mask errata and document-event timing
+
+The latest broad wave now runs 5,663 tests: 5,625 pass, all 38
+failures match the expected-failure manifest, and 53 are skipped (`nextest-nine-crates-wave10.log`).
+Warning-denied Clippy passes for pdf-model and viewer-core after these changes. The new image-mask
+target has four passing tests and two failing regressions:
+
+* EC3 #215 adds a reader requirement to ignore `Mask` and `ColorSpace` on an image whose
+  `ImageMask` flag is true. A stream-valued `Mask` is instead applied and suppresses a red stencil
+  mark, revealing the green background. Colour-space and array-mask controls pass. The test
+  permits diagnostics and fails on changed pixels; it does not mistake a warning for a defect.
+* A base stencil invoked by `Do` with `BitsPerComponent 2` is silently interpreted as one bit.
+  Table 87 requires one when stated, and §8.9.5.1 requires an error for inconsistent image
+  entries. EC3's ignore rule does not cover this bit-depth entry. The one-bit control paints
+  correctly; the inconsistent case reports nothing. This is adjacent to the earlier Decode
+  pair-count findings, not an invented blanket malformed-file rejection policy.
+
+Passing controls prove pre-Decode colour-key comparison, coarser-mask alignment across both base
+rows, `SMask` precedence over a colour-key mask, and preservation of previously painted green
+background under all three masking routes. The latter also proves optional stencil bit depth can
+be omitted. An existing render-raster stencil-edge test passes under a Vulkan/Radeon ICD selection,
+checking non-vacuous partial coverage and preserved red colour; its log does not print adapter
+identity, so it is not evidence of a particular hardware model.
+
+The ADR review preserves the separate mask mechanisms and codestream-domain decisions, while
+correcting two historical attributions. ADR 0451 §2 separates the grid preference from the
+allocation ceiling; the current source comment's reference to ADR 0456 is wrong. ADR 1121 still
+refused non-eight-bit non-Indexed JPX samples; ADR 1242 supplied the wider sample-preserving
+pipeline used by the current 12/16-bit tests. Neither historical limit describes today's full
+implementation. Raw codec validity and every grid ratio remain outside this selected review.
+
+Two public Viewer timing tests pass. A `/WS` field edit is present in reopened saved bytes, while
+an ensuing `/DS` edit is live-only. `/WC` produces its observable report before `Closed`. A `/WP`
+edit reaches the actual page handed to the printer (rasterized against a blank control), `/DP`
+runs on active Finish, and an idle or duplicate Finish produces no additional event. All runners
+return `rc=false`, testing the project's non-veto policy separately from ISO's event timing.
+ADR 1614's boundary still holds with the ADR 2763 qualification: XFA preSave can separately hold
+or refuse a save after `/WS`, and XFA postSave cleanup is distinct from catalog `/DS`. Combined
+cancellation/refusal tests and full host-by-host event timing remain in the continuation work.

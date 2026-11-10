@@ -7587,6 +7587,132 @@
     "superseded": false
   },
   {
+    "clause": "12.6.3/Table 200",
+    "feature_id": "table200.WC",
+    "requirement": "The catalog /AA /WC ECMAScript action is performed before the document is closed.",
+    "source_location": "ISO 32000-2 sponsored EC3 PDF pp. 524-525 (printed 509-510), Table 200, /WC row",
+    "errata": "No applicable EC3 change identified for Table 200.",
+    "ledger_status": "unmapped",
+    "code_locations": [
+      "crates/pdf-model/src/view/script_sites.rs::ViewState::run_document_scripts",
+      "crates/viewer-core/src/viewer.rs::Command::Close"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/script_levels.rs::the_documents_moments_and_a_focus_request_reach_the_runner",
+      "crates/viewer-core/tests/document_trigger_timing_audit.rs::catalog_document_triggers_bracket_public_viewer_operations"
+    ],
+    "verdict": "partial-confirmed-with-new-test",
+    "evidence": "Command::Close invokes WillClose on the open view before removing the document, drains script reports, then emits Event::Closed. Existing test records that WillClose reaches the runner after other document triggers but does not compare it to Event::Closed. A new public Viewer test draft checks the same command's reported script effect precedes Closed. Root corrected invalid font object7 to5 and accounted for the report prefix. Save-byte/live-value and Reported-before-Closed assertions pass with rc=false. Print output is independently rasterized: zero ink without scripts, >20ink pixels after WP edit, no PrintPage after Finish. Combined XFA cancellation and refused print runner evidence remain pending in the residual shard.",
+    "test_command": "cargo test -p viewer-core --test document_trigger_timing_audit",
+    "test_result": "2passed, document-timing-print-output-target.log",
+    "reviewer": "document_trigger_timing_audit",
+    "parent_review_state": "parent-reviewed-partial-with-two-operation-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-confirmed-with-new-test",
+    "superseded": false
+  },
+  {
+    "clause": "12.6.3/Table 200",
+    "feature_id": "table200.WS",
+    "requirement": "The catalog /AA /WS ECMAScript action is performed before a save writes the document.",
+    "source_location": "ISO 32000-2 sponsored EC3 PDF p. 524 (printed 509), Table 200, /WS row",
+    "errata": "No applicable EC3 change identified for Table 200.",
+    "ledger_status": "unmapped",
+    "code_locations": [
+      "crates/viewer-core/src/viewer/editing.rs::before_save",
+      "crates/viewer-core/src/viewer/editing.rs::write"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/script_levels.rs::the_documents_moments_and_a_focus_request_reach_the_runner",
+      "crates/viewer-core/tests/document_trigger_timing_audit.rs::catalog_document_triggers_bracket_public_viewer_operations"
+    ],
+    "verdict": "partial-confirmed-with-new-test",
+    "evidence": "before_save runs Table 200 WillSave before XFA preSave and before write calls written_with_scripts. Existing script_levels exercises a save and records WillSave but does not verify a /WS edit in Event::Saved bytes. Existing script_form tests verify XFA preSave edits are serialized. Draft regression checks /WS edit in the saved file. Later XFA preSave cancellation can hold/refuse an attempted save after /WS; that is distinct from Table 200 JavaScript event.rc and does not make /WS a veto. Root corrected invalid font object7 to5 and accounted for the report prefix. Save-byte/live-value and Reported-before-Closed assertions pass with rc=false. Print output is independently rasterized: zero ink without scripts, >20ink pixels after WP edit, no PrintPage after Finish. Combined XFA cancellation and refused print runner evidence remain pending in the residual shard.",
+    "test_command": "cargo test -p viewer-core --test document_trigger_timing_audit",
+    "test_result": "2passed, document-timing-print-output-target.log",
+    "reviewer": "document_trigger_timing_audit",
+    "parent_review_state": "parent-reviewed-partial-with-two-operation-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-confirmed-with-new-test",
+    "superseded": false
+  },
+  {
+    "clause": "12.6.3/Table 200",
+    "feature_id": "table200.DS",
+    "requirement": "The catalog /AA /DS ECMAScript action is performed after a document has been saved.",
+    "source_location": "ISO 32000-2 sponsored EC3 PDF p. 524 (printed 509), Table 200, /DS row",
+    "errata": "No applicable EC3 change identified for Table 200.",
+    "ledger_status": "unmapped",
+    "code_locations": [
+      "crates/viewer-core/src/viewer/editing.rs::written_with_scripts",
+      "crates/viewer-core/src/viewer/editing.rs::write"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/script_levels.rs::the_documents_moments_and_a_focus_request_reach_the_runner",
+      "crates/viewer-core/tests/document_trigger_timing_audit.rs::catalog_document_triggers_bracket_public_viewer_operations"
+    ],
+    "verdict": "partial-confirmed-with-new-test",
+    "evidence": "written_with_scripts runs DidSave only after ViewState::save returns Ok; write emits Event::Saved for that result. The existing runner test sees DidSave on a successful save but does not distinguish its resulting edits from the serialized bytes. Draft regression checks the saved bytes contain the WillSave value while the live document afterward contains the DidSave value. XFA postSave on a refused save is a separate cleanup event and does not imply /DS. Root corrected invalid font object7 to5 and accounted for the report prefix. Save-byte/live-value and Reported-before-Closed assertions pass with rc=false. Print output is independently rasterized: zero ink without scripts, >20ink pixels after WP edit, no PrintPage after Finish. Combined XFA cancellation and refused print runner evidence remain pending in the residual shard.",
+    "test_command": "cargo test -p viewer-core --test document_trigger_timing_audit",
+    "test_result": "2passed, document-timing-print-output-target.log",
+    "reviewer": "document_trigger_timing_audit",
+    "parent_review_state": "parent-reviewed-partial-with-two-operation-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-confirmed-with-new-test",
+    "superseded": false
+  },
+  {
+    "clause": "12.6.3/Table 200",
+    "feature_id": "table200.WP",
+    "requirement": "The catalog /AA /WP ECMAScript action is performed before printing begins.",
+    "source_location": "ISO 32000-2 sponsored EC3 PDF p. 524 (printed 509), Table 200, /WP row",
+    "errata": "No applicable EC3 change identified for Table 200.",
+    "ledger_status": "unmapped",
+    "code_locations": [
+      "crates/viewer-core/src/viewer/printing.rs::print",
+      "crates/viewer-core/src/viewer/printing.rs::begin_printing"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/script_levels.rs::the_documents_moments_and_a_focus_request_reach_the_runner",
+      "crates/viewer-core/tests/printing.rs::table_22s_bit_12_limits_a_print_that_bit_3_let_through",
+      "crates/viewer-core/tests/document_trigger_timing_audit.rs::print_triggers_follow_a_successful_start_and_active_finish"
+    ],
+    "verdict": "partial-confirmed-with-new-test",
+    "evidence": "WillPrint is called only in begin_printing, after the viewer's print-policy and fidelity decisions permit the job, immediately before print intent is set and Event::Printing is emitted. Existing printing tests assert refusal does not start a print job, but have no ScriptRunner. Draft test covers no-op Finish and successful public Start; it does not combine runner observation with a refused encrypted print. Table 200 does not explicitly define whether a policy-refused print is an attempted print; this implementation treats a job as begun only after grant. Root corrected invalid font object7 to5 and accounted for the report prefix. Save-byte/live-value and Reported-before-Closed assertions pass with rc=false. Print output is independently rasterized: zero ink without scripts, >20ink pixels after WP edit, no PrintPage after Finish. Combined XFA cancellation and refused print runner evidence remain pending in the residual shard.",
+    "test_command": "cargo test -p viewer-core --test document_trigger_timing_audit",
+    "test_result": "2passed, document-timing-print-output-target.log",
+    "reviewer": "document_trigger_timing_audit",
+    "parent_review_state": "parent-reviewed-partial-with-two-operation-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-confirmed-with-new-test",
+    "superseded": false
+  },
+  {
+    "clause": "12.6.3/Table 200",
+    "feature_id": "table200.DP",
+    "requirement": "The catalog /AA /DP ECMAScript action is performed after printing ends.",
+    "source_location": "ISO 32000-2 sponsored EC3 PDF p. 525 (printed 510), Table 200, /DP row",
+    "errata": "No applicable EC3 change identified for Table 200.",
+    "ledger_status": "unmapped",
+    "code_locations": [
+      "crates/viewer-core/src/viewer/printing.rs::end_printing",
+      "crates/viewer-core/src/viewer/printing.rs::print"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/script_levels.rs::the_documents_moments_and_a_focus_request_reach_the_runner",
+      "crates/viewer-core/tests/document_trigger_timing_audit.rs::print_triggers_follow_a_successful_start_and_active_finish"
+    ],
+    "verdict": "partial-confirmed-with-new-test",
+    "evidence": "end_printing returns immediately when no job is active; otherwise it takes the print intent back out and runs DidPrint. Existing sequence test exercises Start then Finish and records DidPrint, but does not check absence after refused start or duplicate Finish. Draft checks the runner is unchanged after Finish with no active job and duplicate Finish, and observes DidPrint after successful Finish. Combined refusal-and-runner evidence remains absent. Root corrected invalid font object7 to5 and accounted for the report prefix. Save-byte/live-value and Reported-before-Closed assertions pass with rc=false. Print output is independently rasterized: zero ink without scripts, >20ink pixels after WP edit, no PrintPage after Finish. Combined XFA cancellation and refused print runner evidence remain pending in the residual shard.",
+    "test_command": "cargo test -p viewer-core --test document_trigger_timing_audit",
+    "test_result": "2passed, document-timing-print-output-target.log",
+    "reviewer": "document_trigger_timing_audit",
+    "parent_review_state": "parent-reviewed-partial-with-two-operation-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-confirmed-with-new-test",
+    "superseded": false
+  },
+  {
     "clause": "7.11.4",
     "feature_id": "overview.forms",
     "requirement": "Embedded streams are carried through file-specification /EF; stream references use /EF or /RF; file attachment annotations always include an embedded stream; document-wide /EmbeddedFiles association is optional unless another clause requires it.",
@@ -15727,6 +15853,410 @@
     "parent_review_state": "parent-reviewed-partial-with-hint-test-and-successor-corrections",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "delegated",
+    "superseded": false
+  },
+  {
+    "clause": "8.9.6.1",
+    "feature_id": "masking_mechanism_map_and_cross_references",
+    "entry_kind": "forward-reference",
+    "requirement": "This subsection introduces the masking mechanisms and routes them to child clauses: /ImageMask stencil (§8.9.6.2), /Mask image (§8.9.6.3), /Mask range (§8.9.6.4), and /SMask or /SMaskInData in the transparent model (§11.6.5.2 and §7.4.9). Its overview does not add a separate algorithm beyond those clauses.",
+    "source_location": "ISO 32000-2:2020 §8.9.6.1, printed pp. 265–266",
+    "errata": "Checked source-PDF physical pp. 280–281 (printed pp. 265–266). EC3 Issue #79 is on preceding alternate-image text on physical p. 280, outside §8.9.6.1. Issue #333 on physical p. 281 changes only the Type 3 font NOTE cross-reference; no masking behavior changes.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/dispatch.rs",
+      "crates/pdf-model/src/image/mask.rs",
+      "crates/pdf-model/src/image/soft_mask.rs",
+      "crates/pdf-model/src/image/jpx.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/image_masks.rs"
+    ],
+    "verdict": "delegated",
+    "evidence": "The mechanisms are separately implemented and tested under their child clauses. The three overview SHALL phrases are elaborated by those child clauses; this map is not counted as a fifth masking behavior.",
+    "test_command": "cargo test -p pdf-model --test image_masking_audit",
+    "test_result": "Root final mask target: 6 run, 4 passed, 2 expected failures (image-masking-six-target.log). Existing relevant pdf-model targets passed in broad wave9. One inspected render-raster stencil-edge test passed separately under Vulkan/Radeon ICD; adapter identity was not printed. render-gpu cited test not newly run in this shard.",
+    "parent_review": "No separate test for an overview sentence. /SMaskInData and transparency model details are cross-references, not re-audited as codec behavior.",
+    "reviewer": "image_masking_audit",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "delegated",
+    "superseded": false
+  },
+  {
+    "clause": "8.9.6.2",
+    "feature_id": "stencil_samples_mark_in_current_nonstroking_colour_or_leave_page",
+    "entry_kind": "direct-reader-duty",
+    "requirement": "An image XObject with /ImageMask true is interpreted as a one-bit stencil: samples do not supply black/white image colors; decoded marked samples paint using the current nonstroking color, while unmarked samples leave prior page contents unchanged.",
+    "source_location": "ISO 32000-2:2020 §8.9.6.2 paragraphs 1–2, printed p. 266; Table 87 /ImageMask row, p. 259",
+    "errata": "The §8.9.6.2 direct paragraphs are on physical p. 281; Issue #333 only corrects the informative Type 3 note citation. Table 87's /ImageMask row is on physical p. 274; Issue #14 changes typographic boldface only, no operative value.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/dispatch.rs",
+      "crates/pdf-model/src/image/unpack.rs",
+      "crates/pdf-model/src/image/mask.rs",
+      "crates/pdf-model/src/content/image.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/image_masks.rs::a_zero_sample_paints_the_current_colour_and_a_one_leaves_the_page_alone",
+      "crates/pdf-model/tests/image_masks.rs::a_stencil_whose_current_colour_is_a_pattern_is_painted_with_the_pattern",
+      "crates/pdf-model/tests/image_masking_audit.rs::masked_regions_preserve_existing_coloured_page_marks"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The ordinary stencil fixture asserts top and bottom marked/clear samples over white, with red current fill. A separate pattern-color test asserts actual varying pattern colors, so a reader that paints the stencil in one fixed color fails. These are complete valid PDF fixtures and directly inspect output pixels. Root adds actual green-background controls for stencil, explicit and colour-key masking. Masked areas preserve green rather than painting white; marked samples independently remain red/blue. Stencil fixture omits optional BitsPerComponent.",
+    "test_command": "cargo test -p pdf-model --test image_masking_audit",
+    "test_result": "Root final mask target: 6 run, 4 passed, 2 expected failures (image-masking-six-target.log). Existing relevant pdf-model targets passed in broad wave9. One inspected render-raster stencil-edge test passed separately under Vulkan/Radeon ICD; adapter identity was not printed. render-gpu cited test not newly run in this shard.",
+    "parent_review": "Current fill is the nonstroking color; graphics-state pattern cases are already tested. The separate Type 3 d1-alpha finding is intentionally not repeated.",
+    "reviewer": "image_masking_audit",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.9.6.2",
+    "feature_id": "stencil_dictionary_colourspace_and_bitdepth_are_producer_constraints",
+    "entry_kind": "producer-constraint",
+    "requirement": "ImageMask true requires one-bit samples; BitsPerComponent may be absent, but must be1 when present. ColorSpace and Mask must be absent from producer dictionaries; effective EC3#215 requires them ignored when present.",
+    "source_location": "ISO 32000-2:2020 §8.9.6.2 significant differences; Table 87 /BitsPerComponent and /ImageMask rows, printed pp. 259–260",
+    "errata": "EC3#215 physical274/printed259 objects3638/3639 add present (if present, they shall be ignored) to ImageMask; obj3642 adds ignored to Mask. Parent verified Table87 word coordinates.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/dispatch.rs::decode_parts_in",
+      "crates/pdf-model/src/image/unpack.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/image_masks.rs::a_zero_sample_paints_the_current_colour_and_a_one_leaves_the_page_alone",
+      "crates/pdf-model/tests/image_masks.rs::a_decode_array_of_one_zero_reverses_the_stencil"
+    ],
+    "verdict": "partial",
+    "evidence": "The draft incorrectly treated all inconsistent stencil entries as producer-only conditions. EC3#215 adds reader ignore rules for Mask/ColorSpace; §8.9.5.1 separately requires an error for inconsistent base-image entries, including stated BitsPerComponent2. Root added distinct regressions. Omitted BPC renders correctly; wrong BPC is silently coerced, and an explicit Mask is wrongly applied. See individual records below.",
+    "test_command": "cargo test -p pdf-model --test image_masking_audit",
+    "test_result": "Root final mask target: 6 run, 4 passed, 2 expected failures (image-masking-six-target.log). Existing relevant pdf-model targets passed in broad wave9. One inspected render-raster stencil-edge test passed separately under Vulkan/Radeon ICD; adapter identity was not printed. render-gpu cited test not newly run in this shard.",
+    "parent_review": "Don't turn producer MUST/SHALL conditions into a new reader rejection finding without an explicit reader requirement.",
+    "reviewer": "image_masking_audit",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "clause": "8.9.6.2",
+    "feature_id": "stencil_decode_default_and_reverse_polarity",
+    "entry_kind": "direct-reader-duty",
+    "requirement": "With the image-mask default /Decode [0 1], raw sample 0 marks and 1 leaves the page unchanged; /Decode [1 0] reverses those meanings.",
+    "source_location": "ISO 32000-2:2020 §8.9.6.2 Decode paragraph; Table 88 default decode arrays",
+    "errata": "The direct text is on physical p. 281, printed p. 266; Issue #333 only changes the preceding NOTE citation. No EC3 annotation changes the Decode-polarity rule.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/dispatch.rs",
+      "crates/pdf-model/src/image/unpack.rs",
+      "crates/pdf-model/src/image/space.rs::Decode"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/image_masks.rs::a_zero_sample_paints_the_current_colour_and_a_one_leaves_the_page_alone",
+      "crates/pdf-model/tests/image_masks.rs::a_decode_array_of_one_zero_reverses_the_stencil"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The default-polarity test asserts four cells of an asymmetric 4x2 pattern; the separate [1 0] test asserts the opposite four cells. A reader that ignores Decode cannot pass both. The known Type 3 glyph d1/Decode-array-count investigations are outside these two pixel assertions and are not re-raised.",
+    "test_command": "cargo test -p pdf-model --test image_masking_audit",
+    "test_result": "Root final mask target: 6 run, 4 passed, 2 expected failures (image-masking-six-target.log). Existing relevant pdf-model targets passed in broad wave9. One inspected render-raster stencil-edge test passed separately under Vulkan/Radeon ICD; adapter identity was not printed. render-gpu cited test not newly run in this shard.",
+    "parent_review": "Decode-array count/Type 3 d1-alpha residuals are tracked elsewhere.",
+    "reviewer": "image_masking_audit",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.9.6.2",
+    "feature_id": "stencil_interpolation_smooths_mask_not_painted_colour",
+    "entry_kind": "conditional-reader-duty",
+    "requirement": "If interpolation is requested during stencil masking, the effect shall smooth mask edges, not interpolate painted color values.",
+    "source_location": "ISO 32000-2:2020 §8.9.6.2 final paragraph; §8.9.5.3 hint semantics",
+    "errata": "No EC3 change at the paragraph on physical p. 281 (printed p. 266); Issue #333 is confined to the Type 3 NOTE cross-reference above it.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/image.rs",
+      "crates/render-gpu/src/scene.rs",
+      "crates/render-raster/src/scene/images.rs"
+    ],
+    "test_refs": [
+      "crates/render-raster/tests/masked_image_edge.rs::a_magnified_stencils_smoothed_edge_is_the_painted_colour_at_partial_coverage",
+      "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_smooth_a_stencils_edges_without_darkening_its_colour"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The render-raster fixture asserts red stays 255 on partial-coverage pixels and verifies that partial pixels exist at four magnification scales; the GPU comparison exercises CPU/GPU agreement. This directly fails if filter interpolation darkens the painted color. It is a stencil-specific conditional, not evidence for general color-image /Interpolate output.",
+    "test_command": "cargo test -p pdf-model --test image_masking_audit",
+    "test_result": "Root final mask target: 6 run, 4 passed, 2 expected failures (image-masking-six-target.log). Existing relevant pdf-model targets passed in broad wave9. One inspected render-raster stencil-edge test passed separately under Vulkan/Radeon ICD; adapter identity was not printed. render-gpu cited test not newly run in this shard.",
+    "parent_review": "The processor may ignore the §8.9.5.3 hint; this SHALL governs the effect if the processor does interpolate.",
+    "reviewer": "image_masking_audit",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.9.6.3",
+    "feature_id": "explicit_mask_stencil_selects_painted_and_untouched_base_regions",
+    "entry_kind": "direct-reader-duty",
+    "requirement": "A valid /Mask image mask defines where the base image is painted: unmasked regions use corresponding base-image portions, while masked regions are left unchanged.",
+    "source_location": "ISO 32000-2:2020 §8.9.6.3 final sentence; §8.9.6.2 for stencil polarity",
+    "errata": "Source printed p. 266 (physical p. 281) checked; no EC3 annotation changes this sentence. Issue #333 on that page changes only an informative NOTE cross-reference.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/mask.rs::apply_explicit_mask",
+      "crates/pdf-model/src/image/combine.rs",
+      "crates/pdf-model/src/image.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/image_masks.rs::an_explicit_mask_paints_the_base_image_only_where_it_marks",
+      "crates/pdf-model/tests/image_masking_audit.rs::masked_regions_preserve_existing_coloured_page_marks"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The existing 4x2 base and 4x2 explicit stencil test asserts marked red image samples and clear white page cells. It exercises equal grids and asymmetric orientation, but not differing dimensions; the new 2x1-mask/4x2-base complete PDF draft adds the coarser-mask direction with an unmasked positive control. Passing root test independently proves prior green marks remain visible under masked regions.",
+    "test_command": "cargo test -p pdf-model --test image_masking_audit",
+    "test_result": "Root final mask target: 6 run, 4 passed, 2 expected failures (image-masking-six-target.log). Existing relevant pdf-model targets passed in broad wave9. One inspected render-raster stencil-edge test passed separately under Vulkan/Radeon ICD; adapter identity was not printed. render-gpu cited test not newly run in this shard.",
+    "parent_review": "Test draft distinguishes full-unit-square mapping from clipping the mask to a base sample or a portion of the image.",
+    "reviewer": "image_masking_audit",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.9.6.3",
+    "feature_id": "explicit_mask_and_base_share_unit_square_at_different_resolutions",
+    "entry_kind": "direct-reader-duty",
+    "requirement": "Base image and explicit stencil need not share Width/Height; both images map to the same user-space unit square and have coincident page boundaries despite differing sample grids.",
+    "source_location": "ISO 32000-2:2020 §8.9.6.3 paragraph 1; §8.9.4 image mapping",
+    "errata": "Source printed p. 266 (physical p. 281) checked. No EC3 mark alters the unit-square mapping sentence.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/combine.rs::combine_on_the_finer_grid",
+      "crates/pdf-model/src/image/mask.rs::apply_explicit_mask",
+      "crates/render-cpu/src/image.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/image_masks.rs::a_mask_finer_than_its_image_keeps_its_own_resolution",
+      "crates/pdf-model/tests/image_masking_audit.rs::a_coarser_explicit_stencil_spans_the_base_images_unit_square"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Existing finer-mask control is complemented by the passing 2x1 stencil over a4x2 image. Root strengthened the draft to sample both base rows (y12/y27) and all left/right positions, with an unmasked full-width control. Noninteger grid ratios and device-scale exhaustive behavior remain unreviewed.",
+    "test_command": "cargo test -p pdf-model --test image_masking_audit",
+    "test_result": "Root final mask target: 6 run, 4 passed, 2 expected failures (image-masking-six-target.log). Existing relevant pdf-model targets passed in broad wave9. One inspected render-raster stencil-edge test passed separately under Vulkan/Radeon ICD; adapter identity was not printed. render-gpu cited test not newly run in this shard.",
+    "parent_review": "No claim about exhaustive grid ratios or device-resolution composition. ADR 0023's finer-grid choice is an implementation choice; the direct clause owes coincident boundaries.",
+    "reviewer": "image_masking_audit",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.9.6.3",
+    "feature_id": "explicit_mask_entry_must_name_an_image_mask_is_producer_requirement",
+    "entry_kind": "producer-constraint",
+    "requirement": "Table 87 /Mask is a stream/image XObject defining an image mask, and §8.9.6.3 refers to the mask defined in §8.9.6.2; a conforming producer therefore marks that stream with /ImageMask true and follows the stencil dictionary requirements.",
+    "source_location": "ISO 32000-2:2020 Table 87 /Mask row, printed p. 259; §8.9.6.3, p. 266; §8.9.6.2",
+    "errata": "EC3 physical p. 274 (printed p. 259) has #14 boldface markup on the Mask key and #13 adds a cross-reference for additional restrictions when the key is used in soft-mask image dictionaries. Neither changes the valid explicit-mask type. The main text is unchanged on physical p. 281.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/mask.rs::explicit_entry",
+      "crates/pdf-model/src/image/dispatch.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/image_masks.rs::a_mask_that_is_not_an_image_mask_is_reported"
+    ],
+    "verdict": "partial",
+    "evidence": "The implementation applies only a stream whose image dictionary is an image mask and reports a different image stream rather than assigning it invented stencil semantics. The invalid form is the producer's violation; the clause does not prescribe that specific reader reporting/fallback behavior, so the report is a project choice, not a reader SHALL.",
+    "test_command": "cargo test -p pdf-model --test image_masking_audit",
+    "test_result": "Root final mask target: 6 run, 4 passed, 2 expected failures (image-masking-six-target.log). Existing relevant pdf-model targets passed in broad wave9. One inspected render-raster stencil-edge test passed separately under Vulkan/Radeon ICD; adapter identity was not printed. render-gpu cited test not newly run in this shard.",
+    "parent_review": "Do not overstate the reader report as mandated refusal semantics.",
+    "reviewer": "image_masking_audit",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "clause": "8.9.6.4",
+    "feature_id": "colour_key_ranges_are_raw_integer_component_pairs_and_mask_all_in_range",
+    "entry_kind": "direct-reader-duty",
+    "requirement": "The colour-key Mask array has two integers per color component, within the raw sample domain before /Decode. A sample is masked only when every component falls within its inclusive minimum/maximum interval.",
+    "source_location": "ISO 32000-2:2020 §8.9.6.4 paragraphs 1–2, printed p. 267; §8.9.5.1 Table 87 BPC and §8.9.5.2 sample domain",
+    "errata": "The §8.9.6.4 text is on physical p. 282 and has no EC3 Issue annotation. Relevant Table 87 entries are on physical pp. 274–275 (printed pp. 259–260): #366 strikes 'if a predictor function is used' in the BPC/filter-delivery row; #215 revises JPX-related ignored-entry conditions and the /SMask precedence text; #13 adds soft-mask dictionary limitations. None removes §8.9.6.4's pre-/Decode integer comparison or its inclusive inequalities.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/mask.rs::colour_key_entry",
+      "crates/pdf-model/src/image/unpack.rs::unpack",
+      "crates/pdf-model/src/image/unpack.rs::colour_key_masks"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/image_masks.rs::colour_key_masking_removes_the_samples_inside_the_range",
+      "crates/pdf-model/tests/image_masks.rs::the_colour_key_bounds_are_inclusive",
+      "crates/pdf-model/tests/image_masks.rs::a_colour_key_over_an_indexed_space_ranges_over_the_index",
+      "crates/pdf-model/tests/image_masks.rs::a_sixteen_bit_colour_key_separates_samples_the_eight_bit_raster_cannot",
+      "crates/pdf-model/tests/image_masking_audit.rs::a_colour_key_compares_raw_samples_before_a_nonidentity_decode_array"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The existing RGB test proves all-components conjunction; an inclusive-boundary test proves both endpoints; Indexed and 16-bit tests discriminate index/domain from post-conversion raster values. They do not combine a raw-range key with nonidentity /Decode. The scratch draft compares raw 32 before /Decode [1 0], checks that it becomes transparent, preserves raw 192, and pairs an unmasked control asserting the decoded grays. Root promoted test passes: raw32 is masked despite Decode[1 0] mapping it to223; raw192 remains63, each backed by unmasked exact-gray controls. Array-format validity remains distinct from this sample comparison.",
+    "test_command": "cargo test -p pdf-model --test image_masking_audit",
+    "test_result": "Root final mask target: 6 run, 4 passed, 2 expected failures (image-masking-six-target.log). Existing relevant pdf-model targets passed in broad wave9. One inspected render-raster stencil-edge test passed separately under Vulkan/Radeon ICD; adapter identity was not printed. render-gpu cited test not newly run in this shard.",
+    "parent_review": "Do not repeat the already-known array-count or Type 3 d1-alpha findings. The draft adds only pre-/Decode ordering evidence.",
+    "reviewer": "image_masking_audit",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.9.6.4",
+    "feature_id": "lossy_colour_key_filter_warning_is_not_reader_exemption",
+    "entry_kind": "informative-note-and-warning",
+    "requirement": "The text warns that DCTDecode or lossy JPXDecode with a color key can produce unexpected results; it does not carve either codec out of the preceding SHALL to leave in-range samples unpainted. NOTE 2 explains producer-side quantization risk.",
+    "source_location": "ISO 32000-2:2020 §8.9.6.4 paragraph 3 and NOTE 2, printed p. 267",
+    "errata": "Source physical p. 282 checked; no EC3 mark modifies this warning or Note 2.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/mask.rs::colour_key_entry",
+      "crates/pdf-model/src/image/dct.rs::decode_jpeg",
+      "crates/pdf-model/src/image/jpx.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/dct_components.rs::a_colour_key_over_a_jpeg_hides_the_samples_it_names",
+      "crates/pdf-model/tests/dct_components.rs::a_colour_key_a_jpegs_samples_miss_leaves_the_image_painted",
+      "crates/pdf-model/tests/dct_components.rs::a_colour_key_masks_only_where_every_component_is_inside_its_range",
+      "crates/pdf-model/tests/image_masks.rs::a_colour_key_over_an_eight_bit_jpeg_2000_image_is_applied"
+    ],
+    "verdict": "confirmed",
+    "evidence": "ADR 0832 overturned the old blanket refusal of codec images. The DCT tests assert a masked hit, a miss that remains painted, and all-components behavior on decoder output; generated JPX tests exercise stated 8-/12-bit domains. The warning is not interpreted as permission to omit the mask.",
+    "test_command": "cargo test -p pdf-model --test image_masking_audit",
+    "test_result": "Root final mask target: 6 run, 4 passed, 2 expected failures (image-masking-six-target.log). Existing relevant pdf-model targets passed in broad wave9. One inspected render-raster stencil-edge test passed separately under Vulkan/Radeon ICD; adapter identity was not printed. render-gpu cited test not newly run in this shard.",
+    "parent_review": "JPX domain limitations and exact codestream precision remain within ADR 1121's bounded clauses.",
+    "reviewer": "image_masking_audit",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.9.6.4",
+    "feature_id": "jpx_colour_key_domain_is_forward_referenced_to_codestream_precision",
+    "entry_kind": "conditional-forward-reference",
+    "requirement": "For JPXDecode, the relevant sample domain is determined from codestream precision under Table 87 and §7.4.9; the colour-key integers still apply where the implementation can compare them in the domain its decoded samples preserve.",
+    "source_location": "ISO 32000-2:2020 §8.9.6.4; §8.9.5.1 Table 87; §8.9.5.2; §7.4.9",
+    "errata": "Table 87 physical p. 274 (printed p. 259) contains EC3 #366 (BPC filter-delivery sentence) and #215 (JPX entry conditions). Effective text retains that the JPX bit depth is determined by the processor during decoding and that BPC is ignored if present. §8.9.6.4 itself is unamended.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/mask.rs::colour_key_entry",
+      "crates/pdf-model/src/image/jpx.rs::jpx_sample_domain",
+      "crates/pdf-sandbox/src/protocol.rs::Raster"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/image_masks.rs::a_colour_key_over_an_eight_bit_jpeg_2000_image_is_applied",
+      "crates/pdf-model/tests/image_masks.rs::a_colour_key_over_a_twelve_bit_jpeg_2000_image_is_compared_in_twelve_bits",
+      "crates/pdf-model/tests/image_masks.rs::a_sixteen_bit_jpeg_2000_colour_key_reaches_the_top_of_its_domain"
+    ],
+    "verdict": "delegated",
+    "evidence": "This clause-specific shard maps the dependency, and directly inspects the JPX color-key tests: each range uses the codestream's sample precision, including a control just beyond an endpoint. The broader JPX decoder/header-domain contract belongs to §7.4.9 / ADR 1121 and is not independently re-audited here. Historical correction: ADR1121 still refused non-eight-bit non-Indexed data; ADR1242, not ADR1121 alone, supplied the 12/16-bit sample-preserving pipeline. Parent read both and the discriminating endpoint/old-stretched-domain assertions.",
+    "test_command": "cargo test -p pdf-model --test image_masking_audit",
+    "test_result": "Root final mask target: 6 run, 4 passed, 2 expected failures (image-masking-six-target.log). Existing relevant pdf-model targets passed in broad wave9. One inspected render-raster stencil-edge test passed separately under Vulkan/Radeon ICD; adapter identity was not printed. render-gpu cited test not newly run in this shard.",
+    "parent_review": "Do not reopen the prior JPX integer-domain feature inventory or report its known Decode count gap again.",
+    "reviewer": "image_masking_audit",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "delegated",
+    "superseded": false
+  },
+  {
+    "clause": "8.9.6.1",
+    "feature_id": "smask_and_embedded_soft_mask_precedence_over_dictionary_mask",
+    "entry_kind": "conditional-forward-reference",
+    "requirement": "An image's own /SMask, or non-zero /SMaskInData, overrides its /Mask (explicit or colour key); /SMaskInData also excludes /SMask. These precedence rules are specified in §11.6.4.3 and Table 87, not by the §8.9.6 child algorithm itself.",
+    "source_location": "ISO 32000-2:2020 §11.6.4.3; Table 87 /SMask and /SMaskInData rows, printed pp. 259–260",
+    "errata": "Critical EC3 overlay: Issue #215 annotations are on source-PDF physical pp. 274–275 (printed pp. 259–260). The effective Table 87 /SMask text says it overrides both the current soft mask in graphics state and the image's /Mask while blend mode/alpha constant remain; nonzero SMaskInData similarly overrides /Mask and the current graphics-state mask. Its related conditions say /SMask shall be ignored when nonzero /SMaskInData is present. This is based on physical annotation coordinates, not the page field as a printed-page number.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/mask.rs::mask_entry",
+      "crates/pdf-model/src/image/soft_mask.rs::soft_mask_entry",
+      "crates/pdf-model/src/image/dispatch.rs::decode_parts_in"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/image_masks.rs::a_soft_mask_overrides_an_explicit_mask",
+      "crates/pdf-model/tests/image_masking_audit.rs::an_image_soft_mask_overrides_a_colour_key_mask"
+    ],
+    "verdict": "partial",
+    "evidence": "The existing precedence assertion pairs an opaque /SMask with an explicit stencil that marks nothing, so it catches applying both or letting /Mask win. It does not test the alternate /Mask-array form. Draft adds a complete PDF where the color key alone removes a red sample, then demonstrates an opaque /SMask restores red while blue remains visible. The writer-side SMaskInData precedence is delegated to §7.4.9/§11.6.4.3. Root array-Mask/SMask precedence test passes with key-only control. Embedded SMaskInData and current graphics-state soft mask remain separate residuals; no full transparency audit.",
+    "test_command": "cargo test -p pdf-model --test image_masking_audit",
+    "test_result": "Root final mask target: 6 run, 4 passed, 2 expected failures (image-masking-six-target.log). Existing relevant pdf-model targets passed in broad wave9. One inspected render-raster stencil-edge test passed separately under Vulkan/Radeon ICD; adapter identity was not printed. render-gpu cited test not newly run in this shard.",
+    "parent_review": "This is a cross-reference feature included because it changes which §8.9.6 Mask branch runs. Do not imply §8.9.6 itself supplies the precedence rule.",
+    "reviewer": "image_masking_audit",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "clause": "8.9.6.2",
+    "feature_id": "ec3_stencil_ignores_mask_and_colourspace",
+    "requirement": "Effective Table87 requires Mask and ColorSpace ignored when ImageMask is true, despite their producer prohibition.",
+    "source_location": "Table87 ImageMask/Mask, physical274/printed259",
+    "errata": "EC3#215 objects3638/3639/3642, including reader-ignore insertion.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/mask.rs::mask_entry",
+      "crates/pdf-model/src/image/dispatch.rs::decode_parts_in"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/image_masking_audit.rs::ec3_image_mask_ignores_its_own_mask_and_colour_space_entries"
+    ],
+    "verdict": "implementation-gap",
+    "evidence": "ColorSpace and Mask-array controls preserve the stencil. A stream-valued Mask6 with all-one bits wrongly suppresses its zero-sample red mark, exposing green background. Test permits diagnostics so the failure is changed output, not merely a warning.",
+    "test_result": "FAIL: expected red [255,0,0,255], got green [0,255,0,255].",
+    "reviewer": "image_masking_audit",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "8.9.5.1",
+    "feature_id": "stencil_bpc_inconsistency_requires_error",
+    "requirement": "A base image invoked by Do with ImageMask true and BitsPerComponent2 has inconsistent entries and shall cause an error; the effective Table87 does not say to ignore this bit depth.",
+    "source_location": "§8.9.5.1 physical273/printed258 and Table87 BPC physical274/printed259",
+    "errata": "EC3#215 adds ignore rules for Mask/ColorSpace, not BPC.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/dispatch.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/image_masking_audit.rs::an_image_mask_with_more_than_one_bit_per_component_reports_inconsistency"
+    ],
+    "verdict": "implementation-gap",
+    "evidence": "The complete fixture differs from a passing red/white one-bit stencil only in BitsPerComponent2. Current interpretation remains complete and reports nothing, rather than exposing the inconsistency.",
+    "test_result": "FAIL: unsupported=[] and is_complete=true. Related to the earlier Decode pair-count consistency failures, but a separate conditional input.",
+    "reviewer": "image_masking_audit",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "8.9.6.2",
+    "feature_id": "stencil_glyph_note_effective_reference",
+    "requirement": "The informative glyph-bitmap note points to Type3 fonts and describes ordinary use of a stencil for glyph bitmaps.",
+    "source_location": "§8.9.6.2 NOTE physical281/printed266",
+    "errata": "EC3#333 changes the reference to9.6.4 Type3 fonts and changes the recommendation wording to is normally used to paint glyph bitmaps.",
+    "ledger_status": "implemented",
+    "code_locations": [],
+    "test_refs": [],
+    "verdict": "no-independent-requirement",
+    "evidence": "Guidance/cross-reference, not a new renderer algorithm or a prohibition on every other glyph image. Preserve the effective note without inventing reader rejection.",
+    "test_result": "No standalone test owed for this explanatory note.",
+    "reviewer": "image_masking_audit",
+    "parent_review_state": "parent-reviewed-partial-with-six-tests-two-findings-and-successor-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-requirement",
     "superseded": false
   },
   {

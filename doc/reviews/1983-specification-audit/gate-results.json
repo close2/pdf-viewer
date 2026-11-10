@@ -481,5 +481,37 @@
     "log": "clippy-tiling-patterns.log",
     "exit": 0,
     "scope": "pdf-model all targets with warnings denied"
+  },
+  "image_masking_six": {
+    "log": "image-masking-six-target.log",
+    "exit": 101,
+    "passed": 4,
+    "expected_failed": 2,
+    "unexpected_failures": 0
+  },
+  "document_timing_print_output": {
+    "log": "document-timing-print-output-target.log",
+    "exit": 0,
+    "passed": 2
+  },
+  "stencil_device_edge": {
+    "log": "mask-stencil-hardware-target.log",
+    "exit": 0,
+    "passed": 1,
+    "scope": "render-raster masked_image_edge selected stencil test, Vulkan Radeon ICD pinned; actual adapter identity not printed, so no model/hardware identity claim"
+  },
+  "nextest_nine_crates_wave10": {
+    "log": "nextest-nine-crates-wave10.log",
+    "exit": 100,
+    "run": 5663,
+    "passed": 5625,
+    "expected_failed": 38,
+    "skipped": 53,
+    "unexpected_failures": 0
+  },
+  "clippy_masking_timing_final": {
+    "log": "clippy-masking-timing-final.log",
+    "exit": 0,
+    "scope": "pdf-model/viewer-core all targets warnings denied, through 6mask/2timing tests"
   }
 }

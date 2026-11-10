@@ -225,14 +225,14 @@
   },
   {
     "path": "doc/adr/0023-image-masking.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "image_masking_audit/decisions.json",
         "decision_id": "read_mask_once_and_split_color_key_from_stencil",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       },
@@ -240,7 +240,7 @@
         "source": "image_masking_audit/decisions.json",
         "decision_id": "explicit_mask_finer_grid",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       },
@@ -248,7 +248,7 @@
         "source": "image_masking_audit/decisions.json",
         "decision_id": "codec_color_key_refusal",
         "conclusion": "superseded",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       },
@@ -256,7 +256,7 @@
         "source": "image_masking_audit/decisions.json",
         "decision_id": "report_non_image_mask_value",
         "conclusion": "retain-as-project-policy",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       },
@@ -264,7 +264,7 @@
         "source": "image_masking_audit/decisions.json",
         "decision_id": "smask_precedence_over_dictionary_mask",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       },
@@ -430,9 +430,26 @@
   },
   {
     "path": "doc/adr/0039-the-encoding-a-font-program-brings-with-it.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_descriptors_audit/decisions.json",
+        "decision_id": "§9.8.2 contradictory Symbolic/Nonsymbolic flags",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "font_descriptors_audit/decisions.json",
+        "decision_id": "§9.8.1 MissingWidth default zero",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0040-the-font-format-nobody-was-reporting.md",
@@ -1300,9 +1317,18 @@
   },
   {
     "path": "doc/adr/0158-a-name-that-ends-in-the-word-symbol.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_descriptors_audit/decisions.json",
+        "decision_id": "Nonsymbolic descriptor wins over Symbol-like BaseFont name for substitution classification",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0159-a-usage-rights-signature-a-save-outgrows.md",
@@ -1447,7 +1473,7 @@
         "source": "image_masking_audit/decisions.json",
         "decision_id": "clear_uncoloured_for_soft_mask_group",
         "conclusion": "cross-reference-only",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "cross_reference_only",
         "duplicates_decision": null
       }
@@ -1751,9 +1777,18 @@
   },
   {
     "path": "doc/adr/0216-a-band-a-descriptor-cannot-lie-outside.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_descriptors_audit/decisions.json",
+        "decision_id": "Use plausible Ascent/Descent pair for selection geometry; positive descent recovery; do not add a CapHeight bound",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0217-a-mask-is-one-number-and-a-group-is-three.md",
@@ -4372,9 +4407,34 @@
   },
   {
     "path": "doc/adr/0716-the-floor-a-descent-was-already-standing-on.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_descriptors_audit/decisions.json",
+        "decision_id": "EC3 #190 Descent floor",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "font_descriptors_audit/decisions.json",
+        "decision_id": "EC3 #474 FontWeight range and classes",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "font_descriptors_audit/decisions.json",
+        "decision_id": "EC3 #152 changes FontWeight type to integer",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0717-the-bound-one-rasteriser-agrees-with-itself-under.md",
@@ -5052,14 +5112,14 @@
   },
   {
     "path": "doc/adr/0832-a-colour-key-reaches-a-filtered-image-and-table-87-says-what-its-samples-are.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "image_masking_audit/decisions.json",
         "decision_id": "color_key_on_filter_delivered_samples",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       }
@@ -5576,9 +5636,18 @@
   },
   {
     "path": "doc/adr/0912-five-answers-to-one-clause.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_descriptors_audit/decisions.json",
+        "decision_id": "FontWeight is read as number for substitution ranking",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0913-one-place-for-the-rule.md",
@@ -6666,9 +6735,18 @@
   },
   {
     "path": "doc/adr/1121-a-colour-keys-domain-is-stated-in-the-image-data.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "image_masking_audit/decisions.json",
+        "decision_id": "jpx_color_key_sample_precision",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1122-a-rich-text-value-drawn-plain-is-a-departure-said-out-loud.md",
@@ -7626,7 +7704,7 @@
         "source": "image_masking_audit/decisions.json",
         "decision_id": "writer_mask_preservation_and_codec_decode",
         "conclusion": "cross-reference-only",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "cross_reference_only",
         "duplicates_decision": null
       },
@@ -8362,9 +8440,18 @@
   },
   {
     "path": "doc/adr/1441-a-substitute-is-ranked-by-its-descriptor-and-one-covering-search-serves-page-and-chrome.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_descriptors_audit/decisions.json",
+        "decision_id": "Descriptor ranking order and StemV threshold for substitute face selection",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1443-a-flat-piece-is-two-chords-that-enclose-its-area.md",
@@ -9309,7 +9396,7 @@
         "source": "document_trigger_timing_audit/decisions.json",
         "decision_id": "1614-D1-operation-timing",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -9317,7 +9404,7 @@
         "source": "document_trigger_timing_audit/decisions.json",
         "decision_id": "1614-D2-event-rc-is-not-an-operation-veto",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -10163,9 +10250,18 @@
   },
   {
     "path": "doc/adr/1772-the-text-rows-claims-read-against-their-lines.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_descriptors_audit/decisions.json",
+        "decision_id": "Route shared font Flags through descriptor_flags for rich-text and archive consumers",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1774-the-file-system-face-states-its-strip-count.md",
@@ -14623,14 +14719,14 @@
   },
   {
     "path": "doc/adr/2702-a-save-and-a-submit-fire-their-pre-and-post-events-and-a-submit-s-cancel-action-aborts-it.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "document_trigger_timing_audit/decisions.json",
         "decision_id": "2702-D5-save-cancel-action-writes (superseded by 2763-D2)",
         "conclusion": "superseded",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -14959,14 +15055,14 @@
   },
   {
     "path": "doc/adr/2763-a-save-an-xfa-form-s-pre-save-script-declines-is-asked-at-the-reader-s-level.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "document_trigger_timing_audit/decisions.json",
         "decision_id": "2763-D2-save-policy-after-ws-and-presave",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
