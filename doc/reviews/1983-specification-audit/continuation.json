@@ -17,9 +17,9 @@
   },
   "next_candidates": [],
   "latest_broad": {
-    "log": "nextest-nine-crates-wave12.log",
-    "run": 5692,
-    "passed": 5651,
+    "log": "nextest-nine-crates-wave13.log",
+    "run": 5698,
+    "passed": 5657,
     "expected_failed": 41,
     "skipped": 53,
     "unexpected": 0
@@ -53,9 +53,7 @@
     "CLAUDE.md requires unsigned commits; use git -c commit.gpgsign=false commit because inherited global setting enables GPG."
   ],
   "branch": "audit/specification-evidence-2026-11-10",
-  "pending_parent_review": [
-    "cidfont_cmap_validation_audit"
-  ],
+  "pending_parent_review": [],
   "pushed_commits": [
     "a299121c",
     "f413d15f",
@@ -66,6 +64,7 @@
     "3ee266f8",
     "0bdf7c9b",
     "1277f3fc",
-    "0589f24a"
+    "0589f24a",
+    "8907adf4"
   ]
 }

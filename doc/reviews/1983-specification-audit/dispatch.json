@@ -747,14 +747,14 @@
       "clauses": [
         "9.9.1 validatorcandidate"
       ],
-      "state": "running"
+      "state": "parent-reviewed-validator-boundary-no-failure"
     },
     {
       "agent": "font_paint_type_audit",
       "clauses": [
         "9.9.1 PaintType"
       ],
-      "state": "running"
+      "state": "parent-reviewed-with-passing-embedded-font-control"
     },
     {
       "agent": "annotation_oc_flags_audit",
@@ -779,6 +779,13 @@
       "agent": "watermark_nup_consumer_audit",
       "clauses": [
         "12.5.6.22 nup"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "conformance_aggregate_audit",
+      "clauses": [
+        "6.1–6.3.2.3"
       ],
       "state": "running"
     }

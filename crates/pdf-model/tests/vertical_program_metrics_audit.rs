@@ -233,7 +233,7 @@ fn pdf(program: &[u8], dw2: &str, vertical_metrics: &str) -> Vec<u8> {
         format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()).into_bytes(),
         b"<< /Type /Font /Subtype /Type0 /BaseFont /LiberationSans /Encoding /Identity-V /DescendantFonts [6 0 R] >>".to_vec(),
         format!("<< /Type /Font /Subtype /CIDFontType2 /BaseFont /LiberationSans /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 7 0 R /CIDToGIDMap /Identity /DW2 {dw2} /W2 {vertical_metrics} >>").into_bytes(),
-        b"<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 /FontBBox [-200 -300 1100 1000] /ItalicAngle 0 /Ascent 900 /Descent -200 /CapHeight 700 /StemV 80 /FontFile2 8 0 R >>".to_vec(),
+        b"<< /Type /FontDescriptor /FontName /LiberationSans /Flags 4 /FontBBox [-200 -300 1100 1000] /ItalicAngle 0 /Ascent 900 /Descent -200 /CapHeight 700 /StemV 80 /FontFile2 8 0 R >>".to_vec(),
         {
             let mut stream = format!("<< /Length {} /Length1 {} >>\nstream\n", program.len(), program.len()).into_bytes();
             stream.extend_from_slice(program);
@@ -293,7 +293,10 @@ fn place(program: &[u8], dw2: &str, w2: &str) -> (Vec<[f32; 8]>, Vec<f32>) {
     let codes = font.decode(&[0x00, 0x24, 0x00, 0x25, 0x00, 0x26]);
     assert_eq!(codes.len(), 3);
     assert!(
-        codes.iter().all(|code| font.outline(*code).is_some()),
+        codes.iter().all(|code| {
+            font.outline(*code)
+                .is_some_and(|path| !path.commands().is_empty())
+        }),
         "all codes have actual embedded outlines"
     );
     let program_advances = codes

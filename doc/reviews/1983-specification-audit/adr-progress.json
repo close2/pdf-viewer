@@ -102,9 +102,18 @@
   },
   {
     "path": "doc/adr/0015-truetype-character-mapping.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "opentype_selection_audit/decisions.json",
+        "decision_id": "0015-simple-truetype-opentype-code-to-glyph-procedure",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0016-conformance-ledger.md",
@@ -361,9 +370,18 @@
   },
   {
     "path": "doc/adr/0029-composite-fonts-cmaps-and-cid-to-glyph.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "opentype_selection_audit/decisions.json",
+        "decision_id": "0029-cidfonttype0-open-type-cff-and-cidfonttype2-open-type-glyf-selection",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0030-constructing-an-appearance-and-the-two-roles-of-one-key.md",
@@ -548,9 +566,18 @@
   },
   {
     "path": "doc/adr/0050-a-list-is-a-list.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "opentype_selection_audit/decisions.json",
+        "decision_id": "0050-simple-cff-open-type-glyph-names-use-cff-charset",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0051-one-raster-instead-of-four-thousand-triangles.md",
@@ -13181,9 +13208,18 @@
   },
   {
     "path": "doc/adr/2307-a-font-program-is-filed-by-its-format-and-refiled-from-the-bytes.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "cidfont_cmap_validation_audit/decisions.json",
+        "decision_id": "table124_filing_scope_is_not_full_font_validation",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2308-table-147-s-placement-is-one-decision-the-self-placing-windows-ask-and-winui-presents-full-screen-natively.md",

@@ -7277,6 +7277,32 @@
     "superseded": false
   },
   {
+    "clause": "9.9.1",
+    "feature_id": "cidfont_truetype_cmap_absent",
+    "requirement": "A TrueType program embedded under a CIDFont dictionary shall not contain a cmap table; the separate CID mapping supplies character-code-to-glyph selection.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.369 / printed p.354, §9.9.1 TrueType-table paragraph",
+    "errata": "No EC3 annotation was found amending this paragraph. EC3 #462 at physical p.372 / printed p.357 adds a separate ToUnicode Table 125a and does not change it.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-archive/src/table/fonts.rs",
+      "crates/pdf-transform/src/archive/fonts/composite.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-archive/src/table/fonts.rs::a_font_program_is_filed_under_the_key_and_name_of_its_format"
+    ],
+    "verdict": "documented-validator-boundary; no-failing-regression-promoted",
+    "evidence": "The explicit §9.9.1 producer condition remains inventoried. Parent read ADR2307: it intentionally limits filing checks to Table124 and leaves deeper program format checks Unchecked. A corrected complete-PDF probe returns Met for the named filing judgement with and without cmap, while the overall report explicitly contains font-format Unchecked and unrelated failures. This is not a false claim of complete conformance. The writer’s composite path strips cmap; no writer defect demonstrated.",
+    "test_command": "Temporary integration probe, saved locally as cidfont_cmap_validation_audit/parent_scope_probe.rs; cargo test -p pdf-archive --test cidfont_cmap_scope_probe -- --nocapture",
+    "test_result": "1 observational probe passed, cidfont-cmap-scope-probe.log. Both filing judgements Met; broader font-format rule Unchecked. Probe removed from integration suite; no normative failure or acceptance regression committed.",
+    "parent_review": "Draft expected failure rejected because it broadened the named rule contract. Parent repaired missing descriptor dictionary brackets, misplaced Length1, and empty glyph1 before probing glyph36. Minimal PDF is structurally complete, not claimed PDF/A-conformant.",
+    "remaining": "Coverage expansion could add a separately named PDF integration condition, without converting the Table124 helper into a complete font validator. Keep this unresolved condition visible when assessing broad §9.9 completeness.",
+    "reviewer": "cidfont_cmap_validation_audit",
+    "parent_review_state": "parent-reviewed-validator-boundary-no-failure",
+    "reviewer_ledger_status": "font-programs-filed-by-their-format is implemented for Table 124 key/subtype pairings; this separate §9.9.1 table-presence condition is not independently named in the row.",
+    "reviewer_verdict": "documented-validator-boundary; no-failing-regression-promoted",
+    "superseded": false
+  },
+  {
     "feature_id": "cloudy-border-honors-bs-width",
     "clause": "12.5.4",
     "requirement": "When a cloudy border is applied, the line width specified by the annotation's /BS dictionary shall be honored.",
@@ -13938,6 +13964,36 @@
   },
   {
     "clause": "9.9.1",
+    "feature_id": "embedded_painttype_ignored_for_all_supported_cff_and_type1_forms",
+    "requirement": "If an embedded Type 1 font program specifies PaintType, the reader shall ignore it and select filled or stroked glyph outlines solely from the PDF text rendering mode. The same rule applies to Type 1 compact fonts and Type 0 compact CIDFonts.",
+    "source_location": "ISO_32000-2:2020 plus EC3 source/spec-layout.txt, physical p.369 (printed p.354), §9.9.1, paragraph beginning 'According to the Adobe Type 1 Font Format specification'",
+    "errata": "The physical-p.369 Widget annotation points to appended Issue #462/Table 125a (ToUnicode CMap entries); it does not amend this PaintType paragraph. No substantive EC3 correction was found for this rule.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/text/glyph_painting.rs::GlyphPainting::read",
+      "crates/pdf-model/src/content/text/show.rs",
+      "crates/pdf-model/src/content/text/paint.rs",
+      "crates/pdf-font/src/type1.rs",
+      "crates/pdf-font/src/cff.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/text_render_modes.rs::mode_0_fills_only",
+      "crates/pdf-model/tests/text_render_modes.rs::mode_1_strokes_only_and_in_the_stroking_colour",
+      "crates/pdf-model/tests/type1.rs::an_embedded_type1_program_puts_glyphs_on_the_page",
+      "crates/pdf-model/tests/font_paint_type_audit.rs::embedded_painttype_2_is_ignored_for_type1_type1c_and_cidfonttype0c"
+    ],
+    "verdict": "confirmed-selected-embedded-program-consumer",
+    "evidence": "New complete-PDF regression passes all three forms: Type1, Type1C, CIDFontType0C. Embedded PaintType2 conflicts with PDF Tr0, which produces Fill; Tr1 produces Stroke. Loaded program advance is exactly0.5em, outline path nonempty and interpretation has one glyph with no shortfalls. Root independently parsed both CFF constants and the corrected Type1 fixture using FontTools4.68.0: PaintType2, width500, identical closed rectangle. Root repaired the Type1 dictionary/PostScript stack construction; the draft was merely accepted by the project parser. These checks do not claim full external font-format certification.",
+    "test_result": "1 passed across six cases, font-paint-type-target.log. Independent fixture dump/parse logged separately; temporary dump test removed.",
+    "parent_review": "Root read effective paragraph, current GlyphPainting code, existing Tr tests and new assertions; verifies source setting and actual loaded program before accepting consumer claim.",
+    "reviewer": "font_paint_type_audit",
+    "parent_review_state": "parent-reviewed-with-passing-embedded-font-control",
+    "reviewer_ledger_status": "9.9.1 implemented",
+    "reviewer_verdict": "confirmed-selected-embedded-program-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
     "feature_id": "embedding_scope_and_rendering_mode",
     "requirement": "Font programs may be embedded for text in rendering mode 3; for other modes they should be embedded. These are producer permissions/recommendations, not reader rejection rules.",
     "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.366 (printed p.351), §9.9.1 first paragraph",
@@ -14290,17 +14346,16 @@
       "crates/pdf-model/src/content/text/paint.rs"
     ],
     "test_refs": [
-      "crates/pdf-font/src/type1.rs",
-      "crates/pdf-model/tests/text_render_modes.rs"
+      "crates/pdf-model/tests/font_paint_type_audit.rs::embedded_painttype_2_is_ignored_for_type1_type1c_and_cidfonttype0c"
     ],
-    "verdict": "unreviewed",
-    "evidence": "The clause assigns embedded Type 1 PaintType to be ignored and PDF text rendering mode to select paint. No focused assertion was found which varies the embedded Type 1 PaintType while holding the PDF text rendering mode constant and observes the result. Existing Type 1 reader and text-render-mode tests do not establish this interaction.",
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "See accepted font_paint_type_audit: Type1/Type1C/CIDFontType0C explicitly carry PaintType2, loaded nonempty outlines/advance are checked, and PDF Tr0/Tr1 select Fill/Stroke. Independent parser confirms the fixture settings and shape.",
     "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
-    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "test_result": "1 passed across six cases in font-paint-type-target.log.",
     "reviewer": "font_programs_audit",
     "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
     "reviewer_ledger_status": "9.9.1 implemented",
-    "reviewer_verdict": "unreviewed",
+    "reviewer_verdict": "confirmed-selected-consumer",
     "superseded": false
   },
   {

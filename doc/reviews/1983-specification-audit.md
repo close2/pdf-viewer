@@ -12,7 +12,7 @@ a reference does not establish that its assertions prove the associated feature.
 
 ## Latest checkpoint
 
-The latest broad run covered nine crates: **5,692 tests run, 5,651 passed, 41 expected audit
+The latest broad run covered nine crates: **5,698 tests run, 5,657 passed, 41 expected audit
 failures, 53 skipped, no unexpected failures**. Several failures share a cause. This includes
 the presentation, held-operation, font-width, border and annotation-state tests. Production behavior, ledger statuses and
 historical ADRs remain unchanged. Selected assertion reviews and isolated mutation checks have
@@ -1084,3 +1084,25 @@ exact composition comparison is superseded; exact `depicts` still answers a diff
 ADR0657’s interruption policy inherits the approximation, without becoming a pixel-identity guarantee.
 No production code or historical ADR was rewritten, and no failing conformance test was invented
 for a zero-error contract the product does not have.
+
+The complete-PDF CID cmap probe confirms a documented validator boundary. With and without cmap,
+the narrow filing judgement is Met; the full report explicitly leaves font-format validation
+Unchecked and reports other failures. ADR2307 records that limited scope. The probe therefore does
+not establish false overall conformance, and its proposed failing assertion was not promoted.
+A separately named cmap check remains a possible coverage extension. Parent repaired the draft’s
+descriptor brackets, Length1 location and empty-glyph choice before running the observation.
+
+
+Broad wave13 runs 5,698 tests: 5,657 pass, exactly the 41 manifested failures, 53 skipped and no
+unexpected failures. The parent compared the exact binary/test set, not only the count. The six
+new tests since wave12 are included. The vertical fixture now uses Symbolic for its full embedded
+font, and a subsequent targeted run also requires every outline path to be nonempty; that stronger
+precondition passes. The failed assertion count remains distinct from the number of underlying bugs.
+
+A new PaintType regression passes six cases across embedded Type1, Type1C and CIDFontType0C.
+Each program explicitly requests stroke painting, while PDF Tr0 still emits Fill and Tr1 emits
+Stroke. The test requires a loaded half-em program advance and a nonempty glyph path before
+checking display commands. Parent repaired the draft Type1 dictionary construction, and FontTools
+independently parsed all three fixtures with PaintType2, width500 and the same closed rectangle.
+This checks the specific PDF override, without claiming complete font-format conformance. The
+single test is additional to wave13; warning-denied Clippy passes.

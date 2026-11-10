@@ -662,5 +662,42 @@
   "watermark_oc_flags_clippy": {
     "log": "clippy-watermark-oc-flags.log",
     "exit": 0
+  },
+  "cidfont_cmap_scope_probe": {
+    "log": "cidfont-cmap-scope-probe.log",
+    "passed": 1,
+    "exit": 0,
+    "meaning": "Both narrow filing judgements Met; overall font format explicitly Unchecked. Temporary observational probe, not a promoted regression."
+  },
+  "broad_wave13": {
+    "log": "nextest-nine-crates-wave13.log",
+    "run": 5698,
+    "passed": 5657,
+    "expected_failed": 41,
+    "skipped": 53,
+    "unexpected": 0,
+    "exit": 100,
+    "manifest": "Exact binary/test set equality verified by parent;41entries, not necessarily41distinct defects."
+  },
+  "font_paint_type": {
+    "log": "font-paint-type-target.log",
+    "passed": 1,
+    "cases": 6,
+    "exit": 0,
+    "independent_fixture_parse": "FontTools4.68.0 reads PaintType2, glyph width500 and the same nonempty closed rectangle in all three programs. Type1 rebuilt with proper dictionary/definefont stack. Temporary dump test removed."
+  },
+  "vertical_nonempty": {
+    "log": "vertical-nonempty-target.log",
+    "passed": 1,
+    "exit": 0
+  },
+  "vertical_nonempty_clippy": {
+    "log": "clippy-vertical-nonempty.log",
+    "exit": 0
+  },
+  "font_paint_type_clippy": {
+    "log": "clippy-font-paint-type-final.log",
+    "exit": 0,
+    "initial": "Added required doc backticks."
   }
 }

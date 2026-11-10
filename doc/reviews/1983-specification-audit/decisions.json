@@ -1469,6 +1469,24 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/2307-a-font-program-is-filed-by-its-format-and-refiled-from-the-bytes.md",
+    "decision_id": "table124_filing_scope_is_not_full_font_validation",
+    "original_decision": "Check embedded programs against Table124 descriptor key/dictionary pairing and Table125 FontFile3 subtype; leave deeper program-format validity Unchecked.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The current named requirement explicitly states that narrow question and the full report exposes Unchecked font-format validation. Separate §9.9.1 cmap rules must not be treated as certified merely because filing is Met. A future dedicated predicate is possible but is a scope extension.",
+    "current_code_evidence": [
+      "crates/pdf-archive/src/table/fonts.rs::font_programs_filed_by_their_format",
+      "crates/pdf-archive/src/table/fonts.rs::table_124_rows"
+    ],
+    "test_evidence": "Corrected complete-PDF observational probe returns Met for both CID programs, with and without cmap, and explicitly Unchecked font-format conformance in each full report. cidfont-cmap-scope-probe.log; probe not promoted as a normative regression.",
+    "remaining_work": "Account for the CID cmap producer rule separately before any claim of complete §9.9 or profile validation. Historical converter/oracle results not replayed.",
+    "parent_review": "Root read actual ADR2307 scope, requirement asks and predicate; no whole-ADR certification.",
+    "reviewer": "cidfont_cmap_validation_audit",
+    "source": "cidfont_cmap_validation_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-validator-boundary-no-failure",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/1057-a-cloud-is-a-shall-behind-a-silence-and-a-watermark-has-no-window.md",
     "decision_id": "cloud-geometry-and-radius-choice",
     "original_decision": "Construct a cloudy effect as outward scallops; use a chosen radius based on intensity and ensure it is not narrower than the stroke.",
