@@ -3624,6 +3624,14 @@
         "duplicates_decision": null
       },
       {
+        "source": "damaged_mask_consumer_audit/decisions.json",
+        "decision_id": "draw-and-report-a-damaged-soft-mask-G-prefix",
+        "conclusion": "not fully evidenced by the existing test; consumer assertion drafted",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
         "source": "soft_mask_dictionary_audit/decisions.json",
         "decision_id": "draw-and-report-a-damaged-soft-mask-G-prefix",
         "conclusion": "retain-with-qualification",
@@ -8670,6 +8678,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "foreign_app14_audit/decisions.json",
+        "decision_id": "ADR 1183",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -9084,6 +9100,14 @@
       {
         "source": "fdf_pages_import_audit/decisions.json",
         "decision_id": "1239-template-tref-f-external-page-question-and-copy",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "fdf_remote_reference_audit/decisions.json",
+        "decision_id": "1239-table253-remote-reference-host-supply",
         "conclusion": "retain",
         "parent_accepted": false,
         "review_type": "selected-decision-unit",

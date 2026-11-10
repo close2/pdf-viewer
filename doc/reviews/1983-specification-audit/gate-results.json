@@ -1118,5 +1118,13 @@
   "soft_mask_dictionary_clippy": {
     "log": "clippy-soft-mask-dictionary.log",
     "exit": 0
+  },
+  "foreign_app14_consumer": {
+    "log": "spot-foreign-app14-target.log",
+    "scope": "colour_transform target only; same log spot target initial invalidoracle failure excluded",
+    "exit": 0,
+    "new_passed": 1,
+    "mutation": "foreign-app14-mutation-results.json",
+    "clippy": "clippy-final-small-v2.log"
   }
 }

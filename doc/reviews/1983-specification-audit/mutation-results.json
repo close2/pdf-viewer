@@ -97,6 +97,36 @@
       "log": "blend-oracle-mutation-hardlight-mapped-to-overlay.log"
     }
   ],
+  "foreign-app14-mutation-results.json": [
+    {
+      "variant": "control",
+      "test": "a_marked_three_component_frame_ignores_a_contradicting_entry",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "foreign-app14-mutation-control-0.log"
+    },
+    {
+      "variant": "control",
+      "test": "a_foreign_app14_identifier_is_skipped_before_decodeparms_selection",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "foreign-app14-mutation-control-1.log"
+    },
+    {
+      "variant": "mutant",
+      "test": "a_marked_three_component_frame_ignores_a_contradicting_entry",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "foreign-app14-mutation-mutant-0.log"
+    },
+    {
+      "variant": "mutant",
+      "test": "a_foreign_app14_identifier_is_skipped_before_decodeparms_selection",
+      "returncode": 101,
+      "outcome": "assertion-failed",
+      "log": "foreign-app14-mutation-mutant-1.log"
+    }
+  ],
   "free-text-inset-mutation-results.json": [
     {
       "variant": "control",
@@ -401,6 +431,36 @@
       "returncode": 101,
       "outcome": "assertion-failed",
       "log": "soft-mask-matrix-mutation-reverse-mask-matrix-soft_mask_dictionary_audit.log"
+    }
+  ],
+  "soft-mask-spot-mutation-results.json": [
+    {
+      "variant": "control",
+      "test": "a_non_isolated_luminosity_mask_group_blends_with_its_backdrop_and_is_not_reported",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "soft-mask-spot-mutation-control-0.log"
+    },
+    {
+      "variant": "control",
+      "test": "soft_mask_group_uses_spot_alternate_when_native_colourant_is_available",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "soft-mask-spot-mutation-control-1.log"
+    },
+    {
+      "variant": "mutant",
+      "test": "a_non_isolated_luminosity_mask_group_blends_with_its_backdrop_and_is_not_reported",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "soft-mask-spot-mutation-mutant-0.log"
+    },
+    {
+      "variant": "mutant",
+      "test": "soft_mask_group_uses_spot_alternate_when_native_colourant_is_available",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "soft-mask-spot-mutation-mutant-1.log"
     }
   ],
   "text-no-rotate-mutation-results.json": [

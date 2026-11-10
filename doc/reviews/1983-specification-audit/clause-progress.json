@@ -658,15 +658,16 @@
     ],
     "parent_reviewed_artifacts": [
       "dct_decode_audit",
-      "dct_marker_reference_audit"
+      "dct_marker_reference_audit",
+      "foreign_app14_audit"
     ],
     "feature_record_verdicts": {
       "all-three-ranked-cases-and-filter-parameter-location-asserted": 1,
+      "confirmed-with-discriminating-consumer": 1,
       "covered-on-generated-baseline-jpeg-fixtures": 1,
       "external-forward-reference-partial": 1,
       "frame-data-source-and-parameter-location-asserted": 1,
       "informative-context-not-a-separate-shall": 1,
-      "missing-discriminating-marker-ignore-test": 1,
       "partial-forward-reference": 2,
       "partial-forward-reference-not-fully-audited": 1,
       "partial-optional-error-policy-not-a-mandatory-rejection-gap": 1,
@@ -7063,10 +7064,10 @@
     "parent_reviewed_artifacts": [],
     "feature_record_verdicts": {
       "ambiguous": 1,
-      "code-supported-not-executed": 3,
-      "confirmed": 3,
-      "implementation-gap": 3,
-      "missing-test": 1
+      "code-supported-not-executed": 1,
+      "confirmed": 5,
+      "documented-departure": 2,
+      "implementation-gap": 2
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },

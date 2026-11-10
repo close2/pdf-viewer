@@ -10027,6 +10027,7 @@
     "test_result": "Existing test bodies inspected; prior shard reports generated pdf-model tests PASS in broad20.",
     "source_url": "https://pdfa.org/norm-refs/5116.DCT_Filter.pdf",
     "parent_review": "Accepted partial. Parent independently read Adobe-authored source §§6,18 through PDF Association host and current marker parser; no whole-reference compliance claim.",
+    "followup": "foreign_app14_audit closes selected foreignidentifier consumer gap with PASS and mutationoldPASS/newFAIL; other statedlimitsremain.",
     "reviewer": "dct_marker_reference_audit",
     "parent_review_state": "parent-reviewed-partial",
     "reviewer_ledger_status": "implemented",
@@ -17840,6 +17841,36 @@
     "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
     "reviewer_ledger_status": "separate-row",
     "reviewer_verdict": "unreviewed",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.8",
+    "feature_id": "foreign_app14_identifier_skipped",
+    "requirement": "Adobe Technical Note #5116 §18 says an APPE/APP14 marker that does not begin with the five-byte Adobe identifier is ignored and skipped; a foreign marker must not override the PDF DecodeParms ColorTransform entry.",
+    "source_location": "ISO 32000-2 §7.4.8 Table 13 final marker-reference paragraph, printed p.49 / physical p.64; Adobe TN #5116 §18, printed p.27 / one-based physical PDF page 27.",
+    "errata": "No EC3 amendment to the ISO reference sentence on physical p.64.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/image/dct.rs::adobe_transform",
+      "crates/pdf-model/src/image/dct.rs::colour_transform",
+      "crates/pdf-model/src/image/dct.rs::decode_jpeg"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/colour_transform.rs::a_marked_three_component_frame_ignores_a_contradicting_entry",
+      "crates/pdf-model/tests/colour_transform.rs::a_three_component_frame_whose_entry_says_one_is_transformed_to_rgb",
+      "crates/pdf-model/tests/colour_transform.rs::a_foreign_app14_identifier_is_skipped_before_decodeparms_selection"
+    ],
+    "verdict": "confirmed-with-discriminating-consumer",
+    "evidence": "Current adobe_transform checks the APP14 marker's payload begins with Adobe before returning its transform byte; nonmatching APPn segments are walked past. Existing tests only cover canonical Adobe-prefixed markers and no-marker codestreams, not an APP14 payload with a foreign identifier. The new test addition makes a valid foreign APPE by changing only the canonical segment's same-length five-byte identifier and uses exact pixel values to distinguish ignoring it from treating its zero code as authoritative. Parent promoted the foreign-identifier assertion. Isolated mutation removes Adobe-prefix check: old canonical-precedence assertion PASS, new assertion FAIL; both controls PASS and source restored.",
+    "remaining": "Other TN5116 marker/codec branches remain separately bounded.",
+    "test_command": "cargo test -p pdf-model --test colour_transform",
+    "test_result": "All colour_transform tests PASS in spot-foreign-app14-target.log; Clippy PASS clippy-final-small-v2.log.",
+    "mutation_evidence": "foreign-app14-mutation-results.json",
+    "parent_review": "Accepted partial after primary AdobeTN5116 source, code, assertion-body and mutation review. No wholeclause/wholeADR claim.",
+    "reviewer": "foreign_app14_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-with-discriminating-consumer",
     "superseded": false
   },
   {

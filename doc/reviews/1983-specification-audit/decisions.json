@@ -3499,6 +3499,26 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/1183-table-13s-entry-is-read-and-one-reading-stays-a-departure.md",
+    "decision_id": "ADR 1183",
+    "original_decision": "Separately read Adobe's APP14 marker so that its transform ranks above DecodeParms; the decoder's inferred input color space cannot distinguish explicit marker value from default behavior.",
+    "current_conclusion": "retain",
+    "reason": "This regression tests the marker discriminator that ADR 1183 relies on: an APP14-looking segment is authoritative only when it is the Adobe-defined marker. Foreign identifiers are skipped per TN #5116, after which Table 13's parameter/default path remains active.",
+    "test_evidence": "Existing tests prove canonical Adobe precedence; this draft adds the absent foreign-identifier ignore case with a full PDF/pixel oracle. Promoted assertion PASS and rejects removing Adobe identifier check while old precedence assertion still passes.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 §7.4.8 Table 13, physical p.64",
+      "Adobe Technical Note #5116 §18: https://pdfa.org/norm-refs/5116.DCT_Filter.pdf"
+    ],
+    "changed_premise": "Prior test inventory had canonical Adobe APP14 and absent-marker controls, but no foreign APP14 identifier control. TN #5116 is now available through the PDF Association's normative-reference catalog.",
+    "remaining_work": "Other TN5116 branches remain partial. This retains only separate-marker reading; ADR1183 RGB-default departure was superseded by ADR2468.",
+    "current_code_evidence": "dct.rs::adobe_transform recognizes APP14 by segment marker and Adobe prefix, while colour_transform ranks its result before the stated parameter.",
+    "parent_review": "Accepted partial after primary AdobeTN5116 source, code, assertion-body and mutation review. No wholeclause/wholeADR claim.",
+    "reviewer": "foreign_app14_audit",
+    "source": "foreign_app14_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/1062-a-submission-is-composed-here-and-transmitted-by-whoever-has-a-network.md",
     "decision_id": "1062:compose-in-model-transmit-at-host",
     "original_decision": "Compose the selected fields, values, format, URL and method in pdf-model; hand the request to a host that owns network policy and transmission.",

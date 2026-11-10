@@ -1155,7 +1155,7 @@
       "clauses": [
         "7.4.8"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial"
     }
   ]
 }
