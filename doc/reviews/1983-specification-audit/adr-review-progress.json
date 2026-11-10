@@ -2,17 +2,17 @@
   "warning": "Records can overlap or cross-reference prior reviews. Selected units do not establish that every decision in an ADR was reviewed; no whole document is marked complete.",
   "adr_documents": 2233,
   "document_states": {
-    "pending": 2126,
-    "selected-decision-units-reviewed": 97,
-    "review-in-progress": 10
+    "pending": 2116,
+    "selected-decision-units-reviewed": 100,
+    "review-in-progress": 17
   },
-  "decision_review_records": 170,
-  "parent_accepted_records": 166,
-  "cross_reference_records": 10,
+  "decision_review_records": 190,
+  "parent_accepted_records": 170,
+  "cross_reference_records": 12,
   "accepted_record_conclusions": {
-    "retain-with-qualification": 86,
+    "retain-with-qualification": 87,
     "revisit": 14,
-    "retain": 40,
+    "retain": 43,
     "superseded": 9,
     "revisit-policy-consistency": 1,
     "retain-with-boundary": 1,
@@ -23,5 +23,10 @@
     "retain-reader-policy": 1,
     "retain-with-bounded-scope-note": 1
   },
-  "issues": []
+  "issues": [
+    {
+      "source": "image_masking_audit/decisions.json",
+      "missing_adr": "doc/adr/1121-a-colour-keys-domain-is-stated-in-image-data.md"
+    }
+  ]
 }

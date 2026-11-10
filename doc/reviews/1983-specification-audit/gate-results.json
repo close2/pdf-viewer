@@ -471,5 +471,15 @@
     "old_test_survives_dropped_parser_flag": true,
     "new_test_kills_dropped_parser_flag": true,
     "isolated_source_restored": true
+  },
+  "tiling_patterns_five": {
+    "log": "tiling-patterns-five-target.log",
+    "exit": 0,
+    "passed": 5
+  },
+  "clippy_tiling_patterns": {
+    "log": "clippy-tiling-patterns.log",
+    "exit": 0,
+    "scope": "pdf-model all targets with warnings denied"
   }
 }

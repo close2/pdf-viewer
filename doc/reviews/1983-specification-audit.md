@@ -765,3 +765,27 @@ ADR 2516 permits eligible whole-page photographs under `as-if-printed`; `as-show
 The existing tests distinguish the two outcomes. Adjacent Table 87 cells do carry EC3 marks on
 physical pages 274–275, although none changes the Interpolate cell or its paragraph on page 278;
 the draft's blanket assertion of no marks in that printed-page range was discarded.
+
+## Tiling patterns and selected pattern decisions
+
+Five new complete-PDF tests pass (`tiling-patterns-five-target.log`), and warning-denied
+Clippy passes for all pdf-model targets. They cover cell CTM/stroke-color/width restoration,
+image-mask painting inside an uncoloured cell, signed step combinations, pattern placement
+when page CTM changes before or after selection, and genuine gaps in patterned glyph strokes.
+The old glyph-stroke test required red ink and no green fallback but could accept a solid-red
+stroke; the added test also forbids ink at known cell-gap coordinates. The old split-path test
+did not change the page CTM, so it could not alone prove independence from those changes.
+
+Selected decisions in ADRs 0057, 0058, 0735 and 2212 still hold with the recorded qualifications.
+ADR 0058's historical unsupported-stroke limitation was superseded by ADR 0735. Backend stroke
+expansion into an alpha mask remains supported by the inspected path and strengthened text
+assertions. The source-retention review does not certify every colour-conversion context or
+re-evaluate the separate non-RGB solid-colour issue recorded in ADR 2213.
+
+Parent source review rejected the draft's attribution of a Pattern tint amendment to EC3 #128:
+that issue concerns Type 3 resource lookup. The actual nearby pattern amendments are #428
+(physical page 235, printed 220), qualifying tile order as implementation dependent, and #294
+(physical 236, printed 221), clarifying the Table 74 stream-dictionary caption. The annotation
+index uses one-based physical page numbers. Producer constraints remain inventory entries even
+when the clause specifies no reader refusal. Zero-extent BBox behavior and sampled colour images
+inside coloured cells remain explicit test residuals; no entire pattern clause is certified.

@@ -628,9 +628,12 @@
       "agent": "tiling_patterns_audit",
       "clauses": [
         "8.7.1",
-        "8.7.2 and descendants"
+        "8.7.2",
+        "8.7.3.1",
+        "8.7.3.2",
+        "8.7.3.3"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-five-tests-and-errata-corrections"
     },
     {
       "agent": "image_masking_audit",

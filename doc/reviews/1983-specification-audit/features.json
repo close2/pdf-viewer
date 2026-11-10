@@ -26307,6 +26307,648 @@
     "superseded": false
   },
   {
+    "clause": "8.7.1",
+    "feature_id": "8.7.1.pattern_kinds_and_cell_content",
+    "requirement": "Tiling patterns repeat a content-stream cell at horizontal and vertical intervals; shading patterns define gradient fills. The Pattern colour space uses pattern objects as values, with a pattern object represented as a dictionary or stream according to its pattern type.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:5631-5641",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern.rs::pattern",
+      "crates/pdf-model/src/content/pattern/tiling.rs::tiling",
+      "crates/pdf-colour/src/shading.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::a_tiling_pattern_repeats_its_cell_across_the_filled_path",
+      "crates/pdf-model/tests/shadings.rs::a_shading_pattern_fills_only_the_path_it_paints"
+    ],
+    "verdict": "confirmed",
+    "evidence": "`pattern()` resolves a pattern object and dispatches Type 1 streams to `tiling()` and Type 2 dictionaries to the shading builder. The tiling test asserts repeated red cells and transparent gaps; shading test asserts actual gradient pixels bounded by the painted path. General notes about historic glyph halftones are recommendations, not requirements.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.2",
+    "feature_id": "8.7.2.pattern_type_required_dispatch",
+    "requirement": "Every pattern dictionary has required integer PatternType 1 for tiling or 2 for shading; the remaining dictionary entries depend on this selected type.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:5647",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern.rs::pattern",
+      "crates/pdf-model/src/content/pattern/tiling.rs::tiling"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::a_tiling_pattern_repeats_its_cell_across_the_filled_path",
+      "crates/pdf-model/tests/shadings.rs::a_shading_pattern_fills_only_the_path_it_paints"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The reachable dispatch reads PatternType and sends 1 into the tiling stream path, 2 into shading dictionary construction; other values are reported unsupported. The two tests paint the corresponding real structure, rather than only checking parser output.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.2",
+    "feature_id": "8.7.2_patterns_are_current_colours",
+    "requirement": "All patterns are colours: establish Pattern space with CS/cs and select the pattern object with SCN/scn; apply it to each relevant paint route.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:5649",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/colour.rs",
+      "crates/pdf-model/src/content/pattern.rs",
+      "crates/pdf-model/src/content/path.rs",
+      "crates/pdf-model/src/content/text/glyph_painting.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::a_tiling_pattern_repeats_its_cell_across_the_filled_path",
+      "crates/pdf-model/tests/tiling.rs::a_glyph_filled_with_a_tiling_pattern_is_tiled",
+      "crates/pdf-model/tests/tiling.rs::a_stroke_whose_colour_is_a_tiling_pattern_is_tiled_along_its_outline",
+      "crates/pdf-model/tests/tiling.rs::a_glyph_stroked_in_a_tiling_pattern_is_tiled",
+      "crates/pdf-model/tests/tiling_patterns_audit.rs::a_patterned_glyph_stroke_contains_cell_gaps_not_just_the_cells_colour"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Path fill, glyph fill, path stroke, and text stroke each have real-pixel tests. The path stroke support was added later by ADR 0735; it supersedes ADR 0058’s historically reported stroke omission. Root found the old glyph-stroke test checks red/no-green but not inter-cell gaps; the new glyph-stroke regression requires actual ink and forbids ink at known gap coordinates, excluding a solid-red fallback.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.2",
+    "feature_id": "8.7.2_pattern_matrix_targets_parent_initial_space",
+    "requirement": "Compose the pattern matrix with the parent content stream’s default/initial coordinate system; interpret pattern graphics in that resulting pattern space.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:5651-5653",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern.rs::pattern",
+      "crates/pdf-model/src/content/pattern/tiling.rs::tiling",
+      "crates/pdf-model/src/content/pattern/cell.rs::cell_state"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::the_pattern_matrix_moves_the_tiling",
+      "crates/pdf-model/tests/tiling.rs::tiles_line_up_between_separately_filled_paths"
+    ],
+    "verdict": "confirmed",
+    "evidence": "`tiling()` computes `matrix_of(dict).then(self.base)`; `cell_state` uses that transform. The explicit +10 Matrix test checks the new cell pixel and cleared old pixel; the whole-vs-split-path test samples a grid and asserts equal pixels, so phase does not depend on which fill path was selected.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.2",
+    "feature_id": "8.7.2_page_ctm_changes_do_not_reanchor",
+    "requirement": "Page-content CTM changes such as rotation or scaling do not change the pattern’s original page relationship.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:5653",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern.rs::pattern",
+      "crates/pdf-model/src/content/pattern/tiling.rs::tiling"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling_patterns_audit.rs::page_ctm_changes_do_not_reanchor_a_pattern_selected_before_or_after_them"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The old split-path and Pattern Matrix tests do not change the page CTM. Root added a page translation with an inversely translated fill so the painted region is unchanged, selecting the pattern before and after cm. Full pixels match an explicit mark/gap baseline. Rotation and scale variants remain untested here.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.2",
+    "feature_id": "8.7.2_form_parent_space_at_do",
+    "requirement": "Inside a Form XObject, the pattern matrix targets the Form’s default user space at the time that Form is painted by Do.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:5653",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern.rs::pattern",
+      "crates/pdf-model/src/content/transparency.rs::form"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::a_pattern_inside_a_form_is_anchored_to_the_forms_space",
+      "crates/pdf-model/src/content/transparency.rs::a_pattern_in_a_form_starts_from_the_forms_state_at_its_do"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The form test compares fixed shifted/unshifted square positions; the test asserts the expected red pixel at x=12 and absence at x=2, matching the form Matrix at Do. A model-unit test separately checks the initial graphics-state source.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.2",
+    "feature_id": "8.7.2_nested_pattern_parent_space",
+    "requirement": "An inner pattern’s matrix maps to the outer pattern’s pattern space when selected inside an outer cell.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:5653",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern/cell.rs::run_cell",
+      "crates/pdf-model/src/content/pattern.rs::pattern"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::a_shading_pattern_inside_a_cell_is_anchored_to_the_cell"
+    ],
+    "verdict": "confirmed",
+    "evidence": "`run_cell` replaces the interpreter base with the cell placement before running its content and restores it afterward. The test gathers each painted cell transform and its inner gradient transform, asserts they are equal at all 25 sites, then checks the first-to-last 80-unit displacement.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.2",
+    "feature_id": "8.7.2_postscript_cross_context_is_not_pdf",
+    "requirement": "The informative note says PDF does not support PostScript’s define-a-pattern-in-one-context/use-it-in-another facility.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:5655-5657",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern.rs::pattern"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::a_pattern_inside_a_form_is_anchored_to_the_forms_space"
+    ],
+    "verdict": "no-independent-requirement",
+    "evidence": "This is explanatory scope, not an additional renderer algorithm: PDF patterns are obtained from the current content-stream resource dictionary, and the Form-parent test exercises that defined PDF relation. No PostScript cross-context emulation is an independent requirement.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.3.1",
+    "feature_id": "8.7.3.1_cell_repeated_to_fill_area",
+    "requirement": "A tiling pattern repeats the cell at the stated horizontal and vertical spacing to fill the painted area; tile order is unspecified.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:5663-5667",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern/tiling.rs::tiling",
+      "crates/pdf-model/src/content/pattern/repeat.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::a_tiling_pattern_repeats_its_cell_across_the_filled_path",
+      "crates/pdf-model/tests/tiling.rs::every_site_the_fill_states_is_painted"
+    ],
+    "verdict": "confirmed",
+    "evidence": "First test asserts red marks at all five expected 20-unit X positions plus a transparent inter-cell gap; second checks all sites for a 100×100 fill. Neither imposes a particular order on equal-site painting.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.3.1",
+    "feature_id": "8.7.3.1_bbox_clips_each_cell",
+    "requirement": "The required BBox is expressed in pattern coordinates and its boundaries clip each pattern cell.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:5677",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern/tiling.rs::tiling",
+      "crates/pdf-model/src/content/pattern/cell.rs::run_cell"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::a_cell_is_clipped_to_its_bounding_box",
+      "crates/pdf-model/tests/tiling.rs::a_cell_that_stays_inside_its_box_is_not_clipped_to_it"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The overdraw test paints a 30-unit mark from a 10-unit box and samples in-box/out-of-box locations; the second checks that content fully inside its cell is not lost to unnecessary antialias clipping. Zero-size box behavior is separately treated by Table 74 Note 1 and scan-conversion tests.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.3.1",
+    "feature_id": "8.7.3.1_xstep_ystep_pattern_space",
+    "requirement": "XStep and YStep are required desired spacings in pattern coordinates, may differ from BBox extents and may be positive or negative, but shall not be zero.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:5678-5680 and Table 74 rows XStep/YStep",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern/tiling.rs::tiling",
+      "crates/pdf-model/src/content/pattern/lattice.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::a_tiling_pattern_repeats_its_cell_across_the_filled_path",
+      "crates/pdf-model/tests/tiling.rs::a_cell_is_clipped_to_its_bounding_box",
+      "crates/pdf-model/tests/tiling_patterns_audit.rs::negative_steps_cover_the_same_pattern_lattice_as_positive_steps"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Positive and negative spacings enumerate the same infinite set, but sign-handling bugs can still omit cells or reflect artwork. Root added full-raster equality for all three negative-axis combinations against a positive control with four explicit marks and three gaps. Zero/missing spacing is a producer constraint, with no reader-refusal rule inferred.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.3.1",
+    "feature_id": "8.7.3.1_tiling_type_spacing_behavior",
+    "requirement": "Table 74 TilingType codes 1, 2, and 3 respectively request constant spacing, no cell distortion with up-to-one-device-pixel spacing variation, and constant spacing with additional distortion permitted for efficiency.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:5676 (Table 74 TilingType row)",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern/tiling.rs::tiling",
+      "crates/pdf-model/src/content/pattern/lattice.rs::lattice",
+      "crates/pdf-render/src/lattice.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::a_constant_spacing_lattice_steps_by_a_whole_number_of_device_pixels",
+      "crates/pdf-model/tests/tiling.rs::a_no_distortion_lattice_steps_by_exactly_what_the_file_states",
+      "crates/pdf-model/tests/tiling.rs::the_placed_step_is_never_more_than_a_device_pixel_from_the_stated_one",
+      "crates/pdf-model/tests/tiling.rs::constant_spacing_makes_the_tiled_pixels_repeat_and_no_distortion_does_not",
+      "crates/pdf-model/tests/tiling.rs::faster_tiling_is_given_constant_spacings_lattice"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Existing Type1 test requires at least nine sites then checks integral ten-pixel spacing. Type2 checks exact 10.4-unit step; raster period test distinguishes Type1 from Type2. Type3 is compared to Type1 site count and positions. The independent Type1 count test prevents the paired Type3 comparison being the only empty-output oracle. The distortion sweep alone can pass vacuously when no adjacent sites exist; the wider evidence mitigates but does not exhaust all magnifications/geometries.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.3.1",
+    "feature_id": "8.7.3.1_matrix_identity_and_phase",
+    "requirement": "Pattern Matrix is optional with identity default; its translation controls tiling phase.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:Table 74 Matrix row and 5678 onward",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern/tiling.rs::tiling",
+      "crates/pdf-colour/src/shading.rs::matrix_of"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::the_pattern_matrix_moves_the_tiling",
+      "crates/pdf-model/tests/tiling.rs::a_tiling_pattern_repeats_its_cell_across_the_filled_path"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The explicit matrix test moves marks by +10 and checks both new/old locations; the no-Matrix base fixture has the stated identity behavior. Tests assert pixels rather than merely parsed matrix values.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.3.1",
+    "feature_id": "8.7.3.1_resources_are_pattern_cell_resources",
+    "requirement": "A tiling pattern stream has required Resources containing the named resources used by its cell.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:Table 74 Resources row; doc/md/ISO_32000-2_sponsored_EC3.md:§7.8.3",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern/tiling.rs::tiling",
+      "crates/pdf-model/src/content/resources.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/missing_resources.rs::a_tiling_pattern_stating_no_resources_is_read_against_nothing",
+      "crates/pdf-model/tests/tiling.rs::a_tiling_pattern_repeats_its_cell_across_the_filled_path"
+    ],
+    "verdict": "producer-constraint",
+    "evidence": "The producer requirement is clear. Reader code uses the pattern’s own Resource dictionary and defaults an absent dictionary to empty, while the cited missing-resource test checks no fallback and an empty-cell success. Neither §8.7.3.1 nor Table 74 says the reader must reject a malformed file or how to recover; keep writer validity distinct from reader policy. Retained as an inventory requirement; a producer condition is not discarded merely because reader refusal is unspecified. No complete writer validation is claimed.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "producer-constraint",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.3.1",
+    "feature_id": "8.7.3.1_save_install_run_restore",
+    "requirement": "To obtain the cell, save current graphics state, install the state in force at start of parent stream with CTM changed by pattern matrix, run the cell, then restore saved state.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:Table 74 continuation and lines 5683-5689",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern/cell.rs::cell_state",
+      "crates/pdf-model/src/content/pattern/cell.rs::run_cell",
+      "crates/pdf-model/src/content/transparency.rs::PatternInitial"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::a_coloured_cell_starts_from_the_streams_initial_colours_rather_than_the_fills",
+      "crates/pdf-model/src/content/transparency.rs::a_pattern_in_a_form_starts_from_the_forms_state_at_its_do",
+      "crates/pdf-model/tests/tiling_patterns_audit.rs::a_cell_state_change_does_not_escape_the_pattern_paint"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Root strengthened the draft: the parent no longer resets its colour after cell painting. A cell sets a scale CTM, green stroke/fill and width1; a subsequent parent stroke must use prior red/width4/CTM. Exact green cell, red stroke and transparent interior pixels prove execution and restoration for these state components. Other graphics-state fields remain outside this test.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.3.1",
+    "feature_id": "8.7.3.1_device_dependent_parameters_writer_condition",
+    "requirement": "The pattern content stream shall not set the device-dependent graphics-state parameters because it can yield incorrect output.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:5691",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern/cell.rs::run_cell",
+      "crates/pdf-model/src/content/ext_gstate.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::a_coloured_cell_starts_from_the_streams_initial_colours_rather_than_the_fills"
+    ],
+    "verdict": "producer-constraint",
+    "evidence": "This is a producer/definition constraint, not an explicit reader-rejection instruction. No unsupported/reject test is inferred. Existing tests cover valid cell-state inheritance; not all malformed cells that violate the writer rule. Retained as an inventory requirement; a producer condition is not discarded merely because reader refusal is unspecified. No complete writer validation is claimed.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "producer-constraint",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.3.2",
+    "feature_id": "8.7.3.2_coloured_pattern_self_contains_colour",
+    "requirement": "A coloured tiling pattern is Type 1/PaintType 1; its cell specifies the colours of its elements, may mix colours and may include sampled images.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:§8.7.3.2 and Table 74 PaintType row",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern/tiling.rs::tiling",
+      "crates/pdf-model/src/content/pattern/cell.rs::run_cell"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::a_tiling_pattern_repeats_its_cell_across_the_filled_path",
+      "crates/pdf-model/tests/tiling.rs::a_coloured_cell_starts_from_the_streams_initial_colours_rather_than_the_fills"
+    ],
+    "verdict": "partial",
+    "evidence": "The cell’s own `rg` produces red pixels independently of the selected pattern colour; the initial-stroking-colour test asserts the initial parent-stream black despite red fill state at selection. Mixed-color support is exercised in alpha/transparency pattern tests. Sampled-image inclusion is permitted, not a separate requirement to support an additional image path. Root qualification: these references do not independently prove sampled colour images inside a coloured cell. That valid-content route remains a test residual, rather than being dismissed because the clause says may.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.3.2",
+    "feature_id": "8.7.3.2_coloured_selection_name_only",
+    "requirement": "A coloured pattern is selected as the single pattern name operand to SCN/scn; no color-component operands are specified because its cell owns color.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:§8.7.3.2 lines after Table 75",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/colour.rs",
+      "crates/pdf-model/src/content/pattern.rs::pattern"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::a_tiling_pattern_repeats_its_cell_across_the_filled_path"
+    ],
+    "verdict": "producer-constraint",
+    "evidence": "This is a PDF-content producer operand condition. Pattern selection is parsed from the name and pattern resources, but malformed extra operands have no separately stated mandatory reader behavior. Do not require reader refusal. Retained as an inventory requirement; a producer condition is not discarded merely because reader refusal is unspecified. No complete writer validation is claimed.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "producer-constraint",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.3.3",
+    "feature_id": "8.7.3.3_uncoloured_tint_and_base",
+    "requirement": "An uncoloured pattern is Type 1/PaintType 2 and its separately supplied tint uses the Pattern color space’s second array element as the underlying color space.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:§8.7.3.3 lines 5739-5745 and Table 74 PaintType row",
+    "errata": "The draft attributed a Pattern/Table34 change to #128 at printed466. Root rejected that claim: actual #128 annotations amend Type3 resource lookup (physical127/128/333/334). No such Pattern tint amendment is established. Pattern tint rules are read directly from §8.7.3.3 physical240/printed225.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern/tiling.rs::tiling",
+      "crates/pdf-colour/src/colour/parsing.rs::parse_at",
+      "crates/pdf-model/src/content/colour.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::an_uncoloured_pattern_takes_its_colour_from_the_operator",
+      "crates/pdf-model/tests/tiling.rs::an_uncoloured_patterns_colour_is_read_in_its_underlying_space",
+      "crates/pdf-model/tests/black_generation_paint.rs::uncoloured_pattern_discards_inherited_rgb_source"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The generic device-color test paints supplied blue; the underlying-space discriminator selects a Separation tint whose 1.0 maps to red and would be white under the wrong DeviceGray arity fallback. Parsing retains the base space with consumed tint components; target-specific rendering context has dedicated nested-state tests (ADR 2212/2213).",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.3.3",
+    "feature_id": "8.7.3.3_uncoloured_cell_colour_operators_ignored",
+    "requirement": "An uncoloured cell shall not specify colour; where its content does so, the colour or color-related operator is ignored and processing continues without error under §8.6.8.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:§8.7.3.3:5741 and §8.6.8/Table 73",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/colour.rs",
+      "crates/pdf-model/src/content/pattern/cell.rs::run_cell"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::an_uncoloured_cell_that_sets_a_colour_is_ignored",
+      "crates/pdf-model/tests/tiling.rs::an_uncoloured_cell_that_sets_a_transfer_function_is_ignored",
+      "crates/pdf-model/tests/tiling.rs::a_coloured_cells_own_transfer_function_is_ignored_too"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The green `rg` inside a PaintType 2 cell is ignored and sampled output remains the separately supplied blue. A `/TR` ExtGState input is separately ignored inside an uncoloured cell; the same function on the painting mark has its own control in transfer-function tests.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.3.3",
+    "feature_id": "8.7.3.3_image_mask_exception",
+    "requirement": "An uncoloured pattern cell may paint an image mask; it may not include another kind of image.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:§8.7.3.3:5741 and §8.6.8:Table 73 image rule",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern/tiling.rs::tiling",
+      "crates/pdf-model/src/content/image.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/image_masks.rs::a_zero_sample_paints_the_current_colour_and_a_one_leaves_the_page_alone",
+      "crates/pdf-model/tests/tiling_patterns_audit.rs::an_uncoloured_pattern_cell_can_paint_an_image_mask_through_its_supplied_colour"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The valid PaintType2 cell paints a zero-sample image mask from its own XObject resources using separately selected blue. Exact blue pixels in two cells and an intervening transparent gap prove the nested image-mask route. The restriction on other image types remains a producer condition, not a mandatory rejection rule.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.3.1",
+    "feature_id": "8.7.3.1_optional_pattern_type_name",
+    "requirement": "The Type entry in a Type 1 pattern stream dictionary is optional; if present its value shall be /Pattern.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:Table 74, line 5673",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern.rs::pattern"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::a_tiling_pattern_repeats_its_cell_across_the_filled_path"
+    ],
+    "verdict": "producer-constraint",
+    "evidence": "The optional entry is a producer/definition constraint; §8.7.3.1 gives no mandatory reader refusal/recovery behavior for a wrong Type value. Valid fixtures both omit it and exercise the Type 1 stream behavior. Retained as an inventory requirement; a producer condition is not discarded merely because reader refusal is unspecified. No complete writer validation is claimed.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "producer-constraint",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.3.1",
+    "feature_id": "8.7.3.1_writer_selects_pattern_as_current_colour",
+    "requirement": "Before painting with a tiling pattern, the PDF writer shall establish that pattern as the current graphics-state colour.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:5686-5689",
+    "errata": "No correction identified for this individual requirement. Nearby EC3 #428 (physical p235/printed220) qualifies tile order as implementation dependent; #294 (physical236/printed221) inserts stream into the Table74 dictionary caption. Annotation page indexes are one-based physical.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/colour.rs",
+      "crates/pdf-model/src/content/pattern.rs::pattern"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::a_tiling_pattern_repeats_its_cell_across_the_filled_path"
+    ],
+    "verdict": "producer-constraint",
+    "evidence": "This sentence assigns the step to a writer; reader selection behavior is separately covered by §8.7.2 and the SCN/scn tests. It does not state a reader refusal rule for a file that selects a different current color later. Retained as an inventory requirement; a producer condition is not discarded merely because reader refusal is unspecified. No complete writer validation is claimed.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "producer-constraint",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.3.1",
+    "feature_id": "8.7.3.1_cell_order_unfixed_and_nonoverlap_recommended",
+    "requirement": "The order of tile instances is unspecified/unpredictable; adjacent figures should not overlap.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:5665",
+    "errata": "EC3 #428, Caret obj3473 at physical235/printed220, adds (implementation dependent) at tile-order text; linked Review entries Accepted/Completed. The source annotation index is one-based.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern/repeat.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::a_tiling_pattern_repeats_its_cell_across_the_filled_path"
+    ],
+    "verdict": "no-independent-requirement",
+    "evidence": "The first clause explicitly leaves paint order unspecified; no deterministic order should be asserted. “Should not overlap” is recommendation-level guidance on producer design, not a reader rule to reject overlapping cells. The raster regression checks locations/gaps without imposing cell visit order.",
+    "test_command": "cargo test -p pdf-model --test tiling_patterns_audit",
+    "test_result": "Root reviewed five consumer tests: 5 passed (tiling-patterns-five-target.log); pdf-model all-target warning-denied Clippy passed (clippy-tiling-patterns.log). Earlier referenced tests were inspected and covered by the broad wave9 run.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.3.1",
+    "feature_id": "8.7.3.1_zero_extent_bbox_note",
+    "requirement": "Table74 BBox Note1 discusses painting one pixel for zero width or height, with a forward reference to scan conversion.",
+    "source_location": "ISO32000-2 Table74 BBox Note1 physical236/printed221",
+    "errata": "No separate correction identified for this item in the inspected pattern pages.",
+    "ledger_status": "implemented",
+    "code_locations": [],
+    "test_refs": [],
+    "verdict": "pending",
+    "evidence": "Existing ordinary BBox clipping assertions do not prove this degenerate case. Keep as explicit residual pending the §10.7.4 effective-rule/errata review; do not derive a malformed-input refusal from it.",
+    "test_result": "No dedicated test accepted.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "pending",
+    "superseded": false
+  },
+  {
+    "clause": "8.7.3.3",
+    "feature_id": "8.7.3.3_base_must_not_be_pattern",
+    "requirement": "The underlying colour space for an uncoloured pattern cannot itself be another Pattern space (NOTE).",
+    "source_location": "ISO32000-2 §8.7.3.3 NOTE physical240/printed225",
+    "errata": "No separate correction identified for this item in the inspected pattern pages.",
+    "ledger_status": "implemented",
+    "code_locations": [],
+    "test_refs": [],
+    "verdict": "pending",
+    "evidence": "This names a format constraint in an informative note. Keep its role explicit; no independent reader refusal or complete writer validation was established here.",
+    "test_result": "No dedicated test accepted.",
+    "reviewer": "tiling_patterns_audit",
+    "parent_review_state": "parent-reviewed-partial-with-five-tests-and-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "pending",
+    "superseded": false
+  },
+  {
     "clause": "7.9.5",
     "feature_id": "rect-type",
     "requirement": "A rectangle is represented by an array of exactly four numbers naming two diagonally opposite corners.",

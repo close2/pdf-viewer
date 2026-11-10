@@ -229,6 +229,46 @@
     "whole_document_complete": false,
     "review_records": [
       {
+        "source": "image_masking_audit/decisions.json",
+        "decision_id": "read_mask_once_and_split_color_key_from_stencil",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "image_masking_audit/decisions.json",
+        "decision_id": "explicit_mask_finer_grid",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "image_masking_audit/decisions.json",
+        "decision_id": "codec_color_key_refusal",
+        "conclusion": "superseded",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "image_masking_audit/decisions.json",
+        "decision_id": "report_non_image_mask_value",
+        "conclusion": "retain-as-project-policy",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "image_masking_audit/decisions.json",
+        "decision_id": "smask_precedence_over_dictionary_mask",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      },
+      {
         "source": "image_samples_decode_audit/decisions.json",
         "decision_id": "raw_sample_color_key_order",
         "conclusion": "cross-reference-only",
@@ -539,22 +579,22 @@
         "source": "tiling_patterns_audit/decisions.json",
         "decision_id": "0057.pattern_parent_is_form_default_space_at_do",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
-        "duplicates_decision": null
+        "duplicates_decision": true
       }
     ]
   },
   {
     "path": "doc/adr/0058-all-patterns-shall-be-treated-as-colours.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "tiling_patterns_audit/decisions.json",
         "decision_id": "0058.all_pattern_paint_routes_treat_pattern_as_colour",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -1113,9 +1153,18 @@
   },
   {
     "path": "doc/adr/0135-a-state-machine-with-no-clock-is-told-the-time.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "presentations_audit/decisions.json",
+        "decision_id": "0135-page-duration-boundary-and-target-transition",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0136-rasterrocket-measured-rather-than-read.md",
@@ -1391,9 +1440,18 @@
   },
   {
     "path": "doc/adr/0173-a-mask-is-not-a-coloured-figure.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "image_masking_audit/decisions.json",
+        "decision_id": "clear_uncoloured_for_soft_mask_group",
+        "conclusion": "cross-reference-only",
+        "parent_accepted": false,
+        "review_type": "cross_reference_only",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0174-an-empty-glyph-stays-empty.md",
@@ -1777,9 +1835,18 @@
   },
   {
     "path": "doc/adr/0230-a-frame-is-two-pages-and-a-fraction.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "presentations_audit/decisions.json",
+        "decision_id": "0230-pure-frame-shaping-at-progress-fraction",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0231-a-collection-opens-on-one-document-and-nobody-could-say-which.md",
@@ -2364,9 +2431,18 @@
   },
   {
     "path": "doc/adr/0316-the-mode-a-clause-conditions-its-states-on.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "presentations_audit/decisions.json",
+        "decision_id": "0316-host-states-presentation-mode",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0317-the-font-program-a-thousand-pages-inflate.md",
@@ -3408,6 +3484,14 @@
     "whole_document_complete": false,
     "review_records": [
       {
+        "source": "presentations_audit/decisions.json",
+        "decision_id": "0470-fullscreen-enters-and-leaves-presentation-mode",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
         "source": "viewer_preferences_audit/decisions.json",
         "decision_id": "honour PageMode FullScreen and conditional NonFullScreenPageMode on exit",
         "conclusion": "retain-with-qualification",
@@ -3431,9 +3515,18 @@
   },
   {
     "path": "doc/adr/0473-the-clock-two-windows-did-not-have.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "presentations_audit/decisions.json",
+        "decision_id": "0473-one-shared-clock-for-toolkit-hosts",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0474-the-coverage-a-quarter-of-a-pixel-at-a-time.md",
@@ -4384,14 +4477,14 @@
   },
   {
     "path": "doc/adr/0735-the-region-a-stroke-covers-is-not-only-a-path.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "tiling_patterns_audit/decisions.json",
         "decision_id": "0735.patterned_stroke_uses_backend_expanded_alpha_mask",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -4959,9 +5052,18 @@
   },
   {
     "path": "doc/adr/0832-a-colour-key-reaches-a-filtered-image-and-table-87-says-what-its-samples-are.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "image_masking_audit/decisions.json",
+        "decision_id": "color_key_on_filter_delivered_samples",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0834-a-structure-tree-is-carried-by-what-its-pages-reach-and-three-namespaces-get-three-answers.md",
@@ -7521,6 +7623,14 @@
     "whole_document_complete": false,
     "review_records": [
       {
+        "source": "image_masking_audit/decisions.json",
+        "decision_id": "writer_mask_preservation_and_codec_decode",
+        "conclusion": "cross-reference-only",
+        "parent_accepted": false,
+        "review_type": "cross_reference_only",
+        "duplicates_decision": null
+      },
+      {
         "source": "inline_images_audit/decisions.json",
         "decision_id": "redaction_clears_image_masks_and_admits_only_inline_codecs",
         "conclusion": "retain",
@@ -7598,9 +7708,18 @@
   },
   {
     "path": "doc/adr/1299-a-withheld-quantity-is-chosen-written-down-and-reported.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "presentations_audit/decisions.json",
+        "decision_id": "1299-a72-transition-quantities",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1301-a-knockout-element-is-given-its-shape-on-every-route-and-its-reading-at-paint-time.md",
@@ -9185,6 +9304,22 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "document_trigger_timing_audit/decisions.json",
+        "decision_id": "1614-D1-operation-timing",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "document_trigger_timing_audit/decisions.json",
+        "decision_id": "1614-D2-event-rc-is-not-an-operation-veto",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -10286,9 +10421,18 @@
   },
   {
     "path": "doc/adr/1853-a-page-transition-s-last-frame-is-the-page-it-moves-to-and-nothing-else.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "presentations_audit/decisions.json",
+        "decision_id": "1853-transition-end-presentation-settles-arriving-page",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1855-page-one-is-drawn-while-it-is-read-from-parts-the-reader-hands-over.md",
@@ -11992,14 +12136,14 @@
   },
   {
     "path": "doc/adr/2212-uncoloured-tiling-keeps-its-source-through-nested-targets.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "tiling_patterns_audit/decisions.json",
         "decision_id": "2212.uncoloured_tint_retains_underlying_space_through_nested_targets",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -14479,9 +14623,18 @@
   },
   {
     "path": "doc/adr/2702-a-save-and-a-submit-fire-their-pre-and-post-events-and-a-submit-s-cancel-action-aborts-it.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "document_trigger_timing_audit/decisions.json",
+        "decision_id": "2702-D5-save-cancel-action-writes (superseded by 2763-D2)",
+        "conclusion": "superseded",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2703-the-script-tests-run-before-a-save-and-a-submit-as-the-config-lists.md",
@@ -14806,9 +14959,18 @@
   },
   {
     "path": "doc/adr/2763-a-save-an-xfa-form-s-pre-save-script-declines-is-asked-at-the-reader-s-level.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "document_trigger_timing_audit/decisions.json",
+        "decision_id": "2763-D2-save-policy-after-ws-and-presave",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2764-a-submission-that-ends-without-form-data-runs-the-post-submit-events.md",
