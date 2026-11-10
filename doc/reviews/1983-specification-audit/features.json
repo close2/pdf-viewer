@@ -25773,6 +25773,115 @@
     "superseded": false
   },
   {
+    "feature_id": "opentype-cff-simple-type1-name-route",
+    "clause": "9.9.1",
+    "verdict": "confirmed-implementation-gap",
+    "requirement": "When an OpenType CFF program is used by a Type1 font dictionary, a PDF processor shall select glyph descriptions by the simple Type1 procedure in §9.6.5.2.",
+    "source_location": "§9.9.1 final OpenType bullet 1, physical370/printed355; corresponding forward reference in requirement.",
+    "errata": "No applicable EC3 semantic amendment located on this clause. EC3 annotations in the surrounding font clauses were not treated as changes to these four bullets.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs",
+      "crates/pdf-font/src/loading/opening.rs",
+      "crates/pdf-font/src/truetype.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/opentype_selection_audit.rs::opentype_cff_under_simple_type1_uses_encoding_glyph_names_and_cff_charset",
+      "crates/pdf-model/tests/opentype_selection_audit.rs::the_same_cff_as_type1c_honours_the_symbolic_fonts_explicit_encoding"
+    ],
+    "evidence": "Type1 FontFile3/OpenType CFF with Flags4 explicitly maps PDF codes65/66 to two.sups/two, expectedGIDs2/1. Loader returns3/4 from competing Macintosh cmap A/B. Same CFF program extracted and filed Type1C returns2/1; without competing Macintosh cmap original control passed. Every selected glyph has a nonempty outline. Sfnt dispatch unconditionally calls truetype_code_table; symbolic route consumes cmap before names. §9.9.1 requires the Type1 procedure, whose explicit Encoding overrides built-in mapping regardless of symbolic flag. No rendering/complete font-format certification is claimed.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p pdf-model -p viewer-host --test opentype_selection_audit --test watermark_nup_consumer_audit --no-fail-fast",
+    "remaining_work": "Fix correct Type1-vs-TrueType selection semantics in separate work. Additional nonidentity CID-keyed CFF and recovery branches remain unaudited.",
+    "parent_review": "Parent read four final bullets, Type1 override requirement physical340/printed325, actual dispatch and selected ADR decisions. Corrected draft bullet numbers, untracked-corpus dependency, missing fixture lifetimes, false absent-cmap claim, flags, and CID glyf cmap. Synthetic rectangle fonts generated independently with FontTools4.68.0; source and binary fixtures checked in.",
+    "test_result": "opentype-decoy-control-target.log: font target4pass/1fail; watermark1pass. Clippy pdf-model/viewer-host all-targets passes clippy-opentype-nup-final.log.",
+    "reviewer": "opentype_selection_audit",
+    "parent_review_state": "parent-reviewed-partial-with-independent-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-implementation-gap",
+    "superseded": false
+  },
+  {
+    "feature_id": "opentype-glyf-simple-truetype-name-route",
+    "clause": "9.9.1",
+    "verdict": "confirmed-selected-font-loader-case",
+    "requirement": "When an OpenType glyf program is used by a TrueType font dictionary, a PDF processor shall select glyph descriptions by §9.6.5.4.",
+    "source_location": "§9.9.1 final OpenType bullet 2, physical370/printed355; corresponding forward reference in requirement.",
+    "errata": "No applicable EC3 semantic amendment located on this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs",
+      "crates/pdf-font/src/loading/opening.rs",
+      "crates/pdf-font/src/truetype.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/opentype_selection_audit.rs::opentype_glyf_under_simple_truetype_uses_the_glyph_name_cmap_route"
+    ],
+    "evidence": "Synthetic glyf contains only .notdef,A,B, valid Nonsymbolic32. PDF Differences swapsA/B and returnsGIDs2/1 with nonempty outlines, rejecting raw-code/UnicodeA/B route. CompletePDF exactxref/noRecovery; glyf stream hasLength1. Test exercises selected§9.6.5.4 name route, not every branch.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p pdf-model -p viewer-host --test opentype_selection_audit --test watermark_nup_consumer_audit --no-fail-fast",
+    "remaining_work": "Other encoding/subtable/fallback branches remain separate. Differences is discouraged for TrueType by a SHOULD, not forbidden; this case exercises the specified reader behavior.",
+    "parent_review": "Parent read four final bullets, Type1 override requirement physical340/printed325, actual dispatch and selected ADR decisions. Corrected draft bullet numbers, untracked-corpus dependency, missing fixture lifetimes, false absent-cmap claim, flags, and CID glyf cmap. Synthetic rectangle fonts generated independently with FontTools4.68.0; source and binary fixtures checked in.",
+    "test_result": "opentype-decoy-control-target.log: font target4pass/1fail; watermark1pass. Clippy pdf-model/viewer-host all-targets passes clippy-opentype-nup-final.log.",
+    "reviewer": "opentype_selection_audit",
+    "parent_review_state": "parent-reviewed-partial-with-independent-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-font-loader-case",
+    "superseded": false
+  },
+  {
+    "feature_id": "opentype-cff-cidfonttype0-cid-to-glyph",
+    "clause": "9.9.1",
+    "verdict": "confirmed-selected-font-loader-case",
+    "requirement": "When an OpenType CFF program is used by a CIDFontType0 descendant, glyph selection shall follow §9.7.4.2: CFF charset mapping for CID-keyed CFF, otherwise direct CID/GID use unless the dictionary states a CIDToGIDMap stream.",
+    "source_location": "§9.9.1 final OpenType bullet 3, physical370/printed355; corresponding forward reference in requirement.",
+    "errata": "No applicable EC3 semantic amendment located on this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs",
+      "crates/pdf-font/src/loading/opening.rs",
+      "crates/pdf-font/src/composite.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/opentype_selection_audit.rs::opentype_cff_under_cidfonttype0_uses_identity_cid_to_gid_for_name_keyed_cff"
+    ],
+    "evidence": "Same synthetic name-keyed CFF OpenType program embedded as CIDFontType0 uses identity codes2/1 toGIDs2/1, nonempty outlines. This is independent of its Unicode/Macintosh cmap. Exactxref/noRecovery.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p pdf-model -p viewer-host --test opentype_selection_audit --test watermark_nup_consumer_audit --no-fail-fast",
+    "remaining_work": "CID-keyed nonidentity charset and explicit CIDToGIDMap remain separate; no exhaustive§9.7.4.2 certification.",
+    "parent_review": "Parent read four final bullets, Type1 override requirement physical340/printed325, actual dispatch and selected ADR decisions. Corrected draft bullet numbers, untracked-corpus dependency, missing fixture lifetimes, false absent-cmap claim, flags, and CID glyf cmap. Synthetic rectangle fonts generated independently with FontTools4.68.0; source and binary fixtures checked in.",
+    "test_result": "opentype-decoy-control-target.log: font target4pass/1fail; watermark1pass. Clippy pdf-model/viewer-host all-targets passes clippy-opentype-nup-final.log.",
+    "reviewer": "opentype_selection_audit",
+    "parent_review_state": "parent-reviewed-partial-with-independent-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-font-loader-case",
+    "superseded": false
+  },
+  {
+    "feature_id": "opentype-glyf-cidfonttype2-cid-to-glyph",
+    "clause": "9.9.1",
+    "verdict": "confirmed-selected-font-loader-case",
+    "requirement": "When an OpenType glyf program is used by a CIDFontType2 descendant, glyph selection shall follow §9.7.4.2, applying the /CIDToGIDMap or its Identity default.",
+    "source_location": "§9.9.1 final OpenType bullet 4, physical370/printed355; corresponding forward reference in requirement.",
+    "errata": "No applicable EC3 semantic amendment located on this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs",
+      "crates/pdf-font/src/loading/opening.rs",
+      "crates/pdf-font/src/composite.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/opentype_selection_audit.rs::opentype_glyf_under_cidfonttype2_uses_identity_cid_to_gid"
+    ],
+    "evidence": "Synthetic glyf font embedded under CIDFontType2 FontFile3/OpenType uses codes1/2 toGIDs1/2 with explicitIdentity map and nonempty outlines. Parent strips forbidden CID glyf cmap and rebuilds SFNTchecksums; flags32 follows this tinyLatin-only repertoire. Exactxref/noRecovery.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p pdf-model -p viewer-host --test opentype_selection_audit --test watermark_nup_consumer_audit --no-fail-fast",
+    "remaining_work": "Nonidentity map and missing-map recovery remain separate.",
+    "parent_review": "Parent read four final bullets, Type1 override requirement physical340/printed325, actual dispatch and selected ADR decisions. Corrected draft bullet numbers, untracked-corpus dependency, missing fixture lifetimes, false absent-cmap claim, flags, and CID glyf cmap. Synthetic rectangle fonts generated independently with FontTools4.68.0; source and binary fixtures checked in.",
+    "test_result": "opentype-decoy-control-target.log: font target4pass/1fail; watermark1pass. Clippy pdf-model/viewer-host all-targets passes clippy-opentype-nup-final.log.",
+    "reviewer": "opentype_selection_audit",
+    "parent_review_state": "parent-reviewed-partial-with-independent-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-font-loader-case",
+    "superseded": false
+  },
+  {
     "clause": "8.11.4.1",
     "feature_id": "8.11.4.1.descriptive_configuration_overview",
     "requirement": "The general paragraph introduces default group states and external factors; it adds no behavior beyond §§8.11.4.2–8.11.4.5.",
@@ -36403,6 +36512,34 @@
     "parent_review_state": "parent-reviewed-partial-with-qualified-evidence",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "screen flag is tested generally; print NoZoom subtype interaction not isolated here",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.22",
+    "feature_id": "nup_watermark_through_public_print_consumer",
+    "requirement": "When n-up printing is selected, annotations shall retain their specified size and be positioned against a single portion of the sheet so their contents do not overlap contents from other pages.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.518 / printed p.503, §12.5.6.22 two post-EXAMPLE n-up paragraphs",
+    "errata": "No EC3 amendment to the n-up watermark paragraphs identified in this bounded consumer test. ADR 1204 records the chosen two-up and four-up grid conventions; those choices are not prescribed by ISO.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-host/src/printing.rs::placed",
+      "crates/viewer-host/src/printing.rs::cell",
+      "crates/viewer-core/src/viewer/printing.rs::Viewer::print",
+      "crates/viewer-core/src/viewer/answers.rs::print_page",
+      "crates/pdf-model/src/annotation.rs::fixed_print"
+    ],
+    "test_refs": [
+      "crates/viewer-host/tests/watermark_nup_consumer_audit.rs::public_print_query_places_fixed_watermarks_inside_each_two_up_and_four_up_cell"
+    ],
+    "verdict": "confirmed-selected-public-print-consumer",
+    "evidence": "The core's public print query takes the Sheet installed by Printing::Start and builds a PrintPage; host `placed` computes that Sheet and `cell` returns paper placement. Existing tests separately exercise model page_scale and host two-up geometry. The draft joins these exact public paths, rasterizes the returned PrintPage, maps measured red pixels to sheet coordinates, and compares against independent manual coordinates for two-up and four-up; both grids assert fixed 20-point size and per-cell containment/non-overlap. Parent promoted and ran after correcting Vec write trait. Two-up and four-up exactmanualpaperboxes20ptsize, cellcontainment and nonoverlap pass. ActualpublichostCell composes actualpublicViewer PrintPage pixels. Uniform portraitpage,landscapepaper,no nativeGTK/Qtprinter invoked.",
+    "test_command": "cargo test -p viewer-host --test watermark_nup_consumer_audit",
+    "test_result": "opentype-decoy-control-target.log1pass,clippy-opentype-nup-final.logPASS",
+    "parent_review": "Parent read placed/cell,ADR1204 and test arithmetic; source physical518/printed503. The two-up longer-axis grid and centering remain project choices.",
+    "reviewer": "watermark_nup_consumer_audit",
+    "parent_review_state": "parent-reviewed-partial-with-independent-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-public-print-consumer",
     "superseded": false
   }
 ]

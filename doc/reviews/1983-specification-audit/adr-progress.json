@@ -102,14 +102,14 @@
   },
   {
     "path": "doc/adr/0015-truetype-character-mapping.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "opentype_selection_audit/decisions.json",
         "decision_id": "0015-simple-truetype-opentype-code-to-glyph-procedure",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -370,14 +370,14 @@
   },
   {
     "path": "doc/adr/0029-composite-fonts-cmaps-and-cid-to-glyph.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "opentype_selection_audit/decisions.json",
         "decision_id": "0029-cidfonttype0-open-type-cff-and-cidfonttype2-open-type-glyf-selection",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -394,6 +394,14 @@
         "conclusion": "retain-with-qualification",
         "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "ink_annotation_audit/decisions.json",
+        "decision_id": "construct_ink_appearance_from_declared_shape",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
     ]
@@ -566,14 +574,14 @@
   },
   {
     "path": "doc/adr/0050-a-list-is-a-list.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "opentype_selection_audit/decisions.json",
         "decision_id": "0050-simple-cff-open-type-glyph-names-use-cff-charset",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -1064,9 +1072,18 @@
   },
   {
     "path": "doc/adr/0114-a-missing-operand-makes-the-map-the-identity.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "ink_annotation_audit/decisions.json",
+        "decision_id": "missing_rect_identity_only_applies_to_stored_appearance_operand",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0115-a-resource-name-is-scoped-to-the-dictionary-that-defines-it.md",
@@ -1764,9 +1781,18 @@
   },
   {
     "path": "doc/adr/0199-the-characters-of-a-rich-text-string.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "markup_annotation_audit/decisions.json",
+        "decision_id": "contents-rc-precedence-and-textual-equivalence",
+        "conclusion": "superseded",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0200-a-sixth-tab-for-a-clause-no-document-exercises.md",
@@ -2441,9 +2467,18 @@
   },
   {
     "path": "doc/adr/0294-a-flag-on-the-note-and-a-style-the-table-does-not-give.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "ink_annotation_audit/decisions.json",
+        "decision_id": "border_style_scope_is_subtype_specific",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0295-the-entry-nobody-wired-and-the-file-behind-the-paperclip.md",
@@ -6667,9 +6702,18 @@
   },
   {
     "path": "doc/adr/1051-the-state-is-a-walk-and-depth-is-its-clock.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_states_audit/decisions.json",
+        "decision_id": "annotation_states_follow_reply_chains_by_user_and_model",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1054-two-parameters-a-conversion-must-and-must-not-see.md",
@@ -7836,9 +7880,18 @@
   },
   {
     "path": "doc/adr/1224-an-fdf-annotation-is-an-annotation-and-three-entries-read-as-themselves.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "markup_annotation_audit/decisions.json",
+        "decision_id": "irt-in-fdf-name-string-is-resolved-as-link",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1225-annex-f-is-a-network-reader-and-this-one-reads-a-disk.md",
@@ -10795,9 +10848,18 @@
   },
   {
     "path": "doc/adr/1784-the-annotation-rows-claims-read-against-their-lines-and-an-ending-no-longer-takes-its-line.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_states_audit/decisions.json",
+        "decision_id": "annotation_state_reader_is_not_yet_a_host_display_requirement",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1786-a-choice-field-s-selection-runs-its-keystroke-and-the-windows-say-which-an-arrow-made.md",

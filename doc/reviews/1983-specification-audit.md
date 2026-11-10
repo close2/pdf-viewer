@@ -18,6 +18,9 @@ the presentation, held-operation, font-width, border and annotation-state tests.
 historical ADRs remain unchanged. Selected assertion reviews and isolated mutation checks have
 exposed both implementation gaps and passing tests unable to detect their stated defect.
 
+Since that broad run, the new OpenType target adds four passing cases and one confirmed failure;
+the failure manifest now contains 42 assertions. The watermark n-up consumer and PaintType tests also pass.
+
 This remains a partial audit. The reproducible continuation inventory and per-clause/ADR progress
 are committed in [the audit evidence directory](1983-specification-audit/), with full local working data
 under `scratchpad/r1983/spec-audit/`; no whole-clause or whole-ADR completeness percentage is
@@ -1116,3 +1119,10 @@ source. This demonstrates sensitivity to the prohibited dependency, not a defect
 The clause 6 review inventories seventeen aggregate, definitional and optional-permission records across its eight ledger rows. The ledger integrity test checks population, citations and accounting; it explicitly cannot prove implementation. qpdf acceptance and foreign-reader readback are useful bounded checks, and both cited consumers can return successfully without their external prerequisites. Existing accepted writer and annotation-printing counterexamples carry through to the aggregate claims; they are not counted as additional defects. Headings and definitions do not require invented behavior tests.
 
 The selected decisions in ADRs 0984, 1461, 1535 and 1622 remain sound with those qualifications: include clause 6, recheck writer applicability, distinguish grounded quotations from correct interpretation, and distinguish mandatory requirements from recommendations. ADR 1225's local-disk decision to decline linearized access optimization remains reasonable on its historical measurements; those measurements were not repeated and would need reconsideration if the IO model or latency costs change. No whole ADR is certified by this bounded review.
+
+
+A stronger §9.9.1 glyph-selection test exposed a Type1/OpenType CFF defect. An explicit PDF encoding maps codes 65 and 66 to `two.sups` and `two`, but a competing Macintosh cmap wins first, selecting A and B. The source routes this font to §9.6.5.2, where the explicit Type1 encoding overrides its built-in mapping, including for symbolic fonts. The same CFF bytes embedded directly as Type1C select the required glyphs. The regression fails with GIDs [3,4] instead of [2,1]; its bare-CFF control and the other three OpenType cases pass. This remains an unfixed production defect.
+
+Parent review replaced corpus-dependent draft fonts with two tiny synthetic rectangle fonts and their offline reproducible generator, corrected flags and CID glyf cmap filing, and checked expected glyph names, indices and nonempty outlines with FontTools. The simple glyf case swaps A/B; composite CFF and glyf cases cover identity mapping. Nonidentity CID-keyed CFF remains open. The selected ADR 0015 TrueType route and ADR 0050 exact-name lookup remain justified within their scopes; neither justifies using the TrueType symbolic route for valid Type1/CFF. ADR 0029's separation of mappings remains sound, with its other branches still unverified here.
+
+The host/core printing handoff now has a passing complete-PDF consumer test. Actual `printing::placed` and `cell` values feed public `Viewer` printing; rasterized `PrintPage` bounds match independently calculated paper coordinates in two-up and four-up layouts, retain the 20-point physical size, stay within their cells and do not overlap. This checks uniform page sizes and the public interface; native printer integrations and mixed-page geometry remain outside this test.

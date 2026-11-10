@@ -2,15 +2,15 @@
   "warning": "Records can overlap or cross-reference prior reviews. Selected units do not establish that every decision in an ADR was reviewed; no whole document is marked complete.",
   "adr_documents": 2233,
   "document_states": {
-    "pending": 2052,
-    "selected-decision-units-reviewed": 160,
-    "review-in-progress": 21
+    "pending": 2046,
+    "selected-decision-units-reviewed": 163,
+    "review-in-progress": 24
   },
-  "decision_review_records": 274,
-  "parent_accepted_records": 266,
+  "decision_review_records": 279,
+  "parent_accepted_records": 269,
   "cross_reference_records": 21,
   "accepted_record_conclusions": {
-    "retain-with-qualification": 133,
+    "retain-with-qualification": 136,
     "revisit": 14,
     "retain": 73,
     "superseded": 13,
@@ -28,14 +28,5 @@
     "retain-reader-policy": 1,
     "retain-with-bounded-scope-note": 1
   },
-  "issues": [
-    {
-      "source": "markup_annotation_audit/decisions.json",
-      "missing_adr": "doc/adr/0199-the-characters-of-a-rich-text-string-and-none-of-its-formatting.md"
-    },
-    {
-      "source": "markup_annotation_audit/decisions.json",
-      "missing_adr": "doc/adr/1224-an-fdf-annotation-is-an-annotation-and-three-markup-entries-read-as-themselves.md"
-    }
-  ]
+  "issues": []
 }

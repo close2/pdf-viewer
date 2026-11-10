@@ -4270,16 +4270,19 @@
     "parent_reviewed_artifacts": [
       "cidfont_cmap_validation_audit",
       "font_paint_type_audit",
-      "font_programs_audit"
+      "font_programs_audit",
+      "opentype_selection_audit"
     ],
     "feature_record_verdicts": {
       "code-supported-not-executed": 5,
       "confirmed": 1,
       "confirmed-Length3zero-reader-consumer; requiredkeys-not-certified": 1,
+      "confirmed-implementation-gap": 1,
       "confirmed-recovery-policy; producer-key-not-certified": 1,
       "confirmed-selected-consumer": 1,
       "confirmed-selected-display-consumer": 1,
       "confirmed-selected-embedded-program-consumer": 1,
+      "confirmed-selected-font-loader-case": 3,
       "documented-validator-boundary; no-failing-regression-promoted": 1,
       "inventoried-forward-duty; downstream-coverage-partial": 4,
       "inventoried-producer-constraints; validation-not-certified": 1,
@@ -4287,7 +4290,6 @@
       "no-independent-requirement": 1,
       "partial-format-pairing": 1,
       "partial; broader-cmap-validation-unresolved": 3,
-      "partially-verified": 4,
       "profile-rule-characterized; base-recommendation-not-certified": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
@@ -5661,10 +5663,20 @@
   {
     "clause": "12.5.6.3",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "annotation_states_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "confirmed": 1,
+      "confirmed-cross-reference-only": 1,
+      "confirmed-valid-defaults; malformed-case-recovery-is-a-choice": 1,
+      "confirmed-valid-path-partial-malformed-input": 1,
+      "confirmed-with-one-test-gap": 1,
+      "confirmed-with-recovery-qualification": 1,
+      "delegated-covered": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
@@ -5764,10 +5776,19 @@
   {
     "clause": "12.5.6.13",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "ink_annotation_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "ambiguous": 1,
+      "code-supported-not-executed": 3,
+      "confirmed-selected-paths": 1,
+      "cross-reference-only": 1,
+      "missing-discriminating-test": 1,
+      "missing-subtype-specific-test": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
@@ -5851,14 +5872,15 @@
       "watermark_nup_consumer_audit"
     ],
     "parent_reviewed_artifacts": [
-      "watermark_audit"
+      "watermark_audit",
+      "watermark_nup_consumer_audit"
     ],
     "feature_record_verdicts": {
       "cell target and scale handoff tested; no n-up watermark raster-through-print-host test found": 1,
       "conditional-scope-unactivated; no tiling selection or multi-sheet composition path found": 1,
       "confirmed-selected-defaults-and-placement": 1,
+      "confirmed-selected-public-print-consumer": 1,
       "matrix rotation and translation raster behavior tested": 1,
-      "missing-cross-layer-assertion": 1,
       "model and public print-query consumer exercised": 1,
       "model scale cancellation and host n-up geometry tested at separate seams": 1,
       "pointer and popup consumer tests have controls": 1,

@@ -3895,6 +3895,78 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/0015-truetype-character-mapping.md",
+    "decision_id": "0015-simple-truetype-opentype-code-to-glyph-procedure",
+    "original_decision": "Resolve simple TrueType/OpenType codes using §9.6.5.4's ordered routes rather than a direct code-as-Unicode or per-code glyph-index shortcut.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The §9.6.5.4 glyph-name route remains justified for TrueType/glyf and passes the new swapped-encoding test. Applying that route indiscriminately to Type1/CFF is contradicted by the new symbolicCFF fixture; §9.9.1 sends that combination to§9.6.5.2. The current implementation needs a distinct effective route, without undoing the TrueType decision.",
+    "current_code_evidence": [
+      "crates/pdf-font/src/truetype.rs::truetype_code_table",
+      "crates/pdf-font/src/loading/glyphs.rs::program_glyph",
+      "crates/pdf-font/src/program.rs::embedded_program"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/opentype_selection_audit.rs",
+      "opentype-decoy-control-target.log"
+    ],
+    "spec_or_external_sources": "Effective§9.9.1 physical370/printed355 bullets1–4,§9.6.5.2 override physical340/printed325,Table124 physical367–368/printed352–353.",
+    "changed_premise": "No changed premise identified. The missing exact wrapper-to-consumer assertion is a verification gap rather than evidence against the selected route.",
+    "remaining_work": "Correct Type1/CFF dispatch separately; keep ordered TrueType selection and do not promote the decision to a universal OpenType algorithm.",
+    "parent_review": "Selected actual decision only, parent read full named route/decision. Draft bullet numbering corrected; completefont certification not claimed.",
+    "reviewer": "opentype_selection_audit",
+    "source": "opentype_selection_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-independent-consumer-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0050-a-list-is-a-list.md",
+    "decision_id": "0050-simple-cff-open-type-glyph-names-use-cff-charset",
+    "original_decision": "Treat AGL/AGLFN as lists; for a name not found there, consult the program's own names, including CFF charset names when OpenType CFF has a post v3 table.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "Retain exact-name lookup before suffix-stripping recovery. The issue215 recovery witness is misfiled as TrueType/FontFile2 and does not prove valid Type1/OpenType handling. New bareType1C control passes while its OpenType wrapper withFlags4 is intercepted by Macintosh cmap before exact-name lookup; this is a separate dispatch failure.",
+    "current_code_evidence": [
+      "crates/pdf-font/src/truetype.rs::truetype_code_table",
+      "crates/pdf-font/src/truetype.rs::named_glyph",
+      "crates/pdf-font/src/program.rs::embedded_program"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/opentype_selection_audit.rs",
+      "opentype-decoy-control-target.log"
+    ],
+    "spec_or_external_sources": "Effective§9.9.1 physical370/printed355 bullets1–4,§9.6.5.2 override physical340/printed325,Table124 physical367–368/printed352–353.",
+    "changed_premise": "Draft asset claim that two.sups lacked Unicode cmap was false (Foglihten hasU+00B2). Replaced untrackedcorpus with synthetic fonts; exactexpectedGIDs and nonemptyoutlines independently checked.",
+    "remaining_work": "Repair Type1/CFF routing; retain charset-before-suffix decision, with no claim that passing bareCFF proves wrappedCFF.",
+    "parent_review": "Selected actual decision only, parent read full named route/decision. Draft bullet numbering corrected; completefont certification not claimed.",
+    "reviewer": "opentype_selection_audit",
+    "source": "opentype_selection_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-independent-consumer-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0029-composite-fonts-cmaps-and-cid-to-glyph.md",
+    "decision_id": "0029-cidfonttype0-open-type-cff-and-cidfonttype2-open-type-glyf-selection",
+    "original_decision": "Treat Type0 text mapping as code-to-CID followed by a separate CID-to-glyph route; choose CFF charset, /CIDToGIDMap stream, or identity according to the embedded program and dictionary, rather than by subtype alone.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "Separate code-to-CID and CID-to-glyph remains supported. New exact identity cases for name-keyed OpenTypeCFF and OpenTypeglyf pass. They do not validate CID-keyed charset or the historical malformedType0 explicitmap precedence decision.",
+    "current_code_evidence": [
+      "crates/pdf-font/src/composite.rs::composite_selection",
+      "crates/pdf-font/src/composite.rs::cid_to_glyph",
+      "crates/pdf-font/src/program.rs::embedded_program"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/opentype_selection_audit.rs",
+      "opentype-decoy-control-target.log"
+    ],
+    "spec_or_external_sources": "Effective§9.9.1 physical370/printed355 bullets1–4,§9.6.5.2 override physical340/printed325,Table124 physical367–368/printed352–353.",
+    "changed_premise": "No changed premise found in the reader's CID routing. Later writer profile decisions clarify that identity CID/GID selection can survive subtype conversion, but do not demonstrate complete OpenType branch coverage.",
+    "remaining_work": "NonidentityCID-keyedCFF fixture remains needed. HistoricalType0 explicitmap recovery not recertified.",
+    "parent_review": "Selected actual decision only, parent read full named route/decision. Draft bullet numbering corrected; completefont certification not claimed.",
+    "reviewer": "opentype_selection_audit",
+    "source": "opentype_selection_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-independent-consumer-tests",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/0017-optional-content.md",
     "decision_id": "initial-visibility-is-derived-from-the-default-configuration",
     "original_decision": "Initial rendering uses the document's default OCG configuration and Intent; alternate user interaction was deferred.",

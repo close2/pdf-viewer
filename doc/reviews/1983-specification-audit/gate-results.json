@@ -699,5 +699,16 @@
     "log": "clippy-font-paint-type-final.log",
     "exit": 0,
     "initial": "Added required doc backticks."
+  },
+  "opentype_nup": {
+    "log": "opentype-decoy-control-target.log",
+    "font_pass": 4,
+    "font_expected_fail": 1,
+    "watermark_pass": 1,
+    "exit": 101
+  },
+  "opentype_nup_clippy": {
+    "log": "clippy-opentype-nup-final.log",
+    "exit": 0
   }
 }

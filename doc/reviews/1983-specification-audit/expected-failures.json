@@ -226,6 +226,12 @@
       "test": "a_screen_nozoom_flag_does_not_shrink_the_printed_annotation_at_view_zoom",
       "evidence": "annotation-print-geometry-target.log",
       "classification": "NoZoom screen magnification leaks into print display-list geometry; fixed job outputs differ by prior viewport zoom"
+    },
+    {
+      "binary": "pdf-model::opentype_selection_audit",
+      "test": "opentype_cff_under_simple_type1_uses_encoding_glyph_names_and_cff_charset",
+      "evidence": "opentype-decoy-control-target.log",
+      "classification": "Type1/OpenType CFF symbolic font incorrectly uses TrueType Macintosh cmap before explicit encoding; bareType1C control passes"
     }
   ]
 }

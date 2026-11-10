@@ -773,14 +773,14 @@
       "clauses": [
         "9.9.1 glyphselection"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-independent-consumer-tests"
     },
     {
       "agent": "watermark_nup_consumer_audit",
       "clauses": [
         "12.5.6.22 nup"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-independent-consumer-tests"
     },
     {
       "agent": "conformance_aggregate_audit",
