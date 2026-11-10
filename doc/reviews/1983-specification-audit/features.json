@@ -11319,6 +11319,603 @@
     "superseded": false
   },
   {
+    "clause": "12.7.4.2",
+    "feature_id": "12.7.4.2.fully_qualified_root_name",
+    "requirement": "A root field's partial name is its fully qualified name; consumers identify a field by the hierarchy-derived name.",
+    "source_location": "ISO 32000-2 §12.7.4.2, printed p.532 / physical p.547; source/spec-layout.txt:32049-32055",
+    "errata": "No substantive edit on physical p.547. EC3 Issue #28 is one page earlier, physical p.546, and changes Table226 /T from Required to Optional; see the no-T feature.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/view/field_tree.rs::walk",
+      "crates/pdf-model/src/form.rs::fields",
+      "crates/viewer-core/src/query.rs::Query::Fields"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/view.rs::a_hide_action_finds_a_field_by_its_fully_qualified_name",
+      "crates/pdf-model/src/form.rs::a_nested_field_carries_both_of_its_names",
+      "crates/pdf-model/tests/field_names_buttons_spec_audit.rs::a_complete_form_reports_the_period_joined_name_and_terminal_partial_name"
+    ],
+    "verdict": "confirmed-selected-public-field-consumer",
+    "evidence": "The field-tree walk appends the root partial string to the qualified name and form::fields returns that name to a host-facing form description; the existing hide-action assertion resolves PersonalData.Address.ZipCode. The draft adds a complete-page form query at that boundary. New complete-page exactxref fixture proves PersonalData.Address.ZipCode, terminalZipCode, oneWidget and value02139. Parent connected the previously unreferenced APobject; draft had created it without an APentry.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-public-field-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.2",
+    "feature_id": "12.7.4.2.child_name_period_join",
+    "requirement": "Each child's partial name is appended to its parent's fully qualified name with a PERIOD; all descendants share the ancestor prefix.",
+    "source_location": "ISO 32000-2 §12.7.4.2, printed p.532 / physical p.547; source/spec-layout.txt:32049-32068",
+    "errata": "No substantive edit on physical p.547.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/view/field_tree.rs::walk",
+      "crates/pdf-model/src/form.rs::fields"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/view.rs::a_hide_action_finds_a_field_by_its_fully_qualified_name",
+      "crates/pdf-model/src/form.rs::a_nested_field_carries_both_of_its_names",
+      "crates/pdf-model/tests/field_names_buttons_spec_audit.rs::a_complete_form_reports_the_period_joined_name_and_terminal_partial_name"
+    ],
+    "verdict": "confirmed-selected-public-field-consumer",
+    "evidence": "Existing unit assertions check the three-component example in a field lookup/action path; the new complete PDF draft checks the exact name and partial name returned from a page's form consumer. New complete-page exactxref fixture proves PersonalData.Address.ZipCode, terminalZipCode, oneWidget and value02139. Parent connected the previously unreferenced APobject; draft had created it without an APentry.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-public-field-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.2",
+    "feature_id": "12.7.4.2.partial_name_period_producer_rule",
+    "requirement": "A producer's partial field name shall not contain PERIOD because PERIOD separates qualified-name components.",
+    "source_location": "ISO 32000-2 §12.7.4.2, printed p.532 / physical p.547; source/spec-layout.txt:32063-32068",
+    "errata": "No substantive edit on physical p.547.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/view/field_tree.rs",
+      "crates/pdf-transform/src/merge.rs"
+    ],
+    "test_refs": [],
+    "verdict": "unreviewed",
+    "evidence": "This is a real producer constraint, not a reader rejection rule. The shard found no field-name authoring operation that constructs new partial names; merge preserves source /T values, but whether that makes this writer obligation active in its scope is not established here.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "unreviewed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.2",
+    "feature_id": "12.7.4.2.name_absent_means_widget",
+    "requirement": "A dictionary with no own /T is not a field but a Widget annotation; an unnamed child does not add a name component and remains a representation of its parent's field.",
+    "source_location": "ISO 32000-2 §12.7.4.2, printed p.532 / physical p.547; source/spec-layout.txt:32070-32076",
+    "errata": "EC3 #28 on physical p.546 strikes Table226 /T '(Required)' and inserts 'Optional'; exact location and effect are documented in doc/errata-read.md §Issue #28. The printed cell had contradicted this paragraph.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/view/field_tree.rs::walk",
+      "crates/pdf-model/src/view/field_tree.rs::widgets_by_field_name",
+      "crates/pdf-model/src/form.rs::fields"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/view.rs::one_field_name_may_reach_several_widgets",
+      "crates/pdf-model/src/view.rs::a_root_field_that_nothing_names_is_not_a_field",
+      "crates/pdf-model/src/view.rs::an_empty_partial_name_is_still_a_name"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The field-tree reader uses presence of /T rather than a nonempty decoded string: an unnamed kid stays attached to its parent's field, a root with no name is absent from the name table, and an explicitly empty /T remains a key. The three assertions distinguish those cases. ADR0736's former root-empty-key bug was fixed.",
+    "test_command": "cargo test -p pdf-model --lib view::tests::a_root_field_that_nothing_names_is_not_a_field",
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.2",
+    "feature_id": "12.7.4.2.same_name_field_identity_writer_consistency",
+    "requirement": "Actual field dictionaries with the same fully qualified name shall have the same /FT, /V and /DV.",
+    "source_location": "ISO 32000-2 §12.7.4.2, printed p.532 / physical p.547; source/spec-layout.txt:32074-32076",
+    "errata": "No substantive edit on physical p.547.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-transform/src/merge.rs::field collision reconciliation"
+    ],
+    "test_refs": [
+      "crates/pdf-transform/tests/merge.rs::a_field_name_two_sources_disagree_about_is_refused_by_name"
+    ],
+    "verdict": "partial-selected-merge-conflict-control",
+    "evidence": "The merge test's positive control allows matching same-name fields with a warning, then changes /V and requires refusal naming the colliding field. It covers the writer/merge scope; the field reader is not required to reject arbitrary source conflicts. One merge-refusal assertion cannot certify FT,V,DV identity across every authoring route.",
+    "test_command": "cargo test -p pdf-transform --test merge a_field_name_two_sources_disagree_about_is_refused_by_name",
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-selected-merge-conflict-control",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.1",
+    "feature_id": "12.7.5.1.four_field_types",
+    "requirement": "Interactive forms define Button, Text, Choice and Signature field types; field-specific flags further divide types.",
+    "source_location": "ISO 32000-2 §12.7.5.1, printed p.535 / physical p.550; source/spec-layout.txt:32211-32221",
+    "errata": "No substantive EC3 edit on physical p.550.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::FieldKind::of",
+      "crates/pdf-model/src/form.rs::control"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/headless.rs::a_page_states_its_whole_form_as_controls_a_host_can_build",
+      "crates/pdf-model/src/form.rs::a_radio_set_states_one_on_state_per_widget"
+    ],
+    "verdict": "confirmed",
+    "evidence": "FieldKind reads /FT and its type-specific flags; public form assertions identify text, choice and radio types, while separate signature/data paths own signature fields. The general clause itself adds no fifth type or independent rendering rule.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.2.1",
+    "feature_id": "12.7.5.2.1.button_is_mouse_interactive_and_has_three_forms",
+    "requirement": "A Btn field is an interactive control; push-buttons have no retained value, check boxes toggle on/off, and radio fields comprise related buttons that normally select one at a time.",
+    "source_location": "ISO 32000-2 §12.7.5.2.1, printed p.535 / physical p.550; source/spec-layout.txt:32226-32238",
+    "errata": "No substantive EC3 edit on physical p.550.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::FieldKind",
+      "crates/pdf-model/src/form.rs::Control",
+      "crates/viewer-host/src/form.rs::toggling",
+      "crates/viewer-core/src/viewer/pointer.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-host/tests/host_mappings.rs::a_click_on_each_of_nine_button_widgets_is_what_the_clause_makes_of_it",
+      "crates/viewer-core/tests/headless.rs::a_click_on_a_submit_button_hands_the_host_the_request_and_says_what_it_leaves_out"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The model separates push-buttons from toggling buttons, and the shared host click decision processes radio/check state. The headless submit-button assertion confirms the push-button submits but is excluded from submitted field values. The statement that radio sets are 'typically' exclusive is qualified by the explicit NoToggleToOff and RadiosInUnison rules below.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.2.1",
+    "feature_id": "12.7.5.2.1.reader_must_follow_button_flags",
+    "requirement": "The interactive processor shall follow intended behavior for button-field flag bits 15, 16, 17 and 26.",
+    "source_location": "ISO 32000-2 §12.7.5.2.1 and Table229, printed pp.535-536 / physical pp.550-551; source/spec-layout.txt:32240-32268",
+    "errata": "No edit to the shall sentence. Table229 bit17's explicit V/DV prohibition is separately struck by EC3 Issue #386 on physical p.551.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::FieldKind::of",
+      "crates/pdf-model/src/appearance.rs::Field::an_earlier_button_answers_to",
+      "crates/pdf-model/src/form.rs::control",
+      "crates/viewer-host/src/form.rs::toggling"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/radios_in_unison.rs::with_the_flag_set_both_buttons_that_share_an_on_state_go_on",
+      "crates/pdf-model/tests/radios_in_unison.rs::with_the_flag_clear_only_the_first_of_them_does",
+      "crates/viewer-host/src/form.rs::a_radio_button_with_no_toggle_to_off_stays_on"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The processor shall is reader-directed. Bits 15, 16 and 17 reach the control classification/click rule; bit26 reaches replacement_state so same-name radio widgets are mutually exclusive when clear. Independent flags and controls are asserted in deterministic tests.",
+    "test_command": "cargo test -p pdf-model --test radios_in_unison",
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.2.1 Table229",
+    "feature_id": "12.7.5.2.1.no_toggle_to_off_bit15",
+    "requirement": "For radio buttons only, set bit15 prevents deselection of the selected button; when clear, clicking the selected button can leave the set with none selected.",
+    "source_location": "Table229 bit15, printed p.535 / physical p.550; source/spec-layout.txt:32248-32254",
+    "errata": "No substantive EC3 edit on physical p.550.",
+    "ledger_status": "unmapped",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::control",
+      "crates/viewer-host/src/form.rs::toggling",
+      "crates/viewer-core/src/viewer/answers.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-host/src/form.rs::a_radio_button_with_no_toggle_to_off_stays_on",
+      "crates/viewer-host/tests/host_mappings.rs::a_click_on_each_of_nine_button_widgets_is_what_the_clause_makes_of_it",
+      "doc/adr/0630-the-other-half-of-the-delegated-click.md"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Table229 marks bit15 radio-only; the shared host toggling rule receives it only for radio controls. Its unit assertion includes both refusing off and allowing an on choice. ADR0630 records actual sequential clicks and all three hosts' matching outcomes.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.2.1 Table229",
+    "feature_id": "12.7.5.2.1.radio_bit16_and_pushbutton_exclusion",
+    "requirement": "Bit16 distinguishes radio from checkbox and may be set only when Pushbutton bit17 is clear.",
+    "source_location": "Table229 bits16-17, printed p.535 / physical p.550; source/spec-layout.txt:32255-32261",
+    "errata": "No substantive EC3 edit on physical p.550.",
+    "ledger_status": "unmapped",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::FieldKind::of",
+      "crates/pdf-model/src/form.rs::control"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/form.rs::a_radio_set_states_one_on_state_per_widget",
+      "crates/viewer-core/tests/headless.rs::a_page_states_its_whole_form_as_controls_a_host_can_build"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The classifier checks Pushbutton before Radio, so an invalid combination is not accidentally classified as a radio set. The valid radio fixture asserts the chosen control and per-widget state. The bit combination prohibition is producer-side; reader recovery is not asserted as a conformance rule.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.2.1 Table229",
+    "feature_id": "12.7.5.2.1.pushbutton_bit17_classification",
+    "requirement": "Bit17 identifies a push-button rather than one of the two toggling button kinds.",
+    "source_location": "Table229 bit17, printed p.535 / physical p.550; source/spec-layout.txt:32261-32264",
+    "errata": "EC3 #386 at physical p.551 strikes the sentence 'it shall not use the V and DV entries' with no replacement. The surviving no-permanent-value definition remains; no present reader rejection/absence rule for /V or /DV is inferred from the deleted sentence.",
+    "ledger_status": "unmapped",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::FieldKind::of",
+      "crates/pdf-model/src/form.rs::Control::PushButton",
+      "crates/viewer-host/src/form.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/headless.rs::a_click_on_a_submit_button_hands_the_host_the_request_and_says_what_it_leaves_out",
+      "crates/pdf-model/tests/variable_text.rs::need_appearances_does_not_reach_a_button",
+      "doc/errata-read.md §12.7.5.2.2 Issue #386"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The type flag is decoded as a push-button; the shared host control route activates rather than toggles it. EC3 deletes the separate V/DV-use prohibition, which is a separate matter from classification.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.2.2",
+    "feature_id": "12.7.5.2.2.pushbutton_no_permanent_value",
+    "requirement": "A push-button is a Btn field with Pushbutton set and responds immediately without retaining a permanent value.",
+    "source_location": "ISO 32000-2 §12.7.5.2.2, printed p.536 / physical p.551; source/spec-layout.txt:32278-32283",
+    "errata": "EC3 #386 at physical p.551 strikes the sentence 'it shall not use the V and DV entries' with no replacement. The no-permanent-value definition survives; there is no current reader reject/absence rule for /V or /DV inferred from the deleted sentence.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::Control::PushButton",
+      "crates/viewer-host/src/form.rs",
+      "crates/pdf-model/src/submission.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/headless.rs::a_click_on_a_submit_button_hands_the_host_the_request_and_says_what_it_leaves_out",
+      "crates/pdf-transform/tests/archive/button_appearances.rs::a_push_button_with_no_appearance_is_given_one_under_the_state_its_new_as_selects",
+      "doc/errata-read.md §12.7.5.2.2 Issue #386"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The host handles a push-button as an activation, and the submit-form assertion excludes it from the submitted field values. Archive appearance creation also treats it as non-toggling. The deleted prohibition does not turn /V or /DV into invalid-reader input.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.2.3",
+    "feature_id": "12.7.5.2.3.checkbox_type_and_user_toggle",
+    "requirement": "A checkbox is a Btn field with Pushbutton and Radio clear; mouse or keyboard manipulation toggles its field between on and off.",
+    "source_location": "ISO 32000-2 §12.7.5.2.3, printed p.536 / physical p.551; source/spec-layout.txt:32285-32289",
+    "errata": "No substantive EC3 edit on physical p.551. #386's strike is confined to the preceding pushbutton rule.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::FieldKind::of",
+      "crates/pdf-model/src/view/fields.rs::set_field",
+      "crates/viewer-host/src/form.rs::toggling",
+      "crates/viewer-core/src/viewer/pointer.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::checking_a_box_draws_the_state_the_new_value_names",
+      "crates/viewer-core/tests/headless.rs::a_host_can_check_a_box_with_the_name_the_page_gave_it",
+      "crates/viewer-host/tests/host_mappings.rs::a_click_on_each_of_nine_button_widgets_is_what_the_clause_makes_of_it"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The model's field edit updates the named field; pointer and native-host routes share the same toggle decision. Existing assertions compare post-edit state/appearance and exercise a public host click, not merely field parsing.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.2.3",
+    "feature_id": "12.7.5.2.3.checkbox_states_and_optional_off_name",
+    "requirement": "Each checkbox state has its own widget AP appearance; Off is optional but, if present, must be named Off.",
+    "source_location": "ISO 32000-2 §12.7.5.2.3, printed p.536 / physical p.551; source/spec-layout.txt:32289-32294",
+    "errata": "No direct edit on p.551. EC3 #170 at physical p.553 adds the same Off-state rule for radio fields; it does not alter the checkbox row.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::stored_appearance",
+      "crates/pdf-model/src/appearance.rs::appearance_state"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::an_appearance_state_is_selected_by_as",
+      "crates/pdf-model/tests/variable_text.rs::a_check_box_with_nothing_to_draw_says_so",
+      "crates/pdf-model/tests/saving.rs::a_check_boxs_states_are_not_replaced_by_one_stream"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The generic stored appearance path chooses the state named by /AS and returns nothing for an absent state; the checkbox appearance-state writer changes the value/state together. Tests assert a positive stream state and the missing-state no-paint case.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.2.3",
+    "feature_id": "12.7.5.2.3.value_as_invariant_and_precedence",
+    "requirement": "Checkbox /V is a name selecting AP state and shall also equal /AS; if the stored values differ, /AS selects the displayed state.",
+    "source_location": "ISO 32000-2 §12.7.5.2.3, printed p.536 / physical p.551; source/spec-layout.txt:32294-32298",
+    "errata": "No substantive EC3 edit on physical p.551.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::stored_appearance",
+      "crates/pdf-model/src/appearance.rs::Field::replacement_state",
+      "crates/pdf-model/src/appearance.rs::appearance_state"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::an_appearance_state_is_selected_by_as",
+      "crates/pdf-model/tests/variable_text.rs::checking_a_box_draws_the_state_the_new_value_names",
+      "crates/pdf-model/tests/saving.rs::a_ticked_check_box_is_saved_with_its_value_a_name_and_its_state_the_same"
+    ],
+    "verdict": "confirmed",
+    "evidence": "For the file as written the generic stored AP path uses /AS even when it differs from /V. For a reader-authored edit, appearance_state updates the paired state. Distinct assertions test both stored precedence and post-edit value/AP consistency.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.2.3",
+    "feature_id": "12.7.5.2.3.opt_export_and_independent_checkbox_purposes",
+    "requirement": "From PDF1.4, optional /Opt is an array of text export values for widgets; it can support non-Latin values or independent toggling of boxes sharing one export value.",
+    "source_location": "ISO 32000-2 §12.7.5.2.3, printed p.537 / physical p.552; source/spec-layout.txt:32591-32599",
+    "errata": "No substantive EC3 edit on physical p.552.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::export",
+      "crates/pdf-model/src/view/fields.rs::set_field",
+      "crates/pdf-model/src/appearance.rs::Field"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/form.rs::a_radio_set_states_one_on_state_per_widget",
+      "crates/pdf-model/tests/forms_data.rs::an_imported_check_box_answers_from_its_new_value_rather_than_the_stored_as"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "The field model exposes /Opt export strings separately from AP state names. The asserted model example is radio-focused; checkbox exports and same-export independent toggles are not directly discriminated by a local direct test found in this shard. This is not a reader rejection requirement for malformed /Opt arrays.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.2.3",
+    "feature_id": "12.7.5.2.3.duplicate_check_widgets_share_state",
+    "requirement": "Checkbox widgets duplicated across pages under the same field reflect the one field value and thus toggle together.",
+    "source_location": "ISO 32000-2 §12.7.5.2.3, printed p.537 / physical p.552; source/spec-layout.txt:32598-32601",
+    "errata": "No substantive EC3 edit on physical p.552.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/view/field_tree.rs::widgets_by_field_name",
+      "crates/pdf-model/src/view/fields.rs::set_field",
+      "crates/pdf-model/src/appearance.rs::appearance_state"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/view.rs::one_field_name_may_reach_several_widgets",
+      "crates/pdf-model/tests/saving.rs::a_saved_check_box"
+    ],
+    "verdict": "partial-no-cross-page-checkbox-discriminator",
+    "evidence": "A field name maps to all widgets, and a field edit is keyed by that name. The existing name test proves multiple widget association but not checkbox click/value visual synchronization across two distinct pages. No implementation gap was established. Generic shared-name/unit evidence and a helper are not a direct cross-page checkbox synchronization test.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-no-cross-page-checkbox-discriminator",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.2.3",
+    "feature_id": "12.7.5.2.3.radios_in_unison_rule_located_in_checkbox_clause",
+    "requirement": "For a radio field, widgets sharing an on-state name turn together only when RadiosInUnison is set; if clear, at most one may be on.",
+    "source_location": "ISO 32000-2 §12.7.5.2.3, printed p.537 / physical p.552; source/spec-layout.txt:32600-32601",
+    "errata": "No substantive EC3 edit on physical p.552.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::Field::replacement_state",
+      "crates/pdf-model/src/appearance.rs::Field::an_earlier_button_answers_to"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/radios_in_unison.rs::with_the_flag_set_both_buttons_that_share_an_on_state_go_on",
+      "crates/pdf-model/tests/radios_in_unison.rs::with_the_flag_clear_only_the_first_of_them_does",
+      "crates/pdf-model/tests/radios_in_unison.rs::a_file_that_states_two_buttons_on_is_drawn_as_it_wrote_itself"
+    ],
+    "verdict": "confirmed",
+    "evidence": "A complete synthetic pair changes bit26 while holding the same state-sharing radio set. Tests assert both-unison, first-only exclusivity, and that the reader does not rewrite the source file's pre-existing /AS states. The requirement is stated in the checkbox subclause and is not missed by a radio-only scan.",
+    "test_command": "cargo test -p pdf-model --test radios_in_unison",
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.2.3 Table230",
+    "feature_id": "12.7.5.2.3.opt_one_text_entry_per_widget_and_numeric_ap_names",
+    "requirement": "When present, Table230 /Opt has one text entry per widget in Kids; AP on-state names may instead be the widget's zero-based Kid index, allowing equal export values to distinguish widgets.",
+    "source_location": "Table230, printed p.537 / physical p.552; source/spec-layout.txt:32602-32607",
+    "errata": "No substantive EC3 edit on physical p.552.",
+    "ledger_status": "unmapped",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::export",
+      "crates/pdf-model/src/appearance.rs::Field::replacement_state"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/form.rs::a_radio_set_states_one_on_state_per_widget",
+      "crates/pdf-model/tests/radios_in_unison.rs::with_the_flag_clear_only_the_first_of_them_does"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "The reader indexes inherited /Opt by widget's Kids position and keeps export string beside the AP state name; a valid radio example checks distinct export strings, and another covers repeated on-state names. No assertion found that uses numeric AP names paired with equal /Opt exports to prove those two outputs stay distinct.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.2.4",
+    "feature_id": "12.7.5.2.4.radio_set_children_and_value_selection",
+    "requirement": "A radio field's Kids are its widgets; field /V names the on widget's AP state (default Off), and each widget's /AS wins when it differs from /V.",
+    "source_location": "ISO 32000-2 §12.7.5.2.4, printed p.538 / physical p.553; source/spec-layout.txt:32404-32422",
+    "errata": "EC3 #170 at physical p.553 adds that the off-state AP is optional; if present it is stored under /Off. Its Caret is beside the default /V /Off and AS precedence sentence. The added text is recorded in doc/errata-read.md at printed p.553.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::fields",
+      "crates/pdf-model/src/appearance.rs::Field::is_on",
+      "crates/pdf-model/src/annotation.rs::stored_appearance"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/form.rs::a_radio_set_states_one_on_state_per_widget",
+      "crates/pdf-model/tests/radios_in_unison.rs::a_file_that_states_two_buttons_on_is_drawn_as_it_wrote_itself",
+      "crates/pdf-model/tests/annotations.rs::an_appearance_state_is_selected_by_as",
+      "crates/pdf-model/tests/field_names_buttons_spec_audit.rs::a_radio_off_state_without_an_off_stream_draws_nothing_and_keeps_the_other_choice"
+    ],
+    "verdict": "confirmed-selected-radio-off-appearance",
+    "evidence": "The parser associates each child widget's state with the parent field, but stored /AS governs a file's current appearance. Existing examples assert one on widget, and generic appearance testing proves absent-state no-paint. The draft provides a radio-specific EC3 case with a different selected-radio positive control. New exactxref/completeinterpretation raster test shows selectedYes red and separateOff widget transparent with noOffstream, as effective#170 permits. Does not certify allradio editing semantics.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-radio-off-appearance",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.2.4",
+    "feature_id": "12.7.5.2.4.radio_no_toggle_and_unison_exception",
+    "requirement": "NoToggleToOff keeps one radio selected and rejects clicking the selected one; when clear the click may deselect. Equal on-state widgets turn in unison only with RadiosInUnison.",
+    "source_location": "ISO 32000-2 §12.7.5.2.4 and Table229, printed p.538 / physical p.553; source/spec-layout.txt:32404-32420",
+    "errata": "No substantive EC3 edit to the flag behavior on physical p.553; #170 adds the optional Off appearance rule.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::control",
+      "crates/viewer-host/src/form.rs::toggling",
+      "crates/pdf-model/src/appearance.rs::Field::an_earlier_button_answers_to"
+    ],
+    "test_refs": [
+      "crates/viewer-host/src/form.rs::a_radio_button_with_no_toggle_to_off_stays_on",
+      "crates/pdf-model/tests/radios_in_unison.rs::with_the_flag_set_both_buttons_that_share_an_on_state_go_on",
+      "crates/pdf-model/tests/radios_in_unison.rs::with_the_flag_clear_only_the_first_of_them_does",
+      "doc/adr/0630-the-other-half-of-the-delegated-click.md"
+    ],
+    "verdict": "confirmed",
+    "evidence": "NoToggleToOff is carried to all hosts; the host unit test checks staying on and still allowing a different on choice. RadiosInUnison's set/clear semantics are exercised by a full PDF pair and visual assertions.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.2.4",
+    "feature_id": "12.7.5.2.4_single_radio_direct_off_wording_conflict",
+    "requirement": "The clause says a radio may not be turned off directly but later explicitly allows deselection when NoToggleToOff is clear.",
+    "source_location": "ISO 32000-2 §12.7.5.2.4, printed p.538 / physical p.553; source/spec-layout.txt:32404-32420",
+    "errata": "EC3 #170 concerns Off appearance availability, not this textual conflict.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-host/src/form.rs::toggling"
+    ],
+    "test_refs": [
+      "crates/viewer-host/src/form.rs::a_radio_button_with_no_toggle_to_off_stays_on",
+      "doc/adr/0630-the-other-half-of-the-delegated-click.md"
+    ],
+    "verdict": "ambiguous",
+    "evidence": "The first radio paragraph says a single button may only turn off as another turns on, while Table229 bit15 later says clicking the selected radio deselects it if clear. Implementation and host assertions follow the latter's explicit conditional rule; current tests establish behavior, not erase the clause's conflicting sentence.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "field_names_buttons_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "ambiguous",
+    "superseded": false
+  },
+  {
     "clause": "12.5.6.15",
     "feature_id": "file_attachment_subtype_is_recognized",
     "entry_kind": "direct",
@@ -24474,6 +25071,549 @@
     "superseded": false
   },
   {
+    "clause": "12.7.1",
+    "feature_id": "form-kinds",
+    "requirement": "Interactive and non-interactive forms are distinct; an interactive AcroForm is global across pages.",
+    "source_location": "source/spec-layout.txt:31794-31810; source PDF printed p.528 / physical p.543",
+    "errata": "No relevant EC3 change found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs",
+      "crates/pdf-model/src/view/field_tree.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/view.rs::tests::one_field_name_may_reach_several_widgets"
+    ],
+    "verdict": "no-independent-requirement",
+    "evidence": "The clause defines objects and scope and gives a permission; page-local field projection is implemented from the single document field tree. Existing multi-widget test establishes one field can reach widgets; it does not prove a broad global UI.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.2",
+    "feature_id": "field-dictionary-definition",
+    "requirement": "Each field is defined by a field dictionary; hierarchy/inheritance and terminal/nonterminal roles describe field structure.",
+    "source_location": "source/spec-layout.txt:31811-31838; source PDF printed pp.528-529 / physical pp.543-544",
+    "errata": "No relevant EC3 change found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/view/field_tree.rs",
+      "crates/pdf-model/src/inheritance.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/view.rs::tests::a_root_field_takes_the_name_its_parent_chain_states",
+      "crates/pdf-model/src/form.rs::tests::a_fields_type_flags_and_value_come_from_the_ancestor_that_states_them"
+    ],
+    "verdict": "partial-selected-structure-or-inheritance-mechanisms",
+    "evidence": "Field-tree traversal distinguishes fields and widget annotations and inherited entries are resolved along Parent. The cited assertions exercise named children and inherited FT/Ff/V. Cited units include minimal Count0/noRect/noAP or deliberate malformedroot cases; they prove selected traversal logic, not a valid completePDF writer tree or allTU/TM consumers. New other-shard completepage fieldname fixture adds boundedconsumer evidence.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-selected-structure-or-inheritance-mechanisms",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.2",
+    "feature_id": "widget-child-and-merged-dictionary",
+    "requirement": "A terminal field may have widget children; a single widget may be merged into the field dictionary.",
+    "source_location": "source/spec-layout.txt:31811-31838; source PDF printed pp.528-529 / physical pp.543-544",
+    "errata": "EC3 #313/#618 apply to Table 226 AA, not the merged-object rule.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/view/field_tree.rs",
+      "crates/pdf-model/src/form.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/view.rs::tests::one_field_name_may_reach_several_widgets",
+      "crates/pdf-model/src/view.rs::tests::a_root_field_takes_the_name_its_parent_chain_states"
+    ],
+    "verdict": "partial-selected-structure-or-inheritance-mechanisms",
+    "evidence": "Production separates distinct child widgets and handles merged widget/field objects through page annotation enumeration and field tree resolution. Existing test directly asserts shared field name across widgets; these do not exhaust merged-vs-separate shapes. Cited units include minimal Count0/noRect/noAP or deliberate malformedroot cases; they prove selected traversal logic, not a valid completePDF writer tree or allTU/TM consumers. New other-shard completepage fieldname fixture adds boundedconsumer evidence.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-selected-structure-or-inheritance-mechanisms",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.2",
+    "feature_id": "merged-appearance-value",
+    "requirement": "If a merged field/widget defines an appearance stream, it shall be consistent with the field value.",
+    "source_location": "source/spec-layout.txt:31811-31838; source PDF printed pp.528-529 / physical pp.543-544",
+    "errata": "No relevant EC3 correction; consistency sentence remains effective.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs",
+      "crates/pdf-model/src/variable_text.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::need_appearances_rewrites_the_marked_content_region_and_keeps_the_rest"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "The appearance builder regenerates editable Tx/Ch content after an edit and preserves surrounding marks. The cited assertion checks changed text bytes/pixels and preservation; no test compares a conforming merged object’s preexisting AP against its current V. Treat as processor update behavior, not a reader rejection requirement.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.3",
+    "feature_id": "acroform-catalog-entry",
+    "requirement": "The catalog references the interactive form dictionary through /AcroForm.",
+    "source_location": "source/spec-layout.txt:31840-31846; Table 224 printed p.529 / physical p.544",
+    "errata": "No relevant EC3 change found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/view/field_tree.rs",
+      "crates/pdf-signature/src/signature.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/view.rs::tests::a_root_field_that_nothing_names_is_not_a_field",
+      "crates/pdf-signature/src/signature.rs::tests::a_form_declaring_no_signature_fields_is_not_walked"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Consumers enter through Catalog.AcroForm; absent or malformed dictionary yields no interactive fields/signatures. Existing tests reach catalog form dictionaries.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.3",
+    "feature_id": "fields-root-array",
+    "requirement": "/Fields is the required array of root field references.",
+    "source_location": "source/spec-layout.txt:31847-31853; Table 224 printed p.529 / physical p.544",
+    "errata": "No relevant EC3 change found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/view/field_tree.rs",
+      "crates/pdf-model/src/form.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/view.rs::tests::a_root_field_that_nothing_names_is_not_a_field"
+    ],
+    "verdict": "partial-selected-structure-or-inheritance-mechanisms",
+    "evidence": "The tree walk begins at AcroForm.Fields; each item is resolved and recursively traversed. Test uses complete xref PDF and asserts unnamed roots are not exposed as named fields. Cited units include minimal Count0/noRect/noAP or deliberate malformedroot cases; they prove selected traversal logic, not a valid completePDF writer tree or allTU/TM consumers. New other-shard completepage fieldname fixture adds boundedconsumer evidence.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-selected-structure-or-inheritance-mechanisms",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.3",
+    "feature_id": "need-appearances",
+    "requirement": "NeedAppearances defaults false; if writer has not supplied AP for all visible widgets it shall include true; PDF 2.0 requires AP and deprecates this key.",
+    "source_location": "source/spec-layout.txt:31854-31864; Table 224 printed p.529 / physical p.544",
+    "errata": "No relevant EC3 change found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs",
+      "crates/pdf-model/src/variable_text.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/saving.rs::a_value_that_cannot_be_laid_out_sets_the_flag_and_names_its_field",
+      "crates/pdf-model/tests/script_properties.rs::a_style_with_no_on_state_is_owed_and_flagged_in_a_direct_form",
+      "crates/pdf-model/tests/script_properties.rs::the_flag_and_the_free_text_font_are_written_into_one_form"
+    ],
+    "verdict": "partial-edited-writer-residue-tested",
+    "evidence": "The writer tracks widgets it attempted to construct and could not; saving.rs and script_properties.rs assert those edited-widget residuals set NeedAppearances true and name the field. Table224 phrases the condition across all visible widgets. No inspected assertion covers an untouched visible source widget lacking AP when a different field is saved, and the writer does not establish that larger census here; retain this boundary as unresolved rather than claiming complete coverage. Parent separates actualwriterresidue assertions from readerregeneration; all-visible-widget census remains untested, and no mandatoryrepair of preexistinginvalidinput inferred.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-edited-writer-residue-tested",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.3",
+    "feature_id": "sigflags-meaning",
+    "requirement": "/SigFlags is optional default 0; if bit 1 is set the document contains a signature field and the flag permits signature UI without scanning. Bit 2 permits warning before a destructive full save.",
+    "source_location": "source/spec-layout.txt:31865-31932; Table 224 printed p.529 / physical p.544, Table 225 printed p.530 / physical p.545",
+    "errata": "No relevant EC3 change found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-signature/src/signature.rs",
+      "crates/pdf-transform/src/archive/rewrite.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-signature/src/signature.rs::tests::a_form_declaring_no_signature_fields_is_not_walked",
+      "crates/viewer-core/tests/sigflags_discovery_audit.rs::absent_sigflags_does_not_hide_a_candidate_from_the_public_signature_api",
+      "crates/viewer-core/tests/sigflags_discovery_audit.rs::zero_sigflags_does_not_hide_a_candidate_from_the_public_signature_api"
+    ],
+    "verdict": "api-contract-gap-and-unsupported-converse",
+    "evidence": "Existing public signature reader gates the field walk on bit 1; no-flag actual Sig field test asserts empty result and independently confirms DocMDP permission still reads. Table says “If set” (positive implication), not expressly that absent/zero proves no field exists. Corpus absence and producer convention support ADR0181 policy but do not turn one-way wording into a converse. New public-consumer draft contrasts bit1 set with absent/0 and expects discovery; intentionally invalid CMS keeps focus on candidate visibility. Parent corrected inference: bitset impliesSig, not Sigimpliesbitset. Public signaturesAPI says every field signature, but absent/zero fixtures returnnone while setbitreturnsone; twofailing API probes. Ordinary signature no-scanpolicy is not separately labelled a proven ISO SHALL violation. Timestamp explicitduty separate.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "api-contract-gap-and-unsupported-converse",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.3",
+    "feature_id": "calculation-order",
+    "requirement": "/CO is required if any field AA has C and gives indirect field refs in recalculation order.",
+    "source_location": "source/spec-layout.txt:31865-31877; Table 224 printed p.529 / physical p.544",
+    "errata": "No relevant EC3 change found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/view/scripts.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/aform.rs::the_calculation_order_is_walked_once_per_change"
+    ],
+    "verdict": "confirmed",
+    "evidence": "CO references are retained in array order (filtering nonrefs) and are consumed before dependent field recalculations. Public integration test asserts Total precedes Twice and saved values/appearances reflect that order. Execution remains tier/host limited under ratification.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.3",
+    "feature_id": "default-resources-font",
+    "requirement": "If /DR is present, it supplies form appearance resources and must at minimum contain the default Font resource/name.",
+    "source_location": "source/spec-layout.txt:31878-31885; Table 224 printed p.529 / physical p.544",
+    "errata": "No relevant EC3 change found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/variable_text.rs",
+      "crates/pdf-transform/src/merge.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::need_appearances_rewrites_the_marked_content_region_and_keeps_the_rest"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "DR.Font participates in default appearance resource resolution; transform merge combines resource categories. Existing variable-text test drives a font/resource through appearance construction but does not separately assert minimal-DR producer validity.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.3",
+    "feature_id": "document-da-q",
+    "requirement": "Optional document-wide DA and Q provide defaults for variable-text fields.",
+    "source_location": "source/spec-layout.txt:31884-31898; Table 224 printed p.529 / physical p.544",
+    "errata": "EC3 #318 changes DA type from string to byte string; otherwise no change.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/variable_text.rs",
+      "crates/pdf-transform/src/merge.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::quadding_moves_the_line_within_its_box"
+    ],
+    "verdict": "confirmed",
+    "evidence": "DA is read as bytes and Q participates in inherited/document default selection; test distinguishes left/right quadding through placement. Merge retains source DA/Q policy; no independent writer conformance claim.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.3",
+    "feature_id": "xfa",
+    "requirement": "Optional deprecated XFA is stream/array in XDP format.",
+    "source_location": "source/spec-layout.txt:31899-31905; Table 224 printed p.529 / physical p.544",
+    "errata": "No relevant EC3 change found; deprecated per PDF 2.0.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/xfa.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/xfa.rs::tests::a_stream_or_an_array_of_packets_is_an_xfa_resource",
+      "crates/pdf-model/src/xfa.rs::tests::needs_rendering_is_read_only_where_it_is_true"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Static XFA packets are read for static form/data behavior; dynamic XFA is explicitly excluded by scope ratification. No claim that the reader validates all XDP format requirements.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.1",
+    "feature_id": "field-indirect-hierarchy",
+    "requirement": "Every field dictionary is an indirect object; fields may form hierarchical trees; inheritable entries are marked in Tables 226/227.",
+    "source_location": "spec-layout.txt:31933-31960 (printed 530; physical 545)",
+    "errata": "No relevant EC3 change found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/view/field_tree.rs",
+      "crates/pdf-model/src/inheritance.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/form.rs::tests::a_fields_type_flags_and_value_come_from_the_ancestor_that_states_them",
+      "crates/pdf-model/src/inheritance.rs::tests::every_widget_of_a_chain_past_any_bound_reads_what_its_top_states",
+      "crates/pdf-model/src/view.rs::tests::a_root_field_takes_the_name_its_parent_chain_states"
+    ],
+    "verdict": "partial-selected-structure-or-inheritance-mechanisms",
+    "evidence": "The implementation resolves object references and walks Parent/Kids; inherited lookup is nearest specified value and unbounded. Tests assert ancestor FT/Ff/V, deep chain reaches its stated value, and cycle recovery. Cited units include minimal Count0/noRect/noAP or deliberate malformedroot cases; they prove selected traversal logic, not a valid completePDF writer tree or allTU/TM consumers. New other-shard completepage fieldname fixture adds boundedconsumer evidence.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-selected-structure-or-inheritance-mechanisms",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.1",
+    "feature_id": "no-inheritance-bound",
+    "requirement": "An interactive processor shall not limit the range of field inheritance.",
+    "source_location": "spec-layout.txt:31945-31956 (printed 530; physical 545)",
+    "errata": "No relevant EC3 change found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/inheritance.rs",
+      "crates/pdf-model/src/view/field_tree.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/inheritance.rs::tests::every_widget_of_a_chain_past_any_bound_reads_what_its_top_states",
+      "crates/pdf-model/tests/variable_text.rs::a_parent_chain_deeper_than_any_bound_is_read_to_its_end"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Field inheritance iterator has no fixed hierarchy-depth truncation; 4096-level test and 4000-depth unit assertions exercise distant ancestors. Cycle detection protects malformed input without imposing a depth cap.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.1/Table226",
+    "feature_id": "ft-terminal-inheritable",
+    "requirement": "Terminal fields require a type; FT may be inherited. A nonterminal FT only supplies descendants and does not give the container its own logical type.",
+    "source_location": "source/spec-layout.txt:31962-31984; Table 226 printed p.531 / physical p.546",
+    "errata": "No relevant EC3 change found.",
+    "ledger_status": "unmapped",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs",
+      "crates/pdf-model/src/inheritance.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/form.rs::tests::a_fields_type_flags_and_value_come_from_the_ancestor_that_states_them"
+    ],
+    "verdict": "confirmed",
+    "evidence": "FieldKind reads inherited FT. Test asserts a descendant with no local type receives ancestor type; policy does not assign controls to nonterminal container.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.1/Table226",
+    "feature_id": "parent-kids-tree",
+    "requirement": "Parent is required for a child and immediate; Kids holds immediate children, with terminal widget merge exception.",
+    "source_location": "source/spec-layout.txt:31984-32000; Table 226 printed pp.531 / physical p.546",
+    "errata": "No relevant EC3 change found.",
+    "ledger_status": "unmapped",
+    "code_locations": [
+      "crates/pdf-model/src/view/field_tree.rs",
+      "crates/pdf-model/src/form.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/view.rs::tests::one_field_name_may_reach_several_widgets",
+      "crates/pdf-model/src/view.rs::tests::a_root_field_takes_the_name_its_parent_chain_states"
+    ],
+    "verdict": "partial-selected-structure-or-inheritance-mechanisms",
+    "evidence": "Traversal uses Kids for descendants and Parent for inherited lookup; merged widget records are identified from the page annotation. Existing tests cover shared parent and merged root, not every invalid multi-parent case. Cited units include minimal Count0/noRect/noAP or deliberate malformedroot cases; they prove selected traversal logic, not a valid completePDF writer tree or allTU/TM consumers. New other-shard completepage fieldname fixture adds boundedconsumer evidence.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-selected-structure-or-inheritance-mechanisms",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.1/Table226",
+    "feature_id": "field-names-ui-export",
+    "requirement": "T, TU, and TM distinguish partial name, user-interface/accessibility name, and export mapping name.",
+    "source_location": "source/spec-layout.txt:32000-32009; Table 226 printed p.531 / physical p.546",
+    "errata": "EC3 #28 changes T from required to optional; current clause 12.7.4.2 says missing T yields a Widget.",
+    "ledger_status": "unmapped",
+    "code_locations": [
+      "crates/pdf-model/src/view/field_tree.rs",
+      "crates/pdf-model/src/form.rs",
+      "crates/pdf-model/src/view.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/view.rs::tests::a_root_field_that_nothing_names_is_not_a_field",
+      "crates/pdf-model/src/view.rs::tests::an_empty_partial_name_is_still_a_name"
+    ],
+    "verdict": "partial-selected-structure-or-inheritance-mechanisms",
+    "evidence": "Effective T is optional; implementation omits unnamed widgets from named form-field controls while preserves empty string as a stated name. UI/export names are separately represented; tests discriminate absent T vs empty T. TU/TM full export use is deferred to their owning clauses. Cited units include minimal Count0/noRect/noAP or deliberate malformedroot cases; they prove selected traversal logic, not a valid completePDF writer tree or allTU/TM consumers. New other-shard completepage fieldname fixture adds boundedconsumer evidence.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-selected-structure-or-inheritance-mechanisms",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.1/Table226",
+    "feature_id": "common-flags-values",
+    "requirement": "Ff, V, DV are optional and inheritable; common flag meanings are in Table227.",
+    "source_location": "source/spec-layout.txt:32009-32022; Table 226 printed p.531 / physical p.546",
+    "errata": "No relevant EC3 change found.",
+    "ledger_status": "unmapped",
+    "code_locations": [
+      "crates/pdf-model/src/inheritance.rs",
+      "crates/pdf-model/src/form.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/form.rs::tests::a_fields_type_flags_and_value_come_from_the_ancestor_that_states_them"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Ff/value lookup follows inherited resolution. Public field object carries read_only/required/no_export from common bits and current value. Type-specific flag behavior is excluded from this shard.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.1/Table226",
+    "feature_id": "field-aa-widget",
+    "requirement": "Field AA is optional; effective Table226 AA points to Widget annotation dictionary and Table199 trigger references.",
+    "source_location": "source/spec-layout.txt:32019-32027; Table 226 printed p.531 / physical p.546",
+    "errata": "EC3 #313 corrects AA reference to Widget annotations; #618 adds Table199 reference.",
+    "ledger_status": "unmapped",
+    "code_locations": [
+      "crates/pdf-model/src/view/script_sites.rs",
+      "crates/pdf-model/src/inheritance.rs"
+    ],
+    "test_refs": [],
+    "verdict": "code-supported-not-executed",
+    "evidence": "Field/widget event lookup reads inherited field AA with widget proximity and resolves the trigger action; no assertion body was found that isolates Table 226 field-AA inheritance and widget-trigger dispatch. Exact action semantics are assigned to §12.6.3/12.6.4 shards.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.1/Table227",
+    "feature_id": "common-field-flag-bits",
+    "requirement": "Ff unsigned32 bit numbering; ReadOnly blocks edits (widget noninteraction is SHOULD), Required requires value at submit export, NoExport suppresses submit export.",
+    "source_location": "source/spec-layout.txt:32026-32049; Table 227 printed p.532 / physical p.547",
+    "errata": "No relevant EC3 change found.",
+    "ledger_status": "unmapped",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs",
+      "crates/pdf-model/src/view.rs",
+      "crates/pdf-model/src/action.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/form.rs::tests::a_fields_type_flags_and_value_come_from_the_ancestor_that_states_them",
+      "crates/pdf-model/tests/forms_data.rs::a_read_only_field_refuses_a_person_and_not_an_import",
+      "crates/pdf-model/tests/submission.rs::a_no_export_field_is_left_out_even_where_the_action_names_it",
+      "crates/pdf-model/tests/submission.rs::a_required_field_with_no_value_is_named_when_the_form_is_exported"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Common bits decode low-order 1/2/4, edits enforce read-only and submit export filters no-export/required. Cited tests assert ancestor flags; submission feature tests cover required/no-export at action flow. Widget click suggestion is host-level SHOULD, not an unconditional conformance MUST.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.8.5.2 (cross-reference only)",
+    "feature_id": "timestamp-existence-scan-fields",
+    "requirement": "The existence of one or more document timestamps shall be determined by examining signature fields; a DocTimeStamp is treated as a digital signature in most respects.",
+    "source_location": "source/spec-layout.txt:35600-35623; source PDF printed p.590 / physical p.605",
+    "errata": "No EC3 annotation changes the timestamp-existence sentence on physical p.605. Issue #55 concerns ordering language elsewhere and does not change this sentence.",
+    "ledger_status": "unmapped",
+    "code_locations": [
+      "crates/pdf-signature/src/signature.rs::signatures",
+      "crates/pdf-signature/src/timestamp.rs::chain",
+      "crates/viewer-core/src/notes.rs::about",
+      "crates/viewer-core/src/notes.rs::document_timestamps"
+    ],
+    "test_refs": [
+      "crates/viewer-core/src/notes.rs::tests::a_document_carrying_a_timestamp_says_what_it_covers_and_calls_it_no_time",
+      "crates/viewer-core/tests/sigflags_discovery_audit.rs::document_timestamp_existence_scans_signature_fields_even_without_sigflags_bit_one",
+      "crates/viewer-core/tests/sigflags_discovery_audit.rs::document_timestamp_existence_is_examined_when_sigflags_is_explicitly_zero"
+    ],
+    "verdict": "implementation-gap",
+    "evidence": "The reachable timestamp chain calls signature::signatures, which returns before walking /Fields if SigFlags bit 1 is absent or clear. viewer_core::notes::about likewise returns before invoking the chain when its signature list is empty. The existing timestamp-note test uses /SigFlags 3 only, so it does not challenge this gate. The effective §12.8.5.2 sentence directly requires examination of signature fields to determine timestamp existence, regardless of this optional hint. Draft tests call the public timestamp::chain and signatures APIs for a /Type /DocTimeStamp field with bit set, absent, and explicit zero; invalid CMS is intentional because the oracle is candidate enumeration and the later note should identify an unreadable token rather than hide it. Parent read12.8.5.2 physical605 and currentchain/signaturesgate. Fixed draft gapend matching Catalogclosure ratherthanContents, assertedWholeFile/TheSignatureValue/EOF positivecontrols. Both absent/zero timestampchain tests fail0links vs1 after setbitcontrols pass. FakeCMS intentionallyunreadable; candidate discovery/reporting only, not validtimestamp certification.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "interactive_form_structure_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented (assigned-row scope excludes §12.8)",
+    "reviewer_verdict": "implementation-gap",
+    "superseded": false
+  },
+  {
     "clause": "7.1",
     "feature_id": "7.1-syntax-map",
     "requirement": "Clause 7 introduces object, file, document, and content-stream syntax and assigns their detailed rules to later subclauses; this is an organizational map, not a separate parser behavior.",
@@ -34347,6 +35487,570 @@
     "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "partial-cross-reference",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.3",
+    "feature_id": "text_field_type_tx",
+    "entry_kind": "direct",
+    "requirement": "A text field has field type Tx.",
+    "source_location": "§12.7.5.3, printed pp. 538–540 / one-based physical PDF pp. 553–555",
+    "errata": "No EC3 annotation changes this sentence/table cell.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::fields",
+      "crates/pdf-model/src/appearance.rs::Field::read"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/form.rs::tests::a_text_fields_flags_cross_as_the_control_they_describe"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The parser dispatches the inherited FT to TextControl; the unit assertion reads a Tx widget and its exact control flags. This is file validity/dispatch, not an input rejection rule.",
+    "remaining": "",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.3",
+    "feature_id": "text_flags_multiline_singleline",
+    "entry_kind": "direct",
+    "requirement": "Table 231 bit 13 allows multiple lines when set and restricts field text to one line when clear.",
+    "source_location": "§12.7.5.3, printed pp. 538–540 / one-based physical PDF pp. 553–555",
+    "errata": "No EC3 annotation changes this sentence/table cell.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::TextControl",
+      "crates/pdf-model/src/variable_text.rs::text_shape",
+      "crates/viewer-host/src/form.rs::entry_of"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_multiline_value_wraps_into_lines_that_run_down_the_box",
+      "crates/pdf-model/src/form.rs::tests::a_text_fields_flags_cross_as_the_control_they_describe",
+      "crates/viewer-host/tests/host_mappings.rs"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The reader maps the bit to multiline layout and host Entry; the variable-text test checks actual multiple output lines and form model reads bit13. DA/font resolution is 12.7.4.3, cross-referenced rather than recertified.",
+    "remaining": "",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.3",
+    "feature_id": "password_echo_and_no_storage",
+    "entry_kind": "direct",
+    "requirement": "Bit14 masks typed echo. Its NOTE says processors should never store password values in the file when set.",
+    "source_location": "§12.7.5.3, printed pp. 538–540 / one-based physical PDF pp. 553–555",
+    "errata": "No EC3 annotation changes this sentence/table cell.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::field_text_value",
+      "crates/pdf-model/src/view.rs::ViewState::save",
+      "crates/viewer-host/src/form.rs::entry_of"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_password_field_does_not_echo_its_value",
+      "crates/pdf-model/tests/variable_text.rs::a_password_fields_typed_value_is_not_written_into_the_file",
+      "crates/pdf-model/src/form.rs::tests::a_text_fields_flags_cross_as_the_control_they_describe"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Pixel/text assertion checks obscured value; save test checks original secret does not appear and writer withholds it. The NOTE is advisory in wording but the project implements the confidentiality choice; no claim that arbitrary input is rejected.",
+    "remaining": "",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.3",
+    "feature_id": "file_select_control_and_format_routing",
+    "entry_kind": "direct",
+    "requirement": "Bit21 makes the entered text a pathname and submits file contents. HTML uses multipart/form-data, FDF V is a file specification, and XML submits no value.",
+    "source_location": "§12.7.5.3, printed pp. 538–540 / one-based physical PDF pp. 553–555",
+    "errata": "No EC3 annotation changes this sentence/table cell.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-host/src/form.rs::edit_of",
+      "crates/viewer-host/src/policy.rs::read_chosen",
+      "crates/pdf-model/src/submission.rs::compose",
+      "crates/pdf-model/src/forms_data.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/submission.rs::a_file_a_person_chose_is_what_the_multipart_body_carries",
+      "crates/pdf-model/tests/submission.rs::a_file_select_controls_file_travels_into_the_fdf_as_a_specification",
+      "crates/pdf-model/tests/submission.rs::only_a_file_select_control_takes_a_chosen_file",
+      "crates/pdf-model/tests/forms_data.rs::a_file_select_control_draws_the_name_of_the_specification_imported_into_it"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The host only turns typed paths into ChooseFile for a file-select control, the selected bytes are carried with the edit, and HTML/FDF output tests inspect payloads; XML clause path is intentionally omitted and no value is submitted. File chooser UI itself remains explicitly owed in ADR1216, not inferred as complete.",
+    "remaining": "",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.3",
+    "feature_id": "do_not_spell_check_flag",
+    "entry_kind": "direct",
+    "requirement": "Bit23 says text entered in this field shall not be spell-checked.",
+    "source_location": "§12.7.5.3, printed pp. 538–540 / one-based physical PDF pp. 553–555",
+    "errata": "No EC3 annotation changes this sentence/table cell.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::TextControl",
+      "crates/pdf-model/src/form.rs::fields"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/form.rs::tests::a_text_fields_flags_cross_as_the_control_they_describe"
+    ],
+    "verdict": "negative-duty-selected-code-review",
+    "evidence": "The bit is parsed and carried in the model. No GTK/Qt spelling checker is invoked for any entry, so set/clear do not presently change behavior. The row test checks transport, not a spelling consumer. This is a negative reader requirement, not literally no independent requirement. Parsed flag alone cannot prove native toolkit behavior; no active spellchecking path was established in this bounded review.",
+    "remaining": "No separate spell-check subsystem or flag-specific runtime assertion was found; no checker means the clause’s prohibition holds, but flag activation is not demonstrated at the UI endpoint.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "negative-duty-selected-code-review",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.3",
+    "feature_id": "do_not_scroll_acceptance",
+    "entry_kind": "direct",
+    "requirement": "Bit24 bars scrolling to fit extra text and says interactive filling shall accept no further text when full; non-interactive fillers should take care not to add invisible extra characters.",
+    "source_location": "§12.7.5.3, printed pp. 538–540 / one-based physical PDF pp. 553–555",
+    "errata": "No EC3 annotation changes this sentence/table cell.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::accepted_prefix",
+      "crates/pdf-model/src/view/fields.rs::ViewState::set_field",
+      "crates/viewer-host/src/form.rs::entry_of"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_field_that_may_not_scroll_takes_only_what_fits",
+      "crates/pdf-model/tests/variable_text.rs::a_multiline_field_that_may_not_scroll_stops_at_the_last_line_that_fits",
+      "crates/pdf-model/tests/variable_text.rs::a_password_field_does_not_echo_its_value"
+    ],
+    "verdict": "confirmed",
+    "evidence": "ADR0197 and current accepted_prefix measure displayed glyphs against field geometry; set_field takes only measured prefix. Two tests discriminate horizontal and vertical overflow. Non-interactive save remains a SHOULD, not converted into a SHALL.",
+    "remaining": "",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.3",
+    "feature_id": "comb_flag_conditions_and_layout_ref",
+    "entry_kind": "direct",
+    "requirement": "Bit25 can only be set with MaxLen and Multiline, Password and FileSelect clear; if valid, the box has MaxLen equal positions and lays out text into them.",
+    "source_location": "§12.7.5.3, printed pp. 538–540 / one-based physical PDF pp. 553–555",
+    "errata": "No EC3 annotation changes this sentence/table cell.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::Field::text_shape",
+      "crates/pdf-model/src/variable_text.rs::Shape::Comb",
+      "crates/pdf-model/src/form.rs::TextControl::comb"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_comb_field_spreads_one_character_per_cell",
+      "crates/pdf-model/src/form.rs::tests::a_comb_field_states_its_cell_count_and_a_multiline_one_does_not"
+    ],
+    "verdict": "partial",
+    "evidence": "Actual raster assertion separates equal cells from ordinary flowing text; model test checks MaxLen and multiline guard. The malformed FileSelect+Comb combination is producer-invalid; current reader text_shape does not explicitly guard FileSelect, but the clause supplies no rejection/recovery rule.",
+    "remaining": "Do not call malformed-flag acceptance a defect without a reader recovery duty; code’s shape path only guards multiline/password. Comb matrix and typography belongs to §12.7.4.3, already audited.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.3",
+    "feature_id": "rich_text_flag_rv_condition",
+    "entry_kind": "direct",
+    "requirement": "Bit26 makes V a rich text string; when a value exists RV specifies the rich text string.",
+    "source_location": "§12.7.5.3, printed pp. 538–540 / one-based physical PDF pp. 553–555",
+    "errata": "No EC3 annotation changes this sentence/table cell.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/rich_text.rs",
+      "crates/pdf-model/src/variable_text.rs::field_runs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/rich_text.rs::a_value_its_rich_text_does_not_describe_is_drawn_as_the_value",
+      "crates/pdf-model/tests/rich_text.rs::a_field_without_the_flag_reads_neither_entry",
+      "crates/pdf-model/tests/rich_text.rs::a_save_writes_the_rich_text_string_beside_the_value"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The cited tests vary flag, V and RV and assert actual text and save output. Styling details are §12.7.4.3/XFA delegation and are not recounted in this shard.",
+    "remaining": "",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.3",
+    "feature_id": "value_stream_and_default_appearance",
+    "entry_kind": "direct",
+    "requirement": "If the text field has a value other than null, its text shall be held in V as a text string (or, from PDF 1.5, a stream). Those contents construct the displayed appearance; text is in one style specified by DA.",
+    "source_location": "§12.7.5.3, printed pp. 538–540 / one-based physical PDF pp. 553–555",
+    "errata": "Issue #392 on physical p.555 / printed p.540 strikes the opening “The field’s” and inserts “If the field has a value other than null, the …” before the field-text storage requirement. The current implementation returns no field text for a null value; no reader rejection rule is added.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::field_text_value",
+      "crates/pdf-model/src/variable_text.rs",
+      "crates/pdf-model/src/view/writing.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_field_value_held_in_a_stream_draws_what_the_string_form_draws",
+      "crates/pdf-model/tests/saving.rs::a_text_widget_with_no_appearance_stream_is_given_one",
+      "crates/pdf-model/tests/text_choice_fields_spec_audit.rs::a_null_text_value_is_not_mistaken_for_a_string_to_display"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Reader string/stream equivalence and writer appearance regeneration are directly asserted. For null V, the public host-facing value has an empty text string rather than rendering a null object; no reader rejection rule is added. DA parsing/layout/resource requirements are §12.7.4.3 and common Table228 forward references, cross-referenced rather than recertified. Parent rejected draft requirement valueNone for nullV: an empty ShownValue is a valid API representation. Corrected assertion requires no visible string (empty or absent), with pending-string positivecontrol. StoredAP/DA/DR added to fixtures.",
+    "remaining": "",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.3",
+    "feature_id": "max_len_nonnegative_and_character_cap",
+    "entry_kind": "direct",
+    "requirement": "Table232 MaxLen is optional/inheritable and is an integer >=0 giving the maximum text length in characters.",
+    "source_location": "§12.7.5.3, printed pp. 538–540 / one-based physical PDF pp. 553–555",
+    "errata": "Issue #191 on physical p.556 / printed p.541 is actually on Table232 /MaxLen, before §12.7.5.4 starts; it replaces the cell opening “The” with “An integer value greater than or equal to zero that is the”. It is a direct normative amendment despite errata page/heading indexing.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::inherited_number",
+      "crates/pdf-model/src/appearance.rs::Field::text_shape",
+      "crates/viewer-host/src/form.rs::entry_of",
+      "crates/viewer-gtk/src/controls.rs::entry",
+      "crates/viewer-qt/cpp/window.cpp"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/form.rs::tests::a_text_fields_flags_cross_as_the_control_they_describe",
+      "crates/viewer-host/tests/host_mappings.rs",
+      "crates/pdf-model/tests/text_choice_fields_spec_audit.rs::max_len_zero_survives_reading_as_a_real_limit"
+    ],
+    "verdict": "confirmed-zero-propagation-interactive-cap-under-followup",
+    "evidence": "Reader and host propagate MaxLen; normal positive value is read by form unit and passed as Entry max_len. Table232 Issue #191 is correctly applied to text field. Code filters MaxLen <=0 out of Comb shape but does retain Some(0) in TextControl. Public model retains Some0, PASS. Parent exploratory ViewState edit accepted abc with MaxLen2; this lower-layer observation is not yet a certified user-facing defect because native controls may cap it. Dedicated consumer follow-up running.",
+    "remaining": "Scratch test asserts the valid zero cap remains Some(0). No assertion currently checks toolkit input behavior for zero; GTK/Qt API semantics need a host-level positive control before claiming actual zero-character limit end-to-end.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-zero-propagation-interactive-cap-under-followup",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.4",
+    "feature_id": "choice_field_type_and_forms",
+    "entry_kind": "direct",
+    "requirement": "A choice field has type Ch; it contains several text items with one or more selected, and is a scrollable list box or a combo box, optionally editable.",
+    "source_location": "§12.7.5.4, printed pp. 541–543 / one-based physical PDF pp. 556–558",
+    "errata": "No EC3 annotation changes this sentence/table cell.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::Control::Choice",
+      "crates/viewer-host/src/form.rs::choice_of",
+      "crates/viewer-gtk/src/controls.rs::combo",
+      "crates/viewer-qt/cpp/window.cpp"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_combo_box_draws_its_value_and_a_list_box_draws_its_options",
+      "crates/viewer-host/tests/host_mappings.rs"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Model / host distinguish Combo bit and Edit bit; rendering test checks combo value vs list options, host mappings assert widget types and editable property. Markup choices and variable text use §12.7.4.3 dependencies.",
+    "remaining": "",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.4",
+    "feature_id": "option_array_display_order_and_shapes",
+    "entry_kind": "direct",
+    "requirement": "Opt is optional; if present it is an array of option strings or export/display string pairs, and its labels shall be presented. Absent Opt means no choices should be presented.",
+    "source_location": "§12.7.5.4, printed pp. 541–543 / one-based physical PDF pp. 556–558",
+    "errata": "No EC3 annotation changes this sentence/table cell.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::options",
+      "crates/pdf-model/src/variable_text.rs::choice_options",
+      "crates/viewer-host/src/form.rs::choice_of"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/form.rs::tests::a_choice_fields_items_and_selection_cross",
+      "crates/pdf-model/tests/variable_text.rs::a_list_box_reports_only_what_the_clause_leaves_unsaid",
+      "crates/pdf-model/tests/variable_text.rs::a_combo_box_draws_its_value_and_a_list_box_draws_its_options"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Assertions inspect both bare strings and export/display pairs, actual labels/text, absence behavior and array order. Existing order test does not set Sort bit (separate feature/draft).",
+    "remaining": "",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.4",
+    "feature_id": "sort_flag_is_writer_only_reader_uses_opt_order",
+    "entry_kind": "direct",
+    "requirement": "Table233 bit20 instructs writers to sort alphabetically but directs PDF readers to preserve order as stored in Opt.",
+    "source_location": "§12.7.5.4, printed pp. 541–543 / one-based physical PDF pp. 556–558",
+    "errata": "No EC3 annotation changes this sentence/table cell.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::options",
+      "crates/pdf-model/src/variable_text.rs::choice_options"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/form.rs::tests::a_choice_fields_items_and_selection_cross",
+      "crates/pdf-model/tests/variable_text.rs::a_combo_box_draws_its_value_and_a_list_box_draws_its_options",
+      "crates/pdf-model/tests/text_choice_fields_spec_audit.rs::a_sort_flag_does_not_reorder_choice_options_for_a_reader"
+    ],
+    "verdict": "confirmed-selected-reader-order",
+    "evidence": "Reader loops Opt order without checking Sort. Existing tests prove ordinary Opt order, but none sets bit20; a reader that conditionally sorts only when the writer flag is set would evade them. Scratch test varies Sort clear/set with reversed alphabetical labels. New set/clear Sort complete-PDF model consumer retains Zebra,Alpha in both cases; old clear-bit-only test did not discriminate the flag.",
+    "remaining": "Test draft tests the public form query API on complete xref fixtures; no rendering/font dependency is needed to test list labels the host receives.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-reader-order",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.4",
+    "feature_id": "editable_combo_and_do_not_spellcheck",
+    "entry_kind": "direct",
+    "requirement": "Bit19 makes combo box editable with text input; when clear only dropdown. Bit23 shall not be set without Combo+Edit and means typed text is not spell-checked.",
+    "source_location": "§12.7.5.4, printed pp. 541–543 / one-based physical PDF pp. 556–558",
+    "errata": "No EC3 annotation changes this sentence/table cell.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::ChoiceControl",
+      "crates/viewer-host/src/form.rs::choice_of",
+      "crates/viewer-gtk/src/controls.rs::editable_combo",
+      "crates/viewer-qt/cpp/window.cpp"
+    ],
+    "test_refs": [
+      "crates/viewer-host/tests/host_mappings.rs"
+    ],
+    "verdict": "confirmed",
+    "evidence": "GTK composes entry+dropdown when editable; Qt sets QComboBox editable; host mapping tests check text-entry capability. DoNotSpellCheck is non-operative because no spelling checker is invoked; malformed use remains producer constraint.",
+    "remaining": "",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.4",
+    "feature_id": "multi_select_selection_value_shapes",
+    "entry_kind": "direct",
+    "requirement": "Bit22 allows multiple selected options; if clear at most one. V is a string for one current selection and array for multiple; null is default no selection.",
+    "source_location": "§12.7.5.4, printed pp. 541–543 / one-based physical PDF pp. 556–558",
+    "errata": "Issue #468 deletes the old Table234 /I trigger “when the value of the choice field is an array”; the separate V array rule remains in clause prose.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::selected",
+      "crates/pdf-model/src/view.rs::Entered::Chosen",
+      "crates/pdf-model/src/view/writing.rs::ViewState::save",
+      "crates/viewer-host/src/form.rs::choice_of"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_list_boxs_selected_options_are_highlighted_behind_their_text",
+      "crates/pdf-model/tests/saving.rs::several_selected_items_are_written_as_an_array_and_an_index_list",
+      "crates/pdf-model/tests/saving.rs::a_single_select_choice_field_takes_the_first_of_what_was_chosen"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Model/parser exposes indices; test paints two separate selections and save tests verify V shapes, ascending I and single-select cap. The implementation chooses first requested index on a single-select field, a deterministic documented policy for over-selection.",
+    "remaining": "",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.4",
+    "feature_id": "choice_commit_on_selection",
+    "entry_kind": "direct",
+    "requirement": "Table233 bit27: with flag set selection shall be committed immediately (so actions run without exit); otherwise the new value is not committed until leaving field.",
+    "source_location": "§12.7.5.4, printed pp. 541–543 / one-based physical PDF pp. 556–558",
+    "errata": "No EC3 annotation changes this sentence/table cell.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::ChoiceControl::commit_on_selection",
+      "crates/viewer-host/src/form.rs::ControlKind",
+      "crates/viewer-gtk/src/controls.rs::list",
+      "crates/viewer-qt/cpp/window.cpp",
+      "crates/viewer-core/src/viewer/editing.rs::form_selection",
+      "crates/viewer-core/src/open/edits.rs::Done::CommitField"
+    ],
+    "test_refs": [],
+    "verdict": "code-supported-host-wiring-gap-regression-pending",
+    "evidence": "The model parses bit27, but viewer-host::ControlKind::Combo/List drops the bool. GTK/Qt selection handlers dispatch a SetField edit only. viewer-core executes field commit/action activation only on Command::CommitField, and list/combo selection does not send one. Thus set-bit is never an immediate commit; clear/set currently share host path. No ISO-specific ADR waives this SHALL. Parent confirmed only parser/protocol/FFI carry flag; ControlKind drops it, Qt choose_control sends only SetField, C++selection callback calls that path. Core explicit CommitField tests do not prove native callback emits it. Actualhostcallback discriminator being drafted.",
+    "remaining": "Need end-to-end host test with field /AA /V action (or observable commit event) for bit27 set vs clear, after host control selection; current host API does not preserve the bit needed to fix the behavior.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-host-wiring-gap-regression-pending",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.4",
+    "feature_id": "choice_top_index_and_default",
+    "entry_kind": "direct",
+    "requirement": "Table234 TI is optional on scrollable list boxes, index of first visible Opt item, default 0.",
+    "source_location": "§12.7.5.4, printed pp. 541–543 / one-based physical PDF pp. 556–558",
+    "errata": "Issue #191 is on previous text Table232 /MaxLen and not TI; links at physical pp.556–557 do not amend TI.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::inherited_number",
+      "crates/pdf-model/src/form.rs::ChoiceControl::top",
+      "crates/pdf-model/src/variable_text.rs::choice_options",
+      "crates/viewer-host/src/form.rs::choice_of"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::the_top_index_says_which_option_the_list_starts_at",
+      "crates/viewer-host/tests/host_mappings.rs::table_234s_top_index_says_where_a_hosts_list_starts"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Three-arm actual display test asserts default, in-array TI, and past-end recovery; host mapping test checks top offset. UI clamp of out-of-range is recovery choice, not ISO mandated.",
+    "remaining": "",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.4",
+    "feature_id": "choice_index_array_errata_and_v_precedence",
+    "entry_kind": "direct",
+    "requirement": "Table234 /I is an array of sorted zero-based indices of selected items. It is required for different display names with same export value; Issue #468 removes MultiSelect-only scope and the “V is array” trigger. If I conflicts with V, V wins.",
+    "source_location": "§12.7.5.4, printed pp. 541–543 / one-based physical PDF pp. 556–558",
+    "errata": "Issue #468 StrikeOut+Caret on physical p.558 / printed p.543 rewrites the /I cell, broadening it to choice fields generally and deleting the V-array condition. Markdown still has old cell. Issue #191 on physical p.556 belongs previous Table232, not this table.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::selected",
+      "crates/pdf-model/src/view/writing.rs::ViewState::save"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/saving.rs::several_selected_items_are_written_as_an_array_and_an_index_list",
+      "crates/pdf-model/tests/saving.rs::a_single_select_choice_field_takes_the_first_of_what_was_chosen",
+      "crates/pdf-model/src/form.rs::tests::a_choice_fields_items_and_selection_cross",
+      "crates/pdf-model/tests/text_choice_fields_spec_audit.rs::choice_value_wins_when_the_stated_index_disagrees"
+    ],
+    "verdict": "partial",
+    "evidence": "Writer saves ascending /I for multi and single selection; the existing single-select assertion is direct evidence for Issue #468. Reader honors V when unique and uses I to disambiguate equal displayed labels; current tests do not assert a contradictory /I-vs-V file. Scratch test supplies same export / distinct labels with conflicting /I, expecting V to win. New same-export/different-label fixture has V Beta and I0; public model selects Beta/index1. Source parenthetical explicitly identifies paired V by second element; effective#468 preserves V-wins. PASS.",
+    "remaining": "The implementation’s `selected` ties I only among options whose display label equals V; this matches V precedence but the exact amended duplicate-export case lacks a direct fixture assertion.",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.4",
+    "feature_id": "choice_value_representation_of_opt_pairs",
+    "entry_kind": "direct",
+    "requirement": "V identifies the selected value(s); for paired Opt entries the displayed string/label is the second element. Null means no selection.",
+    "source_location": "§12.7.5.4, printed pp. 541–543 / one-based physical PDF pp. 556–558",
+    "errata": "Issue #214’s global editorial note on physical p.10 replaces “name string” with “string” throughout; no local strike on choice clause, and semantics stay second/display string.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::options",
+      "crates/pdf-model/src/form.rs::selected",
+      "crates/pdf-model/src/view/writing.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/form.rs::tests::a_choice_fields_items_and_selection_cross",
+      "crates/pdf-model/tests/saving.rs::several_selected_items_are_written_as_an_array_and_an_index_list",
+      "crates/pdf-model/tests/variable_text.rs::the_clauses_own_choice_field_example_draws_both_ways"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Unit test checks export/display pair fields and selected options; save test checks output V labels from pair options; exact clause example test distinguishes listed label from value. “name string” terminology changes, not behavior.",
+    "remaining": "",
+    "test_command": null,
+    "test_result": "forms-reviewed-target-v3.log: new text/choice4PASS, names/buttons2PASS, signature discovery4expectedFAIL. Positive signature range/candidate controls pass before absent/zero failures. No complete-family certification.",
+    "parent_review": "Partial accepted review of effective source, selected implementation/assertions and ADR decisions. Existing test names/execution do not certify every compound requirement. New complete-PDF fixtures reviewed and executed; no whole-clause completion claim.",
+    "reviewer": "text_choice_fields_audit",
+    "parent_review_state": "parent-reviewed-partial-with-source-and-fixture-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
     "superseded": false
   },
   {

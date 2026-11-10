@@ -1,6 +1,6 @@
 {
   "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
-  "checkpoint_utc": "2026-11-10T17:17:31.332060+00:00",
+  "checkpoint_utc": "2026-11-10T17:29:29.154214+00:00",
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
@@ -11,9 +11,9 @@
     "warning": "Percent is account allowance, not convertible fixed tokens; counters may lag. Continue extending while useful work and room remain."
   },
   "agents": {
-    "associated_files_audit": "field_names_buttons_audit",
-    "catalog_pages_audit": "text_choice_fields_audit",
-    "inapplicable_conditions_audit": "interactive_form_structure_audit"
+    "associated_files_audit": "signature_fields_audit",
+    "catalog_pages_audit": "variable_text_field_audit then nativechoicecommitdraft",
+    "inapplicable_conditions_audit": "text_maxlen_audit"
   },
   "next_candidates": [
     "12.7.4.3 variable-text effective source and save regeneration",
@@ -31,7 +31,7 @@
     "exact_manifest_match": true,
     "manifest": "Exact binary/test equality checked by parent; failing assertions are not necessarily distinct defects."
   },
-  "latest_clippy": "clippy-redaction-precedence-clean.log",
+  "latest_clippy": "clippy-forms-reviewed-v2.log",
   "new_failures_since_wave8": [
     "catalog Named OpenAction consumer missing",
     "page-visible neighbor omitted",
@@ -60,9 +60,7 @@
     "CLAUDE.md requires unsigned commits; use git -c commit.gpgsign=false commit because inherited global setting enables GPG."
   ],
   "branch": "audit/specification-evidence-2026-11-10",
-  "pending_parent_review": [
-    "interactive_form_structure_audit (timestamp follow-up active)"
-  ],
+  "pending_parent_review": [],
   "pushed_commits": [
     "a299121c",
     "f413d15f",
@@ -89,8 +87,9 @@
     "efe33bfc",
     "63b0a7f3",
     "42094fb2",
-    "e6d0f25c"
+    "e6d0f25c",
+    "bb80d98a"
   ],
-  "expected_failures_manifest_count": 54,
-  "broad_run_predates": "Widget3passes1failure;Redaction/Projection2passes; redactionQuadPoints1pass"
+  "expected_failures_manifest_count": 58,
+  "broad_run_predates": "Widget3pass1fail;redaction3pass;forms6pass4fail"
 }

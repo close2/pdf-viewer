@@ -304,6 +304,30 @@
       "test": "omitted_widget_h_retains_the_table_191_invert_default_even_with_a_down_stream",
       "evidence": "widget-reviewed-target-v2.log",
       "classification": "Absent Widget H uses Push when D exists instead of Table191 default Invert; parent subtype-rule precedence interpretation, explicit-I valid-AP control passes"
+    },
+    {
+      "binary": "viewer-core::sigflags_discovery_audit",
+      "test": "absent_sigflags_does_not_hide_a_candidate_from_the_public_signature_api",
+      "evidence": "forms-reviewed-target-v3.log",
+      "classification": "SigFlagsgate hidesfieldcandidate; ordinarysignature APIpromise vs timestamp12.8.5.2explicitreaderSHALL distinguished. Exactrange/setbitpositivecontrols pass."
+    },
+    {
+      "binary": "viewer-core::sigflags_discovery_audit",
+      "test": "zero_sigflags_does_not_hide_a_candidate_from_the_public_signature_api",
+      "evidence": "forms-reviewed-target-v3.log",
+      "classification": "SigFlagsgate hidesfieldcandidate; ordinarysignature APIpromise vs timestamp12.8.5.2explicitreaderSHALL distinguished. Exactrange/setbitpositivecontrols pass."
+    },
+    {
+      "binary": "viewer-core::sigflags_discovery_audit",
+      "test": "document_timestamp_existence_is_examined_when_sigflags_is_explicitly_zero",
+      "evidence": "forms-reviewed-target-v3.log",
+      "classification": "SigFlagsgate hidesfieldcandidate; ordinarysignature APIpromise vs timestamp12.8.5.2explicitreaderSHALL distinguished. Exactrange/setbitpositivecontrols pass."
+    },
+    {
+      "binary": "viewer-core::sigflags_discovery_audit",
+      "test": "document_timestamp_existence_scans_signature_fields_even_without_sigflags_bit_one",
+      "evidence": "forms-reviewed-target-v3.log",
+      "classification": "SigFlagsgate hidesfieldcandidate; ordinarysignature APIpromise vs timestamp12.8.5.2explicitreaderSHALL distinguished. Exactrange/setbitpositivecontrols pass."
     }
   ]
 }

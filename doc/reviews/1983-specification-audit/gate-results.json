@@ -900,5 +900,16 @@
   "redaction_precedence_clippy": {
     "log": "clippy-redaction-precedence-clean.log",
     "exit": 0
+  },
+  "form_fields_batch": {
+    "log": "forms-reviewed-target-v3.log",
+    "passed": 6,
+    "expected_failed": 4,
+    "exit": 101,
+    "notes": "Signature positivecontrolsverify exactByteRange; ordinaryAPIpromise and timestampSHALLdistinct."
+  },
+  "form_fields_clippy": {
+    "log": "clippy-forms-reviewed-v2.log",
+    "exit": 0
   }
 }

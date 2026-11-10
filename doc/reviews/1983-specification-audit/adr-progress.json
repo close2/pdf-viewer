@@ -1210,9 +1210,18 @@
   },
   {
     "path": "doc/adr/0120-an-edit-is-a-log-beside-the-document.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "field_names_buttons_audit/decisions.json",
+        "decision_id": "Use the fully qualified field name as field identity for edits and lookup",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0121-the-one-kind-of-writing-this-project-does.md",
@@ -1755,14 +1764,22 @@
   },
   {
     "path": "doc/adr/0181-a-form-says-whether-it-has-signatures.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "interactive_form_structure_audit/decisions.json",
         "decision_id": "sigflags_bit1_gates_signature_field_walk",
-        "conclusion": "retain-as-policy-with-qualification",
-        "parent_accepted": false,
+        "conclusion": "revisit-invalid-converse-and-timestamp-discovery-gate",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "interactive_form_structure_audit/decisions.json",
+        "decision_id": "sigflags_gate_must_not_hide_document_timestamps",
+        "conclusion": "revisit-invalid-converse-and-timestamp-discovery-gate",
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -1945,14 +1962,14 @@
   },
   {
     "path": "doc/adr/0197-a-field-that-may-not-scroll.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "text_choice_fields_audit/decisions.json",
         "decision_id": "interactive_do_not_scroll_accepts_only_measured_prefix",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2071,9 +2088,18 @@
   },
   {
     "path": "doc/adr/0212-a-refusal-that-can-become-a-question.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "signature_fields_audit/decisions.json",
+        "decision_id": "0212:restrictions-are-owner-controlled",
+        "conclusion": "Retain for Table236 lock permissions. Signature field locks flow through restriction policy and do not hard-code refusal.",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0213-one-mark-two-cells-describe.md",
@@ -2227,9 +2253,18 @@
   },
   {
     "path": "doc/adr/0235-a-form-is-a-description-and-a-check-box-is-a-name.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "field_names_buttons_audit/decisions.json",
+        "decision_id": "Keep the field value and the widget appearance state synchronized when this reader changes a checkbox/radio value",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0236-a-gradient-drawn-across-a-page-to-be-kept-in-a-few-dozen-pixels.md",
@@ -2344,14 +2379,14 @@
   },
   {
     "path": "doc/adr/0247-a-boundary-that-cannot-fail-to-compile.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "text_choice_fields_audit/decisions.json",
         "decision_id": "password_field_value_carries_obscured_status_and_is_not_persisted",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2359,14 +2394,14 @@
   },
   {
     "path": "doc/adr/0248-a-list-box-can-hold-several-and-one-string-could-not-say-which.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "text_choice_fields_audit/decisions.json",
         "decision_id": "choice_edits_are_indexed_and_write_value_plus_index_list",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2413,7 +2448,7 @@
         "source": "text_choice_fields_audit/decisions.json",
         "decision_id": "ec3_table_amendments_are_read_from_pdf_annotations",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2421,9 +2456,18 @@
   },
   {
     "path": "doc/adr/0254-three-populations-of-quotation-and-only-one-had-a-gate.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "field_names_buttons_audit/decisions.json",
+        "decision_id": "Treat EC3 Issue #386 as deletion of the V/DV prohibition in the current button text",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0255-a-name-the-file-never-defined-and-the-silence-around-it.md",
@@ -2636,9 +2680,18 @@
   },
   {
     "path": "doc/adr/0284-a-shall-that-was-called-signing-behaviour.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "signature_fields_audit/decisions.json",
+        "decision_id": "0284:lock-is-active-only-after-signing",
+        "conclusion": "Retain the separation. Current field_locks reads only signed signature fields and Table237 remains unconsumed; inspected code matches the selected scope.",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0285-the-quantum-is-inclusive-and-the-hairline-was-short.md",
@@ -2761,6 +2814,14 @@
         "decision_id": "read_table_187_fs_at_annotation_activation",
         "conclusion": "retain-with-qualification",
         "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "signature_fields_audit/decisions.json",
+        "decision_id": "0295:seed-values-remain-outside-current-signing-scope",
+        "conclusion": "Retain as a scope decision; no signer appears in current reachable routes, so lack of Table237 processing is not an implementation defect in the reader.",
+        "parent_accepted": false,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -3174,9 +3235,18 @@
   },
   {
     "path": "doc/adr/0346-the-vocabulary-a-c-caller-can-reach.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "field_names_buttons_audit/decisions.json",
+        "decision_id": "Interpret RadiosInUnison in both directions, including mutually exclusive selection when the flag is clear",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0347-the-release-that-moved-seventeen-pages-without-a-line.md",
@@ -4760,9 +4830,18 @@
   },
   {
     "path": "doc/adr/0630-the-other-half-of-the-delegated-click.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "field_names_buttons_audit/decisions.json",
+        "decision_id": "Centralize button clicks and honor per-widget radio state across the public host paths",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0633-the-payload-a-frame-chooses.md",
@@ -4841,14 +4920,14 @@
   },
   {
     "path": "doc/adr/0660-the-quotation-that-hid-by-being-wrong.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "text_choice_fields_audit/decisions.json",
         "decision_id": "global_name_string_to_string_erratum_is_semantically_editorial_here",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -5228,14 +5307,22 @@
   },
   {
     "path": "doc/adr/0736-a-dictionary-no-name-reaches-is-a-widget.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
+      {
+        "source": "field_names_buttons_audit/decisions.json",
+        "decision_id": "Treat absent /T as a Widget even at a root and honor the EC3 optional Table226 /T correction",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
       {
         "source": "interactive_form_structure_audit/decisions.json",
         "decision_id": "effective_optional_T_and_unnamed_root_widget",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -7816,9 +7903,18 @@
   },
   {
     "path": "doc/adr/1156-the-permission-a-lock-states-over-the-document.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "signature_fields_audit/decisions.json",
+        "decision_id": "1156:table236-p-is-reader-policy",
+        "conclusion": "Retain; current tests distinguish level 1/2/3, absent and invalid value outcomes. EC3 #131's DSS/timestamp carveout remains to be bounded against save operations, though current save path inspection was not exhaustive.",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1157-the-group-is-the-device-the-overprint-rule-addresses.md",
@@ -7834,14 +7930,14 @@
   },
   {
     "path": "doc/adr/1159-a-flag-that-names-nobody.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "interactive_form_structure_audit/decisions.json",
         "decision_id": "NeedAppearances_residual_and_constructed_field_names",
-        "conclusion": "retain",
-        "parent_accepted": false,
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -8341,14 +8437,14 @@
   },
   {
     "path": "doc/adr/1216-a-condition-the-clause-does-not-state.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "text_choice_fields_audit/decisions.json",
         "decision_id": "file_select_uses_reader_chosen_bytes_and_shared_host_route",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -11542,14 +11638,14 @@
   },
   {
     "path": "doc/adr/1787-a-commit-applies-its-own-edit-and-only-an-undo-replays-the-log.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "text_choice_fields_audit/decisions.json",
         "decision_id": "explicit_commit_is_distinct_from_set_field_and_executes_once",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -14817,14 +14913,14 @@
   },
   {
     "path": "doc/adr/2448-the-range-of-field-inheritance-is-unlimited-each-field-resolved-once-and-a-cycle-found-without-a-set.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "interactive_form_structure_audit/decisions.json",
         "decision_id": "unbounded_field_inheritance_and_cycle_detection",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -16179,14 +16275,14 @@
   },
   {
     "path": "doc/adr/2707-a-choice-list-s-selection-commit-fires-its-exit-and-the-next-its-enter-again.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "text_choice_fields_audit/decisions.json",
         "decision_id": "choice_list_selection_commit_is_delivered_as_explicit_host_commit",
-        "conclusion": "revisit",
-        "parent_accepted": false,
+        "conclusion": "revisit-native-caller-premise-retain-internal-event-sequencing",
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
