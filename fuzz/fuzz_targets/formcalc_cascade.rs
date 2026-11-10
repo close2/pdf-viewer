@@ -174,6 +174,7 @@ fuzz_target!(|data: &[u8]| {
         Stimulus::Entry {
             entered: &typed,
             before: &[],
+            typing: &[],
         }
     };
     let started = Instant::now();

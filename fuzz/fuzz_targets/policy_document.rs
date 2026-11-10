@@ -27,11 +27,12 @@
 
 use libfuzzer_sys::fuzz_target;
 use pdf_signature::cms::{self, Digest, SignedData};
-use pdf_signature::policy_rules::canonical_xml::{self, Apex, Comments};
+use pdf_signature::policy_rules::canonical_xml::{self, Algorithm, Apex, Comments, Method};
 use pdf_signature::policy_rules::{
     self, Finding, MAX_POLICY_OCTETS, PolicyDocumentError, SignerFacts, SigningTime, Syntax,
     TimeSource, ts_119_172_2, ts_119_172_3,
 };
+use pdf_signature::revocation::Material;
 use pdf_signature::x509::Instant;
 
 /// RFC 5754's `id-sha256`, the signature's digest algorithm.
@@ -68,12 +69,14 @@ fn signature() -> SignedData<'static> {
 
 /// Two sets of facts: no signing time at all, and a time-stamped one, so that a signing period is
 /// judged both as unestablished and against an instant.
-fn facts() -> [SignerFacts; 2] {
+fn facts() -> [SignerFacts<'static>; 2] {
     let at = |signing_time| SignerFacts {
         signing_time,
         key_bits: Some(2048),
         carries_signer_certificate: true,
         certificate_signature_algorithm: Some(SHA256_RSA.to_vec()),
+        path_at: None,
+        material: Material::default(),
     };
     [
         at(None),
@@ -124,7 +127,7 @@ fn judged(data: &[u8], syntax: Syntax) -> Result<Vec<Vec<Finding>>, PolicyDocume
 fn canonical(
     data: &[u8],
     depth: usize,
-    comments: Comments,
+    method: &Method<'_>,
 ) -> Result<Vec<u8>, PolicyDocumentError> {
     let apex = Apex {
         depth,
@@ -132,7 +135,7 @@ fn canonical(
         local: "PolicyComponents",
     };
     let mut out = Vec::new();
-    canonical_xml::canonicalize(data, &apex, comments, &mut |piece| {
+    canonical_xml::canonicalize(data, &apex, method, &mut |piece| {
         out.extend_from_slice(piece);
     })?;
     Ok(out)
@@ -140,17 +143,22 @@ fn canonical(
 
 fuzz_target!(|data: &[u8]| {
     for comments in [Comments::Omitted, Comments::Kept] {
-        let first = canonical(data, 1, comments);
+        let method = Method {
+            algorithm: Algorithm::Canonical10,
+            comments,
+            prefix_list: None,
+        };
+        let first = canonical(data, 1, &method);
         assert_eq!(
             first,
-            canonical(data, 1, comments),
+            canonical(data, 1, &method),
             "the canonical form is a function of the bytes"
         );
         if let Ok(form) = first
             && form.len() <= MAX_POLICY_OCTETS
         {
             assert_eq!(
-                canonical(&form, 0, comments).as_ref(),
+                canonical(&form, 0, &method).as_ref(),
                 Ok(&form),
                 "a canonical form canonicalises to itself"
             );
