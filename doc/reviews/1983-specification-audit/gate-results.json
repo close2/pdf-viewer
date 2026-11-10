@@ -1088,5 +1088,15 @@
   "jpx_pattern_removal_fdf_clippy": {
     "log": "clippy-jpx-pattern-removal-fdf-script-v2.log",
     "exit": 0
+  },
+  "broad_wave20": {
+    "log": "nextest-nine-crates-wave20.log",
+    "run": 5798,
+    "passed": 5731,
+    "expected_failed": 67,
+    "unexpected_failed": 0,
+    "skipped": 53,
+    "exit": 100,
+    "comparison": "Exact manifest match after excluding 3 GTK supplemental assertions. Nextest reported67.125s; wrapper wall time included an external pause."
   }
 }

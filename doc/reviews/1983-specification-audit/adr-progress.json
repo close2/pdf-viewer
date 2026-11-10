@@ -358,9 +358,18 @@
   },
   {
     "path": "doc/adr/0027-soft-masks-in-the-graphics-state.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "soft_mask_derivation_audit/decisions.json",
+        "decision_id": "soft-mask-commands-retained-until-device-resolution-and-shared-mask-value-derivation",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0028-the-devices-own-colourants-and-its-thinnest-line.md",
@@ -969,7 +978,7 @@
         "source": "fdf_absent_value_audit/decisions.json",
         "decision_id": "0090.absent_fdf_v_means_remove_target_v",
         "conclusion": "unresolved",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -11366,7 +11375,7 @@
         "source": "fdf_absent_value_audit/decisions.json",
         "decision_id": "1661.save_omitted_import_v_as_absent",
         "conclusion": "unresolved",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -15953,9 +15962,18 @@
   },
   {
     "path": "doc/adr/2552-a-mask-groups-luminosity-takes-the-device-branch-in-every-space-as-the-owner-chose.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "soft_mask_derivation_audit/decisions.json",
+        "decision_id": "owner-ratified-colorimetric-CIE-luminosity-departure",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2553-section-10-7-5s-grid-fit-is-drawn-in-every-backend-at-once-and-on-by-default.md",

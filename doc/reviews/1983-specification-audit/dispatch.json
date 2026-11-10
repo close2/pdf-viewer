@@ -1102,6 +1102,13 @@
       "clauses": [
         "12.7.8.3.2"
       ],
+      "state": "parent-reviewed-unresolved-interpretation"
+    },
+    {
+      "agent": "fdf_pages_import_audit",
+      "clauses": [
+        "12.7.8.3.3"
+      ],
       "state": "running"
     }
   ]

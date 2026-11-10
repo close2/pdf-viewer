@@ -12089,8 +12089,36 @@
   },
   {
     "clause": "12.7.8.3.2",
+    "feature_id": "fdf-optional-v-entry-omission-semantics",
+    "requirement": "Table249 makes FDF V optional. Stated values in the FDF dictionary replace the corresponding target field entries; omission-as-deletion is not explicit and remains an interpretation question.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf physical p.578, printed p.563, §12.7.8.3.2 replacement sentence and Table 249 rows T/V; EC3 Markdown lines 13039 onward",
+    "errata": "Physical pages 577-579 were checked in the one-based annotation index: 38 annotations, zero issue-numbered corrections. No EC3 change to this sentence or Table 249 was identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::read_field",
+      "crates/pdf-model/src/view.rs::FieldValue",
+      "crates/pdf-model/src/appearance.rs::Field::read",
+      "crates/pdf-model/src/view/writing.rs::write_imported_values"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/forms_data.rs::an_imported_field_with_no_value_empties_the_one_it_names"
+    ],
+    "verdict": "ambiguous",
+    "evidence": "The current code and existing test implement/assert omission-as-delete, but the test does not distinguish the competing reading. General text says values of entries in FDF replace corresponding entries, and V is optional; it does not explicitly define omission as clearing. The draft positive control covers stated V replacement, while the flag-only case distinguishes retaining an unstated target V from clearing it. Its expected behavior is deliberately a candidate, not a confirmed normative requirement. Parent read current overlay and save paths: ImportedNone bypasses storedV, and save explicitly removesV while absentRV is left. The existing omission test passes broad19 and demonstrates currentbehavior. Neither that test nor a candidate opposite expectedvalue resolves the source interpretation.",
+    "test_command": "Not run; scratch only, no Cargo.",
+    "test_result": "Existing omission test PASS in broad19; no new normative test accepted.",
+    "parent_review": "Accepted unresolved rationale finding; candidate preservation test not promoted as a normative assertion.",
+    "remaining": "Resolve present-entry versus whole-field replacement from authoritative interpretation or explicit project ambiguity decision. Then add a complete flag-only-import saved-target test with statedV positive control. Candidate retention draft remains local/unaccepted.",
+    "reviewer": "fdf_absent_value_audit",
+    "parent_review_state": "parent-reviewed-unresolved-interpretation",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "ambiguous",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.2",
     "feature_id": "Table249/general-stated-entry-replacement",
-    "requirement": "Unless the table indicates otherwise, importing replaces each stated entry with the corresponding target field entry of the same fully qualified name.",
+    "requirement": "Unless otherwise indicated, each value stated in the FDF field dictionary replaces the corresponding entry in the target field with the same fully qualified name.",
     "source_location": "§12.7.8.3.2 general replacement and Table249 names/values/flags physical578/printed563; Opt/AP/APRef/IF/A/AA/RV physical579/printed564. Intro starts physical577 but replacement sentence is on578.",
     "errata": "No issue-numbered EC3 correction found on physical pp.577–579.",
     "ledger_status": "implemented",

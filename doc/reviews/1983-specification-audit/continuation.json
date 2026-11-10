@@ -1,6 +1,6 @@
 {
   "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
-  "checkpoint_utc": "2026-11-10T18:25:07.646909+00:00",
+  "checkpoint_utc": "2026-11-10T19:22:55.047642+00:00",
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
@@ -11,7 +11,7 @@
     "warning": "Percent is account allowance, not convertible fixed tokens; counters may lag. Continue extending while useful work and room remain."
   },
   "agents": {
-    "associated_files_audit": "FDFabsentVinterpretation",
+    "associated_files_audit": "FDFpagesimport",
     "catalog_pages_audit": "DCTDecode",
     "inapplicable_conditions_audit": "softmaskderivation"
   },
@@ -19,14 +19,14 @@
     "Continue these bounded shards until stop-new87percent; preserve remainingwork ratherthan weaken review."
   ],
   "latest_broad": {
-    "log": "nextest-nine-crates-wave19.log",
-    "run": 5791,
-    "passed": 5725,
-    "expected_failed": 66,
+    "log": "nextest-nine-crates-wave20.log",
+    "run": 5798,
+    "passed": 5731,
+    "expected_failed": 67,
     "unexpected_failed": 0,
     "skipped": 53,
     "exit": 100,
-    "comparison": "Exact manifest match after excluding3GTKsupplemental assertions."
+    "comparison": "Exact manifest match after excluding 3 GTK supplemental assertions. Nextest reported67.125s; wrapper wall time included an external pause."
   },
   "latest_clippy": "clippy-jpx-pattern-removal-fdf-script-v2.log",
   "new_failures_since_wave8": [
@@ -58,7 +58,7 @@
   ],
   "branch": "audit/specification-evidence-2026-11-10",
   "pending_parent_review": [
-    "FDFabsentVinterpretation",
+    "FDFpagesimport",
     "DCTDecode",
     "softmaskderivation"
   ],
@@ -97,10 +97,11 @@
     "344107a1",
     "2c9c864b",
     "d69f9227",
-    "ebdaf464"
+    "ebdaf464",
+    "ae9ba43f"
   ],
   "expected_failures_manifest_count": 70,
-  "broad_run_predates": "JPX2PASS,pattern2PASS,removal2PASS,FDFscript1FAIL added afterbroad19; nextbroadpending.",
+  "broad_run_predates": "No promoted tests added after broad20. Current DCT, soft-mask and FDF-page drafts pending.",
   "expected_failures_by_scope": {
     "broad_nine_crates": 67,
     "gtk_supplemental": 3
