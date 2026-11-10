@@ -138,6 +138,8 @@ pub(super) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                     Format::HtmlForm => 1,
                     Format::Pdf => 2,
                     Format::Xfdf => 3,
+                    Format::Xdp => 4,
+                    Format::Xml => 5,
                 })
                 // §12.7.5.3 makes the media type a function of the submission rather than of the
                 // format, so it crosses as itself: a `multipart/form-data` carries RFC 2046
@@ -450,6 +452,8 @@ pub(super) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
                     1 => Format::HtmlForm,
                     2 => Format::Pdf,
                     3 => Format::Xfdf,
+                    4 => Format::Xdp,
+                    5 => Format::Xml,
                     value => {
                         return Err(ProtocolError::Unrecognised {
                             what: "a submission's format",

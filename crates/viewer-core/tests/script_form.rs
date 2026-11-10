@@ -800,6 +800,111 @@ fn at_off_an_event_s_submit_is_carried_out_and_its_neighbour_s_script_is_not() {
     assert_eq!(value(&viewer, "Total"), "", "the click script did not run");
 }
 
+/// The one submission a click on `Units` hands the host, `Units`' `click` event submitting with the
+/// attributes given, after `Total` has been entered as `5`; and every note the click reported.
+fn packaged_submission(attributes: &str) -> (pdf_model::submission::Submission, Vec<String>) {
+    let fields = format!(
+        "<field name=\"Units\"><ui><button/></ui><value><text/></value>\
+         <event activity=\"click\"><submit {attributes} \
+         target=\"https://example.invalid/data\"/></event></field>\
+         <field name=\"Total\"><ui><textEdit/></ui><value><text/></value></field>"
+    );
+    let mut viewer = opened_on(Scripting::Off, hybrid(&fields, "<Units/><Total/>"));
+    viewer.handle(Command::Presented).for_each(drop);
+    enter(&mut viewer, "Total", "5");
+    let events = clicked(&mut viewer, (120.0, 310.0));
+    let mut notes = Vec::new();
+    let mut submissions = Vec::new();
+    for event in events {
+        match event {
+            Event::Submit { submission, .. } => submissions.push(*submission),
+            Event::Reported { notes: said, .. } => notes.extend(said),
+            _ => {}
+        }
+    }
+    let [submission] = <[_; 1]>::try_from(submissions).unwrap_or_else(|all| {
+        panic!("one submission: {all:?}, {notes:?}");
+    });
+    (submission, notes)
+}
+
+/// XFA 3.3 page 859: `xdp` packages "in XDP format, as described in XDP Specification", and page
+/// 858 underlines it, so a `submit` stating no `format` asks for it; page 861 lets `xdpContent`
+/// choose the packets, and an omitted one is read as its first value, `datasets pdf xfdf` (ADR
+/// 2771). The body is page 1041's `xdp:xdp` root, declared as page 1035 asks, holding the
+/// `datasets` packet with the value the person entered in it — what a save writes, §K.2's
+/// consistency — and no `template`; page 858's `embedPDF` is `0` by its underline and this process
+/// holds no path for the URI, so the `pdf` packet is empty, and a document holding no markup
+/// annotation has an `xfdf` packet with nothing in it (the XFDF specification's content model makes
+/// every child of `xfdf` optional). Page 1041 registers the media type, and page 858 the POST. At
+/// `off`, since a `submit` is no script (page 703).
+#[test]
+fn an_xdp_submit_hands_the_host_the_form_s_packets_with_what_was_entered() {
+    let (submission, _) = packaged_submission("");
+    assert_eq!(submission.url, "https://example.invalid/data");
+    assert_eq!(submission.format, pdf_model::submission::Format::Xdp);
+    assert_eq!(submission.media_type, "application/vnd.adobe.xdp+xml");
+    assert_eq!(submission.method, pdf_model::submission::Method::Post);
+    let body = String::from_utf8(submission.body).expect("UTF-8");
+    assert!(
+        body.starts_with(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<xdp:xdp xmlns:xdp=\"http://ns.adobe.com/xdp/\">\n\
+             <xfa:datasets xmlns:xfa=\"http://www.xfa.org/schema/xfa-data/1.0/\">"
+        ),
+        "{body}"
+    );
+    assert!(body.contains("<Total>5</Total>"), "{body}");
+    assert!(!body.contains("<template"), "{body}");
+    assert!(
+        body.ends_with(
+            "<pdf xmlns=\"http://ns.adobe.com/xdp/pdf/\"/>\n\
+             <xfdf xmlns=\"http://ns.adobe.com/xfdf/\" xml:space=\"preserve\"/>\n</xdp:xdp>\n"
+        ),
+        "{body}"
+    );
+}
+
+/// XFA 3.3 pages 858, 861 and 1039: with `embedPDF="1"` "\[a] copy of the associated PDF document is
+/// embedded in the submitted XDP", as page 1039's `chunk` of base64 (RFC 2045), whose first four
+/// characters `JVBE` are `%PD`; `xdpContent` names `template` and `config` beside it, so the
+/// template packet goes, and the form's resource holds no `config` packet, which is said.
+#[test]
+fn an_xdp_submit_embeds_the_document_and_sends_the_packets_its_content_names() {
+    let (submission, notes) =
+        packaged_submission("format=\"xdp\" embedPDF=\"1\" xdpContent=\"template pdf config\"");
+    let body = String::from_utf8(submission.body).expect("UTF-8");
+    assert!(body.contains("<template xmlns=\"http://www.xfa.org/schema/xfa-template/3.3/\">"));
+    assert!(!body.contains("<xfa:datasets"), "{body}");
+    assert!(
+        body.contains("<pdf xmlns=\"http://ns.adobe.com/xdp/pdf/\"><document><chunk>\nJVBE"),
+        "{body}"
+    );
+    assert!(!body.contains("<xfdf"), "{body}");
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.contains("xdpContent names config")),
+        "{notes:?}"
+    );
+}
+
+/// XFA 3.3 page 859: `xml` packages the data "in XML format … according to the same rules used for
+/// data unloading", and page 149's unloader writes "an XML data document which reflects the
+/// contents of the XML Data DOM": the one element `xfa:data` holds, with the person's entry in it,
+/// under an XML declaration, as `text/xml` (the type page 1038 gives the `datasets` packet).
+#[test]
+fn an_xml_submit_hands_the_host_the_form_s_data_document() {
+    let (submission, _) = packaged_submission("format=\"xml\"");
+    assert_eq!(submission.format, pdf_model::submission::Format::Xml);
+    assert_eq!(submission.media_type, "text/xml");
+    assert_eq!(
+        String::from_utf8(submission.body).expect("UTF-8"),
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <form1 xmlns:xdp=\"http://ns.adobe.com/xdp/\" xmlns:xfa=\"http://www.xfa.org/schema/xfa-data/1.0/\">\
+         <Units/><Total>5</Total></form1>\n"
+    );
+}
+
 /// XFA 3.3 page 392: a `mouseDown` fires when the button is pressed within the field's region and a
 /// `mouseUp` when it is released within it, wherever it was pressed (ADR 2627). A press on `Units`
 /// dragged to `Total` and released there runs the one's `mouseDown` and the other's `mouseUp`,

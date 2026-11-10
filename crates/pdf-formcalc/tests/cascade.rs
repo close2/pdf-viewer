@@ -1042,23 +1042,79 @@ fn a_click_event_that_submits_holds_the_submit_for_the_host_in_the_format_it_nam
         let [submit] = activation.submits.as_slice() else {
             panic!("{format}: one submit is held: {:?}", activation.submits);
         };
-        assert_eq!(submit.action.url, "https://example.invalid/form");
-        assert_eq!(submit.action.flags.0, bits(&[bit, 2]), "{format}");
-        assert!(submit.action.fields.is_empty());
+        let pdf_model::xfa::FormBody::Action(action) = &submit.body else {
+            panic!("{format}: a submit-form action: {:?}", submit.body);
+        };
+        assert_eq!(action.url, "https://example.invalid/form");
+        assert_eq!(action.flags.0, bits(&[bit, 2]), "{format}");
+        assert!(action.fields.is_empty());
         assert_eq!(submit.clicked, Some((name("Send"), None)));
         assert!(submit.owed.is_empty(), "{format}: {:?}", submit.owed);
     }
 }
 
 /// Page 597 makes the underlined value the one an omitted attribute takes, and page 858 underlines
-/// `xdp`: a `submit` stating no `format` asks for chapter 23's XDP packaging, which this reader does
-/// not write, as it does not write `xml`'s; page 859 describes `formdata` only as emulating legacy
-/// software it does not name. Each is said, and nothing is held.
+/// `xdp` and `embedPDF`'s `0`: a `submit` stating no `format` asks for chapter 23's XDP packaging,
+/// and one stating `xml` for page 149's unloaded data. Neither is a body Table 240 has a bit for, so
+/// each is held as the packaging itself, with `target` (page 860) and, for `xdp`, the packets page
+/// 861's `xdpContent` names — `datasets pdf xfdf` where it is omitted, the module's reading.
 #[test]
-fn a_submit_in_a_packaging_this_reader_does_not_write_is_said_and_not_held() {
+fn a_submit_in_an_xml_packaging_is_held_as_the_packaging_it_names() {
+    use pdf_model::xfa::{Content, FormBody, Packaged, Packaging};
+    let tags = |tags: &[&str]| Content::Tags(tags.iter().map(|tag| (*tag).to_owned()).collect());
+    for (attributes, packaging) in [
+        (
+            "",
+            Packaging::Xdp {
+                content: tags(&["datasets", "pdf", "xfdf"]),
+                embed_pdf: false,
+            },
+        ),
+        (
+            "format=\"xdp\" embedPDF=\"1\" xdpContent=\"pdf datasets template\"",
+            Packaging::Xdp {
+                content: tags(&["pdf", "datasets", "template"]),
+                embed_pdf: true,
+            },
+        ),
+        (
+            "format=\"xdp\" xdpContent=\"*\"",
+            Packaging::Xdp {
+                content: Content::All,
+                embed_pdf: false,
+            },
+        ),
+        ("format=\"xml\"", Packaging::Xml),
+    ] {
+        let activation = click_send(&format!(
+            "<submit {attributes} target=\"https://example.invalid/data\"/>"
+        ));
+        assert!(
+            activation.report.is_empty(),
+            "{attributes}: {:?}",
+            activation.report
+        );
+        let [submit] = activation.submits.as_slice() else {
+            panic!("{attributes}: one submit is held: {:?}", activation.submits);
+        };
+        assert_eq!(
+            submit.body,
+            FormBody::Packaged(Packaged {
+                url: "https://example.invalid/data".to_owned(),
+                packaging,
+            }),
+            "{attributes}"
+        );
+        assert_eq!(submit.clicked, Some((name("Send"), None)));
+        assert_eq!(log(&activation).as_deref(), Some("Send!"));
+    }
+}
+
+/// Page 859 describes `formdata` only as emulating legacy software it does not name, and a format
+/// page 858 does not list is no packaging at all: each is said, and nothing is held.
+#[test]
+fn a_submit_in_a_packaging_no_page_defines_is_said_and_not_held() {
     for (attribute, words) in [
-        ("", "the xdp packaging"),
-        ("format=\"xml\"", "the xml packaging"),
         ("format=\"formdata\"", "formdata packaging"),
         (
             "format=\"html\"",
@@ -1275,9 +1331,9 @@ fn more_click_events_than_an_activation_runs_end_on_its_limit_and_keep_nothing()
     assert!(activation.edits.is_empty(), "{:?}", activation.edits);
 }
 
-/// A field carrying a hundred thousand `click` events that each `submit` in the default `xdp`
-/// packaging runs no script and holds none of them; the report keeps one sentence for them, since they say the same
-/// thing, and the walk over them is held to the template's elements, which the XML reader bounds.
+/// A field carrying a hundred thousand `click` events that each `submit` with no `target` (page
+/// 860) runs no script and holds none of them; the report keeps one sentence for them, since they
+/// say the same thing, and the walk over them is held to the template's elements, which the XML reader bounds.
 #[test]
 fn a_hundred_thousand_click_events_that_submit_are_reported_once() {
     let events = "<event activity=\"click\"><submit/></event>".repeat(100_000);
@@ -1292,7 +1348,7 @@ fn a_hundred_thousand_click_events_that_submit_are_reported_once() {
         activation
             .report
             .iter()
-            .filter(|sentence| sentence.contains("submit asks for the xdp packaging"))
+            .filter(|sentence| sentence.contains("submit states no target"))
             .count(),
         1,
         "{:?}",
@@ -3656,8 +3712,11 @@ fn where_no_script_runs_a_click_still_holds_its_events_submit() {
     let [submit] = activation.submits.as_slice() else {
         panic!("one submit is held: {:?}", activation.submits);
     };
-    assert_eq!(submit.action.url, "https://example.invalid/form");
-    assert_eq!(submit.action.flags.0, bits(&[9, 2]));
+    let pdf_model::xfa::FormBody::Action(action) = &submit.body else {
+        panic!("a submit-form action: {:?}", submit.body);
+    };
+    assert_eq!(action.url, "https://example.invalid/form");
+    assert_eq!(action.flags.0, bits(&[9, 2]));
     assert_eq!(submit.clicked, Some((name("Send"), None)));
     // A submit's own preSubmit still begins no submit inside it (page 446), with or without
     // scripts.

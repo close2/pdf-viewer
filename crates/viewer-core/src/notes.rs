@@ -352,15 +352,15 @@ pub(crate) fn what_a_print_does_not_do(document: &Document) -> Vec<String> {
 /// format test, naming each failure on the submission (ADR 2475); the form is put to its format
 /// tests when it is shown and an entry to its field's as it is made, and the `submit` an event
 /// states in a script's place is made, at every level, since neither is a script (ADRs 2727,
-/// 2767). A reader
+/// 2767), in each packaging XFA 3.3 page 859 defines a body for: PDF, XFDF, URL-encoded, the
+/// form's XDP packets and its XML data (ADR 2771). A reader
 /// whose level lets scripts run also carries out the form's calculations, its validation scripts
 /// and the events its containers raise when it is shown, at a person's entry, focus, click and
 /// pointer, at a choice list's selection, at a save and a submit and at a change of validation
 /// state, with how a person committed or abandoned a field's value, in `FormCalc` and in
-/// JavaScript, and the `submit` an event states where it asks for a body a submit-form action
-/// composes (ADRs 2524, 2525, 2545, 2566, 2584, 2606, 2627, 2647, 2696, 2702, 2706, 2707, 2726,
-/// 2738, 2755, 2756), as ledger row K.2 lists them. So what is not carried out is its
-/// other events and packagings, and its scripts where scripts do not run.
+/// JavaScript (ADRs 2524, 2525, 2545, 2566, 2584, 2606, 2627, 2647, 2696, 2702, 2706, 2707, 2726,
+/// 2738, 2755, 2756), as ledger row K.2 lists them. So what is not carried out is its other
+/// events, a submit that asks to be signed or encrypted, and its scripts where scripts do not run.
 fn xfa_form(document: &Document, notes: &mut Vec<String>) {
     let Some(stated) = pdf_model::xfa::stated(document) else {
         return;
@@ -375,15 +375,16 @@ fn xfa_form(document: &Document, notes: &mut Vec<String>) {
                           cannot and any field the form's validations find empty or of the wrong \
                           type, and submitting it names the same; a value the form's format \
                           test refuses is said when the form is shown and an entry it refuses \
-                          as it is made, and a submit the form's events state as a PDF, XFDF or \
-                          URL-encoded body is made at every level, since neither is a script — \
+                          as it is made, and a submit the form's events state as a PDF, XFDF, \
+                          URL-encoded, XDP or XML body is made at every level, since neither is \
+                          a script — \
                           what only the XFA resource states beyond that is not carried out, its \
                           calculations, its validation scripts and the scripts of the events a \
                           person's actions, the form's opening, a save, a submit and a change of \
                           validation state raise, in FormCalc and JavaScript, excepted where \
                           this reader lets scripts run, a save those scripts decline being \
-                          written or not at the level set for it, and its other events and \
-                          packagings are not"
+                          written or not at the level set for it, and its other events and a \
+                          submit that asks to be signed or encrypted are not"
             .to_owned(),
         (true, true) => format!(
             "this document is an XFA form that asks to be regenerated when it is opened \
@@ -3878,6 +3879,7 @@ mod tests {
                 && hybrid.contains("keeps the form's XFA data consistent")
                 && hybrid.contains("an entry it refuses")
                 && hybrid.contains("is made at every level")
+                && hybrid.contains("URL-encoded, XDP or XML body")
                 && !hybrid.contains("§K.1"),
             "{hybrid}"
         );

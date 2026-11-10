@@ -259,6 +259,31 @@ fn every_carried_event_round_trips() {
                 owed: Vec::new(),
             }),
         },
+        // XFA 3.3 page 859's two XML packagings a hybrid form's own `submit` asks for (ADR 2771).
+        Event::Submit {
+            document,
+            submission: Box::new(Submission {
+                url: "https://example.invalid/xdp".to_owned(),
+                method: Method::Post,
+                format: Format::Xdp,
+                media_type: "application/vnd.adobe.xdp+xml".to_owned(),
+                body: b"<xdp:xdp xmlns:xdp=\"http://ns.adobe.com/xdp/\"/>".to_vec(),
+                fields: 0,
+                owed: Vec::new(),
+            }),
+        },
+        Event::Submit {
+            document,
+            submission: Box::new(Submission {
+                url: "https://example.invalid/xml".to_owned(),
+                method: Method::Post,
+                format: Format::Xml,
+                media_type: "text/xml".to_owned(),
+                body: b"<form1/>".to_vec(),
+                fields: 0,
+                owed: Vec::new(),
+            }),
+        },
         Event::Reported {
             document,
             page: Some(0),

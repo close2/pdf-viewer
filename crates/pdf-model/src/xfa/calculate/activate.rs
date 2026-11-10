@@ -477,13 +477,13 @@ pub struct Activation {
 /// repeats one from turning a click into a burst of requests.
 pub const MAX_SUBMITS: usize = 4;
 
-/// A `submit` an event performed (XFA 3.3 pages 450–453 and 858–861; ADR 2738): the submit-form
-/// action whose composition is the body the `submit` asks for, which a host carries out between
-/// the form's `preSubmit` and `postSubmit` events as page 446's standard submit processing has it.
+/// A `submit` an event performed (XFA 3.3 pages 450–453 and 858–861; ADRs 2738, 2771): the body
+/// the `submit` asks for, which a host carries out between the form's `preSubmit` and `postSubmit`
+/// events as page 446's standard submit processing has it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormSubmit {
-    /// The submit-form action, `/F` the `submit`'s `target`.
-    pub action: crate::action::SubmitForm,
+    /// The submit-form action, `/F` the `submit`'s `target`, or the packaging it asks for.
+    pub body: crate::xfa::FormBody,
     /// The container whose event performed it and the event's activity, for a sentence.
     pub label: String,
     /// The field the person's action that raised it was on, by PDF field name, and its button's on
@@ -1844,8 +1844,8 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
                     "{label}: its {activity} event's submit is not performed: the activation \
                      has already performed {MAX_SUBMITS}, the most it sends"
                 )),
-                Ok((action, owed)) => self.submits.push(FormSubmit {
-                    action,
+                Ok((body, owed)) => self.submits.push(FormSubmit {
+                    body,
                     label: format!("{label}'s {activity} event"),
                     clicked: match &self.origin {
                         Origin::Click(clicked) => Some(clicked.clone()),

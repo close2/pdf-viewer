@@ -82,6 +82,7 @@ mod canonical;
 mod config;
 mod datasets;
 mod locale;
+mod package;
 mod picture;
 mod submit;
 mod template;
@@ -96,6 +97,8 @@ pub use calculate::{
 pub use config::Config;
 pub use datasets::{Change, Datasets, Kept};
 pub use locale::LocaleSet;
+pub use package::{Content, Packaged, Packaging};
+pub use submit::FormBody;
 pub use template::{Language, Override, Template};
 pub use xml::XmlError;
 
@@ -299,6 +302,73 @@ impl Resource {
             Some(Err(error)) => LocaleSet::unreadable(error.to_string()),
         }
     }
+}
+
+/// The whole resource as one XDP document (§K.2: "\[t]he format of an XFA resource is described in
+/// the XML Data Package (XDP) Specification"): the stream of the first form, or the packets of the
+/// second in the array's order, whose first and last "specify begin and end tags for the xdp:xdp
+/// element", so that their texts together are the document. An array whose first packet is not
+/// that begin tag still names the packets the resource is made of, and they are read inside the
+/// root page 1041 of XFA 3.3 names, declared as its page 1035 asks — a reading of a file §K.2's
+/// sentence does not describe, so that its form is still submitted whole. `None` where the form
+/// dictionary states no resource. The whole is held to [`MAX_PACKET_BYTES`].
+fn resource_text(document: &Document) -> Option<Result<(String, xml::Tree), ResourceError>> {
+    let catalog = document.catalog().ok()?;
+    let form = document.get_key(&catalog, "AcroForm");
+    let form = form.as_dict()?;
+    let packets = match form.get("XFA")?.clone() {
+        Object::Reference(id) => match document.get(id) {
+            Object::Stream(_) => return Some(packet(document, id, "XDP")),
+            Object::Array(packets) => packets,
+            _ => return None,
+        },
+        Object::Array(packets) => packets,
+        _ => return None,
+    };
+    let rooted = matches!(packets.first(), Some(Object::String(name)) if pdf_syntax::text_string(name) == "xdp:xdp");
+    let mut whole = Vec::new();
+    if !rooted {
+        whole.extend_from_slice(b"<xdp:xdp xmlns:xdp=\"http://ns.adobe.com/xdp/\">");
+    }
+    let ids = packet_streams(&packets);
+    for id in ids {
+        let object = document.get(id);
+        let Some(bytes) = object
+            .as_stream()
+            .and_then(|stream| document.decoded_stream_data(stream))
+        else {
+            return Some(Err(ResourceError::Undecodable("XDP")));
+        };
+        if whole.len().saturating_add(bytes.len()) > MAX_PACKET_BYTES {
+            return Some(Err(ResourceError::TooLarge {
+                packet: "XDP",
+                bytes: whole.len().saturating_add(bytes.len()),
+            }));
+        }
+        whole.extend_from_slice(&bytes);
+    }
+    if !rooted {
+        whole.extend_from_slice(b"</xdp:xdp>");
+    }
+    Some(
+        xml::parse(&whole)
+            .map(|tree| (String::from_utf8_lossy(&whole).into_owned(), tree))
+            .map_err(|error| ResourceError::Xml {
+                packet: "XDP",
+                error,
+            }),
+    )
+}
+
+/// The streams of §K.2's array, in its order: the second of each name-and-stream pair.
+fn packet_streams(packets: &[Object]) -> Vec<ObjectId> {
+    packets
+        .chunks_exact(2)
+        .filter_map(|pair| match pair {
+            [_, Object::Reference(id)] => Some(*id),
+            _ => None,
+        })
+        .collect()
 }
 
 /// One packet's stream, decoded under [`MAX_PACKET_BYTES`] and parsed.

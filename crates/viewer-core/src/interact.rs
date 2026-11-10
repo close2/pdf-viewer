@@ -678,13 +678,22 @@ fn submitted(
     outcome: &mut Outcome,
 ) {
     let origin = Raiser::Widget(click.and_then(|click| click.widget));
-    carry_out(document, view, submit, click, origin, subject, outcome);
+    carry_out(
+        document,
+        view,
+        Composing::Action(submit, click),
+        origin,
+        subject,
+        outcome,
+    );
 }
 
 /// A `submit` a hybrid form's own event performed (XFA 3.3 pages 450–453 and 858; ADR 2738), carried
 /// out as the submit-form action it states, between the form's `preSubmit` and `postSubmit` events
 /// as for one a widget's action states: page 446's standard submit processing is the same for
-/// both. What the `submit` asked for that the composition does not do is said first.
+/// both, and so is the path to the host for page 859's `xdp` and `xml` packagings, which no
+/// submit-form action states (ADR 2771). What the `submit` asked for that the composition does
+/// not do is said first.
 pub(crate) fn form_submitted(
     document: &Document,
     view: &mut pdf_model::view::ViewState,
@@ -699,15 +708,20 @@ pub(crate) fn form_submitted(
             .map(|owed| format!("{subject} submits — {owed}")),
     );
     let origin = Raiser::Form(submit.clicked.as_ref());
-    carry_out(
-        document,
-        view,
-        &submit.action,
-        None,
-        origin,
-        &subject,
-        outcome,
-    );
+    let composing = match &submit.body {
+        pdf_model::xfa::FormBody::Action(action) => Composing::Action(action, None),
+        pdf_model::xfa::FormBody::Packaged(packaged) => Composing::Packaged(packaged),
+    };
+    carry_out(document, view, composing, origin, &subject, outcome);
+}
+
+/// What a submit composes its body from.
+#[derive(Clone, Copy)]
+enum Composing<'a> {
+    /// A submit-form action, with the click that invoked it where one did (Table 240 bit 5).
+    Action(&'a pdf_model::action::SubmitForm, Option<&'a Click>),
+    /// A hybrid form's `submit` asking for XFA 3.3 page 859's `xdp` or `xml` packaging.
+    Packaged(&'a pdf_model::xfa::Packaged),
 }
 
 /// What raised a submit, which the form's `preSubmit` and `postSubmit` events read their primary
@@ -745,8 +759,7 @@ impl Raiser<'_> {
 fn carry_out(
     document: &Document,
     view: &mut pdf_model::view::ViewState,
-    submit: &pdf_model::action::SubmitForm,
-    click: Option<&Click>,
+    composing: Composing<'_>,
     origin: Raiser<'_>,
     subject: &str,
     outcome: &mut Outcome,
@@ -759,7 +772,15 @@ fn carry_out(
         origin.after(document, view);
         return;
     }
-    match pdf_model::submission::compose(document, view, submit, click) {
+    let composed = match composing {
+        Composing::Action(submit, click) => {
+            pdf_model::submission::compose(document, view, submit, click)
+        }
+        Composing::Packaged(packaged) => {
+            pdf_model::submission::compose_packaged(document, view, packaged)
+        }
+    };
+    match composed {
         Ok(submission) => {
             // Trap 5: every flag the action set that this composition does not carry out arrives
             // as a sentence, because a submission quietly missing one is a submission that

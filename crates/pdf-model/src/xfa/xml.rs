@@ -7,6 +7,7 @@
 //! `xmlparser`'s, the tokenizer XMP and XFDF already use, under the depth and element budgets
 //! below, because a packet is a stream's decoded bytes and as hostile as any (principle 3).
 
+use std::fmt::Write as _;
 use std::ops::Range;
 
 /// The deepest element nesting this module follows.
@@ -54,8 +55,17 @@ pub(crate) struct Element {
     pub(crate) children: Vec<usize>,
     /// The element's direct character data, references expanded and CDATA taken as written.
     pub(crate) text: String,
+    /// The `<` that begins the start tag.
+    pub(crate) start: usize,
     /// The `>` or `/>` that ends the start tag.
     pub(crate) start_end: Range<usize>,
+    /// Just past the end tag, or past the `/>` of an empty-element tag: with [`Self::start`],
+    /// the element's whole text.
+    pub(crate) end: usize,
+    /// The namespace declarations its start tag makes, each its prefix (empty for the default
+    /// namespace) and its name — what an element taken out of the packet still needs where it
+    /// uses a prefix an ancestor declared ([`Tree::extracted`]).
+    pub(crate) declarations: Vec<(String, String)>,
     /// What lies between the start tag and the end tag; `None` for an empty-element tag.
     pub(crate) content: Option<Range<usize>>,
     /// The processing instructions among its content, each its target and what follows it, at
@@ -64,6 +74,24 @@ pub(crate) struct Element {
 }
 
 impl Element {
+    /// An element whose start tag begins with `span` (`<` and the name), before its attributes,
+    /// children and end are read.
+    fn opened(local: &str, span: xmlparser::StrSpan<'_>) -> Self {
+        Self {
+            local: local.to_owned(),
+            qualified: span.as_str().trim_start_matches('<').to_owned(),
+            attributes: Vec::new(),
+            children: Vec::new(),
+            text: String::new(),
+            start: span.start(),
+            start_end: span.end()..span.end(),
+            end: span.end(),
+            declarations: Vec::new(),
+            content: None,
+            instructions: Vec::new(),
+        }
+    }
+
     /// The value of the attribute of this local name.
     pub(crate) fn attribute(&self, local: &str) -> Option<&str> {
         self.attributes
@@ -92,6 +120,48 @@ impl Tree {
             self.get(child)
                 .is_some_and(|element| element.local == local)
         })
+    }
+
+    /// The text of the element at `at`, out of the packet `text` this tree was parsed from, with
+    /// every namespace declaration an ancestor makes, and the element and its own do not, written
+    /// into its start tag: an element taken out of its packet keeps the names it was read with
+    /// (Namespaces in XML 1.0 section 6.1's scope, which ends with the element that declares).
+    /// `None` where `at` is not an element of this tree or `text` is not its packet.
+    pub(crate) fn extracted(&self, text: &str, at: usize) -> Option<String> {
+        let element = self.get(at)?;
+        let mut inherited: Vec<(&str, &str)> = Vec::new();
+        // Elements are in document order, so an ancestor is an earlier element whose text
+        // encloses this one's, and the outermost comes first.
+        for ancestor in self.elements.get(..at)? {
+            if ancestor.start <= element.start && element.end <= ancestor.end {
+                for (prefix, name) in &ancestor.declarations {
+                    inherited.retain(|(kept, _)| kept != prefix);
+                    inherited.push((prefix, name));
+                }
+            }
+        }
+        inherited.retain(|(prefix, _)| {
+            !element
+                .declarations
+                .iter()
+                .any(|(own, _)| own.as_str() == *prefix)
+        });
+        let name_end = element
+            .start
+            .checked_add(1)?
+            .checked_add(element.qualified.len())?;
+        let mut out = String::with_capacity(element.end.saturating_sub(element.start));
+        out.push_str(text.get(element.start..name_end)?);
+        for (prefix, name) in inherited {
+            let quoted = escape(name).replace('"', "&quot;");
+            if prefix.is_empty() {
+                let _ = write!(out, " xmlns=\"{quoted}\"");
+            } else {
+                let _ = write!(out, " xmlns:{prefix}=\"{quoted}\"");
+            }
+        }
+        out.push_str(text.get(name_end..element.end)?);
+        Some(out)
     }
 
     /// The first element of this local name, at any depth — how a whole-resource stream's
@@ -130,27 +200,25 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Tree, XmlError> {
                 if let Some(parent) = open.last().and_then(|&parent| elements.get_mut(parent)) {
                     parent.children.push(index);
                 }
-                let qualified = span.as_str().trim_start_matches('<').to_owned();
-                elements.push(Element {
-                    local: local.as_str().to_owned(),
-                    qualified,
-                    attributes: Vec::new(),
-                    children: Vec::new(),
-                    text: String::new(),
-                    start_end: span.end()..span.end(),
-                    content: None,
-                    instructions: Vec::new(),
-                });
+                elements.push(Element::opened(local.as_str(), span));
                 open.push(index);
                 content_from.push(span.end());
             }
-            xmlparser::Token::Attribute { local, value, .. } => {
+            xmlparser::Token::Attribute {
+                prefix,
+                local,
+                value,
+                ..
+            } => {
                 let element = open
                     .last()
                     .and_then(|&index| elements.get_mut(index))
                     .ok_or_else(unbalanced)?;
                 let mut expanded = String::with_capacity(value.len());
                 crate::xmp::unescape(value.as_str(), &mut expanded);
+                if let Some(declared) = declared(prefix.as_str(), local.as_str()) {
+                    element.declarations.push((declared, expanded.clone()));
+                }
                 element
                     .attributes
                     .push((local.as_str().to_owned(), expanded));
@@ -171,6 +239,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Tree, XmlError> {
                     content_from.pop();
                     let element = elements.get_mut(index).ok_or_else(unbalanced)?;
                     element.start_end = span.range();
+                    element.end = span.end();
                 }
                 xmlparser::ElementEnd::Close(prefix, local) => {
                     let index = open.pop().ok_or_else(unbalanced)?;
@@ -191,6 +260,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Tree, XmlError> {
                         )));
                     }
                     element.content = Some(from..span.start());
+                    element.end = span.end();
                 }
             },
             other => content(
@@ -205,6 +275,18 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Tree, XmlError> {
         return Err(XmlError::Malformed("an element is left open".to_owned()));
     }
     Ok(Tree { elements })
+}
+
+/// The prefix an attribute declares a namespace for — empty for `xmlns` itself, the default — or
+/// `None` where it declares none (Namespaces in XML 1.0 section 3).
+fn declared(prefix: &str, local: &str) -> Option<String> {
+    if prefix == "xmlns" {
+        Some(local.to_owned())
+    } else if prefix.is_empty() && local == "xmlns" {
+        Some(String::new())
+    } else {
+        None
+    }
 }
 
 /// Adds what a token of content holds to the open `element`: character data, references
@@ -296,5 +378,27 @@ mod tests {
         let written = format!("<v>{}</v>", escape("one\rtwo & <three>"));
         let tree = parse(written.as_bytes()).expect("well formed");
         assert_eq!(tree.get(0).expect("v").text, "one\rtwo & <three>");
+    }
+
+    /// Namespaces in XML 1.0 section 6.1: a declaration is in scope in the element that makes it
+    /// and its descendants, unless one of them redeclares the prefix. An element taken out keeps
+    /// the declarations of its ancestors it does not make itself, the innermost winning, and the
+    /// rest of its text byte for byte; an empty-element tag is whole too.
+    #[test]
+    fn an_element_taken_out_keeps_the_namespaces_in_scope_around_it() {
+        let text = "<r xmlns:x=\"urn:outer\" xmlns=\"urn:default\"><s xmlns:x=\"urn:inner\">\
+                    <form1 x:dataNode=\"dataGroup\" xmlns=\"urn:own\"><a>1</a></form1><e/></s></r>";
+        let tree = parse(text.as_bytes()).expect("well formed");
+        assert_eq!(
+            tree.extracted(text, 2).as_deref(),
+            Some(
+                "<form1 xmlns:x=\"urn:inner\" x:dataNode=\"dataGroup\" xmlns=\"urn:own\"><a>1</a></form1>"
+            )
+        );
+        assert_eq!(
+            tree.extracted(text, 4).as_deref(),
+            Some("<e xmlns=\"urn:default\" xmlns:x=\"urn:inner\"/>")
+        );
+        assert_eq!(tree.extracted(text, 9), None);
     }
 }

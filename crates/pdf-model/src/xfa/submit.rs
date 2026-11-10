@@ -14,10 +14,14 @@
 //! of its own where the XFA resource gives the field actions (Annex K), so the template's
 //! `submit` is the only statement of the submit the file makes.
 //!
+//! **The other two are XML of the form's own**, and [`super::package`] writes them: `xdp`, which
+//! page 597's convention makes the default, chapter 23's packaging of the form's packets, and
+//! `xml`, chapter 4's unloading of its data (page 149). Neither is a body Table 240 has a bit for,
+//! so [`Submit::action`] states those as a [`super::Packaged`] and the host's submit level decides
+//! them through the same path (ADR 2771).
+//!
 //! What is not composed is named where the event fires, and nothing is sent:
 //!
-//! - `xdp`, which page 597's convention makes the default, and `xml`: chapter 23's packaging and
-//!   chapter 15's data unloading, which this reader does not write.
 //! - `formdata`: page 859 says only that it emulates the URL-encoding of certain legacy software
 //!   and names neither the software nor the encoding, so no body can be derived from it.
 //! - A `submit` holding `signData`, `encrypt` or `encryptData`: page 453's client steps 3 and 4
@@ -32,6 +36,7 @@
 //! one page 722 tells a client to ignore, and runs nothing, which is the whole of what the client
 //! owes it; any other is named.
 
+use super::package::{Content, Packaged, Packaging};
 use super::xml::{Element, Tree};
 use crate::action::{SubmitFlags, SubmitForm};
 
@@ -59,11 +64,37 @@ pub(crate) struct Submit {
     /// Whether it holds an `encrypt` or an `encryptData` child (page 858), which page 453's
     /// step 4 performs.
     encrypts: bool,
+    /// Its `embedPDF` (page 858): `1` embeds the document in an `xdp` body's `pdf` packet; `0`,
+    /// the underlined default, does not.
+    embed_pdf: bool,
+    /// Its `xdpContent` (page 861), read.
+    xdp_content: Content,
+}
+
+/// What an event's `submit` sends: the submit-form action composing a body Table 240 names, or one
+/// of the two XML packagings that are the form's own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FormBody {
+    /// `pdf`, `xfd` or `urlencoded`: the submit-form action asking for that body.
+    Action(SubmitForm),
+    /// `xdp` or `xml`.
+    Packaged(Packaged),
+}
+
+impl FormBody {
+    /// Where the body is posted: the `submit`'s `target` (page 860).
+    #[must_use]
+    pub fn url(&self) -> &str {
+        match self {
+            Self::Action(action) => &action.url,
+            Self::Packaged(packaged) => &packaged.url,
+        }
+    }
 }
 
 /// What a [`Submit`] comes to: the submit-form action that composes the body it asks for, and
 /// what of it that composition does not do, or the sentence saying why nothing is sent.
-pub(crate) type Composed = Result<(SubmitForm, Vec<String>), String>;
+pub(crate) type Composed = Result<(FormBody, Vec<String>), String>;
 
 impl Submit {
     /// Reads the `submit` element at `at`.
@@ -82,11 +113,14 @@ impl Submit {
             signs: tree.child(at, "signData").is_some(),
             encrypts: tree.child(at, "encrypt").is_some()
                 || tree.child(at, "encryptData").is_some(),
+            embed_pdf: stated("embedPDF").as_deref() == Some("1"),
+            xdp_content: Content::read(submit.attribute("xdpContent")),
         }
     }
 
-    /// The submit-form action that composes the body this `submit` asks for, with what that
-    /// composition leaves undone, or why nothing is sent (the module's list).
+    /// What this `submit` sends — the submit-form action that composes the body it asks for, or
+    /// the packaging [`super::package`] writes — with what that leaves undone, or why nothing is
+    /// sent (the module's list).
     ///
     /// The flags: bit 9, 6 or 3 for the format, as the module says; bit 4 clear, since page 858
     /// submits by an HTTP POST; and bit 2, `IncludeNoValueFields`, because page 445 makes a
@@ -112,13 +146,7 @@ impl Submit {
             "pdf" => SUBMIT_PDF,
             "xfd" => XFDF,
             "urlencoded" => EXPORT_FORMAT,
-            "xdp" | "xml" => {
-                return Err(format!(
-                    "asks for the {} packaging (page 859), which this reader does not write, so \
-                     nothing is sent",
-                    self.format
-                ));
-            }
+            "xdp" | "xml" => 0,
             "formdata" => {
                 return Err(
                     "asks for the formdata packaging, which page 859 describes only as emulating \
@@ -140,7 +168,7 @@ impl Submit {
             );
         };
         let mut owed = Vec::new();
-        // Page 860: the encoding a body's text is in. A PDF states its own; the other two are
+        // Page 860: the encoding a body's text is in. A PDF states its own; the others are
         // written in UTF-8, so another encoding the template asks for is said rather than applied.
         if flags != SUBMIT_PDF
             && let Some(encoding) = &self.text_encoding
@@ -151,15 +179,26 @@ impl Submit {
                  written in UTF-8"
             ));
         }
-        Ok((
-            SubmitForm {
+        let body = match self.format.as_str() {
+            "xdp" => FormBody::Packaged(Packaged {
+                url,
+                packaging: Packaging::Xdp {
+                    content: self.xdp_content.clone(),
+                    embed_pdf: self.embed_pdf,
+                },
+            }),
+            "xml" => FormBody::Packaged(Packaged {
+                url,
+                packaging: Packaging::Xml,
+            }),
+            _ => FormBody::Action(SubmitForm {
                 url,
                 fields: Vec::new(),
                 flags: SubmitFlags(flags | INCLUDE_NO_VALUE_FIELDS),
                 charset: None,
-            },
-            owed,
-        ))
+            }),
+        };
+        Ok((body, owed))
     }
 }
 

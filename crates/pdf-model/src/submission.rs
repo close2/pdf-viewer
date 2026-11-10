@@ -134,6 +134,12 @@ pub enum Format {
     /// "PDF (in this case, the entire document shall be submitted rather than individual fields
     /// and values)".
     Pdf,
+    /// XFA 3.3 page 859's `xdp`: a hybrid form's own event asked for its packets as chapter 23's
+    /// XDP document, which [`compose_packaged`] writes.
+    Xdp,
+    /// XFA 3.3 page 859's `xml`: a hybrid form's own event asked for its data as page 149 unloads
+    /// it, which [`compose_packaged`] writes.
+    Xml,
 }
 
 impl Format {
@@ -163,6 +169,8 @@ impl Format {
             Self::HtmlForm => "application/x-www-form-urlencoded",
             Self::Xfdf => "application/xfdf",
             Self::Pdf => "application/pdf",
+            Self::Xdp => "application/vnd.adobe.xdp+xml",
+            Self::Xml => "text/xml",
         }
     }
 }
@@ -187,6 +195,15 @@ pub enum Refusal {
          composition can form, so no part boundary would separate it"
     )]
     Undelimitable,
+    /// An XFA `submit`'s `xdp` or `xml` body cannot be written from the document a save writes,
+    /// for the reason it carries.
+    #[error("the XFA form's {format} packaging (XFA 3.3 page 859) cannot be written: {why}")]
+    Unpackaged {
+        /// `xdp` or `xml`.
+        format: &'static str,
+        /// Why.
+        why: String,
+    },
 }
 
 /// The click that invoked the action, for Table 240 bit 5.
@@ -709,6 +726,68 @@ fn whole_document(
     })
 }
 
+/// Composes the body of a hybrid form's `submit` asking for XFA 3.3 page 859's `xdp` or `xml`
+/// packaging (ADR 2771).
+///
+/// Page 447's note runs the validations "for the entire form, regardless of the actual content
+/// submitted", so they are reported as for any submit-form action. The data is the document
+/// [`ViewState::save`] writes — the one place §K.2's consistency of the `datasets` packet with the
+/// `/V` entries is kept — and [`crate::xfa::Packaging`] writes the body from that file read back,
+/// so the packets sent are the packets a person saving the form would get. A password field's
+/// value, which the save keeps out, and a field the save could not write into the packet are named
+/// as they are for a whole-document submission. Always a POST: page 858's element "describes how
+/// to submit data to a host, using an HTTP POST operation".
+///
+/// # Errors
+///
+/// [`Refusal::Unsavable`] where the update cannot be appended, and [`Refusal::Unpackaged`] where
+/// the saved document does not read back or holds no body this packaging can write.
+pub fn compose_packaged(
+    document: &Document,
+    view: &ViewState,
+    packaged: &crate::xfa::Packaged,
+) -> Result<Submission, Refusal> {
+    let (format, name) = match packaged.packaging {
+        crate::xfa::Packaging::Xdp { .. } => (Format::Xdp, "xdp"),
+        crate::xfa::Packaging::Xml => (Format::Xml, "xml"),
+    };
+    let mut owed = Vec::new();
+    let table = widgets_by_field_name(document);
+    xfa_validations(document, view, &table, &mut owed);
+    let written = view.save(document)?;
+    for name in &written.withheld {
+        owed.push(format!(
+            "field {name}: a Table 231 bit 14 password, whose value is not written into the \
+             data submitted"
+        ));
+    }
+    for (name, why) in &written.xfa_unkept {
+        owed.push(format!(
+            "field {name}: its value is not in the XFA data submitted: {why}"
+        ));
+    }
+    let unpackaged = |why: String| Refusal::Unpackaged { format: name, why };
+    let saved = Document::open(written.bytes.clone()).map_err(|error| {
+        unpackaged(format!(
+            "the document a save writes does not read back: {error}"
+        ))
+    })?;
+    let body = packaged
+        .packaging
+        .body(&saved, &written.bytes, &mut owed)
+        .map_err(unpackaged)?;
+    Ok(Submission {
+        url: packaged.url.clone(),
+        method: Method::Post,
+        format,
+        media_type: format.content_type().to_owned(),
+        body: body.into_bytes(),
+        // Like the whole document's, this body names no fields to count: it is the form's data.
+        fields: 0,
+        owed,
+    })
+}
+
 /// What [`chosen`] read out of the form: the entries, and whether a file-select control is
 /// among them.
 ///
@@ -910,7 +989,9 @@ fn file_entry(
             )),
             Selected::Nothing => {}
         },
-        Format::Pdf => {}
+        // None of these reaches this function: [`compose`] returns before choosing fields for
+        // the whole document, and the two XFA packagings are [`compose_packaged`]'s.
+        Format::Pdf | Format::Xdp | Format::Xml => {}
     }
 }
 
