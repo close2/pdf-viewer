@@ -1,6 +1,7 @@
 //! The host driven with no `QApplication`: a document opened at a stated viewport and every
 //! question the C++ side asks answered from this side alone.
 
+mod choice_commit_audit;
 mod ef_host_route;
 
 use super::forms::describe_kind;

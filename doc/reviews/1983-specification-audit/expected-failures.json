@@ -355,6 +355,24 @@
       "evidence": "gtk-maxlen-native-target.log",
       "classification": "Native GTK control accepts and emits text past PDF MaxLen; actual builder/insertion/callback controls. Display required.",
       "run_scope": "GTK supplemental: xvfb-run -a cargo test -p viewer-gtk --lib max_len_audit"
+    },
+    {
+      "binary": "viewer-qt",
+      "test": "host::tests::choice_commit_audit::an_explicit_choice_commit_runs_the_acroform_validate_action",
+      "evidence": "choice-commit-target-v3.log",
+      "classification": "Choice has no pending core commit state; explicit commit skips V validation; text positive control passes."
+    },
+    {
+      "binary": "viewer-qt",
+      "test": "host::tests::choice_commit_audit::commit_on_selection_runs_the_acroform_validate_action_in_the_qt_choice_callback",
+      "evidence": "choice-commit-target-v3.log",
+      "classification": "Bit27 timing: Qt Set-only callback and core no-pending-choice semantics; not isolated host causation."
+    },
+    {
+      "binary": "pdf-model::variable_text_resource_metric_audit",
+      "test": "saved_quadding_uses_the_font_that_the_appearance_resource_name_resolves_to",
+      "evidence": "forms-metric-target.log",
+      "classification": "Right quadding measured with DR font disagrees with preserved AP font: final ink right edge167 instead178."
     }
   ]
 }

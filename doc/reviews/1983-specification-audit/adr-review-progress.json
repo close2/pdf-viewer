@@ -2,17 +2,17 @@
   "warning": "Records can overlap or cross-reference prior reviews. Selected units do not establish that every decision in an ADR was reviewed; no whole document is marked complete.",
   "adr_documents": 2233,
   "document_states": {
-    "pending": 1978,
-    "selected-decision-units-reviewed": 231,
-    "review-in-progress": 24
+    "pending": 1977,
+    "selected-decision-units-reviewed": 239,
+    "review-in-progress": 17
   },
-  "decision_review_records": 396,
-  "parent_accepted_records": 386,
+  "decision_review_records": 398,
+  "parent_accepted_records": 396,
   "cross_reference_records": 27,
   "accepted_record_conclusions": {
-    "retain-with-qualification": 177,
+    "retain-with-qualification": 181,
     "revisit": 14,
-    "retain": 107,
+    "retain": 111,
     "superseded": 15,
     "superseded-in-part": 2,
     "cross-reference-only": 26,
@@ -22,6 +22,8 @@
     "retain-with-Table-123-matrix-coverage-qualification": 1,
     "retain-with-effective-EC3-correction": 1,
     "revise": 1,
+    "retain with date-function follow-on; #1796 later superseded the bit10 deferral. Current ledger note and code incorporate bit10's supported AForm date calls; bit11 remains explicitly bounded by the remote identity boundary.": 1,
+    "retain-with-new-dispatch-control": 1,
     "retain-with-boundary": 1,
     "retain-with-ec3-qualification": 1,
     "retain-with-clause-boundary": 1,

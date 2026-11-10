@@ -970,21 +970,28 @@
         "12.7.6.3",
         "12.7.6.4"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-consumer-tests"
     },
     {
       "agent": "choice_commit_host_audit",
       "clauses": [
         "12.7.5.4"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-consumer-tests"
     },
     {
       "agent": "blend_functions_audit",
       "clauses": [
         "11.3.5"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-consumer-tests"
+    },
+    {
+      "agent": "variable_text_resource_metric_audit",
+      "clauses": [
+        "12.7.4.3"
+      ],
+      "state": "parent-reviewed-partial-with-consumer-tests"
     }
   ]
 }

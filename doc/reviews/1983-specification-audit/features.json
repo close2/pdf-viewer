@@ -5763,6 +5763,335 @@
     "superseded": false
   },
   {
+    "clause": "11.3.5.1",
+    "feature_id": "blend-families-and-selection",
+    "requirement": "Blend modes are divided into separable and non-separable families; standard modes are the functions in Tables 134 and 135.",
+    "source_location": "ISO32000-2 §11.3.5: general physical407/printed392; separable definition408/393, Table134 physical409–411/printed394–396; helpers411–412/396–397 and Table135 physical413/printed398.",
+    "errata": "EC3 Issue #345, physical p.407 (printed p.392), clarifies Figures 72–73 are illustrative only, not pixel/color precise. No formula change.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/ext_gstate.rs::known_blend_mode and stated_blend_mode",
+      "crates/pdf-render/src/lib.rs BlendMode and rasterizer routing"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency.rs::a_blend_mode_array_takes_the_first_name_this_reader_knows",
+      "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_every_blend_mode",
+      "crates/render-raster/tests/headless_quorra.rs::cpu_and_quorra_agree_on_all_sixteen_blend_modes"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The mode-family enum and decoder select Normal/recognized blend modes; the cross-backend scenes cover all sixteen modes. Reader routing is reachable from parsed PDF commands through DisplayList to CPU/GPU/Quorra. Cross-backend equality alone is not an independent formula oracle; the figure erratum prevents using the figures as exact expected colors. Parent independently checked Table134/135 equations and corrected the draft HardLight green from143 to163, distinguishing it from Overlay143. All three new tests pass, including special PDF2 Dodge(0,1)=0 and Burn(1,0)=1, SoftLight cubic low domain, and four nonseparable RGB expected outputs. This closes these selected oracle gaps; Gray conversion and clipping follow-up are separate.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "test_result": "blend-oracle-target.log:3PASS, all16 modes sampled with literal formula-derived expected values; selected Dodge/Burn endpoints and SoftLight branches pass. Display-list CPU only; no new GPU or PDF parser claim.",
+    "reviewer": "blend_functions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.5.2",
+    "feature_id": "separable-application-and-spot-color-constraint",
+    "requirement": "Separable functions operate component by component; only white-preserving separable blend modes shall be used for blending spot colours.",
+    "source_location": "ISO32000-2 §11.3.5: general physical407/printed392; separable definition408/393, Table134 physical409–411/printed394–396; helpers411–412/396–397 and Table135 physical413/printed398.",
+    "errata": "EC3 #345 applies only to illustrative figures. No change to this prose.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/convert.rs::blend_mode",
+      "raster/crates/raster-scene/src/blend.rs",
+      "crates/render-gpu/src/lib.rs blend shader routing",
+      "crates/pdf-model/src/content/colour.rs (spot-color processing; inspect as separate §11.7.3 scope)"
+    ],
+    "test_refs": [
+      "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_every_blend_mode",
+      "crates/render-raster/tests/headless_quorra.rs::cpu_and_quorra_agree_on_all_sixteen_blend_modes",
+      "crates/render-cpu/tests/separable_blend_oracle_audit.rs::opaque_separable_modes_match_table_134_at_an_interior_pixel"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "For ordinary RGB blend inputs the twelve listed modes route to tiny-skia on CPU and their counterparts on GPU/Quorra; a PDF spot-color writer restriction is not a requirement for readers to reject non-white-preserving inputs. Spot-color separation behavior is adjacent §11.7.3 and is not fully audited here. Parent independently checked Table134/135 equations and corrected the draft HardLight green from143 to163, distinguishing it from Overlay143. All three new tests pass, including special PDF2 Dodge(0,1)=0 and Burn(1,0)=1, SoftLight cubic low domain, and four nonseparable RGB expected outputs. This closes these selected oracle gaps; Gray conversion and clipping follow-up are separate.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "test_result": "blend-oracle-target.log:3PASS, all16 modes sampled with literal formula-derived expected values; selected Dodge/Burn endpoints and SoftLight branches pass. Display-list CPU only; no new GPU or PDF parser claim.",
+    "reviewer": "blend_functions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.5.2",
+    "feature_id": "normal-compatible",
+    "requirement": "Normal returns the source component; Compatible is identical to Normal. PDF 2.0 writers shall not use the deprecated Compatible mode.",
+    "source_location": "ISO32000-2 §11.3.5: general physical407/printed392; separable definition408/393, Table134 physical409–411/printed394–396; helpers411–412/396–397 and Table135 physical413/printed398.",
+    "errata": "No direct errata; EC3 #345 concerns the figures only.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/convert.rs::blend_mode",
+      "crates/render-gpu/src/lib.rs blend shader",
+      "crates/pdf-model/src/content.rs blend name mapping"
+    ],
+    "test_refs": [
+      "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_every_blend_mode",
+      "crates/render-cpu/tests/separable_blend_oracle_audit.rs::opaque_separable_modes_match_table_134_at_an_interior_pixel"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Normal and Compatible names map to their mode values and participate in the all-mode scene; for opaque source/backdrop the scene compares backend outputs. Writer-side Compatible prohibition is not an obligation to reject a reader input. Parent independently checked Table134/135 equations and corrected the draft HardLight green from143 to163, distinguishing it from Overlay143. All three new tests pass, including special PDF2 Dodge(0,1)=0 and Burn(1,0)=1, SoftLight cubic low domain, and four nonseparable RGB expected outputs. This closes these selected oracle gaps; Gray conversion and clipping follow-up are separate.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "test_result": "blend-oracle-target.log:3PASS, all16 modes sampled with literal formula-derived expected values; selected Dodge/Burn endpoints and SoftLight branches pass. Display-list CPU only; no new GPU or PDF parser claim.",
+    "reviewer": "blend_functions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.5.2",
+    "feature_id": "multiply-screen",
+    "requirement": "Multiply is cb×cs; Screen is 1−((1−cb)(1−cs)), component by component.",
+    "source_location": "ISO32000-2 §11.3.5: general physical407/printed392; separable definition408/393, Table134 physical409–411/printed394–396; helpers411–412/396–397 and Table135 physical413/printed398.",
+    "errata": "No direct formula errata.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/convert.rs::blend_mode",
+      "crates/render-gpu/src/lib.rs blend shader"
+    ],
+    "test_refs": [
+      "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_every_blend_mode",
+      "crates/render-raster/tests/headless_quorra.rs::cpu_and_quorra_agree_on_all_sixteen_blend_modes",
+      "crates/render-cpu/tests/separable_blend_oracle_audit.rs::opaque_separable_modes_match_table_134_at_an_interior_pixel",
+      "crates/render-cpu/tests/separable_blend_oracle_audit.rs::opaque_separable_modes_match_table_134_at_an_interior_pixel"
+    ],
+    "verdict": "confirmed-selected-formula-oracles",
+    "evidence": "Cross-backend comparisons exercise varying color bands, but no inspected test holds either result to an independently calculated absolute result. Scratch draft supplies formula-derived interior-pixel expectations for all twelve modes. Parent independently checked Table134/135 equations and corrected the draft HardLight green from143 to163, distinguishing it from Overlay143. All three new tests pass, including special PDF2 Dodge(0,1)=0 and Burn(1,0)=1, SoftLight cubic low domain, and four nonseparable RGB expected outputs. This closes these selected oracle gaps; Gray conversion and clipping follow-up are separate.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "test_result": "blend-oracle-target.log:3PASS, all16 modes sampled with literal formula-derived expected values; selected Dodge/Burn endpoints and SoftLight branches pass. Display-list CPU only; no new GPU or PDF parser claim.",
+    "reviewer": "blend_functions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-formula-oracles",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.5.2",
+    "feature_id": "darken-lighten",
+    "requirement": "Darken returns min(cb,cs); Lighten returns max(cb,cs), per component.",
+    "source_location": "ISO32000-2 §11.3.5: general physical407/printed392; separable definition408/393, Table134 physical409–411/printed394–396; helpers411–412/396–397 and Table135 physical413/printed398.",
+    "errata": "No direct formula errata.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/convert.rs::blend_mode",
+      "crates/render-gpu/src/lib.rs blend shader"
+    ],
+    "test_refs": [
+      "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_every_blend_mode",
+      "crates/render-raster/tests/headless_quorra.rs::cpu_and_quorra_agree_on_all_sixteen_blend_modes",
+      "crates/render-cpu/tests/separable_blend_oracle_audit.rs::opaque_separable_modes_match_table_134_at_an_interior_pixel",
+      "crates/render-cpu/tests/separable_blend_oracle_audit.rs::opaque_separable_modes_match_table_134_at_an_interior_pixel"
+    ],
+    "verdict": "confirmed-selected-formula-oracles",
+    "evidence": "Mode is exercised in a three-band backdrop/source scene and compared across implementations; no direct expected pixel asserts the min/max formulas. Parent independently checked Table134/135 equations and corrected the draft HardLight green from143 to163, distinguishing it from Overlay143. All three new tests pass, including special PDF2 Dodge(0,1)=0 and Burn(1,0)=1, SoftLight cubic low domain, and four nonseparable RGB expected outputs. This closes these selected oracle gaps; Gray conversion and clipping follow-up are separate.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "test_result": "blend-oracle-target.log:3PASS, all16 modes sampled with literal formula-derived expected values; selected Dodge/Burn endpoints and SoftLight branches pass. Display-list CPU only; no new GPU or PDF parser claim.",
+    "reviewer": "blend_functions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-formula-oracles",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.5.2",
+    "feature_id": "color-dodge-burn",
+    "requirement": "ColorDodge and ColorBurn use the Table 134 piecewise edge conditions, including cb=0/cb≥1−cs and cb=1/1−cb≥cs.",
+    "source_location": "ISO32000-2 §11.3.5: general physical407/printed392; separable definition408/393, Table134 physical409–411/printed394–396; helpers411–412/396–397 and Table135 physical413/printed398.",
+    "errata": "No direct formula errata. The PDF 2.0 edge cases differ from ISO 32000-1 and are stated in Notes 11 and 13.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/convert.rs::blend_mode (tiny-skia mapping)",
+      "crates/render-gpu/src/lib.rs blend shader"
+    ],
+    "test_refs": [
+      "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_every_blend_mode",
+      "crates/render-cpu/tests/separable_blend_oracle_audit.rs::opaque_separable_modes_match_table_134_at_an_interior_pixel",
+      "crates/render-cpu/tests/separable_blend_oracle_audit.rs::dodge_burn_piecewise_edges_and_softlight_low_domain_are_formula_derived",
+      "crates/render-cpu/tests/separable_blend_oracle_audit.rs::opaque_separable_modes_match_table_134_at_an_interior_pixel"
+    ],
+    "verdict": "confirmed-selected-formula-oracles",
+    "evidence": "Scene bands test interior pairs but do not assert the special Table 134 boundaries cb=0, cb=1, cs=0 or cs=1. No independently expected edge-case consumer assertion was found in inspected source/tests. New endpoint assertion now covers the selected edge-specific residual. Parent independently checked Table134/135 equations and corrected the draft HardLight green from143 to163, distinguishing it from Overlay143. All three new tests pass, including special PDF2 Dodge(0,1)=0 and Burn(1,0)=1, SoftLight cubic low domain, and four nonseparable RGB expected outputs. This closes these selected oracle gaps; Gray conversion and clipping follow-up are separate.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "test_result": "blend-oracle-target.log:3PASS, all16 modes sampled with literal formula-derived expected values; selected Dodge/Burn endpoints and SoftLight branches pass. Display-list CPU only; no new GPU or PDF parser claim.",
+    "reviewer": "blend_functions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-formula-oracles",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.5.2",
+    "feature_id": "hardlight-overlay",
+    "requirement": "HardLight chooses Multiply/Screen according to cs≤0.5; Overlay applies HardLight with operands exchanged, choosing according to cb.",
+    "source_location": "ISO32000-2 §11.3.5: general physical407/printed392; separable definition408/393, Table134 physical409–411/printed394–396; helpers411–412/396–397 and Table135 physical413/printed398.",
+    "errata": "No direct formula errata.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/convert.rs::blend_mode",
+      "crates/render-gpu/src/lib.rs blend shader"
+    ],
+    "test_refs": [
+      "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_every_blend_mode",
+      "crates/render-cpu/tests/separable_blend_oracle_audit.rs::opaque_separable_modes_match_table_134_at_an_interior_pixel",
+      "crates/render-cpu/tests/separable_blend_oracle_audit.rs::dodge_burn_piecewise_edges_and_softlight_low_domain_are_formula_derived",
+      "crates/render-cpu/tests/separable_blend_oracle_audit.rs::opaque_separable_modes_match_table_134_at_an_interior_pixel"
+    ],
+    "verdict": "confirmed-selected-formula-oracles",
+    "evidence": "The existing scene has varying backdrops/sources and compares backends, but has no absolute assertions on the branch thresholds or outputs. The scratch oracle covers opposite-side values for the branches. Parent independently checked Table134/135 equations and corrected the draft HardLight green from143 to163, distinguishing it from Overlay143. All three new tests pass, including special PDF2 Dodge(0,1)=0 and Burn(1,0)=1, SoftLight cubic low domain, and four nonseparable RGB expected outputs. This closes these selected oracle gaps; Gray conversion and clipping follow-up are separate.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "test_result": "blend-oracle-target.log:3PASS, all16 modes sampled with literal formula-derived expected values; selected Dodge/Burn endpoints and SoftLight branches pass. Display-list CPU only; no new GPU or PDF parser claim.",
+    "reviewer": "blend_functions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-formula-oracles",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.5.2",
+    "feature_id": "softlight",
+    "requirement": "SoftLight uses its two source branches and D(cb), with D(x)=((16x−12)x+4)x for x≤0.25 and sqrt(x) otherwise.",
+    "source_location": "ISO32000-2 §11.3.5: general physical407/printed392; separable definition408/393, Table134 physical409–411/printed394–396; helpers411–412/396–397 and Table135 physical413/printed398.",
+    "errata": "No direct formula errata.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/convert.rs::blend_mode",
+      "crates/render-gpu/src/lib.rs blend shader"
+    ],
+    "test_refs": [
+      "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_every_blend_mode",
+      "crates/render-cpu/tests/separable_blend_oracle_audit.rs::opaque_separable_modes_match_table_134_at_an_interior_pixel",
+      "crates/render-cpu/tests/separable_blend_oracle_audit.rs::dodge_burn_piecewise_edges_and_softlight_low_domain_are_formula_derived",
+      "crates/render-cpu/tests/separable_blend_oracle_audit.rs::opaque_separable_modes_match_table_134_at_an_interior_pixel"
+    ],
+    "verdict": "confirmed-selected-formula-oracles",
+    "evidence": "The scene compares independent backend outputs but does not directly assert D's branch or a formula-derived value; draft oracle includes a cb=.6, cs=.8 interior point only. cb=.25 and cs=.5 boundary controls remain uncovered. Parent independently checked Table134/135 equations and corrected the draft HardLight green from143 to163, distinguishing it from Overlay143. All three new tests pass, including special PDF2 Dodge(0,1)=0 and Burn(1,0)=1, SoftLight cubic low domain, and four nonseparable RGB expected outputs. This closes these selected oracle gaps; Gray conversion and clipping follow-up are separate.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "test_result": "blend-oracle-target.log:3PASS, all16 modes sampled with literal formula-derived expected values; selected Dodge/Burn endpoints and SoftLight branches pass. Display-list CPU only; no new GPU or PDF parser claim.",
+    "reviewer": "blend_functions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-formula-oracles",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.5.2",
+    "feature_id": "difference-exclusion",
+    "requirement": "Difference is |cb−cs|; Exclusion is cb+cs−2cb·cs. Neither is white-preserving (Notes 18 and 20).",
+    "source_location": "ISO32000-2 §11.3.5: general physical407/printed392; separable definition408/393, Table134 physical409–411/printed394–396; helpers411–412/396–397 and Table135 physical413/printed398.",
+    "errata": "No direct formula errata.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/convert.rs::blend_mode",
+      "crates/render-gpu/src/lib.rs blend shader"
+    ],
+    "test_refs": [
+      "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_every_blend_mode",
+      "crates/render-cpu/tests/separable_blend_oracle_audit.rs::opaque_separable_modes_match_table_134_at_an_interior_pixel",
+      "crates/render-cpu/tests/separable_blend_oracle_audit.rs::opaque_separable_modes_match_table_134_at_an_interior_pixel"
+    ],
+    "verdict": "confirmed-selected-formula-oracles",
+    "evidence": "Both functions are selected and compared across implementations. No direct output oracle found. Non-white-preserving classification is a writer constraint when blending spot colors, not a malformed-reader rejection rule. Parent independently checked Table134/135 equations and corrected the draft HardLight green from143 to163, distinguishing it from Overlay143. All three new tests pass, including special PDF2 Dodge(0,1)=0 and Burn(1,0)=1, SoftLight cubic low domain, and four nonseparable RGB expected outputs. This closes these selected oracle gaps; Gray conversion and clipping follow-up are separate.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "test_result": "blend-oracle-target.log:3PASS, all16 modes sampled with literal formula-derived expected values; selected Dodge/Burn endpoints and SoftLight branches pass. Display-list CPU only; no new GPU or PDF parser claim.",
+    "reviewer": "blend_functions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-formula-oracles",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.5.3",
+    "feature_id": "nonseparable-color-space-and-rgb-helpers",
+    "requirement": "The four nonseparable modes operate on the complete color. Lum, SetLum, ClipColor, Sat and SetSat are the stated functions; grayscale blends convert Gray→RGB→blend→Gray.",
+    "source_location": "ISO32000-2 §11.3.5: general physical407/printed392; separable definition408/393, Table134 physical409–411/printed394–396; helpers411–412/396–397 and Table135 physical413/printed398.",
+    "errata": "EC3 Issue #345 says Figures 72–73 are indicative only, not exact. It does not alter helper formulas. Figure 73 cannot be an exact oracle.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/blend.rs::lum, clip_colour, set_lum, sat, set_sat",
+      "crates/render-gpu/src/lib.rs blend shader",
+      "raster/crates/raster-scene/src/blend.rs"
+    ],
+    "test_refs": [
+      "crates/render-cpu/src/blend.rs::luminosity_is_the_clauses_weighted_sum",
+      "crates/render-cpu/src/blend.rs::clipping_preserves_luminosity",
+      "crates/render-cpu/src/blend.rs::saturation_is_set_by_rank_not_by_channel",
+      "crates/render-cpu/src/blend.rs::set_lum_reaches_the_luminosity_it_was_given"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Inspected code implements the five helpers and four mode formulas directly. Unit tests assert the luminosity coefficients, preserve luminosity when clipping, SetSat ranking/neutral arm, and SetLum target. The note expressly warns that SetSat is discontinuous at neutral colors; the tests include neutral and non-neutral cases. Parent independently checked Table134/135 equations and corrected the draft HardLight green from143 to163, distinguishing it from Overlay143. All three new tests pass, including special PDF2 Dodge(0,1)=0 and Burn(1,0)=1, SoftLight cubic low domain, and four nonseparable RGB expected outputs. This closes these selected oracle gaps; Gray conversion and clipping follow-up are separate.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "test_result": "blend-oracle-target.log:3PASS, all16 modes sampled with literal formula-derived expected values; selected Dodge/Burn endpoints and SoftLight branches pass. Display-list CPU only; no new GPU or PDF parser claim.",
+    "reviewer": "blend_functions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.5.3",
+    "feature_id": "hue-saturation-color-luminosity",
+    "requirement": "Table 135 defines Hue, Saturation, Color and Luminosity as the stated helper-function compositions.",
+    "source_location": "ISO32000-2 §11.3.5: general physical407/printed392; separable definition408/393, Table134 physical409–411/printed394–396; helpers411–412/396–397 and Table135 physical413/printed398.",
+    "errata": "EC3 #345 figure caveat only; table formulas remain normative.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/blend.rs::NonSeparable::blend",
+      "crates/render-gpu/src/lib.rs independent implementation",
+      "raster/crates/raster-scene/src/blend.rs"
+    ],
+    "test_refs": [
+      "crates/render-cpu/src/blend.rs::hue_of_red_over_blue_is_the_clauses_arithmetic",
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_separable_blend_takes_the_black_component_from_the_backdrop",
+      "crates/pdf-model/tests/transparency_groups.rs::the_luminosity_mode_takes_the_black_component_from_the_source",
+      "crates/pdf-model/tests/transparency_groups.rs::every_non_separable_mode_agrees_with_the_clause_over_four_components",
+      "crates/render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_every_blend_mode",
+      "crates/render-cpu/tests/separable_blend_oracle_audit.rs::nonseparable_rgb_modes_match_independent_table_135_values"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The CPU Hue unit test derives the 0.367 red component from Table 135 and ClipColor, including a comparison with the pre-ClipColor value. CMYK integration tests independently transcribe the helpers and test all four modes and K-channel behavior. Cross-backend scene exercises the entire mode matrix. Parent independently checked Table134/135 equations and corrected the draft HardLight green from143 to163, distinguishing it from Overlay143. All three new tests pass, including special PDF2 Dodge(0,1)=0 and Burn(1,0)=1, SoftLight cubic low domain, and four nonseparable RGB expected outputs. This closes these selected oracle gaps; Gray conversion and clipping follow-up are separate.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "test_result": "blend-oracle-target.log:3PASS, all16 modes sampled with literal formula-derived expected values; selected Dodge/Burn endpoints and SoftLight branches pass. Display-list CPU only; no new GPU or PDF parser claim.",
+    "reviewer": "blend_functions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.5.3",
+    "feature_id": "cmyk-nonseparable-rule",
+    "requirement": "For CMYK, complement C/M/Y to RGB, apply the formulas, and complement back; K comes from backdrop for Hue/Saturation/Color and source for Luminosity.",
+    "source_location": "ISO32000-2 §11.3.5: general physical407/printed392; separable definition408/393, Table134 physical409–411/printed394–396; helpers411–412/396–397 and Table135 physical413/printed398.",
+    "errata": "No direct formula errata; EC3 #345 only clarifies figures.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/transparency/blending_space.rs",
+      "crates/pdf-render/src/lib.rs blending representation",
+      "crates/render-cpu/src/blend.rs::NonSeparable::blend",
+      "raster/crates/raster-scene/src/blend.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_separable_blend_takes_the_black_component_from_the_backdrop",
+      "crates/pdf-model/tests/transparency_groups.rs::the_luminosity_mode_takes_the_black_component_from_the_source",
+      "crates/pdf-model/tests/transparency_groups.rs::every_non_separable_mode_agrees_with_the_clause_over_four_components",
+      "crates/render-raster/tests/headless_quorra.rs::cpu_and_quorra_agree_on_a_four_component_page",
+      "crates/render-cpu/src/blend.rs::the_clauses_own_functions_give_the_black_components_rule_on_a_neutral_pair"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The CMYK consumer tests use opaque fills so the blend result is the observable output, derive channel expectations in test-local formula code, and check both K source/backdrop cases. ADR 0277's neutral-pair identity test ranges 200,000 value pairs; the separate raster representation keeps K neutral. The test scope does not establish all color-management conversions outside these functions. Parent independently checked Table134/135 equations and corrected the draft HardLight green from143 to163, distinguishing it from Overlay143. All three new tests pass, including special PDF2 Dodge(0,1)=0 and Burn(1,0)=1, SoftLight cubic low domain, and four nonseparable RGB expected outputs. This closes these selected oracle gaps; Gray conversion and clipping follow-up are separate.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "test_result": "blend-oracle-target.log:3PASS, all16 modes sampled with literal formula-derived expected values; selected Dodge/Burn endpoints and SoftLight branches pass. Display-list CPU only; no new GPU or PDF parser claim.",
+    "reviewer": "blend_functions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
     "clause": "12.5.6.11",
     "feature_id": "12.5.6.11.caret_identification",
     "requirement": "A Caret annotation is a visual symbol indicating text edits; its annotation subtype is required to be Caret.",
@@ -7703,6 +8032,78 @@
     "parent_review_state": "parent-reviewed-partial-table-inventory-with-corrections",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "unreviewed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.5.4",
+    "feature_id": "choice_commit_on_selection_host_callback",
+    "entry_kind": "direct",
+    "requirement": "Table 233 bit 27 (PDF 1.5): when CommitOnSelChange is set, a choice is committed immediately, without waiting for the user to leave the field; when clear, the new value is not committed until field exit.",
+    "source_location": "§12.7.5.4, Table 233 bit 27, printed p.542 / one-based physical PDF p.557",
+    "errata": "Parent inspected annotation inventory: physical page557 has no non-link annotations. Draft claim of a heading strikeout on this page was wrong. Table233 bit27 is unchanged.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::ChoiceControl::commit_on_selection",
+      "crates/pdf-model/src/form.rs::fields",
+      "crates/viewer-host/src/form.rs::ControlKind",
+      "crates/viewer-qt/src/host/forms.rs::Host::choose_control",
+      "crates/viewer-qt/cpp/window.cpp choice selection callbacks",
+      "crates/viewer-core/src/viewer/editing.rs::form_selection",
+      "crates/viewer-core/src/open/edits.rs::Done::CommitField"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/script_form.rs::a_selection_committed_in_a_focused_choice_list_exits_it_and_the_next_reenters_it",
+      "crates/viewer-core/tests/script_form.rs::enter_in_a_focused_choice_list_is_commit_key_2_to_its_exit",
+      "crates/viewer-qt/src/host/tests/choice_commit_audit.rs::commit_on_selection_runs_the_acroform_validate_action_in_the_qt_choice_callback",
+      "crates/viewer-qt/src/host/tests/choice_commit_audit.rs::an_explicit_choice_commit_runs_the_acroform_validate_action",
+      "crates/viewer-qt/src/host/tests/choice_commit_audit.rs::text_commit_is_a_positive_control_for_the_acroform_validator"
+    ],
+    "verdict": "implementation-gap-choice-validation-and-host-commit",
+    "evidence": "Complete PDF1.7 fixture with NeedAppearances=true and valid DA/DR. Parent corrected dangling font reference and observes ChoiceControl.selected, since list fields have no text ShownValue. Same AFRange_Validate action rejects staged text1 and restores5 on explicit text commit (PASS). A choice selection1 remains1 after explicit commit (FAIL), and with bit27 set remains1 after Qt choose_control (FAIL). Core fields.rs stores pending state only for Entered::Text and removes it for Chosen; commit_field_by returns Nothing when no pending state exists. Independently Qt choose_control dispatches only SetField and host descriptor omits the bit. Therefore the immediate failure cannot be attributed solely to the host; both core pending/validation semantics and callback wiring need correction. No QApplication/C++ signal was exercised.",
+    "remaining": "GTK code has analogous Set-only selection route; native commit behavior remains untested. Separate core semantics from host wiring in implementation work.",
+    "test_command": null,
+    "test_result": "choice-commit-target-v3.log:1PASS/2expectedFAIL; each failing test first passes the text-validator control.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "choice_commit_host_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap-choice-validation-and-host-commit",
+    "superseded": false
+  },
+  {
+    "clause": "12.6.3",
+    "feature_id": "choice_explicit_commit_validates_new_value",
+    "entry_kind": "direct",
+    "requirement": "Table199 V is performed when a field value changes and may reject an invalid value; choice values are included.",
+    "source_location": "§12.6.3 Table199 V, physical524/printed509; choice timing Table233 physical557/printed542.",
+    "errata": "No local amendment to Table199 V found in reviewed action-trigger inventory; cross-reference the accepted action_triggers shard.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/form.rs::ChoiceControl::commit_on_selection",
+      "crates/pdf-model/src/form.rs::fields",
+      "crates/viewer-host/src/form.rs::ControlKind",
+      "crates/viewer-qt/src/host/forms.rs::Host::choose_control",
+      "crates/viewer-qt/cpp/window.cpp choice selection callbacks",
+      "crates/viewer-core/src/viewer/editing.rs::form_selection",
+      "crates/viewer-core/src/open/edits.rs::Done::CommitField"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/script_form.rs::a_selection_committed_in_a_focused_choice_list_exits_it_and_the_next_reenters_it",
+      "crates/viewer-core/tests/script_form.rs::enter_in_a_focused_choice_list_is_commit_key_2_to_its_exit",
+      "crates/viewer-qt/src/host/tests/choice_commit_audit.rs::commit_on_selection_runs_the_acroform_validate_action_in_the_qt_choice_callback",
+      "crates/viewer-qt/src/host/tests/choice_commit_audit.rs::an_explicit_choice_commit_runs_the_acroform_validate_action",
+      "crates/viewer-qt/src/host/tests/choice_commit_audit.rs::text_commit_is_a_positive_control_for_the_acroform_validator"
+    ],
+    "verdict": "implementation-gap-choice-validation-and-host-commit",
+    "evidence": "Complete PDF1.7 fixture with NeedAppearances=true and valid DA/DR. Parent corrected dangling font reference and observes ChoiceControl.selected, since list fields have no text ShownValue. Same AFRange_Validate action rejects staged text1 and restores5 on explicit text commit (PASS). A choice selection1 remains1 after explicit commit (FAIL), and with bit27 set remains1 after Qt choose_control (FAIL). Core fields.rs stores pending state only for Entered::Text and removes it for Chosen; commit_field_by returns Nothing when no pending state exists. Independently Qt choose_control dispatches only SetField and host descriptor omits the bit. Therefore the immediate failure cannot be attributed solely to the host; both core pending/validation semantics and callback wiring need correction. No QApplication/C++ signal was exercised.",
+    "remaining": "GTK code has analogous Set-only selection route; native commit behavior remains untested. Separate core semantics from host wiring in implementation work.",
+    "test_command": null,
+    "test_result": "choice-commit-target-v3.log:1PASS/2expectedFAIL; each failing test first passes the text-validator control.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "choice_commit_host_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap-choice-validation-and-host-commit",
     "superseded": false
   },
   {
@@ -16358,6 +16759,635 @@
     "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
     "reviewer_ledger_status": "separate-row",
     "reviewer_verdict": "unreviewed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.1",
+    "feature_id": "12.7.6.1_three_form_action_types",
+    "requirement": "Interactive forms additionally support submit-form, reset-form, and import-data actions; their individual effects are specified in the following clauses.",
+    "source_location": "§12.7.6.1, printed p552",
+    "errata": "No relevant EC3 annotations found on this general list.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/action.rs::read",
+      "crates/pdf-model/src/view/actions.rs::perform"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/action.rs::each_of_the_three_form_action_types_reaches_its_own_answer"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The dispatch table recognizes all three variants. The cited test checks each reaches its distinct Action variant; the children carry behavior separately. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_submit_effect_and_url",
+    "requirement": "Upon invocation, transmit selected interactive form-field names and values to the URL specified by the action.",
+    "source_location": "§12.7.6.2 opening, printed p552",
+    "errata": "No relevant EC3 edit identified to this opening sentence.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/action.rs::submit_form",
+      "crates/pdf-model/src/submission.rs::compose",
+      "crates/viewer-core/src/interact.rs",
+      "crates/viewer-host/src/submit.rs::transmit"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/headless.rs::a_click_on_a_submit_button_hands_the_host_the_request_and_says_what_it_leaves_out",
+      "crates/viewer-host/tests/submit.rs::each_format_reaches_the_server_as_it_was_composed"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The headless assertion follows a widget click into Event::Submit and checks URL/body/field count; the host test receives the composed request at a local server. Submission is composed in the model and transmitted under host policy. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_submit_flags_word_and_reserved_bits",
+    "requirement": "Flags is a non-negative integer, bit numbering is low-order-first, and undefined positions are reserved and shall be zero in conforming producer output.",
+    "source_location": "§12.7.6.2 paragraph before Table239, printed p552",
+    "errata": "No relevant EC3 edit found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/action.rs::submit_form",
+      "crates/pdf-model/src/action.rs::SubmitFlags"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/action.rs::each_of_the_three_form_action_types_reaches_its_own_answer"
+    ],
+    "verdict": "ambiguous",
+    "evidence": "The parser maps nonnegative integers fitting u32 to SubmitFlags and defaults other integer shapes to zero; accessors map bit n to 1<<(n-1). Reserved-bit zeroing is a producer constraint. This reader does not reject unknown bits, and no reader rejection requirement is stated. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "remaining_work": "No reader defect established. Check only if a form-action authoring API is introduced.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "ambiguous",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_table239_required_type_url",
+    "requirement": "Table239 requires /S /SubmitForm and /F as a URL file specification identifying the submission endpoint.",
+    "source_location": "Table239, printed p552",
+    "errata": "EC3 #122 does not alter /S or /F; physical p567 is printed p552.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/action.rs::submit_form",
+      "crates/pdf-model/src/file_spec.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/submission.rs::the_default_submission_is_an_fdf_of_every_field_with_a_value",
+      "crates/pdf-model/src/action.rs::each_of_the_three_form_action_types_reaches_its_own_answer"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The parser dispatches by /S, parses the URL file specification, and returns no SubmitForm action if it cannot derive a URL. Tests assert the composed URL and that the dictionary form reaches the action. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_fields_refs_names_mixed",
+    "requirement": "Optional /Fields elements may be indirect field references or (PDF1.3+) fully qualified field-name strings, and both forms may be mixed.",
+    "source_location": "Table239 /Fields, printed p552; continuation printed p554",
+    "errata": "No EC3 fully-qualified insertion applies to Table239; do not borrow Table259's #33 edit.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/action.rs::field_targets",
+      "crates/pdf-model/src/submission.rs::selected_names"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/action.rs::each_of_the_three_form_action_types_reaches_its_own_answer",
+      "crates/pdf-model/tests/form_actions_spec_audit.rs::submit_fields_reference_selects_the_referenced_fields_descendants"
+    ],
+    "verdict": "confirmed-selected-consumer-with-new-test",
+    "evidence": "Parser test verifies the mixed array becomes Name and Field targets, but it does not compose a submission from an indirect reference. selected_names walks referenced field subtrees and maps descendants to qualified names. The draft uses a valid two-field PDF to assert selected descendants and an all-fields control. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; scratch draft only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer-with-new-test",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_fields_omission_and_noexport_precedence",
+    "requirement": "Omitted /Fields ignores Include/Exclude and selects all fields except NoExport; NoExport always overrides the array and flag.",
+    "source_location": "Table239 /Fields, printed p552; prose printed p554",
+    "errata": "No relevant EC3 edit identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/submission.rs::selected_names",
+      "crates/pdf-model/src/submission.rs::chosen"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/submission.rs::the_default_submission_is_an_fdf_of_every_field_with_a_value",
+      "crates/pdf-model/tests/submission.rs::a_no_export_field_is_left_out_even_where_the_action_names_it",
+      "crates/pdf-model/tests/submission.rs::the_include_exclude_flag_turns_the_array_inside_out"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The default body includes valued fields and excludes NoExport/blank/pushbutton cases; the same named fields test proves NoExport takes precedence over an explicit inclusion; Include/Exclude assertions distinguish the array polarity. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_field_descendants_in_submission",
+    "requirement": "When /Fields includes a nonterminal field, all of its descendants are included; an exclusion excludes listed fields, with NoExport still prevailing.",
+    "source_location": "Table240 bit1 and continuation prose, printed pp553–554",
+    "errata": "No relevant EC3 correction found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/submission.rs::selected_names",
+      "crates/pdf-model/src/view/field_tree.rs::widgets_under"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/submission.rs::the_include_exclude_flag_turns_the_array_inside_out",
+      "crates/pdf-model/tests/form_actions_spec_audit.rs::submit_fields_reference_selects_the_referenced_fields_descendants"
+    ],
+    "verdict": "confirmed-selected-consumer-with-new-test",
+    "evidence": "Existing selected-fields assertions use terminal names. Production code explicitly walks reference targets down /Kids, but no existing submit assertion proves a reference to a parent includes the child and excludes a sibling. Draft includes that positive case and omitted-Fields control. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; scratch draft only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer-with-new-test",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_novalue_and_pushbutton_novalue-fields",
+    "requirement": "Bit2 set includes selected fields without /V by name only; clear omits valueless fields.",
+    "source_location": "Table240 bit2, printed p553",
+    "errata": "No relevant EC3 edit identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/submission.rs::chosen"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/submission.rs::include_no_value_fields_sends_the_name_alone",
+      "crates/pdf-model/tests/submission.rs::the_default_submission_is_an_fdf_of_every_field_with_a_value"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Paired assertions distinguish name-only from omission. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_novalue_and_pushbutton_pushbutton-fields",
+    "requirement": "FDF pushbutton value comes from widget /AP; if /Fields is omitted pushbuttons are not submitted.",
+    "source_location": "§12.7.6.2 continuation, printed p554",
+    "errata": "No relevant EC3 edit identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/submission.rs::chosen"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/submission.rs::the_default_submission_is_an_fdf_of_every_field_with_a_value",
+      "crates/pdf-model/tests/submission.rs::a_push_button_named_by_the_action_is_owed_rather_than_dropped"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "Default exclusion is asserted; explicit selection is named owed because AP stream identity belongs to source PDF object space. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_flag_exportformat_and_flag-exportformat",
+    "requirement": "Bit3 selects HTML Form rather than FDF when the PDF/XFDF flags are clear; bit3 is not meaningful when SubmitPDF or XFDF is set.",
+    "source_location": "Table240 bit3, printed p553",
+    "errata": "No relevant EC3 edit identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/submission.rs::format_of",
+      "crates/pdf-model/src/submission.rs::html_body"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/submission.rs::the_export_format_flag_writes_html_forms_url_encoding"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Existing test parses URL-encoded body and media type; SubmitPDF/XFDF precedence has its own controls. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_flag_exportformat_and_flag-getmethod",
+    "requirement": "Bit4 selects GET when bit3 ExportFormat is set; when clear, bit4 shall also be clear.",
+    "source_location": "Table240 bit4, printed p553",
+    "errata": "No relevant EC3 edit identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/submission.rs::format_of",
+      "crates/pdf-model/src/submission.rs::html_body"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/submission.rs::the_get_method_flag_puts_the_data_in_the_url_and_leaves_the_body_empty",
+      "crates/pdf-model/tests/submission.rs::a_get_against_a_clear_export_format_is_named_rather_than_obeyed"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Tests inspect GET URL/body and invalid GET+FDF, which is reported and sent by POST. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_submit_coordinates",
+    "requirement": "In HTML format, bit5 sends click coordinates relative to the widget's upper-left, named with /TM when present otherwise field name; a single ASCII space in /TM suppresses the name and period. The flag is permitted only with ExportFormat.",
+    "source_location": "Table240 bit5, printed p553",
+    "errata": "No relevant EC3 correction identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/submission.rs::coordinates",
+      "crates/pdf-model/src/submission.rs::mapping_name"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/submission.rs::the_coordinates_are_measured_down_from_the_widgets_upper_left_corner",
+      "crates/pdf-model/tests/submission.rs::coordinates_asked_for_without_a_click_are_owed_rather_than_invented",
+      "crates/pdf-model/tests/form_actions_spec_audit.rs::submit_coordinates_suppresses_name_for_space_tm"
+    ],
+    "verdict": "confirmed-selected-consumer-with-new-test",
+    "evidence": "Existing test proves TM wins over /T, coordinate origin/y direction, and no click is not invented. The explicit one-space TM exception has a distinct branch in `coordinates` but no assertion; the draft contrasts that branch against /TM-absent fallback on a complete PDF. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; scratch draft only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer-with-new-test",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_xfdf_format",
+    "requirement": "Bit6 selects XFDF when SubmitPDF is clear; flag combinations forbidden with XFDF are not applied and are reported.",
+    "source_location": "Table240 bit6 and formats paragraph, printed pp553–554",
+    "errata": "No relevant EC3 edit identified; ISO 19444-1 is the external format specification.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/xfdf.rs",
+      "crates/pdf-model/src/submission.rs::excluded_by_xfdf"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/submission.rs::xfdf_writes_the_document_the_specification_states",
+      "crates/pdf-model/tests/submission.rs::an_xfdf_submission_is_read_back_by_the_importer_that_reads_one",
+      "crates/pdf-model/tests/submission.rs::the_bits_table_240_puts_aside_for_xfdf_are_named_one_by_one"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Tests inspect XFDF declaration, ids, hierarchical field names/values and round-trip through the importer; forbidden bit combinations are each named in the obligation list. ADR1108 superseded earlier bought-rather-than-built refusal. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_fdf_incremental_updates_annotations_bit7-include-append-saves",
+    "requirement": "Bit7 set in FDF writes new incremental-update bytes into Differences; clear omits them.",
+    "source_location": "Table240 bit7, printed p553",
+    "errata": "No relevant EC3 edit found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/submission.rs::Carried::save"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/submission.rs::include_append_saves_carries_the_update_and_nothing_that_came_before_it"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Assertion inspects update bytes and excludes bytes predating open. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_fdf_incremental_updates_annotations_bit8-include-annotations",
+    "requirement": "Bit8 set in FDF writes markup annotations with their originating page index.",
+    "source_location": "Table240 bit8, printed p554",
+    "errata": "No relevant EC3 edit found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/submission.rs::Carried::mark_up"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/submission.rs::include_annotations_writes_the_markup_ones_with_the_page_each_is_on"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Assertion reads output annotation dictionaries/page references; excluded non-markup types are controls. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_fdf_incremental_updates_annotations_bit12-excl-f-key",
+    "requirement": "Bit12 set in FDF excludes the /F entry; it wins when EmbedForm is also set.",
+    "source_location": "Table240 bit12, printed p554",
+    "errata": "No relevant EC3 edit found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/submission.rs::Carried::save"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/submission.rs::excluding_the_f_key_beats_embedding_the_form"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Test checks the conflict is reported and /F remains absent. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_fdf_incremental_updates_annotations_bit14-embed-form",
+    "requirement": "Bit14 set in FDF makes /F a file specification embedding the source PDF.",
+    "source_location": "Table240 bit14, printed p554",
+    "errata": "No relevant EC3 edit found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/submission.rs::Carried::save"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/submission.rs::embed_form_puts_the_whole_document_in_the_fdfs_file_specification"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "Test inspects the embedded stream; the inability to give it a local path is explicitly reported. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_submitpdf_precedence",
+    "requirement": "When bit9 SubmitPDF is set, submit the whole PDF and ignore all other flags except GetMethod.",
+    "source_location": "Table240 bit9, printed p554",
+    "errata": "No relevant EC3 edit found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/submission.rs::compose",
+      "crates/pdf-model/src/submission.rs::whole_document"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/submission.rs::submit_pdf_sends_the_document_and_ignores_the_other_flags",
+      "crates/pdf-model/tests/submission.rs::submit_pdf_still_reads_the_get_method_flag"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Tests set conflicting selection/format/XFDF flags and prove PDF output, then independently prove GetMethod still changes transport method. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_canonicalformat_dates",
+    "requirement": "Bit10 converts submitted date values to §7.9.4 form; date type is identified through the field ECMAScript named in Note1.",
+    "source_location": "Table240 bit10 and continuation NOTE1, printed p554",
+    "errata": "No relevant EC3 edit identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/submission.rs::canonical_dates",
+      "crates/pdf-model/src/aform/date.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/canonical_dates.rs::a_date_a_fields_script_states_is_submitted_in_the_standard_format",
+      "crates/pdf-model/tests/canonical_dates.rs::a_value_that_is_not_a_date_under_its_picture_is_named_and_sent_as_it_is",
+      "crates/pdf-model/tests/canonical_dates.rs::an_xfdf_submission_carries_the_converted_date"
+    ],
+    "verdict": "confirmed",
+    "evidence": "ADR1796 directly re-audited this row after AForm built-ins arrived; tests show conversion and controls for an unparseable/non-date value, in multiple formats. Unsupported script forms are reported rather than guessed. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_exclnonuserannots",
+    "requirement": "Bit11 is FDF-only and narrows bit8 to markup annotations whose /T matches the current user as determined by the remote server.",
+    "source_location": "Table240 bit11 and Notes2–3, printed p554",
+    "errata": "No relevant EC3 edit found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/submission.rs::Carried::mark_up"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/submission.rs::every_flag_the_composition_does_not_apply_is_named",
+      "crates/pdf-model/tests/submission.rs::excluding_other_users_annotations_withholds_them_all_and_says_whose_name_is_missing"
+    ],
+    "verdict": "conditional-scope-unactivated",
+    "evidence": "The processor lacks the remote server's current-user determination and user-authored annotation names; ADR1066 explicitly applies the narrowing by omitting the set and reporting why. This is a recorded capability boundary, not a new defect to solve by asking the host to guess. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "conditional-scope-unactivated",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.2",
+    "feature_id": "12.7.6.2_charset_pdf20",
+    "requirement": "Table239 CharSet specifies output encoding (default UTF-8); effective EC3 removes inheritance. The implementation supports UTF-8 only and explicitly reports other requested encodings.",
+    "source_location": "Table239 /CharSet, printed p552",
+    "errata": "EC3 #122 strikes 'inheritable' from /CharSet (physical p567 = printed p552); current action parser reads the entry only on the action dictionary.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/action.rs::submit_form",
+      "crates/pdf-model/src/submission.rs::html_body"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/action.rs::each_of_the_three_form_action_types_reaches_its_own_answer",
+      "crates/pdf-model/tests/form_actions_spec_audit.rs::submit_charset_non_utf8_is_reported_and_utf8_control_is_not"
+    ],
+    "verdict": "partial-capability-reported-with-test",
+    "evidence": "Existing test checks /CharSet (utf-8) is parsed into SubmitForm, but no composition assertion exercises the HTML writer's non-UTF-8 report or UTF-8 positive control. The code writes UTF-8 and explicitly reports other values; draft uses a non-ASCII UTF-16BE field value to make the encoded bytes observable. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; scratch draft only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "remaining_work": "Non-UTF8 encoding is not implemented; passing report assertion does not establish that requested encoding was honored.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-capability-reported-with-test",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.3",
+    "feature_id": "12.7.6.3_reset_dv_or_remove_v",
+    "requirement": "Reset selected interactive fields by assigning /DV to /V; if no default exists, remove /V; fields with no value such as pushbuttons have no effect.",
+    "source_location": "§12.7.6.3 opening, printed p555",
+    "errata": "No relevant EC3 edit to reset effect found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/view/actions.rs::reset_form",
+      "crates/pdf-model/src/view.rs::write_resets",
+      "crates/pdf-model/src/appearance.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_reset_form_action_draws_the_default_value_instead_of_the_value",
+      "crates/pdf-model/tests/value_statements.rs::a_reset_after_typing_draws_the_default_value",
+      "crates/pdf-model/tests/value_statements.rs::a_reset_that_changes_no_value_writes_nothing"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Existing tests distinguish /V from /DV visually, reset after user edits, assert no write when the value already equals its default, and save/reopen default state. Code writes /V or removes it on save. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.3",
+    "feature_id": "12.7.6.3_reset_fields_flags_descendants",
+    "requirement": "Optional /Fields can mix indirect field references and fully qualified names; absent Fields ignores Include/Exclude and resets all. Clear bit1 selects fields and descendants; set bit1 excludes them and their descendants. Flags defaults 0; undefined flag bits reserved zero.",
+    "source_location": "Table241 and Table242, printed pp555–556",
+    "errata": "EC3 #174 adds the descendant exemption to the exclude branch (Caret obj5834, physical p571 = printed p556, Review/Completed); #683 strikes 'inheritable' from Table241 /Flags (StrikeOut obj5835, same page; Review/Accepted).",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/action.rs::reset_form",
+      "crates/pdf-model/src/action.rs::field_targets",
+      "crates/pdf-model/src/view/actions.rs::reset_form",
+      "crates/pdf-model/src/view/field_tree.rs::widgets_under"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/view.rs::a_reset_form_action_names_fields_to_reset_or_fields_to_spare",
+      "crates/pdf-model/src/view.rs::a_reset_form_action_named_by_reference_reaches_the_fields_descendants"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The first test asserts absent, name-selected, excluded, and reference-selected behavior. The second names a nonterminal reference and asserts descendant widgets reset and are spared under the flag, matching the accepted #174 insertion. Code reads Flags directly from action dictionary after #683 removes inheritance. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; inspection only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.6.4",
+    "feature_id": "12.7.6.4_import_supported_data_from_file",
+    "requirement": "Upon invocation, import FDF, XFDF, or another supported format from the specified file into the interactive form; Table243 requires /S /ImportData and /F file specification.",
+    "source_location": "§12.7.6.4 and Table243, printed p556",
+    "errata": "No relevant EC3 correction found on this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/action.rs::import_data",
+      "crates/pdf-model/src/view/actions.rs::perform",
+      "crates/viewer-core/src/interact.rs",
+      "crates/viewer-core/src/viewer/outcomes.rs",
+      "crates/pdf-model/src/forms_data.rs",
+      "crates/pdf-model/src/xfdf.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/forms_data.rs::an_import_data_action_names_its_file_and_its_format",
+      "crates/pdf-model/tests/forms_data.rs::an_imported_value_is_the_one_that_is_drawn",
+      "crates/viewer-core/tests/fragments.rs::the_fdf_a_fragment_names_is_asked_for_and_imported",
+      "crates/viewer-core/tests/fragments.rs::the_xfdf_a_fragment_names_is_imported_like_an_fdf",
+      "crates/pdf-model/tests/form_actions_spec_audit.rs::import_action_becomes_a_file_request_with_the_named_format"
+    ],
+    "verdict": "confirmed-selected-consumer-with-new-test",
+    "evidence": "The parser test checks the action's file and extension; the model import test checks values; fragment tests exercise host file requests and supply but not an ImportData action invocation. The view dispatch maps it to Request::Import and core transfers that request to NeedsFile. Draft tests the parsed action through ViewState::perform as the missing bridge assertion. Parent new fixtures use legal PDF1.7 NeedAppearances/DA/DR or PDF2 stored AP matching V; coordinates originate from a real pushbutton. Corrected UTF16 value final r and fallback submit.x/y. FDF readback includes the structural parent group with no value; that legal container is explicitly expected rather than falsely treated as an extra submitted field.",
+    "test_command": "Not run; scratch draft only.",
+    "test_result": "form-actions-target-v2.log:4PASS. Existing cited assertions inspected; broad execution tracked separately.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "form_actions_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer-with-new-test",
     "superseded": false
   },
   {
@@ -42860,6 +43890,37 @@
     "parent_review_state": "parent-reviewed-partial-with-save-consumer-controls",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.3",
+    "feature_id": "existing_ap_font_resource_controls_saved_layout_metrics",
+    "entry_kind": "direct",
+    "requirement": "Table228 Q requires right justification for Q2. Existing AP font-name resources survive replacement; layout must place the text consistently with the font the saved stream actually uses.",
+    "source_location": "§12.7.4.3, printed p.534 / one-based physical PDF p.549, paragraph beginning 'To update an existing appearance stream'; Table228 /DA on printed p.533 / physical p.548",
+    "errata": "EC3 Issue #318 at physical pp.548–549 amends Table228's /DA type from string to byte string, not the same-name resource rule. Issue #393 on physical p.549 corrects an example cross-reference, not this rule. The target paragraph itself has no intersecting amendment.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::regenerate",
+      "crates/pdf-model/src/appearance.rs::with_default_resources",
+      "crates/pdf-model/src/appearance.rs::default_resources",
+      "crates/pdf-model/src/variable_text.rs::resolve_font_object",
+      "crates/pdf-model/src/view/writing.rs::write_appearance"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text_resource_merge_audit.rs::updating_a_widget_copies_missing_dr_font_but_keeps_same_named_stream_font",
+      "crates/pdf-model/tests/variable_text_resource_metric_audit.rs::saved_quadding_uses_the_font_that_the_appearance_resource_name_resolves_to"
+    ],
+    "verdict": "implementation-gap-saved-quadding-font-metrics",
+    "evidence": "Parent made old Courier AP right-quadded and verified old V/appearance, complete interpretation, exact source/saved xref, one accepted edit, no unconstructed appearance, saved Courier resource and new MMMM text replacing old. With AP Helv=Courier in both files, DR Helv=Courier yields ink columns150..178; DR Helv=Helvetica yields139..167. Current regenerate measures DR font then preserves a different AP font at save. The final right edge moves11pixels despite identical saved font and geometry. This is the Table228 Q justification consumer, beyond a resource dictionary assertion.",
+    "remaining": "Correct layout/resource resolution in implementation work; not a claim about all font categories, autosizing or rich text.",
+    "test_command": null,
+    "test_result": "forms-metric-target.log: metric assertion expected FAIL after all source/save/control checks pass.",
+    "parent_review": "Accepted partial: effective source, selected code and assertion bodies reviewed; targeted new assertions run. Not whole-clause certification.",
+    "reviewer": "variable_text_resource_metric_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap-saved-quadding-font-metrics",
     "superseded": false
   },
   {
