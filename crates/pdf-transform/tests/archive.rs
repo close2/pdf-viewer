@@ -15105,29 +15105,63 @@ fn a_group_blending_in_device_cmyk_beside_an_rgb_intent_takes_the_supplied_press
 }
 
 #[test]
-fn a_group_blending_in_device_cmyk_beside_an_rgb_intent_stays_refused() {
-    // The mirror has no licence without a press: a DeviceN DefaultCMYK cannot remap a blending
-    // space, which Table 145 says shall not be DeviceN, and an ICC CMYK default states a press
-    // only the operator can name (ADR 2130). So no DefaultRGB is prepared — nothing draws in
-    // DeviceRGB beside an RGB intent — and the output's own verdict refuses the file.
+fn a_group_blending_in_device_cmyk_beside_an_rgb_intent_takes_the_assumed_inks() {
+    // Without a press the DeviceN DefaultCMYK still cannot remap a blending space, which Table
+    // 145 says shall not be DeviceN, so at part 2 the group takes what part 4's DeviceCMYK row
+    // takes: an ICCBased DefaultCMYK over the profile of this renderer's assumed inks, which
+    // states what the window drew and is no loss (ADRs 2747, 2795). A first-pass construction.
     let source = Conforming {
         page: "/Group << /S /Transparency /CS /DeviceCMYK >>".to_owned(),
         contents: Some(paints_in_device_rgb()),
         ..Conforming::part_two()
     }
     .build();
-    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
-    assert!(output.is_none(), "nothing is written");
-    let achieved = conversion(&report)
-        .achieved
-        .as_ref()
-        .expect("the output was assembled and then held to the target");
-    assert!(
-        achieved
-            .still_failing
-            .contains(&"graphics/transparency-group-colour-spaces-obey-the-colour-rules"),
-        "{achieved:?}"
+    let target = Target::Two(Level::B);
+    let (report, output) = convert(&source, target, Authorisations::default());
+    let decided = decision(
+        &report,
+        "graphics/transparency-group-colour-spaces-obey-the-colour-rules",
     );
+    let Decision::Stated { rewrite, .. } = decided else {
+        panic!("the inks' default states an interpretation: {decided:?}");
+    };
+    assert_eq!(rewrite, Rewrite::SuppliedDefaultCmyk);
+    assert!(
+        conversion(&report).settled.is_empty(),
+        "a first-pass construction"
+    );
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    assert_eq!(default_cmyk(&document).len(), 2, "an ICCBased array");
+}
+
+#[test]
+fn a_device_cmyk_mark_at_part_two_keeps_the_device_n_default_beside_no_cmyk_group() {
+    // The stand-in press is asked at part 2 only for a group: a DeviceCMYK mark under an RGB
+    // intent keeps ISO 19005-2 section 6.2.4.3 NOTE 2's DeviceN default, which states no press
+    // (ADRs 2518, 2795).
+    let source = Conforming {
+        page: "/Group << /S /Transparency /CS /DeviceRGB >>".to_owned(),
+        contents: Some((
+            String::new(),
+            b"0 0 0 1 k 0 0 10 10 re f 1 0 0 rg 20 20 5 5 re f".to_vec(),
+        )),
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, _) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    assert!(matches!(
+        decision(
+            &report,
+            "graphics/device-cmyk-needs-a-default-or-a-cmyk-output-intent"
+        ),
+        Decision::Stated {
+            rewrite: Rewrite::DefaultCmyk,
+            ..
+        }
+    ));
 }
 
 /// A page showing `Hello` in one of §9.6.2.2's fourteen, stated by name alone as Table 109
@@ -16469,6 +16503,119 @@ fn a_constructed_appearance_is_converted_beside_a_page_font_the_source_never_emb
     assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
     let conversion = report.archive.expect("a conversion was reported");
     assert!(!conversion.settled.is_empty());
+}
+
+#[test]
+fn a_face_substituted_for_a_symbolic_truetype_font_is_converted_as_the_program_it_is() {
+    // A symbolic TrueType font (Table 121's flag 3, bit value 4) with no program and no encoding.
+    // The source meets ISO 19005-2 section 6.2.11.6's cmap paragraph, which reads only an embedded
+    // program; the face substituted for it carries a cmap of (0, 3), (1, 0) and (3, 1), which that
+    // paragraph refuses at part 2 (one subtable, or (3, 0) among them). That is a requirement the
+    // source met and the first output fails, so the output is converted once more and its program
+    // is restated by §9.6.5.4's symbolic route (ADR 2795).
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R >>".to_owned(),
+        contents: Some((
+            String::new(),
+            b"BT /F1 12 Tf 10 100 Td (Hello) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /TrueType /BaseFont /Arial-ItalicMT /FirstChar 72 \
+             /LastChar 111 /Widths [722 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 \
+             556 0 0 0 0 0 0 222 0 0 556] /FontDescriptor 7 0 R >>"
+                .to_owned(),
+            "<< /Type /FontDescriptor /FontName /Arial-ItalicMT /Flags 4 /FontBBox [0 0 1000 \
+             1000] /ItalicAngle -12 /Ascent 905 /Descent -212 /CapHeight 716 /StemV 80 >>"
+                .to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    let target = Target::Two(Level::B);
+    let (report, output) = to_part_two(&source);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert!(
+        conversion(&report)
+            .settled
+            .contains(&"fonts/symbolic-truetype-program-has-a-usable-cmap"),
+        "{:?}",
+        conversion(&report).settled
+    );
+}
+
+#[test]
+fn an_object_found_only_by_its_header_is_converted_as_the_content_it_is() {
+    // The newest section's `/Prev` is a reference, which ISO 32000-2 Table 15 does not admit (it
+    // is a byte offset), so the older section is never read; the reader finds the page tree and
+    // the content stream by their own headers, and the check enumerates the table's one entry. The
+    // source therefore meets ISO 19005-2 section 6.1.7.2 while its content stream is LZW-encoded,
+    // and the output, whose fresh table lists every object, fails it: converted once more, the
+    // stream is decoded and re-encoded as Flate (ADR 2795).
+    let marks = b"0 0 10 10 re f\n";
+    let encoded = lzw_literals(marks);
+    let mut file: Vec<u8> = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    let mut object = |file: &mut Vec<u8>, body: &[u8]| {
+        offsets.push(file.len());
+        file.extend_from_slice(body);
+    };
+    object(
+        &mut file,
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+    );
+    object(
+        &mut file,
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> \
+          /Contents 4 0 R >>\nendobj\n",
+    );
+    let mut stream = format!(
+        "4 0 obj\n<< /Filter /LZWDecode /Length {} >>\nstream\n",
+        encoded.len()
+    )
+    .into_bytes();
+    stream.extend_from_slice(&encoded);
+    stream.extend_from_slice(b"\nendstream\nendobj\n");
+    object(&mut file, &stream);
+    let older = file.len();
+    file.extend_from_slice(b"xref\n2 3\n");
+    for at in &offsets {
+        file.extend_from_slice(format!("{at:010} 00000 n \n").as_bytes());
+    }
+    file.extend_from_slice(b"trailer\n<< /Size 5 >>\n");
+    let catalog = file.len();
+    file.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+    let newest = file.len();
+    file.extend_from_slice(
+        format!(
+            "xref\n0 2\n0000000000 65535 f \n{catalog:010} 00000 n \ntrailer\n<< /Size 5 \
+             /Root 1 0 R /Prev {older} 0 R >>\nstartxref\n{newest}\n%%EOF\n"
+        )
+        .as_bytes(),
+    );
+    let source = Document::open_with_limits(file.clone(), Limits::DEFAULT).expect("it opens");
+    assert!(
+        source.cross_reference_chain_was_cut(),
+        "the fixture cuts the chain"
+    );
+    let target = Target::Two(Level::B);
+    let (report, output) = to_part_two(&file);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert!(
+        conversion(&report)
+            .settled
+            .contains(&"file-structure/no-lzw-filter"),
+        "{:?}",
+        conversion(&report).settled
+    );
+    assert_eq!(
+        decoded_contents(&output),
+        marks,
+        "the marks are the producer's"
+    );
 }
 
 #[test]

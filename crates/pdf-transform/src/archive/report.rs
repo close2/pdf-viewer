@@ -1204,9 +1204,10 @@ pub struct Conversion {
     ///
     /// An appearance this conversion constructs is content no pass over the source saw, so the
     /// first output can fail a requirement the source met (a font it names that nothing embeds,
-    /// a device colour no default licenses); the output is then converted once more as a source of
-    /// its own, and the requirements that second conversion decided are named here (`doc/adr/2534`).
-    /// Empty for every conversion whose first output stood.
+    /// a device colour no default licenses), and so can a face substituted for an unembedded font
+    /// or an object the source's check never reached; the output is then converted once more as a
+    /// source of its own, and the requirements that second conversion decided are named here
+    /// (`doc/adr/2534`, `doc/adr/2795`). Empty for every conversion whose first output stood.
     pub settled: Vec<&'static str>,
 }
 
@@ -1650,8 +1651,8 @@ impl Conversion {
         if !self.settled.is_empty() {
             let _ = writeln!(
                 out,
-                "  settled by a second conversion over this one's own output, because the \
-                 appearances it constructed brought what the source did not have: {}",
+                "  settled by a second conversion over this one's own output, because that \
+                 output held what no pass over the source judged: {}",
                 self.settled.join(", ")
             );
         }

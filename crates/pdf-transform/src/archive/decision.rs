@@ -2128,7 +2128,7 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
         Answer::Mechanical(rewrite) => prepared
             .obstacle(rewrite)
             .map_or(Decision::Mechanical(rewrite), Decision::Refused),
-        Answer::CmykUnderPartTwo => cmyk_answer_under_part_two(prepared),
+        Answer::CmykUnderPartTwo => cmyk_answer_under_part_two(prepared, authorised),
         Answer::CmykUnderPartFour => cmyk_answer_under_part_four(prepared, authorised),
         Answer::RgbUnderPartTwoOrFour(family) => rgb_answer(family, authorised, prepared),
         Answer::Stated(family, Rewrite::OutputIntent, reinterprets) => match &prepared.intent {

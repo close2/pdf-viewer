@@ -126,10 +126,11 @@ fn a_press_the_operator_supplied_outranks_the_assumed_one_and_costs_no_loss() {
 }
 
 #[test]
-fn part_two_is_not_offered_the_assumed_press() {
-    // Part 2's other licence is the DeviceN default, which states no press, and a group blending in
-    // DeviceCMYK beside an RGB intent has no licence there without an operator's profile
-    // (`doc/adr/2130`); the authorisation changes nothing about it.
+fn part_two_offers_the_assumed_press_to_a_group_blending_in_device_cmyk() {
+    // Part 2's other licence is the DeviceN default, which states no press, and §11.6.6's Table 145
+    // forbids it as a group's colour space; so a group blending in DeviceCMYK beside an RGB intent
+    // takes the stand-in part 4 takes, here the shipped press under the authorised loss
+    // (`doc/adr/2518`, `doc/adr/2795`).
     let source = Conforming {
         page: "/Group << /S /Transparency /CS /DeviceCMYK >>".to_owned(),
         contents: Some(paints_in_device_rgb()),
@@ -137,8 +138,8 @@ fn part_two_is_not_offered_the_assumed_press() {
     }
     .build();
     let (report, output) = convert(&source, Target::Two(Level::B), authorised());
-    assert!(output.is_none(), "nothing is written");
-    assert!(conversion(&report).press_assumed.is_none());
+    assert!(output.is_some(), "{}", conversion(&report).render());
+    assert!(conversion(&report).press_assumed.is_some());
 }
 
 #[test]

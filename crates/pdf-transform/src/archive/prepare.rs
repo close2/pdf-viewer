@@ -707,8 +707,12 @@ impl Prepared {
         // supply: the shipped press where the caller authorised the loss `press-assumed`
         // (`doc/adr/2518`), or the operator's configured press there (`doc/adr/2705`); and
         // otherwise the profile of this renderer's own assumed inks, which states what the
-        // window drew and is no loss (`doc/adr/2747`). Part 2 has the `DeviceN` default.
-        let assumed_press = (plan.target.part() == pdf_archive::Part::Four).then(|| {
+        // window drew and is no loss (`doc/adr/2747`). Part 2 has the `DeviceN` default, which
+        // §11.6.6's Table 145 forbids as a group's colour space, so at part 2 the same stand-in is
+        // asked for where a transparency group's `CS` failed and only for a group blending in
+        // `DeviceCMYK` (`doc/adr/2795`).
+        let groups_only = plan.target.part() != pdf_archive::Part::Four;
+        let assumed_press = (!groups_only || failed.contains(GROUP_SPACES_ROW)).then(|| {
             match (
                 plan.authorised.grants(Loss::PressAssumed),
                 plan.press.as_deref(),
@@ -807,7 +811,13 @@ impl Prepared {
                 plan.profile.as_deref(),
                 assumed_press,
                 survey.as_ref(),
-                assumed_press.is_some() && plan.authorised.grants(Loss::OverprintMode),
+                if groups_only {
+                    super::supplied_cmyk::Reach::PartTwo
+                } else {
+                    super::supplied_cmyk::Reach::PartFour {
+                        zero_modes: plan.authorised.grants(Loss::OverprintMode),
+                    }
+                },
                 &mut spare,
             ),
             (true, Err(because)) => Err(*because),
@@ -2353,6 +2363,10 @@ const MAX_SPARE_NUMBERS: usize = 64;
 
 /// ISO 19005-2 section 6.2.4.3's grey row, which any PDF/A output intent answers.
 const DEVICE_GRAY_ROW: &str = "graphics/device-gray-needs-a-default-or-an-output-intent";
+
+/// ISO 19005-2 section 6.2.10's row for a transparency group's `CS`, the one part 2 answers with an
+/// `ICCBased` `/DefaultCMYK` where the group blends in `DeviceCMYK` (`doc/adr/2795`).
+const GROUP_SPACES_ROW: &str = "graphics/transparency-group-colour-spaces-obey-the-colour-rules";
 
 /// Every annotation a target's part does not admit, and what taking each off the page costs.
 ///

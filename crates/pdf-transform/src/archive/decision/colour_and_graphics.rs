@@ -962,10 +962,7 @@ pub(super) fn rgb_answer(
             reinterprets: super::super::default_rgb::REINTERPRETS,
         },
         // A row whose family is the document's, where what it draws in is `DeviceCMYK` beside a
-        // profile of another family and the operator supplied the press (`doc/adr/2130`). Without
-        // a supply the row takes the intent's answer and the output's own verdict settles it:
-        // which of the document's spaces failed the row is the finding's, not the survey's, and
-        // a sentence about `DeviceCMYK` would be wrong for a row an RGB alternate failed.
+        // profile of another family and the operator supplied the press (`doc/adr/2130`).
         (Err(_), Ok(supplied))
             if family.is_none()
                 && supplied.press == super::super::supplied_cmyk::Press::Supplied =>
@@ -975,6 +972,13 @@ pub(super) fn rgb_answer(
                 reinterprets: super::super::supplied_cmyk::REINTERPRETS,
             }
         }
+        // The same, where something stood in for a supply: the press is the part 4 `DeviceCMYK`
+        // row's, a statement or a named loss as that row's own decision is, and the preparation
+        // built it only where the document draws in `DeviceCMYK` — at part 2, only where a group
+        // blends in it (`doc/adr/2795`). Without either the row takes the intent's answer and the
+        // output's own verdict settles it: a sentence about `DeviceCMYK` would be wrong for a row
+        // an RGB alternate failed.
+        (Err(_), Ok(_)) if family.is_none() => cmyk_answer_under_part_four(prepared, authorised),
         _ => answer_of(
             Answer::Stated(family, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
             authorised,
@@ -987,16 +991,29 @@ pub(super) fn rgb_answer(
 /// chosen between: a CMYK destination profile answers it outright; where the profile in hand is of
 /// another family, the press profile the operator supplied is the default (`doc/adr/2130`), and
 /// without one the `DeviceN` default is what NOTE 2 leaves.
-pub(super) fn cmyk_answer_under_part_two(prepared: &Prepared) -> Decision {
+///
+/// Where a transparency group blends in `DeviceCMYK`, which the `DeviceN` default cannot answer,
+/// the preparation stood the part 4 press in for a supply, and one `/DefaultCMYK` then answers the
+/// marks and the group together, decided as part 4 decides it (`doc/adr/2795`).
+pub(super) fn cmyk_answer_under_part_two(
+    prepared: &Prepared,
+    authorised: Authorisations,
+) -> Decision {
     match (&prepared.intent, &prepared.default_cmyk) {
         (Ok(intent), _) if intent.family == DeviceFamily::Cmyk => Decision::Stated {
             rewrite: Rewrite::OutputIntent,
             reinterprets: output_intent_sentence(intent, OUTPUT_INTENT_REINTERPRETS),
         },
-        _ if prepared.supplied_cmyk.is_ok() => Decision::Stated {
-            rewrite: Rewrite::SuppliedDefaultCmyk,
-            reinterprets: super::super::supplied_cmyk::REINTERPRETS,
-        },
+        _ if prepared.supplied_cmyk.as_ref().is_ok_and(|supplied| {
+            supplied.press == super::super::supplied_cmyk::Press::Supplied
+        }) =>
+        {
+            Decision::Stated {
+                rewrite: Rewrite::SuppliedDefaultCmyk,
+                reinterprets: super::super::supplied_cmyk::REINTERPRETS,
+            }
+        }
+        _ if prepared.supplied_cmyk.is_ok() => cmyk_answer_under_part_four(prepared, authorised),
         (_, Ok(_)) => Decision::Stated {
             rewrite: Rewrite::DefaultCmyk,
             reinterprets: DEFAULT_CMYK_REINTERPRETS,

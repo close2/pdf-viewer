@@ -8,6 +8,14 @@
 //! `doc/adr/0947`) or fails, at the appearance's own font, one the source failed elsewhere, and
 //! refusing the document over them refuses a file whose every remedy exists.
 //!
+//! The same is true of two things the first pass writes without having judged them: a face
+//! substituted for a font the source did not embed, whose program's `cmap` no row of the source
+//! read (ISO 19005-2 section 6.2.11.6), and an object the source's check never enumerated because
+//! its cross-reference chain was cut and the reader found it by its own header (ISO 32000-2
+//! Table 15's `/Prev`), which the output's fresh table lists. Each shows as a requirement the
+//! source met and the output fails, so that is the second condition for the pass
+//! (`doc/adr/2795`).
+//!
 //! The remedy is the one the converter already has: the output, which now holds those
 //! appearances as ordinary content, is converted as a source. One extra pass at most (`settling`
 //! is cleared for the nested conversion), and it is taken only when the first output would

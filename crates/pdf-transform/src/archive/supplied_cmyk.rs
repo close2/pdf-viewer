@@ -32,8 +32,9 @@
 //! profile this program ships as the press instead of being refused. The profile is still a
 //! statement the file's own bytes do not make, so it is a named loss rather than a
 //! `Decision::Stated`, reported with the profile's own description and recorded in the file's
-//! `xmpMM:History`. Part 2 is not offered it: its other licence, the `DeviceN` default, states no
-//! press at all (`doc/adr/2518`).
+//! `xmpMM:History`. Part 2 is offered it only for a transparency group blending in `DeviceCMYK`:
+//! its other licence, the `DeviceN` default, states no press at all (`doc/adr/2518`), and ISO
+//! 32000-2 §11.6.6's Table 145 forbids that default as a group's colour space (`doc/adr/2795`).
 //!
 //! # And where nobody accepts an assumed press
 //!
@@ -60,6 +61,19 @@ use pdf_syntax::object::{Name, Object, ObjectId};
 
 use super::decision::Because;
 use super::prepare::{Intent, Spare};
+
+/// What a `/DefaultCMYK` is prepared to answer, which differs by part (`doc/adr/2795`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Reach {
+    /// ISO 19005-4: every `DeviceCMYK` use, and `zero_modes` is whether the caller authorised
+    /// [`Loss::OverprintMode`](super::decision::Loss::OverprintMode).
+    PartFour {
+        /// Whether a mark's overprint mode 1 may be written 0 beside the default.
+        zero_modes: bool,
+    },
+    /// ISO 19005-2: a stand-in for a supply answers only a group blending in `DeviceCMYK`.
+    PartTwo,
+}
 
 /// Whose statement of the press a `/DefaultCMYK` is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -269,6 +283,17 @@ pub(super) fn draws_in_cmyk(survey: &Survey) -> bool {
         })
 }
 
+/// Whether a transparency group this survey walked blends in `DeviceCMYK` with no `DefaultCMYK`
+/// in force: the one use part 2's `DeviceN` default cannot answer, because ISO 32000-2 §11.6.6's
+/// Table 145 excludes `DeviceN` from a group's colour space, and remaps a device one through the
+/// defaults of the current resource dictionary, so a `DeviceN` default there would make the group
+/// blend in a space the table forbids.
+pub(super) fn blends_in_cmyk(survey: &Survey) -> bool {
+    survey.group_spaces().iter().any(|group| {
+        group.kind == SpaceKind::Device(DeviceFamily::Cmyk) && group.default.explicit.is_none()
+    })
+}
+
 /// Whether a `DeviceCMYK` mark painted under a non-zero overprint mode leaves that mode only
 /// through the graphics state the file's own `ICCBased` CMYK marks already ask
 /// `overprint::zeroing` to set to 0.
@@ -286,24 +311,27 @@ fn zeroed_with_the_icc_marks(survey: &Survey, mark: &ProcessCmykOverprint) -> bo
 
 /// Prepares the `/DefaultCMYK`: the operator's profile as a stream, and the `ICCBased` array.
 ///
-/// `assumed` is what stands in for a supply where the target is part 4, and whose statement it
-/// is: the operator's configured press or the profile this program ships where the caller
+/// `assumed` is what stands in for a supply where the target is part 4, or part 2 where a group's
+/// `CS` failed, and whose statement it is: the operator's configured press or the profile this program ships where the caller
 /// authorised [`Loss::PressAssumed`](super::decision::Loss::PressAssumed), and the assumed inks'
 /// profile otherwise. It is read only when the operator supplied none: a supply outranks it,
 /// including one that is not a CMYK profile.
 ///
-/// `zero_modes` is whether the caller authorised [`Loss::OverprintMode`](super::decision::Loss::OverprintMode)
-/// at part 4, where the default is the only licence for `DeviceCMYK` left: a `DeviceCMYK` mark
-/// overprinting under mode 1 then has its graphics state's mode written 0 beside the default
-/// rather than keeping the default from being written (`doc/adr/2749`). Part 2 passes `false`,
-/// because its `DeviceN` default leaves the marks `DeviceCMYK` and costs nothing.
+/// `reach` is what the default is written to answer: at part 4 every `DeviceCMYK` use, with
+/// `zero_modes` saying whether the caller authorised [`Loss::OverprintMode`](super::decision::Loss::OverprintMode),
+/// where the default is the only licence for `DeviceCMYK` left: a `DeviceCMYK` mark overprinting
+/// under mode 1 then has its graphics state's mode written 0 beside the default rather than
+/// keeping the default from being written (`doc/adr/2749`). At part 2 the mode is never zeroed,
+/// because its `DeviceN` default leaves the marks `DeviceCMYK` and costs nothing, and a stand-in
+/// for a supply answers only a transparency group blending in `DeviceCMYK` ([`blends_in_cmyk`]);
+/// a profile the operator supplied answers every use as at part 4 (`doc/adr/2795`).
 pub(super) fn prepare(
     document: &Document,
     intent: &Intent,
     supplied: Option<&[u8]>,
     assumed: Option<(Press, &[u8])>,
     survey: Option<&Survey>,
-    zero_modes: bool,
+    reach: Reach,
     spare: &mut Spare,
 ) -> Result<SuppliedCmyk, Because> {
     if intent.family == DeviceFamily::Cmyk {
@@ -321,7 +349,17 @@ pub(super) fn prepare(
     if !cmyk {
         return Err(Because::NotBuiltYet(SUPPLIED_NOT_CMYK));
     }
-    if !survey.is_some_and(draws_in_cmyk) {
+    // A stand-in at part 2 answers only a group, because a mark there has the `DeviceN` default.
+    let (zero_modes, groups_only) = match reach {
+        Reach::PartFour { zero_modes } => (zero_modes, false),
+        Reach::PartTwo => (false, true),
+    };
+    let needed = if groups_only && supplied.is_none() {
+        blends_in_cmyk
+    } else {
+        draws_in_cmyk
+    };
+    if !survey.is_some_and(needed) {
         return Err(Because::NotBuiltYet(NOTHING_IN_CMYK));
     }
     // A `DefaultCMYK` turns every `DeviceCMYK` mark under the mode into an `ICCBased` one, which

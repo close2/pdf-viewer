@@ -1909,11 +1909,12 @@ fn apply_the_decisions(
         hold_the_output_to_the_target(&converted.bytes, input, plan.target)?;
     let mut bytes = converted.bytes;
     // **An output that would be refused is converted once more** where this conversion
-    // constructed appearances, because those are the content no earlier pass saw (`settle`). The
-    // requirements it fails need not be ones the source met: a face the source never embedded
-    // and a face the appearance names are two sites of the one requirement.
+    // constructed appearances, or where the output fails a requirement the source met: both are
+    // content no earlier pass judged (`settle`). The requirements an appearance's output fails
+    // need not be ones the source met: a face the source never embedded and a face the
+    // appearance names are two sites of the one requirement (`doc/adr/2534`, `doc/adr/2795`).
     if let Some(budget) = settle_under
-        && !conversion.appearances.is_empty()
+        && (!conversion.appearances.is_empty() || !achieved.regressions.is_empty())
         && !stands_as_departed(&achieved, departed_ids, omit_identification)
         && let Some(second) = settle::second_conversion(plan, &bytes, input, budget)
         && stands_as_departed(&second.achieved, departed_ids, omit_identification)
