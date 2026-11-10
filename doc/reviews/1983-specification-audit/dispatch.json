@@ -1031,6 +1031,34 @@
         "11.3.7.3"
       ],
       "state": "parent-reviewed-partial-with-consumer-tests"
+    },
+    {
+      "agent": "fdf_field_dictionary_audit",
+      "clauses": [
+        "12.7.8.3.2"
+      ],
+      "state": "parent-reviewed-partial-with-consumer-tests"
+    },
+    {
+      "agent": "fdf_script_order_audit",
+      "clauses": [
+        "12.7.8.3.1"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "jpx_mask_input_audit",
+      "clauses": [
+        "7.4.9"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "transparency_groups_followup_audit",
+      "clauses": [
+        "11.4"
+      ],
+      "state": "running"
     }
   ]
 }

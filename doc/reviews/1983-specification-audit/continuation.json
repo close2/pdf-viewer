@@ -1,17 +1,17 @@
 {
   "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
-  "checkpoint_utc": "2026-11-10T18:10:00.807686+00:00",
+  "checkpoint_utc": "2026-11-10T18:13:07.683783+00:00",
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
-    "last_weekly_used_percent": 82,
+    "last_weekly_used_percent": 83,
     "target_approx_percent": 92,
     "stop_new_work_near_percent": 87,
     "probe": "python scratchpad/r1983/spec-audit/usage.py",
     "warning": "Percent is account allowance, not convertible fixed tokens; counters may lag. Continue extending while useful work and room remain."
   },
   "agents": {
-    "associated_files_audit": "FDFfield flags/precedence",
+    "associated_files_audit": "FDF script timing and optional absent-V rationale",
     "catalog_pages_audit": "JPXDecode",
     "inapplicable_conditions_audit": "transparency groups"
   },
@@ -31,7 +31,7 @@
     "unexpected_test": "variable_text_da_tm_audit::saved_default_appearance_without_tm_gets_one_before_text_showing",
     "resolution": "Test wrongly constrained relative order of independent colour/font operators. Corrected to require both before Tm; da-tm-target-reviewed.log3PASS. Final broad rerun pending."
   },
-  "latest_clippy": "clippy-compositing-clean.log",
+  "latest_clippy": "clippy-fdf-fields-v3.log",
   "new_failures_since_wave8": [
     "catalog Named OpenAction consumer missing",
     "page-visible neighbor omitted",
@@ -97,12 +97,13 @@
     "020e63ec",
     "f542aed9",
     "0e3d7c09",
-    "344107a1"
+    "344107a1",
+    "2c9c864b"
   ],
-  "expected_failures_manifest_count": 67,
+  "expected_failures_manifest_count": 69,
   "broad_run_predates": "DAoperator-order assertion corrected and targeted3PASS; FDFStatus fixture exactxref strengthened1PASS. Final broad rerun pending after active drafts.",
   "expected_failures_by_scope": {
-    "broad_nine_crates": 64,
+    "broad_nine_crates": 66,
     "gtk_supplemental": 3
   }
 }

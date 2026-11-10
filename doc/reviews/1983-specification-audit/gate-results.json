@@ -1036,5 +1036,15 @@
   "compositing_clippy": {
     "log": "clippy-compositing-clean.log",
     "exit": 0
+  },
+  "fdf_field_consumers": {
+    "log": "fdf-fields-target-v3.log",
+    "passed": 1,
+    "expected_failed": 2,
+    "exit": 101
+  },
+  "fdf_fields_clippy": {
+    "log": "clippy-fdf-fields-v3.log",
+    "exit": 0
   }
 }

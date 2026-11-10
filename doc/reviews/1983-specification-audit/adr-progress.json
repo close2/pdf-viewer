@@ -962,14 +962,14 @@
   },
   {
     "path": "doc/adr/0090-the-second-file-a-form-is-made-of.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "fdf_field_dictionary_audit/decisions.json",
         "decision_id": "FDF-import-replaces-stated-corresponding-field-entries",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2386,9 +2386,18 @@
   },
   {
     "path": "doc/adr/0237-a-second-accumulator-the-clause-divides-out-again.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "transparency_groups_audit/decisions.json",
+        "decision_id": "ADR 0237 group model; Normal-Do nonisolated nonknockout path",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0238-the-one-annotation-whose-text-is-the-annotation.md",
@@ -3076,9 +3085,18 @@
   },
   {
     "path": "doc/adr/0307-the-initial-backdrop-a-knockout-group-hands-out.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "transparency_groups_audit/decisions.json",
+        "decision_id": "ADR 0307 initial backdrop for knockout group elements / Note 6",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0308-the-seam-between-two-marks-that-abut.md",
@@ -4730,9 +4748,18 @@
   },
   {
     "path": "doc/adr/0554-a-knockout-stage-keeps-the-equality-a-union-keeps.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "transparency_groups_audit/decisions.json",
+        "decision_id": "ADR 0554 alpha-is-shape proof in knockout groups",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0555-the-offset-was-ours-and-the-lane-that-looked-exact-was-not.md",
@@ -4837,6 +4864,14 @@
         "decision_id": "Reclassify pointwise union versus per-pixel antialias seam as rasterization/averaging qualification",
         "conclusion": "retain-with-qualification",
         "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "transparency_groups_audit/decisions.json",
+        "decision_id": "ADR 0582 correction of pointwise-union interpretation for raster seams",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -6636,14 +6671,14 @@
   },
   {
     "path": "doc/adr/0907-a-requirement-written-as-a-statement-of-fact.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "fdf_field_dictionary_audit/decisions.json",
         "decision_id": "indicative-FDF-field-import-sentence-is-operative",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -7890,9 +7925,18 @@
   },
   {
     "path": "doc/adr/1107-the-groups-own-colour-when-the-file-composites-it-under-a-mode.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "transparency_groups_audit/decisions.json",
+        "decision_id": "ADR 1107 nonisolated nonknockout group under non-Normal Do mode",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1108-the-format-the-standard-names-and-the-half-of-it-that-is-on-this-disk.md",
@@ -9253,9 +9297,18 @@
   },
   {
     "path": "doc/adr/1305-a-knockout-group-under-a-mode-of-its-own-takes-the-result-step.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "transparency_groups_audit/decisions.json",
+        "decision_id": "ADR 1305 nonisolated knockout group under non-Normal Do mode",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1306-a-reading-of-ais-is-kept-by-the-scope-that-paints-under-it.md",
@@ -11221,14 +11274,14 @@
   },
   {
     "path": "doc/adr/1661-a-save-writes-what-an-import-replaced.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "fdf_field_dictionary_audit/decisions.json",
         "decision_id": "imported-entry-save-scope-defers-Opt",
-        "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "conclusion": "save-deferral-retained-presentation-premise-contradicted",
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }

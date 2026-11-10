@@ -12088,6 +12088,199 @@
     "superseded": false
   },
   {
+    "clause": "12.7.8.3.2",
+    "feature_id": "Table249/general-stated-entry-replacement",
+    "requirement": "Unless the table indicates otherwise, importing replaces each stated entry with the corresponding target field entry of the same fully qualified name.",
+    "source_location": "§12.7.8.3.2 general replacement and Table249 names/values/flags physical578/printed563; Opt/AP/APRef/IF/A/AA/RV physical579/printed564. Intro starts physical577 but replacement sentence is on578.",
+    "errata": "No issue-numbered EC3 correction found on physical pp.577–579.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::match_fields",
+      "crates/pdf-model/src/view.rs::ViewState::import",
+      "crates/pdf-model/src/view/writing.rs::write_imported_values"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/forms_data.rs::an_imported_value_is_the_one_that_is_drawn",
+      "crates/pdf-model/tests/forms_data.rs::an_imported_field_with_no_value_empties_the_one_it_names",
+      "crates/pdf-model/tests/rich_text.rs::a_save_writes_the_imported_value_and_its_rich_text_string"
+    ],
+    "verdict": "code-reviewed-tests-incomplete",
+    "evidence": "V and selected field/widget state reach import/save. Table 249 /Opt is parsed into FdfField.options but is not transferred into Import or written to the target; see dedicated feature. Existing V assertions do not prove all-entry replacement.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p pdf-model --test fdf_field_dictionary_audit",
+    "test_result": "fdf-fields-target-v3.log:1PASS2expectedFAIL; clippy-fdf-fields-v3.log PASS.",
+    "parent_review": "Accepted partial; effective PDF pages independently checked; selected imported flags and options consumers run.",
+    "reviewer": "fdf_field_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-reviewed-tests-incomplete",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.2",
+    "feature_id": "Table249/T-Kids-qualified-name-matching",
+    "requirement": "/T is required; /Kids are optional and immediate child dictionaries may be direct or indirect; field names match by fully qualified name.",
+    "source_location": "§12.7.8.3.2 general replacement and Table249 names/values/flags physical578/printed563; Opt/AP/APRef/IF/A/AA/RV physical579/printed564. Intro starts physical577 but replacement sentence is on578.",
+    "errata": "No issue-numbered EC3 correction found on physical pp.577–578.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::read_fields",
+      "crates/pdf-model/src/forms_data.rs::match_fields"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/forms_data.rs::tests::a_kids_tree_flattens_to_fully_qualified_names",
+      "crates/pdf-model/tests/forms_data.rs::a_name_this_form_has_not_got_is_named_rather_than_dropped"
+    ],
+    "verdict": "existing-coverage",
+    "evidence": "Assertions cover nested name flattening and target matching/reporting. No duplicate draft is warranted.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p pdf-model --test fdf_field_dictionary_audit",
+    "test_result": "fdf-fields-target-v3.log:1PASS2expectedFAIL; clippy-fdf-fields-v3.log PASS.",
+    "parent_review": "Accepted partial; effective PDF pages independently checked; selected imported flags and options consumers run.",
+    "reviewer": "fdf_field_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "existing-coverage",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.2",
+    "feature_id": "Table249/V-value-replacement-and-absence",
+    "requirement": "A stated V replaces the matching field value. The implementation deletes an old V when the imported dictionary omits it; the specification basis for that omission behavior needs separate review.",
+    "source_location": "§12.7.8.3.2 general replacement and Table249 names/values/flags physical578/printed563; Opt/AP/APRef/IF/A/AA/RV physical579/printed564. Intro starts physical577 but replacement sentence is on578.",
+    "errata": "No issue-numbered EC3 correction found on physical p.577.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::read_field",
+      "crates/pdf-model/src/view/writing.rs::write_imported_values"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/forms_data.rs::an_imported_value_is_the_one_that_is_drawn",
+      "crates/pdf-model/tests/forms_data.rs::an_imported_field_with_no_value_empties_the_one_it_names"
+    ],
+    "verdict": "present-value-confirmed-absence-interpretation-unresolved",
+    "evidence": "Consumer assertions distinguish imported from stored V and assert missing V removes the old value. Parent qualification: the existing missing-V test proves implemented behavior, not the normative inference. ADR0090 says replacing with nothing is replacing, but the effective sentence refers to entries in the FDF dictionary. Absent RV is retained. Do not certify the absent-V interpretation from its regression test.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p pdf-model --test fdf_field_dictionary_audit",
+    "test_result": "fdf-fields-target-v3.log:1PASS2expectedFAIL; clippy-fdf-fields-v3.log PASS.",
+    "parent_review": "Accepted partial; effective PDF pages independently checked; selected imported flags and options consumers run.",
+    "reviewer": "fdf_field_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "present-value-confirmed-absence-interpretation-unresolved",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.2",
+    "feature_id": "Table249/Ff-SetFf-ClrFf-precedence",
+    "requirement": "/Ff replaces target field flags and suppresses modifiers; absent /Ff, SetFf is applied before ClrFf.",
+    "source_location": "§12.7.8.3.2 general replacement and Table249 names/values/flags physical578/printed563; Opt/AP/APRef/IF/A/AA/RV physical579/printed564. Intro starts physical577 but replacement sentence is on578.",
+    "errata": "No issue-numbered EC3 correction found on physical pp.577–578.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::FlagChange::read",
+      "crates/pdf-model/src/forms_data.rs::FlagChange::applied_to",
+      "crates/pdf-model/src/view/writing.rs::write_imported_values"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/forms_data.rs::tests::ff_replaces_and_setff_modifies",
+      "crates/pdf-model/tests/rich_text.rs::a_save_writes_the_imported_value_and_its_rich_text_string",
+      "crates/pdf-model/tests/fdf_field_dictionary_audit.rs::imported_flags_replace_or_apply_set_then_clear"
+    ],
+    "verdict": "confirmed-selected-saved-import-flags",
+    "evidence": "Model arithmetic and a saved SetFf value are asserted. Draft consumer overlaps Set/Clear bits to distinguish order and checks replacement suppresses both modifiers. Parent saved-output assertions pass: replacement suppresses modifiers, overlapping Set/Clear bits prove Clear follows Set, and unchanged flags control passes. Flag fixtures include required choice Opt and V drawn from that list. Source/FDF/saved xrefs exact.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p pdf-model --test fdf_field_dictionary_audit",
+    "test_result": "fdf-fields-target-v3.log:1PASS2expectedFAIL; clippy-fdf-fields-v3.log PASS.",
+    "parent_review": "Accepted partial; effective PDF pages independently checked; selected imported flags and options consumers run.",
+    "reviewer": "fdf_field_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-saved-import-flags",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.2",
+    "feature_id": "Table249/F-SetF-ClrF-precedence",
+    "requirement": "/F replaces target annotation flags and suppresses modifiers; otherwise SetF is applied before ClrF.",
+    "source_location": "§12.7.8.3.2 general replacement and Table249 names/values/flags physical578/printed563; Opt/AP/APRef/IF/A/AA/RV physical579/printed564. Intro starts physical577 but replacement sentence is on578.",
+    "errata": "No issue-numbered EC3 correction found on physical p.578.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::FlagChange::read",
+      "crates/pdf-model/src/view/writing.rs::write_imported_values"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/forms_data.rs::an_imported_annotation_flag_hides_a_widget",
+      "crates/pdf-model/tests/fdf_field_dictionary_audit.rs::imported_flags_replace_or_apply_set_then_clear"
+    ],
+    "verdict": "confirmed-selected-saved-import-flags",
+    "evidence": "Existing test checks SetF hide in memory. Draft checks saved widget flags with overlapping bits and explicit replacement precedence. Parent saved-output assertions pass: replacement suppresses modifiers, overlapping Set/Clear bits prove Clear follows Set, and unchanged flags control passes. Flag fixtures include required choice Opt and V drawn from that list. Source/FDF/saved xrefs exact.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p pdf-model --test fdf_field_dictionary_audit",
+    "test_result": "fdf-fields-target-v3.log:1PASS2expectedFAIL; clippy-fdf-fields-v3.log PASS.",
+    "parent_review": "Accepted partial; effective PDF pages independently checked; selected imported flags and options consumers run.",
+    "reviewer": "fdf_field_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-saved-import-flags",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.2",
+    "feature_id": "Table249/Opt-choice-options-replacement",
+    "requirement": "For choice fields /Opt is required and names the options presented to the user; the stated FDF entry replaces the target field's /Opt.",
+    "source_location": "§12.7.8.3.2 general replacement and Table249 names/values/flags physical578/printed563; Opt/AP/APRef/IF/A/AA/RV physical579/printed564. Intro starts physical577 but replacement sentence is on578.",
+    "errata": "No issue-numbered EC3 correction found on physical pp.578–579.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::FdfField::options",
+      "crates/pdf-model/src/forms_data.rs::options",
+      "crates/pdf-model/src/forms_data.rs::match_fields",
+      "crates/pdf-model/src/view/writing.rs::write_imported_values",
+      "crates/pdf-model/src/form.rs::options"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/text_choice_fields_spec_audit.rs",
+      "crates/pdf-model/tests/variable_text.rs",
+      "crates/pdf-model/tests/fdf_field_dictionary_audit.rs::imported_choice_options_replace_the_target_options",
+      "crates/pdf-model/tests/fdf_field_dictionary_audit.rs::imported_choice_options_reach_the_form_control_before_saving"
+    ],
+    "verdict": "known-implementation-gap",
+    "evidence": "Parser extracts options into FdfField.options; match_fields omits them from Import, the UI reads options from the original target field, and save never updates /Opt. Existing choice tests use target-document options, not FDF. Draft uses distinct option arrays and checks saved target state. ADR 1661 explicitly deferred /Opt to later work, so this is known unimplemented behavior, not newly discovered parser damage. Parent confirms both saved and in-memory form descriptor failures: old-red/old-blue remain instead of new-amber/new-green. Matching widget count and empty unmatched list pass; saved V changes to new-green. ADR1661 explicitly defers save, but its claim that imported Opt is drawn has a separate contradicted premise.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p pdf-model --test fdf_field_dictionary_audit",
+    "test_result": "fdf-fields-target-v3.log:1PASS2expectedFAIL; clippy-fdf-fields-v3.log PASS.",
+    "parent_review": "Accepted partial; effective PDF pages independently checked; selected imported flags and options consumers run.",
+    "reviewer": "fdf_field_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "known-implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.2",
+    "feature_id": "Table249/AP-APRef-IF-A-AA-RV-cross-references",
+    "requirement": "Appearance, icon-fit, action, and rich-value entries have entry-specific transfer or replacement semantics.",
+    "source_location": "§12.7.8.3.2 general replacement and Table249 names/values/flags physical578/printed563; Opt/AP/APRef/IF/A/AA/RV physical579/printed564. Intro starts physical577 but replacement sentence is on578.",
+    "errata": "No issue-numbered EC3 correction found on physical pp.578–579.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::read_field",
+      "crates/pdf-model/src/view.rs::ViewState::import",
+      "crates/pdf-model/src/view/writing.rs::write_imported_values"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/forms_data.rs::an_imported_appearance_is_the_one_that_is_drawn",
+      "crates/pdf-model/tests/forms_data.rs::an_imported_appearance_is_written_into_the_saved_file",
+      "crates/pdf-model/tests/rich_text.rs::a_save_writes_the_imported_value_and_its_rich_text_string"
+    ],
+    "verdict": "cross-referenced-not-recertified",
+    "evidence": "These entries overlap prior AP, associated-file, action, and rich-text audits. This shard makes no new coverage claim for them.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p pdf-model --test fdf_field_dictionary_audit",
+    "test_result": "fdf-fields-target-v3.log:1PASS2expectedFAIL; clippy-fdf-fields-v3.log PASS.",
+    "parent_review": "Accepted partial; effective PDF pages independently checked; selected imported flags and options consumers run.",
+    "reviewer": "fdf_field_dictionary_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "cross-referenced-not-recertified",
+    "superseded": false
+  },
+  {
     "clause": "12.7.4.2",
     "feature_id": "12.7.4.2.fully_qualified_root_name",
     "requirement": "A root field's partial name is its fully qualified name; consumers identify a field by the hierarchy-derived name.",

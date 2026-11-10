@@ -385,6 +385,18 @@
       "test": "a_template_with_non_name_type_is_reported_as_not_a_template",
       "evidence": "da-gray-named-target.log",
       "classification": "NamedPages diagnostic omits missing/non-name Type; API/document-conformance reporting gap, not mandatory reader rejection. Valid Template and wrong Page controls pass."
+    },
+    {
+      "binary": "pdf-model::fdf_field_dictionary_audit",
+      "test": "imported_choice_options_replace_the_target_options",
+      "evidence": "fdf-fields-target-v3.log",
+      "classification": "FDF choice Opt parsed but dropped before import: old option list persists in form descriptor and saved target. Save deferral known; ADR1661 presentation premise contradicted."
+    },
+    {
+      "binary": "pdf-model::fdf_field_dictionary_audit",
+      "test": "imported_choice_options_reach_the_form_control_before_saving",
+      "evidence": "fdf-fields-target-v3.log",
+      "classification": "FDF choice Opt parsed but dropped before import: old option list persists in form descriptor and saved target. Save deferral known; ADR1661 presentation premise contradicted."
     }
   ]
 }
