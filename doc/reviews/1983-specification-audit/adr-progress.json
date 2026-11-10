@@ -531,14 +531,14 @@
   },
   {
     "path": "doc/adr/0043-what-a-highlight-is.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "text_markup_annotation_audit/decisions.json",
         "decision_id": "0043-mark-dimensions-highlight-blend-and-quad-frame",
-        "conclusion": "retain-selected-dimensions-with-rotation-choice-risk",
-        "parent_accepted": false,
+        "conclusion": "revisit-false-figure-premise-and-quad-geometry",
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -1068,9 +1068,26 @@
   },
   {
     "path": "doc/adr/0109-a-shall-about-a-picture-the-standard-never-draws.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "caret_stamp_annotation_audit/decisions.json",
+        "decision_id": "Reader should not invent stamp legend icon artwork; distinguish SHOULD from Table175 SHALL",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "text_annotation_audit/decisions.json",
+        "decision_id": "ADR 0109 §§2–3 seven required names; artwork, default and added-name policy",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "decision-review",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0110-a-clause-with-two-populations-and-a-row-that-described-one.md",
@@ -1586,6 +1603,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "text_annotation_audit/decisions.json",
+        "decision_id": "ADR 0168 §12.5.3 NoZoom/NoRotate adjustment and fixed point",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "decision-review",
+        "duplicates_decision": null
       }
     ]
   },
@@ -1623,9 +1648,9 @@
       {
         "source": "text_markup_annotation_audit/decisions.json",
         "decision_id": "0172-text-markup-nozoom-priority",
-        "conclusion": "cross-reference-explicit-policy-not-recertified",
-        "parent_accepted": false,
-        "review_type": "selected-decision-unit",
+        "conclusion": "cross-reference-only",
+        "parent_accepted": true,
+        "review_type": "cross_reference_only",
         "duplicates_decision": null
       }
     ]
@@ -1784,9 +1809,26 @@
   },
   {
     "path": "doc/adr/0191-a-window-the-page-does-not-draw.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "popup_annotation_audit/decisions.json",
+        "decision_id": "ADR 0191 §§2–3: render Popup as host window; activate linked popup from markup or Popup object; opening/closing lifecycle",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "text_annotation_audit/decisions.json",
+        "decision_id": "ADR 0191 model/core/host division for popup windows",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "decision-review",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0192-ten-shapes-with-no-size.md",
@@ -2328,14 +2370,14 @@
   },
   {
     "path": "doc/adr/0257-the-joins-that-were-missing-and-a-walk-that-saw-half-a-tree.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "text_markup_annotation_audit/decisions.json",
         "decision_id": "0257-text-under-markup-retrieval",
         "conclusion": "retain-api-with-citation-and-polygon-precision-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2598,11 +2640,27 @@
         "duplicates_decision": null
       },
       {
+        "source": "popup_annotation_audit/decisions.json",
+        "decision_id": "ADR 0294 §1: Text /Open and Popup /Open are independent opening conditions",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
         "source": "square_circle_annotation_audit/decisions.json",
         "decision_id": "Do not apply Table168 B/I relief styles to Square/Circle /BS because Table180 permits only width and dash",
         "conclusion": "retain",
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "text_annotation_audit/decisions.json",
+        "decision_id": "ADR 0294 Table 175 /Open interaction with popup /Open",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "decision-review",
         "duplicates_decision": null
       }
     ]
@@ -2782,6 +2840,14 @@
         "conclusion": "retain-with-qualification",
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "text_annotation_audit/decisions.json",
+        "decision_id": "ADR 0315 Table 172 group attributes including Text /Open",
+        "conclusion": "cross-reference-only",
+        "parent_accepted": true,
+        "review_type": "cross_reference_only",
         "duplicates_decision": null
       }
     ]
@@ -3847,9 +3913,18 @@
   },
   {
     "path": "doc/adr/0457-what-a-stand-in-costs-and-what-a-picture-is-of.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "caret_stamp_annotation_audit/decisions.json",
+        "decision_id": "Caret refusal reason must describe unstated caret artwork, while acknowledging stated RD and pilcrow",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0458-a-refusal-that-belonged-to-a-binary-nobody-had-looked-at.md",
@@ -3957,9 +4032,18 @@
   },
   {
     "path": "doc/adr/0471-the-size-a-clause-states-and-the-rectangle-that-did-not.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "text_annotation_audit/decisions.json",
+        "decision_id": "ADR 0471 §12.5.6.4 synthesized icon anchor and fixed-size decision",
+        "conclusion": "retain-policy-with-derivation-qualification",
+        "parent_accepted": true,
+        "review_type": "decision-review",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0472-the-witness-a-row-named-and-the-report-nothing-asserted.md",
@@ -5286,9 +5370,18 @@
   },
   {
     "path": "doc/adr/0777-re-place-rather-than-re-interpret.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "text_annotation_audit/decisions.json",
+        "decision_id": "ADR 0777 §3 subtype-aware no-zoom invalidation",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "decision-review",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0778-the-tie-breaker-was-doing-the-deciding.md",
@@ -5579,7 +5672,7 @@
         "source": "text_markup_annotation_audit/decisions.json",
         "decision_id": "0825-quadpoints-geometry-not-clipped-to-rect",
         "conclusion": "retain-bounded",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -8560,6 +8653,14 @@
     "whole_document_complete": false,
     "review_records": [
       {
+        "source": "caret_stamp_annotation_audit/decisions.json",
+        "decision_id": "A72 construction boundary: choose missing quantities, do not invent a mark not stated by the clause",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
         "source": "presentations_audit/decisions.json",
         "decision_id": "1299-a72-transition-quantities",
         "conclusion": "retain",
@@ -8865,9 +8966,18 @@
   },
   {
     "path": "doc/adr/1367-the-not-owed-bucket-re-read-two-rows-are-excluded-and-two-departed.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "caret_stamp_annotation_audit/decisions.json",
+        "decision_id": "Formerly classify Caret/Stamp refusals as departed rather than owed reported behavior",
+        "conclusion": "superseded",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1368-a-launch-action-naming-a-pdf-is-the-remote-documents-act.md",
@@ -10279,6 +10389,14 @@
         "duplicates_decision": null
       },
       {
+        "source": "caret_stamp_annotation_audit/decisions.json",
+        "decision_id": "Status §12.5.6.11/.12 as implemented documented choices because no unfulfilled SHALL remains",
+        "conclusion": "retain, with scope review",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
         "source": "conformance_aggregate_audit/decisions.json",
         "decision_id": "departed_is_reserved_for_unfulfilled_shall",
         "conclusion": "retain",
@@ -10800,9 +10918,18 @@
   },
   {
     "path": "doc/adr/1723-a-text-note-with-no-popup-opens-a-window-of-its-own-beside-its-icon.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "text_annotation_audit/decisions.json",
+        "decision_id": "ADR 1723 own-window synthesis for popup-less Text notes",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "decision-review",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1724-the-doc-members-a-view-state-answers-and-the-window-s-view-refused-by-name.md",
@@ -13497,9 +13624,18 @@
   },
   {
     "path": "doc/adr/2284-a-popup-s-parent-is-any-markup-annotation-but-sound.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "popup_annotation_audit/decisions.json",
+        "decision_id": "ADR 2284 §§1–3: permissible Popup parent subtype scope",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2286-a-knockout-element-s-shape-is-the-area-its-path-covers.md",

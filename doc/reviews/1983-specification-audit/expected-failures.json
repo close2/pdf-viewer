@@ -274,6 +274,18 @@
       "test": "variable_text::subset_collision_audit::appearance_writer_allocates_distinct_tags_for_sibling_subsets",
       "evidence": "font-subset-reviewed-fixed-target.log",
       "classification": "Two distinct same-source subset resources receive identical NQYCPV tag; distinct program streams and paired PDF-name controls pass"
+    },
+    {
+      "binary": "pdf-model::text_markup_orientation_audit",
+      "test": "underline_tracks_the_counterclockwise_quad_text_edge_not_its_opposite",
+      "evidence": "text-markup-orientation-target.log",
+      "classification": "Absolute page-y chooses opposite baseline edge for rotated valid CCW text; horizontal controls pass"
+    },
+    {
+      "binary": "pdf-model::text_markup_orientation_audit",
+      "test": "highlight_preserves_all_four_corners_of_a_counterclockwise_trapezoid",
+      "evidence": "text-markup-orientation-target.log",
+      "classification": "Quad reconstruction drops far corner and paints outside valid trapezoid; independent interior/exterior controls pass"
     }
   ]
 }

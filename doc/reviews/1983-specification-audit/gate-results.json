@@ -776,5 +776,29 @@
   "font_subset_square_circle_clippy": {
     "log": "clippy-font-subset-square-circle-clean.log",
     "exit": 0
+  },
+  "broad_wave15": {
+    "log": "nextest-nine-crates-wave15.log",
+    "run": 5727,
+    "passed": 5678,
+    "expected_failed": 49,
+    "skipped": 53,
+    "unexpected": 0,
+    "exit": 100,
+    "exact_manifest_match": true
+  },
+  "text_markup_geometry": {
+    "log": "text-markup-orientation-target.log",
+    "expected_fail": 2,
+    "exit": 101
+  },
+  "text_annotation": {
+    "log": "text-annotation-corrected-anchor-target.log",
+    "passed": 2,
+    "exit": 0
+  },
+  "text_annotations_clippy": {
+    "log": "clippy-text-annotations-clean.log",
+    "exit": 0
   }
 }

@@ -5530,10 +5530,14 @@
   {
     "clause": "12.5.1",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "popup_annotation_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "partial-ambiguous-for-parentless-markup": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
@@ -5648,11 +5652,13 @@
   {
     "clause": "12.5.6.1",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "text_annotation_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "text_annotation_audit"
+    ],
     "feature_record_verdicts": {
       "confirmed-with-child-clause-scope": 1,
       "partial-cross-reference": 1
@@ -5664,7 +5670,8 @@
     "ledger_status": "implemented",
     "review_state": "partial-parent-review",
     "artifact_directories": [
-      "markup_annotation_audit"
+      "markup_annotation_audit",
+      "popup_annotation_audit"
     ],
     "parent_reviewed_artifacts": [
       "markup_annotation_audit"
@@ -5674,6 +5681,7 @@
       "confirmed": 1,
       "confirmed-gap": 1,
       "confirmed-selected-import-consumer": 1,
+      "confirmed-selected-linkage": 1,
       "informative-clarification-not-independent-duty": 2,
       "inventoried-default-and-recommendation": 1,
       "inventoried-producer-and-scope-constraints": 3,
@@ -5708,17 +5716,19 @@
   {
     "clause": "12.5.6.4",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "text_annotation_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "text_annotation_audit"
+    ],
     "feature_record_verdicts": {
       "confirmed": 1,
+      "confirmed-selected-implicit-norotate-consumer": 1,
       "confirmed-with-artwork-choice": 1,
       "confirmed-with-host-choice": 1,
-      "partial-cross-reference": 1,
-      "partial-missing-discriminator": 1
+      "partial-cross-reference": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
@@ -5844,14 +5854,18 @@
   {
     "clause": "12.5.6.10",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "text_markup_annotation_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "text_markup_annotation_audit"
+    ],
     "feature_record_verdicts": {
       "confirmed-selected-mark-types": 1,
       "cross-reference-existing-popup-consumer": 1,
+      "implementation-gap-nonparallelogram-highlight": 1,
+      "implementation-gap-rotated-underline-and-false-figure-premise": 1,
       "retain-chosen-geometry-cross-reference-blend": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
@@ -5878,7 +5892,7 @@
     ],
     "parent_reviewed_artifacts": [],
     "feature_record_verdicts": {
-      "implementation-gap": 1
+      "ambiguous": 2
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
@@ -5906,10 +5920,16 @@
   {
     "clause": "12.5.6.14",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "popup_annotation_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "code-supported-partial-test": 1,
+      "confirmed-selected-with-recovery-policy": 1,
+      "confirmed-with-text-subtype-composition": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {

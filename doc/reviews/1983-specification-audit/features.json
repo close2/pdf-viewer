@@ -32497,6 +32497,346 @@
     "superseded": false
   },
   {
+    "clause": "12.5.6.1",
+    "feature_id": "table171_standard_annotation_vocabulary",
+    "requirement": "Table 171 enumerates the standard annotation subtype names and links each name to its descriptive type and governing subclause. The 28 values are Text, Link, FreeText, Line, Square, Circle, Polygon, PolyLine, Highlight, Underline, Squiggly, StrikeOut, Caret, Stamp, Ink, Popup, FileAttachment, Sound, Movie, Screen, Widget, PrinterMark, TrapNet, Watermark, 3D, Redact, Projection, and RichMedia. Table 171 Markup=Yes: Text, FreeText, Line, Square, Circle, Polygon, PolyLine, Highlight, Underline, Squiggly, StrikeOut, Caret, Stamp, Ink, FileAttachment, Sound, Redact, Projection. Markup=No: Link, Popup, Movie, Screen, Widget, PrinterMark, TrapNet, Watermark, 3D, RichMedia.",
+    "source_location": "§12.5.6.1 and Table 171, ISO printed pp. 476–477 / one-based physical pp. 491–492.",
+    "errata": "No EC3 amendment to Table 171 or this paragraph on physical pp. 491–492.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::STANDARD_SUBTYPES",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::every_annotation_type_table_171_defines_is_answered_by_its_own_clause",
+      "crates/pdf-model/tests/annotations.rs::no_table_171_subtype_is_refused_with_the_catch_all_s_sentence"
+    ],
+    "verdict": "confirmed-with-child-clause-scope",
+    "evidence": "The 28-name constant matches Table 171. The table-driven assertions exercise each name through the annotation dispatch and guard that no standard name falls into the unknown-subtype catch-all. This verifies the table population/dispatch boundary, not every subtype feature; behavior delegated to each subtype clause and its audit.",
+    "test_command": null,
+    "test_result": "Two new tests PASS in text-annotation-corrected-anchor-target.log; clippy-text-annotations-clean.log PASS. Existing model/core tests passed wave15; viewer-ui window-render test inspected, not run in wave15.",
+    "parent_review": "Parent read effective Text paragraph/Table175 and Table171, selected ADR units, actual icon/zoom/popup assertions and promoted two tests. Corrected draft rotated-anchor arithmetic; fixed-size icon dimensions treated as policy.",
+    "reviewer": "text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-with-child-clause-scope",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.1",
+    "feature_id": "table171_markup_classification_and_forward_references",
+    "requirement": "Table 171 marks each standard subtype as markup or non-markup and directs its details to a subclause; concrete Contents, grouping, icon, action, and appearance obligations belong to those referenced clauses. Table 171 PDF-version/deprecation annotations identify history/availability, not a standalone mandate to reject a known subtype based on the file header. Its version labels are: FreeText/Line/Square/Circle/Highlight/Underline/StrikeOut/Stamp/Ink/Popup/FileAttachment PDF 1.3; Polygon/PolyLine/Caret/Screen PDF 1.5; Squiggly PDF 1.4; Sound and Movie PDF 1.2 and deprecated in PDF 2.0; Widget PDF 1.2; PrinterMark PDF 1.4; TrapNet PDF 1.3 and deprecated in PDF 2.0; Watermark and 3D PDF 1.6; Redact PDF 1.7; Projection and RichMedia PDF 2.0. Text and Link have no version annotation in this table.",
+    "source_location": "§12.5.6.1 Table 171, ISO printed pp. 476–477 / one-based physical pp. 491–492; forward references to §12.5.6.2 and subtype clauses.",
+    "errata": "No EC3 change to Table 171 on physical pp. 491–492.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::STANDARD_SUBTYPES",
+      "crates/pdf-model/src/markup.rs::group_source",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::every_annotation_type_table_171_defines_is_answered_by_its_own_clause",
+      "crates/pdf-model/src/markup.rs::only_a_group_reply_type_takes_the_primarys_entries"
+    ],
+    "verdict": "partial-cross-reference",
+    "evidence": "The Table 171 subtype set is present. No separate reader gate compares the PDF header against the table’s introduction/deprecation labels, which are not written as a reader SHALL. §12.5.6.2’s grouping and threaded-reply rules and each subtype’s content are delegated; the generic table-loop does not prove them.",
+    "test_command": null,
+    "test_result": "Two new tests PASS in text-annotation-corrected-anchor-target.log; clippy-text-annotations-clean.log PASS. Existing model/core tests passed wave15; viewer-ui window-render test inspected, not run in wave15.",
+    "parent_review": "Parent read effective Text paragraph/Table175 and Table171, selected ADR units, actual icon/zoom/popup assertions and promoted two tests. Corrected draft rotated-anchor arithmetic; fixed-size icon dimensions treated as policy.",
+    "reviewer": "text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-cross-reference",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.4",
+    "feature_id": "text_annotation_closed_icon_and_open_note_window",
+    "requirement": "A closed Text annotation appears as an icon; an open one displays a popup window containing the note text, with font and size chosen by the interactive processor.",
+    "source_location": "§12.5.6.4 first sentence, ISO printed p. 482 / one-based physical p. 497.",
+    "errata": "No EC3 correction to the Text-annotation paragraph/Table 175 on physical p. 497. EC3 #479’s second correction on p. 497 lies above the §12.5.6.4 heading and corrects the preceding §12.5.6.3 IRT citation, not this behavior.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::text_icon",
+      "crates/pdf-model/src/popup.rs::popups",
+      "crates/viewer-core/src/viewer/geometry.rs::popup_windows",
+      "crates/viewer-ui/src/chrome.rs::popup_windows"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::each_of_the_seven_standard_icon_names_draws_its_own_shape",
+      "crates/pdf-model/src/popup.rs::a_text_annotations_own_open_opens_its_popup",
+      "crates/viewer-core/tests/headless.rs::a_text_note_with_no_popup_opens_a_window_of_its_own",
+      "crates/viewer-core/tests/headless.rs::a_text_note_with_no_popup_is_opened_and_closed_by_its_activation",
+      "crates/viewer-ui/tests/panel.rs::a_popup_window_puts_its_note_on_the_page"
+    ],
+    "verdict": "confirmed-with-host-choice",
+    "evidence": "No-AP Text dictionaries reach the synthesized icon path; the seven required names each paint nonempty output, while unknown names report. Table 175 /Open is combined with the popup’s own /Open; public headless tests assert window contents and activation open/close for a note without /Popup, and viewer-ui asserts rendered popup-window text. Placement and window styling are host choices. Parent read host-render test: it asserts ink in window body/title and none below, not exact text content; the exact note strings are asserted separately by model/core. These are separate layer tests, not one end-to-end native-host run.",
+    "test_command": null,
+    "test_result": "Two new tests PASS in text-annotation-corrected-anchor-target.log; clippy-text-annotations-clean.log PASS. Existing model/core tests passed wave15; viewer-ui window-render test inspected, not run in wave15.",
+    "parent_review": "Parent read effective Text paragraph/Table175 and Table171, selected ADR units, actual icon/zoom/popup assertions and promoted two tests. Corrected draft rotated-anchor arithmetic; fixed-size icon dimensions treated as policy.",
+    "reviewer": "text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-with-host-choice",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.4",
+    "feature_id": "text_annotation_fixed_scale_and_orientation",
+    "requirement": "Text annotations do not scale or rotate with the page and behave as though NoZoom and NoRotate are set irrespective of their stored /F flags.",
+    "source_location": "§12.5.6.4 final sentence; §12.5.3/Table 167 define the effect. ISO printed p. 482 / physical p. 497.",
+    "errata": "No EC3 amendment to this sentence on physical p. 497.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::view_flags",
+      "crates/pdf-model/src/annotation.rs::anchored_icon",
+      "crates/pdf-model/src/annotation.rs::decide",
+      "crates/pdf-model/src/content.rs::Interpreter::any_no_zoom"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_text_annotation_behaves_as_though_both_flags_were_set",
+      "crates/pdf-model/tests/annotations.rs::a_no_rotate_annotation_pivots_about_its_own_corner",
+      "crates/pdf-model/tests/annotations.rs::a_text_annotations_icon_is_one_size_whatever_its_rect_states",
+      "crates/pdf-model/tests/text_annotation_spec_audit.rs::a_text_annotation_is_upright_when_page_rotation_changes",
+      "crates/pdf-model/tests/text_annotation_spec_audit.rs::a_synthesized_text_icon_uses_rect_as_an_anchor_not_a_size"
+    ],
+    "verdict": "confirmed-selected-implicit-norotate-consumer",
+    "evidence": "New stored-AP Text F4 raster equals explicit-NoRotate F20 on Rotate90; Square F4 control rotates. Correct fixed anchor maps user(40,70) to device(70,40), with upright15x30 extent(70,40,84,69); draft wrongly expected y30. AP now includes Resources. Synthesized icon raster equality at shared upper-left and changed-point inequality strengthen current placement policy. Fixed screen size across zoom does not logically mandate one initial size for every Rect: chosen20 and ignoring extent are project policy, not independently derived from NoZoom.",
+    "test_command": null,
+    "test_result": "Two new tests PASS in text-annotation-corrected-anchor-target.log; clippy-text-annotations-clean.log PASS. Existing model/core tests passed wave15; viewer-ui window-render test inspected, not run in wave15.",
+    "parent_review": "Parent read effective Text paragraph/Table175 and Table171, selected ADR units, actual icon/zoom/popup assertions and promoted two tests. Corrected draft rotated-anchor arithmetic; fixed-size icon dimensions treated as policy.",
+    "reviewer": "text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-implicit-norotate-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.4",
+    "feature_id": "table175_subtype_open_default_and_name_default",
+    "requirement": "Table 175 requires /Subtype /Text. /Open is optional and defaults false (closed); /Name is optional, and absent /Name defaults to Note.",
+    "source_location": "Table 175 /Subtype, /Open, /Name rows, ISO printed p. 482 / one-based physical p. 497.",
+    "errata": "No EC3 change to these rows on physical p. 497.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::text_icon",
+      "crates/pdf-model/src/icon.rs::DEFAULT_TEXT_NAME",
+      "crates/pdf-model/src/popup.rs::opens_with_the_page"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::an_absent_icon_name_is_the_note",
+      "crates/pdf-model/tests/annotations.rs::an_icon_name_outside_the_seven_is_reported_by_name",
+      "crates/pdf-model/src/popup.rs::a_text_annotations_own_open_opens_its_popup",
+      "crates/viewer-core/tests/headless.rs::a_text_note_with_no_popup_is_opened_and_closed_by_its_activation"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The absent-name pixel pair is identical to explicit Note. The popup unit pair differs only in Text /Open true and asserts true versus the omitted-key default false; the public activation test confirms interactive changes afterward. The annotation dispatch requires subtype through the common Table 166 path.",
+    "test_command": null,
+    "test_result": "Two new tests PASS in text-annotation-corrected-anchor-target.log; clippy-text-annotations-clean.log PASS. Existing model/core tests passed wave15; viewer-ui window-render test inspected, not run in wave15.",
+    "parent_review": "Parent read effective Text paragraph/Table175 and Table171, selected ADR units, actual icon/zoom/popup assertions and promoted two tests. Corrected draft rotated-anchor arithmetic; fixed-size icon dimensions treated as policy.",
+    "reviewer": "text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.4",
+    "feature_id": "table175_standard_icon_names_and_extra_name_permission",
+    "requirement": "/Name selects the icon. A processor SHALL provide predefined appearances for Comment, Key, Note, Help, NewParagraph, Paragraph, and Insert; additional names may be supported (permission, not a mandate). The clause specifies no artwork or symbol color.",
+    "source_location": "Table 175 /Name row and §12.5.6.4, ISO printed p. 482 / physical p. 497.",
+    "errata": "No EC3 amendment to this requirement on physical p. 497.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/icon.rs::text_annotation",
+      "crates/pdf-model/src/appearance.rs::text_icon"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::each_of_the_seven_standard_icon_names_draws_its_own_shape",
+      "crates/pdf-model/tests/annotations.rs::an_absent_icon_name_is_the_note",
+      "crates/pdf-model/tests/annotations.rs::an_icon_name_outside_the_seven_is_reported_by_name",
+      "crates/pdf-model/tests/annotations.rs::table_166_s_colour_is_the_icon_s_background"
+    ],
+    "verdict": "confirmed-with-artwork-choice",
+    "evidence": "All seven names dispatch to processor-defined artwork and paint pixels; absent Name maps to Note; an unrecognized name is reported instead of silently replacing it. The existing pairwise-distinct raster assertion guards this tree’s chosen artwork but uniqueness of specific shapes is not an ISO requirement because the standard gives no artwork. Table 166 /C supplies background color, while the symbol color is chosen black.",
+    "test_command": null,
+    "test_result": "Two new tests PASS in text-annotation-corrected-anchor-target.log; clippy-text-annotations-clean.log PASS. Existing model/core tests passed wave15; viewer-ui window-render test inspected, not run in wave15.",
+    "parent_review": "Parent read effective Text paragraph/Table175 and Table171, selected ADR units, actual icon/zoom/popup assertions and promoted two tests. Corrected draft rotated-anchor arithmetic; fixed-size icon dimensions treated as policy.",
+    "reviewer": "text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-with-artwork-choice",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.4",
+    "feature_id": "table175_review_state_entries_delegate_to_12563",
+    "requirement": "/State is optional (PDF 1.5) and its default depends on /StateModel: Unmarked for Marked, None for Review. /StateModel is required if /State is present, otherwise optional. Actual state meaning/update rules are in §12.5.6.3/Table 174.",
+    "source_location": "Table 175 /State and /StateModel rows, ISO printed p. 482 / physical p. 497; normative behavior delegated to §12.5.6.3.",
+    "errata": "No change to Table 175 state rows on physical p. 497. EC3 #479 corrects neighboring §12.5.6.3 IRT citations on physical pp. 496–497 from Table 176 to Table 172; both marks are positioned in the earlier state paragraph, above Table 175’s heading.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation_state.rs::state_change",
+      "crates/pdf-model/src/annotation_state.rs::StateModel::default_state",
+      "crates/pdf-model/src/annotation_state.rs::State::model"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/annotation_state.rs::one_of_the_two_entries_is_enough",
+      "crates/pdf-model/src/annotation_state.rs::a_reply_with_no_state_states_none"
+    ],
+    "verdict": "partial-cross-reference",
+    "evidence": "This row only accounts for Table 175’s conditional/default entries; values, state-chain semantics and EC3 #479 are covered by annotation_states_audit. That shard notes inference when /State exists without required /StateModel is tolerant recovery, not a reader SHALL. Version label PDF 1.5 is not itself a stated header-version rejection rule.",
+    "test_command": null,
+    "test_result": "Two new tests PASS in text-annotation-corrected-anchor-target.log; clippy-text-annotations-clean.log PASS. Existing model/core tests passed wave15; viewer-ui window-render test inspected, not run in wave15.",
+    "parent_review": "Parent read effective Text paragraph/Table175 and Table171, selected ADR units, actual icon/zoom/popup assertions and promoted two tests. Corrected draft rotated-anchor arithmetic; fixed-size icon dimensions treated as policy.",
+    "reviewer": "text_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-cross-reference",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.10",
+    "feature_id": "text_markup_subtypes_and_version_introductions",
+    "requirement": "Text markup appears as Highlight, Underline, StrikeOut, or Squiggly underline. The first three were introduced in PDF 1.3 and Squiggly in PDF 1.4; Table182 requires the matching Subtype name.",
+    "source_location": "§12.5.6.10 opening paragraph and Table182 /Subtype; printed p.492 / physical p.507.",
+    "errata": "The effective EC3 errata index has only page-navigation links for this section; no semantic change to Table182 or Figure84 was found. The source PDF's Table182 is printed pp.492–493 / physical pp.507–508.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::construct",
+      "crates/pdf-model/src/appearance.rs::text_markup"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::each_text_markup_draws_its_own_mark"
+    ],
+    "verdict": "confirmed-selected-mark-types",
+    "evidence": "The dispatcher routes each known subtype to text_markup; that routine has distinct Highlight, StrikeOut, Squiggly, and default Underline geometry. The existing test reads actual raster rows for each, but uses one axis-aligned quad and does not test subtype-version conformance. Versions and matching Subtype are producer constraints; no reader version rejection is inferred. Parent checked fixture: its four points form a self-intersecting bow-tie. Meaningful mark-type assertions exercise recovery policy, not valid CCW shape handling.",
+    "test_command": null,
+    "test_result": "text-markup-orientation-target.log: 2 failures after positive controls. clippy-text-annotations-clean.log PASS. Existing tests passed wave15; selected assertion scope only.",
+    "parent_review": "Parent read actual Table182, visually rendered Figure84, source, prior assertion bodies and writer path. Corrected misleading figure premise and false ADR0257 attribution; independently reproduced two new regressions.",
+    "reviewer": "text_markup_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-mark-types",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.10",
+    "feature_id": "required_quadpoints_and_default_user_space_geometry",
+    "requirement": "Required QuadPoints is 8×n numbers specifying n quadrilaterals in default user space; each quad is to encompass a word or contiguous words underlying the annotation.",
+    "source_location": "Table182 /QuadPoints; printed p.493 / physical p.508.",
+    "errata": "No semantic EC3 correction found. Page 508 errata records for §12.5.6.10 are link annotations, not normative edits.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::points",
+      "crates/pdf-model/src/appearance.rs::text_markup",
+      "crates/pdf-model/src/retrieval.rs::text_under",
+      "crates/pdf-model/src/retrieval.rs::spans_under"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_text_markups_quadrilaterals_are_drawn_where_its_rect_covers_no_area",
+      "crates/pdf-model/tests/annotations.rs::each_text_markup_draws_its_own_mark",
+      "crates/pdf-model/tests/text_markup_orientation_audit.rs::highlight_preserves_all_four_corners_of_a_counterclockwise_trapezoid"
+    ],
+    "verdict": "implementation-gap-nonparallelogram-highlight",
+    "evidence": "Parent found Quad stores only origin,along,up and reconstructs the far corner as their sum. A valid counterclockwise trapezoid[10 10 90 10 70 40 20 40] containing real text becomes a parallelogram whose top-right is[100,40] instead of[70,40]. Rectangular and trapezoid interior/lower-right/upper-left exterior controls pass; upper-right exterior x80,y35 is wrongly highlighted. No-AP construction policy scope explicit. Existing no-area-Rect and mark-type tests use bow-tie point ordering, so they establish robustness behavior, not conforming producer geometry.",
+    "test_command": null,
+    "test_result": "text-markup-orientation-target.log: 2 failures after positive controls. clippy-text-annotations-clean.log PASS. Existing tests passed wave15; selected assertion scope only.",
+    "parent_review": "Parent read actual Table182, visually rendered Figure84, source, prior assertion bodies and writer path. Corrected misleading figure premise and false ADR0257 attribution; independently reproduced two new regressions.",
+    "reviewer": "text_markup_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap-nonparallelogram-highlight",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.10",
+    "feature_id": "counterclockwise_quad_order_and_text_axis",
+    "requirement": "The four vertices are provided in counterclockwise order as x1,y1 through x4,y4; text is oriented with respect to edge x1,y1 to x2,y2.",
+    "source_location": "Table182 /QuadPoints and Figure84; printed p.493 / physical p.508.",
+    "errata": "No semantic EC3 correction found. Figure84 and Table182 appear unmodified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::Quad::read",
+      "crates/pdf-model/src/appearance.rs::Quad::at",
+      "crates/pdf-model/src/content/text/readback.rs::glyph_quad",
+      "crates/viewer-core/src/select.rs::quads_for",
+      "crates/viewer-core/src/open/edits.rs::Edit::Markup",
+      "crates/pdf-model/src/view/markup.rs::ViewState::add_markup"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::each_text_markup_draws_its_own_mark",
+      "crates/pdf-model/tests/saving.rs::a_markup_a_person_added_is_written_and_attached_to_its_page",
+      "crates/viewer-core/tests/headless.rs::a_markup_over_a_selection_is_drawn_and_undone",
+      "crates/pdf-model/tests/text_markup_orientation_audit.rs::underline_tracks_the_counterclockwise_quad_text_edge_not_its_opposite"
+    ],
+    "verdict": "implementation-gap-rotated-underline-and-false-figure-premise",
+    "evidence": "Parent visually checked physical508 Figure84: x1/x2 lie on the Jupiter baseline, x3/x4 above it, in counterclockwise y-up order. ADR0043 and appearance.rs falsely claim the first edge is at the top and conflicts with the prose. The new valid CCW quad contains real up-left Courier text. Horizontal underline/bare opposite-edge controls pass; rotated underline at x1/x2 fails because Quad::read selects the opposite edge by absolute page-y. Missing AP deliberately tests construction policy; dimensions remain choices, but an overline is not the named underline. Existing appearance tests also use self-intersecting point order, not merely horizontal geometry. Writer glyph_quad uses descent-edge then ascent-edge corners, preserved by selection for ordinary orientation-preserving text transforms; mirrored transforms and all saved output are not certified. saving.rs passes a bow-tie and asserts only eight values.",
+    "test_command": null,
+    "test_result": "text-markup-orientation-target.log: 2 failures after positive controls. clippy-text-annotations-clean.log PASS. Existing tests passed wave15; selected assertion scope only.",
+    "parent_review": "Parent read actual Table182, visually rendered Figure84, source, prior assertion bodies and writer path. Corrected misleading figure premise and false ADR0257 attribution; independently reproduced two new regressions.",
+    "reviewer": "text_markup_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap-rotated-underline-and-false-figure-premise",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.10",
+    "feature_id": "popup_when_text_markup_is_opened",
+    "requirement": "When opened, a text markup annotation shall display a popup window containing its associated note text. The clause supplies no /Open entry; this is a display condition, not a requirement to open the window on page load.",
+    "source_location": "§12.5.6.10 opening paragraph; printed p.492 / physical p.507; shared popup entries in Tables171–172 and 186.",
+    "errata": "No semantic EC3 correction found for the text-markup popup sentence.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/popup.rs::popups",
+      "crates/pdf-model/src/popup.rs::opens_with_the_page",
+      "crates/viewer-ui/src/chrome.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/popup.rs::a_window_on_a_group_shows_the_primarys_words",
+      "crates/pdf-model/src/popup.rs::only_a_text_annotations_open_reaches_its_popup"
+    ],
+    "verdict": "cross-reference-existing-popup-consumer",
+    "evidence": "Popup parsing is a shared markup route. The grouped StrikeOut test asserts the window's associated text, and a separate test establishes that an undefined /Open on Highlight does not open it automatically. The UI consumer is outside this geometry shard; no duplicate test drafted. Do not attribute Text annotation /Open semantics to text markup.",
+    "test_command": null,
+    "test_result": "text-markup-orientation-target.log: 2 failures after positive controls. clippy-text-annotations-clean.log PASS. Existing tests passed wave15; selected assertion scope only.",
+    "parent_review": "Parent read actual Table182, visually rendered Figure84, source, prior assertion bodies and writer path. Corrected misleading figure premise and false ADR0257 attribution; independently reproduced two new regressions.",
+    "reviewer": "text_markup_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "cross-reference-existing-popup-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.10",
+    "feature_id": "appearance_dimensions_and_highlight_blend_are_selected_details",
+    "requirement": "The clause names each mark and its region/orientation but does not specify underline thickness, strikeout position, squiggle period/amplitude, or a specific blend mode. These are construction choices; multiply mode is justified by keeping underlying text visible and cross-referenced to transparency rules.",
+    "source_location": "§12.5.6.10 opening paragraph and Table182 /QuadPoints; blending semantics §11.3.5.2.",
+    "errata": "No semantic EC3 correction found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::text_markup",
+      "crates/pdf-model/src/appearance.rs::Quad::bar",
+      "crates/pdf-model/src/appearance.rs::Quad::squiggle",
+      "crates/pdf-model/src/appearance.rs::Stream::multiply"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::each_text_markup_draws_its_own_mark",
+      "scratchpad/r1983/spec-audit/transparency_audit"
+    ],
+    "verdict": "retain-chosen-geometry-cross-reference-blend",
+    "evidence": "The implementation derives mark dimensions from quad height and paints Highlight under Multiply. Existing tests distinguish the four shape regions but do not make those unspecified fractions normative. Transparency group/blend implementation is inherited from the accepted transparency audit and is not re-certified here.",
+    "test_command": null,
+    "test_result": "text-markup-orientation-target.log: 2 failures after positive controls. clippy-text-annotations-clean.log PASS. Existing tests passed wave15; selected assertion scope only.",
+    "parent_review": "Parent read actual Table182, visually rendered Figure84, source, prior assertion bodies and writer path. Corrected misleading figure premise and false ADR0257 attribution; independently reproduced two new regressions.",
+    "reviewer": "text_markup_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "retain-chosen-geometry-cross-reference-blend",
+    "superseded": false
+  },
+  {
     "clause": "9.4.1",
     "feature_id": "9.4.1.BT_initializes_Tm_Tlm",
     "requirement": "BT starts a text object and initializes both Tm and Tlm to identity.",

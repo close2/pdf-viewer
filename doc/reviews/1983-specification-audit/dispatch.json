@@ -850,20 +850,42 @@
       "clauses": [
         "12.5.6.10"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-consumer-regressions"
     },
     {
       "agent": "text_annotation_audit",
       "clauses": [
         "12.5.6.4"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-consumer-regressions"
     },
     {
       "agent": "caret_stamp_annotation_audit",
       "clauses": [
         "12.5.6.11",
         "12.5.6.12"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "popup_annotation_audit",
+      "clauses": [
+        "12.5.6.14"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "file_attachment_annotation_audit",
+      "clauses": [
+        "12.5.6.15"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "sound_movie_annotation_audit",
+      "clauses": [
+        "12.5.6.16",
+        "12.5.6.17"
       ],
       "state": "running"
     }
