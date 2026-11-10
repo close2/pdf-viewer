@@ -8250,6 +8250,317 @@
     "superseded": false
   },
   {
+    "clause": "11.3.6",
+    "feature_id": "11.3.6-weighted-color-equation",
+    "requirement": "Compute result colour from backdrop/source straight colours and the blend function, weighted by their source and backdrop alpha; result colour is normalized by result alpha when it is defined.",
+    "source_location": "Printed pp. 398–399; physical pp. 413–414, source/spec-layout.txt around 23984–24027.",
+    "errata": "No substantive EC3 correction on physical pp. 413–414; annotation entries are cross-reference links.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/blend.rs::composite",
+      "crates/render-cpu/src/lib.rs::draw_shown",
+      "tiny-skia raster path for separable modes",
+      "Vello blend shader path"
+    ],
+    "test_refs": [
+      "crates/render-cpu/tests/soft_mask.rs::the_weighted_average_is_exact_at_every_mask_value",
+      "crates/render-cpu/src/blend.rs::tests::the_special_mode_is_destination_over_in_the_channels_it_keeps",
+      "crates/pdf-model/tests/compositing_formula_spec_audit.rs::nonopaque_hue_uses_both_alphas_and_returns_normalized_result_colour",
+      "crates/pdf-model/tests/compositing_formula_spec_audit.rs::either_zero_alpha_removes_the_blend_mode_effect"
+    ],
+    "verdict": "confirmed-selected-pdf-compositing-consumer",
+    "evidence": "The 256-value consumer test compares the Normal weighted average against an independent closed form with an opaque backdrop and varying source mask. The private composite unit test uses distinct nonopaque alpha bytes (128 and 64) and checks destination-over/source-over identities for Overprint, but no existing consumer exercises a nonseparable B(Cb,Cs) with both αb and αs nonopaque. The new PDF fixture drafts that discriminating vector plus Normal control. Formula branch in composite unpremultiplies source/backdrop pixels, evaluates B, computes αr, constructs the three premultiplied terms, clamps channels to αr, then writes premultiplied pixels; public Raster export normalizes the returned colour. Separable modes delegate to library compositing. Parent independently derived and executed Hue with backdrop alpha1/2/source alpha1/4: alpha5/8 and normalized RGB(41/150,0,3/5), yielding(70,0,153,160) within3. Normal control(102,0,153,160) differs. Separate zero-source and zero-backdrop alpha controls pass. Exact xref and complete interpretation asserted; no undefined both-zero colour demanded.",
+    "parent_review": "Accepted partial: effective source, code and assertions reviewed; whole clause not certified.",
+    "test_result": "compositing-formula-target-v2.log:2PASS; clippy-compositing-clean.log PASS. First target did not compile because parent removed necessary mut; restored before successful run.",
+    "remaining": "Direct tiling-pattern interior shape/opacity, chained result-opacity observation and exact pointwise-versus-raster coverage remain residuals; no GPU execution added.",
+    "reviewer": "compositing_formula_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-pdf-compositing-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.6",
+    "feature_id": "11.3.6-zero-alpha-edge",
+    "requirement": "If either source or backdrop alpha is zero, the blend mode has no effect; when result alpha is zero the result colour is undefined.",
+    "source_location": "Printed p. 399; physical p. 414, source/spec-layout.txt around 24016–24026.",
+    "errata": "No substantive EC3 correction; the page’s annotations are links.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/blend.rs::composite (alpha_s == 0 skip; alpha_b == 0 straight-color guard)",
+      "crates/render-cpu/src/lib.rs::draw_shown"
+    ],
+    "test_refs": [
+      "crates/render-cpu/src/blend.rs::tests::the_special_mode_is_destination_over_in_the_channels_it_keeps",
+      "crates/pdf-model/tests/compositing_formula_spec_audit.rs::nonopaque_hue_uses_both_alphas_and_returns_normalized_result_colour",
+      "crates/pdf-model/tests/compositing_formula_spec_audit.rs::either_zero_alpha_removes_the_blend_mode_effect"
+    ],
+    "verdict": "confirmed-selected-pdf-compositing-consumer",
+    "evidence": "The implementation has explicit zero-source handling and defines straight color as zero for an alpha-zero input; the existing tests are indirect/overprint and knockout use cases. No direct reader assertion covers both §11.3.6 zero-alpha edges with a nonseparable mode. The scratch consumer draft tests αb=0 and αs=0 separately. The undefined color at αr=0 is not a demanded color value; a transparent pixel cannot make that color observable. Parent independently derived and executed Hue with backdrop alpha1/2/source alpha1/4: alpha5/8 and normalized RGB(41/150,0,3/5), yielding(70,0,153,160) within3. Normal control(102,0,153,160) differs. Separate zero-source and zero-backdrop alpha controls pass. Exact xref and complete interpretation asserted; no undefined both-zero colour demanded.",
+    "parent_review": "Accepted partial: effective source, code and assertions reviewed; whole clause not certified.",
+    "test_result": "compositing-formula-target-v2.log:2PASS; clippy-compositing-clean.log PASS. First target did not compile because parent removed necessary mut; restored before successful run.",
+    "remaining": "Direct tiling-pattern interior shape/opacity, chained result-opacity observation and exact pointwise-versus-raster coverage remain residuals; no GPU execution added.",
+    "reviewer": "compositing_formula_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-pdf-compositing-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.7.1",
+    "feature_id": "11.3.7.1-alpha-product",
+    "requirement": "The compositing alphas for backdrop, result, and source are the respective products of shape and opacity.",
+    "source_location": "Printed p. 399; physical p. 414, source/spec-layout.txt around 24028–24041.",
+    "errata": "No substantive EC3 correction on physical p. 414; annotation entries are cross-reference links.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/ext_gstate.rs",
+      "crates/pdf-model/src/content/transparency/shape.rs::stated_shape",
+      "crates/render-cpu/src/blend.rs::composite",
+      "crates/pdf-model/src/image/combine.rs::combine_on_the_finer_grid"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/image_masks.rs::a_stencil_painted_with_a_shading_pattern_under_a_soft_mask_is_drawn_through_both",
+      "crates/pdf-model/tests/transparency_groups.rs::a_stated_shape_knocks_the_element_under_it_out_entirely"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Image mask tests assert the visible half-opacity result for a stencil/pattern/soft-mask composition; knockout tests assert the separate shape case that would be wrong if only the product were used where shape is separately read. The product is represented by sample/command alpha along ordinary raster paths. This audit does not recertify the ExtGState alpha key reader.",
+    "parent_review": "Accepted partial: effective source, code and assertions reviewed; whole clause not certified.",
+    "test_result": "compositing-formula-target-v2.log:2PASS; clippy-compositing-clean.log PASS. First target did not compile because parent removed necessary mut; restored before successful run.",
+    "remaining": "Direct tiling-pattern interior shape/opacity, chained result-opacity observation and exact pointwise-versus-raster coverage remain residuals; no GPU execution added.",
+    "reviewer": "compositing_formula_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.7.2",
+    "feature_id": "11.3.7.2-object-shape",
+    "requirement": "Elementary object geometry supplies hard 0/1 shape values before rasterization; explicit image masks suppress shape in masked portions; group shape is the union of element shapes.",
+    "source_location": "Printed pp. 399–400; physical pp. 414–415, source/spec-layout.txt around 24042–24055.",
+    "errata": "No substantive EC3 correction on physical pp. 414–415; Table 136 annotation is a link.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/transparency/shape.rs::stated_shape",
+      "crates/pdf-model/src/content/transparency/shape.rs::group_alpha_is_shape",
+      "crates/render-cpu/src/scan.rs",
+      "crates/render-cpu/src/groups.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_stated_shape_knocks_the_element_under_it_out_entirely",
+      "crates/pdf-model/tests/transparency_groups.rs::alpha_is_shape_makes_the_drawn_alpha_the_knockout_shape",
+      "crates/pdf-model/tests/image_masks.rs::a_stencil_painted_with_a_shading_pattern_under_a_soft_mask_is_drawn_through_both"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The two-stage knockout pixel assertions distinguish shape from opacity by 127 channel levels; image-mask fixture separately checks marked, masked, and unmarked locations. Group shape is accumulated from element geometry and is explicitly carried as a shape command when the consumer needs it apart from alpha. Anti-aliased coverage is represented on the raster grid, with the separate interpretive caveat tracked under §10.7.1 and ADR 0582.",
+    "parent_review": "Accepted partial: effective source, code and assertions reviewed; whole clause not certified.",
+    "test_result": "compositing-formula-target-v2.log:2PASS; clippy-compositing-clean.log PASS. First target did not compile because parent removed necessary mut; restored before successful run.",
+    "remaining": "Direct tiling-pattern interior shape/opacity, chained result-opacity observation and exact pointwise-versus-raster coverage remain residuals; no GPU execution added.",
+    "reviewer": "compositing_formula_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.7.2",
+    "feature_id": "11.3.7.2-mask-and-constant-shape",
+    "requirement": "Mask shape and scalar constant shape are independent shape inputs; source shape multiplies object, mask, and constant shape.",
+    "source_location": "Printed pp. 399–400; physical pp. 414–415, source/spec-layout.txt around 24056–24083.",
+    "errata": "No substantive EC3 correction; Table 136 physical p. 415 annotation is a cross-reference link.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/transparency/soft_mask.rs",
+      "crates/pdf-model/src/content/transparency/shape.rs::stated_shape",
+      "crates/pdf-model/src/content/pattern/wrapping.rs",
+      "crates/render-cpu/src/scan.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::alpha_is_shape_makes_the_drawn_alpha_the_knockout_shape",
+      "crates/pdf-model/tests/transparency_groups.rs::a_bare_constants_shape_weights_the_backdrop_at_a_half_covered_edge"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The mask/constant reading tests assert different overlap outputs for shape versus opacity, and the fractional-edge test asserts the shape-weighted backdrop contribution. Source-input construction multiplies mask and constant paths; Table 136 entries are names/meanings rather than extra independent operations.",
+    "parent_review": "Accepted partial: effective source, code and assertions reviewed; whole clause not certified.",
+    "test_result": "compositing-formula-target-v2.log:2PASS; clippy-compositing-clean.log PASS. First target did not compile because parent removed necessary mut; restored before successful run.",
+    "remaining": "Direct tiling-pattern interior shape/opacity, chained result-opacity observation and exact pointwise-versus-raster coverage remain residuals; no GPU execution added.",
+    "reviewer": "compositing_formula_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.7.2",
+    "feature_id": "11.3.7.2-object-mask-constant-opacity",
+    "requirement": "Elementary objects have intrinsic opacity 1; object/group, mask, and constant opacity sources are kept distinct; source opacity multiplies the three inputs; all inputs are in [0,1] with default 1.",
+    "source_location": "Printed pp. 400–401; physical pp. 415–416, source/spec-layout.txt around 24059–24120.",
+    "errata": "No substantive EC3 correction on physical pp. 415–416.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/ext_gstate.rs",
+      "crates/pdf-model/src/content/transparency.rs",
+      "crates/pdf-model/src/content/transparency/soft_mask.rs",
+      "crates/render-cpu/src/soft_mask.rs",
+      "crates/pdf-model/src/image/combine.rs"
+    ],
+    "test_refs": [
+      "crates/render-cpu/tests/soft_mask.rs::the_weighted_average_is_exact_at_every_mask_value",
+      "crates/pdf-model/tests/image_masks.rs::a_stencil_painted_with_a_shading_pattern_under_a_soft_mask_is_drawn_through_both",
+      "crates/pdf-model/tests/transparency_groups.rs::a_bare_constants_shape_weights_the_backdrop_at_a_half_covered_edge"
+    ],
+    "verdict": "confirmed",
+    "evidence": "A 256-level soft-mask sweep checks the effective source alpha against a closed form; the image-mask test checks concurrent shape and opacity sources rather than conflating them. The feature default is implemented through initialized graphics state. This does not mean each malformed producer value outside the inclusive range must be rejected; no such reader rejection requirement appears here.",
+    "parent_review": "Accepted partial: effective source, code and assertions reviewed; whole clause not certified.",
+    "test_result": "compositing-formula-target-v2.log:2PASS; clippy-compositing-clean.log PASS. First target did not compile because parent removed necessary mut; restored before successful run.",
+    "remaining": "Direct tiling-pattern interior shape/opacity, chained result-opacity observation and exact pointwise-versus-raster coverage remain residuals; no GPU execution added.",
+    "reviewer": "compositing_formula_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.7.2",
+    "feature_id": "11.3.7.2-antialias-coverage-as-shape",
+    "requirement": "When edge antialiasing assigns fractional pixel coverage, treat that coverage as shape rather than opacity.",
+    "source_location": "Printed p. 399; physical p. 414, §11.3.7.2 NOTE 1, source/spec-layout.txt around 24050–24055.",
+    "errata": "No substantive EC3 correction.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/scan.rs",
+      "crates/render-cpu/src/compose.rs",
+      "tiny-skia paint coverage path"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_bare_constants_shape_weights_the_backdrop_at_a_half_covered_edge",
+      "crates/render-raster/tests/abutting_marks.rs"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The half-covered knockout fixture distinguishes source shape from opacity at a fractional edge. The general antialiasing seam/averaging question is not certified here: ADR 0582 reclassifies the seam as rasterizer departure from pointwise inputs, and the current gate is an upper bound, not exact pointwise union conformance.",
+    "parent_review": "Accepted partial: effective source, code and assertions reviewed; whole clause not certified.",
+    "test_result": "compositing-formula-target-v2.log:2PASS; clippy-compositing-clean.log PASS. First target did not compile because parent removed necessary mut; restored before successful run.",
+    "remaining": "Direct tiling-pattern interior shape/opacity, chained result-opacity observation and exact pointwise-versus-raster coverage remain residuals; no GPU execution added.",
+    "reviewer": "compositing_formula_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.7.2",
+    "feature_id": "11.3.7.2-pattern-paint-shape-opacity",
+    "requirement": "For tiling-pattern-painted objects, interior object shape and opacity follow corresponding points of the pattern rather than defaulting to 1 throughout.",
+    "source_location": "Printed p. 401; physical p. 416, source/spec-layout.txt around 24120–24129.",
+    "errata": "No substantive EC3 correction on physical p. 416.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern/wrapping.rs",
+      "crates/pdf-model/src/content/pattern/cell.rs",
+      "crates/pdf-model/src/content/pattern/repeat.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/image_masks.rs::a_stencil_painted_with_a_shading_pattern_under_a_soft_mask_is_drawn_through_both",
+      "crates/pdf-model/tests/tiling_patterns_audit.rs::a_cell_state_change_does_not_escape_the_pattern_paint"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "The pattern wrapper classifies cell alpha-source readings and emits the appropriate group/shape; image-mask fixtures prove pattern color participates under a separate stencil and soft-mask input. The cited tiling audit test is state scope, not a direct expected interior shape/opacity comparison for a tiling painted as an elementary object; this subfeature remains less directly asserted.",
+    "parent_review": "Accepted partial: effective source, code and assertions reviewed; whole clause not certified.",
+    "test_result": "compositing-formula-target-v2.log:2PASS; clippy-compositing-clean.log PASS. First target did not compile because parent removed necessary mut; restored before successful run.",
+    "remaining": "Direct tiling-pattern interior shape/opacity, chained result-opacity observation and exact pointwise-versus-raster coverage remain residuals; no GPU execution added.",
+    "reviewer": "compositing_formula_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.7.3",
+    "feature_id": "11.3.7.3-shape-union",
+    "requirement": "Compute resulting shape with Union(b,s)=b+s−bs; result shape is union of backdrop and source shapes.",
+    "source_location": "Printed pp. 401–402; physical pp. 416–417, source/spec-layout.txt around 24135–24165.",
+    "errata": "No substantive EC3 correction; Table 137 physical p. 416 annotation is a link.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/transparency/shape.rs::group_alpha_is_shape",
+      "crates/render-cpu/src/scan.rs::intersect_group",
+      "crates/render-cpu/src/groups.rs",
+      "crates/render-cpu/src/blend.rs::composite"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_stated_shape_knocks_the_element_under_it_out_entirely",
+      "crates/pdf-model/tests/transparency_groups.rs::alpha_is_shape_makes_the_drawn_alpha_the_knockout_shape"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Tests inspect distinct knockout shape and opacity cases and group shape carrying alpha only where opacity is 1. The same alpha union is computed by compositor; at zero shape, result opacity is mathematically undefined by the division but contributes no alpha/color to the raster, so this does not create a visible output requirement.",
+    "parent_review": "Accepted partial: effective source, code and assertions reviewed; whole clause not certified.",
+    "test_result": "compositing-formula-target-v2.log:2PASS; clippy-compositing-clean.log PASS. First target did not compile because parent removed necessary mut; restored before successful run.",
+    "remaining": "Direct tiling-pattern interior shape/opacity, chained result-opacity observation and exact pointwise-versus-raster coverage remain residuals; no GPU execution added.",
+    "reviewer": "compositing_formula_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.7.3",
+    "feature_id": "11.3.7.3-result-opacity",
+    "requirement": "Compute result opacity by uniting the backdrop/source alpha products, then normalize by result shape.",
+    "source_location": "Printed pp. 401–402; physical pp. 416–417, source/spec-layout.txt around 24150–24178.",
+    "errata": "No substantive EC3 correction on physical pp. 416–417.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/blend.rs::composite",
+      "crates/render-cpu/src/groups.rs",
+      "crates/render-cpu/src/scan.rs::intersect_group",
+      "crates/pdf-model/src/content/transparency.rs"
+    ],
+    "test_refs": [
+      "crates/render-cpu/tests/soft_mask.rs::the_weighted_average_is_exact_at_every_mask_value",
+      "crates/pdf-model/tests/transparency_groups.rs::a_stated_shape_knocks_the_element_under_it_out_entirely"
+    ],
+    "verdict": "missing-test",
+    "evidence": "The code uses premultiplied alpha and carries a separate shape only where a later knockout reads it. Existing closed-form tests cover varying source alpha over an opaque backdrop; knockout fixtures demonstrate the need to separate shape from opacity, but do not directly expose a general nonopaque result opacity and its reuse in a subsequent group. The Hue consumer draft tests normalized result color and alpha at two distinct partial alphas; full result-opacity recursion remains a residual.",
+    "parent_review": "Accepted partial: effective source, code and assertions reviewed; whole clause not certified.",
+    "test_result": "compositing-formula-target-v2.log:2PASS; clippy-compositing-clean.log PASS. First target did not compile because parent removed necessary mut; restored before successful run.",
+    "remaining": "Direct tiling-pattern interior shape/opacity, chained result-opacity observation and exact pointwise-versus-raster coverage remain residuals; no GPU execution added.",
+    "reviewer": "compositing_formula_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "missing-test",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.7.3",
+    "feature_id": "11.3.7.3-alpha-union-identity",
+    "requirement": "The result alpha is the union of backdrop and source alpha; independent shape/opacity need not be retained when no later operation reads them separately.",
+    "source_location": "Printed p. 402; physical p. 417, NOTE 2 and final sentence, source/spec-layout.txt around 24179–24193.",
+    "errata": "No substantive EC3 correction.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/blend.rs::composite",
+      "crates/pdf-render/src/display_list.rs::Group",
+      "crates/pdf-model/src/content/transparency/shape.rs::group_alpha_is_shape"
+    ],
+    "test_refs": [
+      "crates/render-cpu/tests/soft_mask.rs::the_weighted_average_is_exact_at_every_mask_value",
+      "crates/pdf-model/tests/transparency_groups.rs::alpha_is_shape_makes_the_drawn_alpha_the_knockout_shape",
+      "crates/pdf-model/tests/compositing_formula_spec_audit.rs::nonopaque_hue_uses_both_alphas_and_returns_normalized_result_colour",
+      "crates/pdf-model/tests/compositing_formula_spec_audit.rs::either_zero_alpha_removes_the_blend_mode_effect"
+    ],
+    "verdict": "confirmed-selected-pdf-compositing-consumer",
+    "evidence": "The α union is explicit in custom compositor and in page raster paths. Existing nonopaque Overprint unit test checks output alpha implicitly through premultiplied pixels, and group tests verify the important exception where shape remains separately observable. The new PDF test directly asserts alpha output at partial backdrop/source alpha. Parent independently derived and executed Hue with backdrop alpha1/2/source alpha1/4: alpha5/8 and normalized RGB(41/150,0,3/5), yielding(70,0,153,160) within3. Normal control(102,0,153,160) differs. Separate zero-source and zero-backdrop alpha controls pass. Exact xref and complete interpretation asserted; no undefined both-zero colour demanded.",
+    "parent_review": "Accepted partial: effective source, code and assertions reviewed; whole clause not certified.",
+    "test_result": "compositing-formula-target-v2.log:2PASS; clippy-compositing-clean.log PASS. First target did not compile because parent removed necessary mut; restored before successful run.",
+    "remaining": "Direct tiling-pattern interior shape/opacity, chained result-opacity observation and exact pointwise-versus-raster coverage remain residuals; no GPU execution added.",
+    "reviewer": "compositing_formula_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-pdf-compositing-consumer",
+    "superseded": false
+  },
+  {
     "clause": "6.1",
     "feature_id": "conformance_clause_introduction",
     "requirement": "This clause introduces the document's conformance rules but states no independent behavior of its own.",
@@ -44176,6 +44487,88 @@
     "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "implementation-gap-saved-quadding-font-metrics",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.3",
+    "feature_id": "saved_tx_replacement_ends_at_matching_emc",
+    "entry_kind": "direct",
+    "requirement": "When updating an existing appearance stream, replace the content from /Tx BMC through its matching EMC, even when nested marked-content sections contain earlier EMC operators.",
+    "source_location": "§12.7.4.3, printed p.534 / one-based physical PDF p.549, final paragraph; nesting semantics §14.6.1, printed p.721 / physical p.736.",
+    "errata": "The physical-p.549 EC3 annotations do not alter the matching-EMC sentence. The nearby Issue #318 annotations concern Table 228 /DA's byte-string type, not marked-content replacement. §14.6.1's statement that marked-content sections may be nested is the governing context.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::spliced",
+      "crates/pdf-model/src/appearance.rs::find_tx_marked_content",
+      "crates/pdf-model/src/view/writing.rs::write_appearance"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::need_appearances_rewrites_the_marked_content_region_and_keeps_the_rest",
+      "crates/pdf-model/tests/variable_text_tx_splice_audit.rs::saved_tx_replacement_reaches_matching_emc_and_preserves_outside_paint"
+    ],
+    "verdict": "confirmed-selected-saved-appearance-consumer",
+    "evidence": "spliced starts at the lexically recognized /Tx name, counts BMC and BDC as opens and EMC as closes, and ends when the nesting depth returns to zero. The existing raster test proves simple paired replacement and no-tag append behavior, but a single-level pair cannot distinguish stopping at the first EMC from finding the matching EMC. The draft uses a balanced nested Span section with distinct paint after its inner EMC and checks saved output pixels, with before/after controls. Parent promoted and ran the saved-PDF test: PASS. Removed NeedAppearances to prevent a baseline rewrite; initial V and old AP text now match. Exact source/saved xrefs, complete interpretation, old/new text, all six baseline paint bands, retained outside bands and removed nested inside bands are asserted. The literal ActualText token trap remains outside the true Tx boundary.",
+    "remaining": "Balanced valid marked-content save consumer only; malformed/unmatched recovery remains outside scope.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p pdf-model --test variable_text_tx_splice_audit",
+    "test_result": "tx-splice-target.log:1PASS; clippy-tx-splice-clean.log PASS.",
+    "parent_review": "Accepted partial: effective source, code and assertions reviewed; whole clause not certified.",
+    "reviewer": "variable_text_tx_splice_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-saved-appearance-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.3",
+    "feature_id": "tx_tag_detection_uses_content_tokens",
+    "entry_kind": "direct",
+    "requirement": "The replacement boundary is the marked-content sequence tagged Tx; text that merely contains the same characters is not that tag/operator sequence.",
+    "source_location": "§12.7.4.3, printed p.534 / one-based physical PDF p.549, final paragraph; content-stream token structure per §7.8 and literal strings per §7.3.4.",
+    "errata": "No EC3 annotation at the /Tx replacement sentence changes lexical recognition. The nearby Issue #318 change is unrelated (Table 228 /DA type).",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::find_tx_marked_content"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text_tx_splice_audit.rs::saved_tx_replacement_reaches_matching_emc_and_preserves_outside_paint"
+    ],
+    "verdict": "confirmed-selected-saved-appearance-consumer",
+    "evidence": "find_tx_marked_content asks pdf_syntax::Lexer for a Name token equal to Tx followed by a BMC keyword. That avoids matching characters inside a PDF literal string. Existing replacement assertions use only a real /Tx BMC sequence. The draft places the string /Tx BMC inside a legal ActualText property value before the real sequence, then proves the preceding painted region survives the saved rewrite. Parent promoted and ran the saved-PDF test: PASS. Removed NeedAppearances to prevent a baseline rewrite; initial V and old AP text now match. Exact source/saved xrefs, complete interpretation, old/new text, all six baseline paint bands, retained outside bands and removed nested inside bands are asserted. The literal ActualText token trap remains outside the true Tx boundary.",
+    "remaining": "Balanced valid marked-content save consumer only; malformed/unmatched recovery remains outside scope.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p pdf-model --test variable_text_tx_splice_audit",
+    "test_result": "tx-splice-target.log:1PASS; clippy-tx-splice-clean.log PASS.",
+    "parent_review": "Accepted partial: effective source, code and assertions reviewed; whole clause not certified.",
+    "reviewer": "variable_text_tx_splice_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-saved-appearance-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.4.3",
+    "feature_id": "saved_tx_replacement_preserves_content_outside_region",
+    "entry_kind": "direct",
+    "requirement": "When a Tx region exists, replace that region while retaining original appearance-stream content before and after it.",
+    "source_location": "§12.7.4.3, printed p.534 / one-based physical PDF p.549, final paragraph; no-Tx append case is separately stated in that paragraph.",
+    "errata": "No EC3 annotation changes the outside-content preservation rule at this location.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::spliced"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::need_appearances_rewrites_the_marked_content_region_and_keeps_the_rest",
+      "crates/pdf-model/tests/variable_text_tx_splice_audit.rs::saved_tx_replacement_reaches_matching_emc_and_preserves_outside_paint"
+    ],
+    "verdict": "confirmed-selected-saved-appearance-consumer",
+    "evidence": "The existing test draws a blue square outside an unmarked stream and verifies it remains when new text is appended; its paired fixture puts the square inside Tx and verifies it is removed. The new saved-PDF draft has independent pre-tag and post-matching-EMC colored bands and asserts both remain, while all original paint inside nested Tx is removed. Parent promoted and ran the saved-PDF test: PASS. Removed NeedAppearances to prevent a baseline rewrite; initial V and old AP text now match. Exact source/saved xrefs, complete interpretation, old/new text, all six baseline paint bands, retained outside bands and removed nested inside bands are asserted. The literal ActualText token trap remains outside the true Tx boundary.",
+    "remaining": "Balanced valid marked-content save consumer only; malformed/unmatched recovery remains outside scope.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p pdf-model --test variable_text_tx_splice_audit",
+    "test_result": "tx-splice-target.log:1PASS; clippy-tx-splice-clean.log PASS.",
+    "parent_review": "Accepted partial: effective source, code and assertions reviewed; whole clause not certified.",
+    "reviewer": "variable_text_tx_splice_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-saved-appearance-consumer",
     "superseded": false
   },
   {

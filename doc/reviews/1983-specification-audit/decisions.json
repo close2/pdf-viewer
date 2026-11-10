@@ -1749,6 +1749,146 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/0047-the-three-modes-the-oracle-got-wrong.md",
+    "decision_id": "§11.3.6 custom premultiplied compositor for the four nonseparable modes",
+    "original_decision": "Implement the literal weighted formula in render-cpu; draw the source on transparency, then composite using a premultiplied expansion; keep this implementation separate from the GPU implementation.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "Current composite branch reads source/backdrop straight colors from premultiplied pixels, evaluates the blend mode, computes the alpha union and three weighted premultiplied terms, clamps to the alpha ceiling, then writes premultiplied pixels (normalization occurs at public Raster export). The independent direct test currently covers one nonopaque Overprint sample, not a two-partial-alpha nonseparable blend. The new consumer draft supplies that missing oracle; integration still needs parent run. Parent consumer tests2PASS with independent expected values; this is a selected equation-path decision, not whole-ADR recertification.",
+    "current_code_evidence": [
+      "crates/render-cpu/src/blend.rs::composite",
+      "crates/render-cpu/src/lib.rs::draw_shown"
+    ],
+    "test_evidence": [
+      "crates/render-cpu/src/blend.rs::tests::the_special_mode_is_destination_over_in_the_channels_it_keeps",
+      "crates/pdf-model/tests/compositing_formula_spec_audit.rs::nonopaque_hue_uses_both_alphas_and_returns_normalized_result_colour"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 §11.3.6, physical pp. 413–414, and §11.3.7.3, physical pp. 416–417; no substantive EC3 correction there.",
+    "changed_premise": "Independent two-partial-alpha Hue/Normal and zero-alpha consumer oracles now pass.",
+    "remaining_work": "Other blend vectors, GPU parity and chained group opacity are not certified by these tests.",
+    "parent_review": "Selected decision only; effective source and current implementation checked; historical ADR unchanged.",
+    "reviewer": "compositing_formula_audit",
+    "source": "compositing_formula_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0418-the-library-had-two-answers-and-the-mask-was-blamed.md",
+    "decision_id": "high-precision tiny-skia pipeline for §11.3.6 Normal weighted averages",
+    "original_decision": "Force the high-precision pipeline so the closed-form weighted average is exact at every 8-bit mask value; reject the mistaken diagnosis that quantized masks caused the observed bias.",
+    "current_conclusion": "retain",
+    "reason": "The implementation sets the shared high-precision paint option, and the permanent sweep checks all 256 mask values against a closed-form expected pixel. This directly checks a value, not a named-test smoke. That oracle is strong for Normal source-alpha variation over an opaque backdrop; it does not cover nonopaque backdrop alpha, which the new Hue case adds for a separate code path.",
+    "current_code_evidence": [
+      "crates/render-cpu/src/lib.rs::HIGH_PRECISION_PIPELINE",
+      "crates/render-cpu/src/lib.rs::draw_shown"
+    ],
+    "test_evidence": [
+      "crates/render-cpu/tests/soft_mask.rs::the_weighted_average_is_exact_at_every_mask_value"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 §11.3.6 printed pp. 398–399 / physical pp. 413–414; no substantive EC3 correction.",
+    "changed_premise": "The accepted test preserves its exact Normal oracle and remains scoped to a unit backdrop; a distinct custom CPU compositor has a separate nonopaque-alpha gap.",
+    "remaining_work": "No follow-up needed for the decision; keep the custom-mode formula test as separate coverage.",
+    "parent_review": "Selected decision only; effective source and current implementation checked; historical ADR unchanged.",
+    "reviewer": "compositing_formula_audit",
+    "source": "compositing_formula_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0234-a-shape-is-not-an-alpha-and-one-group-can-tell.md",
+    "decision_id": "Carry a stated shape beside a knockout element only when shape differs from coverage/alpha",
+    "original_decision": "Add Command::Shaped so knockout consumers receive the shape separately from the ordinary alpha product; group shape is accumulated by rendering element shapes on transparency.",
+    "current_conclusion": "retain",
+    "reason": "This is the precise later consumer exception to §11.3.7.1/3 permitting one alpha to carry shape×opacity. Current model forms a separate shape command, and raster knockout applies it in the shape-weighted stage. Distinct pixel tests assert pale-blue versus purple results and a half-covered edge.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/content/transparency/shape.rs::stated_shape",
+      "crates/pdf-model/src/content/transparency/shape.rs::group_alpha_is_shape",
+      "crates/render-cpu/src/groups.rs",
+      "crates/render-cpu/src/scan.rs::intersect_group"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_stated_shape_knocks_the_element_under_it_out_entirely",
+      "crates/pdf-model/tests/transparency_groups.rs::a_bare_constants_shape_weights_the_backdrop_at_a_half_covered_edge"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 §11.3.7.1–.3 and §11.4.6; EC3 has no relevant change to these equations.",
+    "changed_premise": "The display-list shape vocabulary now exists on every stated knockout route examined; this no longer rests on an unimplemented representation proposal.",
+    "remaining_work": "Selected shape representation is retained; historical refusals and backend/corpus counts are not assumed current. Tiling-pattern and chained group residuals remain.",
+    "parent_review": "Selected decision only; effective source and current implementation checked; historical ADR unchanged.",
+    "reviewer": "compositing_formula_audit",
+    "source": "compositing_formula_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0492-the-shape-a-group-has-when-its-opacity-is-one.md",
+    "decision_id": "Use group alpha as shape only when its opacity is known to be one",
+    "original_decision": "Use the boolean alpha_is_shape to let group raster alpha stand for group shape only under the proved opacity-one condition, preserving exact clip intersection without an unconditional second shape raster.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The current model computes group_alpha_is_shape over the group commands and records the proof flag. The raster uses that flag to permit clipping group alpha as shape. This is a conditional representation optimization, not a claim that shape=alpha for arbitrary groups. Tests assert overlap semantics and group alpha-shape-specific behavior; this bounded review did not independently rederive all clip cases in ADR 0492.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/content/transparency/shape.rs::group_alpha_is_shape",
+      "crates/pdf-model/src/content/transparency.rs::transparency_group",
+      "crates/render-cpu/src/scan.rs::intersect_group"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/transparency_groups.rs::alpha_is_shape_makes_the_drawn_alpha_the_knockout_shape",
+      "crates/render-cpu/tests/group_clip_intersection.rs (cross-reference; not independently re-audited here)"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 §11.3.7.1, §11.3.7.2 and §11.4.4/§8.5.4; no relevant EC3 correction.",
+    "changed_premise": "The flag and downstream consumer are reachable; the required one-alpha fallback still applies when group opacity varies.",
+    "remaining_work": "Do not treat this selected review as recertification of all clipping/shape combinations.",
+    "parent_review": "Selected decision only; effective source and current implementation checked; historical ADR unchanged.",
+    "reviewer": "compositing_formula_audit",
+    "source": "compositing_formula_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0582-the-seam-is-not-the-model.md",
+    "decision_id": "Reclassify pointwise union versus per-pixel antialias seam as rasterization/averaging qualification",
+    "original_decision": "Treat §11.3.7.3 union as pointwise, not a requirement to union averaged pixel coverages; maintain an upper-bound seam gate and avoid asserting an exact pointwise raster value.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The effective clause says shape is conceptually defined at every point; NOTE 1 permits fractional edge coverage when rasterized. Existing abutting_marks assertions intentionally retain an upper bound and the §10.7.4 control, not a claim of exact pointwise union. The current note remains a scoped interpretation and rasterization departure, not a simple implementation proof from this audit. Parent found the actual render-raster test header still calls the seam what11.3.7.3 states, contrary to the later ADR qualification; this stale rationale should be corrected in a follow-up. Its upper-bound assertions do not prove exact pointwise union, and its GPU-dependent helper can skip without an adapter. It was not executed in the nine-crate scope.",
+    "current_code_evidence": [
+      "crates/render-cpu/src/scan.rs antialias coverage path",
+      "crates/render-cpu/src/blend.rs::composite"
+    ],
+    "test_evidence": [
+      "crates/render-raster/tests/abutting_marks.rs (upper-bound assertion only; exact union not asserted)"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 §11.2, §11.3.7.2 NOTE 1 and §11.3.7.3; EC3 has no substantive correction on physical pp. 414–417.",
+    "changed_premise": "The accepted decision itself now recognizes that fractional coverage is introduced at rasterization; these tests are not a proof of exact union after averaging.",
+    "remaining_work": "Keep this limitation visible; a rasterizer retaining per-point geometry would be a separate design and measurement task. Correct stale test-header rationale; retain honest execution scope.",
+    "parent_review": "Selected decision only; effective source and current implementation checked; historical ADR unchanged.",
+    "reviewer": "compositing_formula_audit",
+    "source": "compositing_formula_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0415-the-flag-whose-refusal-was-inverted.md",
+    "decision_id": "/AIS changes whether masks/constants are shape or opacity, not alpha product",
+    "original_decision": "Honor AIS in source-reading classification and state a knockout element shape explicitly when alpha inputs are classified as opacity; alpha remains shape×opacity in either reading.",
+    "current_conclusion": "retain",
+    "reason": "Current reading scopes determine which inputs are stripped into the separate knockout shape; the standard’s product remains invariant. Tests assert 127-level differences between the shape and opacity interpretations and include restored/scope cases. This audit does not re-review ExtGState parsing.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/content/transparency/readings.rs",
+      "crates/pdf-model/src/content/transparency/shape.rs::stated_shape",
+      "crates/pdf-model/src/content/transparency.rs"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/transparency_groups.rs::alpha_is_shape_makes_the_drawn_alpha_the_knockout_shape",
+      "crates/pdf-model/tests/transparency_groups.rs::alpha_is_shape_is_scoped_to_what_the_groups_content_painted_under"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 §11.3.7.1 and §11.6.4.3–.4; no relevant EC3 correction.",
+    "changed_premise": "Current readings and separate shape routes implement the selected AIS classification; this does not retain every historical mixed/nonisolated refusal in ADR0415.",
+    "remaining_work": "None for the §11.3.6–.7 formula audit; full AIS semantics belong to transparency-state coverage.",
+    "parent_review": "Selected decision only; effective source and current implementation checked; historical ADR unchanged.",
+    "reviewer": "compositing_formula_audit",
+    "source": "compositing_formula_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/0984-the-clause-that-says-what-conformance-means.md",
     "decision_id": "include_clause_6_and_check_ledger_population_against_standard",
     "original_decision": "Clause 6 is inside the conformance population; ledger checks must not take their clause population from their own output.",

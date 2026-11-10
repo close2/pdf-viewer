@@ -1020,5 +1020,21 @@
   "da_gray_named_status_clippy": {
     "log": "clippy-da-gray-named-status-final-v2.log",
     "exit": 0
+  },
+  "tx_splice": {
+    "log": "tx-splice-target.log",
+    "passed": 1,
+    "expected_failed": 0,
+    "exit": 0
+  },
+  "compositing_formula": {
+    "log": "compositing-formula-target-v2.log",
+    "passed": 2,
+    "expected_failed": 0,
+    "exit": 0
+  },
+  "compositing_clippy": {
+    "log": "clippy-compositing-clean.log",
+    "exit": 0
   }
 }

@@ -605,7 +605,7 @@
         "source": "compositing_formula_audit/decisions.json",
         "decision_id": "§11.3.6 custom premultiplied compositor for the four nonseparable modes",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -962,9 +962,18 @@
   },
   {
     "path": "doc/adr/0090-the-second-file-a-form-is-made-of.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "fdf_field_dictionary_audit/decisions.json",
+        "decision_id": "FDF-import-replaces-stated-corresponding-field-entries",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0091-the-page-that-is-not-in-the-page-tree.md",
@@ -2333,14 +2342,14 @@
   },
   {
     "path": "doc/adr/0234-a-shape-is-not-an-alpha-and-one-group-can-tell.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "compositing_formula_audit/decisions.json",
         "decision_id": "Carry a stated shape beside a knockout element only when shape differs from coverage/alpha",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -3907,14 +3916,14 @@
   },
   {
     "path": "doc/adr/0415-the-flag-whose-refusal-was-inverted.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "compositing_formula_audit/decisions.json",
         "decision_id": "/AIS changes whether masks/constants are shape or opacity, not alpha product",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -3934,14 +3943,14 @@
   },
   {
     "path": "doc/adr/0418-the-library-had-two-answers-and-the-mask-was-blamed.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "compositing_formula_audit/decisions.json",
         "decision_id": "high-precision tiny-skia pipeline for §11.3.6 Normal weighted averages",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -4504,14 +4513,14 @@
   },
   {
     "path": "doc/adr/0492-the-shape-a-group-has-when-its-opacity-is-one.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "compositing_formula_audit/decisions.json",
         "decision_id": "Use group alpha as shape only when its opacity is known to be one",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -4820,14 +4829,14 @@
   },
   {
     "path": "doc/adr/0582-the-seam-is-not-the-model.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "compositing_formula_audit/decisions.json",
         "decision_id": "Reclassify pointwise union versus per-pixel antialias seam as rasterization/averaging qualification",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -6627,9 +6636,18 @@
   },
   {
     "path": "doc/adr/0907-a-requirement-written-as-a-statement-of-fact.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "fdf_field_dictionary_audit/decisions.json",
+        "decision_id": "indicative-FDF-field-import-sentence-is-operative",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0908-two-questions-called-q27.md",
@@ -11203,9 +11221,18 @@
   },
   {
     "path": "doc/adr/1661-a-save-writes-what-an-import-replaced.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "fdf_field_dictionary_audit/decisions.json",
+        "decision_id": "imported-entry-save-scope-defers-Opt",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1662-every-lock-a-tool-takes-is-the-wrappers-and-open-returns-while-its-jobs-run.md",
