@@ -120,6 +120,10 @@ pub enum EventKind {
     /// [`viewer_core::Event::Archiving`] — `quorra_archive` was granted and the conversion has run
     /// before the call returned: `quorra_archived` says how it went (ADR 1954).
     Archiving = 29,
+    /// [`viewer_core::Event::ListOpens`] — `quorra_opening_list` was granted: display the
+    /// choice field's drop-down list now, and call `quorra_opened_list` once it is shown.
+    /// `quorra_events_describe` gives the field's fully qualified name (ADR 2791).
+    ListOpens = 30,
 }
 
 impl EventKind {
@@ -128,7 +132,7 @@ impl EventKind {
     /// **The number a C caller checks its header against**, which is the whole of what this ABI
     /// can offer in place of a build failure. It is written out rather than counted by a macro so
     /// that adding a variant is a line a person writes beside the variant, in the same commit.
-    pub const COUNT: u32 = 30;
+    pub const COUNT: u32 = 31;
 
     /// Which kind an event is.
     ///
@@ -168,6 +172,7 @@ impl EventKind {
             Event::Console { .. } => Self::Console,
             Event::Media { .. } => Self::Media,
             Event::Archiving { .. } => Self::Archiving,
+            Event::ListOpens { .. } => Self::ListOpens,
         }
     }
 
@@ -209,6 +214,7 @@ impl EventKind {
             Self::Console => "Console\0",
             Self::Media => "Media\0",
             Self::Archiving => "Archiving\0",
+            Self::ListOpens => "ListOpens\0",
         }
     }
 
@@ -250,6 +256,7 @@ impl EventKind {
             27 => Self::Console,
             28 => Self::Media,
             29 => Self::Archiving,
+            30 => Self::ListOpens,
             _ => return None,
         })
     }

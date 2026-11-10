@@ -356,6 +356,9 @@ pub struct Host {
     previews: Rc<RefCell<panel::Previews<gtk4::gdk::MemoryTexture>>>,
     /// The controls over the page, and which fields they are for.
     placed: Vec<Placed>,
+    /// The field whose drop-down list the core granted and this window is displaying: its
+    /// popover's showing is then the display rather than a person asking for one (ADR 2791).
+    list_granted: Option<String>,
     /// §12.5.6.14's open popup windows, as the widgets placed for them.
     popups: Vec<PlacedPopup>,
     /// The answer those widgets were built from, so that a repaint that changes nothing rebuilds
@@ -499,6 +502,7 @@ impl Host {
                 miniatures: Rc::new(RefCell::new(Miniatures::new())),
                 previews: Rc::new(RefCell::new(panel::Previews::new())),
                 placed: Vec::new(),
+                list_granted: None,
                 popups: Vec::new(),
                 popups_shown: Vec::new(),
                 note_editor: None,
@@ -645,6 +649,21 @@ impl NativeWindow for Host {
     /// The dialogue is opened *after* the grant and from outside the borrow the core's answer was
     /// read in, because `GtkPrintOperation::run` turns the main loop and every callback it raises
     /// comes back through `with` (ADR 1180).
+    /// The grant: the field's popover is shown from an idle, because showing it reports the
+    /// showing, which reaches this window again, and this runs inside its pump (ADR 2791).
+    fn open_list(&mut self, field: &str) {
+        let Some(popover) = self.list_popover(field) else {
+            // The control went with a frame since the press: the display failed, which page
+            // 392 fires `postOpen` for too.
+            self.dispatch(Command::OpenedList {
+                field: field.to_owned(),
+            });
+            return;
+        };
+        self.list_granted = Some(field.to_owned());
+        glib::idle_add_local_once(move || gtk4::prelude::PopoverExt::popup(&popover));
+    }
+
     fn print(&mut self, pages: usize, fidelity: viewer_core::Fidelity) {
         self.open_the_print_dialogue(pages, fidelity);
     }

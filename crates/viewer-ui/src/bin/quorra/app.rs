@@ -591,6 +591,10 @@ pub(crate) struct App {
     /// host that draws its own chrome has to hold this; a host that places somebody else's
     /// widgets has the toolkit hold it. ADR 0596.
     pub(crate) choosing: Option<Choosing>,
+    /// A drop-down list a person asked for and the core has not yet granted: XFA 3.3 page 392's
+    /// `preOpen` runs between the press and the display, so the list is displayed at
+    /// `Event::ListOpens` and not at the press (ADR 2791).
+    pub(crate) list_asked: Option<Choosing>,
     /// What Ctrl + C and Ctrl + X took out of a field — or `c` took off the page — for Ctrl + V
     /// to put back.
     ///

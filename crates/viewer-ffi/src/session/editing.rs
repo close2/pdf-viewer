@@ -252,4 +252,18 @@ impl Session {
     pub fn cancel_field(&mut self, field: String) -> Events {
         self.handle(Command::CancelField { field })
     }
+
+    /// A person asked for a choice field's drop-down list: a hybrid form's `preOpen`, and the
+    /// grant, `QUORRA_EVENT_LIST_OPENS` (XFA 3.3 page 392; ADR 2791).
+    #[must_use]
+    pub fn opening_list(&mut self, field: String) -> Events {
+        self.handle(Command::OpeningList { field })
+    }
+
+    /// The list granted is shown, or could not be: a hybrid form's `postOpen` (XFA 3.3 page 392;
+    /// ADR 2791).
+    #[must_use]
+    pub fn opened_list(&mut self, field: String) -> Events {
+        self.handle(Command::OpenedList { field })
+    }
 }

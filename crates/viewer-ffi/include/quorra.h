@@ -51,7 +51,7 @@ extern "C" {
  * This is what stands in for the Rust rule that a new message fails to compile in every consumer.
  * It cannot fail a build, so it fails a startup instead, once, naming the number that moved.
  */
-#define QUORRA_EVENT_KIND_COUNT 30u
+#define QUORRA_EVENT_KIND_COUNT 31u
 
 /* What an entry point returns. `QUORRA_OK` is zero; everything else is a refusal. */
 #define QUORRA_OK                 0
@@ -143,6 +143,12 @@ extern "C" {
  * conversion to ISO 19005 has run before the call that released it returned. quorra_archived
  * says how it went (ADR 1954). */
 #define QUORRA_EVENT_ARCHIVING 29u
+
+/* quorra_opening_list was granted: display the choice field's drop-down list now, and call
+ * quorra_opened_list once it is shown or could not be. quorra_events_describe gives the field's
+ * fully qualified name. An XFA form's preOpen script may have declined the opening, and the
+ * reader's level for fill decided (XFA 3.3 pages 392 and 399; ADR 2791). */
+#define QUORRA_EVENT_LIST_OPENS 30u
 
 /* §12.5.5's three situations, of which a press is two. What `quorra_pointer` takes. */
 #define QUORRA_POINTER_MOVED     0u
@@ -1228,6 +1234,12 @@ int32_t quorra_commit_field_on_enter(quorra_viewer *viewer, const char *field,
 /* Escape in a caller's own control: what was typed into the field is abandoned, XFA 3.3 page 402's
  * example of a value "not committed" (ADR 2756). */
 int32_t quorra_cancel_field(quorra_viewer *viewer, const char *field, quorra_events **events);
+/* A person asked for a choice field's drop-down list, by its symbol or its key sequence and not by
+ * Enter: an XFA form's preOpen runs, and the list is displayed at QUORRA_EVENT_LIST_OPENS and not
+ * before. quorra_opened_list once it is shown or could not be: the form's postOpen (XFA 3.3 page
+ * 392; ADR 2791). */
+int32_t quorra_opening_list(quorra_viewer *viewer, const char *field, quorra_events **events);
+int32_t quorra_opened_list(quorra_viewer *viewer, const char *field, quorra_events **events);
 /* §7.9.4's instant, from the caller's clock: what Table 166's /M is written as on every annotation a
  * save writes. Read the clock just before quorra_save. `known` false withdraws it (no /M at all,
  * the default). `zoned` false is a date that states no zone; `offset_minutes` is minutes east of
@@ -2013,7 +2025,9 @@ typedef struct quorra_owed quorra_owed;
                                            * unanswered: close its dialogue */
 #define QUORRA_OWED_PRINT     16u  /* §7.6.4.2's bit 3 let a print through: the sentence;
                                     * quorra_owed_print; quorra_window_print_finish */
-#define QUORRA_OWED_KIND_COUNT 17u
+#define QUORRA_OWED_LIST_OPENS 17u  /* display that choice field's drop-down list now: the field's
+                                     * name; quorra_window_opened_list once shown (ADR 2791) */
+#define QUORRA_OWED_KIND_COUNT 18u
 
 /* What a REPAINT record changed since the caller was last told, quorra_owed_repaint's bits
  * (ADR 2168). */
@@ -2331,6 +2345,10 @@ int32_t quorra_window_clear_field(quorra_window *window, const char *field);
 int32_t quorra_window_commit_field(quorra_window *window, const char *field);
 int32_t quorra_window_commit_field_on_enter(quorra_window *window, const char *field);
 int32_t quorra_window_cancel_field(quorra_window *window, const char *field);
+/* A person asked for a choice field's drop-down list: display it at QUORRA_OWED_LIST_OPENS and
+ * not before, then call quorra_window_opened_list (XFA 3.3 page 392; ADR 2791). */
+int32_t quorra_window_opening_list(quorra_window *window, const char *field);
+int32_t quorra_window_opened_list(quorra_window *window, const char *field);
 int32_t quorra_window_toggle_field(quorra_window *window, uint32_t number, uint16_t generation,
                                    bool on);
 int32_t quorra_window_set_group(quorra_window *window, uint32_t number, uint16_t generation,

@@ -64,6 +64,7 @@
 #include <QTextLayout>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QPointer>
 #include <QTimer>
 #include <QToolBar>
 #include <QTreeView>
@@ -2735,6 +2736,16 @@ void MainWindow::applyUpdates()
     if (update.placement) {
         placeWindow();
     }
+    if (update.list_opens >= 0 && static_cast<std::size_t>(update.list_opens) < controls_.size()) {
+        // Queued, so that the press that asked for the list unwinds before the list's own event
+        // loop starts (ADR 2791).
+        QPointer<QWidget> control = controls_[static_cast<std::size_t>(update.list_opens)];
+        QTimer::singleShot(0, this, [control] {
+            if (auto* drop = dynamic_cast<DropDown*>(control.data())) {
+                drop->showGranted();
+            }
+        });
+    }
     if (update.beep) {
         // A document's script asked for a sound, `app.beep` (ADR 1702): Qt has one, and plays it
         // for whichever of the reference's five was asked for.
@@ -3246,7 +3257,18 @@ void MainWindow::rebuildControls()
             break;
         }
         case 6: { // Table 233 bit 18 set: a combo box
-            auto* combo = new QComboBox(page_);
+            // Its list is asked for at `showPopup` and displayed at the core's grant, because XFA
+            // 3.3 page 392's `preOpen` runs in between (ADR 2791).
+            auto* combo = new DropDown(
+                page_,
+                [this, index] {
+                    host_->opening_list(index);
+                    applyUpdates();
+                },
+                [this, index] {
+                    host_->opened_list(index);
+                    applyUpdates();
+                });
             for (const rust::String& option : host_->control_options(index)) {
                 combo->addItem(text(option));
             }

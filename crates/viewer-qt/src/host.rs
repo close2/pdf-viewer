@@ -325,6 +325,7 @@ fn nothing_changed() -> QtUpdate {
         choose_document: false,
         placement: false,
         beep: false,
+        list_opens: -1,
     }
 }
 
@@ -556,6 +557,10 @@ impl NativeWindow for Host {
     /// once the document is joined; what is this side's is whether it was ever said.
     fn take_down_the_bar(&mut self) -> bool {
         self.bar_said
+    }
+
+    fn open_list(&mut self, field: &str) {
+        self.list_opens(field);
     }
 
     fn print(&mut self, pages: usize, fidelity: viewer_core::Fidelity) {

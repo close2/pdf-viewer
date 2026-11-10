@@ -1722,3 +1722,147 @@ fn the_window_fires_a_validation_state_event_only_where_an_entry_changes_the_sta
         assert_eq!(value(&viewer, "Flag"), flag, "after {typed:?}");
     }
 }
+
+/// Whether `events` grant the drop-down list of the field `Units`.
+fn list_opens(events: &[Event]) -> bool {
+    events.iter().any(
+        |event| matches!(event, Event::ListOpens { field, .. } if field == "form1[0].Units[0]"),
+    )
+}
+
+/// Opens a hybrid form whose drop-down list `Units` runs `pre_open` as its `preOpen` and sets
+/// itself to 9 at its `postOpen`, under one level for the reader's `fill`, and asks for its list.
+fn list_asked_under(level: RestrictionLevel, pre_open: &str) -> (Viewer, Vec<Event>) {
+    let fields = format!(
+        "<field name=\"Units\"><ui><choiceList/></ui><value><text/></value>\
+         <event activity=\"preOpen\"><script>{pre_open}</script></event>\
+         <event activity=\"postOpen\"><script>9</script></event></field>\
+         <field name=\"Total\"><ui><textEdit/></ui><value><text/></value></field>"
+    );
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Restrict(RestrictionScope::Window(
+            RestrictionPolicy::default().with(Operation::FillInForm, level),
+        )))
+        .for_each(drop);
+    viewer
+        .handle(Command::Scripts(Scripting::Run(Arc::new(
+            Calculators::default(),
+        ))))
+        .for_each(drop);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: hybrid(&fields, "<Units/><Total/>").into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    viewer.handle(Command::Presented).for_each(drop);
+    let events = viewer
+        .handle(Command::OpeningList {
+            field: "form1[0].Units[0]".to_owned(),
+        })
+        .collect();
+    (viewer, events)
+}
+
+/// XFA 3.3 page 392: `preOpen` fires when a person asks for a drop-down list and before it is
+/// displayed, and `postOpen` "fires after the combo box is displayed". So `Units`, which its
+/// `preOpen` sets to 4, reads 4 at the grant, before the host displays the list, and 9 once the
+/// host says the list is shown; at `off` neither runs (ADR 1616), and the list is granted the
+/// same (ADR 2791).
+#[test]
+fn a_drop_down_lists_opening_runs_pre_open_before_the_grant_and_post_open_after_the_display() {
+    for (scripting, before, after) in [
+        (Scripting::Run(Arc::new(Calculators::default())), "4", "9"),
+        (Scripting::Off, "", ""),
+    ] {
+        let fields = "<field name=\"Units\"><ui><choiceList/></ui><value><text/></value>\
+                      <event activity=\"preOpen\"><script>4</script></event>\
+                      <event activity=\"postOpen\"><script>9</script></event></field>\
+                      <field name=\"Total\"><ui><textEdit/></ui><value><text/></value></field>";
+        let mut viewer = opened_on(scripting, hybrid(fields, "<Units/><Total/>"));
+        viewer.handle(Command::Presented).for_each(drop);
+        let asked: Vec<Event> = viewer
+            .handle(Command::OpeningList {
+                field: "form1[0].Units[0]".to_owned(),
+            })
+            .collect();
+        assert!(list_opens(&asked), "the list is granted");
+        assert_eq!(
+            value(&viewer, "Units"),
+            before,
+            "preOpen ran before the grant"
+        );
+        viewer
+            .handle(Command::OpenedList {
+                field: "form1[0].Units[0]".to_owned(),
+            })
+            .for_each(drop);
+        assert_eq!(
+            value(&viewer, "Units"),
+            after,
+            "postOpen ran after the display"
+        );
+    }
+}
+
+/// XFA 3.3 page 399: `cancelAction` cancels "whatever action fired the event", and the action a
+/// `preOpen` fires for is the display of a list a person asked for in order to fill the field in.
+/// So the document declining it is asked at the reader's level for `fill` (`CLAUDE.md`, ADR 2791):
+/// `off` grants the list and says nothing, `warn` grants it and says why, `on` withholds it and
+/// says why, and `ask` grants it on a `yes` and not on a `no`. Wherever the list is withheld, page
+/// 400's cleanup fires the `postOpen` its `preOpen` pushed, so `Units` reads 9.
+#[test]
+fn a_pre_open_cancel_action_is_asked_at_the_reader_s_level_for_fill() {
+    let said = |events: &[Event]| {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Warned { operation, .. } => Some(("warned", *operation)),
+                Event::Refused { operation, .. } => Some(("refused", *operation)),
+                Event::Asking { operation, .. } => Some(("asking", *operation)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let (viewer, events) = list_asked_under(RestrictionLevel::Off, "cancel");
+    assert!(list_opens(&events), "off grants the list");
+    assert_eq!(said(&events), [], "off says nothing");
+    assert_eq!(
+        value(&viewer, "Units"),
+        "",
+        "postOpen waits for the display"
+    );
+
+    let (_, events) = list_asked_under(RestrictionLevel::Warn, "cancel");
+    assert!(list_opens(&events), "warn grants the list");
+    assert_eq!(said(&events), [("warned", Operation::FillInForm)]);
+
+    let (viewer, events) = list_asked_under(RestrictionLevel::On, "cancel");
+    assert!(!list_opens(&events), "on withholds the list");
+    assert_eq!(said(&events), [("refused", Operation::FillInForm)]);
+    assert_eq!(value(&viewer, "Units"), "9", "the cleanup fires postOpen");
+
+    let (_, events) = list_asked_under(RestrictionLevel::On, "4");
+    assert!(
+        list_opens(&events),
+        "a preOpen that does not cancel restricts nothing"
+    );
+    assert_eq!(said(&events), []);
+
+    for (proceed, granted, units) in [(true, true, ""), (false, false, "9")] {
+        let (mut viewer, events) = list_asked_under(RestrictionLevel::Ask, "cancel");
+        assert!(!list_opens(&events), "ask grants nothing before the answer");
+        assert_eq!(said(&events), [("asking", Operation::FillInForm)]);
+        let answered: Vec<Event> = viewer
+            .handle(Command::Answer {
+                document: DOCUMENT,
+                proceed,
+            })
+            .collect();
+        assert_eq!(list_opens(&answered), granted, "answered {proceed}");
+        assert_eq!(value(&viewer, "Units"), units, "answered {proceed}");
+    }
+}

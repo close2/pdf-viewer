@@ -379,6 +379,24 @@ pub enum Event {
         /// [`crate::Query::Selection`] answers with and what a host falls back to.
         page_order: String,
     },
+    /// Display the drop-down list of the choice field `field` now: the grant of
+    /// [`crate::Command::OpeningList`], once the list's opening has run its document's scripts
+    /// (XFA 3.3 page 392's `preOpen`).
+    ///
+    /// **A grant, and an event, for [`Self::Printing`]'s reason**: a hybrid form's `preOpen`
+    /// script may set `$event.cancelAction`, which page 399 says cancels "whatever action fired
+    /// the event", and the reader's level for `fill` decides whether that keeps the list closed,
+    /// so the opening has to be refusable, askable and warnable. At
+    /// [`crate::RestrictionLevel::On`] after a cancelling script this does not arrive and
+    /// [`Self::Refused`] does; at `Ask` it arrives only after [`crate::Command::Answer`] says to
+    /// proceed. For every other field and document it arrives at once. A host displays the list
+    /// when this arrives and not before, and then sends [`crate::Command::OpenedList`] (ADR 2791).
+    ListOpens {
+        /// Which document.
+        document: DocumentId,
+        /// §12.7.4.2's fully qualified name of the choice field whose list to display.
+        field: String,
+    },
     /// [`crate::Command::Print`] went ahead: the document is interpreted for paper until
     /// [`crate::Printing::Finish`].
     ///

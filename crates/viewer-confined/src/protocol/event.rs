@@ -64,6 +64,9 @@ mod event_kind {
     // §13.2.4.2's clip handed over, which crosses for `EXTRACTED`'s reason: the window is the host
     // that would start a player (ADR 1961).
     pub(in crate::protocol) const MEDIA: u8 = 28;
+    // The grant of a drop-down list's opening, which the worker gives once the list's `preOpen`
+    // has run there (XFA 3.3 page 392; ADR 2791).
+    pub(in crate::protocol) const LIST_OPENS: u8 = 29;
 }
 
 /// Encodes one event.
@@ -238,6 +241,9 @@ pub(super) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                 .document(*document)
                 .option_str(logical.as_deref())
                 .str(page_order);
+        }
+        Event::ListOpens { document, field } => {
+            writer.u8(k::LIST_OPENS).document(*document).str(field);
         }
         Event::Printing {
             document,
@@ -543,6 +549,10 @@ pub(super) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
             document: reader.document(what)?,
             logical: reader.option_string("§14.8.2.5's logical content order")?,
             page_order: reader.string("the selected text")?,
+        },
+        k::LIST_OPENS => Event::ListOpens {
+            document: reader.document(what)?,
+            field: reader.string("a field's qualified name")?,
         },
         k::PRINTING => Event::Printing {
             document: reader.document(what)?,

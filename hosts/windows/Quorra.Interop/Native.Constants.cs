@@ -8,7 +8,7 @@ internal static partial class Native
 {
     internal const uint QUORRA_ABI_VERSION = 2;
 
-    internal const uint QUORRA_EVENT_KIND_COUNT = 30;
+    internal const uint QUORRA_EVENT_KIND_COUNT = 31;
 
     internal const int QUORRA_OK = 0;
     internal const int QUORRA_NULL_ARGUMENT = 1;
@@ -64,6 +64,7 @@ internal static partial class Native
     internal const uint QUORRA_EVENT_MEDIA = 28;
 
     internal const uint QUORRA_EVENT_ARCHIVING = 29;
+    internal const uint QUORRA_EVENT_LIST_OPENS = 30;
 
     internal const uint QUORRA_POINTER_MOVED = 0;
     internal const uint QUORRA_POINTER_PRESSED = 1;
@@ -469,7 +470,8 @@ internal static partial class Native
     internal const uint QUORRA_OWED_SCRIPT = 14;
     internal const uint QUORRA_OWED_SCRIPT_WITHDRAWN = 15;
     internal const uint QUORRA_OWED_PRINT = 16;
-    internal const uint QUORRA_OWED_KIND_COUNT = 17;
+    internal const uint QUORRA_OWED_LIST_OPENS = 17;
+    internal const uint QUORRA_OWED_KIND_COUNT = 18;
     internal const uint QUORRA_REPAINT_FRAMES = 1;
     internal const uint QUORRA_REPAINT_PLACES = 2;
     internal const uint QUORRA_REPAINT_MARKS = 4;

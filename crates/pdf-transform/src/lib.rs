@@ -1736,6 +1736,11 @@ fn describe_restriction(operation: Operation, restriction: Restriction) -> Strin
         Restriction::PrintCancelled => {
             "its XFA form's prePrint script set $event.cancelAction (XFA 3.3 page 399)".to_owned()
         }
+        // The same flag under a drop-down list's `preOpen`, asked by the window that opens the
+        // list (ADR 2791).
+        Restriction::OpeningCancelled => {
+            "its XFA form's preOpen script set $event.cancelAction (XFA 3.3 page 392)".to_owned()
+        }
     }
 }
 

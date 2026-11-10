@@ -789,6 +789,53 @@ pub unsafe extern "C" fn quorra_cancel_field(
     Status::Ok.code()
 }
 
+/// A person asked for a choice field's drop-down list, by its symbol or its key sequence and not
+/// by Enter: a hybrid form's `preOpen` runs, and the list is displayed at
+/// `QUORRA_EVENT_LIST_OPENS` and not before (XFA 3.3 page 392; ADR 2791).
+///
+/// # Safety
+///
+/// See the module documentation. `field` is NUL-terminated UTF-8, §12.7.4.2's fully qualified name.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_opening_list(
+    viewer: *mut Session,
+    field: *const c_char,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events), false) = (viewer.as_mut(), events.as_mut(), field.is_null())
+    else {
+        return Status::NullArgument.code();
+    };
+    let Ok(Some(field)) = owned_text(field) else {
+        return Status::NotUtf8.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.opening_list(field)));
+    Status::Ok.code()
+}
+
+/// The list `QUORRA_EVENT_LIST_OPENS` granted is shown, or could not be: a hybrid form's
+/// `postOpen` (XFA 3.3 page 392; ADR 2791).
+///
+/// # Safety
+///
+/// See the module documentation. `field` is NUL-terminated UTF-8, §12.7.4.2's fully qualified name.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_opened_list(
+    viewer: *mut Session,
+    field: *const c_char,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events), false) = (viewer.as_mut(), events.as_mut(), field.is_null())
+    else {
+        return Status::NullArgument.code();
+    };
+    let Ok(Some(field)) = owned_text(field) else {
+        return Status::NotUtf8.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.opened_list(field)));
+    Status::Ok.code()
+}
+
 /// §7.9.4's instant from the caller's clock, which Table 166's `/M` is written as on every
 /// annotation a save writes; `known` false withdraws it.
 ///

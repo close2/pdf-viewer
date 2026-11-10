@@ -611,6 +611,11 @@ pub trait NativeWindow {
     /// decided (ADR 1180).
     fn print(&mut self, pages: usize, fidelity: viewer_core::Fidelity);
 
+    /// The grant of `Command::OpeningList`: display the drop-down list of the choice field
+    /// `field` now, its form's `preOpen` having run, and send `Command::OpenedList` once it is
+    /// shown or could not be, which runs its `postOpen` (XFA 3.3 page 392; ADR 2791).
+    fn open_list(&mut self, field: &str);
+
     /// Text a copy produced, put where this toolkit's clipboard is.
     fn to_clipboard(&mut self, text: String);
 
@@ -812,6 +817,7 @@ pub trait NativeWindow {
             Event::Printing {
                 pages, fidelity, ..
             } => self.print(pages, fidelity),
+            Event::ListOpens { field, .. } => self.open_list(&field),
             // Table 22's bit 11 granted: the conversion runs on a thread of its own (ADR 1954).
             granted @ Event::Archiving { .. } => self.convert(granted),
             Event::Copied {

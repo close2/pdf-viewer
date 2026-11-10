@@ -382,10 +382,10 @@ fn xfa_form(document: &Document, notes: &mut Vec<String>) {
                           what only the XFA resource states beyond that is not carried out, its \
                           calculations, its validation scripts and the scripts of the events a \
                           person's actions, the form's opening and closing, a save, a submit, a \
-                          print and a change of validation state raise, in FormCalc and \
-                          JavaScript, excepted where this reader lets scripts run, a save or a \
-                          print those scripts decline going ahead or not at the level set for \
-                          it, and its other events and a \
+                          print, a drop-down list's opening and a change of validation state \
+                          raise, in FormCalc and JavaScript, excepted where this reader lets \
+                          scripts run, a save, a print or a list's opening those scripts decline \
+                          going ahead or not at the level set for it, and its other events and a \
                           submit that asks to be signed or encrypted are not"
             .to_owned(),
         (true, true) => format!(
@@ -691,6 +691,12 @@ pub(crate) fn restricted(
             Restriction::PrintCancelled => format!(
                 "this document's XFA form has a prePrint script that set $event.cancelAction, \
                  which XFA 3.3 page 399 says cancels the print — {tail}"
+            ),
+            // The same flag under a drop-down list's `preOpen` (page 392), which declines to show
+            // the list the reader asked for (ADR 2791).
+            Restriction::OpeningCancelled => format!(
+                "this document's XFA form has a preOpen script that set $event.cancelAction, \
+                 which XFA 3.3 page 399 says cancels the opening of the field's list — {tail}"
             ),
         })
         .collect()

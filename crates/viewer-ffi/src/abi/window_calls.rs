@@ -1890,6 +1890,54 @@ pub unsafe extern "C" fn quorra_window_cancel_field(
     }
 }
 
+/// A person asked for a choice field's drop-down list, by its symbol or its key sequence: it is
+/// displayed when `QUORRA_OWED_LIST_OPENS` is owed and not before (XFA 3.3 page 392; ADR 2791).
+///
+/// # Safety
+///
+/// See the module documentation. `field` is NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_opening_list(
+    window: *mut Window,
+    field: *const c_char,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match owned_text(field) {
+        Ok(Some(field)) => match window.opening_list(&field) {
+            Ok(()) => Status::Ok.code(),
+            Err(status) => status.code(),
+        },
+        Ok(None) => Status::NullArgument.code(),
+        Err(()) => Status::NotUtf8.code(),
+    }
+}
+
+/// The list `QUORRA_OWED_LIST_OPENS` granted is shown, or could not be: a hybrid form's
+/// `postOpen` (XFA 3.3 page 392; ADR 2791).
+///
+/// # Safety
+///
+/// See the module documentation. `field` is NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_opened_list(
+    window: *mut Window,
+    field: *const c_char,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match owned_text(field) {
+        Ok(Some(field)) => match window.opened_list(&field) {
+            Ok(()) => Status::Ok.code(),
+            Err(status) => status.code(),
+        },
+        Ok(None) => Status::NullArgument.code(),
+        Err(()) => Status::NotUtf8.code(),
+    }
+}
+
 /// A placed check box or radio button, by its widget annotation, clicked to `on`; a refusal the
 /// field's flags state is said. `QUORRA_NO_ANSWER` where no widget on the page is that annotation,
 /// `QUORRA_WRONG_KIND` where it toggles nothing.

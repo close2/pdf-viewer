@@ -310,6 +310,9 @@ fn reason(restriction: Restriction) -> String {
         Restriction::PrintCancelled => {
             "a prePrint script's cancelAction (XFA 3.3 page 399)".to_owned()
         }
+        Restriction::OpeningCancelled => {
+            "a preOpen script's cancelAction (XFA 3.3 page 392)".to_owned()
+        }
     }
 }
 

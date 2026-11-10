@@ -68,11 +68,15 @@ pub enum OwedKind {
     /// limits the quality, `quorra_owed_text` the sentence; ended with `quorra_window_print_finish`
     /// whether the job ran or the person cancelled (ADRs 1180, 2121).
     Print = 16,
+    /// A choice field's drop-down list is to be displayed now: `quorra_owed_text` is the field's
+    /// fully qualified name, and `quorra_window_opened_list` is called once the list is shown or
+    /// could not be (XFA 3.3 page 392; ADR 2791).
+    ListOpens = 17,
 }
 
 impl OwedKind {
     /// How many kinds this build defines: `QUORRA_OWED_KIND_COUNT`.
-    pub const COUNT: u32 = 17;
+    pub const COUNT: u32 = 18;
 
     /// The number the header declares, as C sees it.
     #[must_use]
@@ -101,6 +105,7 @@ impl OwedKind {
             14 => Self::Script,
             15 => Self::ScriptWithdrawn,
             16 => Self::Print,
+            17 => Self::ListOpens,
             _ => return None,
         })
     }
@@ -126,6 +131,7 @@ impl OwedKind {
             Self::Script => "script\0",
             Self::ScriptWithdrawn => "script withdrawn\0",
             Self::Print => "print\0",
+            Self::ListOpens => "list opens\0",
         }
     }
 }
@@ -196,6 +202,8 @@ pub(crate) enum Owed {
         /// What the window says about it.
         words: String,
     },
+    /// A drop-down list granted, by its field's fully qualified name.
+    ListOpens(String),
 }
 
 impl Owed {
@@ -220,6 +228,7 @@ impl Owed {
             Self::Script { .. } => OwedKind::Script,
             Self::ScriptWithdrawn { .. } => OwedKind::ScriptWithdrawn,
             Self::Print { .. } => OwedKind::Print,
+            Self::ListOpens(_) => OwedKind::ListOpens,
         }
     }
 
@@ -231,6 +240,7 @@ impl Owed {
             | Self::Title(text)
             | Self::Question(text)
             | Self::Clipboard(text)
+            | Self::ListOpens(text)
             | Self::Password { words: text, .. }
             | Self::Script { title: text, .. }
             | Self::Print { words: text, .. }

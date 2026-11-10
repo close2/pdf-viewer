@@ -84,7 +84,9 @@ public sealed partial class MainWindow : Window
                 field => Commit("a field committed by Enter", open => open.CommitFieldOnEnter(field.Field)),
                 field => Commit("a field's typing abandoned", open => open.CancelField(field.Field)),
                 field => Commit("a button clicked", open => open.ToggleField(field.Number, field.Generation, !field.On)),
-                (field, chosen) => Commit("an option chosen", open => open.SetFieldOptions(field.Field, chosen))),
+                (field, chosen) => Commit("an option chosen", open => open.SetFieldOptions(field.Field, chosen)),
+                field => Commit("a drop-down list asked for", open => open.OpeningList(field.Field)),
+                field => Commit("a drop-down list displayed", open => open.OpenedList(field.Field))),
             () => Area.Focus(FocusState.Programmatic));
         notes = new PageNotes(
             Area.NoteLayer,
@@ -406,6 +408,14 @@ public sealed partial class MainWindow : Window
                 break;
             case Native.QUORRA_OWED_PLACE:
                 Place(open);
+                break;
+            // The grant of a drop-down list asked for; a control gone since the press is a display
+            // that failed, which XFA 3.3 page 392 fires postOpen for too (ADR 2791).
+            case Native.QUORRA_OWED_LIST_OPENS:
+                if (!controls.OpenList(owed.Text))
+                {
+                    Commit("a drop-down list gone", window => window.OpenedList(owed.Text));
+                }
                 break;
             // The strip and the system sound are later steps
             // (RFC 0010 step N3a). Each is named in the log the first time it is owed rather

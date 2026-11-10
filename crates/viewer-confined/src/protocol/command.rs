@@ -148,6 +148,11 @@ pub(super) mod command_kind {
     // the host holds the network and the confined worker holds the form whose `postSubmit` events
     // it fires (ADR 2764).
     pub(in crate::protocol) const UNANSWERED: u8 = 49;
+    // A drop-down list's opening asked for, and the list displayed: they cross because the
+    // confined worker holds the view whose XFA form runs `preOpen` and `postOpen` (XFA 3.3 page
+    // 392; ADR 2791).
+    pub(in crate::protocol) const OPENING_LIST: u8 = 50;
+    pub(in crate::protocol) const OPENED_LIST: u8 = 51;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -521,6 +526,12 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         }
         Command::CancelField { field } => {
             writer.u8(k::CANCEL_FIELD).str(field);
+        }
+        Command::OpeningList { field } => {
+            writer.u8(k::OPENING_LIST).str(field);
+        }
+        Command::OpenedList { field } => {
+            writer.u8(k::OPENED_LIST).str(field);
         }
         Command::Presented => {
             writer.u8(k::PRESENTED);
@@ -1108,6 +1119,12 @@ pub(crate) fn decode_command_holding(
             },
         },
         k::CANCEL_FIELD => Command::CancelField {
+            field: reader.string("a field's qualified name")?,
+        },
+        k::OPENING_LIST => Command::OpeningList {
+            field: reader.string("a field's qualified name")?,
+        },
+        k::OPENED_LIST => Command::OpenedList {
             field: reader.string("a field's qualified name")?,
         },
         k::PRESENTED => Command::Presented,

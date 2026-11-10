@@ -265,6 +265,12 @@ fn every_carried_command_round_trips() {
             field: "Lines.Price".to_owned(),
             by: viewer_core::Committing::Enter,
         },
+        Command::OpeningList {
+            field: "Lines.Choice".to_owned(),
+        },
+        Command::OpenedList {
+            field: "Lines.Choice".to_owned(),
+        },
         Command::CancelField {
             field: "Lines.Price".to_owned(),
         },

@@ -35,13 +35,40 @@ impl App {
             println!("note: the field {} is read-only (Table 227)", pressed.field);
             return false;
         }
-        self.choosing = Some(Choosing {
+        let choosing = Choosing {
             field: pressed.field,
             annotation: pressed.annotation,
             first: None,
-        });
+        };
+        // A drop-down's opening is asked for and displayed at its grant, because XFA 3.3 page
+        // 392's `preOpen` runs before the display and may change what the list shows or decline
+        // it; a list box (Table 233 bit 18 clear) is displayed whenever the field is, and drops
+        // nothing down (ADR 2791).
+        if matches!(pressed.kind, ControlKind::Combo { .. }) {
+            let field = choosing.field.clone();
+            self.list_asked = Some(choosing);
+            self.dispatch(Command::OpeningList { field });
+            return true;
+        }
+        self.choosing = Some(choosing);
         self.redraw();
         true
+    }
+
+    /// `Event::ListOpens`: the drop-down list asked for is displayed now, and the core is told it
+    /// is, which runs XFA 3.3 page 392's `postOpen`. A grant for a field this window did not ask
+    /// about — a press since moved elsewhere — is told as a display that failed, which page 392
+    /// fires `postOpen` for too (ADR 2791).
+    pub(crate) fn list_opens(
+        &mut self,
+        field: String,
+        queue: &mut std::collections::VecDeque<Command>,
+    ) {
+        if let Some(opening) = self.list_asked.take_if(|opening| opening.field == field) {
+            self.choosing = Some(opening);
+            self.redraw();
+        }
+        queue.push_back(Command::OpenedList { field });
     }
 
     /// §12.7.5.4's open list: where its rows are, and which control they belong to.

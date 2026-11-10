@@ -22,6 +22,10 @@ fn every_carried_event_round_trips() {
         },
         Event::PasswordRequired { document },
         Event::Closed(document),
+        Event::ListOpens {
+            document,
+            field: "Lines.Choice".to_owned(),
+        },
         Event::PageChanged {
             document,
             index: 3,

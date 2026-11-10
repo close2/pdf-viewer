@@ -1173,6 +1173,11 @@ impl NativeWindow for Window {
         self.owing.owe(Owed::Panels);
     }
 
+    /// Owed, for the caller's control is the one that drops down (ADR 2791).
+    fn open_list(&mut self, field: &str) {
+        self.owing.owe(Owed::ListOpens(field.to_owned()));
+    }
+
     /// Nothing to push: the bar is the caller's, read from the status line it is owed.
     fn show_the_drawing(&mut self) {}
 

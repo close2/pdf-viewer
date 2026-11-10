@@ -51,6 +51,14 @@ pub(crate) enum FieldChange {
         /// The qualified name.
         field: String,
     },
+    /// A drop-down's list became visible: [`viewer_core::Command::OpenedList`] where the core
+    /// granted it, and otherwise taken down again and asked for with
+    /// [`viewer_core::Command::OpeningList`], since XFA 3.3 page 392's `preOpen` runs before the
+    /// list is displayed (ADR 2791).
+    ListShown {
+        /// The qualified name.
+        field: String,
+    },
     /// An arrow key is making the selection the next [`FieldChange::Set`] carries (`true`), or
     /// made it (`false`): what Adobe's `event.keyDown` reads at the field's Table 199 `/K`, which
     /// runs when a person "modifies the selection in a scrollable list box" (ADRs 1762, 1786).
@@ -548,6 +556,9 @@ fn combo(
     }
     let name = field.name.qualified.clone();
     let count = options.len();
+    if let Some(popover) = descendant_popover(drop.upcast_ref()) {
+        reports_shown(&popover, &name, change);
+    }
     let arrow = arrows_choose(&drop, suppress);
     let suppress = Rc::clone(suppress);
     let change = Rc::clone(change);
@@ -689,6 +700,7 @@ fn editable_combo(
     let popover = gtk4::Popover::new();
     popover.set_child(Some(&scroller));
     popover.set_has_arrow(false);
+    reports_shown(&popover, &name, change);
     let button = gtk4::MenuButton::new();
     button.set_icon_name("pan-down-symbolic");
     button.set_popover(Some(&popover));
@@ -907,6 +919,44 @@ fn marks_arrows(widget: &impl IsA<gtk4::Widget>) -> Rc<Cell<bool>> {
 /// The first `GtkListView` among `widget`'s descendants, depth first: in a `GtkDropDown`, the list
 /// its popover shows. GTK names it in the widget's template and hands no accessor for it, and the
 /// popover is a child of the drop-down like any other, so the tree is where it is found.
+/// A drop-down's list becoming visible is said, as [`FieldChange::ListShown`] (ADR 2791).
+///
+/// **GTK 4 names no moment before a popover shows**: neither `GtkDropDown` nor `GtkMenuButton`
+/// has a signal that precedes the display, and `GtkPopover::show` is the display. The nearest
+/// moment to XFA 3.3 page 392's `preOpen` "when the user clicks on the symbol" is therefore the
+/// popover's `visible` becoming true, which follows the click within the same press: the host
+/// takes the list straight down there and asks for the opening, and displays it again at the
+/// grant, so that the list a person reads is the one the `preOpen` scripts left. The visibility
+/// is also how the toolkit's own Enter or space on a focused drop-down shows it, which this
+/// window cannot tell from the arrow; page 392's Enter exclusion is therefore not kept here.
+fn reports_shown(popover: &gtk4::Popover, field: &str, change: &Rc<dyn Fn(FieldChange)>) {
+    let field = field.to_owned();
+    let change = Rc::clone(change);
+    popover.connect_visible_notify(move |popover| {
+        if popover.is_visible() {
+            change(FieldChange::ListShown {
+                field: field.clone(),
+            });
+        }
+    });
+}
+
+/// The popover a drop-down control holds, found by walking its children: `GtkDropDown` keeps
+/// its list in one, and a `GtkMenuButton` parents the popover it was given.
+pub(crate) fn descendant_popover(widget: &gtk4::Widget) -> Option<gtk4::Popover> {
+    let mut child = widget.first_child();
+    while let Some(current) = child {
+        if let Some(popover) = current.downcast_ref::<gtk4::Popover>() {
+            return Some(popover.clone());
+        }
+        if let Some(popover) = descendant_popover(&current) {
+            return Some(popover);
+        }
+        child = current.next_sibling();
+    }
+    None
+}
+
 fn list_view_under(widget: &gtk4::Widget) -> Option<gtk4::ListView> {
     let mut child = widget.first_child();
     while let Some(current) = child {

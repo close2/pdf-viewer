@@ -748,6 +748,7 @@ answers in two places"
             // `Print` event and §12.5.6.22's sheet are already in force on every page it draws,
             // which is RFC 0004 §6's preview. The spool is ADR 1180's deferral and is named here
             // rather than left as a key that appears to do nothing.
+            Event::ListOpens { field, .. } => self.list_opens(field, queue),
             Event::Printing {
                 pages, fidelity, ..
             } => {

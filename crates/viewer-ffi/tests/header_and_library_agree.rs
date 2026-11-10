@@ -151,7 +151,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        367,
+        371,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -286,6 +286,8 @@ fn the_event_kinds(expected: &mut BTreeMap<String, i64>) {
         ("QUORRA_EVENT_MEDIA", EventKind::Media),
         // `quorra_archive` granted: Table 22 bit 11's operation, the conversion run (ADR 1954).
         ("QUORRA_EVENT_ARCHIVING", EventKind::Archiving),
+        // `quorra_opening_list` granted: a drop-down list displayed (ADR 2791).
+        ("QUORRA_EVENT_LIST_OPENS", EventKind::ListOpens),
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }
@@ -815,6 +817,7 @@ fn the_window(expected: &mut BTreeMap<String, i64>) {
         ("SCRIPT", OwedKind::Script),
         ("SCRIPT_WITHDRAWN", OwedKind::ScriptWithdrawn),
         ("PRINT", OwedKind::Print),
+        ("LIST_OPENS", OwedKind::ListOpens),
     ] {
         expected.insert(format!("QUORRA_OWED_{name}"), i64::from(kind.code()));
     }

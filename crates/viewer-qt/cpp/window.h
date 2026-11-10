@@ -15,6 +15,7 @@
 #include <QAbstractItemModel>
 #include <QHash>
 #include <QAbstractListModel>
+#include <QComboBox>
 #include <QListView>
 #include <QFrame>
 #include <QImage>
@@ -48,6 +49,48 @@ class QTreeView;
 namespace quorra_qt {
 
 class NoteView;
+
+/// A combo box whose drop-down list is displayed at the core's grant and not at the press
+/// (ADR 2791).
+///
+/// **`showPopup` is Qt's moment before the list shows**, and the one the toolkit documents for
+/// overriding: a click on the arrow and the key sequence (Alt + Down, F4) both reach it, while
+/// Enter in an editable combo box commits its text and does not. So it is XFA 3.3 page 392's
+/// `preOpen` moment exactly: the request goes to the core, which runs the form's `preOpen`
+/// scripts, and the list is shown when `QtUpdate::list_opens` names this control, after which
+/// `opened` runs page 392's `postOpen`. Plain C++ rather than a `Q_OBJECT`, because it adds no
+/// signal.
+class DropDown : public QComboBox
+{
+public:
+    DropDown(QWidget* parent, std::function<void()> asking, std::function<void()> opened)
+        : QComboBox(parent), asking_(std::move(asking)), opened_(std::move(opened))
+    {
+    }
+
+    /// Displays the list the core granted.
+    void showGranted()
+    {
+        granted_ = true;
+        showPopup();
+    }
+
+    void showPopup() override
+    {
+        if (!granted_) {
+            asking_();
+            return;
+        }
+        granted_ = false;
+        QComboBox::showPopup();
+        opened_();
+    }
+
+private:
+    std::function<void()> asking_;
+    std::function<void()> opened_;
+    bool granted_ = false;
+};
 
 /// One of `viewer-core`'s three panel answers, as a Qt item model.
 ///

@@ -163,6 +163,33 @@ impl Window {
         Ok(())
     }
 
+    /// A person asked for a choice field's drop-down list, by its symbol or its key sequence: the
+    /// list is displayed when `QUORRA_OWED_LIST_OPENS` is owed and not before, once a hybrid
+    /// form's `preOpen` has run (XFA 3.3 page 392; ADR 2791).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no field of that name has a widget on the page shown.
+    pub fn opening_list(&mut self, field: &str) -> Result<(), Status> {
+        let field = self.field(field)?.name.qualified.clone();
+        self.dispatch(Command::OpeningList { field });
+        self.settle();
+        Ok(())
+    }
+
+    /// The list `QUORRA_OWED_LIST_OPENS` granted is shown, or could not be: a hybrid form's
+    /// `postOpen` (XFA 3.3 page 392; ADR 2791).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no field of that name has a widget on the page shown.
+    pub fn opened_list(&mut self, field: &str) -> Result<(), Status> {
+        let field = self.field(field)?.name.qualified.clone();
+        self.dispatch(Command::OpenedList { field });
+        self.settle();
+        Ok(())
+    }
+
     /// §12.7.5.2.3's check box or §12.7.5.2.4's radio button, by its widget, was clicked to `on`.
     ///
     /// The appearance-state name the value takes is the file's own, chosen by

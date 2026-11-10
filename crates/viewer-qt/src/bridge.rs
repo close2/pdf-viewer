@@ -624,6 +624,10 @@ pub mod ffi {
         /// A document's script asked for a sound, `app.beep`: `QApplication::beep` is owed, for
         /// `clipboard`'s reason (ADR 1702).
         beep: bool,
+        /// The placed control whose drop-down list the core granted, to be displayed now, or -1
+        /// for none — `Event::ListOpens`, after XFA 3.3 page 392's `preOpen`. An index for
+        /// `notices`' reason: the list is a `QComboBox`'s and Rust never calls one (ADR 2791).
+        list_opens: i32,
     }
 
     /// A print job, as a `QPrintDialog` opens on it — §12.2's Table 147 and §7.6.4.2's bit 12.
@@ -770,6 +774,12 @@ pub mod ffi {
         fn commit_control(self: &mut Host, index: usize, enter: bool);
         /// Escape in a line edit: what was typed into its field is abandoned (ADR 2756).
         fn cancel_control(self: &mut Host, index: usize);
+        /// A person asked for a combo box's drop-down list, which `showPopup` does not display
+        /// until `QtUpdate::list_opens` names the control: XFA 3.3 page 392's `preOpen` runs
+        /// first (ADR 2791).
+        fn opening_list(self: &mut Host, index: usize);
+        /// The list `QtUpdate::list_opens` granted is displayed: page 392's `postOpen`.
+        fn opened_list(self: &mut Host, index: usize);
         /// §12.7.5.4: which of Table 234's `/Opt` entries are selected now, by index.
         ///
         /// Separate from `set_control` for the reason Table 233 bit 22 gives: "more than one of

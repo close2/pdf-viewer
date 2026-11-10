@@ -668,6 +668,14 @@ internal sealed unsafe partial class QuorraWindow : IDisposable
     internal void CancelField(string field) =>
         Library.Check("quorra_window_cancel_field", Native.quorra_window_cancel_field(handle, field));
 
+    /// <summary>A combo box's drop-down list asked for, displayed at QUORRA_OWED_LIST_OPENS (ADR 2791).</summary>
+    internal void OpeningList(string field) =>
+        Library.Check("quorra_window_opening_list", Native.quorra_window_opening_list(handle, field));
+
+    /// <summary>The list granted is displayed: XFA 3.3 page 392's postOpen (ADR 2791).</summary>
+    internal void OpenedList(string field) =>
+        Library.Check("quorra_window_opened_list", Native.quorra_window_opened_list(handle, field));
+
     /// <summary>A check box's or radio button's widget clicked towards <paramref name="on"/>.</summary>
     internal void ToggleField(uint number, ushort generation, bool on) =>
         Library.Check("quorra_window_toggle_field", Native.quorra_window_toggle_field(handle, number, generation, on));

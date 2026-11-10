@@ -47,7 +47,7 @@ mod scripts;
 mod search;
 
 pub use self::anticipation::{Anticipated, Anticipating, Foreseen, ReadOut, Reader};
-use self::editing::form_selection;
+use self::editing::{form_selection, opened_list};
 use self::layout::damage;
 pub(crate) use self::layout::px;
 use self::scripts::open_sequence;
@@ -645,6 +645,15 @@ impl Viewer {
                 }
             }
             Command::CancelField { field } => self.cancel_field(&field, events),
+            Command::OpeningList { field } => self.opening_list(field, events),
+            Command::OpenedList { field } => {
+                let viewport = self.viewport;
+                if let Some(open) = self.focused_mut()
+                    && opened_list(open, &field)
+                {
+                    events.push(damage(viewport));
+                }
+            }
             Command::Presented => {
                 if let Some(open) = self.focused_mut() {
                     open_sequence(open);

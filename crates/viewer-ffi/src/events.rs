@@ -205,6 +205,9 @@ impl Events {
                     "page content order"
                 }
             ),
+            // The field's name and nothing else, so that a caller displays that field's list
+            // (ADR 2791).
+            Event::ListOpens { field, .. } => field.clone(),
             Event::Printing { pages, .. } => {
                 format!("printing, over {pages} page(s), until quorra_print_finish")
             }
@@ -381,6 +384,7 @@ impl Events {
             | Event::Console { document, .. }
             | Event::Media { document, .. }
             | Event::Archiving { document, .. }
+            | Event::ListOpens { document, .. }
             | Event::SignaturePoliciesPublished { document, .. } => document.0,
             Event::NeedsRender(request) => request.document.0,
             Event::Damage(_) => return Err(Status::WrongKind),

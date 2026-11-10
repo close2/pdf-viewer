@@ -393,6 +393,46 @@ impl ViewState {
         )
     }
 
+    /// Runs the `preOpen` events of the drop-down choice list `field`, which page 392 fires when a
+    /// person clicks the symbol that drops the list down or presses the key sequence that does,
+    /// and not for Enter, followed by the calculations that depend on what they changed. A host
+    /// calls it before the list is displayed, so that what the scripts change is what the person
+    /// sees. A field that is no drop-down — a list displayed `always` or for `multiSelect` (page
+    /// 653) — runs nothing.
+    ///
+    /// **[`FormAction::cancelled`] does not keep the list closed here**, for the save's reason
+    /// ([`Self::activate_form_before_save`]): page 399 has `cancelAction` cancel "whatever action
+    /// fired the event", and a person dropping a list down to choose a field's value is the
+    /// reader's own filling-in, so the caller asks its level with
+    /// `crate::restriction::Restriction::OpeningCancelled` against
+    /// `crate::restriction::Operation::FillInForm` (ADR 2791).
+    pub fn activate_form_before_opening(&mut self, document: &Document, field: &str) -> FormAction {
+        if !self.form_drop_down(document, field) {
+            return FormAction::default();
+        }
+        self.run_form(
+            document,
+            Raised::Action(Stimulus::PreOpen { field }),
+            Instant::now(),
+        )
+    }
+
+    /// Runs the `postOpen` events of the drop-down choice list `field`, which page 392 fires
+    /// "after the combo box is displayed" and "when the display of the combo box fails, to ensure
+    /// that any cleanup code is executed". A host calls it once the list is shown or could not be,
+    /// and after an opening the reader's level declined, page 400's cleanup of the `preOpen` that
+    /// fired. Answers whether a value changed (ADR 2791).
+    pub fn activate_form_after_opening(&mut self, document: &Document, field: &str) -> bool {
+        if !self.form_drop_down(document, field) {
+            return false;
+        }
+        self.activate_form(
+            document,
+            Raised::Action(Stimulus::PostOpen { field }),
+            Instant::now(),
+        )
+    }
+
     /// Runs the `enter` events of the keyboard focus reaching the field `reached` from the field
     /// `leaving`, or from no field (XFA 3.3 pages 390–391): those of each subform and exclusion
     /// group around it that the focus comes into, and the field's, followed by the calculations
@@ -711,6 +751,10 @@ impl ViewState {
     /// Whether the document's XFA form, where it has one to activate, makes `field` a choice list.
     fn form_choice_list(&mut self, document: &Document, field: &str) -> bool {
         matches!(self.held_form(document), Held::Resource(resource) if resource.is_choice_list(field))
+    }
+
+    fn form_drop_down(&mut self, document: &Document, field: &str) -> bool {
+        matches!(self.held_form(document), Held::Resource(resource) if resource.drops_down(field))
     }
 
     fn held_form(&mut self, document: &Document) -> &Held {

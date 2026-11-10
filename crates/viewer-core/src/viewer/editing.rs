@@ -336,6 +336,13 @@ impl Viewer {
             Self::not_printed(open);
             return;
         }
+        if let (false, crate::open::Held::OpeningCancelled { field }) = (proceed, &held) {
+            // And a list the `postOpen` its `preOpen` pushed (ADR 2791).
+            if opened_list(open, field) {
+                events.push(damage(self.viewport));
+            }
+            return;
+        }
         if !proceed && !answered_either_way {
             // §12.11.6's question is the one whose `no` has something to undo: a document held
             // before it was processed was never opened, no `Event::Opened` named it, and leaving
@@ -381,6 +388,11 @@ impl Viewer {
             // what the `yes` releases is the intent (ADR 2777).
             crate::open::Held::PrintCancelled { sheet, fidelity } => {
                 Self::print_intent(document, open, sheet, fidelity, events);
+            }
+            // The list whose `preOpen` script declined it, the scripts before it having run: what
+            // the `yes` releases is the display (ADR 2791).
+            crate::open::Held::OpeningCancelled { field } => {
+                events.push(Event::ListOpens { document, field });
             }
             // A conversion changes no document either: the `yes` releases the file to the host
             // for the target and profile the question was asked about (ADR 1954).
@@ -684,6 +696,80 @@ impl Viewer {
         }
     }
 
+    /// [`Command::OpeningList`]: the `preOpen` events of a hybrid form's drop-down choice list
+    /// (XFA 3.3 page 392), and then the grant, [`Event::ListOpens`], unless a script's
+    /// `$event.cancelAction` declined the opening and the reader's level for `fill` keeps it
+    /// declined.
+    ///
+    /// Page 399 has the flag cancel "whatever action fired the event", and the action is the
+    /// reader's own filling-in of the field, so the flag is the document's restriction on its
+    /// reader, asked at the level as [`pdf_model::restriction::Restriction::OpeningCancelled`]
+    /// against [`pdf_model::restriction::Operation::FillInForm`], as a `prePrint`'s is against a
+    /// print (ADR 2777): `off` displays the list and says nothing, `warn` displays it and says
+    /// why, `on` does not and says why, and `ask` holds it for [`Command::Answer`]. An opening not
+    /// granted fires the `postOpen` page 400's cleanup owes (ADR 2791).
+    pub(super) fn opening_list(&mut self, field: String, events: &mut Vec<Event>) {
+        use crate::notes::{Standing as Worded, restricted};
+        use pdf_model::restriction::{Operation, Restriction, Verdict};
+
+        let policy = self.restrictions;
+        let (Some(id), Some(open)) = (self.focused, self.focused_mut()) else {
+            return;
+        };
+        let before = open
+            .view
+            .activate_form_before_opening(&open.document, &field);
+        if before.changed {
+            open.stale();
+            events.push(damage(self.viewport));
+        }
+        let Some(open) = self.focused_mut() else {
+            return;
+        };
+        let operation = Operation::FillInForm;
+        let asserted = if before.cancelled {
+            vec![Restriction::OpeningCancelled]
+        } else {
+            Vec::new()
+        };
+        let level = policy.under(open.restrictions).level(operation).level();
+        match level.verdict(asserted) {
+            Verdict::Proceed => events.push(Event::ListOpens {
+                document: id,
+                field,
+            }),
+            Verdict::Warn(restrictions) => {
+                events.push(Event::ListOpens {
+                    document: id,
+                    field,
+                });
+                events.push(Event::Warned {
+                    document: id,
+                    operation,
+                    notes: restricted(operation, &restrictions, Worded::Warned),
+                });
+            }
+            Verdict::Refuse(restrictions) => {
+                events.push(Event::Refused {
+                    document: id,
+                    operation,
+                    notes: restricted(operation, &restrictions, Worded::Refused),
+                });
+                if opened_list(open, &field) {
+                    events.push(damage(self.viewport));
+                }
+            }
+            Verdict::Ask(restrictions) => {
+                open.asking = Some(crate::open::Held::OpeningCancelled { field });
+                events.push(Event::Asking {
+                    document: id,
+                    operation,
+                    notes: restricted(operation, &restrictions, Worded::Asked),
+                });
+            }
+        }
+    }
+
     /// The selection in §14.8.2.5's logical content order, where the page states one: the
     /// structure's pieces of each page's range, joined by [`crate::select::logical_copy`] with the
     /// paragraph and cell breaks the structure states and the artifacts it declares left out
@@ -962,6 +1048,18 @@ pub(super) fn form_selection(
     {
         open.stale();
     }
+}
+
+/// The `postOpen` events of a hybrid form's drop-down choice list (XFA 3.3 page 392): after the
+/// list [`Event::ListOpens`] granted is displayed or fails to be ([`crate::Command::OpenedList`]),
+/// and as page 400's cleanup of a `preOpen` whose opening was not granted (ADR 2791). Answers
+/// whether a value changed, which is ink to draw again.
+pub(super) fn opened_list(open: &mut Open, field: &str) -> bool {
+    let changed = open.view.activate_form_after_opening(&open.document, field);
+    if changed {
+        open.stale();
+    }
+    changed
 }
 
 /// The fully qualified name of the field a widget belongs to.

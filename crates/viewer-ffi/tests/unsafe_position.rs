@@ -136,11 +136,12 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // 2088, 2104, 2120, 2121, 2152, 2156, 2168, 2169, 2185, 2300, 2308, 2316, 2422, 2510 and
     // 2732; 2755 and 2756 add four for a commit made by Enter and a typing abandoned, and 2764
     // one for a transmitted submission that ended with no form data. The thumbnail page selection
-    // and the permissions menu add four pointer-taking entry points, checked by the C driver.
-    assert_eq!(no_mangle, 367, "one `#[unsafe(no_mangle)]` per entry point");
+    // and the permissions menu add four pointer-taking entry points, checked by the C driver, and
+    // 2791 four for a drop-down list's opening and its display, each on a viewer and a window.
+    assert_eq!(no_mangle, 371, "one `#[unsafe(no_mangle)]` per entry point");
     assert_eq!(
-        signatures, 348,
-        "345 `unsafe` entry points and three helpers"
+        signatures, 352,
+        "349 `unsafe` entry points and three helpers"
     );
 }
 

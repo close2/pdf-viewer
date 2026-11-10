@@ -166,19 +166,6 @@ repository and its source** — none a candidate, and none re-read:
 The bucket is for a genuine model or rasteriser gap that only a build across several rounds closes;
 the last rendering one, §10.7.4's mark for a stroke its matrix collapses, was built (ADR 1360).
 
-- §K.2 — XFA's static half, at one round a batch (`doc/questions/A633`): the resource is read and a
-  save keeps the `datasets` packet consistent with every `/V` it writes, naming each field it cannot
-  (ADRs 2396, 2414); the template's validations are run (a save's null and datatype tests, a
-  submit's null, datatype and format tests, ADRs 2450, 2474, 2475), and its FormCalc calculations and
-  `change`, `initialize`, `enter`, `exit`, `click`, `ready` and `docReady` events (ADRs 2566, 2584, 2606) activate in page 379's order and cascade under limits
-  (`Resource::activate`, ADRs 2506, 2507) and a window that lets scripts run activates them when the
-  form is shown and at a commit, in the confined script worker (ADRs 2524, 2525), its JavaScript
-  ones as well, in a realm of their own in the same worker whose object model is the form's
-  containers as the host answers for them (ADR 2545), and a document opened beside is given its
-  merge, its open sequence and its signature report when its own frame is shown (ADR 2544). What
-  remains of RFC 0011 section 5's step 5 (ADR 2430) is the events other than `change`,
-  `initialize`, `enter`, `exit`, `click`, `ready` and `docReady`, firing the `listen`- and
-  `ref`-bound ones the open sequence reports, validations that are scripts, and page 642's dismissal of a `warning`.
  *One raster carries the product of shape and opacity where the clause wants the pair* is not
 among them: §11.4.6 is the one reader of the pair the standard has, every knockout element states its
 shape, and §11.3.7.3's NOTE 2 licenses the product everywhere else (§11.4.3's row, ADR 1340).
@@ -327,7 +314,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §K.
+§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

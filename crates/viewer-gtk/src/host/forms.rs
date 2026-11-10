@@ -16,6 +16,32 @@ use super::window::logical;
 use super::{Host, with};
 
 impl Host {
+    /// A drop-down's popover became visible (ADR 2791): the display the core granted, which runs
+    /// XFA 3.3 page 392's `postOpen`, or a person asking for the list, which is taken down again
+    /// and asked for, so that the list is displayed after its `preOpen` and not before.
+    pub(super) fn list_shown(&mut self, field: String) {
+        if self
+            .list_granted
+            .take_if(|granted| *granted == field)
+            .is_some()
+        {
+            self.dispatch(Command::OpenedList { field });
+            return;
+        }
+        if let Some(popover) = self.list_popover(&field) {
+            popover.popdown();
+        }
+        self.dispatch(Command::OpeningList { field });
+    }
+
+    /// The popover of the drop-down control placed for `field`, where one is.
+    pub(super) fn list_popover(&self, field: &str) -> Option<gtk4::Popover> {
+        self.placed
+            .iter()
+            .find(|placed| placed.key.0 == field)
+            .and_then(|placed| controls::descendant_popover(&placed.widget))
+    }
+
     /// §12.7's controls, built once and moved thereafter.
     ///
     /// Rebuilt only when the set of fields and widgets on the page changes, because rebuilding
@@ -189,6 +215,7 @@ impl Host {
                 // The field shows what it showed before the typing began, and the keyboard goes
                 // back to the page as Enter's does; the control losing it then commits nothing,
                 // since nothing typed is left (ADR 2756).
+                FieldChange::ListShown { field } => host.list_shown(field),
                 FieldChange::Cancel { field } => {
                     host.dispatch(Command::CancelField { field });
                     let page = host.ui.page_area.clone();

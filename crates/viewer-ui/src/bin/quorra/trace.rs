@@ -411,6 +411,8 @@ pub(crate) fn describe_command(command: &Command) -> String {
         Command::Focused(move_to) => format!("focus {move_to:?} annotation"),
         Command::CommitField { field, by } => format!("commit field {field:?} ({by:?})"),
         Command::CancelField { field } => format!("abandon the typing in field {field:?}"),
+        Command::OpeningList { field } => format!("drop down the list of field {field:?}"),
+        Command::OpenedList { field } => format!("the list of field {field:?} is displayed"),
         Command::Presented => "the first frame presented: the open sequence".to_owned(),
         Command::Edit(edit) => format!("edit {edit:?}"),
         Command::Undo => "undo".to_owned(),
@@ -459,6 +461,11 @@ fn describe_printing(printing: viewer_core::Printing) -> String {
 }
 
 /// One line naming an event, for `--trace`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per event the core sends, with no catch-all, so that an event added there \
+              is named here; splitting the match would only split the list"
+)]
 pub(crate) fn describe_event(event: &Event) -> String {
     match event {
         Event::Opened { pages, .. } => format!("opened, {pages} page(s)"),
@@ -466,6 +473,7 @@ pub(crate) fn describe_event(event: &Event) -> String {
         Event::PasswordRequired { .. } => "a password is required".to_owned(),
         Event::Closed(_) => "closed".to_owned(),
         Event::Printing { pages, .. } => format!("printing, {pages} page(s)"),
+        Event::ListOpens { field, .. } => format!("the list of field {field:?} may drop down"),
         Event::Archiving { bytes, asked, .. } => format!(
             "archiving {} bytes to {} under {:?}",
             bytes.len(),

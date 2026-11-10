@@ -4066,3 +4066,140 @@ fn a_doc_close_event_s_submit_is_said_and_not_held() {
     assert!(quiet.report.is_empty(), "{:?}", quiet.report);
     assert_eq!(log(&quiet), None);
 }
+
+/// A form of one choice list `pick` whose `choiceList` states `open` (or nothing, where `open` is
+/// empty), its `preOpen` and `postOpen` logging `[` and `]` with `cancelAction` beside each, a
+/// `preOpen` that sets `cancelAction` where `cancels`, and the log.
+fn opening_form(open: &str, cancels: bool) -> (String, Vec<(&'static str, &'static str)>) {
+    let cancel = if cancels {
+        "\n$event.cancelAction = 1"
+    } else {
+        ""
+    };
+    let pick = format!(
+        "<field name=\"pick\"><ui><choiceList{open}/></ui><value><text/></value>\
+         <event activity=\"preOpen\"><script>Log = Concat(Log, \"[\", $event.cancelAction)\
+         {cancel}</script></event>\
+         <event activity=\"postOpen\"><script>Log = Concat(Log, \"]\", $event.cancelAction)\
+         </script></event></field>"
+    );
+    let template = [
+        format!("<subform name=\"Part\">{pick}</subform>"),
+        field("Log", ""),
+    ]
+    .concat();
+    (template, vec![("Part.pick", "one"), ("Log", "")])
+}
+
+/// XFA 3.3 page 392: `preOpen` and `postOpen` "apply only to drop-down choice lists, or more
+/// specifically choice lists for which `open="userControl"` or `open="onEntry"`", and page 653
+/// lists `userControl` first, the property's default; a list displayed `always` or for
+/// `multiSelect` drops nothing down and fires neither, and says why. Page 400 pairs the two as a
+/// pre- and post-event and page 402 has the action clear `cancelAction` at its beginning, so each
+/// reads the flag clear (ADR 2791).
+#[test]
+fn a_drop_down_lists_opening_fires_pre_open_and_post_open() {
+    let pick = name("Part.pick");
+    for (open, fires) in [
+        ("", true),
+        (" open=\"userControl\"", true),
+        (" open=\"onEntry\"", true),
+        (" open=\"always\"", false),
+        (" open=\"multiSelect\"", false),
+    ] {
+        let (template, values) = opening_form(open, false);
+        let pre = activate(
+            &template,
+            &values,
+            Stimulus::PreOpen { field: &pick },
+            Limits::DEFAULT,
+        );
+        let post = activate(
+            &template,
+            &values,
+            Stimulus::PostOpen { field: &pick },
+            Limits::DEFAULT,
+        );
+        if fires {
+            assert_eq!(log(&pre).as_deref(), Some("[0"), "{open}: {:?}", pre.report);
+            assert_eq!(
+                log(&post).as_deref(),
+                Some("]0"),
+                "{open}: {:?}",
+                post.report
+            );
+        } else {
+            assert_eq!(log(&pre), None, "{open}");
+            assert_eq!(log(&post), None, "{open}");
+            assert!(
+                pre.report
+                    .iter()
+                    .any(|said| said.contains("applies only to a drop-down choice list")),
+                "{open}: {:?}",
+                pre.report
+            );
+        }
+        assert!(!pre.cancelled, "{open}");
+    }
+}
+
+/// XFA 3.3 page 399: `cancelAction` "is used to cancel whatever action fired the event", and the
+/// action a `preOpen` fires for is the display of the list (page 392), so a `preOpen` script that
+/// sets it leaves the activation cancelled; one that does not leaves it clear (ADR 2791).
+#[test]
+fn a_pre_open_script_that_sets_cancel_action_cancels_the_opening() {
+    let pick = name("Part.pick");
+    let (template, values) = opening_form("", true);
+    let cancelled = activate(
+        &template,
+        &values,
+        Stimulus::PreOpen { field: &pick },
+        Limits::DEFAULT,
+    );
+    assert_eq!(
+        log(&cancelled).as_deref(),
+        Some("[0"),
+        "{:?}",
+        cancelled.report
+    );
+    assert!(cancelled.cancelled);
+    let (template, values) = opening_form("", false);
+    let opened = activate(
+        &template,
+        &values,
+        Stimulus::PreOpen { field: &pick },
+        Limits::DEFAULT,
+    );
+    assert!(!opened.cancelled);
+}
+
+/// XFA 3.3 page 398: "It is an error for a script to try to use a property that is not set in the
+/// current context", and the page's table of what each primary event sets lists neither `preOpen`
+/// nor `postOpen`, so a `preOpen` script reading `$event.name` is told so (ADR 2791).
+#[test]
+fn a_pre_open_event_sets_no_primary_property() {
+    let pick = name("Part.pick");
+    let template = [
+        "<subform name=\"Part\"><field name=\"pick\"><ui><choiceList/></ui><value><text/>\
+         </value><event activity=\"preOpen\"><script>Log = $event.name</script></event></field>\
+         </subform>"
+            .to_owned(),
+        field("Log", ""),
+    ]
+    .concat();
+    let values = [("Part.pick", "one"), ("Log", "")];
+    let read = activate(
+        &template,
+        &values,
+        Stimulus::PreOpen { field: &pick },
+        Limits::DEFAULT,
+    );
+    assert_eq!(log(&read), None, "{:?}", read.report);
+    assert!(
+        read.report
+            .iter()
+            .any(|said| said.contains("$event.name: the preOpen event does not set it")),
+        "{:?}",
+        read.report
+    );
+}

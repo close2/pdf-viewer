@@ -73,6 +73,41 @@ impl Host {
         self.dispatch(Command::CancelField { field });
     }
 
+    /// A person asked for the drop-down list of the combo box placed at `index` (ADR 2791).
+    pub(crate) fn opening_list(&mut self, index: usize) {
+        let Some(placed) = self.placed.get(index) else {
+            return;
+        };
+        let field = placed.name.qualified.clone();
+        self.dispatch(Command::OpeningList { field });
+    }
+
+    /// The list granted for the combo box placed at `index` is displayed (ADR 2791).
+    pub(crate) fn opened_list(&mut self, index: usize) {
+        let Some(placed) = self.placed.get(index) else {
+            return;
+        };
+        let field = placed.name.qualified.clone();
+        self.dispatch(Command::OpenedList { field });
+    }
+
+    /// The grant: the combo box placed for `field` is named to the window, which displays its
+    /// list; a control gone since the press is a display that failed, which page 392 fires
+    /// `postOpen` for too (ADR 2791).
+    pub(crate) fn list_opens(&mut self, field: &str) {
+        let at = self
+            .placed
+            .iter()
+            .position(|placed| placed.name.qualified == field)
+            .and_then(|at| i32::try_from(at).ok());
+        match at {
+            Some(at) => self.update.list_opens = at,
+            None => self.dispatch(Command::OpenedList {
+                field: field.to_owned(),
+            }),
+        }
+    }
+
     /// A control's value was typed into.
     pub(crate) fn set_control(&mut self, index: usize, value: &str) {
         let Some(placed) = self.placed.get(index) else {

@@ -309,7 +309,7 @@ fn a_c_program_opens_a_document_turns_a_page_asks_a_query_and_gets_pixels() {
 /// for "black point" lands, and the page after it draws.
 fn what_it_printed(said: &str) {
     for expected in [
-        "abi 2 (header 2), 30 event kind(s) (header 30)",
+        "abi 2 (header 2), 31 event kind(s) (header 31)",
         // ISO 19005's conversion asked for at the reader's default level, granted once, and its
         // report's first line naming the profile the library listed second (ADR 1954), and that
         // profile's own sentence as the windows offer it (ADR 1966).
@@ -613,7 +613,7 @@ fn what_the_window_owed(said: &str) {
     for expected in [
         // The counted kinds against the header's, and a path that names no file refused by its
         // own status rather than opened into a window that says nothing.
-        "owed kinds 17 (header 17), unknown is unknown",
+        "owed kinds 18 (header 18), unknown is unknown",
         // `viewer_host::Tab`'s six, in the order and the words every window shows them.
         "panels offered 6 (header 6): Contents Pages Layers Files Read About",
         "an unreadable file: the file named could not be opened for reading",

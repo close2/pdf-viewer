@@ -824,6 +824,15 @@ pub(crate) enum Held {
         /// Table 22 bit 12's answer.
         fidelity: crate::Fidelity,
     },
+    /// The opening of a drop-down list an XFA form's `preOpen` script declined —
+    /// `crate::Command::OpeningList`, asked as `pdf_model::restriction::Operation::FillInForm`
+    /// (ADR 2791). The scripts before the opening have run, so a `yes` grants the list with
+    /// `crate::Event::ListOpens` and a `no` fires only the `postOpen` XFA 3.3 page 400's cleanup
+    /// owes.
+    OpeningCancelled {
+        /// §12.7.4.2's fully qualified name of the field whose list was asked for.
+        field: String,
+    },
     /// A copy, with the text already taken in both of §14.8.2.5's orders — `crate::Command::Copy`.
     Copy {
         /// §14.8.2.5's logical content order, where the structure tree reached the whole

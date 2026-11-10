@@ -710,6 +710,29 @@ pub enum Command {
         /// §12.7.4.2's fully qualified name.
         field: String,
     },
+    /// A person asked for a choice field's drop-down list to be displayed: a click on the symbol
+    /// that drops it down, or the key sequence that does while the field has the focus — and not
+    /// Enter, which XFA 3.3 page 392 says raises no `preOpen` (ADR 2791).
+    ///
+    /// The host does not display the list yet. In a hybrid form whose field is a drop-down
+    /// choice list, the field's `preOpen` events run first, so that what a script changes is what
+    /// the person sees; a script's `$event.cancelAction` is the document declining the opening,
+    /// asked at the reader's level for `fill` as
+    /// [`pdf_model::restriction::Restriction::OpeningCancelled`]. The grant is
+    /// [`crate::Event::ListOpens`]; an opening the level declines fires the `postOpen` page 400's
+    /// cleanup owes, and [`crate::Command::OpenedList`] is not sent.
+    OpeningList {
+        /// §12.7.4.2's fully qualified name.
+        field: String,
+    },
+    /// The list [`crate::Event::ListOpens`] granted has been displayed, or its display failed:
+    /// XFA 3.3 page 392's `postOpen`, which "fires after the combo box is displayed" and "when
+    /// the display of the combo box fails, to ensure that any cleanup code is executed" (ADR
+    /// 2791).
+    OpenedList {
+        /// §12.7.4.2's fully qualified name.
+        field: String,
+    },
     /// The host has put the focused document's first frame on its screen, so the document's open
     /// sequence runs now: RFC 0008 section 6.5 step 1, Table 32's `/JavaScript` name tree, the
     /// catalog's `/OpenAction` script, page one's Table 198 `/O` and its annotations' `/PO`

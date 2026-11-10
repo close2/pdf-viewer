@@ -70,6 +70,15 @@ impl Host {
                      which this window never asked for"
                 );
             }
+            // And for a drop-down list's: this window draws no list, a non-editable combo box
+            // being a choice of rows it does not offer and an editable one a text box, so it
+            // sends no `Command::OpeningList` and the grant never arrives (ADR 2791).
+            Event::ListOpens { field, .. } => {
+                eprintln!(
+                    "note: the confined viewer granted the drop-down list of field {field:?}, \
+                     which this window never asked for and does not draw"
+                );
+            }
             // The same for a conversion's grant: `Command::Archive` never crosses (ADR 1954).
             Event::Archiving { .. } => {
                 eprintln!(

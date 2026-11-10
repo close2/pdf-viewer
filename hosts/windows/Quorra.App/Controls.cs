@@ -27,13 +27,18 @@ namespace Quorra.App;
 /// example of a value "not committed" (ADR 2756).</param>
 /// <param name="Toggled">A check box or radio button clicked.</param>
 /// <param name="Chose">A choice control's options chosen, by their index in /Opt.</param>
+/// <param name="Opening">A combo box's drop-down list asked for, which is displayed at
+/// QUORRA_OWED_LIST_OPENS: XFA 3.3 page 392's preOpen runs first (ADR 2791).</param>
+/// <param name="Opened">The list granted is displayed: page 392's postOpen (ADR 2791).</param>
 internal sealed record Commits(
     Action<Placed, string> Typed,
     Action<Placed> Finished,
     Action<Placed> Entered,
     Action<Placed> Abandoned,
     Action<Placed> Toggled,
-    Action<Placed, IReadOnlyList<nuint>> Chose);
+    Action<Placed, IReadOnlyList<nuint>> Chose,
+    Action<Placed> Opening,
+    Action<Placed> Opened);
 
 /// <summary>The controls placed over the page, rebuilt when the set changes and moved with the page.</summary>
 internal sealed class PageControls
@@ -51,6 +56,9 @@ internal sealed class PageControls
     // the write, one option at a time: a list of several chosen passes through selections nobody
     // made on its way to the field's.
     private bool writing;
+    // The combo box whose drop-down list the core granted and this window is opening, so that its
+    // DropDownOpened is the display rather than a person asking for one (ADR 2791).
+    private ComboBox? granted;
 
     /// <summary>Controls in <paramref name="layer"/>, their commits <paramref name="commits"/>'.</summary>
     /// <param name="layer">The page area's layer over the marks.</param>
@@ -61,6 +69,22 @@ internal sealed class PageControls
         this.layer = layer;
         this.commits = commits;
         this.toPage = toPage;
+    }
+
+    /// <summary>The drop-down list of <paramref name="field"/>'s combo box displayed, as
+    /// QUORRA_OWED_LIST_OPENS grants; false where no combo box stands for it now.</summary>
+    internal bool OpenList(string field)
+    {
+        for (int index = 0; index < fields.Count; index++)
+        {
+            if (fields[index].Field == field && elements[index] is ComboBox combo)
+            {
+                granted = combo;
+                combo.IsDropDownOpen = true;
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>How many widgets the controls stand for, a push-button's among them.</summary>
@@ -380,6 +404,20 @@ internal sealed class PageControls
             {
                 commits.Chose(now, new[] { (nuint)chosen });
             }
+        };
+        // WinUI names no moment before the list shows: DropDownOpened follows the display, in the
+        // same press. So the list is closed there and asked for, and opened again at the core's
+        // grant, after XFA 3.3 page 392's preOpen has run (ADR 2791).
+        combo.DropDownOpened += (_, _) =>
+        {
+            if (ReferenceEquals(granted, combo))
+            {
+                granted = null;
+                commits.Opened(Current(field));
+                return;
+            }
+            combo.IsDropDownOpen = false;
+            commits.Opening(Current(field));
         };
         // What is typed into the box is characters held until it is submitted, and the field's
         // Table 199 /K in its commit form and /V wait for that moment.

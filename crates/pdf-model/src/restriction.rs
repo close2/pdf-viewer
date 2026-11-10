@@ -36,7 +36,9 @@
 //! read from the file but from what the form's scripts did, so [`asserted`] never returns it; the
 //! caller that ran them hands [`Restriction::SaveCancelled`] to [`Level::verdict`] itself, as
 //! [`media`]'s caller does (ADR 2763). A `prePrint` script's is the same flag against a print,
-//! [`Restriction::PrintCancelled`] (ADR 2777).
+//! [`Restriction::PrintCancelled`] (ADR 2777), and a `preOpen` script's the same flag against the
+//! opening of a drop-down list a person is filling in, [`Restriction::OpeningCancelled`] (ADR
+//! 2791).
 //!
 //! # Why a reason and not a boolean
 //!
@@ -530,6 +532,14 @@ pub enum Restriction {
     /// Asserted only against [`Operation::Print`], by the caller that ran the `prePrint` events
     /// of the print being asked about, for [`Self::SaveCancelled`]'s reason (ADR 2777).
     PrintCancelled,
+    /// An XFA form's `preOpen` script that set `$event.cancelAction` under the opening of a
+    /// drop-down choice list, the flag page 399 says cancels "whatever action fired the event" —
+    /// the document declining to show its reader the choices of a field the reader is filling in
+    /// (XFA 3.3 page 392).
+    ///
+    /// Asserted only against [`Operation::FillInForm`], by the caller that ran the `preOpen`
+    /// events of the opening being asked about, for [`Self::SaveCancelled`]'s reason (ADR 2791).
+    OpeningCancelled,
 }
 
 /// What §13.2.4.2's Table 286 `/TF` asserts against [`Operation::HandOverMedia`] in this document.

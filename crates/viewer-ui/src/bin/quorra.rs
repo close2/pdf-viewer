@@ -496,6 +496,7 @@ fn main() {
         collection: None,
         typing: None,
         choosing: None,
+        list_asked: None,
         clipboard: String::new(),
         // Connects to nothing here, which is `CLAUDE.md`'s second principle: a clipboard is not
         // needed to show page one, so the session is not asked for one until somebody copies.

@@ -409,6 +409,19 @@ pub(crate) struct Container {
 }
 
 impl Container {
+    /// Whether it is a drop-down choice list, the one field page 392's `preOpen` and `postOpen`
+    /// apply to: a field whose `ui` holds a `choiceList` whose `open` is `userControl`, the
+    /// property's default, or `onEntry` (page 653). A list displayed `always` or for
+    /// `multiSelect` never drops down.
+    pub(crate) fn drops_down(&self) -> bool {
+        self.class == Class::Field
+            && matches!(
+                &self.ui,
+                Some((ui, open)) if ui == "choiceList"
+                    && matches!(open.as_deref(), None | Some("userControl" | "onEntry"))
+            )
+    }
+
     /// Whether binding passes through this container as though it were not there and its
     /// children were its parent's (chapter 4 pages 193–194): a nameless subform, field or
     /// exclusion group that makes no explicit data reference, a subform stating `scope="none"`,

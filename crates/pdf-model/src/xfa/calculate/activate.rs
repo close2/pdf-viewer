@@ -55,6 +55,11 @@
 //!   document opens and changed by nothing a person or a script does, so the Layout DOM's
 //!   `ready` fires once (ADR 2783). An event whose `ref` names an object this reader raises no
 //!   event for is named in the report as not run (ADR 2606).
+//! - A drop-down choice list's opening ([`Stimulus::PreOpen`], [`Stimulus::PostOpen`]): the
+//!   field's own `preOpen` events before the list is displayed and its `postOpen` events once it
+//!   is displayed or its display failed (page 392), each followed by the calculations that depend
+//!   on what they changed; a `preOpen` script's `cancelAction` asks for the list not to be
+//!   displayed, and a field that is no drop-down runs nothing (ADR 2791).
 //! - A print ([`Stimulus::PrePrint`], [`Stimulus::PostPrint`]): the `prePrint` events bound to
 //!   the application just before rendering for print begins and the `postPrint` events once the
 //!   rendered form has gone to the printer (page 388), each followed by the calculations that
@@ -114,7 +119,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::{Calculation, Event, Exited, Form, Replaced, Scalar, Step, Test, Validity};
 use crate::view::{CommitKey, Keys};
 use crate::xfa::datasets::Change;
-use crate::xfa::template::{Bound, Class, Entry, Language, Override, Performs, Script, ScriptTest};
+use crate::xfa::template::{
+    Bound, Class, Container, Entry, Language, Override, Performs, Script, ScriptTest,
+};
 use crate::xfa::{Resource, Template, validate};
 
 /// What a [`Runner`] says of one script.
@@ -332,6 +339,21 @@ pub enum Stimulus<'a> {
         /// The choice list, by its PDF field name.
         field: &'a str,
     },
+    /// A person asked for the drop-down choice list `field` to drop down, and it has not yet been
+    /// displayed (page 392's `preOpen`): the field's own `preOpen` events, followed by the
+    /// calculations that depend on what they changed. A script that sets `$event.cancelAction`
+    /// asks for the list not to be displayed ([`Activation::cancelled`]; ADR 2791).
+    PreOpen {
+        /// The drop-down choice list, by its PDF field name.
+        field: &'a str,
+    },
+    /// The drop-down choice list `field` has been displayed, or its display failed or was
+    /// declined after its `preOpen` fired (page 392's `postOpen`, and page 400's cleanup of the
+    /// `preOpen` that fired): the field's own `postOpen` events.
+    PostOpen {
+        /// The drop-down choice list, by its PDF field name.
+        field: &'a str,
+    },
     /// The open sequence has ended (pages 388 and 704): the `ready` events bound to the Form DOM
     /// (`ref="$form"`) of every container outside the page background, then the `ready` events
     /// bound to the Layout DOM (`ref="$layout"`) of every container, then the `docReady` events
@@ -393,8 +415,8 @@ pub enum Stimulus<'a> {
 
 impl Stimulus<'_> {
     /// The activity of a pre- or post-event of an action — a save's or a print's, which page 388
-    /// binds to the application, or a submit's, which page 389 binds to the Form DOM — and `""`
-    /// for any other stimulus.
+    /// binds to the application, a submit's, which page 389 binds to the Form DOM, or a drop-down
+    /// list's opening, which page 392 fires on the field — and `""` for any other stimulus.
     fn action_activity(&self) -> &'static str {
         match self {
             Self::PreSave => "preSave",
@@ -403,6 +425,8 @@ impl Stimulus<'_> {
             Self::PostPrint => "postPrint",
             Self::PreSubmit { .. } => "preSubmit",
             Self::PostSubmit { .. } => "postSubmit",
+            Self::PreOpen { .. } => "preOpen",
+            Self::PostOpen { .. } => "postOpen",
             _ => "",
         }
     }
@@ -511,7 +535,8 @@ pub struct Activation {
     /// and a warning for the second. Empty where [`Self::ended`] is a budget, which keeps neither
     /// the calculated values nor the replacement of the entry.
     pub overridden: Vec<Overridden>,
-    /// Whether a script of [`Stimulus::PreSave`] or [`Stimulus::PreSubmit`] set
+    /// Whether a script of [`Stimulus::PreSave`], [`Stimulus::PreSubmit`], [`Stimulus::PrePrint`]
+    /// or [`Stimulus::PreOpen`] set
     /// `$event.cancelAction`, which page 402 says "causes the action to abort". Kept where
     /// [`Self::ended`] is a budget: the flag was set before the action was consummated, and the
     /// limit that dropped the scripts' values does not clear it.
@@ -671,6 +696,16 @@ impl Resource {
                     .any(|event| event.activity == activity)
             })
         })
+    }
+
+    /// Whether the PDF field name `field` names a drop-down choice list, whose opening page 392's
+    /// `preOpen` and `postOpen` are fired on: a `choiceList` whose `open` is `userControl` or
+    /// `onEntry` (page 653; ADR 2791).
+    #[must_use]
+    pub fn drops_down(&self, field: &str) -> bool {
+        self.template
+            .resolve(field)
+            .is_some_and(|node| self.template.get(node).is_some_and(Container::drops_down))
     }
 
     /// Whether the PDF field name `field` names a field whose `ui` holds a `choiceList`, the
@@ -847,6 +882,9 @@ impl Resource {
             }
             Stimulus::Selected { field, committed } => session.selection(field, false, committed),
             Stimulus::Reentered { field } => session.selection(field, true, None),
+            Stimulus::PreOpen { field } | Stimulus::PostOpen { field } => {
+                session.opening(field, stimulus.action_activity());
+            }
             Stimulus::Enter {
                 reached,
                 leaving,
@@ -886,15 +924,7 @@ impl Resource {
                 session.action(stimulus.action_activity(), from, &Bound::Form);
             }
             Stimulus::DocClose => self.closed(&mut session, fields, &initial),
-            Stimulus::Ready => {
-                session.unfollowed();
-                session.fire("ready", None, &Bound::Form);
-                session.settle(Seeds::Changed);
-                session.fire("ready", None, &Bound::Layout);
-                session.settle(Seeds::Changed);
-                session.fire("docReady", None, &Bound::Host);
-                session.settle(Seeds::Changed);
-            }
+            Stimulus::Ready => session.ready(),
         }
         let script_tests = self.validated(
             &mut session,
@@ -1314,6 +1344,41 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
         self.settle(Seeds::Changed);
     }
 
+    /// The open sequence's end ([`Stimulus::Ready`]): the Form DOM's `ready`, the Layout DOM's,
+    /// then the application's `docReady`, each followed by the calculations it woke (ADR 2783).
+    fn ready(&mut self) {
+        self.unfollowed();
+        self.fire("ready", None, &Bound::Form);
+        self.settle(Seeds::Changed);
+        self.fire("ready", None, &Bound::Layout);
+        self.settle(Seeds::Changed);
+        self.fire("docReady", None, &Bound::Host);
+        self.settle(Seeds::Changed);
+    }
+
+    /// A drop-down choice list's opening (page 392; ADR 2791): its own `preOpen` or `postOpen`
+    /// events, each followed by the calculations they woke, under an event that clears
+    /// `cancelAction` as the action begins (page 402), so that a `preOpen` script may decline the
+    /// display. Page 398's table lists neither event, so neither sets a primary property, and a
+    /// script reading `$event.name` or `$event.target` under one is told so. A field that is no
+    /// drop-down runs nothing, and says why.
+    fn opening(&mut self, field: &str, activity: &str) {
+        let Some(node) = self.form.named(field) else {
+            self.say(format!("{field}: the form's field list does not name it"));
+            return;
+        };
+        if !self.template.get(node).is_some_and(Container::drops_down) {
+            self.say(format!(
+                "{field}: the {activity} event applies only to a drop-down choice list, one whose \
+                 open is userControl or onEntry, and this field is none (XFA 3.3 page 392)"
+            ));
+            return;
+        }
+        self.fire(activity, Some(&[node]), &Bound::Own);
+        self.settle(Seeds::Changed);
+        self.cancelled = self.form.event().is_some_and(Event::cancelled);
+    }
+
     /// Whether the field `node` supports rich text, the definition page 403 gives
     /// `$event.newContentType`'s `allowRichText`: its `ui` holds a `textEdit` whose
     /// `allowRichText` is 1 (page 865). Every other `ui` takes a value of its own kind and no
@@ -1446,6 +1511,12 @@ impl<'f, 'a, 'r> Session<'f, 'a, 'r> {
             "mouseExit",
             "mouseUp",
         ];
+        // Page 392's pair is an action's (page 400 pairs them as it pairs `preSubmit` and
+        // `postSubmit`), so each clears `cancelAction` as it begins (page 402); page 398's table
+        // names neither, so neither sets `name` or `target` (ADR 2791).
+        if matches!(activity, "preOpen" | "postOpen") {
+            return Some(Event::for_action(None, activity));
+        }
         if !PRIMARY.contains(&activity) {
             return None;
         }
