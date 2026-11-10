@@ -966,9 +966,25 @@
     "whole_document_complete": false,
     "review_records": [
       {
+        "source": "fdf_absent_value_audit/decisions.json",
+        "decision_id": "0090.absent_fdf_v_means_remove_target_v",
+        "conclusion": "unresolved",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
         "source": "fdf_field_dictionary_audit/decisions.json",
         "decision_id": "FDF-import-replaces-stated-corresponding-field-entries",
         "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "fdf_script_order_audit/decisions.json",
+        "decision_id": "0090.fdf_javascript_refusal_under_the_closed_script_exclusion",
+        "conclusion": "revisit",
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
@@ -1007,6 +1023,14 @@
         "source": "alternate_images_audit/decisions.json",
         "decision_id": "§8.9.5.4 former selected-alternate OC sentence means Image XObject OC, distinct from Table 89 dictionary OC",
         "conclusion": "superseded",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "fdf_script_order_audit/decisions.json",
+        "decision_id": "0092.fdf_ecmascript_entries_refused_by_name",
+        "conclusion": "revisit",
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
@@ -2389,6 +2413,14 @@
     "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
+      {
+        "source": "nonisolated_removal_audit/decisions.json",
+        "decision_id": "ADR 0237 Normal-Do one-pass interpolation condition",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "cross_reference_only",
+        "duplicates_decision": null
+      },
       {
         "source": "transparency_groups_audit/decisions.json",
         "decision_id": "ADR 0237 group model; Normal-Do nonisolated nonknockout path",
@@ -7929,6 +7961,14 @@
     "whole_document_complete": false,
     "review_records": [
       {
+        "source": "nonisolated_removal_audit/decisions.json",
+        "decision_id": "ADR 1107 nonisolated nonknockout group under non-Normal invocation mode",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
         "source": "transparency_groups_audit/decisions.json",
         "decision_id": "ADR 1107 nonisolated nonknockout group under non-Normal Do mode",
         "conclusion": "retain-algorithm-with-test-gap",
@@ -8489,9 +8529,18 @@
   },
   {
     "path": "doc/adr/1184-who-the-jpx-baseline-restriction-binds.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "jpx_mask_input_audit/decisions.json",
+        "decision_id": "ADR 1184",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1185-an-embedded-fdf-is-a-file-and-only-its-encryption-is-deprecated.md",
@@ -8901,9 +8950,18 @@
   },
   {
     "path": "doc/adr/1242-the-samples-arrive-at-the-depth-the-file-states.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "jpx_mask_input_audit/decisions.json",
+        "decision_id": "ADR 1242",
+        "conclusion": "superseded-in-part-by-ADR-2470",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1243-the-implicit-group-is-the-one-the-clause-names-and-a-knockout-nothing-can-see.md",
@@ -9312,9 +9370,18 @@
   },
   {
     "path": "doc/adr/1306-a-reading-of-ais-is-kept-by-the-scope-that-paints-under-it.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "pattern_shape_opacity_audit/decisions.json",
+        "decision_id": "ADR 1306 pattern-cell /AIS reading belongs to cell evaluation scope",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1307-a-non-isolated-group-under-a-blend-of-its-own-is-drawn-in-raster-from-the-clause-alone.md",
@@ -9366,9 +9433,18 @@
   },
   {
     "path": "doc/adr/1319-an-element-is-read-under-the-alpha-source-it-was-painted-under.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "pattern_shape_opacity_audit/decisions.json",
+        "decision_id": "ADR 1319 keep each element’s own alpha-source reading when a tiling is sealed",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1320-a-pattern-cell-starts-from-its-parent-streams-state.md",
@@ -9660,9 +9736,18 @@
   },
   {
     "path": "doc/adr/1383-the-jpx-baseline-is-read-from-the-held-t801.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "jpx_mask_input_audit/decisions.json",
+        "decision_id": "ADR 1383",
+        "conclusion": "retain-selected-ranking-with-successor-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1385-brainpool-p512r1-is-the-trees-own-constants-over-the-packages-own-frames.md",
@@ -11278,6 +11363,14 @@
     "whole_document_complete": false,
     "review_records": [
       {
+        "source": "fdf_absent_value_audit/decisions.json",
+        "decision_id": "1661.save_omitted_import_v_as_absent",
+        "conclusion": "unresolved",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
         "source": "fdf_field_dictionary_audit/decisions.json",
         "decision_id": "imported-entry-save-scope-defers-Opt",
         "conclusion": "save-deferral-retained-presentation-premise-contradicted",
@@ -12420,6 +12513,14 @@
     "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
+      {
+        "source": "fdf_script_order_audit/decisions.json",
+        "decision_id": "1904.in_document_scripts_may_run_when_a_runner_is_supplied",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
       {
         "source": "mixed_action_order_audit/decisions.json",
         "decision_id": "1904.outline_script_action_route",
@@ -15347,9 +15448,18 @@
   },
   {
     "path": "doc/adr/2470-a-redacted-jpeg-2000-component-deeper-than-sixteen-bits-is-written-back-by-a-lossless-writer-of-the-tree-s-own.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "jpx_mask_input_audit/decisions.json",
+        "decision_id": "ADR2470 selected exact sample-preservation bound",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2472-a-best-effort-duration-s-unrecognised-timespan-makes-the-rendition-non-viable-in-table-300-s-words.md",

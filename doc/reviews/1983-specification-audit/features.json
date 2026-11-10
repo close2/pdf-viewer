@@ -8468,7 +8468,7 @@
     "evidence": "The pattern wrapper classifies cell alpha-source readings and emits the appropriate group/shape; image-mask fixtures prove pattern color participates under a separate stencil and soft-mask input. The cited tiling audit test is state scope, not a direct expected interior shape/opacity comparison for a tiling painted as an elementary object; this subfeature remains less directly asserted.",
     "parent_review": "Accepted partial: effective source, code and assertions reviewed; whole clause not certified.",
     "test_result": "compositing-formula-target-v2.log:2PASS; clippy-compositing-clean.log PASS. First target did not compile because parent removed necessary mut; restored before successful run.",
-    "remaining": "Direct tiling-pattern interior shape/opacity, chained result-opacity observation and exact pointwise-versus-raster coverage remain residuals; no GPU execution added.",
+    "remaining": "Direct selected knockout cell-hole/fractional-opacity consumers now pass in pattern_shape_opacity_audit; broader pattern contexts remain.",
     "reviewer": "compositing_formula_audit",
     "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
     "reviewer_ledger_status": "implemented",
@@ -12278,6 +12278,155 @@
     "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "cross-referenced-not-recertified",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.1",
+    "feature_id": "fdf-js-dictionary-global-document-scope",
+    "requirement": "When present, the FDF JavaScript dictionary carries scripts defined globally at the target document level, rather than attached to individual fields; it may define functions for other document scripts.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf physical p.577, printed p.562, paragraph immediately before Table 248; EC3 Markdown lines 13028-13037",
+    "errata": "No numbered EC3 correction on physical p.577; all twelve page annotations were checked. Current script scope is also bounded by A286 / CLAUDE.md.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::FormsData::read",
+      "crates/viewer-core/src/interact.rs::import"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/fdf_script_order_audit.rs::fdf_doc_before_after_and_after_perms_scripts_reach_the_import_runner_in_order"
+    ],
+    "verdict": "implementation-gap",
+    "evidence": "FormsData::read adds every present FDF /JavaScript dictionary to `owed` with the reason `/JavaScript: document-level scripts, excluded`; the import route reports it and passes only FormsData values to ViewState::import. There is no FDF script representation or dispatch here. Updated project scope permits scripts confined to this document/viewer when a runner is supplied, so this old blanket exclusion needs a bounded re-evaluation. The test draft probes runner dispatch; it does not establish function registration or JS evaluation. Parent confirmed empty FDF call list through public ImportData action with runner enabled. Complete source/FDF exactxref asserted; FDFcatalog Version1.7 moved to proper catalog level. Valid harmless scripts are used. Fails at first missingDoc callback; later order/snapshot assertions do not execute, so those subfeatures are code-traced gaps, not separately observed assertion failures. Global registration, actualJSengine execution and usage-rights readiness are not certified.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p viewer-core --test fdf_script_order_audit",
+    "test_result": "fdf-script-order-target.log1expectedFAIL: noFDFcallbacks; ordinarylibrary/OpenAction and actualvalue-import positivecontrols pass. FinalcombinedClippyPASS.",
+    "parent_review": "Accepted partial: effective source/EC3, current code and actual consumer assertions checked. No whole-clause certification.",
+    "reviewer": "fdf_script_order_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.1",
+    "feature_id": "fdf-js-doc-pairs-append-and-run-before-before",
+    "requirement": "Optional Doc is an even array of name/script pairs. Each pair is added to the target document's existing JavaScript name tree and each script runs before Before.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf physical p.577, printed p.562, Table 248 row Doc; EC3 Markdown lines 13032-13037",
+    "errata": "No numbered EC3 correction on physical p.577.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::FormsData::read",
+      "crates/viewer-core/src/interact.rs::import",
+      "crates/viewer-core/src/scripting.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/script_triggers.rs",
+      "crates/viewer-core/tests/fdf_script_order_audit.rs::fdf_doc_before_after_and_after_perms_scripts_reach_the_import_runner_in_order"
+    ],
+    "verdict": "implementation-gap",
+    "evidence": "Ordinary target-document name-tree scripts are handed to the configured runner through viewer scripting. The FDF import path declines its JavaScript entry before it can merge Doc pairs, and no test currently reaches this Table 248 path. The draft uses an existing name-tree and a Doc pair and asserts runner order. A recording runner sees script strings only; it does not prove that the function was installed globally or called by another script. Parent confirmed empty FDF call list through public ImportData action with runner enabled. Complete source/FDF exactxref asserted; FDFcatalog Version1.7 moved to proper catalog level. Valid harmless scripts are used. Fails at first missingDoc callback; later order/snapshot assertions do not execute, so those subfeatures are code-traced gaps, not separately observed assertion failures. Global registration, actualJSengine execution and usage-rights readiness are not certified.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p viewer-core --test fdf_script_order_audit",
+    "test_result": "fdf-script-order-target.log1expectedFAIL: noFDFcallbacks; ordinarylibrary/OpenAction and actualvalue-import positivecontrols pass. FinalcombinedClippyPASS.",
+    "parent_review": "Accepted partial: effective source/EC3, current code and actual consumer assertions checked. No whole-clause certification.",
+    "reviewer": "fdf_script_order_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.1",
+    "feature_id": "fdf-js-before-runs-immediately-before-import",
+    "requirement": "Optional Before text string/stream script executes just before the FDF is imported.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf physical p.577, printed p.562, Table 248 row Before; EC3 Markdown lines 13031-13033",
+    "errata": "No numbered EC3 correction on physical p.577.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/interact.rs::import",
+      "crates/pdf-model/src/forms_data.rs::FormsData::read"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/fdf_script_order_audit.rs::fdf_doc_before_after_and_after_perms_scripts_reach_the_import_runner_in_order"
+    ],
+    "verdict": "implementation-gap",
+    "evidence": "The public import action requests bytes, then `interact::import` reads and applies the FDF fields; no Before hook is extracted or dispatched. The draft checks the field still has its old value at Before, with cached state so event deltas cannot hide unchanged fields. Parent confirmed empty FDF call list through public ImportData action with runner enabled. Complete source/FDF exactxref asserted; FDFcatalog Version1.7 moved to proper catalog level. Valid harmless scripts are used. Fails at first missingDoc callback; later order/snapshot assertions do not execute, so those subfeatures are code-traced gaps, not separately observed assertion failures. Global registration, actualJSengine execution and usage-rights readiness are not certified.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p viewer-core --test fdf_script_order_audit",
+    "test_result": "fdf-script-order-target.log1expectedFAIL: noFDFcallbacks; ordinarylibrary/OpenAction and actualvalue-import positivecontrols pass. FinalcombinedClippyPASS.",
+    "parent_review": "Accepted partial: effective source/EC3, current code and actual consumer assertions checked. No whole-clause certification.",
+    "reviewer": "fdf_script_order_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.1",
+    "feature_id": "fdf-js-after-runs-immediately-after-import",
+    "requirement": "Optional After text string/stream script executes just after the FDF is imported.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf physical p.577, printed p.562, Table 248 row After; EC3 Markdown lines 13031-13033",
+    "errata": "No numbered EC3 correction on physical p.577.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/interact.rs::import",
+      "crates/pdf-model/src/view.rs::ViewState::import"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/fdf_script_order_audit.rs::fdf_doc_before_after_and_after_perms_scripts_reach_the_import_runner_in_order"
+    ],
+    "verdict": "implementation-gap",
+    "evidence": "The FDF value import is performed through ViewState::import, but no post-import FDF script hook is present. The draft requires the matching field value to be `imported` in the After runner snapshot, discriminating pre-import execution. Parent confirmed empty FDF call list through public ImportData action with runner enabled. Complete source/FDF exactxref asserted; FDFcatalog Version1.7 moved to proper catalog level. Valid harmless scripts are used. Fails at first missingDoc callback; later order/snapshot assertions do not execute, so those subfeatures are code-traced gaps, not separately observed assertion failures. Global registration, actualJSengine execution and usage-rights readiness are not certified.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p viewer-core --test fdf_script_order_audit",
+    "test_result": "fdf-script-order-target.log1expectedFAIL: noFDFcallbacks; ordinarylibrary/OpenAction and actualvalue-import positivecontrols pass. FinalcombinedClippyPASS.",
+    "parent_review": "Accepted partial: effective source/EC3, current code and actual consumer assertions checked. No whole-clause certification.",
+    "reviewer": "fdf_script_order_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.1",
+    "feature_id": "fdf-js-after-perms-ready-order-and-rights-condition",
+    "requirement": "Optional since PDF 1.6, AfterPermsReady runs after FDF import and after usage rights in the target PDF have been determined.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf physical p.577, printed p.562, Table 248 row AfterPermsReady; EC3 Markdown lines 13031-13033",
+    "errata": "No numbered EC3 correction on physical p.577.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/interact.rs::import",
+      "crates/pdf-model/src/forms_data.rs::FormsData::read"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/fdf_script_order_audit.rs::fdf_doc_before_after_and_after_perms_scripts_reach_the_import_runner_in_order"
+    ],
+    "verdict": "implementation-gap",
+    "evidence": "The entry is not parsed or dispatched; the blanket `owed` entry is the active behavior. The draft checks only that its runner callback happens after the imported field value is visible. It explicitly does not test that usage-rights determination has completed, which is not exposed in ScriptEvent and requires a separate rights-bearing fixture/path. Parent confirmed empty FDF call list through public ImportData action with runner enabled. Complete source/FDF exactxref asserted; FDFcatalog Version1.7 moved to proper catalog level. Valid harmless scripts are used. Fails at first missingDoc callback; later order/snapshot assertions do not execute, so those subfeatures are code-traced gaps, not separately observed assertion failures. Global registration, actualJSengine execution and usage-rights readiness are not certified.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p viewer-core --test fdf_script_order_audit",
+    "test_result": "fdf-script-order-target.log1expectedFAIL: noFDFcallbacks; ordinarylibrary/OpenAction and actualvalue-import positivecontrols pass. FinalcombinedClippyPASS.",
+    "parent_review": "Accepted partial: effective source/EC3, current code and actual consumer assertions checked. No whole-clause certification.",
+    "reviewer": "fdf_script_order_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.1",
+    "feature_id": "fdf-js-table-note-function-purpose",
+    "requirement": "The note says Doc scripts are used to define ECMAScript functions for other scripts; it is informative and adds no separate must-execute behavior beyond the Doc row.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf physical p.577, printed p.562, Table 248 Note; EC3 Markdown line 13037",
+    "errata": "No numbered EC3 correction on physical p.577.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::FormsData::read"
+    ],
+    "test_refs": [],
+    "verdict": "no-independent-requirement",
+    "evidence": "This explanatory note describes the intended use of the already-inventoried Doc entry and does not state a separate normative condition or result. The recorder draft does not claim to prove global definition or invocation.",
+    "test_command": "env RUSTFLAGS=-Dwarnings cargo test -p viewer-core --test fdf_script_order_audit",
+    "test_result": "fdf-script-order-target.log1expectedFAIL: noFDFcallbacks; ordinarylibrary/OpenAction and actualvalue-import positivecontrols pass. FinalcombinedClippyPASS.",
+    "parent_review": "Accepted partial: effective source/EC3, current code and actual consumer assertions checked. No whole-clause certification.",
+    "reviewer": "fdf_script_order_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-requirement",
     "superseded": false
   },
   {
@@ -27227,6 +27376,275 @@
     "superseded": false
   },
   {
+    "clause": "7.4.9",
+    "feature_id": "jpx_filter_is_for_image_xobjects_not_inline_images",
+    "entry_kind": "producer_constraint",
+    "requirement": "The JPXDecode filter is applied to image XObjects, not inline images.",
+    "source_location": "§7.4.9, printed p.50 / one-based physical PDF p.65; inline-image restriction is also in §8.9.7/Table 89.",
+    "errata": "EC3 Issue #29 at printed p.50/physical p.65 replaces 'except for' with 'excluding' in the JPX baseline sentence; it does not affect the inline-image restriction.",
+    "ledger_status": "partial",
+    "code_locations": [
+      "crates/pdf-model/src/image.rs::decode",
+      "crates/pdf-model/src/content/image.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/inline_images.rs",
+      "scratchpad/r1983/spec-audit/inline_images_audit/features.json"
+    ],
+    "verdict": "forward-reference-reader-policy-not-assessed-here",
+    "evidence": "The source sentence constrains where a producer applies the filter. §8.9.7's inline-image shard owns the direct inline-image path; this JPX shard does not infer that a reader must reject malformed inline input.",
+    "remaining": "The inline-image shard's exact assertions remain the authority for the separate route. No new JPX rejection test is proposed from the producer restriction alone.",
+    "test_command": null,
+    "test_result": "jpx-mask-input-target.log2PASS; final combined ClippyPASS. Existing pdf-model tests ran broad19; pdf-sandbox/pdf-jpx-write tests were inspected, not newly executed in this shard.",
+    "parent_review": "Accepted partial: effective source/EC3, current code and actual consumer assertions checked. No whole-clause certification.",
+    "reviewer": "jpx_mask_input_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "partial",
+    "reviewer_verdict": "forward-reference-reader-policy-not-assessed-here",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.9",
+    "feature_id": "jpx_components_may_have_distinct_depths_between_one_and_38_bits",
+    "entry_kind": "direct",
+    "requirement": "JPX components may use different sample precisions; each precision is between 1 and 38 bits. For image rendering, the PDF processor determines the depth and can normalize samples into its output domain; exact preservation is a separate writer concern.",
+    "source_location": "§7.4.9, printed p.50 / one-based physical PDF p.65; sample-depth handoff also §8.9.5.1 Table 87 and §8.9.5.2.",
+    "errata": "EC3 Issue #29 changes 'except for' to 'excluding' in the separate JPX baseline sentence only.",
+    "ledger_status": "partial",
+    "code_locations": [
+      "crates/pdf-sandbox/src/protocol.rs::Raster::precision",
+      "crates/pdf-sandbox/src/protocol.rs::Raster::depths",
+      "crates/pdf-sandbox/src/decode.rs::jpx_samples",
+      "crates/pdf-sandbox/src/decode.rs::jpx_own_integers",
+      "crates/pdf-model/src/image/jpx.rs::jpx_samples"
+    ],
+    "test_refs": [
+      "crates/pdf-sandbox/src/protocol.rs::a_raster_of_more_than_eight_bits_round_trips_at_its_own_precision",
+      "crates/pdf-sandbox/src/protocol.rs::channels_at_depths_of_their_own_round_trip_with_their_depths",
+      "crates/pdf-sandbox/src/protocol.rs::a_precision_outside_one_to_sixteen_is_refused",
+      "doc/adr/2470-a-redacted-jpeg-2000-component-deeper-than-sixteen-bits-is-written-back-by-a-lossless-writer-of-the-trees-own.md"
+    ],
+    "verdict": "reader-normalizes-for-rendering-writer-preserves-through-24-bits",
+    "evidence": "Current code does not reject mixed component depths or depths above 16 on the ordinary draw path: `jpx_samples` converts those cases to 8-bit samples. `Raster` carries `depths` for components at their own precision, and `jpx_own_integers` uses that representation for full-resolution carry/write requests through MAX_PRECISION=24. The protocol round-trip test asserts mixed [12,16,12] depths, while ADR 2470 records a complete valid JPX writer round-trip through 24 bits. The protocol test named `a_precision_outside_one_to_sixteen_is_refused` is stale-named; it supplies precision 32, now outside the 1–24 wire range. These are different reader and preservation routes; do not call mixed depths or 17–24-bit input unsupported on the current consumer. Parent corrected stale limit inference: ordinary draw uses8bits for input depths<=8, mixed depths or>16; uniform9..16 stays at own depth. Whole/carry path carries per-channel depths through24. Protocol refusal test retains a misleading one-to-sixteen name but now supplies32. No blanket17..38 refusal inferred.",
+    "remaining": "The §7.4.9 range reaches 38, while exact integer carry is bounded at 24 by the current decoder. Rendering normalizes to 8 bits for mixed precision and >16-bit components. This shard did not verify valid full-package per-component-depth differences or the chosen rendering behavior for depths 25–38; retain the ledger partial status for its independently documented color-space/upstream residues, and keep any >24 sample-fidelity question bounded to exact preservation rather than asserting a reader rejection duty.",
+    "test_command": null,
+    "test_result": "jpx-mask-input-target.log2PASS; final combined ClippyPASS. Existing pdf-model tests ran broad19; pdf-sandbox/pdf-jpx-write tests were inspected, not newly executed in this shard.",
+    "parent_review": "Accepted partial: effective source/EC3, current code and actual consumer assertions checked. No whole-clause certification.",
+    "reviewer": "jpx_mask_input_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "partial",
+    "reviewer_verdict": "reader-normalizes-for-rendering-writer-preserves-through-24-bits",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.9",
+    "feature_id": "filter_expects_full_jpx_file_structure",
+    "entry_kind": "direct",
+    "requirement": "The filter expects a full JPX file structure, either embedded in the PDF stream or supplied externally.",
+    "source_location": "§7.4.9, printed p.50 / physical p.65, paragraph describing JP2/JPX packaging.",
+    "errata": "EC3 Issue #29 is unrelated to package structure.",
+    "ledger_status": "partial",
+    "code_locations": [
+      "crates/pdf-sandbox/src/decode.rs::jpx",
+      "crates/pdf-model/src/jpeg2000.rs::Headers"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/jpx_enumerated_spaces.rs::jpx",
+      "crates/pdf-model/tests/jpx_decode_array.rs::a_decode_array_with_no_declared_space_is_ignored",
+      "crates/pdf-model/tests/jpx_channels.rs::four_channels_under_a_declared_cmyk_space_are_all_colour"
+    ],
+    "verdict": "confirmed-selected-full-jp2-stencil-consumer",
+    "evidence": "The decoder handles JP2 packages as well as bare codestreams. Several focused tests deliberately use bare codestream bytes, so those fixtures do not establish behavior for a conforming PDF image stream. The JPX enumerated-space suite constructs a full package, and the new mask draft embeds an actual complete JP2 file. The clause's 'shall expect' does not by itself define a required reader rejection/recovery result for a nonconforming bare codestream. Parent valid fullJP2 ordinary-image, default stencil and reversed Decode controls all pass. Exact PDF xref and complete interpretation asserted. Table87 permits omitted BPC for ImageMask; it does not require omission.",
+    "remaining": "Keep the source format requirement distinct from the reader's current tolerance. The new direct test uses valid full JP2 data, but this shard does not certify all JPX file-structure boxes or baseline subclauses.",
+    "test_command": null,
+    "test_result": "jpx-mask-input-target.log2PASS; final combined ClippyPASS. Existing pdf-model tests ran broad19; pdf-sandbox/pdf-jpx-write tests were inspected, not newly executed in this shard.",
+    "parent_review": "Accepted partial: effective source/EC3, current code and actual consumer assertions checked. No whole-clause certification.",
+    "reviewer": "jpx_mask_input_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "partial",
+    "reviewer_verdict": "confirmed-selected-full-jp2-stencil-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.9",
+    "feature_id": "jpx_dictionary_dimensions_match_coded_dimensions",
+    "entry_kind": "direct",
+    "requirement": "The image XObject's Width and Height match those stated by the JPEG 2000 data.",
+    "source_location": "§7.4.9, printed p.52 / one-based physical PDF p.67, image-dictionary constraints; §8.9.5.1 contains the general inconsistent-entry error requirement.",
+    "errata": "EC3 Issue #29, on preceding physical p.65, changes a separate baseline sentence but not dimensions.",
+    "ledger_status": "partial",
+    "code_locations": [
+      "crates/pdf-model/src/image/jpx.rs::decode_jpx",
+      "crates/pdf-sandbox/src/protocol.rs::Raster::stated_width",
+      "crates/pdf-sandbox/src/protocol.rs::Raster::stated_height"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/dct_components.rs::a_dictionary_that_contradicts_the_frames_dimensions_does_not_cost_the_image",
+      "crates/pdf-model/tests/jpx_mask_input_audit.rs::jpx_dimension_mismatch_diagnostic_is_distinct_for_width_and_height"
+    ],
+    "verdict": "confirmed-implementation-malformed-input-diagnostic",
+    "evidence": "The JPX consumer compares dictionary Width/Height with the codestream's stated dimensions, correctly distinct from the potentially reduced output raster dimensions. The ledger-adjacent DCT test named by related prose builds `three_component_jpeg` and a `/DCTDecode` image, so it does not exercise this rule. The scratch draft uses a valid 4×2 JP2, proves the exact-size positive case draws, and varies Width and Height separately to record the implementation diagnostic and omission for malformed input; this does not claim ISO mandates that exact reader recovery response.",
+    "remaining": "Width and height mismatches separately report/no-draw under current implementation policy; this exact recovery behavior is not claimed as an ISO mandate.",
+    "test_command": null,
+    "test_result": "jpx-mask-input-target.log2PASS; final combined ClippyPASS. Existing pdf-model tests ran broad19; pdf-sandbox/pdf-jpx-write tests were inspected, not newly executed in this shard.",
+    "parent_review": "Accepted partial: effective source/EC3, current code and actual consumer assertions checked. No whole-clause certification.",
+    "reviewer": "jpx_mask_input_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "partial",
+    "reviewer_verdict": "confirmed-implementation-malformed-input-diagnostic",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.9",
+    "feature_id": "jpx_image_mask_has_one_one_bit_colour_channel",
+    "entry_kind": "direct",
+    "requirement": "When ImageMask is true, the JPEG 2000 data provides exactly one colour channel with one-bit samples.",
+    "source_location": "§7.4.9, printed p.52 / physical p.67, final bullet; Table 87 /ImageMask and /BitsPerComponent rows.",
+    "errata": "No EC3 amendment is attached to the final ImageMask bullet; Issue #29 on p.65 concerns the earlier JPX baseline sentence.",
+    "ledger_status": "partial",
+    "code_locations": [
+      "crates/pdf-model/src/image/jpx.rs::jpx_stencil",
+      "crates/pdf-model/src/image/jpx.rs::decode_jpx"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/image_masks.rs::a_zero_sample_paints_the_current_colour_and_a_one_leaves_the_page_alone",
+      "crates/pdf-model/tests/transfer_functions.rs::a_stencil_whose_opacity_came_in_its_codestream_keeps_it_apart_from_its_shape",
+      "crates/pdf-model/tests/jpx_mask_input_audit.rs::one_bit_jpx_image_mask_uses_codestream_samples_as_stencil"
+    ],
+    "verdict": "confirmed-selected-full-jp2-stencil-consumer",
+    "evidence": "`jpx_stencil` thresholds the decoded sample domain, packs a one-bit stencil, and applies the Decode array. The ordinary image-mask tests exercise one-bit Flate samples. The current JPX stencil/transparency test fixture documents an eight-bit, two-component bare codestream, which is not a valid §7.4.9 ImageMask input. The draft uses a full JP2 with a one-channel, one-bit header and asymmetric 4×2 samples; it checks the identical package as ordinary grayscale first, then checks default and reversed stencil polarity against background and current fill colors. Parent valid fullJP2 ordinary-image, default stencil and reversed Decode controls all pass. Exact PDF xref and complete interpretation asserted. Table87 permits omitted BPC for ImageMask; it does not require omission.",
+    "remaining": "Draft only; no claim about reader handling of an invalid multi-channel or non-one-bit ImageMask input.",
+    "test_command": null,
+    "test_result": "jpx-mask-input-target.log2PASS; final combined ClippyPASS. Existing pdf-model tests ran broad19; pdf-sandbox/pdf-jpx-write tests were inspected, not newly executed in this shard.",
+    "parent_review": "Accepted partial: effective source/EC3, current code and actual consumer assertions checked. No whole-clause certification.",
+    "reviewer": "jpx_mask_input_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "partial",
+    "reviewer_verdict": "confirmed-selected-full-jp2-stencil-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.9",
+    "feature_id": "declared_colour_space_overrides_jpx_colour_specification",
+    "entry_kind": "direct",
+    "requirement": "Image dictionary ColorSpace may be omitted; if present, it governs sample interpretation and JPX colour specifications are ignored, with ordinary channel count consistent with the PDF space.",
+    "source_location": "§7.4.9, printed p.52 / one-based physical PDF p.67, image-dictionary constraint bullets; Table 87 /ColorSpace.",
+    "errata": "EC3 Issue #29 changes 'except for' to 'excluding' in the baseline set sentence; it does not alter ColorSpace precedence.",
+    "ledger_status": "partial",
+    "code_locations": [
+      "crates/pdf-model/src/image/jpx.rs::jpx_colour_choice",
+      "crates/pdf-model/src/image/jpx.rs::read_the_supposed_opacity_channel"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/jpx_enumerated_spaces.rs::a_stated_colour_space_sets_the_data_s_specifications_aside",
+      "crates/pdf-model/tests/jpx_enumerated_spaces.rs::a_stated_indexed_space_sets_the_data_s_palette_aside",
+      "crates/pdf-model/tests/jpx_channels.rs::four_channels_under_a_declared_cmyk_space_are_all_colour",
+      "crates/pdf-model/tests/jpx_channels.rs::a_stated_opacity_channel_is_not_read_as_colour"
+    ],
+    "verdict": "covered-by-feature-tests-with-fixture-validity-caveat",
+    "evidence": "The full-package enumerated-space tests assert exact RGB values when a stated dictionary space overrides JPX sYCC/CIEJab and a custom indexed space overrides the codestream palette. The channel-count tests inspect the reported mismatch and actual CMYK sample values, but their fixture source is a bare codestream, contrary to the full-structure expectation. The package-level override assertion is a stronger valid-input witness.",
+    "remaining": "Selected precedence/override only. Historical ADR1383 unsupported-space list is not assumed current: current extended_on/jpx_drawn handles PIMA e-sRGB/e-sYCC under ADR2292. Complete baseline and current 25..38-bit rendering remain unreviewed.",
+    "test_command": null,
+    "test_result": "jpx-mask-input-target.log2PASS; final combined ClippyPASS. Existing pdf-model tests ran broad19; pdf-sandbox/pdf-jpx-write tests were inspected, not newly executed in this shard.",
+    "parent_review": "Accepted partial: effective source/EC3, current code and actual consumer assertions checked. No whole-clause certification.",
+    "reviewer": "jpx_mask_input_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "partial",
+    "reviewer_verdict": "covered-by-feature-tests-with-fixture-validity-caveat",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.9",
+    "feature_id": "codestream_colour_fallback_and_precedence",
+    "entry_kind": "direct",
+    "requirement": "Without dictionary ColorSpace, use the JPX colour information; where multiple specifications exist, prefer highest precedence/best approximation; if an ICC space is unsupported, try the next lower specification, then fallback by ordinary-channel count if none is usable.",
+    "source_location": "§7.4.9, printed pp.51–52 / physical pp.66–67, colour-space bullets.",
+    "errata": "EC3 Issue #29 modifies only the earlier baseline-exclusion wording; it does not alter these bullets.",
+    "ledger_status": "partial",
+    "code_locations": [
+      "crates/pdf-model/src/image/jpx.rs::jpx_colour_choice",
+      "crates/pdf-model/src/jpeg2000.rs::Headers::keeping_colour",
+      "crates/pdf-model/src/jpeg2000.rs::Headers::colour_specifications"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/jpx_enumerated_spaces.rs::the_higher_precedence_is_used",
+      "crates/pdf-model/tests/jpx_enumerated_spaces.rs::a_stated_indexed_space_sets_the_data_s_palette_aside",
+      "crates/pdf-model/tests/jpx_enumerated_spaces.rs::srgb_is_drawn_as_its_samples",
+      "crates/pdf-model/tests/jpx_enumerated_spaces.rs::cielab_is_drawn_through_lab"
+    ],
+    "verdict": "selected-behavior-asserted-with-explicit-colour-space-residuals",
+    "evidence": "The package builder writes color boxes into a full JPX file. The high-precedence test distinguishes sYCC neutral from lower-priority sRGB pink. The stated-space test checks exact samples after data color conversion is stripped. ADR 1383 says the code reads T.801's held space definitions and ranks precedence/approximation/file order; unheld color definitions and unsupported CIE publication details remain residual rather than confirmed.",
+    "remaining": "Selected precedence/override only. Historical ADR1383 unsupported-space list is not assumed current: current extended_on/jpx_drawn handles PIMA e-sRGB/e-sYCC under ADR2292. Complete baseline and current 25..38-bit rendering remain unreviewed.",
+    "test_command": null,
+    "test_result": "jpx-mask-input-target.log2PASS; final combined ClippyPASS. Existing pdf-model tests ran broad19; pdf-sandbox/pdf-jpx-write tests were inspected, not newly executed in this shard.",
+    "parent_review": "Accepted partial: effective source/EC3, current code and actual consumer assertions checked. No whole-clause certification.",
+    "reviewer": "jpx_mask_input_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "partial",
+    "reviewer_verdict": "selected-behavior-asserted-with-explicit-colour-space-residuals",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.9",
+    "feature_id": "smask_in_data_opacity_constraints",
+    "entry_kind": "direct",
+    "requirement": "SMaskInData determines use of embedded opacity; when nonzero, the data has only one opacity channel, shared by all color channels, and the image dictionary has no SMask entry.",
+    "source_location": "§7.4.9, printed p.52 / one-based physical PDF p.67, SMaskInData bullet; image-dictionary conditions in Table 87 and §11.6.5.2.",
+    "errata": "No EC3 annotation changes this bullet; Issue #29 is on physical p.65 and changes the baseline sentence only.",
+    "ledger_status": "partial",
+    "code_locations": [
+      "crates/pdf-model/src/image/jpx.rs::decode_jpx",
+      "crates/pdf-model/src/image/jpx.rs::JpxOpacity",
+      "crates/pdf-model/src/image/jpx.rs::jpx_samples_to_rgba"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/jpx_channels.rs::a_stated_opacity_channel_is_not_read_as_colour",
+      "crates/pdf-model/tests/jpx_channels.rs::a_space_the_channels_already_match_keeps_its_opacity_channel",
+      "crates/pdf-model/tests/transfer_functions.rs::a_stencil_whose_opacity_came_in_its_codestream_keeps_it_apart_from_its_shape"
+    ],
+    "verdict": "partial-implementation-and-test-fixture-scope",
+    "evidence": "The code separates embedded alpha from color samples for codes 1 and 2, and removes premultiplication for code 2. The two channel tests distinguish stated alpha from ordinary color and check a matching color-space channel count. The stencil-transparency test checks that opacity remains distinct from stencil shape. Those tests use bare codestream or an 8-bit stencil, so none establishes every valid full-package channel-definition case. Table 87's simultaneous SMask prohibition and malformed channel-count reader response need their own clause-level adjudication.",
+    "remaining": "No opacity test is drafted in this shard. Keep alpha composition and Table 87's SMask precedence cross-referenced to §11.6.5.2, not counted as full §7.4.9 coverage.",
+    "test_command": null,
+    "test_result": "jpx-mask-input-target.log2PASS; final combined ClippyPASS. Existing pdf-model tests ran broad19; pdf-sandbox/pdf-jpx-write tests were inspected, not newly executed in this shard.",
+    "parent_review": "Accepted partial: effective source/EC3, current code and actual consumer assertions checked. No whole-clause certification.",
+    "reviewer": "jpx_mask_input_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "partial",
+    "reviewer_verdict": "partial-implementation-and-test-fixture-scope",
+    "superseded": false
+  },
+  {
+    "clause": "7.4.9",
+    "feature_id": "decode_ignored_without_color_space_except_for_image_mask",
+    "entry_kind": "direct",
+    "requirement": "When the image dictionary has no ColorSpace, ignore Decode except for an ImageMask; the image-mask exception permits its stencil Decode mapping.",
+    "source_location": "§7.4.9, printed p.52 / one-based physical PDF p.67, final two bullets; Table 87 /Decode row.",
+    "errata": "No EC3 annotation changes these bullets.",
+    "ledger_status": "partial",
+    "code_locations": [
+      "crates/pdf-model/src/image/jpx.rs::jpx_decode",
+      "crates/pdf-model/src/image/jpx.rs::jpx_stencil"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/jpx_decode_array.rs::a_declared_space_without_a_decode_array_draws_the_sample_itself",
+      "crates/pdf-model/tests/jpx_decode_array.rs::a_decode_array_beside_a_declared_space_is_applied",
+      "crates/pdf-model/tests/jpx_decode_array.rs::a_decode_array_with_no_declared_space_is_ignored",
+      "crates/pdf-model/tests/jpx_mask_input_audit.rs::one_bit_jpx_image_mask_uses_codestream_samples_as_stencil"
+    ],
+    "verdict": "confirmed-selected-full-jp2-stencil-consumer",
+    "evidence": "The existing three tests distinguish Decode under a stated space, the no-array default and ignore-when-no-ColorSpace. They use a bare codestream. The new valid JP2 stencil draft tests the exception by reversing the one-bit sample map and asserting all four painted/preserved positions swap. Parent valid fullJP2 ordinary-image, default stencil and reversed Decode controls all pass. Exact PDF xref and complete interpretation asserted. Table87 permits omitted BPC for ImageMask; it does not require omission.",
+    "remaining": "Draft only for the ImageMask exception. The normal Decode route remains cross-referenced to its existing test and source rather than re-certified.",
+    "test_command": null,
+    "test_result": "jpx-mask-input-target.log2PASS; final combined ClippyPASS. Existing pdf-model tests ran broad19; pdf-sandbox/pdf-jpx-write tests were inspected, not newly executed in this shard.",
+    "parent_review": "Accepted partial: effective source/EC3, current code and actual consumer assertions checked. No whole-clause certification.",
+    "reviewer": "jpx_mask_input_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "partial",
+    "reviewer_verdict": "confirmed-selected-full-jp2-stencil-consumer",
+    "superseded": false
+  },
+  {
     "clause": "7.1",
     "feature_id": "7.1-syntax-map",
     "requirement": "Clause 7 introduces object, file, document, and content-stream syntax and assigns their detailed rules to later subclauses; this is an organizational map, not a separate parser behavior.",
@@ -30167,6 +30585,36 @@
     "superseded": false
   },
   {
+    "clause": "11.4.4",
+    "feature_id": "11.4.4-nonisolated-nonnormal-do-nonzero-backdrop-removal",
+    "requirement": "After compositing a nonisolated group’s elements against a backdrop, remove that initial-backdrop contribution so the group result can be composited as one object over the backdrop, including when the group is invoked under a non-Normal blend mode.",
+    "source_location": "ISO 32000-2:2020 §11.4.4 result formula and Notes 2–3, printed pp. 406–408 / physical pp. 421–423; source/spec-layout.txt around 24486–24552.",
+    "errata": "No substantive EC3 correction on these pages; annotations are links/cross-references.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/render-cpu/src/groups.rs::draw_group",
+      "crates/render-cpu/src/groups.rs::remove_the_backdrop call",
+      "crates/render-cpu/src/blend.rs::remove_backdrop",
+      "crates/pdf-model/src/content/transparency.rs::transparency_group"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_groups_element_blends_with_the_backdrop_the_group_is_painted_over",
+      "crates/pdf-model/tests/transparency_groups.rs::a_blend_mode_at_the_do_is_applied_to_the_group_as_one_object",
+      "crates/pdf-model/tests/transparency_groups.rs::a_knockout_group_under_a_mode_of_its_own_is_composited_as_one_object",
+      "crates/pdf-model/tests/nonisolated_removal_audit.rs::nonisolated_group_removes_backdrop_before_non_normal_do_blend"
+    ],
+    "verdict": "confirmed-selected-nonzero-removal-consumer",
+    "evidence": "The code has the explicit result-step branch for a nonisolated non-Normal Do. Existing a_non_isolated_groups_element_blends_with_the_backdrop_the_group_is_painted_over uses partial invocation alpha and mask but invokes under Normal, where removal and re-composition reduce to interpolation. a_blend_mode_at_the_do_is_applied_to_the_group_as_one_object uses non-Normal invocation modes but source/group alpha is opaque, making the removal factor zero. The nonisolated knockout test has partial alpha and non-Normal invocation but exercises the separate knockout construction. The scratch fixture combines a nonisolated nonknockout group, internal Multiply source at alpha .5, group invocation Multiply, and an opaque backdrop at .5 gray. Hand calculation: internal composite Cn=.375, αgn=.5, C0=.5, α0=1; removal gives C=(.375-.5*.5)/.5=.25. Invocation Multiply gives blend=.125 and final .5*.5+.5*.125=.3125, byte 80. The isolated control predicts .375, byte 96. Suppressing only the color correction while retaining the group-only α=.5 predicts .34375, byte 88; a literal no-op retaining backdrop-included α=1 predicts .1875, byte 48. The fixtures assert complete interpretation, actual Command::Group isolated/knockout/blend fields, the center pixel and an unchanged outside pixel. No test execution performed. Parent verified nonisolated/nonknockout Multiply group command and complete interpretation. Hand calculation Cn=.375, alphaGroup=.5, removedC=.25; outerMultiply yields.3125 (~80), isolatedcontrol.375 (~96), outside128. Exact sourcexref asserted. Setting removal factor0 while rebuilding groupalpha produces88, old opaque fixture still passes, new fixture fails; isolated source restored.",
+    "remaining": "Selected grayMultiply vector only; general mode/space/precision and otherbackends remain outside scope.",
+    "parent_review": "Accepted partial: effective source/EC3, current code and actual consumer assertions checked. No whole-clause certification.",
+    "test_result": "nonisolated-removal-target.log2PASS; final combined ClippyPASS; isolated factor-zero mutation oldtestPASS/newtestFAIL after both original controlsPASS.",
+    "reviewer": "nonisolated_removal_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-nonzero-removal-consumer",
+    "superseded": false
+  },
+  {
     "clause": "7.5.7",
     "feature_id": "7.5.7:overview",
     "requirement": "Object streams are optional; their use requires PDF 1.5-capable reading, and stream compression filters are not required.",
@@ -32711,6 +33159,38 @@
     "parent_review_state": "parent-reviewed-with-discriminating-policy-regressions",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "policy-implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "11.3.7.2",
+    "feature_id": "11.3.7.2-tiling-pattern-interior-shape-opacity",
+    "requirement": "At points inside a tiling-painted object, its object shape and opacity are those of corresponding points in the evaluated pattern definition, rather than defaulting to 1 everywhere. The evaluated values become the pattern-painted object’s shape and opacity for transparency compositing.",
+    "source_location": "§11.3.7.2, printed p. 401 / physical p. 416, source/spec-layout.txt around 24122–24129; direct explanation §11.6.7 printed p. 424 / physical p. 439, source/spec-layout.txt around 25514–25551.",
+    "errata": "No substantive EC3 correction identified for these sentences; page annotations are links/cross-references.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/pattern/wrapping.rs::compose_tiling",
+      "crates/pdf-model/src/content/pattern/wrapping.rs::wrap_inline_tiles",
+      "crates/pdf-model/src/content/transparency/shape.rs::group_alpha_is_shape",
+      "crates/render-cpu/src/groups.rs::knockout_on_backdrop"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/tiling.rs::the_alpha_constant_applies_to_the_finished_pattern_rather_than_to_each_mark",
+      "crates/pdf-model/tests/tiling.rs::a_glyph_filled_with_a_tiling_pattern_is_tiled",
+      "crates/pdf-model/tests/image_masks.rs::a_stencil_painted_with_a_shading_pattern_under_a_soft_mask_is_drawn_through_both",
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_group_may_be_an_element_of_a_knockout_group",
+      "crates/pdf-model/tests/pattern_shape_opacity_audit.rs::tiling_pattern_holes_do_not_knock_out_the_prior_element",
+      "crates/pdf-model/tests/pattern_shape_opacity_audit.rs::tiling_pattern_cell_opacity_does_not_become_its_knockout_shape"
+    ],
+    "verdict": "confirmed-selected-pattern-shape-opacity-consumers",
+    "evidence": "Existing tests verify that a mark alpha constant applies once to the finished pattern; that pattern color appears in a glyph while cell gaps remain visually clear; and that a stencil supplies outer shape while a pattern supplies color under a separate soft mask. These are not direct tests that the tiling cell’s own nonuniform shape and fractional opacity become the pattern-painted object’s separate shape/opacity in a later knockout composition. Existing knockout pattern test uses an opaque cell covering the full tile and tests backdrop selection, so it also does not distinguish a cell hole from a full rectangular object shape. Scratch tests use an isolated knockout form with an earlier red mark: opaque-black half-cells should yield black on ink and preserve red in holes; half-opacity black cells should yield neutral 128 gray on ink (source alpha .5 and shape 1, composited on white) and preserve red in holes. Full independent numeric controls are in tests.rs; fixtures are complete PDF 1.7 objects with valid xref and the CPU consumer asserts complete interpretation. No Cargo was run. Parent completePDF exact-xref controls and complete interpretation pass. Black half-cell knocks out red; holes preserve red in two adjacent tiles. At painted points, internal ca=.5 keeps geometric shape1 and yields neutral128 after compositing half-black on white; holes retain red. This directly distinguishes cell shape from alpha in selected CPU knockout context.",
+    "remaining": "The draft covers two hand-built cell patterns and selected CPU consumer behavior, not arbitrary cell transparency, uncoloured patterns, edge coverage, all enclosing contexts, or other backends.",
+    "parent_review": "Accepted partial: actual source416/439, current wrapping/readings code and independently derived consumer pixels checked.",
+    "test_result": "pattern-shape-opacity-target.log2PASS; clippy-pattern-shape.log PASS.",
+    "reviewer": "pattern_shape_opacity_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-pattern-shape-opacity-consumers",
     "superseded": false
   },
   {

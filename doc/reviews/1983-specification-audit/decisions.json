@@ -2497,6 +2497,57 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/0090-the-second-file-a-form-is-made-of.md",
+    "decision_id": "0090.fdf_javascript_refusal_under_the_closed_script_exclusion",
+    "original_decision": "Treat FDF /JavaScript as excluded scripts under the then-closed scripting scope and report the entry rather than apply it.",
+    "current_conclusion": "revisit",
+    "reason": "The decision was explicit and fit its then-current scope. A286/ADR 1904 later amended the project scope: scripts confined to this document and viewer can be executed when a runner is supplied, with script execution off by default and external effects still excluded. Table 248 scripts that only affect this target document/viewer now fall inside that changed premise. This does not establish support for arbitrary script effects or permissions, and does not invalidate unrelated FDF exclusions.",
+    "current_code_evidence": "crates/pdf-model/src/forms_data.rs::FormsData::read still appends `/JavaScript: document-level scripts, excluded`; crates/viewer-core/src/interact.rs::import reports FormsData.owed and imports only parsed field data. No FDF script hooks were found on the current public ImportData route.",
+    "test_evidence": "Existing crates/viewer-core/tests/script_triggers.rs covers ordinary target-document script sites, not FDF Table 248. The new scratch draft uses a configured recording runner, a real ImportData action, and before/after field snapshots; it is not run and does not claim engine evaluation or rights resolution. Parent configured-runner public-route test1FAIL with emptyFDFcalls; ordinary global/OpenAction callbacks and importcountcontrols pass. No executionclaim for laterunreachedassertions/globalregistration/rightsresolution.",
+    "spec_or_external_sources": "ISO 32000-2 EC3 PDF physical p.577/printed p.562, paragraph before Table 248 and Table 248; CLAUDE.md current script-scope entry; doc/scope-ratifications.md A286; ADR 1904.",
+    "changed_premise": "The project no longer has the blanket closed exclusion for scripts that remain within the current document/viewer and are run through an enabled runner. The FDF implementation has not been updated to that scope change.",
+    "remaining_work": "Review a separate bounded FDF-import decision for which script effects are within the current document/viewer boundary; decide whether to implement Doc/Before/After/AfterPermsReady dispatch and how rights readiness is represented. Preserve refusal/reporting for effects beyond ratified scope.",
+    "parent_review": "Selected decision only; historical ADR unchanged.",
+    "reviewer": "fdf_script_order_audit",
+    "source": "fdf_script_order_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0092-two-string-types-and-an-image-that-is-not-there.md",
+    "decision_id": "0092.fdf_ecmascript_entries_refused_by_name",
+    "original_decision": "Classify all four Table 248 script entries as excluded by principle 5 and refuse them by name.",
+    "current_conclusion": "revisit",
+    "reason": "This is the same narrow stale premise as ADR 0090's FDF JavaScript decision, with a stronger claim that all four entries remain outside scope. Under the amended scope, scripts confined to the current target document/viewer can be enabled; the four Table 248 timings must be assessed under that boundary rather than presumed out of scope. Keep the conclusion limited to this script decision, not ADR 0092's unrelated text-stream or alternate-image decisions.",
+    "current_code_evidence": "FormsData::read still refuses `/JavaScript` as one dictionary-level item; `interact::import` does not dispatch any of its child entries. Viewer scripting has ordinary Document and Library sites, but no FDF-import site.",
+    "test_evidence": "Ordinary script tests do not exercise FDF imports. The draft expected-failure test is a public-route candidate; no execution result is claimed. Parent configured-runner public-route test1FAIL with emptyFDFcalls; ordinary global/OpenAction callbacks and importcountcontrols pass. No executionclaim for laterunreachedassertions/globalregistration/rightsresolution.",
+    "spec_or_external_sources": "ISO 32000-2 EC3 PDF physical p.577/printed p.562, Table 248; current CLAUDE.md script boundary; A286/scope-ratifications; ADR 1904.",
+    "changed_premise": "The script exclusion was broadened from a closed type list to an execution boundary limited to this document/viewer, subject to runner availability and host restrictions.",
+    "remaining_work": "Determine the enabled-runner behavior for Table 248 entries and verify scope-safe dispatch; this shard does not re-review ADR 0092's other decisions.",
+    "parent_review": "Selected decision only; historical ADR unchanged.",
+    "reviewer": "fdf_script_order_audit",
+    "source": "fdf_script_order_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1904-the-script-exclusion-ends-at-this-document-and-this-viewer-and-an-outline-item-runs-its-script.md",
+    "decision_id": "1904.in_document_scripts_may_run_when_a_runner_is_supplied",
+    "original_decision": "Amend scripting scope so scripts confined to the current document/viewer may execute when a runner is supplied; the default remains off, and actions outside the boundary remain excluded.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The scope amendment governs how stale blanket-exclusion decisions should be reconsidered, but its implementation and tests cover outline and ordinary document/action script paths, not FDF Table 248 timing. It should not be treated as evidence that import-time script installation already works or that rights-ready semantics are implemented.",
+    "current_code_evidence": "ScriptSite::Document and Library support normal viewer script execution. The FDF import path remains isolated in FormsData::read and reports /JavaScript without passing its child scripts into those sites.",
+    "test_evidence": "ADR 1904 identifies script_triggers.rs, script hook, and wire tests for ordinary script paths. None establishes FDF import ordering. This shard's draft is narrowly scoped to a configured recording runner and public import path. Parent configured-runner public-route test1FAIL with emptyFDFcalls; ordinary global/OpenAction callbacks and importcountcontrols pass. No executionclaim for laterunreachedassertions/globalregistration/rightsresolution.",
+    "spec_or_external_sources": "ADR 1904; A286 and doc/scope-ratifications.md; ISO 32000-2 EC3 Table 248, physical p.577/printed p.562.",
+    "changed_premise": "No change to the ratified boundary identified. The finding is an unimplemented FDF route within the existing scope, not grounds to broaden that scope.",
+    "remaining_work": "If FDF scripts are implemented, define how import timing and usage-rights readiness are represented while preserving the runner/host boundary.",
+    "parent_review": "Selected decision only; historical ADR unchanged.",
+    "reviewer": "fdf_script_order_audit",
+    "source": "fdf_script_order_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/0120-an-edit-is-a-log-beside-the-document.md",
     "decision_id": "Use the fully qualified field name as field identity for edits and lookup",
     "original_decision": "A field is named by §12.7.4.2; edits target the field's qualified name, so every widget of one field reads the same field state.",
@@ -4460,6 +4511,127 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/1184-who-the-jpx-baseline-restriction-binds.md",
+    "decision_id": "ADR 1184",
+    "original_decision": "§7.4.9's data/image baseline restrictions bind producers; the processor sentence binds readers and requires support, not refusal. The reader-facing baseline set remains unmeasured because its normative definition was not held.",
+    "current_conclusion": "retain",
+    "reason": "The distinction remains essential: do not promote producer-only statements (including the full-file expectation and SMaskInData data conditions) into reader SHALL-reject duties. The missing valid one-bit ImageMask pixel assertion is a separate direct behavior question, now covered by a draft using a conforming JP2 package. Parent newstencil/diagnostic2PASS. Drawing uses8bits for<=8,mixed,>16 and preserves uniform9..16; carry path preserves per-channel integers through24. These are distinct paths.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/image/jpx.rs::jpx_stencil",
+      "crates/pdf-model/src/image/jpx.rs::decode",
+      "crates/pdf-sandbox/src/decode.rs::jpx"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/jpx_enumerated_spaces.rs::the_higher_precedence_is_used",
+      "crates/pdf-model/tests/jpx_enumerated_spaces.rs::a_stated_colour_space_sets_the_data_s_specifications_aside",
+      "crates/pdf-model/tests/jpx_decode_array.rs::a_decode_array_with_no_declared_space_is_ignored",
+      "crates/pdf-model/tests/jpx_mask_input_audit.rs::one_bit_jpx_image_mask_uses_codestream_samples_as_stencil"
+    ],
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §7.4.9, printed pp.50–52 / one-based physical PDF pp.65–67",
+      "ISO 32000-2:2020 Table 87, ImageMask, BitsPerComponent, ColorSpace, Decode and SMaskInData entries",
+      "EC3 Issue #29 at printed p.50 / physical p.65; it changes the baseline sentence wording from 'except for' to 'excluding' and does not alter the requirements in this shard",
+      "ITU-T T.801 (08/2002), held in doc/T-REC-T.801-200208.pdf; see the bounded baseline residual in ADR 1383"
+    ],
+    "changed_premise": "No source or project change was found that turns producer constraints into required reader refusals. The concrete assertion gap is narrower than the baseline-set question: a valid JPX one-bit stencil path had code but no valid-package pixel test.",
+    "remaining_work": "New validstencilconsumer passes; do not reuse historical unheld-baseline premise or infer mandated malformed-input rejection.",
+    "parent_review": "Selected decision only; historical ADR unchanged.",
+    "reviewer": "jpx_mask_input_audit",
+    "source": "jpx_mask_input_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1383-the-jpx-baseline-is-read-from-the-held-t801.md",
+    "decision_id": "ADR 1383",
+    "original_decision": "Use held T.801 M.9.2 to interpret the JPX baseline; rank color specifications by precedence, approximation, and file order, and retain explicit residuals for spaces whose normative references are not held. The decision amends ADR 0928 and names ADR 1184's reader-support residue.",
+    "current_conclusion": "retain-selected-ranking-with-successor-qualification",
+    "reason": "The package-level precedence and stated-ColorSpace tests exercise the selected behavior. They do not establish all baseline spaces or resolve standards not held by the project, so the partial ledger status remains accurate. Parent newstencil/diagnostic2PASS. Drawing uses8bits for<=8,mixed,>16 and preserves uniform9..16; carry path preserves per-channel integers through24. These are distinct paths.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/jpeg2000.rs::Headers::keeping_colour",
+      "crates/pdf-model/src/jpeg2000.rs::Headers::colour_specifications",
+      "crates/pdf-model/src/image/jpx.rs::jpx_colour_choice"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/jpx_enumerated_spaces.rs::the_higher_precedence_is_used",
+      "crates/pdf-model/tests/jpx_enumerated_spaces.rs::a_stated_indexed_space_sets_the_data_s_palette_aside",
+      "crates/pdf-model/tests/jpx_enumerated_spaces.rs::srgb_is_drawn_as_its_samples",
+      "crates/pdf-model/tests/jpx_enumerated_spaces.rs::cielab_is_drawn_through_lab"
+    ],
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §7.4.9, printed pp.51–52 / one-based physical PDF pp.66–67",
+      "ITU-T T.801 (08/2002), M.9.2 and M.11.20; held copy and limitation recorded by ADR 1383"
+    ],
+    "changed_premise": "The former unchecked-baseline premise changed when the project held and implemented T.801 definitions. The decision itself records remaining spaces and corpus mismatch instead of claiming complete support.",
+    "remaining_work": "No full baseline-set certification. Historical PIMA fallback/unheld rationale is superseded by current ADR2292 extended-space support; this review retains selected precedence/override behavior only.",
+    "parent_review": "Selected decision only; historical ADR unchanged.",
+    "reviewer": "jpx_mask_input_audit",
+    "source": "jpx_mask_input_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1242-the-samples-arrive-at-the-depth-the-file-states.md",
+    "decision_id": "ADR 1242",
+    "original_decision": "For JPX image drawing, preserve the codestream sample depth through the sandbox where components share a supported precision; the then-current wire refusal was 1–16 bits and differing component depths.",
+    "current_conclusion": "superseded-in-part-by-ADR-2470",
+    "reason": "ADR 2470 and current code have superseded the old blanket 1–16/different-depth refusal premise for the full-resolution preservation route: Raster carries per-channel depths and a three-byte field through 24 bits. The ordinary drawing route still chooses codestream precision for uniform 1–16-bit input and normalizes mixed/>16-bit cases to eight bits. That is a processor-selected rendering representation, not an ISO-required refusal. The original 1242 integer-domain reasoning remains relevant where the reader preserves those sample integers and for color-key work; it should not be cited as the current maximum or mixed-depth policy. Parent newstencil/diagnostic2PASS. Drawing uses8bits for<=8,mixed,>16 and preserves uniform9..16; carry path preserves per-channel integers through24. These are distinct paths.",
+    "current_code_evidence": [
+      "crates/pdf-sandbox/src/decode.rs::jpx_samples",
+      "crates/pdf-sandbox/src/decode.rs::jpx_own_integers",
+      "crates/pdf-sandbox/src/protocol.rs::Raster::precision",
+      "crates/pdf-sandbox/src/protocol.rs::Raster::depths",
+      "crates/pdf-model/src/image/jpx.rs::jpx_samples"
+    ],
+    "test_evidence": [
+      "crates/pdf-sandbox/src/protocol.rs::a_raster_of_more_than_eight_bits_round_trips_at_its_own_precision",
+      "crates/pdf-sandbox/src/protocol.rs::channels_at_depths_of_their_own_round_trip_with_their_depths",
+      "crates/pdf-sandbox/src/protocol.rs::a_precision_outside_one_to_sixteen_is_refused",
+      "doc/adr/2470-a-redacted-jpeg-2000-component-deeper-than-sixteen-bits-is-written-back-by-a-lossless-writer-of-the-tree-s-own.md"
+    ],
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §7.4.9, printed p.50 / one-based physical PDF p.65 (component depths 1–38 may differ)",
+      "ISO 32000-2:2020 Table 87 (for JPX, sample depth is determined by the PDF processor)",
+      "ISO 32000-2:2020 §8.9.5.1 and §8.9.5.2 (sample representation and Decode)"
+    ],
+    "changed_premise": "ADR 1242 describes the then-existing protocol. It is not the current whole picture: ADR 2470 added writer-path support through 24 bits and mixed depths, while the drawing path selects an 8-bit representation for mixed or >16-bit components. The old protocol unit test name was not updated when its refusal payload became 32 bits.",
+    "remaining_work": "Keep exact integer preservation above 24 bounded by the decoder and do not assert invalid-input rejection as the reader duty. This shard has not exercised valid full-package mixed-depth rendering or the chosen 25–38-bit rendering conversion.",
+    "parent_review": "Selected decision only; historical ADR unchanged.",
+    "reviewer": "jpx_mask_input_audit",
+    "source": "jpx_mask_input_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/2470-a-redacted-jpeg-2000-component-deeper-than-sixteen-bits-is-written-back-by-a-lossless-writer-of-the-tree-s-own.md",
+    "decision_id": "ADR2470 selected exact sample-preservation bound",
+    "original_decision": "A redacted JPX image can be carried losslessly back by the tree's own JPEG 2000 writer through 24-bit samples, including mixed component depths; components beyond 24 are refused because the decoder reconstructs samples in f32 and cannot preserve their integer values exactly.",
+    "current_conclusion": "retain",
+    "reason": "This ADR materially corrects the former 16-bit/different-depth preservation limit. Its complete package writer/decoder round trip is a direct assertion of carrying each sample at its stated depth; the ordinary render path is separate and normalizes to eight bits when depths differ or exceed 16. Parent newstencil/diagnostic2PASS. Drawing uses8bits for<=8,mixed,>16 and preserves uniform9..16; carry path preserves per-channel integers through24. These are distinct paths. Parent inspected round_trip: every pixel/channel value and eachdepth are compared, depths1..24 and mixed20/12/24/17 includingbothopacitykinds. Those tests were not newly executed here; dependency survey and historical 1/3-component restriction are not recertified.",
+    "current_code_evidence": [
+      "crates/pdf-sandbox/src/protocol.rs::Raster",
+      "crates/pdf-sandbox/src/protocol.rs::MAX_PRECISION",
+      "crates/pdf-sandbox/src/decode.rs::jpx_own_integers",
+      "crates/pdf-model/src/image/jpx.rs::jpx_samples"
+    ],
+    "test_evidence": [
+      "crates/pdf-jpx-write/tests/round_trip.rs::every_depth_reads_back_exactly",
+      "crates/pdf-jpx-write/tests/round_trip.rs::mixed_depths_and_opacity_read_back_exactly",
+      "crates/pdf-sandbox/src/protocol.rs::channels_at_depths_of_their_own_round_trip_with_their_depths"
+    ],
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §7.4.9, printed p.50 / one-based physical PDF p.65 (1–38-bit components may differ)",
+      "ISO/IEC 15444-1 lossless JPEG 2000 construction described in ADR 2470 §4"
+    ],
+    "changed_premise": "ADR 2470 was accepted after ADR 1242 and updates the preservation boundary. The integer field is now up to 24 bits (three bytes), with own per-channel depths; it does not make the drawing path preserve every encoded integer.",
+    "remaining_work": "Above 24-bit exact preservation remains out of scope because the decoder uses f32; the 25–38-bit reader rendering choice is not covered by this shard and should not be upgraded to a mandated reader refusal.",
+    "parent_review": "Selected decision only; historical ADR unchanged.",
+    "reviewer": "jpx_mask_input_audit",
+    "source": "jpx_mask_input_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/0075-a-refusal-that-was-reading-the-clause-right.md",
     "decision_id": "draw-line-with-leaders-by-interpreting-signed-LL-and-zero-as-no-leaders",
     "original_decision": "Treat `/L`, `/LL`, `/LLE`, and `/LLO` as a complete construction and draw the line rather than refuse when `/LL` is present.",
@@ -5177,6 +5349,58 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/0237-a-second-accumulator-the-clause-divides-out-again.md",
+    "decision_id": "ADR 0237 Normal-Do one-pass interpolation condition",
+    "original_decision": "Use the one-pass page/buffer interpolation for the nonisolated normal-Do case, where removal and re-composition cancel; the initial design did not support other Do modes.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The Normal one-pass identity remains valid, but should not be mistaken for a test of the non-Normal removal result. ADR1107 added that distinct branch. Existing group Do-mode assertions have either α0=αgn=1 (zero removal factor) or test a different knockout construction; this scratch test supplies a nonzero removal factor for the nonknockout branch. Parent newtests2PASS and factor-zero mutation confirms the new nonzero oracle catches a defect missed by old opaque test. Isolated source restored.",
+    "current_code_evidence": [
+      "crates/render-cpu/src/groups.rs::draw_group",
+      "crates/render-cpu/src/blend.rs::remove_backdrop"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_non_isolated_groups_element_blends_with_the_backdrop_the_group_is_painted_over",
+      "crates/pdf-model/tests/transparency_groups.rs::a_blend_mode_at_the_do_is_applied_to_the_group_as_one_object",
+      "crates/pdf-model/tests/nonisolated_removal_audit.rs::nonisolated_group_removes_backdrop_before_non_normal_do_blend"
+    ],
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §11.4.4 result formula and Notes 2–3; printed pp. 406–408 / physical pp. 421–423."
+    ],
+    "changed_premise": "The old unsupported non-Normal boundary was superseded by ADR 1107, but current test evidence did not independently prove nonzero backdrop removal in this branch.",
+    "remaining_work": "Selected grayMultiply consumer now proved; general mode/space/backends remain.",
+    "parent_review": "Selected decision only; historical ADR unchanged.",
+    "review_type": "cross_reference_only",
+    "reviewer": "nonisolated_removal_audit",
+    "source": "nonisolated_removal_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1107-the-groups-own-colour-when-the-file-composites-it-under-a-mode.md",
+    "decision_id": "ADR 1107 nonisolated nonknockout group under non-Normal invocation mode",
+    "original_decision": "Execute the §11.4.4 result step for a nonisolated group when the PDF invokes it under a non-Normal blend mode, then composite the resulting group object under that mode.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The implementation branch is present, and existing tests distinguish invocation mode/isolation for an opaque group. They do not establish result-step arithmetic where the backdrop fraction is nonzero. The proposed complete-PDF fixture creates partial group alpha and has a hand-derived expected byte and isolated control. Parent newtests2PASS and factor-zero mutation confirms the new nonzero oracle catches a defect missed by old opaque test. Isolated source restored.",
+    "current_code_evidence": [
+      "crates/render-cpu/src/groups.rs::draw_group",
+      "crates/render-cpu/src/blend.rs::remove_backdrop"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/transparency_groups.rs::a_blend_mode_at_the_do_is_applied_to_the_group_as_one_object",
+      "crates/pdf-model/tests/nonisolated_removal_audit.rs"
+    ],
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §11.4.4 result formula and Note 3; printed pp. 406–408 / physical pp. 421–423."
+    ],
+    "changed_premise": "Existing opaque-color test results have no backdrop removal denominator effect; the added vector makes the contribution nonzero and observable.",
+    "remaining_work": "Selected grayMultiply consumer now proved; general mode/space/backends remain.",
+    "parent_review": "Selected decision only; historical ADR unchanged.",
+    "reviewer": "nonisolated_removal_audit",
+    "source": "nonisolated_removal_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/0015-truetype-character-mapping.md",
     "decision_id": "0015-simple-truetype-opentype-code-to-glyph-procedure",
     "original_decision": "Resolve simple TrueType/OpenType codes using §9.6.5.4's ordered routes rather than a direct code-as-Unicode or per-code glyph-index shortcut.",
@@ -5514,6 +5738,59 @@
     "reviewer": "pattern_resource_repair_audit",
     "source": "pattern_resource_repair_audit/decisions.json",
     "parent_review_state": "parent-reviewed-with-discriminating-policy-regressions",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1306-a-reading-of-ais-is-kept-by-the-scope-that-paints-under-it.md",
+    "decision_id": "ADR 1306 pattern-cell /AIS reading belongs to cell evaluation scope",
+    "original_decision": "Record /AIS reading per painting scope; a tiling cell has its own reading from its initial graphics state, while the painting mark’s reading governs only its invocation parameters. Preserve the cell reading when computing cell shape/opacity.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The effective §8.7.3.1 and §11.6.7 text supports scope-local cell evaluation, and current compose_tiling runs group_alpha_is_shape on cell elements under that recorded reading. The decision establishes how transparency constants are interpreted, not by itself a consumer proof that the resulting cell pattern shape/opacity is correctly used in every later context. The scratch knockout fixtures target that separate observable consequence. Parent promoted consumer tests2PASS and ClippyPASS. They exercise cell opacity under default AISfalse, not an explicit AISswitch matrix.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/content/pattern/cell.rs::run_cell",
+      "crates/pdf-model/src/content/pattern/wrapping.rs::compose_tiling",
+      "crates/pdf-model/src/content/transparency/shape.rs::group_alpha_is_shape"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/tiling.rs::the_alpha_constant_applies_to_the_finished_pattern_rather_than_to_each_mark",
+      "crates/pdf-model/src/content/transparency.rs::tests::a_stencil_painted_through_a_tiling_pattern_keeps_its_shape",
+      "crates/pdf-model/tests/pattern_shape_opacity_audit.rs"
+    ],
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §8.7.3.1, §11.3.7.2 and §11.6.7; printed pp. 164, 401, 424 / physical pp. 179, 416, 439."
+    ],
+    "changed_premise": "This audit separates scope-local /AIS interpretation from the distinct consumer obligation to use the evaluated tiling’s own shape and opacity.",
+    "remaining_work": "No whole-AIS-matrix or inheritance certification. Current cell construction clones pattern_initial.stream; historical page-initial limitation in ADR1306 is not assumed current. Selected source/rendering assertions pass.",
+    "parent_review": "Selected scope/reading decision only; not whole-ADR certification.",
+    "reviewer": "pattern_shape_opacity_audit",
+    "source": "pattern_shape_opacity_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1319-an-element-is-read-under-the-alpha-source-it-was-painted-under.md",
+    "decision_id": "ADR 1319 keep each element’s own alpha-source reading when a tiling is sealed",
+    "original_decision": "A tiling cell/group whose raster is not its own shape and whose content ran under another /AIS reading must retain element-specific reading; seals that do not become a knockout group are removed.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The later-reading policy is consistent with the current source: compose_tiling settles reading per element and wraps tiles under a group where required. This decision is not direct evidence of the §11.3.7.2 pattern-level shape/opacity result; the new consumer tests target that observable behavior without claiming the full AIS matrix. Parent promoted consumer tests2PASS and ClippyPASS. They exercise cell opacity under default AISfalse, not an explicit AISswitch matrix.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/content/pattern/wrapping.rs::compose_tiling",
+      "crates/pdf-model/src/content/pattern/wrapping.rs::wrap_inline_tiles",
+      "crates/pdf-model/src/content/transparency/readings.rs"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/src/content/transparency.rs::tests::a_stencil_painted_through_a_tiling_pattern_keeps_its_shape",
+      "crates/pdf-model/tests/pattern_shape_opacity_audit.rs"
+    ],
+    "spec_or_external_sources": [
+      "ISO 32000-2:2020 §11.3.7.2 and §11.6.4.3–.4; printed pp. 401, 419–420 / physical pp. 416, 434–435."
+    ],
+    "changed_premise": "Pattern shape/opacity output and /AIS element-reading correctness are related but distinct requirements; one must not be used as proxy evidence for the other.",
+    "remaining_work": "No whole-AIS-matrix or inheritance certification. Current cell construction clones pattern_initial.stream; historical page-initial limitation in ADR1306 is not assumed current. Selected source/rendering assertions pass.",
+    "parent_review": "Selected scope/reading decision only; not whole-ADR certification.",
+    "reviewer": "pattern_shape_opacity_audit",
+    "source": "pattern_shape_opacity_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
     "parent_accepted": true
   },
   {

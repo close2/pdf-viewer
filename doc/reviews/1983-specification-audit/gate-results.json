@@ -1056,5 +1056,37 @@
     "skipped": 53,
     "exit": 100,
     "comparison": "Exact manifest match after excluding3GTKsupplemental assertions."
+  },
+  "pattern_shape_opacity": {
+    "log": "pattern-shape-opacity-target.log",
+    "passed": 2,
+    "expected_failed": 0,
+    "exit": 0
+  },
+  "pattern_shape_clippy": {
+    "log": "clippy-pattern-shape.log",
+    "exit": 0
+  },
+  "jpx_mask_input": {
+    "log": "jpx-mask-input-target.log",
+    "passed": 2,
+    "expected_failed": 0,
+    "exit": 0
+  },
+  "nonisolated_removal": {
+    "log": "nonisolated-removal-target.log",
+    "passed": 2,
+    "expected_failed": 0,
+    "exit": 0
+  },
+  "fdf_script_order": {
+    "log": "fdf-script-order-target.log",
+    "passed": 0,
+    "expected_failed": 1,
+    "exit": 101
+  },
+  "jpx_pattern_removal_fdf_clippy": {
+    "log": "clippy-jpx-pattern-removal-fdf-script-v2.log",
+    "exit": 0
   }
 }

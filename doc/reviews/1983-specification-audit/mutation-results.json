@@ -265,6 +265,36 @@
       "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/mutation-inverted-stroking.log"
     }
   ],
+  "nonisolated-removal-mutation-results.json": [
+    {
+      "variant": "control",
+      "test": "a_blend_mode_at_the_do_is_applied_to_the_group_as_one_object",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "nonisolated-removal-mutation-control-transparency_groups.log"
+    },
+    {
+      "variant": "control",
+      "test": "nonisolated_group_removes_backdrop_before_non_normal_do_blend",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "nonisolated-removal-mutation-control-nonisolated_removal_audit.log"
+    },
+    {
+      "variant": "zero-removal-factor",
+      "test": "a_blend_mode_at_the_do_is_applied_to_the_group_as_one_object",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "nonisolated-removal-mutation-zero-removal-factor-transparency_groups.log"
+    },
+    {
+      "variant": "zero-removal-factor",
+      "test": "nonisolated_group_removes_backdrop_before_non_normal_do_blend",
+      "returncode": 101,
+      "outcome": "assertion-failed",
+      "log": "nonisolated-removal-mutation-zero-removal-factor-nonisolated_removal_audit.log"
+    }
+  ],
   "redaction-quad-precedence-mutation-results.json": [
     {
       "variant": "control",

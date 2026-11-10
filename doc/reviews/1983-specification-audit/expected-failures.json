@@ -397,6 +397,12 @@
       "test": "imported_choice_options_reach_the_form_control_before_saving",
       "evidence": "fdf-fields-target-v3.log",
       "classification": "FDF choice Opt parsed but dropped before import: old option list persists in form descriptor and saved target. Save deferral known; ADR1661 presentation premise contradicted."
+    },
+    {
+      "binary": "viewer-core::fdf_script_order_audit",
+      "test": "fdf_doc_before_after_and_after_perms_scripts_reach_the_import_runner_in_order",
+      "evidence": "fdf-script-order-target.log",
+      "classification": "Enabled ordinary script runner receives no FDFTable248 scripts; stale blanket exclusion despite amended in-document scope. FailsatDoc; laterorder/rights assertionsnotexecuted."
     }
   ]
 }

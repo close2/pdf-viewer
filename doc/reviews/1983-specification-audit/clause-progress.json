@@ -659,20 +659,20 @@
   {
     "clause": "7.4.9",
     "ledger_status": "partial",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "jpx_mask_input_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "jpx_mask_input_audit"
+    ],
     "feature_record_verdicts": {
-      "code-path-supported-no-valid-jpx-stencil-assertion-found": 1,
+      "confirmed-implementation-malformed-input-diagnostic": 1,
+      "confirmed-selected-full-jp2-stencil-consumer": 3,
       "covered-by-feature-tests-with-fixture-validity-caveat": 1,
-      "existing-ordinary-case-and-draft-image-mask-exception": 1,
       "forward-reference-reader-policy-not-assessed-here": 1,
-      "implementation-check-found-existing-cited-test-uses-dct-not-jpx": 1,
-      "known-bounded-support-residual": 1,
       "partial-implementation-and-test-fixture-scope": 1,
-      "producer-requirement-with-reader-tolerance": 1,
+      "reader-normalizes-for-rendering-writer-preserves-through-24-bits": 1,
       "selected-behavior-asserted-with-explicit-colour-space-residuals": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
@@ -4882,14 +4882,17 @@
     "ledger_status": "implemented",
     "review_state": "partial-parent-review",
     "artifact_directories": [
-      "compositing_formula_audit"
+      "compositing_formula_audit",
+      "pattern_shape_opacity_audit"
     ],
     "parent_reviewed_artifacts": [
-      "compositing_formula_audit"
+      "compositing_formula_audit",
+      "pattern_shape_opacity_audit"
     ],
     "feature_record_verdicts": {
       "code-supported-not-executed": 1,
-      "confirmed": 4
+      "confirmed": 4,
+      "confirmed-selected-pattern-shape-opacity-consumers": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
@@ -4978,13 +4981,16 @@
     "ledger_status": "implemented",
     "review_state": "partial-parent-review",
     "artifact_directories": [
+      "nonisolated_removal_audit",
       "transparency_groups_audit"
     ],
     "parent_reviewed_artifacts": [
+      "nonisolated_removal_audit",
       "transparency_groups_audit"
     ],
     "feature_record_verdicts": {
-      "confirmed-selected-consumer": 2
+      "confirmed-selected-consumer": 2,
+      "confirmed-selected-nonzero-removal-consumer": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
@@ -6955,13 +6961,17 @@
     "ledger_status": "implemented",
     "review_state": "partial-parent-review",
     "artifact_directories": [
+      "fdf_script_order_audit",
       "named_pages_residual_audit"
     ],
     "parent_reviewed_artifacts": [
+      "fdf_script_order_audit",
       "named_pages_residual_audit"
     ],
     "feature_record_verdicts": {
-      "confirmed": 1
+      "confirmed": 1,
+      "implementation-gap": 5,
+      "no-independent-requirement": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },

@@ -1,24 +1,22 @@
 {
   "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
-  "checkpoint_utc": "2026-11-10T18:16:08.096450+00:00",
+  "checkpoint_utc": "2026-11-10T18:25:07.646909+00:00",
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
-    "last_weekly_used_percent": 83,
+    "last_weekly_used_percent": 84,
     "target_approx_percent": 92,
     "stop_new_work_near_percent": 87,
     "probe": "python scratchpad/r1983/spec-audit/usage.py",
     "warning": "Percent is account allowance, not convertible fixed tokens; counters may lag. Continue extending while useful work and room remain."
   },
   "agents": {
-    "associated_files_audit": "FDF script timing and optional absent-V rationale",
-    "catalog_pages_audit": "JPXDecode",
-    "inapplicable_conditions_audit": "nonzero backdrop-removal and pattern shape/opacity"
+    "associated_files_audit": "FDFabsentVinterpretation",
+    "catalog_pages_audit": "DCTDecode",
+    "inapplicable_conditions_audit": "softmaskderivation"
   },
   "next_candidates": [
-    "12.7.4.3 variable-text effective source and save regeneration",
-    "12.7.5.5 signature field dictionaries and seed values",
-    "12.7.6 form actions and serialization dependencies"
+    "Continue these bounded shards until stop-new87percent; preserve remainingwork ratherthan weaken review."
   ],
   "latest_broad": {
     "log": "nextest-nine-crates-wave19.log",
@@ -30,7 +28,7 @@
     "exit": 100,
     "comparison": "Exact manifest match after excluding3GTKsupplemental assertions."
   },
-  "latest_clippy": "clippy-fdf-fields-v3.log",
+  "latest_clippy": "clippy-jpx-pattern-removal-fdf-script-v2.log",
   "new_failures_since_wave8": [
     "catalog Named OpenAction consumer missing",
     "page-visible neighbor omitted",
@@ -60,9 +58,9 @@
   ],
   "branch": "audit/specification-evidence-2026-11-10",
   "pending_parent_review": [
-    "JPXmask/input",
-    "FDFscript timing",
-    "nonzero removal/pattern shape-opacity"
+    "FDFabsentVinterpretation",
+    "DCTDecode",
+    "softmaskderivation"
   ],
   "pushed_commits": [
     "a299121c",
@@ -98,12 +96,13 @@
     "0e3d7c09",
     "344107a1",
     "2c9c864b",
-    "d69f9227"
+    "d69f9227",
+    "ebdaf464"
   ],
-  "expected_failures_manifest_count": 69,
-  "broad_run_predates": "No promoted test changes after broad19 yet; active image/FDFscript/pattern followups pending.",
+  "expected_failures_manifest_count": 70,
+  "broad_run_predates": "JPX2PASS,pattern2PASS,removal2PASS,FDFscript1FAIL added afterbroad19; nextbroadpending.",
   "expected_failures_by_scope": {
-    "broad_nine_crates": 66,
+    "broad_nine_crates": 67,
     "gtk_supplemental": 3
   }
 }

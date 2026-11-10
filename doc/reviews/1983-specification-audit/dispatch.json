@@ -1044,14 +1044,14 @@
       "clauses": [
         "12.7.8.3.1"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-consumer-tests"
     },
     {
       "agent": "jpx_mask_input_audit",
       "clauses": [
         "7.4.9"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-consumer-tests"
     },
     {
       "agent": "transparency_groups_audit",
@@ -1070,8 +1070,37 @@
     {
       "agent": "pattern_shape_opacity_audit",
       "clauses": [
-        "11.3.7.2",
+        "11.3.7.2"
+      ],
+      "state": "parent-reviewed-partial-with-consumer-tests"
+    },
+    {
+      "agent": "nonisolated_removal_audit",
+      "clauses": [
         "11.4.4"
+      ],
+      "state": "parent-reviewed-partial-with-consumer-tests"
+    },
+    {
+      "agent": "dct_decode_audit",
+      "clauses": [
+        "7.4.8"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "soft_mask_derivation_audit",
+      "clauses": [
+        "11.5.1",
+        "11.5.2",
+        "11.5.3"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "fdf_absent_value_audit",
+      "clauses": [
+        "12.7.8.3.2"
       ],
       "state": "running"
     }

@@ -12,19 +12,13 @@ a reference does not establish that its assertions prove the associated feature.
 
 ## Latest checkpoint
 
-The latest broad run covered nine crates: **5,713 tests run, 5,670 passed, 43 expected audit
-failures, 53 skipped, no unexpected failures**. Several failures share a cause. This includes
-the presentation, held-operation, font-width, border and annotation-state tests. Production behavior, ledger statuses and
-historical ADRs remain unchanged. Selected assertion reviews and isolated mutation checks have
-exposed both implementation gaps and passing tests unable to detect their stated defect.
+Branch: `audit/specification-evidence-2026-11-10`. Reviewed findings and regression tests are committed and pushed regularly.
 
-This run includes the PaintType, OpenType, n-up watermark, markup, annotation-state and ink additions.
-The observed failures exactly match the committed manifest.
+The latest broad run covered nine crates: **5,791 tests run, 5,725 passed, 66 expected audit failures, 53 skipped, 0 unexpected failures** (`nextest-nine-crates-wave19.log`). The observed failures exactly match the manifest for that run. The manifest also contains **3 GTK supplemental failures**, tested separately under Xvfb. Failing assertions are not distinct-defect counts; some share a cause. Later targeted additions, if any, are identified in the continuation and gate records.
 
-This remains a partial audit. The reproducible continuation inventory and per-clause/ADR progress
-are committed in [the audit evidence directory](1983-specification-audit/), with full local working data
-under `scratchpad/r1983/spec-audit/`; no whole-clause or whole-ADR completeness percentage is
-inferred from test counts. Detailed checkpoints below preserve the scope of each run.
+Production behavior, ledger statuses and historical ADRs remain unchanged. The audit checks source obligations, implementation, and actual assertions separately. Mutation experiments have exposed passing tests unable to detect their stated defect; strengthened controls and remaining gaps are recorded below.
+
+This remains a partial audit. The reproducible continuation inventory and per-clause/ADR progress are committed in [the audit evidence directory](1983-specification-audit/), with full local working data under `scratchpad/r1983/spec-audit/`. No whole-clause or whole-ADR completeness percentage is inferred from test or overlapping feature-record counts. Detailed checkpoints below preserve the scope of each run.
 
 ## Source coverage
 
@@ -1274,3 +1268,13 @@ The Table249 review also separates an unresolved interpretation from a passing t
 Broad wave19 is an exact manifest match:5,791 run,5,725 passed,66 expected failures,53 skipped, and no unexpected failures. The separate3GTK failures remain outside this run. A mutation of Tx replacement that stops at the first nested EMC leaves the old simple-pair test passing but fails the new nested consumer; both original-code controls pass. The isolated mutation source was restored.
 
 The transparency-group review retains selected CPU one-object, isolation, nested-backdrop and knockout decisions and applies EC3#688's alpha-symbol corrections. Existing tests meaningfully distinguish many of those outcomes. Parent nevertheless found a narrower test gap: ADR1107's nonknockout invocation fixture has both backdrop and group alpha1, so its backdrop-removal factor is zero. It tests mode/isolation but cannot prove the nonzero removal calculation. A partial-alpha follow-up is running. ADR1305's knockout fixture already has a nonzero removal factor and independent expected pixels, but takes a separate group construction. Old refusal boundaries in ADR0237/0307 are not repeated as current CPU limitations. Page colour management, simulated/native devices, general clipping combinations and other backend coverage remain unfinished.
+
+
+The tiling-pattern shape/opacity residual now has two passing direct CPU consumers. Within an isolated knockout form, black half-cells remove the prior red only where they paint; cell holes preserve it across adjacent tiles. A half-opaque black cell still has geometric shape1 at painted points, so the final page there is neutral128 after compositing on white, while holes stay red. This distinguishes cell opacity from its knockout shape. Exact source xref and complete interpretation pass. The selected ADR1306/1319 scope decisions remain supported, with no claim that these default-AIS fixtures certify all scope switches or parent-state inheritance. Clippy passes; broad19 predates these two tests.
+
+
+The new JPX controls pass on a complete one-component, one-bit JP2 package: ordinary sample positions, default stencil polarity, reversed Decode polarity, and separate width/height diagnostics. The latter asserts current malformed-input policy, not a mandated recovery behavior. Parent rejected an initial stale precision assessment: current drawing normalizes <=8-bit, mixed-depth and >16-bit input to8bits and preserves uniform9..16; full-resolution carry/write preserves per-channel integers through24. The protocol test still named one-to-sixteen now refuses a32-bit payload. Current extended colour handling also supersedes ADR1383's historical PIMA fallback list. These corrections prevent old names and ADR boundaries from becoming false findings.
+
+Nonisolated nonknockout backdrop removal now has a passing nonzero oracle: internal half-alpha Multiply gives Cn=.375, removal yields C=.25 at alpha.5, and invocation Multiply yields.3125 (~80); the isolated control yields~96 and unmarked pixels remain128. A mutation setting the removal factor to zero produces88 and fails the new test while the old opaque fixture still passes. Both original-code controls pass and isolated source is restored. This closes the selected gap identified in the previous group review.
+
+The enabled-runner FDF script route fails a new public consumer assertion. Ordinary library and OpenAction scripts run, and the ImportData action applies one matching field, but the FDF callback list is empty. The source still blanket-declines /JavaScript under the older exclusion; ADR1904/A286 permits scripts confined to the current document/viewer when enabled. The test fails at missingDoc; later timing/value snapshots do not execute. Global function registration, real-engine execution and usage-rights readiness remain separate work. Parent corrected FDFVersion to the catalog level and asserted exact source/FDF xrefs. The selected stale decisions in ADR0090/0092 should be revisited without broadening the existing scripting boundary. The manifest contains70 assertions:67 broad-scope and3GTKsupplemental. Combined all-target Clippy passes; broad19 predates these additions.
