@@ -31,10 +31,12 @@
 //! condition is evaluated the same way on a path from the certificate of the authority that issued
 //! the signature's time-stamp token, with clause 6.10's `tsaCertAlgorithmConstraints` on that
 //! certificate, and clause 6.6.2's revocation checks of both conditions are answered per kind of
-//! certificate from the material beside the signature ([`revocation_checks`], ADR 2720). Named and
-//! not evaluated: a trust point's acceptable policy set, name constraints and policy constraints,
-//! which are RFC 5280 section 6.1's policy tree and name processing that [`crate::trust`] does not
-//! perform, and the authority's name constraints, caution period and delay; the attribute trust
+//! certificate from the material beside the signature ([`revocation_checks`], ADR 2720), taking
+//! only material issued after clause 6.8's caution period where the policy states one; the
+//! signature time-stamp delay of clause 6.8 is held against the claimed signing time (ADR 2775).
+//! A trust point's acceptable policy set, name constraints and policy constraints, and the
+//! authority's name constraints, are RFC 5280 section 6.1's processing (ADR 2724). Named and
+//! not evaluated: the attribute trust
 //! condition of clause 6.9 and clause 6.10's attribute-authority list, which concern attribute
 //! certificates this program does not read; the verifier rules of clause 6.5.2, which ask a
 //! verifier to *add* attributes and so are an augmentation this reader never performs; and every
@@ -68,6 +70,7 @@ use crate::x509::{self, Instant, PublicKey};
 
 pub mod canonical_xml;
 pub mod certification_path;
+pub mod duration;
 pub mod revocation_checks;
 pub mod ts_119_172_2;
 pub mod ts_119_172_3;
@@ -339,8 +342,12 @@ pub struct TimestampTrust<'a> {
     /// `ttsNameConstraints`, where stated: constraints on the authority's own name (RFC 3125
     /// section 6.8), judged on the certificate of the authority whose path the condition searched.
     pub names: Option<crate::trust::names::NameConstraints>,
-    /// The members this program does not evaluate, by name: clause 6.8's caution period and
-    /// signature time-stamp delay.
+    /// TR 102 272 clause 6.8's `cautionPeriod`, in seconds; TS 119 172-2 and -3 state none.
+    pub caution_seconds: Option<i64>,
+    /// TR 102 272 clause 6.8's `signatureTimestampDelay`, in seconds; TS 119 172-2 and -3 state
+    /// theirs on clause 4.25's rule for a set of time evidences instead.
+    pub delay_seconds: Option<i64>,
+    /// The members this program does not evaluate, by name.
     pub unprocessed: Vec<&'static str>,
 }
 
@@ -775,6 +782,8 @@ fn read_timestamp_trust<'a>(
         trees: None,
         revocation: None,
         names: None,
+        caution_seconds: None,
+        delay_seconds: None,
         unprocessed: Vec::new(),
     };
     let mut members = value.children()?;
@@ -806,8 +815,18 @@ fn read_timestamp_trust<'a>(
                     &mut condition.unprocessed,
                 )?;
             }
-            3 => condition.unprocessed.push("caution period"),
-            4 => condition.unprocessed.push("signature time-stamp delay"),
+            3 => {
+                condition.caution_seconds = Some(ts_119_172_3::read_delta_time(&explicit(
+                    &member,
+                    "cautionPeriod",
+                )?)?);
+            }
+            4 => {
+                condition.delay_seconds = Some(ts_119_172_3::read_delta_time(&explicit(
+                    &member,
+                    "signatureTimestampDelay",
+                )?)?);
+            }
             _ => return Err(PolicyDocumentError::Malformed("TimestampTrustCondition")),
         }
     }
@@ -841,6 +860,7 @@ fn read_revocation_requirement<'a>(
     Ok(revocation_checks::Requirement {
         end_entity,
         authorities,
+        freshness: None,
         unprocessed: Vec::new(),
     })
 }
@@ -1252,6 +1272,18 @@ pub enum Verdict {
     NotEvaluated,
 }
 
+impl Verdict {
+    /// The word a finding's sentence puts in the verdict's place.
+    #[must_use]
+    pub const fn word(self) -> &'static str {
+        match self {
+            Self::Met => "met",
+            Self::Broken => "broken",
+            Self::NotEvaluated => "not evaluated",
+        }
+    }
+}
+
 /// One constraint of a policy, as it applies to one signature.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Constraint {
@@ -1322,6 +1354,15 @@ pub enum Constraint {
         condition: &'static str,
         /// What the authority's names were found to be.
         outcome: certification_path::AuthorityName,
+    },
+    /// TR 102 272 clause 6.8's caution period (ADR 2775).
+    CautionPeriod {
+        /// Its length, in seconds.
+        seconds: i64,
+        /// When it ends, where the instants it is measured from are known.
+        ends: Option<String>,
+        /// Whether the instant validated at is at or after its end.
+        over: Option<bool>,
     },
     /// A member of a trust condition this program does not evaluate, by name.
     ConditionMember {
@@ -1798,7 +1839,7 @@ fn judge(
             constraint: Constraint::VerifierAdds(name(oid)),
         });
     }
-    judge_trust_conditions(rules, facts, paths, out);
+    judge_trust_conditions(rules, cms, facts, paths, out);
     judge_issuers(rules, facts, paths, out);
     if let Some(list) = &rules.signer_algorithms {
         for (used, is_signature) in [
@@ -1841,14 +1882,32 @@ fn judge(
 /// named.
 fn judge_trust_conditions(
     rules: &Rules<'_>,
+    cms: &SignedData<'_>,
     facts: &SignerFacts<'_>,
     paths: Paths<'_>,
     out: &mut Vec<Finding>,
 ) {
+    // Clause 6.8's caution period is about the revocation status information that completes the
+    // signature's validation data, which covers both conditions' paths (ADR 2775).
+    let caution_seconds = rules
+        .timestamp_trust
+        .as_ref()
+        .and_then(|stamp| stamp.caution_seconds);
+    let timing = revocation_checks::Timing {
+        stamped: stamped_at(facts),
+        caution_seconds,
+    };
     for condition in &rules.trust_conditions {
         match (*condition, &rules.signer_trust, &rules.timestamp_trust) {
             (SIGNING_CERT_TRUST, Some(trust), _) => {
-                trust_path_findings(condition, paths.signer, Some(&trust.revocation), facts, out);
+                trust_path_findings(
+                    condition,
+                    paths.signer,
+                    Some(&trust.revocation),
+                    facts,
+                    timing,
+                    out,
+                );
             }
             (TIMESTAMP_TRUST, _, Some(stamp)) => {
                 trust_path_findings(
@@ -1856,9 +1915,16 @@ fn judge_trust_conditions(
                     paths.authority,
                     stamp.revocation.as_ref(),
                     facts,
+                    timing,
                     out,
                 );
                 authority_name_finding(condition, paths.authority, stamp.names.as_ref(), out);
+                if let Some(seconds) = stamp.caution_seconds {
+                    out.push(caution_finding(seconds, facts));
+                }
+                if let Some(limit_seconds) = stamp.delay_seconds {
+                    out.push(ts_119_172_3::delay_finding(limit_seconds, cms, facts));
+                }
                 for member in &stamp.unprocessed {
                     out.push(Finding {
                         verdict: Verdict::NotEvaluated,
@@ -1891,8 +1957,45 @@ pub(super) fn authority_name_finding(
     }
 }
 
+/// The generation time of a signature timestamp that covers the signature, where one does: ETSI EN
+/// 319 102-1 clause 5.5.4's best-signature time.
+pub(super) fn stamped_at(facts: &SignerFacts<'_>) -> Option<Instant> {
+    facts
+        .signing_time
+        .as_ref()
+        .filter(|time| time.source == TimeSource::SignatureTimestamp)
+        .map(|time| time.instant)
+}
+
+/// TR 102 272 clause 6.8's caution period, as a verifier waiting it out: over where the instant
+/// validated at is at or after the period's end, measured from the best-signature time, and not
+/// evaluated before it, because Annex B.5.3 says a verifier shall wait until the period ends to
+/// check revocation status. Its effect on which material answers is [`revocation_checks`]'s.
+fn caution_finding(seconds: i64, facts: &SignerFacts<'_>) -> Finding {
+    let at = certification_path::instant(facts);
+    let ends = at.and_then(|at| {
+        duration::Duration::of_seconds(seconds).added_to(stamped_at(facts).unwrap_or(at))
+    });
+    let over = at
+        .zip(ends)
+        .map(|(at, ends)| at.unix_seconds() >= ends.unix_seconds());
+    Finding {
+        verdict: if over == Some(true) {
+            Verdict::Met
+        } else {
+            Verdict::NotEvaluated
+        },
+        constraint: Constraint::CautionPeriod {
+            seconds,
+            ends: ends.map(duration::utc),
+            over,
+        },
+    }
+}
+
 /// One trust condition's findings over the search for its path: the path itself, and each kind
-/// of certificate's mandated revocation check answered over it (ADRs 2714, 2720). With no search —
+/// of certificate's mandated revocation check answered over it, from material issued within the
+/// bounds `timing` and the requirement's freshness place (ADRs 2714, 2720, 2775). With no search —
 /// a condition stating no trees of its own and inheriting none — the condition is named, and its
 /// revocation checks are answered as having no path.
 pub(super) fn trust_path_findings(
@@ -1900,6 +2003,7 @@ pub(super) fn trust_path_findings(
     search: Option<&certification_path::Search>,
     revocation: Option<&revocation_checks::Requirement>,
     facts: &SignerFacts<'_>,
+    timing: revocation_checks::Timing,
     out: &mut Vec<Finding>,
 ) {
     out.push(match search {
@@ -1921,7 +2025,7 @@ pub(super) fn trust_path_findings(
     };
     let path = search.and_then(|search| search.path.as_ref());
     let at = certification_path::instant(facts);
-    for check in revocation_checks::checks(requirement, path, &facts.material, at) {
+    for check in revocation_checks::checks(requirement, path, &facts.material, at, timing) {
         out.push(Finding {
             verdict: check.verdict(),
             constraint: Constraint::RevocationCheck { condition, check },
@@ -2053,11 +2157,7 @@ fn issuer_finding(
 
 impl std::fmt::Display for Finding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let verdict = match self.verdict {
-            Verdict::Met => "met",
-            Verdict::Broken => "broken",
-            Verdict::NotEvaluated => "not evaluated",
-        };
+        let verdict = self.verdict.word();
         match &self.constraint {
             Constraint::SigningPeriod {
                 at,
@@ -2143,6 +2243,7 @@ impl std::fmt::Display for Finding {
             Constraint::TrustCondition(_)
             | Constraint::TrustPath { .. }
             | Constraint::RevocationCheck { .. }
+            | Constraint::CautionPeriod { .. }
             | Constraint::ConditionMember { .. }
             | Constraint::AuthorityName { .. }
             | Constraint::IssuerAlgorithm { .. }
@@ -2183,6 +2284,29 @@ impl Constraint {
                 f,
                 "the {member} the policy's {condition} states is {verdict}: this program does not evaluate it"
             ),
+            Self::CautionPeriod {
+                seconds,
+                ends,
+                over,
+            } => {
+                write!(
+                    f,
+                    "the policy's caution period of {seconds} s after the signing time is {verdict}"
+                )?;
+                match (ends, over) {
+                    (Some(ends), Some(true)) => write!(
+                        f,
+                        ": it ended at {ends}, and revocation material is taken only if issued since then"
+                    ),
+                    (Some(ends), _) => write!(
+                        f,
+                        ": it ends at {ends}, after the instant validated at, and a verifier waits for it to end before checking revocation"
+                    ),
+                    (None, _) => f.write_str(
+                        ": no instant to validate at is established, so when it ends is not known",
+                    ),
+                }
+            }
             Self::IssuerAlgorithm {
                 member,
                 issued,

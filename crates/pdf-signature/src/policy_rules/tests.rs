@@ -616,6 +616,129 @@ fn hostile_policy_documents_are_refused_within_their_budgets() {
     }
 }
 
+/// Clause 6.8's `DeltaTime`, of seconds alone.
+fn delta_seconds(seconds: u8) -> Vec<u8> {
+    let int = |value: u8| tlv(der::INTEGER, &[value]);
+    seq(&[int(seconds), int(0), int(0), int(0)])
+}
+
+/// TR 102 272 clause 6.8's `signatureTimestampDelay`: "If the signature timestamp is later that
+/// the time in the signing-time attribute by more than the value given in
+/// signatureTimestampDelay, the signature shall be considered invalid" (the clause, cited and not
+/// quoted, ADR 1085). Claimed at 00:00:00 and stamped at 00:01:40, a delay of 60 s is broken and
+/// one of 120 s met; with no signing-time attribute there is nothing to measure from, which ETSI
+/// EN 319 102-1 clause 5.5.4 step 5 leaves indeterminate. The plant that keeps naming the member
+/// fails the first two.
+#[test]
+fn the_signature_time_stamp_delay_is_held_against_the_claimed_signing_time() {
+    let claimed = tlv(GENERALIZED_TIME, b"20260301000000Z");
+    let claimed = der::Reader::new(&claimed)
+        .expect("small")
+        .next_value()
+        .expect("well formed");
+    let cms = signed_data(
+        vec![
+            cms::ID_CONTENT_TYPE,
+            cms::ID_MESSAGE_DIGEST,
+            cms::ID_SIGNING_TIME,
+        ],
+        vec![],
+        vec![cms::Attribute {
+            kind: cms::ID_SIGNING_TIME,
+            signed: true,
+            values: 1,
+            first: claimed,
+        }],
+    );
+    let stamped = facts(Some("20260301000140Z"));
+    let delay = |seconds: u8, cms: &SignedData<'_>| {
+        let octets = Fixture {
+            timestamp_condition: vec![tagged(4, &delta_seconds(seconds))],
+            ..Fixture::default()
+        }
+        .octets();
+        let document = PolicyDocument::parse(&octets).expect("a clause 6 document");
+        verdict_of(&findings(&document, cms, &stamped), |c| {
+            matches!(
+                c,
+                Constraint::PolicyComponent(ts_119_172_3::Constraint::TimestampDelay { .. })
+            ) || matches!(c, Constraint::ConditionMember { .. })
+        })
+    };
+    assert_eq!(delay(60, &cms), [Verdict::Broken]);
+    assert_eq!(delay(120, &cms), [Verdict::Met]);
+    assert_eq!(delay(120, &default_cms()), [Verdict::NotEvaluated]);
+}
+
+/// TR 102 272 clause 6.8's `cautionPeriod`: revocation status information "shall not be collected
+/// and used" before the period after the signing time ends (the clause, cited), and Annex B.5.3
+/// has the verifier wait for that end before checking revocation. Stamped at 20:00 on the day the
+/// minted lists were issued at 21:40:29 and validated at 2027-01-01: an hour's caution admits
+/// them and the authority's checks are met; two hours' leaves both checks unanswered, never
+/// broken; and a year's has not ended at the instant validated at, so the period itself is not
+/// evaluated. The plant that ignores the member answers all three alike.
+#[test]
+fn the_caution_period_decides_which_material_answers_and_when_a_verifier_may_ask() {
+    use crate::policy_rules::certification_path::tests::hex;
+    use crate::policy_rules::revocation_checks::tests::fixtures as minted;
+
+    let token = hex(minted::TOKEN);
+    let bytes = cms::fixtures::detached_with_signature_timestamp(&[0x00; 32], &token);
+    let signed = cms::signed_data(&bytes).expect("a SignedData");
+    let (root_crl, intermediate_crl) = (hex(minted::ROOT_CRL), hex(minted::INTERMEDIATE_CRL));
+    let material = Material::read(&[&root_crl, &intermediate_crl], &[]);
+    let at = Instant::from_unix_seconds(1_798_761_600);
+    let crl_check = || seq(&[tlv(ENUMERATED, &[0])]);
+    let judged = |caution: Vec<u8>| {
+        let octets = Fixture {
+            timestamp_condition: vec![
+                tagged(0, &seq(&[seq(&[hex(minted::ROOT)])])),
+                tagged(1, &seq(&[crl_check(), tagged(0, &crl_check())])),
+                tagged(3, &caution),
+            ],
+            ..Fixture::default()
+        }
+        .octets();
+        let document = PolicyDocument::parse(&octets).expect("a clause 6 document");
+        findings(
+            &document,
+            &signed,
+            &facts(Some("20261105200000Z"))
+                .validated_at(at)
+                .with_material(&material),
+        )
+    };
+    let checks = |c: &Constraint| matches!(c, Constraint::RevocationCheck { condition, .. } if *condition == TIMESTAMP_TRUST);
+    let period = |c: &Constraint| matches!(c, Constraint::CautionPeriod { .. });
+    let int = |value: &[u8]| tlv(der::INTEGER, value);
+    let hour = seq(&[int(&[0]), int(&[0]), int(&[1]), int(&[0])]);
+    let two_hours = seq(&[int(&[0]), int(&[0]), int(&[2]), int(&[0])]);
+    let year = seq(&[int(&[0]), int(&[0]), int(&[0]), int(&[0x01, 0x6D])]);
+
+    let found = judged(hour);
+    assert_eq!(verdict_of(&found, checks), [Verdict::Met, Verdict::Met]);
+    assert_eq!(verdict_of(&found, period), [Verdict::Met]);
+    let found = judged(two_hours);
+    assert_eq!(
+        verdict_of(&found, checks),
+        [Verdict::NotEvaluated, Verdict::NotEvaluated]
+    );
+    assert_eq!(verdict_of(&found, period), [Verdict::Met]);
+    assert!(
+        found.iter().any(|finding| finding
+            .to_string()
+            .contains("issued at or after 2026-11-05T22:00:00Z")),
+        "the check's sentence names the bound"
+    );
+    let found = judged(year);
+    assert_eq!(verdict_of(&found, period), [Verdict::NotEvaluated]);
+    assert_eq!(
+        verdict_of(&found, |c| matches!(c, Constraint::ConditionMember { .. })),
+        Vec::<Verdict>::new(),
+        "neither member is named as unevaluated any more"
+    );
+}
+
 /// TR 102 272 clause 6.8 over the authority that issued the signature's time-stamp token: its own
 /// trust trees, its `ttsRevReq` answered per kind of certificate from the material beside the
 /// signature (clause 6.6.2), and clause 6.10's `tsaCertAlgorithmConstraints` on the authority's

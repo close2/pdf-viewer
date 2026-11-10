@@ -47,7 +47,8 @@ use const_oid::ObjectIdentifier;
 use const_oid::db::rfc5912;
 
 use super::certification_path::{TrustPoint, TrustTrees};
-use super::revocation_checks::{self, FRESHNESS, RETENTION};
+use super::duration::Duration;
+use super::revocation_checks::{self, Freshness, RETENTION};
 use super::ts_119_172_3::{
     self, AlgorithmConstraint, BasicRule, Cardinality, CommitmentRule, Comparison, ExtensionName,
     FormatsAndLevels, Identifier, Matching, MediaTypes, PolicyRule, Position, Scope, ScopedRule,
@@ -853,19 +854,44 @@ impl<'t> Reader<'t> {
             })
         };
         let mut unprocessed = Vec::new();
-        for (local, said) in [
-            ("Freshness", FRESHNESS),
-            ("SigCertIssuedByCAKeepsExpiredRevokedCertsInfo", RETENTION),
-        ] {
-            if self.optional(revocation, local)?.is_some() {
-                unprocessed.push(said);
-            }
+        if self
+            .optional(revocation, "SigCertIssuedByCAKeepsExpiredRevokedCertsInfo")?
+            .is_some()
+        {
+            unprocessed.push(RETENTION);
         }
+        let freshness = match self.optional(revocation, "Freshness")? {
+            Some(freshness) => Some(self.freshness(freshness)?),
+            None => None,
+        };
         Ok(revocation_checks::Requirement {
             end_entity: check("EndRevReq", "CertificateRevReq.EndRevReq")?,
             authorities: check("CACerts", "CertificateRevReq.CACerts")?,
+            freshness,
             unprocessed,
         })
+    }
+
+    /// Clause 4.23.3.2's `Freshness`: a choice of two `xs:duration` elements.
+    fn freshness(&self, freshness: usize) -> Result<Freshness, PolicyDocumentError> {
+        let duration = |local, member| {
+            self.text_of(freshness, local, member)
+                .and_then(|text| Duration::parse(text.trim()).ok_or(malformed(member)))
+        };
+        match (
+            self.optional(freshness, "MaxDifferenceRevocationAndValidation")?,
+            self.optional(freshness, "TimeAfterSignature")?,
+        ) {
+            (Some(_), None) => Ok(Freshness::MaxDifference(duration(
+                "MaxDifferenceRevocationAndValidation",
+                "Freshness.MaxDifferenceRevocationAndValidation",
+            )?)),
+            (None, Some(_)) => Ok(Freshness::AfterSignature(duration(
+                "TimeAfterSignature",
+                "Freshness.TimeAfterSignature",
+            )?)),
+            _ => Err(malformed("Freshness")),
+        }
     }
 
     fn integer(&self, index: usize, member: &'static str) -> Result<i64, PolicyDocumentError> {
@@ -1299,6 +1325,8 @@ impl<'t> Reader<'t> {
                         trees,
                         revocation,
                         names,
+                        caution_seconds: None,
+                        delay_seconds: None,
                         unprocessed,
                     });
                 }

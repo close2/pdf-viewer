@@ -30,6 +30,28 @@
 //! The trust point itself is not checked: it is where RFC 5280 section 6.1's processing starts, and
 //! the policy, not a CA, vouches for it.
 //!
+//! # When the material was issued
+//!
+//! A policy can also say *which* material may answer, by when it was issued (ADR 2775):
+//!
+//! - TS 119 172-2 clause 4.23.3's `Freshness`, which TS 119 172-3 clause 4.23.3.1 adopts, is
+//!   either the maximum accepted difference between the issuance of the revocation status data
+//!   and the time of validation — ETSI EN 319 102-1 clause 5.2.5's maximum accepted freshness,
+//!   whose step 1 takes it in place of the material's own `thisUpdate` to `nextUpdate` interval
+//!   — or a time the data must be issued after the best-signature time, which EN 319 102-1 clause
+//!   5.5.4's process sets to the signature timestamp's generation time where one covers the
+//!   signature and otherwise leaves at the validation time.
+//! - TR 102 272 clause 6.8's `cautionPeriod` is a period after the signing time before whose end
+//!   the revocation status information that completes the signature's validation data is not to
+//!   be collected or used. That information covers every certificate the validation answers
+//!   revocation for, so the caution applies to the checks of both trust conditions, measured from
+//!   the same best-signature time.
+//!
+//! Each is a bound on the issuance of the material that answers a check
+//! ([`revocation::Issuance`]): material issued outside it does not answer, so a check it alone
+//! would have answered is not evaluated rather than broken — EN 319 102-1's "try later", not a
+//! failure.
+//!
 //! # Bounds
 //!
 //! The certificates asked about are those of a path [`super::certification_path::search`]
@@ -39,11 +61,10 @@
 
 use super::Verdict;
 use super::certification_path::Path;
-use crate::revocation::{self, Evidence, Material, Revocation, Subject, Undetermined};
+use super::duration::{self, Duration};
+use crate::revocation::{self, Evidence, Issuance, Material, Revocation, Subject, Undetermined};
 use crate::x509::{self, Instant};
 
-/// TS 119 172-2 clause 4.23.3's `Freshness`, as a sentence names it.
-pub const FRESHNESS: &str = "freshness required of the revocation material";
 /// TS 119 172-2 clause 4.23.3's `SigCertIssuedByCAKeepsExpiredRevokedCertsInfo`, as a sentence
 /// names it.
 pub const RETENTION: &str = "retention of expired revocation notices required of the issuer";
@@ -116,9 +137,59 @@ pub struct Requirement {
     pub end_entity: Check,
     /// `caCerts`: the check on each CA certificate below the trust point.
     pub authorities: Check,
+    /// TS 119 172-2 clause 4.23.3's `Freshness`, where the revocation trust states one.
+    pub freshness: Option<Freshness>,
     /// Members of clause 4.23.3's revocation trust this program does not evaluate, by name — the
-    /// freshness of the material and the retention of expired revocation notices.
+    /// retention of expired revocation notices.
     pub unprocessed: Vec<&'static str>,
+}
+
+/// TS 119 172-2 clause 4.23.3's `Freshness` choice, TS 119 172-3 clause 4.23.3.2's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Freshness {
+    /// `MaxDifferenceRevocationAndValidation`: the material is issued within this of the
+    /// validation time.
+    MaxDifference(Duration),
+    /// `TimeAfterSignature`: the material is issued at least this long after the best-signature
+    /// time.
+    AfterSignature(Duration),
+}
+
+/// What places a requirement's issuance bounds on the time line, beyond the instant validated at.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Timing {
+    /// The generation time of a signature timestamp that covers the signature: EN 319 102-1
+    /// clause 5.5.4's best-signature time where one establishes it; the instant validated at
+    /// where none does.
+    pub stamped: Option<Instant>,
+    /// TR 102 272 clause 6.8's `cautionPeriod`, in seconds, where the policy states one.
+    pub caution_seconds: Option<i64>,
+}
+
+impl Timing {
+    /// The issuance bounds `freshness` and the caution period place on material asked about at
+    /// `at`, or `None` where one of them falls outside the instants this program computes.
+    fn issuance(self, freshness: Option<Freshness>, at: Instant) -> Option<Issuance> {
+        let best = self.stamped.unwrap_or(at);
+        let mut issuance = Issuance::default();
+        match freshness {
+            Some(Freshness::MaxDifference(within)) => {
+                issuance.fresh_after = Some(within.subtracted_from(at)?);
+            }
+            Some(Freshness::AfterSignature(after)) => {
+                issuance.issued_from = Some(after.added_to(best)?);
+            }
+            None => {}
+        }
+        if let Some(caution) = self.caution_seconds {
+            let ends = Duration::of_seconds(caution).added_to(best)?;
+            issuance.issued_from = Some(match issuance.issued_from {
+                Some(from) if from.unix_seconds() >= ends.unix_seconds() => from,
+                _ => ends,
+            });
+        }
+        Some(issuance)
+    }
 }
 
 impl Requirement {
@@ -128,6 +199,7 @@ impl Requirement {
         Self {
             end_entity: Check::NoCheck,
             authorities: Check::NoCheck,
+            freshness: None,
             unprocessed: Vec::new(),
         }
     }
@@ -137,6 +209,7 @@ impl Requirement {
     pub fn mandates(&self) -> bool {
         self.end_entity != Check::NoCheck
             || self.authorities != Check::NoCheck
+            || self.freshness.is_some()
             || !self.unprocessed.is_empty()
     }
 }
@@ -159,6 +232,9 @@ pub enum Checked {
     OtherMechanism,
     /// No path validated to a trust point, so the certificates of the kind are not known.
     NoPath,
+    /// The policy's bound on when the material was issued falls outside the instants this
+    /// program computes, so which material may answer is not known.
+    TimingUnplaced,
     /// The path holds no certificate of the kind below its trust point.
     NoCertificate,
     /// Every certificate of the kind was answered by the mandated material, none revoked.
@@ -194,6 +270,8 @@ pub struct KindCheck {
     pub kind: Kind,
     /// The check mandated.
     pub check: Check,
+    /// The bounds the material that answered had to meet.
+    pub issuance: Issuance,
     /// What it found.
     pub checked: Checked,
 }
@@ -207,22 +285,26 @@ impl KindCheck {
                 Verdict::Met
             }
             Checked::Revoked { .. } => Verdict::Broken,
-            Checked::OtherMechanism | Checked::NoPath | Checked::Unanswered { .. } => {
-                Verdict::NotEvaluated
-            }
+            Checked::OtherMechanism
+            | Checked::NoPath
+            | Checked::TimingUnplaced
+            | Checked::Unanswered { .. } => Verdict::NotEvaluated,
         }
     }
 }
 
-/// Each kind's check of `requirement` over `path`, at `at`, from `material`: the end certificate's
-/// first and the CA certificates' second.
+/// Each kind's check of `requirement` over `path`, at `at`, from `material` issued within the
+/// bounds `requirement`'s freshness and `timing` place: the end certificate's first and the CA
+/// certificates' second.
 #[must_use]
 pub fn checks(
     requirement: &Requirement,
     path: Option<&Path>,
     material: &Material<'_>,
     at: Option<Instant>,
+    timing: Timing,
 ) -> [KindCheck; 2] {
+    let issuance = at.map(|at| timing.issuance(requirement.freshness, at));
     [
         (Kind::EndEntity, requirement.end_entity),
         (Kind::Authority, requirement.authorities),
@@ -230,7 +312,8 @@ pub fn checks(
     .map(|(kind, check)| KindCheck {
         kind,
         check,
-        checked: kind_check(kind, check, path, material, at),
+        issuance: issuance.flatten().unwrap_or_default(),
+        checked: kind_check(kind, check, path, material, at.zip(issuance)),
     })
 }
 
@@ -239,15 +322,18 @@ fn kind_check(
     check: Check,
     path: Option<&Path>,
     material: &Material<'_>,
-    at: Option<Instant>,
+    at: Option<(Instant, Option<Issuance>)>,
 ) -> Checked {
     match check {
         Check::NoCheck => return Checked::NotMandated,
         Check::Other => return Checked::OtherMechanism,
         _ => {}
     }
-    let (Some(path), Some(at)) = (path, at) else {
+    let (Some(path), Some((at, issuance))) = (path, at) else {
         return Checked::NoPath;
+    };
+    let Some(issuance) = issuance else {
+        return Checked::TimingUnplaced;
     };
     let certificates = path.certificates();
     // Below the trust point, which is the last: the end certificate is position 0, and the CA
@@ -282,7 +368,7 @@ fn kind_check(
             issuer_key_usage: issuer.extensions.key_usage,
             position,
         };
-        match one(&subject, check, material, at) {
+        match one(&subject, check, material, at, issuance) {
             None => answered = answered.saturating_add(1),
             Some(found) => return found,
         }
@@ -299,8 +385,9 @@ fn one(
     check: Check,
     material: &Material<'_>,
     at: Instant,
+    issuance: Issuance,
 ) -> Option<Checked> {
-    let ask = |evidence| answer(subject, material, at, evidence);
+    let ask = |evidence| answer(subject, material, at, evidence, issuance);
     match check {
         Check::Crl => ask(Evidence::CertificateRevocationList),
         Check::Ocsp => ask(Evidence::OcspResponse),
@@ -335,8 +422,9 @@ fn answer(
     material: &Material<'_>,
     at: Instant,
     evidence: Evidence,
+    issuance: Issuance,
 ) -> Option<Checked> {
-    match revocation::status_by(subject, material, at, evidence) {
+    match revocation::status_issued(subject, material, at, evidence, issuance) {
         Revocation::Good { .. } => None,
         Revocation::Revoked {
             at: revoked,
@@ -398,6 +486,9 @@ pub(super) fn sentence(
         Checked::NoPath => f.write_str(
             "no path validated to the policy's own trust points, so the certificates it covers are not known",
         ),
+        Checked::TimingUnplaced => f.write_str(
+            "the time the policy requires the material to be issued in falls outside the instants this program computes",
+        ),
         Checked::NoCertificate => {
             f.write_str("the path holds no such certificate below its trust point")
         }
@@ -419,7 +510,27 @@ pub(super) fn sentence(
             "for the certificate at position {position} of the path the file carries no answer from {}: {why}; this program answers revocation only from the material the file carries",
             missing.name()
         ),
+    }?;
+    issuance_clause(f, check.issuance)
+}
+
+/// What a check's material had to meet, where the policy bounded its issuance.
+fn issuance_clause(f: &mut std::fmt::Formatter<'_>, issuance: Issuance) -> std::fmt::Result {
+    if let Some(after) = issuance.fresh_after {
+        write!(
+            f,
+            "; the policy's freshness admits material issued after {}",
+            duration::utc(after)
+        )?;
     }
+    if let Some(from) = issuance.issued_from {
+        write!(
+            f,
+            "; the policy admits material issued at or after {}",
+            duration::utc(from)
+        )?;
+    }
+    Ok(())
 }
 
 fn capitalised(words: &str) -> String {

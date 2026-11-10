@@ -9,7 +9,7 @@
 
 use std::borrow::Cow;
 
-use super::{Check, Checked, Kind, KindCheck, Requirement, checks};
+use super::{Check, Checked, Freshness, Kind, KindCheck, Requirement, Timing, checks};
 use crate::cms;
 use crate::policy_rules::certification_path::tests::{hex, hierarchy};
 use crate::policy_rules::certification_path::{
@@ -337,6 +337,7 @@ fn require(end_entity: Check, authorities: Check) -> Requirement {
     Requirement {
         end_entity,
         authorities,
+        freshness: None,
         unprocessed: Vec::new(),
     }
 }
@@ -450,6 +451,7 @@ fn a_crl_check_is_answered_per_kind_of_certificate() {
         Some(&path),
         &both,
         Some(AT),
+        Timing::default(),
     );
     assert_eq!(found[0].kind, Kind::EndEntity);
     assert_eq!(found[0].checked, Checked::Answered { certificates: 1 });
@@ -463,6 +465,7 @@ fn a_crl_check_is_answered_per_kind_of_certificate() {
         Some(&path),
         &leaf_only,
         Some(AT),
+        Timing::default(),
     );
     assert_eq!(found[0].verdict(), Verdict::Met);
     assert_eq!(
@@ -488,6 +491,7 @@ fn the_kind_of_material_decides_which_check_is_answered() {
             Some(&path),
             material,
             Some(AT),
+            Timing::default(),
         )[0]
         .clone()
     };
@@ -547,6 +551,7 @@ fn a_mandated_check_that_finds_the_authority_revoked_breaks_the_condition() {
         Some(&path),
         &lists,
         Some(AT),
+        Timing::default(),
     );
     assert!(
         matches!(
@@ -568,6 +573,7 @@ fn a_mandated_check_that_finds_the_authority_revoked_breaks_the_condition() {
         Some(&earlier),
         &lists,
         Some(BEFORE_THE_REVOCATION),
+        Timing::default(),
     );
     assert_eq!(found[0].checked, Checked::Answered { certificates: 1 });
     assert_eq!(found[0].verdict(), Verdict::Met);
@@ -579,7 +585,13 @@ fn a_mandated_check_that_finds_the_authority_revoked_breaks_the_condition() {
 fn a_check_needs_a_path_and_a_ca_check_needs_a_ca() {
     let crl = hex(fixtures::INTERMEDIATE_CRL);
     let lists = material(&[&crl], &[]);
-    let found = checks(&require(Check::Crl, Check::Crl), None, &lists, Some(AT));
+    let found = checks(
+        &require(Check::Crl, Check::Crl),
+        None,
+        &lists,
+        Some(AT),
+        Timing::default(),
+    );
     assert_eq!(found[0].checked, Checked::NoPath);
     assert_eq!(
         verdicts(&found),
@@ -596,7 +608,213 @@ fn a_check_needs_a_path_and_a_ca_check_needs_a_ca() {
         Some(&short),
         &lists,
         Some(AT),
+        Timing::default(),
     );
     assert_eq!(found[1].checked, Checked::NoCertificate);
     assert_eq!(verdicts(&found), [Verdict::Met, Verdict::Met]);
+}
+
+/// 2026-11-05T21:40:29Z, the `thisUpdate` of [`fixtures::ROOT_CRL`] and
+/// [`fixtures::INTERMEDIATE_CRL`] (`openssl crl -lastupdate` prints it).
+const LISTS_ISSUED: Instant = Instant::from_unix_seconds(1_793_914_829);
+
+fn duration(text: &str) -> crate::policy_rules::duration::Duration {
+    crate::policy_rules::duration::Duration::parse(text).expect("an xs:duration")
+}
+
+fn require_fresh(freshness: Freshness) -> Requirement {
+    Requirement {
+        freshness: Some(freshness),
+        ..require(Check::Crl, Check::Crl)
+    }
+}
+
+/// TS 119 172-2 clause 4.23.3's first freshness component, which ETSI EN 319 102-1 clause
+/// 5.2.5.4 step 2 decides: material is fresh where its issuance is after the validation time
+/// minus the maximum. Validated at 2027-01-01, lists issued on 2026-11-05 are within sixty days
+/// and not within thirty, and the stale answer is not evaluated, never broken. The plant that
+/// ignores the freshness answers both.
+#[test]
+fn a_maximum_freshness_admits_only_material_issued_within_it() {
+    let path = authority_path(AT);
+    let (root_crl, intermediate_crl) = (hex(fixtures::ROOT_CRL), hex(fixtures::INTERMEDIATE_CRL));
+    let lists = material(&[&root_crl, &intermediate_crl], &[]);
+    let found = checks(
+        &require_fresh(Freshness::MaxDifference(duration("P60D"))),
+        Some(&path),
+        &lists,
+        Some(AT),
+        Timing::default(),
+    );
+    assert_eq!(verdicts(&found), [Verdict::Met, Verdict::Met]);
+    assert_eq!(
+        found[0].issuance.fresh_after,
+        duration("P60D").subtracted_from(AT)
+    );
+    let found = checks(
+        &require_fresh(Freshness::MaxDifference(duration("P30D"))),
+        Some(&path),
+        &lists,
+        Some(AT),
+        Timing::default(),
+    );
+    assert_eq!(
+        found[0].checked,
+        Checked::Unanswered {
+            position: 0,
+            missing: Evidence::CertificateRevocationList,
+            why: Undetermined::Stale,
+        }
+    );
+    assert_eq!(
+        verdicts(&found),
+        [Verdict::NotEvaluated, Verdict::NotEvaluated]
+    );
+}
+
+/// EN 319 102-1 clause 5.2.5.4 step 1: where the constraints state a maximum freshness, that is
+/// the test, and the interval between `thisUpdate` and `nextUpdate` is not consulted. Asked about
+/// 2036-12-01, past the lists' `nextUpdate` of 2036-11-02, the lists are stale without a policy
+/// freshness and fresh under eleven years of it.
+#[test]
+fn a_stated_freshness_takes_the_place_of_the_lists_own_window() {
+    let path = authority_path(AT);
+    let (root_crl, intermediate_crl) = (hex(fixtures::ROOT_CRL), hex(fixtures::INTERMEDIATE_CRL));
+    let lists = material(&[&root_crl, &intermediate_crl], &[]);
+    // 2036-12-01T00:00:00Z.
+    let late = Instant::from_unix_seconds(2_111_702_400);
+    let found = checks(
+        &require(Check::Crl, Check::Crl),
+        Some(&path),
+        &lists,
+        Some(late),
+        Timing::default(),
+    );
+    assert!(
+        matches!(
+            found[0].checked,
+            Checked::Unanswered {
+                why: Undetermined::Stale,
+                ..
+            }
+        ),
+        "{:?}",
+        found[0].checked
+    );
+    let found = checks(
+        &require_fresh(Freshness::MaxDifference(duration("P11Y"))),
+        Some(&path),
+        &lists,
+        Some(late),
+        Timing::default(),
+    );
+    assert_eq!(verdicts(&found), [Verdict::Met, Verdict::Met]);
+}
+
+/// TS 119 172-2 clause 4.23.3's second freshness component: material issued a stated time after
+/// the best-signature time, which EN 319 102-1 clause 5.5.4 takes from a signature timestamp. A
+/// signature stamped an hour before the lists were issued admits them under `PT1H` and not under
+/// `PT2H`; at the boundary, material issued exactly at the bound is admitted.
+#[test]
+fn material_must_postdate_the_signature_by_the_time_the_policy_states() {
+    let path = authority_path(AT);
+    let (root_crl, intermediate_crl) = (hex(fixtures::ROOT_CRL), hex(fixtures::INTERMEDIATE_CRL));
+    let lists = material(&[&root_crl, &intermediate_crl], &[]);
+    let stamped = Timing {
+        stamped: Some(Instant::from_unix_seconds(
+            LISTS_ISSUED.unix_seconds() - 3_600,
+        )),
+        caution_seconds: None,
+    };
+    let verdicts_after = |after: &str| {
+        verdicts(&checks(
+            &require_fresh(Freshness::AfterSignature(duration(after))),
+            Some(&path),
+            &lists,
+            Some(AT),
+            stamped,
+        ))
+    };
+    assert_eq!(verdicts_after("PT1H"), [Verdict::Met, Verdict::Met]);
+    assert_eq!(verdicts_after("PT59M"), [Verdict::Met, Verdict::Met]);
+    assert_eq!(
+        verdicts_after("PT1H0M1S"),
+        [Verdict::NotEvaluated, Verdict::NotEvaluated]
+    );
+    let found = checks(
+        &require_fresh(Freshness::AfterSignature(duration("PT2H"))),
+        Some(&path),
+        &lists,
+        Some(AT),
+        stamped,
+    );
+    assert!(
+        matches!(
+            found[0].checked,
+            Checked::Unanswered {
+                why: Undetermined::IssuedBeforeRequired,
+                ..
+            }
+        ),
+        "{:?}",
+        found[0].checked
+    );
+}
+
+/// TR 102 272 clause 6.8: revocation status information is not to be used until after the
+/// caution period that follows the signing time. Signed at 20:00 on the day the lists were issued
+/// at 21:40:29, a one-hour caution admits them and a two-hour caution does not; with no signature
+/// timestamp the period runs from the instant validated at, and nothing in the file postdates it.
+#[test]
+fn the_caution_period_admits_only_material_issued_after_it() {
+    let path = authority_path(AT);
+    let (root_crl, intermediate_crl) = (hex(fixtures::ROOT_CRL), hex(fixtures::INTERMEDIATE_CRL));
+    let lists = material(&[&root_crl, &intermediate_crl], &[]);
+    // 2026-11-05T20:00:00Z.
+    let signed = Instant::from_unix_seconds(1_793_908_800);
+    let with_caution = |stamped, caution_seconds| {
+        verdicts(&checks(
+            &require(Check::Crl, Check::Crl),
+            Some(&path),
+            &lists,
+            Some(AT),
+            Timing {
+                stamped,
+                caution_seconds: Some(caution_seconds),
+            },
+        ))
+    };
+    assert_eq!(
+        with_caution(Some(signed), 3_600),
+        [Verdict::Met, Verdict::Met]
+    );
+    assert_eq!(
+        with_caution(Some(signed), 7_200),
+        [Verdict::NotEvaluated, Verdict::NotEvaluated]
+    );
+    assert_eq!(
+        with_caution(None, 0),
+        [Verdict::NotEvaluated, Verdict::NotEvaluated]
+    );
+}
+
+/// A bound on issuance decides which material may say a certificate is good, and withdraws no
+/// revocation (ADR 1067 section 3): the list that revokes the authority still breaks the condition
+/// when the caution period would refuse it as evidence of good standing.
+#[test]
+fn a_bound_on_issuance_withdraws_no_revocation() {
+    let revoked = hex(fixtures::INTERMEDIATE_CRL_REVOKED);
+    let lists = material(&[&revoked], &[]);
+    let path = authority_path(AT);
+    let found = checks(
+        &require(Check::Crl, Check::NoCheck),
+        Some(&path),
+        &lists,
+        Some(AT),
+        Timing {
+            stamped: Some(AT),
+            caution_seconds: Some(86_400),
+        },
+    );
+    assert_eq!(found[0].verdict(), Verdict::Broken);
 }

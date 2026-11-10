@@ -743,7 +743,7 @@ pub(crate) fn read_time_digits(digits: &[u8], four_digit_year: bool) -> Option<I
 /// and needs no table: the calendar is shifted so that it starts in March, which puts the leap
 /// day at the end of a year and makes the day-of-era a closed form. `None` only on an overflow,
 /// which the field widths above already exclude.
-fn days_from_civil(year: i64, month: i64, day: i64) -> Option<i64> {
+pub(crate) fn days_from_civil(year: i64, month: i64, day: i64) -> Option<i64> {
     let year = if month <= 2 {
         year.checked_sub(1)?
     } else {

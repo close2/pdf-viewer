@@ -29,9 +29,11 @@
 //! signing-certificate key length and path-certificate usage read off that path
 //! ([`super::certification_path`], ADR 2714); clause 4.25's time-stamp trust trees over the path of
 //! the authority that issued the signature's time-stamp token, and clause 4.23.2's revocation checks
-//! of either condition per kind of certificate ([`super::revocation_checks`], ADR 2720). Named and
-//! not evaluated: a trust point's and the authority's policy and name constraints, clause 4.23.3's
-//! freshness and retention; the formats and levels of clause 4.20 and the levels
+//! of either condition per kind of certificate ([`super::revocation_checks`], ADR 2720), from
+//! material issued within clause 4.23.3's freshness where the policy states one (ADR 2775). A
+//! trust point's and the authority's policy and name constraints are RFC 5280 section 6.1's
+//! processing (ADR 2724). Named and not evaluated: clause 4.23.3's retention of expired revocation
+//! notices; the formats and levels of clause 4.20 and the levels
 //! clause 4.27 ties its attribute rules to, identified by TS 119 172-2's URIs for a signature level
 //! this program does not determine; augmentation, which this reader never performs; the levels of
 //! assurance of clauses 4.25 and 4.28; constraints on sets of signer attributes; and every `Other`
@@ -52,7 +54,8 @@ use std::collections::BTreeSet;
 use std::borrow::Cow;
 
 use super::certification_path::{self, Path, Search, TrustPoint, TrustTrees};
-use super::revocation_checks::{self, FRESHNESS, RETENTION};
+use super::duration::Duration;
+use super::revocation_checks::{self, Freshness, RETENTION};
 use super::{
     Budget, CertificateInfo, Finding, MAX_ENTRIES, MAX_POLICY_OCTETS, PolicyDocumentError,
     SIGNING_CERT_TRUST, SignerFacts, SignerTrust, Stated, Syntax, TIMESTAMP_TRUST, TimestampTrust,
@@ -71,6 +74,8 @@ const ENUMERATED: u8 = 0x0A;
 const UTF8_STRING: u8 = 0x0C;
 /// `IA5String`, primitive and universal.
 const IA5_STRING: u8 = 0x16;
+/// `PrintableString`, which clause 4.23.3.2's `Duration` is.
+const PRINTABLE_STRING: u8 = 0x13;
 /// `GeneralizedTime`, primitive and universal.
 const GENERALIZED_TIME: u8 = 0x18;
 
@@ -536,9 +541,9 @@ fn instant(value: Option<Value<'_>>, member: &'static str) -> Result<Stated, Pol
     })
 }
 
-/// Clause 4.24.4's `SigningCertTrustConditions`: the trust trees, and whether the revocation trust
-/// mandates anything — a check of either kind of certificate other than `noCheck`, a freshness, or
-/// clause 4.23.3's retention of expired revocation notices.
+/// Clause 4.24.4's `SigningCertTrustConditions`: the trust trees, and the revocation trust — a
+/// check of each kind of certificate, clause 4.23.3's freshness, and its retention of expired
+/// revocation notices, which is named.
 fn read_signer_trust<'a>(
     value: &Value<'a>,
     budget: &mut Budget,
@@ -556,16 +561,36 @@ fn read_signer_trust<'a>(
         "certificateRevReq",
     )?)?;
     while let Some(member) = revocation.next_value()? {
-        requirement.unprocessed.push(match context_number(&member) {
-            Some(0) => FRESHNESS,
-            Some(1) => RETENTION,
+        match context_number(&member) {
+            Some(0) => {
+                requirement.freshness = Some(read_freshness(&explicit(&member, "freshness")?)?);
+            }
+            Some(1) => requirement.unprocessed.push(RETENTION),
             _ => return Err(malformed("CertificateRevTrust")),
-        });
+        }
     }
     Ok(SignerTrust {
         trees,
         revocation: requirement,
     })
+}
+
+/// Clause 4.23.3.2's `Freshness` choice, each alternative a `Duration`: a `PrintableString` in the
+/// XML Schema's lexical form.
+fn read_freshness(value: &Value<'_>) -> Result<Freshness, PolicyDocumentError> {
+    let duration = |member| {
+        Duration::parse(text(&explicit(value, member)?, PRINTABLE_STRING, member)?)
+            .ok_or(malformed(member))
+    };
+    match context_number(value) {
+        Some(0) => Ok(Freshness::MaxDifference(duration(
+            "Freshness.maxDifferenceRevocationAndValidation",
+        )?)),
+        Some(1) => Ok(Freshness::AfterSignature(duration(
+            "Freshness.timeAfterSignature",
+        )?)),
+        _ => Err(malformed("Freshness")),
+    }
 }
 
 /// Clause 4.23.2's `CertificateRevReq`: the end certificate's check and the CA certificates'.
@@ -580,6 +605,7 @@ fn read_revocation_requirement(
     Ok(revocation_checks::Requirement {
         end_entity: check("endCertRevReq")?,
         authorities: check("caCerts")?,
+        freshness: None,
         unprocessed: Vec::new(),
     })
 }
@@ -1215,6 +1241,8 @@ fn read_time_evidences<'a>(
                     trees: None,
                     revocation: None,
                     names: None,
+                    caution_seconds: None,
+                    delay_seconds: None,
                     unprocessed: Vec::new(),
                 };
                 match context_number(&field) {
@@ -1263,8 +1291,9 @@ fn read_time_evidences<'a>(
     Ok(out)
 }
 
-/// Clause 4.25.2's `DeltaTime`, in seconds; a sum past 64 bits is not a delay.
-fn read_delta_time(value: &Value<'_>) -> Result<i64, PolicyDocumentError> {
+/// Clause 4.25.2's `DeltaTime`, in seconds; a sum past 64 bits is not a delay. TR 102 272 clause
+/// 6.8 defines the same type, and its reader is this one.
+pub(super) fn read_delta_time(value: &Value<'_>) -> Result<i64, PolicyDocumentError> {
     let delta = need(Some(*value), SEQUENCE, "DeltaTime")?;
     let mut fields = delta.children()?;
     let mut total: i64 = 0;
@@ -1665,6 +1694,7 @@ fn judge_signing_certificate(
         Some(&searched),
         Some(&trust.revocation),
         facts,
+        timing(facts),
         out,
     );
     if let Some(info) = info {
@@ -1748,6 +1778,7 @@ fn judge_time_evidence(
             search.as_ref(),
             trust.revocation.as_ref(),
             facts,
+            timing(facts),
             out,
         );
         super::authority_name_finding(TIMESTAMP_TRUST, search.as_ref(), trust.names.as_ref(), out);
@@ -1761,9 +1792,29 @@ fn judge_time_evidence(
             });
         }
     }
-    let Some(limit_seconds) = rule.delay_seconds else {
-        return;
-    };
+    if let Some(limit_seconds) = rule.delay_seconds {
+        out.push(delay_finding(limit_seconds, cms, facts));
+    }
+}
+
+/// What places a revocation trust's freshness on the time line: the best-signature time. TS 119
+/// 172-2 and -3 state no caution period, which is TR 102 272 clause 6.8's alone.
+fn timing(facts: &SignerFacts<'_>) -> revocation_checks::Timing {
+    revocation_checks::Timing {
+        stamped: super::stamped_at(facts),
+        caution_seconds: None,
+    }
+}
+
+/// The delay between the claimed signing time and the signature timestamp's generation, against
+/// `limit_seconds`: clause 4.25's `signatureTimestampDelay` here, and TR 102 272 clause 6.8's,
+/// which states the same limit in the same `DeltaTime`. ETSI EN 319 102-1 clause 5.5.4 step 5
+/// leaves a signature claiming no signing time indeterminate, so it is not evaluated.
+pub(super) fn delay_finding(
+    limit_seconds: i64,
+    cms: &SignedData<'_>,
+    facts: &SignerFacts<'_>,
+) -> Finding {
     let claimed = cms
         .attribute(cms::ID_SIGNING_TIME)
         .filter(|attribute| attribute.signed)
@@ -1785,7 +1836,7 @@ fn judge_time_evidence(
             .checked_sub(claimed.unix_seconds()),
         _ => None,
     };
-    out.push(component(
+    component(
         elapsed_seconds.map_or(Verdict::NotEvaluated, |elapsed| {
             verdict(elapsed <= limit_seconds)
         }),
@@ -1795,7 +1846,7 @@ fn judge_time_evidence(
             stamped: stamped.map(|at| at.spelled.clone()),
             elapsed_seconds,
         },
-    ));
+    )
 }
 
 /// Clause 4.29. TS 119 172-2 clause 4.29.1 states the usages in which an algorithm is allowed, so

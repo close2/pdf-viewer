@@ -974,12 +974,18 @@ fn the_xml_time_stamp_trust_condition_is_judged_on_the_authoritys_own_path() {
             "ocspcheck",
             "<Freshness><MaxDifferenceRevocationAndValidation>P1D</MaxDifferenceRevocationAndValidation></Freshness>"
         ),
-        [
-            Verdict::Met,
-            Verdict::Met,
-            Verdict::Met,
-            Verdict::NotEvaluated
-        ],
-        "clause 4.23.3's freshness is named and not evaluated, never met"
+        [Verdict::Met, Verdict::NotEvaluated, Verdict::NotEvaluated],
+        "clause 4.23.3's freshness of a day refuses material issued on 2026-11-05 as evidence at \
+         2027-01-01 (ETSI EN 319 102-1 clause 5.2.5.4), which leaves both checks unanswered, \
+         never broken"
+    );
+    assert_eq!(
+        verdicts(
+            "ocspcheck",
+            "<Freshness><MaxDifferenceRevocationAndValidation>P2M</MaxDifferenceRevocationAndValidation></Freshness>"
+        ),
+        [Verdict::Met, Verdict::Met, Verdict::Met],
+        "two months back from 2027-01-01 is 2026-11-01 (XML Schema Part 2 Appendix E), before \
+         the material was issued"
     );
 }

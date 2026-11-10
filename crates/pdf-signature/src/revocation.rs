@@ -304,6 +304,11 @@ pub enum Undetermined {
         "the revocation material covering that certificate was not current at the instant asked about"
     )]
     Stale,
+    /// The material was issued before the instant a signature policy requires it to postdate.
+    #[error(
+        "the revocation material covering that certificate was issued before the time the signature policy requires of it"
+    )]
+    IssuedBeforeRequired,
     /// A CRL carries a critical extension this reader does not recognise — section 5.2.5's own
     /// instruction, and the issuing distribution point is the case it is written about.
     #[error(
@@ -1313,7 +1318,7 @@ pub struct Subject<'a, 'c> {
 /// function was asked. The answer for a path is the worst of these, which [`worst`] composes.
 #[must_use]
 pub fn status(subject: &Subject<'_, '_>, material: &Material<'_>, at: Instant) -> Revocation {
-    answer(subject, material, at, None)
+    answer(subject, material, at, None, Issuance::default())
 }
 
 /// [`status`] from one kind of material alone.
@@ -1329,15 +1334,68 @@ pub fn status_by(
     at: Instant,
     evidence: Evidence,
 ) -> Revocation {
-    answer(subject, material, at, Some(evidence))
+    status_issued(subject, material, at, evidence, Issuance::default())
 }
 
-/// [`status`], or [`status_by`] where `only` names the kind of material asked.
+/// When a signature policy requires the material that answers a check to have been issued.
+///
+/// The issuance of revocation status information is a CRL's `thisUpdate` and an OCSP
+/// `SingleResponse`'s `thisUpdate` — ETSI EN 319 102-1 clause 5.2.5.4's NOTE 3 sets the second
+/// apart from the response's `producedAt` — and either bound applies to an answer that the
+/// certificate is good. A revocation is a statement its issuer made, whenever it was made, so
+/// neither withdraws one, as the window on a list does not (ADR 1067 section 3).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Issuance {
+    /// EN 319 102-1 clause 5.2.5.4's maximum accepted freshness, given as the instant it reaches
+    /// back to from the validation time: material is fresh where its issuance is *after* it. Where
+    /// this is stated, step 1 of that clause takes it in place of the interval between
+    /// `thisUpdate` and `nextUpdate`, so the material's own window is not consulted.
+    pub fresh_after: Option<Instant>,
+    /// An instant the material must be issued at or after, beside its own freshness: TS 119 172-2
+    /// clause 4.23.3's revocation data "issued a certain time after the best-signature time", and
+    /// TR 102 272 clause 6.8's caution period, before whose end revocation status information is
+    /// not to be used.
+    pub issued_from: Option<Instant>,
+}
+
+impl Issuance {
+    /// Whether material issued at `issued` meets this, and if not, why not.
+    fn admits(self, issued: Instant) -> Result<(), Undetermined> {
+        if self
+            .fresh_after
+            .is_some_and(|after| issued.unix_seconds() <= after.unix_seconds())
+        {
+            return Err(Undetermined::Stale);
+        }
+        if self
+            .issued_from
+            .is_some_and(|from| issued.unix_seconds() < from.unix_seconds())
+        {
+            return Err(Undetermined::IssuedBeforeRequired);
+        }
+        Ok(())
+    }
+}
+
+/// [`status_by`], with a good answer taken only from material whose issuance meets `issuance`.
+#[must_use]
+pub fn status_issued(
+    subject: &Subject<'_, '_>,
+    material: &Material<'_>,
+    at: Instant,
+    evidence: Evidence,
+    issuance: Issuance,
+) -> Revocation {
+    answer(subject, material, at, Some(evidence), issuance)
+}
+
+/// [`status`], or [`status_issued`] where `only` names the kind of material asked.
 fn answer(
     subject: &Subject<'_, '_>,
     material: &Material<'_>,
     at: Instant,
     only: Option<Evidence>,
+    issuance: Issuance,
 ) -> Revocation {
     let asks = |kind: Evidence| only.is_none_or(|only| only == kind);
     if material.is_empty() {
@@ -1365,14 +1423,14 @@ fn answer(
         &[]
     };
     for response in responses {
-        match from_response(subject, response, material, at) {
+        match from_response(subject, response, material, at, issuance) {
             Ok(Some(answer)) => return answer,
             Ok(None) => {}
             Err(why) => note(why),
         }
     }
     for list in lists {
-        match from_list(subject, list, at) {
+        match from_list(subject, list, at, issuance) {
             Ok(Some(answer)) => return answer,
             Ok(None) => {}
             Err(why) => note(why),
@@ -1409,6 +1467,7 @@ fn from_list(
     subject: &Subject<'_, '_>,
     list: &CertificateList<'_>,
     at: Instant,
+    issuance: Issuance,
 ) -> Result<Option<Revocation>, Undetermined> {
     // Section 6.3.3 (b)(1), under the assumed distribution point: "verify that the CRL issuer
     // matches the certificate issuer."
@@ -1471,6 +1530,13 @@ fn from_list(
     // the list is to be replaced, which needs the network this program does not have. Section
     // 5.1.2.5 requires a conforming issuer to state one, and says the behaviour without it "is not
     // specified by this profile" — so an absent `nextUpdate` is undetermined rather than eternal.
+    issuance.admits(list.this_update)?;
+    if issuance.fresh_after.is_some() {
+        return Ok(Some(Revocation::Good {
+            from: Evidence::CertificateRevocationList,
+            covered: 1,
+        }));
+    }
     let Some(next_update) = list.next_update else {
         return Err(Undetermined::Stale);
     };
@@ -1499,6 +1565,7 @@ fn from_response(
     response: &BasicResponse<'_>,
     material: &Material<'_>,
     at: Instant,
+    issuance: Issuance,
 ) -> Result<Option<Revocation>, Undetermined> {
     let Some(single) = response
         .responses
@@ -1534,7 +1601,10 @@ fn from_response(
             // - without one the responder has said its answer speaks for the moment it was made, so
             //   the instant it was made is the only end this reader can state, and a question put
             //   before it is not one this response answers.
+            issuance.admits(single.this_update)?;
             match single.next_update {
+                // EN 319 102-1 clause 5.2.5.4 step 1: a stated maximum freshness is the test.
+                _ if issuance.fresh_after.is_some() => {}
                 Some(until) => {
                     if at.unix_seconds() > until.unix_seconds() {
                         return Err(Undetermined::Stale);
