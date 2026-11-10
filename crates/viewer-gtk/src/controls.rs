@@ -994,3 +994,6 @@ fn scroll_to_top_index(scroller: &gtk4::ScrolledWindow, top: usize, options: usi
         });
     });
 }
+
+#[cfg(test)]
+mod max_len_audit;

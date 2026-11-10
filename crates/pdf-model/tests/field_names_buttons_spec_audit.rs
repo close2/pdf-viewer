@@ -44,8 +44,7 @@ fn nested_name_pdf() -> Vec<u8> {
          /Kids [8 0 R] >>",
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
         "<< /Type /Annot /Subtype /Widget /Parent 6 0 R /Rect [10 10 100 34] /F 4 /AP << /N 9 0 R >> >>",
-        "<< /Type /XObject /Subtype /Form /BBox [0 0 90 24] /Resources <<>> \
-         /Length 0 >>\nstream\n\nendstream",
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 90 24] /Resources << /Font << /F1 7 0 R >> >> /Length 45 >>\nstream\nBT /F1 12 Tf 0 g 1 0 0 1 2 8 Tm (02139) Tj ET\nendstream",
         "<< /Length 0 >>\nstream\n\nendstream",
     ])
 }

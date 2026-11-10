@@ -959,7 +959,7 @@
       "clauses": [
         "12.7.5.3"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-native-gtk-regressions"
     },
     {
       "agent": "form_actions_audit",

@@ -1,5 +1,5 @@
 {
-  "warning": "Audit regressions intentionally fail; they are not ignored or changed to expect incorrect behavior. Entries are individual assertions, not distinct defects.",
+  "warning": "Expected failures are audit regressions, not waived defects or distinct-defect counts. Broad nine-crate run covers entries except viewer-gtk; GTK native controls run separately under Xvfb. Compare exact binary/test sets within each run scope.",
   "failures": [
     {
       "binary": "pdf-archive",
@@ -334,6 +334,27 @@
       "test": "a_new_variable_text_appearance_uses_origin_and_widget_dimensions",
       "evidence": "variable-text-resource-target-v5.log",
       "classification": "New non-rich Widget AP BBox copies page Rect instead of clause12.7.4.3 local origin and dimensions; other save/interpretation controls pass."
+    },
+    {
+      "binary": "viewer-gtk",
+      "test": "controls::max_len_audit::multiline_entry_obeys_maxlen_and_remains_unlimited_when_unspecified",
+      "evidence": "gtk-maxlen-native-target.log",
+      "classification": "Native GTK control accepts and emits text past PDF MaxLen; actual builder/insertion/callback controls. Display required.",
+      "run_scope": "GTK supplemental: xvfb-run -a cargo test -p viewer-gtk --lib max_len_audit"
+    },
+    {
+      "binary": "viewer-gtk",
+      "test": "controls::max_len_audit::password_entry_obeys_maxlen_and_remains_unlimited_when_unspecified",
+      "evidence": "gtk-maxlen-native-target.log",
+      "classification": "Native GTK control accepts and emits text past PDF MaxLen; actual builder/insertion/callback controls. Display required.",
+      "run_scope": "GTK supplemental: xvfb-run -a cargo test -p viewer-gtk --lib max_len_audit"
+    },
+    {
+      "binary": "viewer-gtk",
+      "test": "controls::max_len_audit::zero_maxlen_rejects_insertion_instead_of_using_gtk_zero_as_unlimited",
+      "evidence": "gtk-maxlen-native-target.log",
+      "classification": "Native GTK control accepts and emits text past PDF MaxLen; actual builder/insertion/callback controls. Display required.",
+      "run_scope": "GTK supplemental: xvfb-run -a cargo test -p viewer-gtk --lib max_len_audit"
     }
   ]
 }

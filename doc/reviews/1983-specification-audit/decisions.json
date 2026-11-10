@@ -6562,6 +6562,69 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/0197-a-field-that-may-not-scroll.md",
+    "decision_id": "DoNotScroll-prefix-at-the-acceptance-boundary",
+    "original_decision": "Apply the explicit Table 231 bit 24 interactive acceptance limit at ViewState::set_field using the visible geometry; distinguish that from a host's native text widget.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The decision and its tests concern Table 231 bit 24 (room in the widget), not Table 232's independent character count. Code confirms accepted_prefix is gated on DoNotScroll, and the variable_text acceptance test varies that bit. MaxLen is handled by separate script event.change logic and host control metadata. The ADR is not evidence that the direct model setter enforces MaxLen, nor that every native control honors it.",
+    "current_code_evidence": "crates/pdf-model/src/appearance.rs::accepted_prefix exits unless FLAG_DO_NOT_SCROLL is set; crates/pdf-model/src/view/fields.rs::accepted takes only that optional prefix; crates/pdf-model/src/view/scripts.rs::Typed separately truncates event.change to MaxLen; native widget code has the gaps recorded in features.json.",
+    "test_evidence": "crates/pdf-model/tests/variable_text.rs::a_field_that_may_not_scroll_takes_only_what_fits asserts geometric truncation under bit 24, not Table 232. No current GTK/Qt widget test verifies MaxLen typing. New native GTK target: one ordinary positive control passes, three limit regressions fail after no-limit/legal-prefix controls pass.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 §12.7.5.3 Table 231 bit 24 and Table 232",
+      "EC3 Issue #191",
+      "https://docs.gtk.org/gtk4/method.Entry.set_max_length.html",
+      "https://doc.qt.io/qt-6/qlineedit.html"
+    ],
+    "changed_premise": "The Table 232 maximum-character condition is distinct from the DoNotScroll layout-room condition; inspection of host branches finds paths where carried MaxLen is never installed or zero changes meaning.",
+    "remaining_work": "Fix native limit enforcement in separate implementation work; Qt multiline currently code-supported and lacks a native C++ widget regression. Unicode counting remains unreviewed.",
+    "parent_review": "Selected decision only; actual GTK consumer regressions added. No historical ADR change.",
+    "reviewer": "text_maxlen_audit",
+    "source": "text_maxlen_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-native-gtk-regressions",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0235-a-form-is-a-description-and-a-check-box-is-a-name.md",
+    "decision_id": "carry-MaxLen-as-control-data",
+    "original_decision": "Expose Table 232 MaxLen through TextControl so native hosts can build a field-specific entry.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The data boundary works: pdf-model reads inherited MaxLen and viewer-host carries it. But the ADR's descriptor-level evidence does not establish that every host widget applies it; GTK and Qt host code select different widgets and the multiline/password branches need separate controls. Preserve the architecture while qualifying implementation coverage.",
+    "current_code_evidence": "crates/pdf-model/src/form.rs::fields; crates/viewer-host/src/form.rs::entry_of; crates/viewer-qt/src/host/forms.rs::describe_kind; crates/viewer-gtk/src/controls.rs::entry; crates/viewer-qt/cpp/window.cpp::MainWindow::rebuildControls.",
+    "test_evidence": "crates/viewer-host/tests/host_mappings.rs::a_password_field_asks_for_the_platforms_secure_control and crates/viewer-qt/src/host/tests.rs::every_control_kind_crosses_as_a_number_the_window_knows test transport, not actual typing. New native GTK target: one ordinary positive control passes, three limit regressions fail after no-limit/legal-prefix controls pass.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 §12.7.5.3 Table 232",
+      "EC3 Issue #191"
+    ],
+    "changed_premise": "Both concrete native hosts are now implemented, so carrying the field metadata is no longer the end of the consumer obligation.",
+    "remaining_work": "Fix native limit enforcement in separate implementation work; Qt multiline currently code-supported and lacks a native C++ widget regression. Unicode counting remains unreviewed.",
+    "parent_review": "Selected decision only; actual GTK consumer regressions added. No historical ADR change.",
+    "reviewer": "text_maxlen_audit",
+    "source": "text_maxlen_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-native-gtk-regressions",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0548-four-negatives-two-false-and-the-consequence-that-was-not.md",
+    "decision_id": "zero-MaxLen-is-not-a-comb-cell-count",
+    "original_decision": "ADR0548 lines128–129 records EC3#191 as the MaxLen floor of zero and says appearance.rs already enforces it. The detailed positive-comb-count discussion is in errata-read.md, not this ADR paragraph.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "Retain the effective nonnegative domain. Qualify the enforcement claim to the appearance-side behavior actually discussed: native GTK gives numeric zero the different meaning unlimited. Parent initially missed this ADR tail in truncated output, then verified the actual paragraph; it is not a missing ADR attribution.",
+    "current_code_evidence": "doc/errata-read.md records #191's corrected Table 232 text; crates/pdf-model/src/appearance.rs::Field::text_shape filters comb count to >0; crates/viewer-gtk/src/controls.rs::entry passes zero to GTK set_max_length.",
+    "test_evidence": "crates/pdf-model/tests/text_choice_fields_spec_audit.rs::max_len_zero_survives_reading_as_a_real_limit proves parsed zero survives. No native test proves the GTK entry constrains it. New native GTK target: one ordinary positive control passes, three limit regressions fail after no-limit/legal-prefix controls pass.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 Table 232",
+      "EC3 Issue #191",
+      "https://docs.gtk.org/gtk4/method.Entry.set_max_length.html"
+    ],
+    "changed_premise": "Native consumer test now proves zero is accepted as unlimited. This does not invalidate positive-cell comb layout policy.",
+    "remaining_work": "Fix native limit enforcement in separate implementation work; Qt multiline currently code-supported and lacks a native C++ widget regression. Unicode counting remains unreviewed.",
+    "parent_review": "Selected decision only; actual GTK consumer regressions added. No historical ADR change.",
+    "reviewer": "text_maxlen_audit",
+    "source": "text_maxlen_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-native-gtk-regressions",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/0421-the-press-that-asked-a-display-list-it-had-just-thrown-away.md",
     "decision_id": "ec3-368-q-Q-push-pop-Tm-Tlm",
     "original_decision": "Honor EC3 #368: q/Q inside a text object also save and restore Tm and Tlm on the graphics-state stack.",

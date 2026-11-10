@@ -567,15 +567,33 @@
   },
   {
     "path": "doc/adr/0046-the-scene-that-was-missing.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "blend_functions_audit/decisions.json",
+        "decision_id": "blend-mode-scene-and-spec-oracle",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0047-the-three-modes-the-oracle-got-wrong.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "blend_functions_audit/decisions.json",
+        "decision_id": "keep-nonseparable-arithmetic-independent",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0048-one-profile-seen-twice.md",
@@ -2012,7 +2030,7 @@
         "source": "text_maxlen_audit/decisions.json",
         "decision_id": "DoNotScroll-prefix-at-the-acceptance-boundary",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2311,7 +2329,7 @@
         "source": "text_maxlen_audit/decisions.json",
         "decision_id": "carry-MaxLen-as-control-data",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2448,6 +2466,14 @@
     "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
+      {
+        "source": "choice_commit_host_audit/decisions.json",
+        "decision_id": "choice_flag_parsing_claim_does_not_establish_host_commit_behavior",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
       {
         "source": "text_choice_fields_audit/decisions.json",
         "decision_id": "choice_edits_are_indexed_and_write_value_plus_index_list",
@@ -2689,9 +2715,18 @@
   },
   {
     "path": "doc/adr/0277-the-black-components-rule-was-not-a-second-blend-function.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "blend_functions_audit/decisions.json",
+        "decision_id": "derive-cmyk-k-from-neutral-raster-identity",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0278-the-reading-list-is-the-blame-order.md",
@@ -3369,9 +3404,18 @@
   },
   {
     "path": "doc/adr/0357-the-two-refusals-an-annex-outlived.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "form_actions_audit/decisions.json",
+        "decision_id": "0357:import-files-cross-host-by-purpose-importdata",
+        "conclusion": "retain; a direct Table243 action-to-Request assertion is missing and drafted.",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0358-the-width-a-file-states-is-a-statement-about-the-shape.md",
@@ -4586,7 +4630,7 @@
         "source": "text_maxlen_audit/decisions.json",
         "decision_id": "zero-MaxLen-is-not-a-comb-cell-count",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -7453,9 +7497,18 @@
   },
   {
     "path": "doc/adr/1062-a-submission-is-composed-here-and-transmitted-by-whoever-has-a-network.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "form_actions_audit/decisions.json",
+        "decision_id": "1062:compose-in-model-transmit-at-host",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1063-two-brainpool-curves-taken-and-two-left-for-want-of-arithmetic.md",
@@ -7477,9 +7530,18 @@
   },
   {
     "path": "doc/adr/1066-a-submission-carries-the-file-and-narrows-what-it-cannot-judge.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "form_actions_audit/decisions.json",
+        "decision_id": "1066:bits7-8-12-14-carried-bit11-narrowed-bit10-revisited",
+        "conclusion": "retain with date-function follow-on; #1796 later superseded the bit10 deferral. Current ledger note and code incorporate bit10's supported AForm date calls; bit11 remains explicitly bounded by the remote identity boundary.",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1067-revocation-is-read-from-the-file-and-absence-is-never-good.md",
@@ -7746,9 +7808,18 @@
   },
   {
     "path": "doc/adr/1108-the-format-the-standard-names-and-the-half-of-it-that-is-on-this-disk.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "form_actions_audit/decisions.json",
+        "decision_id": "1108:xfdf-now-supported-on-submit-and-import",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1112-the-instant-a-token-proves-is-what-a-verdict-is-asserted-at.md",
@@ -11746,9 +11817,18 @@
   },
   {
     "path": "doc/adr/1796-the-forms-rows-claims-read-against-their-lines-and-the-latest-statement-about-a-value-stands.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "form_actions_audit/decisions.json",
+        "decision_id": "1796:canonicalformat-uses-recognized-aform-date-calls",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1798-a-carriage-return-and-line-feed-are-one-paragraph-break-in-every-note-window.md",
@@ -16353,6 +16433,14 @@
     "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
+      {
+        "source": "choice_commit_host_audit/decisions.json",
+        "decision_id": "window_reports_choice_selection_commit_to_core",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
       {
         "source": "text_choice_fields_audit/decisions.json",
         "decision_id": "choice_list_selection_commit_is_delivered_as_explicit_host_commit",

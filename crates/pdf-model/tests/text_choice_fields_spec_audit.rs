@@ -11,16 +11,17 @@ use pdf_model::form::{Control, fields};
 use pdf_model::view::ViewState;
 use pdf_syntax::Document;
 
+// PDF1.7 allows missing appearances when NeedAppearances=true. This avoids a blank
+// stored appearance contradicting a nonempty V; native controls read the same model.
 fn pdf_with_field(field: &str) -> Vec<u8> {
     let objects = [
-        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /DA (/Helv 12 Tf 0 g) /DR << /Font << /Helv 7 0 R >> >> >> >>".to_owned(),
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /NeedAppearances true /DA (/Helv 12 Tf 0 g) /DR << /Font << /Helv 6 0 R >> >> >> >>".to_owned(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << >> \
          /Contents 5 0 R /Annots [4 0 R] >>"
             .to_owned(),
-        field.replacen("<<", "<< /AP << /N 6 0 R >>", 1),
+        field.to_owned(),
         "<< /Length 0 >>\nstream\n\nendstream".to_owned(),
-        "<< /Type /XObject /Subtype /Form /BBox [0 0 280 40] /Resources << >> /Length 0 >>\nstream\n\nendstream".to_owned(),
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
     ];
     let mut out = String::from("%PDF-1.7\n");
@@ -30,13 +31,13 @@ fn pdf_with_field(field: &str) -> Vec<u8> {
         let _ = writeln!(out, "{} 0 obj\n{object}\nendobj", index.saturating_add(1));
     }
     let xref = out.len();
-    let _ = writeln!(out, "xref\n0 8\n0000000000 65535 f ");
+    let _ = writeln!(out, "xref\n0 7\n0000000000 65535 f ");
     for offset in offsets {
         let _ = writeln!(out, "{offset:010} 00000 n ");
     }
     let _ = write!(
         out,
-        "trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+        "trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
     );
     out.into_bytes()
 }

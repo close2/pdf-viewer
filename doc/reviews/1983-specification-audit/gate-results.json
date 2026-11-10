@@ -936,5 +936,22 @@
   "signature_variable_clippy": {
     "log": "clippy-variable-text-resources-clean.log",
     "exit": 0
+  },
+  "gtk_native_maxlen": {
+    "log": "gtk-maxlen-native-target.log",
+    "passed": 1,
+    "expected_failed": 3,
+    "filtered": 15,
+    "exit": 101,
+    "environment": "Xvfb; GTK test macro serializes toolkit access. Native builder/insertion/callback only."
+  },
+  "form_fixture_consistency": {
+    "log": "form-fixture-consistency-controls.log",
+    "passed": 6,
+    "exit": 0
+  },
+  "gtk_fixture_clippy": {
+    "log": "clippy-gtk-maxlen-and-fixtures-clean.log",
+    "exit": 0
   }
 }
