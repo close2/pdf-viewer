@@ -1,6 +1,6 @@
 {
   "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
-  "checkpoint_utc": "2026-11-10T17:07:23.853585+00:00",
+  "checkpoint_utc": "2026-11-10T17:12:42.453481+00:00",
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
@@ -30,7 +30,7 @@
     "exact_manifest_match": true,
     "manifest": "Exact binary/test equality checked by parent; failing assertions are not necessarily distinct defects."
   },
-  "latest_clippy": "clippy-sound-screen-reviewed-clean.log",
+  "latest_clippy": "clippy-widget-redaction-reviewed.log",
   "new_failures_since_wave8": [
     "catalog Named OpenAction consumer missing",
     "page-visible neighbor omitted",
@@ -59,10 +59,7 @@
     "CLAUDE.md requires unsigned commits; use git -c commit.gpgsign=false commit because inherited global setting enables GPG."
   ],
   "branch": "audit/specification-evidence-2026-11-10",
-  "pending_parent_review": [
-    "widget_annotation_audit",
-    "redaction_annotation_audit"
-  ],
+  "pending_parent_review": [],
   "pushed_commits": [
     "a299121c",
     "f413d15f",
@@ -87,8 +84,9 @@
     "8e8d6936",
     "8525fa69",
     "efe33bfc",
-    "63b0a7f3"
+    "63b0a7f3",
+    "42094fb2"
   ],
-  "expected_failures_manifest_count": 53,
-  "broad_run_predates": "No new tests since wave16; Screen comment/metadata corrected after run."
+  "expected_failures_manifest_count": 54,
+  "broad_run_predates": "Widget3passes1failure;Redaction/Projection2passes"
 }

@@ -903,7 +903,7 @@
       "clauses": [
         "12.5.6.19"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-assertion-and-adr-corrections"
     },
     {
       "agent": "redaction_annotation_audit",
@@ -911,14 +911,32 @@
         "12.5.6.23",
         "12.5.6.24"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-assertion-and-adr-corrections"
     },
     {
       "agent": "interactive_form_structure_audit",
       "clauses": [
         "12.7.1",
         "12.7.2",
-        "12.7.3"
+        "12.7.3",
+        "12.7.4.1"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "text_choice_fields_audit",
+      "clauses": [
+        "12.7.5.3",
+        "12.7.5.4"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "field_names_buttons_audit",
+      "clauses": [
+        "12.7.4.2",
+        "12.7.5.1",
+        "12.7.5.2"
       ],
       "state": "running"
     }

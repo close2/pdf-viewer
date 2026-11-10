@@ -1250,8 +1250,8 @@
       {
         "source": "widget_annotation_audit/decisions.json",
         "decision_id": "Default /H with no /D versus required down appearance",
-        "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "conclusion": "revisit-compatibility-choice-that-replaces-explicit-default",
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -1729,7 +1729,7 @@
         "source": "widget_annotation_audit/decisions.json",
         "decision_id": "Make widget /H reachable through annotation hit-testing, with subtype-scoped highlight semantics",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2242,14 +2242,14 @@
   },
   {
     "path": "doc/adr/0239-an-icon-a-fit-and-four-codes-that-name-a-side.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "widget_annotation_audit/decisions.json",
         "decision_id": "Initially refuse /TP caption placements 2–5 and implement icon fitting",
         "conclusion": "superseded",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2296,14 +2296,14 @@
   },
   {
     "path": "doc/adr/0245-a-page-without-the-pictures-somebody-else-is-drawing.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "widget_annotation_audit/decisions.json",
         "decision_id": "Allow a host to delegate appearances for widgets it actually renders as controls",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -6233,8 +6233,8 @@
       {
         "source": "redaction_annotation_audit/decisions.json",
         "decision_id": "screen_clause_specific_no_default_appearance",
-        "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "conclusion": "qualify-historical-screen-rationale-not-projection-authority",
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -7405,7 +7405,7 @@
         "source": "widget_annotation_audit/decisions.json",
         "decision_id": "Select widget MK icon and caption entries from pointer state and fall back to normal when that optional state entry is absent",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -7599,14 +7599,14 @@
   },
   {
     "path": "doc/adr/1123-relocating-a-producer-written-appearance-onto-its-own-page.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "redaction_annotation_audit/decisions.json",
         "decision_id": "relocate_only_file_stated_marks",
-        "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "conclusion": "retain-provenance-rule-revisit-ro-application",
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -7614,14 +7614,14 @@
   },
   {
     "path": "doc/adr/1124-a-redaction-removes-the-bytes-and-refuses-what-it-cannot-clear.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "redaction_annotation_audit/decisions.json",
         "decision_id": "redaction_removes_content_as_new_file_and_names_refusals",
-        "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "conclusion": "retain-removal-architecture-revisit-ro-provenance-rationale",
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -8799,7 +8799,7 @@
         "source": "widget_annotation_audit/decisions.json",
         "decision_id": "Choose and report the missing caption share for Table192 TP codes 2–5",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -10560,7 +10560,7 @@
         "source": "redaction_annotation_audit/decisions.json",
         "decision_id": "departure_tracks_unmet_shall_not_should",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -11447,8 +11447,8 @@
       {
         "source": "widget_annotation_audit/decisions.json",
         "decision_id": "Keep §12.5.6.19 as implemented after assertion and code-path audit",
-        "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "conclusion": "revisit-whole-widget-completion-evidence",
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }

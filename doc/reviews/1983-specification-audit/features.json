@@ -30815,6 +30815,340 @@
     "superseded": false
   },
   {
+    "clause": "12.5.6.23",
+    "feature_id": "redaction_identification_precedes_application",
+    "entry_kind": "direct",
+    "requirement": "The clause describes two phases: non-destructive content identification by Redact annotations, which a user can see, move and redefine before application; then application removes the region's content and the annotations.",
+    "source_location": "§12.5.6.23 opening process list a)–b), printed p. 504 / one-based physical p. 519",
+    "errata": "No EC3 mark intersects §12.5.6.23 or Table 195 on physical p. 519; that page contains only links to Table 195 and Table 182.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decide",
+      "crates/pdf-model/src/appearance.rs::construct",
+      "crates/pdf-transform/src/redact.rs::run"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_redaction_is_reported_in_its_own_clause_s_terms",
+      "crates/pdf-transform/tests/redact.rs::text_inside_a_quadpoints_region_is_removed_and_outside_it_is_byte_identical"
+    ],
+    "verdict": "confirmed-with-scope-qualification",
+    "evidence": "A Redact annotation is recognized and its pre-application appearance-less state is refused and reported as a redaction-specific reading, rather than mistaken for a default black mark. The transform API applies annotations as a separate new-file operation. A64 expressly puts applying redactions in scope; A65 separately excludes invented overlay/fill marks. The clause's list describes the workflow but does not prescribe this product's UI for moving/redefining the marker.",
+    "remaining": "No viewer UI mechanism for authoring/moving a Redact annotation is claimed as implemented or as an independent SHALL from this process description. The annotation's stored AP before application follows common §12.5.5 and is not counted again here.",
+    "test_command": null,
+    "test_result": "redaction-projection-reviewed-target-v2.log:2PASS. Broad16 predates target; no universal content-removal certification.",
+    "parent_review": "Partial source/ADR/test review. Parent rejected blanket RO authoring attribution, added required stored Redact AP, survivor/reopen/extraction/no-overlay-pixel controls, and used PDF2.0 for Projection.",
+    "reviewer": "redaction_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "confirmed-with-scope-qualification",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.23",
+    "feature_id": "supported_redaction_has_a_removal_mechanism_and_writes_new_result",
+    "entry_kind": "direct",
+    "requirement": "An interactive processor that supports redaction annotations shall provide a mechanism to apply them; application removes content identified by the annotations and the annotations themselves, and removes all traces of the specified content.",
+    "source_location": "§12.5.6.23 paragraphs beginning 'Redaction annotations shall provide enough information...' and 'Interactive PDF processors that support...', printed p. 504 / physical p. 519",
+    "errata": "No EC3 amendment at the redaction text/table on physical p. 519.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-transform/src/redact.rs::run",
+      "crates/pdf-transform/src/redact.rs::write_document",
+      "crates/pdf-transform/src/lib.rs::Plan::Redact",
+      "crates/pdf-transform/src/bin/quorra-transform.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-transform/tests/redact.rs::text_inside_a_quadpoints_region_is_removed_and_outside_it_is_byte_identical",
+      "crates/pdf-transform/tests/redact.rs::one_glyph_is_removed_from_the_middle_of_a_show_operator",
+      "crates/pdf-transform/tests/redact.rs::a_redaction_hidden_in_an_object_stream_is_found_and_applied"
+    ],
+    "verdict": "partial-with-explicit-refusals-and-departure",
+    "evidence": "The transform suite exposes an actual Redact plan and serializes a new output. For supported content it removes text/content streams, drops applied Redact annotations and rewrites reachable objects so removed bytes are not retained as dangling objects. The named text test asserts removed text is absent/unextractable while outside text remains byte-identical; the object-stream fixture confirms annotation discovery is not a raw-byte scan. The ledger status is `departed` because supported content can be removed but selected regions/content types are refused, and the fill/overlay is a reported scope departure. A64 explicitly says application is in scope; it does not authorize pretending these residuals are complete conformance.",
+    "remaining": "The row's full 'all content' obligation is not fully met. Existing no-misleading-output refusals cover unsupported/unclear content; the two currently documented JPX/function refusals and their limits remain explicit. A64/A65 authorize removal while keeping the overlay/fill invention outside the authoring boundary.",
+    "test_command": null,
+    "test_result": "redaction-projection-reviewed-target-v2.log:2PASS. Broad16 predates target; no universal content-removal certification.",
+    "parent_review": "Partial source/ADR/test review. Parent rejected blanket RO authoring attribution, added required stored Redact AP, survivor/reopen/extraction/no-overlay-pixel controls, and used PDF2.0 for Projection.",
+    "reviewer": "redaction_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "partial-with-explicit-refusals-and-departure",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.23",
+    "feature_id": "quadpoints_region_takes_precedence_and_rect_is_fallback",
+    "entry_kind": "conditional",
+    "requirement": "When /QuadPoints is present, its quadrilaterals define the content region; when absent, /Rect defines it. Table 195 refers to Table 182's user-space quadrilateral ordering.",
+    "source_location": "Table 195 /QuadPoints, printed p. 504 / physical p. 519; Table 182 is a forward reference",
+    "errata": "No Table 195 or Table 182 amendment on physical p. 519.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-transform/src/redact.rs::redactions",
+      "crates/pdf-transform/src/redact.rs::region_boxes"
+    ],
+    "test_refs": [
+      "crates/pdf-transform/tests/redact.rs::text_inside_a_quadpoints_region_is_removed_and_outside_it_is_byte_identical",
+      "crates/pdf-transform/tests/redact.rs::one_glyph_is_removed_from_the_middle_of_a_show_operator"
+    ],
+    "verdict": "code-supported-existing-oracle-does-not-discriminate-precedence",
+    "evidence": "`region_boxes` reads nonempty QuadPoints boxes first and otherwise falls back to Rect. The first test removes text from a QuadPoints band while preserving bytes outside; the second uses a Rect-only region and checks one glyph is removed with the surviving text/advance preserved. The mapping from arbitrary quadrilateral to a bounding box/intersection is a documented interpretation choice under A64, not treated as text the clause states unambiguously. Existing cited QuadPoints fixture uses a bow-tie order, not Table182 counterclockwise order, and shares its bounding extent with Rect; this alone does not discriminate QuadPoints-over-Rect precedence. Source/code supports intended region selection, but this assertion is weaker than the feature claim.",
+    "remaining": "The transform chooses bounding-box intersection for 'within' content; that under-specified region-membership rule is explicitly a choice. Malformed /QuadPoints recovery is not specified by this subclause and is not inferred here.",
+    "test_command": null,
+    "test_result": "redaction-projection-reviewed-target-v2.log:2PASS. Broad16 predates target; no universal content-removal certification.",
+    "parent_review": "Partial source/ADR/test review. Parent rejected blanket RO authoring attribution, added required stored Redact AP, survivor/reopen/extraction/no-overlay-pixel controls, and used PDF2.0 for Projection.",
+    "reviewer": "redaction_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "code-supported-existing-oracle-does-not-discriminate-precedence",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.23",
+    "feature_id": "image_data_in_region_is_destroyed_not_hidden_by_clip_or_mask",
+    "entry_kind": "direct",
+    "requirement": "If an image portion lies in the redaction region, that image data shall be destroyed; clipping paths or image masks shall not be used to hide it.",
+    "source_location": "§12.5.6.23 second-phase paragraph, printed p. 504 / physical p. 519",
+    "errata": "No direct EC3 amendment at physical p. 519.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-transform/src/redact.rs::clear_images",
+      "crates/pdf-transform/src/redact/images.rs",
+      "crates/pdf-transform/src/redact/inline.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-transform/tests/redact.rs::image_samples_inside_a_quadpoints_region_are_destroyed_and_outside_intact",
+      "crates/pdf-transform/tests/redact.rs::inline_image_samples_inside_a_quadpoints_region_are_destroyed_and_the_stream_is_spliced",
+      "crates/pdf-transform/tests/redact.rs::a_dct_image_in_the_region_is_decoded_cleared_and_reencoded_as_flate"
+    ],
+    "verdict": "confirmed-for-supported-image-paths-with-explicit-refusals",
+    "evidence": "The model tests read back sample values, and transform tests cover raw image, codec image and inline-image paths. They assert region samples are changed/destroyed and outside samples remain, rather than checking that a covering clip or mask was added. The broader row documents exact codec/grid refusal cases and does not silently claim every possible image representation is supported.",
+    "remaining": "The implementation remains partial where the exact grid/precision cannot be safely preserved; specific JPX and other unsupported content is refused by name. The clause's unbounded diligence sentence is not claimed complete beyond the implemented content families and explicitly recorded refusals.",
+    "test_command": null,
+    "test_result": "redaction-projection-reviewed-target-v2.log:2PASS. Broad16 predates target; no universal content-removal certification.",
+    "parent_review": "Partial source/ADR/test review. Parent rejected blanket RO authoring attribution, added required stored Redact AP, survivor/reopen/extraction/no-overlay-pixel controls, and used PDF2.0 for Projection.",
+    "reviewer": "redaction_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "confirmed-for-supported-image-paths-with-explicit-refusals",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.23",
+    "feature_id": "redaction_must_consider_all_pdf_content_classes",
+    "entry_kind": "direct",
+    "requirement": "An interactive processor supporting content removal shall be diligent in considering all content that can exist in a PDF document.",
+    "source_location": "§12.5.6.23 second-phase paragraph, printed p. 504 / physical p. 519",
+    "errata": "No direct EC3 annotation at physical p. 519.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-transform/src/redact.rs and its redaction submodules"
+    ],
+    "test_refs": [
+      "crates/pdf-transform/tests/redact.rs (content-family tests listed in the ledger row)",
+      "crates/pdf-transform/src/redact.rs::run refusal/reporting paths"
+    ],
+    "verdict": "partial-explicitly-bounded",
+    "evidence": "The redaction implementation covers text/glyphs, paths, images, forms, inline images, shadings, masks and content under nested forms/state. The row's large test inventory tests actual output for those features. The implementation is not blanket universal: it refuses unsupported Type 3/CMap/function/shading/path/codec shapes by name and records two remaining refusal classes (deep JPX and 2-input calculator function). A64's authorization is for building redaction, not for converting `departed` to complete while those paths remain. Parent does not certify every named refusal/content class from this inventory or broad execution; only targeted assertions and cited reviewed bodies are evidence.",
+    "remaining": "Keep all refusals and the row's known residuals explicit; do not treat an inventory of code modules or a handful of tests as proving the universal quantifier. The broader redaction algorithm is not re-audited feature-by-feature in this bounded annotation shard.",
+    "test_command": null,
+    "test_result": "redaction-projection-reviewed-target-v2.log:2PASS. Broad16 predates target; no universal content-removal certification.",
+    "parent_review": "Partial source/ADR/test review. Parent rejected blanket RO authoring attribution, added required stored Redact AP, survivor/reopen/extraction/no-overlay-pixel controls, and used PDF2.0 for Projection.",
+    "reviewer": "redaction_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "partial-explicitly-bounded",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.23",
+    "feature_id": "overlay_appearance_is_post_application_and_project_reports_declined_mark",
+    "entry_kind": "conditional",
+    "requirement": "Table 195 /RO is a post-removal overlay appearance and takes precedence over IC, OverlayText, DA and Q. The table says the overlay should be drawn and gives its origin at the Rect lower-left. A64/A65 explicitly exclude composing this program's overlay/fill marks; the removal still proceeds and the choice is reported.",
+    "source_location": "Table 195 /RO, printed p. 505 / one-based physical p. 520; A64 and A65 scope ratifications",
+    "errata": "No EC3 issue changes Table 195 on physical p. 520; Issue #42 and Issue #94 on this physical page amend the following Projection clause only.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-transform/src/redact.rs::redactions",
+      "crates/pdf-transform/src/redact.rs::run",
+      "crates/pdf-transform/src/lib.rs::Report::departures"
+    ],
+    "test_refs": [
+      "crates/pdf-transform/tests/redact.rs::an_overlay_is_a_reported_departure_not_a_drawn_mark",
+      "crates/pdf-transform/tests/redaction_projection_spec_audit.rs::a_redaction_ro_is_reported_while_removal_proceeds_without_composing_the_overlay"
+    ],
+    "verdict": "confirmed-declined-ro-recommendation-with-unsupported-provenance-rationale",
+    "evidence": "New RO-only fixture removes SECRET/Redact, retains KEEP through reopening/extraction, emits one overlay report and leaves the RO placement pixel transparent; noROcontrol has no report. Both have valid storedRedactAP. Parent read A64/A65: they explicitly name overlaytext/fill, not RO. ROis producer-supplied Form artwork and Table195fixes origin; code/ADR1124 claim composing content the file did not hold is false for this case. Drawing ROis SHOULD, so current decline is not promoted to a missingSHALL. A65requires clause-driven relocation, and SHOULDversusrequired boundary is separately qualified.",
+    "remaining": "The RO precedence/location and actual RO drawing are intentionally not implemented under A64/A65. Scratch test draft checks the RO-only report and removal behavior against a no-overlay positive control; it does not test invented marks or precedence among excluded alternatives.",
+    "test_command": null,
+    "test_result": "redaction-projection-reviewed-target-v2.log:2PASS. Broad16 predates target; no universal content-removal certification.",
+    "parent_review": "Partial source/ADR/test review. Parent rejected blanket RO authoring attribution, added required stored Redact AP, survivor/reopen/extraction/no-overlay-pixel controls, and used PDF2.0 for Projection.",
+    "reviewer": "redaction_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "confirmed-declined-ro-recommendation-with-unsupported-provenance-rationale",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.23",
+    "feature_id": "overlay_text_repeat_da_and_quadding_are_scope_bounded",
+    "entry_kind": "conditional",
+    "requirement": "OverlayText is optional and is ignored when RO is present; Repeat defaults false and controls repetition; DA is required when OverlayText is present and is ignored otherwise; Q selects left/center/right alignment and defaults to zero. These govern the post-application overlay, not content removal.",
+    "source_location": "Table 195 /OverlayText, /Repeat, /DA, /Q, printed p. 505 / physical p. 520",
+    "errata": "No EC3 amendment to these entries on physical p. 520.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-transform/src/redact.rs::redactions",
+      "doc/questions/A64-is-applying-a-redaction-owed-or-excluded.md",
+      "doc/questions/A65-may-a-preserve-remedy-write-onto-a-page-the-producer-wrote.md"
+    ],
+    "test_refs": [
+      "crates/pdf-transform/tests/redact.rs::an_overlay_is_a_reported_departure_not_a_drawn_mark"
+    ],
+    "verdict": "documented-scope-exclusion",
+    "evidence": "The existing application test removes content and reports that OverlayText/IC is not composed; the report is a product boundary, not a fabricated claim that defaults, alignment, or text placement are supported. A64 permits application without those marks and A65 ratifies that marks partly invented by this processor remain excluded. DA's table-required status is a file constraint when OverlayText is supplied, not a reason to force any malformed-input behavior in this reader.",
+    "remaining": "Do not draft tests requiring Repeat, DA, Q layout or RO precedence to produce marks unless scope is explicitly reopened. `redactions` detects the supported appearance alternatives only to report the departure; it does not implement the overlay drawing algorithm.",
+    "test_command": null,
+    "test_result": "redaction-projection-reviewed-target-v2.log:2PASS. Broad16 predates target; no universal content-removal certification.",
+    "parent_review": "Partial source/ADR/test review. Parent rejected blanket RO authoring attribution, added required stored Redact AP, survivor/reopen/extraction/no-overlay-pixel controls, and used PDF2.0 for Projection.",
+    "reviewer": "redaction_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "documented-scope-exclusion",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.23",
+    "feature_id": "ic_default_transparency_and_ro_ignores_ic",
+    "entry_kind": "conditional",
+    "requirement": "If IC is present it supplies three DeviceRGB interior components for the post-removal fill; when absent, the fill is transparent; IC is ignored if RO is present.",
+    "source_location": "Table 195 /IC, printed p. 504 / physical p. 519",
+    "errata": "No EC3 annotation changes this Table 195 row on physical p. 519.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-transform/src/redact.rs::redactions",
+      "doc/questions/A64-is-applying-a-redaction-owed-or-excluded.md",
+      "doc/questions/A65-may-a-preserve-remedy-write-onto-a-page-the-producer-wrote.md"
+    ],
+    "test_refs": [
+      "crates/pdf-transform/tests/redact.rs::an_overlay_is_a_reported_departure_not_a_drawn_mark"
+    ],
+    "verdict": "documented-scope-exclusion",
+    "evidence": "The IC color/fill behavior is explicitly part of the post-removal mark A64/A65 exclude. Current code only recognizes IC as an overlay departure trigger; it does not apply the fill. The referenced test verifies removal plus one overlay departure, not DeviceRGB validation or the transparent default.",
+    "remaining": "No output-color regression is proposed while applying a fill remains outside ratified authoring scope. Input validation/recovery for malformed IC is not inferred from this reader-facing boundary.",
+    "test_command": null,
+    "test_result": "redaction-projection-reviewed-target-v2.log:2PASS. Broad16 predates target; no universal content-removal certification.",
+    "parent_review": "Partial source/ADR/test review. Parent rejected blanket RO authoring attribution, added required stored Redact AP, survivor/reopen/extraction/no-overlay-pixel controls, and used PDF2.0 for Projection.",
+    "reviewer": "redaction_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "documented-scope-exclusion",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.24",
+    "feature_id": "projection_requires_its_subtype_and_is_contextual_markup",
+    "entry_kind": "direct",
+    "requirement": "A Projection annotation shall have /Subtype /Projection, uses the common annotation and markup dictionary entries, and is only valid in an associated runtime environment such as an activated 3D model.",
+    "source_location": "§12.5.6.24 opening paragraphs, printed p. 505 / one-based physical p. 520; Tables 166 and 172 are forward references",
+    "errata": "EC3 Issue #94 caret on physical p. 520 (printed p. 505) adds ', and thus an AP dictionary is not required' after the runtime-context sentence. The surrounding page image confirms the caret is at the clause's paragraph end, despite the annotation index's broad section_refs. The general table entries remain delegated.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::STANDARD_SUBTYPES",
+      "crates/pdf-model/src/annotation.rs::decide",
+      "crates/pdf-model/src/annotation.rs::construct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::no_table_171_subtype_is_refused_with_the_catch_all_s_sentence",
+      "crates/pdf-transform/tests/redaction_projection_spec_audit.rs::projection_without_runtime_has_no_constructed_mark_but_keeps_a_stored_appearance"
+    ],
+    "verdict": "confirmed-selected-inert-context-and-stored-ap-consumers",
+    "evidence": "New PDF2.0 syntax/xref-valid fixtures have no active runtime; absentAPhas emptycomplete interpretation/transparentpixel, storedAPpaints exactredpixel. These are static-reader behavior controls, not fullvalid3Dmeasurement/runtime certification. LedgerSquareflags citation does not establish this Projection behavior.",
+    "remaining": "A scratch complete-PDF test asserts the no-runtime/no-AP path is quiet and pairs it with a stored-AP positive control, so an implementation that blanket-drops Projection will fail. Treat the no-AP outcome as this reader's documented context-bound choice; the stored AP follows common §12.5.5, not an extra Projection-specific drawing rule.",
+    "test_command": null,
+    "test_result": "redaction-projection-reviewed-target-v2.log:2PASS. Broad16 predates target; no universal content-removal certification.",
+    "parent_review": "Partial source/ADR/test review. Parent rejected blanket RO authoring attribution, added required stored Redact AP, survivor/reopen/extraction/no-overlay-pixel controls, and used PDF2.0 for Projection.",
+    "reviewer": "redaction_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-inert-context-and-stored-ap-consumers",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.24",
+    "feature_id": "projection_3d_measurement_exdata_requirement",
+    "entry_kind": "conditional",
+    "requirement": "When Projection is used with a 3D measurement, it has ExData whose subtype is 3DM; the 3D measurement relationship is defined in §13.6.7.4 and Table 332.",
+    "source_location": "§12.5.6.24 measurement paragraph, printed p. 505 / physical p. 520; §13.6.7.4 and Table 332 forward references",
+    "errata": "No EC3 mark intersects this conditional requirement on physical p. 520.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::STANDARD_SUBTYPES"
+    ],
+    "test_refs": [],
+    "verdict": "forward-reference-outside-this-reader-context",
+    "evidence": "This is a conditional dictionary-formation requirement for the projection/3D-measurement relationship. This reader has no activated 3D runtime and clause 13's measurement rendering is excluded; merely recognizing Projection does not implement Table 332. No consumer or assertion for this ExData semantic was found in the audited bounded path, and no broader 3D capability is claimed.",
+    "remaining": "The ExData/3DM relationship and Table 332's fields belong with the §13.6.7.4/3D measurement audit if that scope is opened. Do not classify this as implemented merely because the subtype is recognized.",
+    "test_command": null,
+    "test_result": "redaction-projection-reviewed-target-v2.log:2PASS. Broad16 predates target; no universal content-removal certification.",
+    "parent_review": "Partial source/ADR/test review. Parent rejected blanket RO authoring attribution, added required stored Redact AP, survivor/reopen/extraction/no-overlay-pixel controls, and used PDF2.0 for Projection.",
+    "reviewer": "redaction_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "forward-reference-outside-this-reader-context",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.24",
+    "feature_id": "projection_exdata_otherwise_optional",
+    "entry_kind": "conditional",
+    "requirement": "Outside the 3D-measurement relationship, Projection /ExData is optional.",
+    "source_location": "§12.5.6.24 measurement paragraph, printed p. 505 / physical p. 520",
+    "errata": "No EC3 amendment to this sentence.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::STANDARD_SUBTYPES"
+    ],
+    "test_refs": [],
+    "verdict": "no-independent-reader-requirement",
+    "evidence": "This is permission/producer-optional text; no reader behavior is independently required by saying ExData may be absent outside the stated 3D case. General dictionary unknown-key behavior remains assigned to the common annotation dictionaries.",
+    "remaining": "No test is needed for a reader's tolerance of optional ExData absent malformed-input rules from the referenced clauses.",
+    "test_command": null,
+    "test_result": "redaction-projection-reviewed-target-v2.log:2PASS. Broad16 predates target; no universal content-removal certification.",
+    "parent_review": "Partial source/ADR/test review. Parent rejected blanket RO authoring attribution, added required stored Redact AP, survivor/reopen/extraction/no-overlay-pixel controls, and used PDF2.0 for Projection.",
+    "reviewer": "redaction_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-reader-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.24",
+    "feature_id": "projection_zero_rect_no_ap_prohibition_was_removed_by_ec3",
+    "entry_kind": "erratum",
+    "requirement": "Base text's final sentence prohibited AP on zero-width/height Projection Rects; EC3 Issue #42 strikes out that whole sentence. Issue #94 separately adds that AP is not required in the valid runtime context.",
+    "source_location": "§12.5.6.24 final sentence, printed p. 505 / physical p. 520; exact strike and caret rectangles verified against source page image",
+    "errata": "Issue #42 StrikeOut at physical p. 520 removes 'A projection annotation with a Rect entry that has zero height or zero width shall not have an AP dictionary.' Issue #94 Caret at the end of the prior context sentence inserts ', and thus an AP dictionary is not required.' The two edits must be combined: no zero-Rect-specific no-AP mandate remains.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decide",
+      "crates/pdf-model/src/annotation.rs::construct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::no_table_171_subtype_is_refused_with_the_catch_all_s_sentence"
+    ],
+    "verdict": "confirmed-effective-text-no-special-zero-rect-obligation",
+    "evidence": "The original physical-page image places the #42 strike directly across the zero-Rect/AP sentence at the page bottom. The #94 caret is separately attached to the preceding Projection context paragraph. Markdown retains the retired sentence and omits both marks. The current code does not impose a Projection-specific no-AP or zero-Rect rule; common AP handling applies when a stored stream is present.",
+    "remaining": "Do not resurrect the deleted prohibition from Markdown. General Table 166's AP exceptions and §12.5.5 behavior remain separate. No test of a forbidden zero-Rect/AP combination is justified by the effective clause.",
+    "test_command": null,
+    "test_result": "redaction-projection-reviewed-target-v2.log:2PASS. Broad16 predates target; no universal content-removal certification.",
+    "parent_review": "Partial source/ADR/test review. Parent rejected blanket RO authoring attribution, added required stored Redact AP, survivor/reopen/extraction/no-overlay-pixel controls, and used PDF2.0 for Projection.",
+    "reviewer": "redaction_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-effective-text-no-special-zero-rect-obligation",
+    "superseded": false
+  },
+  {
     "clause": "12.5.6.18",
     "feature_id": "table190_screen_subtype_and_title",
     "requirement": "Table 190 requires /Subtype /Screen. /T is an optional title; its mere presence does not require a reader action in this clause.",
@@ -40479,6 +40813,449 @@
     "parent_review_state": "parent-reviewed-partial-with-independent-consumer-tests",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "confirmed-selected-public-print-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.19",
+    "feature_id": "12.5.6.19.widget_subtype_required",
+    "requirement": "Widget annotation dictionaries use /Subtype /Widget; Table191 marks Subtype required.",
+    "source_location": "ISO 32000-2 §12.5.6.19, printed pp. 498–500 / physical pp. 513–515; source/spec-layout.txt:29921-29927",
+    "errata": "No effective EC3 edit to this Widget clause/Table entry was found on physical pp. 513–515.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/appearance.rs::construct",
+      "crates/pdf-model/src/content/annotations.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_widget_draws_its_background_and_reports_its_field_value"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The annotation type is in STANDARD_SUBTYPES and widget constructor is dispatched by subtype. Existing widget rendering tests use the subtype, while Table166/191 writer duty is not turned into a reader rejection policy.",
+    "test_command": null,
+    "test_result": "widget-reviewed-target-v2.log:3PASS/1expectedFAIL; TP6 oracle allows antialiasing rather than requiring a fully black sample. Existing named tests passed broad16, assertion evidence remains bounded.",
+    "parent_review": "Partial parent review: actual Table191/192, selected ADR/source/assertions and new discriminators checked; no whole family certification. Effective#42onphysical513 strikes Screen, not Widget.",
+    "reviewer": "widget_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.19",
+    "feature_id": "12.5.6.19.single_widget_field_annotation_merge",
+    "requirement": "When a field has one widget, field and annotation entries may be merged; this is an authoring convenience and requires no separate reader behavior.",
+    "source_location": "ISO 32000-2 §12.5.6.19, printed pp. 498–500 / physical pp. 513–515; source/spec-layout.txt:29900-29913",
+    "errata": "No effective EC3 edit to this Widget clause/Table entry was found on physical pp. 513–515.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::Field::read",
+      "crates/pdf-model/src/form.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/script_levels.rs::a_focus_request_through_the_second_widget_focuses_the_second_widget"
+    ],
+    "verdict": "no-independent-requirement",
+    "evidence": "The source explicitly describes a convenience. The parser reads the shared dictionary as the widget/terminal field when it is present in the form tree; full field dictionary and inheritance semantics are assigned to the separate §12.7 audit. This feature record does not certify those clauses.",
+    "test_command": null,
+    "test_result": "widget-reviewed-target-v2.log:3PASS/1expectedFAIL; TP6 oracle allows antialiasing rather than requiring a fully black sample. Existing named tests passed broad16, assertion evidence remains bounded.",
+    "parent_review": "Partial parent review: actual Table191/192, selected ADR/source/assertions and new discriminators checked; no whole family certification. Effective#42onphysical513 strikes Screen, not Widget.",
+    "reviewer": "widget_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.19",
+    "feature_id": "12.5.6.19.parent_conditional",
+    "requirement": "/Parent is an indirect reference to the parent field when this widget is one of multiple children; otherwise optional, and a widget may have at most one parent.",
+    "source_location": "ISO 32000-2 §12.5.6.19, printed pp. 498–500 / physical pp. 513–515; source/spec-layout.txt:29945-29967",
+    "errata": "No effective EC3 edit to this Widget clause/Table entry was found on physical pp. 513–515.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::Field::read",
+      "crates/pdf-model/src/form.rs::fields"
+    ],
+    "test_refs": [],
+    "verdict": "producer-condition-inventoried-field-consumer-cross-reference",
+    "evidence": "Parent rejected nonexistent draft test citation. Table191 Parent condition is inventoried as producer structure. Deeper Parent/Kids/inheritance consumer evidence belongs to the active form-structure shard; no association certification here.",
+    "test_command": null,
+    "test_result": "widget-reviewed-target-v2.log:3PASS/1expectedFAIL; TP6 oracle allows antialiasing rather than requiring a fully black sample. Existing named tests passed broad16, assertion evidence remains bounded.",
+    "parent_review": "Partial parent review: actual Table191/192, selected ADR/source/assertions and new discriminators checked; no whole family certification. Effective#42onphysical513 strikes Screen, not Widget.",
+    "reviewer": "widget_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "producer-condition-inventoried-field-consumer-cross-reference",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.19",
+    "feature_id": "12.5.6.19.highlight_values_and_effect",
+    "requirement": "Table191 /H applies on press/hold within active area: N none, I invert contents, O invert border, P push appearance or offset if no down appearance, T same as P (preferred); default I.",
+    "source_location": "ISO 32000-2 §12.5.6.19, printed pp. 498–500 / physical pp. 513–515; source/spec-layout.txt:29927-29943",
+    "errata": "No effective EC3 edit to this Widget clause/Table entry was found on physical pp. 513–515.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::highlight",
+      "crates/pdf-model/src/annotation.rs::pressed_mark",
+      "crates/pdf-model/src/annotation.rs::down_overridden"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_press_inverts_a_widget_whose_highlighting_mode_says_to",
+      "crates/pdf-model/tests/annotations.rs::a_widgets_highlighting_mode_overrides_its_down_appearance",
+      "crates/pdf-model/tests/widget_annotation_spec_audit.rs::widget_highlighting_t_is_the_same_as_p_for_a_stored_down_appearance",
+      "crates/pdf-model/tests/widget_annotation_spec_audit.rs::widget_highlighting_t_is_the_same_as_p_for_a_stored_down_appearance"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The pixel test checks exact channel inversion, no highlight on N, and distinct border behavior for O. Existing state-selection tests cover stored D and pointer state. A new draft compares P and T using the same stored D; T is implemented by the same branch but previously lacked a direct discriminator. New valid normal/down stored-AP test proves explicitT andP both show redN at rest and blueD on press. DefaultH discrepancy recorded separately.",
+    "test_command": null,
+    "test_result": "widget-reviewed-target-v2.log:3PASS/1expectedFAIL; TP6 oracle allows antialiasing rather than requiring a fully black sample. Existing named tests passed broad16, assertion evidence remains bounded.",
+    "parent_review": "Partial parent review: actual Table191/192, selected ADR/source/assertions and new discriminators checked; no whole family certification. Effective#42onphysical513 strikes Screen, not Widget.",
+    "reviewer": "widget_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.19",
+    "feature_id": "12.5.6.19.highlight_default_when_down_exists",
+    "requirement": "There is a textual interaction: /H defaults I and non-P overrides a down appearance, while §12.5.5 says a supplied /D shall be used on press. Current interpretation treats absent /H as P only if /D exists, and as I otherwise.",
+    "source_location": "ISO 32000-2 §12.5.6.19, printed pp. 498–500 / physical pp. 513–515; source/spec-layout.txt:29930-29943 plus ISO §12.5.5; ledger note for 12.5.6.19",
+    "errata": "No effective EC3 edit to this Widget clause/Table entry was found on physical pp. 513–515.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::highlight",
+      "crates/pdf-model/src/annotation.rs::down_overridden",
+      "crates/pdf-model/src/annotation.rs::stored_appearance"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_widgets_highlighting_mode_overrides_its_down_appearance",
+      "crates/pdf-model/tests/widget_annotation_spec_audit.rs::omitted_widget_h_retains_the_table_191_invert_default_even_with_a_down_stream"
+    ],
+    "verdict": "implementation-gap-explicit-default-overridden-by-compatibility-choice",
+    "evidence": "Parent applies subtype-specific Table191 defaultI and non-P override over general12.5.5 down-appearance rule. New valid stored-AP fixture with explicitI paints cyan from redN, while omittedH paints blueD. Thus default differs from its stated value. ADR0123 intentionally choseP to preserve otherwise unused D artwork; that compatibility argument is disclosed but does not change the explicit default. No effective erratum to Widget changes it.",
+    "test_command": null,
+    "test_result": "widget-reviewed-target-v2.log:3PASS/1expectedFAIL; TP6 oracle allows antialiasing rather than requiring a fully black sample. Existing named tests passed broad16, assertion evidence remains bounded.",
+    "parent_review": "Partial parent review: actual Table191/192, selected ADR/source/assertions and new discriminators checked; no whole family certification. Effective#42onphysical513 strikes Screen, not Widget.",
+    "reviewer": "widget_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap-explicit-default-overridden-by-compatibility-choice",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.19",
+    "feature_id": "12.5.6.19.mk_construct_dynamic_appearance",
+    "requirement": "Optional /MK is the appearance-characteristics dictionary used in constructing a dynamic appearance stream for the widget; its name is historical and has no direct meaning.",
+    "source_location": "ISO 32000-2 §12.5.6.19, printed pp. 498–500 / physical pp. 513–515; source/spec-layout.txt:29943-29983",
+    "errata": "No effective EC3 edit to this Widget clause/Table entry was found on physical pp. 513–515.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/appearance.rs::widget",
+      "crates/pdf-model/src/appearance.rs::push_button_icon"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_widget_draws_its_background_and_reports_its_field_value",
+      "crates/pdf-model/tests/annotations.rs::a_push_buttons_normal_icon_is_drawn_where_it_has_no_appearance_stream"
+    ],
+    "verdict": "confirmed",
+    "evidence": "When no stored appearance is selected, widget construction reads /MK for background, border, rotation, icons and captions. The stored /AP path is selected before this constructor, consistent with §12.5.5 and Table191’s construction wording; general stored-AP precedence is covered by the common AP audit and not recounted here.",
+    "test_command": null,
+    "test_result": "widget-reviewed-target-v2.log:3PASS/1expectedFAIL; TP6 oracle allows antialiasing rather than requiring a fully black sample. Existing named tests passed broad16, assertion evidence remains bounded.",
+    "parent_review": "Partial parent review: actual Table191/192, selected ADR/source/assertions and new discriminators checked; no whole family certification. Effective#42onphysical513 strikes Screen, not Widget.",
+    "reviewer": "widget_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.19",
+    "feature_id": "12.5.6.19.annotation_actions_A_AA",
+    "requirement": "Optional /A is the activation action; optional /AA supplies trigger actions. Their action semantics are governed by §§12.6/12.6.3 rather than the appearance table.",
+    "source_location": "ISO 32000-2 §12.5.6.19, printed pp. 498–500 / physical pp. 513–515; source/spec-layout.txt:29935-29943",
+    "errata": "No effective EC3 edit to this Widget clause/Table entry was found on physical pp. 513–515.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/viewer/pointer.rs",
+      "crates/viewer-core/src/interact.rs::trigger",
+      "crates/pdf-model/src/action.rs::for_annotation"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/headless.rs::a_drag_inside_a_pressed_button_is_still_a_click",
+      "crates/viewer-core/tests/action_triggers_spec_audit.rs::entering_a_nested_annotation_exits_the_outer_annotation_first"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Widget click routes through public viewer activation and action dispatch; additional trigger actions are read through the shared annotation trigger machinery. This record does not re-audit action types, event order or A-vs-AA precedence.",
+    "test_command": null,
+    "test_result": "widget-reviewed-target-v2.log:3PASS/1expectedFAIL; TP6 oracle allows antialiasing rather than requiring a fully black sample. Existing named tests passed broad16, assertion evidence remains bounded.",
+    "parent_review": "Partial parent review: actual Table191/192, selected ADR/source/assertions and new discriminators checked; no whole family certification. Effective#42onphysical513 strikes Screen, not Widget.",
+    "reviewer": "widget_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.19",
+    "feature_id": "12.5.6.19.bs_border_dictionary",
+    "requirement": "Optional /BS supplies border width/dash for a widget border, with semantics shared with §12.5.4 and Table168.",
+    "source_location": "ISO 32000-2 §12.5.6.19, printed pp. 498–500 / physical pp. 513–515; source/spec-layout.txt:29939-29945",
+    "errata": "No effective EC3 edit to this Widget clause/Table entry was found on physical pp. 513–515.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::widget",
+      "crates/pdf-model/src/appearance.rs::Border::read"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_widget_draws_its_background_and_reports_its_field_value"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Widget borders use Border::read with annotation fallback rules and draw fully inside the rectangle; the general border precedence and geometry tests belong to the annotation-border audit. This widget audit does not count them again.",
+    "test_command": null,
+    "test_result": "widget-reviewed-target-v2.log:3PASS/1expectedFAIL; TP6 oracle allows antialiasing rather than requiring a fully black sample. Existing named tests passed broad16, assertion evidence remains bounded.",
+    "parent_review": "Partial parent review: actual Table191/192, selected ADR/source/assertions and new discriminators checked; no whole family certification. Effective#42onphysical513 strikes Screen, not Widget.",
+    "reviewer": "widget_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.19",
+    "feature_id": "12.5.6.19.rotation_R",
+    "requirement": "Table192 /R is optional counterclockwise widget rotation, a multiple of 90, default 0.",
+    "source_location": "ISO 32000-2 §12.5.6.19, printed pp. 498–500 / physical pp. 513–515; source/spec-layout.txt:29986-29997",
+    "errata": "No effective EC3 edit to this Widget clause/Table entry was found on physical pp. 513–515.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::widget",
+      "crates/pdf-model/src/appearance.rs::Rotation"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_widgets_contents_turn_by_table_192s_r"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The renderer applies a rotation transform in widget-local axes, changes the content box for quarter turns, and reports non-multiples rather than rounding. Existing tests compare upright, 90, 180, and 45 degree outcomes with bounds.",
+    "test_command": null,
+    "test_result": "widget-reviewed-target-v2.log:3PASS/1expectedFAIL; TP6 oracle allows antialiasing rather than requiring a fully black sample. Existing named tests passed broad16, assertion evidence remains bounded.",
+    "parent_review": "Partial parent review: actual Table191/192, selected ADR/source/assertions and new discriminators checked; no whole family certification. Effective#42onphysical513 strikes Screen, not Widget.",
+    "reviewer": "widget_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.19",
+    "feature_id": "12.5.6.19.border_background_colours",
+    "requirement": "Table192 /BC and /BG specify optional border/background colors; empty arrays mean transparent, one/three/four components choose Gray/RGB/CMYK, components constrained to [0,1].",
+    "source_location": "ISO 32000-2 §12.5.6.19, printed pp. 498–500 / physical pp. 513–515; source/spec-layout.txt:29998-30019",
+    "errata": "No effective EC3 edit to this Widget clause/Table entry was found on physical pp. 513–515.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::widget",
+      "crates/pdf-model/src/appearance.rs::colour",
+      "crates/pdf-model/src/appearance.rs::Border"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_widget_draws_its_background_and_reports_its_field_value",
+      "crates/pdf-model/tests/annotations.rs::a_widget_stating_no_appearance_characteristics_draws_nothing_and_reports_nothing"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Widget construction reads MK /BG and /BC, and existing tests assert a colored background and widget border. Component ranges and array arity are producer conditions; this audit does not infer that malformed values must cause reader rejection.",
+    "test_command": null,
+    "test_result": "widget-reviewed-target-v2.log:3PASS/1expectedFAIL; TP6 oracle allows antialiasing rather than requiring a fully black sample. Existing named tests passed broad16, assertion evidence remains bounded.",
+    "parent_review": "Partial parent review: actual Table191/192, selected ADR/source/assertions and new discriminators checked; no whole family certification. Effective#42onphysical513 strikes Screen, not Widget.",
+    "reviewer": "widget_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.19",
+    "feature_id": "12.5.6.19.normal_caption_CA_scope",
+    "requirement": "Optional /CA is the normal caption. It is allowed for any button field, including check boxes and radio buttons; shown when not interacting.",
+    "source_location": "ISO 32000-2 §12.5.6.19, printed pp. 498–500 / physical pp. 513–515; source/spec-layout.txt:30020-30027",
+    "errata": "No effective EC3 edit to this Widget clause/Table entry was found on physical pp. 513–515.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::caption_entries",
+      "crates/pdf-model/src/appearance.rs::field_text"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::a_check_box_keeps_its_own_caption_under_every_pointer_state",
+      "crates/pdf-model/tests/variable_text.rs::table_192s_three_captions_are_chosen_by_what_the_pointer_is_doing"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Caption selection uses CA for non-pushbutton fields in every pointer state; test distinguishes a short CA from a long AC on checkbox and asserts width is unchanged while pressed.",
+    "test_command": null,
+    "test_result": "widget-reviewed-target-v2.log:3PASS/1expectedFAIL; TP6 oracle allows antialiasing rather than requiring a fully black sample. Existing named tests passed broad16, assertion evidence remains bounded.",
+    "parent_review": "Partial parent review: actual Table191/192, selected ADR/source/assertions and new discriminators checked; no whole family certification. Effective#42onphysical513 strikes Screen, not Widget.",
+    "reviewer": "widget_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.19",
+    "feature_id": "12.5.6.19.rollover_down_captions_RC_AC",
+    "requirement": "Optional /RC and /AC are push-button-only rollover and alternate/down captions, conditioned on pointer state.",
+    "source_location": "ISO 32000-2 §12.5.6.19, printed pp. 498–500 / physical pp. 513–515; source/spec-layout.txt:30028-30034",
+    "errata": "No effective EC3 edit to this Widget clause/Table entry was found on physical pp. 513–515.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::caption_entries",
+      "crates/pdf-model/src/appearance.rs::push_button_icon"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::table_192s_three_captions_are_chosen_by_what_the_pointer_is_doing"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Caption entries read RC under Rollover and AC under Down; the actual assertion compares extents for 1/10/20 repeated glyph captions and checks normal-caption fallback where a state caption is absent.",
+    "test_command": null,
+    "test_result": "widget-reviewed-target-v2.log:3PASS/1expectedFAIL; TP6 oracle allows antialiasing rather than requiring a fully black sample. Existing named tests passed broad16, assertion evidence remains bounded.",
+    "parent_review": "Partial parent review: actual Table191/192, selected ADR/source/assertions and new discriminators checked; no whole family certification. Effective#42onphysical513 strikes Screen, not Widget.",
+    "reviewer": "widget_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.19",
+    "feature_id": "12.5.6.19.pushbutton_icons_I_RI_IX",
+    "requirement": "Optional indirect form-XObject icon entries I, RI, IX represent normal, rollover and down state icons.",
+    "source_location": "ISO 32000-2 §12.5.6.19, printed pp. 498–500 / physical pp. 513–515; source/spec-layout.txt:30035-30047",
+    "errata": "No effective EC3 edit to this Widget clause/Table entry was found on physical pp. 513–515.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::push_button_icon",
+      "crates/pdf-model/src/appearance.rs::Icon::read"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::table_192s_three_icons_are_chosen_by_what_the_pointer_is_doing",
+      "crates/pdf-model/tests/annotations.rs::a_check_box_does_not_draw_table_192s_push_button_icon"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The icons are read by the active Appearance state and drawn by the constructed widget. Tests use three distinguishable colored forms and assert pixel selection for normal/rollover/down, and test non-pushbutton scoping. Direct references would violate the producer condition that these streams be indirect; no reader rejection is inferred.",
+    "test_command": null,
+    "test_result": "widget-reviewed-target-v2.log:3PASS/1expectedFAIL; TP6 oracle allows antialiasing rather than requiring a fully black sample. Existing named tests passed broad16, assertion evidence remains bounded.",
+    "parent_review": "Partial parent review: actual Table191/192, selected ADR/source/assertions and new discriminators checked; no whole family certification. Effective#42onphysical513 strikes Screen, not Widget.",
+    "reviewer": "widget_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.19",
+    "feature_id": "12.5.6.19.icon_fit_IF_applies_to_all_icons",
+    "requirement": "Optional push-button /IF references Table250 and, when present, applies to all normal, rollover and alternate icons.",
+    "source_location": "ISO 32000-2 §12.5.6.19, printed pp. 498–500 / physical pp. 513–515; source/spec-layout.txt:30048-30052",
+    "errata": "No effective EC3 edit to this Widget clause/Table entry was found on physical pp. 513–515.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::push_button_icon",
+      "crates/pdf-model/src/appearance.rs::IconFit::read"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::table_250s_never_scale_keeps_the_icons_own_size_and_a_places_it",
+      "crates/pdf-model/tests/widget_annotation_spec_audit.rs::widget_if_is_applied_to_normal_rollover_and_alternate_icons",
+      "crates/pdf-model/tests/widget_annotation_spec_audit.rs::widget_if_is_applied_to_normal_rollover_and_alternate_icons"
+    ],
+    "verdict": "confirmed-selected-shared-fit-consumer",
+    "evidence": "New complete fallback fixtures share IF/SW N among I/RI/IX: normal/red,hover/green,press/blue each paints center and leaves outside centered10x10icon transparent. NoIFpositivecontrol scales10x10to80x80. Exactxref/completeinterpretation pass. NoAP tests exercise dynamic construction, not producerAP conformance.",
+    "test_command": null,
+    "test_result": "widget-reviewed-target-v2.log:3PASS/1expectedFAIL; TP6 oracle allows antialiasing rather than requiring a fully black sample. Existing named tests passed broad16, assertion evidence remains bounded.",
+    "parent_review": "Partial parent review: actual Table191/192, selected ADR/source/assertions and new discriminators checked; no whole family certification. Effective#42onphysical513 strikes Screen, not Widget.",
+    "reviewer": "widget_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-shared-fit-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.19",
+    "feature_id": "12.5.6.19.icon_caption_position_TP",
+    "requirement": "Optional push-button /TP positions caption relative to icon: codes 0–6, default 0; codes 2–5 name side; 6 overlays.",
+    "source_location": "ISO 32000-2 §12.5.6.19, printed pp. 498–500 / physical pp. 513–515; source/spec-layout.txt:30048-30057",
+    "errata": "No effective EC3 edit to this Widget clause/Table entry was found on physical pp. 513–515.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::CaptionPosition",
+      "crates/pdf-model/src/appearance.rs::push_button_icon"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::table_192s_default_caption_position_draws_no_icon",
+      "crates/pdf-model/tests/annotations.rs::table_192s_beside_codes_divide_the_rectangle_at_a_chosen_share",
+      "crates/pdf-model/tests/widget_annotation_spec_audit.rs::widget_tp_six_overlays_the_caption_on_the_icon",
+      "crates/pdf-model/tests/widget_annotation_spec_audit.rs::widget_tp_six_overlays_the_caption_on_the_icon"
+    ],
+    "verdict": "confirmed-selected-tp6-layering-and-prior-placement-policy",
+    "evidence": "Code handles each value, and tests cover default 0, icon only 1, and sides 2–5, but no direct assertion for code 6 overlay. The scratch draft compares TP=1 (icon-only, zero glyphs) with TP=6 (caption glyphs plus visible icon), discriminating overlay from icon-only. The third-of-rect split for codes2–5 is an adopted quantity per ADR1299, not a normative share. New TP1positivecontrol has zero glyphs and redicon; TP6has exactlyonecaptionglyph and visible darkened redpixels plus preserved redcorner. This detects a caption counted but hidden behind the icon. Black text is antialiased at10points, so fullblackpixel expectation was rejected. Completeinterpretation/xref pass. Side-split quantities remainA72policy.",
+    "test_command": null,
+    "test_result": "widget-reviewed-target-v2.log:3PASS/1expectedFAIL; TP6 oracle allows antialiasing rather than requiring a fully black sample. Existing named tests passed broad16, assertion evidence remains bounded.",
+    "parent_review": "Partial parent review: actual Table191/192, selected ADR/source/assertions and new discriminators checked; no whole family certification. Effective#42onphysical513 strikes Screen, not Widget.",
+    "reviewer": "widget_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-tp6-layering-and-prior-placement-policy",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.19",
+    "feature_id": "12.5.6.19.pushbutton_only_scope",
+    "requirement": "Except CA, the remaining Table192 entries are for widgets associated with push-button fields.",
+    "source_location": "ISO 32000-2 §12.5.6.19, printed pp. 498–500 / physical pp. 513–515; source/spec-layout.txt:30022-30027,30028-30057",
+    "errata": "No effective EC3 edit to this Widget clause/Table entry was found on physical pp. 513–515.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::push_button_icon",
+      "crates/pdf-model/src/appearance.rs::caption_entries"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_check_box_does_not_draw_table_192s_push_button_icon",
+      "crates/pdf-model/tests/variable_text.rs::a_check_box_keeps_its_own_caption_under_every_pointer_state"
+    ],
+    "verdict": "confirmed",
+    "evidence": "push_button_icon resolves inherited FT/Ff through Field; non-pushbutton returns no button icon/caption state. Existing checkbox control proves I is ignored while checkbox CA remains active; broader field hierarchy and flags belong to §12.7 shard.",
+    "test_command": null,
+    "test_result": "widget-reviewed-target-v2.log:3PASS/1expectedFAIL; TP6 oracle allows antialiasing rather than requiring a fully black sample. Existing named tests passed broad16, assertion evidence remains bounded.",
+    "parent_review": "Partial parent review: actual Table191/192, selected ADR/source/assertions and new discriminators checked; no whole family certification. Effective#42onphysical513 strikes Screen, not Widget.",
+    "reviewer": "widget_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.19",
+    "feature_id": "12.5.6.19.no_Table193_widget_entry",
+    "requirement": "Table193 is the additional entries table for Watermark annotations, not Widgets; Widget Table192 references Table250 for /IF.",
+    "source_location": "ISO 32000-2 §12.5.6.19, printed pp. 498–500 / physical pp. 513–515; source/spec-layout.txt: Table191/192 at 29921-30057; Table193 starts source/spec-layout.txt:30112",
+    "errata": "No effective EC3 edit to this Widget clause/Table entry was found on physical pp. 513–515.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::IconFit"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::table_250s_never_scale_keeps_the_icons_own_size_and_a_places_it"
+    ],
+    "verdict": "no-independent-requirement",
+    "evidence": "No widget semantics are imported from Table193. The only Widget table dependency named here is Table250 through /IF, which has separate entries/defaults under its own clause; this report does not claim a full Table250 audit.",
+    "test_command": null,
+    "test_result": "widget-reviewed-target-v2.log:3PASS/1expectedFAIL; TP6 oracle allows antialiasing rather than requiring a fully black sample. Existing named tests passed broad16, assertion evidence remains bounded.",
+    "parent_review": "Partial parent review: actual Table191/192, selected ADR/source/assertions and new discriminators checked; no whole family certification. Effective#42onphysical513 strikes Screen, not Widget.",
+    "reviewer": "widget_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-assertion-and-adr-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-requirement",
     "superseded": false
   }
 ]

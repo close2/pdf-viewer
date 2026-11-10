@@ -3,17 +3,17 @@
   "adr_documents": 2233,
   "document_states": {
     "pending": 2008,
-    "selected-decision-units-reviewed": 205,
-    "review-in-progress": 20
+    "selected-decision-units-reviewed": 209,
+    "review-in-progress": 16
   },
   "decision_review_records": 354,
-  "parent_accepted_records": 343,
+  "parent_accepted_records": 354,
   "cross_reference_records": 25,
   "accepted_record_conclusions": {
-    "retain-with-qualification": 166,
+    "retain-with-qualification": 167,
     "revisit": 14,
-    "retain": 91,
-    "superseded": 14,
+    "retain": 95,
+    "superseded": 15,
     "superseded-in-part": 2,
     "cross-reference-only": 25,
     "revisit-whole-stamp-row-completion": 1,
@@ -35,6 +35,9 @@
     "retain-with-bounded-scope-note": 2,
     "retain-architecture-with-activation-gap": 1,
     "revisit-unratified-editing-capability-boundary": 2,
+    "retain-removal-architecture-revisit-ro-provenance-rationale": 1,
+    "retain-provenance-rule-revisit-ro-application": 1,
+    "qualify-historical-screen-rationale-not-projection-authority": 1,
     "qualify-both-original-premises-after-effective-errata-and-scope-change": 1,
     "resolve-selected-source-reading-with-limits": 1,
     "retain-condition-grounding-with-recommendation-qualification": 1,
@@ -44,7 +47,9 @@
     "retain-policy-with-derivation-qualification": 1,
     "revisit-false-figure-premise-and-quad-geometry": 1,
     "retain-api-with-citation-and-polygon-precision-qualification": 1,
-    "retain-bounded": 1
+    "retain-bounded": 1,
+    "revisit-compatibility-choice-that-replaces-explicit-default": 1,
+    "revisit-whole-widget-completion-evidence": 1
   },
   "issues": []
 }

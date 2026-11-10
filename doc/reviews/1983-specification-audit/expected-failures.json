@@ -298,6 +298,12 @@
       "test": "a_present_empty_attachment_contents_does_not_reveal_the_filespec_description",
       "evidence": "file-attachment-routing-description-target.log",
       "classification": "Present empty Contents incorrectly exposes lower-precedence Filespec Desc at public Attachment reader boundary"
+    },
+    {
+      "binary": "pdf-model::widget_annotation_spec_audit",
+      "test": "omitted_widget_h_retains_the_table_191_invert_default_even_with_a_down_stream",
+      "evidence": "widget-reviewed-target-v2.log",
+      "classification": "Absent Widget H uses Push when D exists instead of Table191 default Invert; parent subtype-rule precedence interpretation, explicit-I valid-AP control passes"
     }
   ]
 }
