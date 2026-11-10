@@ -321,6 +321,10 @@ pub enum Undetermined {
     /// The material would not read.
     #[error("the revocation material covering that certificate would not read: {0}")]
     Unreadable(MaterialRefusal),
+    /// An authorised OCSP response names the certificate and states no archive cutoff, so it says
+    /// nothing about how long its responder retains a notice (RFC 6960 section 4.4.4).
+    #[error("the OCSP response covering that certificate states no archive cutoff")]
+    NoArchiveCutoff,
 }
 
 /// What this program can say about RFC 5280 section 6.1.3 (a)(3) — "the certificate is not
@@ -660,6 +664,9 @@ pub struct SingleResponse<'a> {
     pub this_update: Instant,
     /// `nextUpdate`, where the response states one.
     pub next_update: Option<Instant>,
+    /// RFC 6960 section 4.4.4's archive cutoff, where `singleExtensions` states one: the instant
+    /// the responder's retention interval reaches back to from `producedAt`.
+    pub archive_cutoff: Option<Instant>,
 }
 
 /// RFC 6960 section 4.2.1's `CertStatus ::= CHOICE { good [0], revoked [1], unknown [2] }`.
@@ -917,12 +924,17 @@ fn single_response<'a>(entry: &Value<'a>) -> Result<SingleResponse<'a>, Material
     };
     let this_update = x509::read_time(&this_update).ok_or(MaterialRefusal::DateUnreadable)?;
     let mut next_update = None;
+    let mut archive_cutoff = None;
     for member in std::iter::from_fn(|| fields.next_value().transpose()) {
         let member = member?;
         if member.is_context(0)
             && let Some(inner) = member.children()?.next_value()?
         {
             next_update = Some(x509::read_time(&inner).ok_or(MaterialRefusal::DateUnreadable)?);
+        } else if member.is_context(1)
+            && let Some(extensions) = member.children()?.next_value()?
+        {
+            archive_cutoff = single_extensions(&extensions)?;
         }
     }
     Ok(SingleResponse {
@@ -933,7 +945,49 @@ fn single_response<'a>(entry: &Value<'a>) -> Result<SingleResponse<'a>, Material
         status,
         this_update,
         next_update,
+        archive_cutoff,
     })
+}
+
+/// A `SingleResponse`'s `singleExtensions [1] EXPLICIT Extensions`, read for RFC 6960 section
+/// 4.4.4's archive cutoff, which that section places in `singleExtensions` under
+/// `id-pkix-ocsp-archive-cutoff` with the syntax `GeneralizedTime`.
+///
+/// Only that syntax is placed: section 4.2.2.1 gives a response's times section 4.1.2.5.2 of RFC
+/// 5280's `GeneralizedTime`, so a `UTCTime` or a fraction of a second is not a cutoff this reader
+/// will place, and it is left absent — the response still answers the status it states, and what
+/// is lost is a statement about the responder's retention, which is then not evaluated rather than
+/// guessed at. At most [`MAX_EXTENSIONS`] entries are read, as for a list's entry.
+fn single_extensions(extensions: &Value<'_>) -> Result<Option<Instant>, MaterialRefusal> {
+    /// `id-pkix-ocsp-archive-cutoff`, `{ id-pkix-ocsp 6 }` — 1.3.6.1.5.5.7.48.1.6.
+    const ARCHIVE_CUTOFF: &[u8] = &[0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x30, 0x01, 0x06];
+    /// `GeneralizedTime`'s universal tag.
+    const GENERALIZED_TIME: u8 = 0x18;
+
+    if extensions.identifier != SEQUENCE {
+        return Ok(None);
+    }
+    let mut entries = extensions.children()?;
+    let mut seen = 0usize;
+    while let Some(entry) = entries.next_value()? {
+        seen = seen.saturating_add(1);
+        if seen > MAX_EXTENSIONS {
+            break;
+        }
+        let Some(extension) = extension_parts(&entry)? else {
+            continue;
+        };
+        if extension.id != ARCHIVE_CUTOFF {
+            continue;
+        }
+        let Some(inner) = Reader::new(extension.value)?.next_value()? else {
+            continue;
+        };
+        if inner.identifier == GENERALIZED_TIME {
+            return Ok(x509::read_time(&inner));
+        }
+    }
+    Ok(None)
 }
 
 /// `CertStatus ::= CHOICE { good [0] IMPLICIT NULL, revoked [1] IMPLICIT RevokedInfo, unknown [2]
@@ -1622,6 +1676,66 @@ fn from_response(
             }))
         }
     }
+}
+
+/// RFC 6960 section 4.4.4's archive cutoff for one certificate, as one authorised response states
+/// it: "\[t]he date obtained by subtracting this retention interval value from the producedAt time
+/// in a response is defined as the certificate's \"archive cutoff\" date", so the responder's
+/// retention interval is the distance from the cutoff to `producedAt`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StatedRetention {
+    /// The response's `producedAt`.
+    pub produced_at: Instant,
+    /// The `SingleResponse`'s archive cutoff.
+    pub archive_cutoff: Instant,
+}
+
+/// Every archive cutoff an OCSP response in `material` states for `subject`'s certificate, from a
+/// response whose responder is authorised for it under RFC 6960 section 4.2.2.2 — or, where none
+/// does, why not: no response names the certificate, the ones that do are not authorised, or they
+/// state no cutoff.
+///
+/// No instant bounds which responses count: a cutoff is a statement of the responder's retention
+/// practice, not of the certificate's status at a time, so the freshness a policy places on status
+/// information does not apply to it. At most every response the material holds is asked once,
+/// bounded where the material was read.
+///
+/// # Errors
+///
+/// [`Undetermined`], naming why no authorised response stated a cutoff.
+pub fn stated_retention(
+    subject: &Subject<'_, '_>,
+    material: &Material<'_>,
+) -> Result<Vec<StatedRetention>, Undetermined> {
+    let mut stated = Vec::new();
+    let mut why = Undetermined::NotCovered;
+    for response in &material.responses {
+        let Some(single) = response
+            .responses
+            .iter()
+            .find(|single| names(single, subject))
+        else {
+            continue;
+        };
+        if let Err(refusal) = authorised(subject, response, material) {
+            // An authorised response without a cutoff is the more telling of the two reasons.
+            if why != Undetermined::NoArchiveCutoff {
+                why = refusal;
+            }
+            continue;
+        }
+        match single.archive_cutoff {
+            Some(archive_cutoff) => stated.push(StatedRetention {
+                produced_at: response.produced_at,
+                archive_cutoff,
+            }),
+            None => why = Undetermined::NoArchiveCutoff,
+        }
+    }
+    if stated.is_empty() {
+        return Err(why);
+    }
+    Ok(stated)
 }
 
 /// Whether a `SingleResponse`'s `CertID` names this certificate — RFC 6960 section 4.1.1's three

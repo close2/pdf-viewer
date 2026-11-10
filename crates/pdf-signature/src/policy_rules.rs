@@ -861,7 +861,7 @@ fn read_revocation_requirement<'a>(
         end_entity,
         authorities,
         freshness: None,
-        unprocessed: Vec::new(),
+        retention: None,
     })
 }
 
@@ -1348,6 +1348,14 @@ pub enum Constraint {
         condition: &'static str,
         /// What was mandated and what the material answered.
         check: revocation_checks::KindCheck,
+    },
+    /// TS 119 172-2 clause 4.23.3.1 item 2's retention of expired revocation notices, answered by
+    /// RFC 6960 section 4.4.4's archive cutoff (ADR 2785).
+    Retention {
+        /// The condition.
+        condition: &'static str,
+        /// The bound, and what the responses stated.
+        check: revocation_checks::RetentionCheck,
     },
     /// A time-stamp trust condition's name constraints, judged on the authority's own certificate
     /// (RFC 3125 section 6.8, TS 119 172-2 clause 4.25.1 item 3 d), ADR 2724).
@@ -2033,10 +2041,25 @@ pub(super) fn trust_path_findings(
             constraint: Constraint::RevocationCheck { condition, check },
         });
     }
-    for member in &requirement.unprocessed {
+    if requirement.retention.is_none() {
+        return;
+    }
+    // TS 119 172-2 clause 4.23.3.1 defines the retention for the signing certificate's revocation
+    // trust alone; on another condition it names nothing this program can ask (ADR 2785).
+    if condition != SIGNING_CERT_TRUST {
         out.push(Finding {
             verdict: Verdict::NotEvaluated,
-            constraint: Constraint::ConditionMember { condition, member },
+            constraint: Constraint::ConditionMember {
+                condition,
+                member: revocation_checks::RETENTION,
+            },
+        });
+        return;
+    }
+    if let Some(check) = revocation_checks::retention(requirement, path, &facts.material) {
+        out.push(Finding {
+            verdict: check.verdict(),
+            constraint: Constraint::Retention { condition, check },
         });
     }
 }
@@ -2245,6 +2268,7 @@ impl std::fmt::Display for Finding {
             Constraint::TrustCondition(_)
             | Constraint::TrustPath { .. }
             | Constraint::RevocationCheck { .. }
+            | Constraint::Retention { .. }
             | Constraint::CautionPeriod { .. }
             | Constraint::ConditionMember { .. }
             | Constraint::AuthorityName { .. }
@@ -2278,6 +2302,9 @@ impl Constraint {
             } => certification_path::sentence(f, condition, found, *unexamined, verdict),
             Self::RevocationCheck { condition, check } => {
                 revocation_checks::sentence(f, condition, check, verdict)
+            }
+            Self::Retention { condition, check } => {
+                revocation_checks::retention_sentence(f, condition, check, verdict)
             }
             Self::AuthorityName { condition, outcome } => {
                 certification_path::authority_name_sentence(f, condition, outcome, verdict)

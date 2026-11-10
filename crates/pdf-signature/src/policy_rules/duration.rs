@@ -26,6 +26,13 @@
 //! signed seconds component is rounded up to the next whole second, which decides both exactly:
 //! *issued after V − D* and *issued at or after B + D* hold for a whole-second issuance under the
 //! rounded duration exactly where they hold under the stated one.
+//!
+//! A third comparison is strict the other way: TS 119 172-2 clause 4.23.3's retention is *a period
+//! exceeding* the duration, so a whole-second instant must fall strictly before `V − D`. Under the
+//! rounded duration `V − ceil(D)` is a whole second at or before `V − D`, and an instant is
+//! strictly before `V − D` exactly where it is at or before `V − ceil(D)` when a fraction was
+//! rounded, and strictly before it when none was — which is why the duration remembers whether it
+//! rounded ([`Duration::exceeded_between`]).
 
 use crate::x509::{self, Instant};
 
@@ -36,13 +43,19 @@ pub struct Duration {
     months: i64,
     /// The signed number of seconds in the day, hour, minute and second components.
     seconds: i64,
+    /// Whether the stated seconds carried a non-zero fraction that `seconds` rounded up.
+    rounded: bool,
 }
 
 impl Duration {
     /// A duration of whole seconds, as TR 102 272 clause 6.8's `DeltaTime` states one.
     #[must_use]
     pub const fn of_seconds(seconds: i64) -> Self {
-        Self { months: 0, seconds }
+        Self {
+            months: 0,
+            seconds,
+            rounded: false,
+        }
     }
 
     /// Section 3.2.6.1's lexical form, or `None` where `text` is not one.
@@ -70,6 +83,7 @@ impl Duration {
         let mut months: i64 = 0;
         let mut seconds: i64 = 0;
         let mut stated = false;
+        let mut rounded = false;
         let mut date = date;
         for (designator, unit_months) in [('Y', 12_i64), ('M', 1)] {
             if let Some((digits, after)) = component(date, designator) {
@@ -111,6 +125,7 @@ impl Duration {
                 if fraction && !negative {
                     stated_seconds = stated_seconds.checked_add(1)?;
                 }
+                rounded = fraction;
                 seconds = seconds.checked_add(stated_seconds)?;
                 time = after;
                 timed = true;
@@ -127,7 +142,11 @@ impl Duration {
             months = months.checked_neg()?;
             seconds = seconds.checked_neg()?;
         }
-        Some(Self { months, seconds })
+        Some(Self {
+            months,
+            seconds,
+            rounded,
+        })
     }
 
     /// `at + self` by Appendix E, or `None` past this arithmetic's range.
@@ -140,6 +159,20 @@ impl Duration {
     #[must_use]
     pub fn subtracted_from(self, at: Instant) -> Option<Instant> {
         shifted(at, self.months.checked_neg()?, self.seconds.checked_neg()?)
+    }
+
+    /// Whether the time from `earlier` to `later` exceeds this duration — `earlier` strictly
+    /// before `later - self` by Appendix E — decided exactly for the stated duration however its
+    /// seconds were rounded (the module comment's third comparison), or `None` past this
+    /// arithmetic's range.
+    #[must_use]
+    pub fn exceeded_between(self, earlier: Instant, later: Instant) -> Option<bool> {
+        let reaches_back_to = self.subtracted_from(later)?.unix_seconds();
+        Some(if self.rounded {
+            earlier.unix_seconds() <= reaches_back_to
+        } else {
+            earlier.unix_seconds() < reaches_back_to
+        })
     }
 }
 

@@ -919,3 +919,44 @@ fn the_time_stamp_trust_condition_is_judged_on_the_authoritys_own_path() {
         "{unprocessed:?}"
     );
 }
+
+/// Clause 4.23.3.2's `sigCertIssuedByCAKeepsExpiredRevokedCertsInfo [1] Duration` on the signing
+/// certificate's revocation trust is the period the signer's issuer must keep revocation notices
+/// for, answered by RFC 6960 section 4.4.4's archive cutoff in an authorised OCSP response (ADR
+/// 2785): the minted CA's responder states ten years, which exceeds five and does not exceed ten.
+#[test]
+fn the_signing_certificates_retention_is_read_and_answered_by_an_archive_cutoff() {
+    use crate::policy_rules::certification_path::tests::{cms, hex};
+    use crate::policy_rules::revocation_checks::retention_tests::{AT, fixtures};
+    let (ca, leaf, ocsp) = (
+        hex(fixtures::CA),
+        hex(fixtures::SIGNER),
+        hex(fixtures::OCSP_TEN_YEARS),
+    );
+    let signed = cms(&leaf, &ca);
+    let material = crate::revocation::Material::read(&[], &[&ocsp]);
+    let facts = facts(None).validated_at(AT).with_material(&material);
+    let rule = |bound: &str| {
+        let point = seq(&[seq(&[seq(std::slice::from_ref(&ca))])]);
+        let trust = seq(&[
+            seq(&[enumeration(4), enumeration(4)]),
+            tagged(1, &tlv(0x13, bound.as_bytes())),
+        ]);
+        basic(
+            6,
+            &seq(&[seq(&[seq(&[point]), trust]), enumeration(1)]),
+            None,
+        )
+    };
+    let kept =
+        |c: &policy_rules::Constraint| matches!(c, policy_rules::Constraint::Retention { .. });
+    assert_eq!(
+        verdict_of(&judged(&[rule("P5Y")], &signed, &facts), kept),
+        [Verdict::Met]
+    );
+    assert_eq!(
+        verdict_of(&judged(&[rule("P10Y")], &signed, &facts), kept),
+        [Verdict::Broken],
+        "a retention of exactly ten years does not exceed ten years"
+    );
+}

@@ -339,7 +339,7 @@ fn require(end_entity: Check, authorities: Check) -> Requirement {
         end_entity,
         authorities,
         freshness: None,
-        unprocessed: Vec::new(),
+        retention: None,
     }
 }
 

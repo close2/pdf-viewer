@@ -1046,3 +1046,78 @@ fn the_xml_time_stamp_trust_condition_is_judged_on_the_authoritys_own_path() {
          the material was issued"
     );
 }
+
+/// Clause 4.23.3.2's `SigCertIssuedByCAKeepsExpiredRevokedCertsInfo`, an `xs:duration`, on the
+/// signing certificate's revocation trust is answered by RFC 6960 section 4.4.4's archive cutoff
+/// (ADR 2785); on the time-stamp trust condition, where clause 4.23.3.1 does not define it, it is
+/// named and not evaluated.
+#[test]
+fn the_xml_retention_is_answered_for_the_signer_and_named_elsewhere() {
+    use crate::policy_rules::TIMESTAMP_TRUST;
+    use crate::policy_rules::certification_path::tests::{cms, hex};
+    use crate::policy_rules::revocation_checks::retention_tests::{AT, fixtures};
+    let (ca, leaf, ocsp) = (
+        hex(fixtures::CA),
+        hex(fixtures::SIGNER),
+        hex(fixtures::OCSP_TEN_YEARS),
+    );
+    let signed = cms(&leaf, &ca);
+    let material = crate::revocation::Material::read(&[], &[&ocsp]);
+    let facts = facts(None).validated_at(AT).with_material(&material);
+    let anchor = format!(
+        "<X509CertificateBased>{}</X509CertificateBased>",
+        encode(&ca)
+    );
+    let trust = |bound: &str| {
+        format!(
+            "<CertificateRevReq><EndRevReq>nocheck</EndRevReq><CACerts>nocheck</CACerts>\
+             </CertificateRevReq><SigCertIssuedByCAKeepsExpiredRevokedCertsInfo>{bound}\
+             </SigCertIssuedByCAKeepsExpiredRevokedCertsInfo>"
+        )
+    };
+    let signing = |bound: &str| {
+        rule(
+            &format!(
+                "<SigningCertRules><SigningCertTrustConditions><SignerTrustTrees>\
+                 <CertificateTrustPoint><TrustAnchors>{anchor}</TrustAnchors>\
+                 </CertificateTrustPoint></SignerTrustTrees><SignerRevTrust>{}</SignerRevTrust>\
+                 </SigningCertTrustConditions></SigningCertRules>",
+                trust(bound)
+            ),
+            None,
+        )
+    };
+    let kept =
+        |c: &policy_rules::Constraint| matches!(c, policy_rules::Constraint::Retention { .. });
+    assert_eq!(
+        verdict_of(&judged(&[signing("P9Y11M")], &signed, &facts), kept),
+        [Verdict::Met]
+    );
+    assert_eq!(
+        verdict_of(&judged(&[signing("P10Y")], &signed, &facts), kept),
+        [Verdict::Broken]
+    );
+    let stamp = rule(
+        &format!(
+            "<TimeEvidencesRules><RulesForSetOfEvidences>\
+             <EvidenceIdentifiers><Identifier>urn:tst</Identifier></EvidenceIdentifiers>\
+             <LevelOfAssurance>urn:high</LevelOfAssurance><TimeStampTrustCondition>\
+             <TstRevocationTrust>{}</TstRevocationTrust></TimeStampTrustCondition>\
+             </RulesForSetOfEvidences></TimeEvidencesRules>",
+            trust("P1Y")
+        ),
+        None,
+    );
+    let named = |c: &policy_rules::Constraint| {
+        matches!(
+            c,
+            policy_rules::Constraint::ConditionMember { condition, member }
+                if *condition == TIMESTAMP_TRUST
+                    && *member == revocation_checks::RETENTION
+        )
+    };
+    assert_eq!(
+        verdict_of(&judged(&[stamp], &signed, &facts), named),
+        [Verdict::NotEvaluated]
+    );
+}

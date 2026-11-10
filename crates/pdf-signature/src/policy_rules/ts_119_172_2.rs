@@ -48,7 +48,7 @@ use const_oid::db::rfc5912;
 
 use super::certification_path::{TrustPoint, TrustTrees};
 use super::duration::Duration;
-use super::revocation_checks::{self, Freshness, RETENTION};
+use super::revocation_checks::{self, Freshness};
 use super::ts_119_172_3::{
     self, AlgorithmConstraint, BasicRule, Cardinality, CommitmentRule, Comparison, ExtensionName,
     FormatsAndLevels, Identifier, Matching, MediaTypes, PolicyRule, Position, Scope, ScopedRule,
@@ -867,13 +867,16 @@ impl<'t> Reader<'t> {
                 revocation_checks::Check::of_name(text.trim()).ok_or(malformed(member))
             })
         };
-        let mut unprocessed = Vec::new();
-        if self
-            .optional(revocation, "SigCertIssuedByCAKeepsExpiredRevokedCertsInfo")?
-            .is_some()
-        {
-            unprocessed.push(RETENTION);
-        }
+        // Clause 4.23.3.2 types the member `xs:duration`, the lexical form `Freshness` takes.
+        let local = "SigCertIssuedByCAKeepsExpiredRevokedCertsInfo";
+        let retention = match self.optional(revocation, local)? {
+            Some(_) => {
+                let member = "CertificateRevTrust.SigCertIssuedByCAKeepsExpiredRevokedCertsInfo";
+                let text = self.text_of(revocation, local, member)?;
+                Some(Duration::parse(text.trim()).ok_or(malformed(member))?)
+            }
+            None => None,
+        };
         let freshness = match self.optional(revocation, "Freshness")? {
             Some(freshness) => Some(self.freshness(freshness)?),
             None => None,
@@ -882,7 +885,7 @@ impl<'t> Reader<'t> {
             end_entity: check("EndRevReq", "CertificateRevReq.EndRevReq")?,
             authorities: check("CACerts", "CertificateRevReq.CACerts")?,
             freshness,
-            unprocessed,
+            retention,
         })
     }
 

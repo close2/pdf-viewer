@@ -32,8 +32,9 @@
 //! of either condition per kind of certificate ([`super::revocation_checks`], ADR 2720), from
 //! material issued within clause 4.23.3's freshness where the policy states one (ADR 2775). A
 //! trust point's and the authority's policy and name constraints are RFC 5280 section 6.1's
-//! processing (ADR 2724). Named and not evaluated: clause 4.23.3's retention of expired revocation
-//! notices; the formats and levels of clause 4.20 and the levels
+//! processing (ADR 2724). Clause 4.23.3's retention of expired revocation notices on the signing
+//! certificate's revocation trust is answered by an OCSP archive cutoff (ADR 2785). Named and not
+//! evaluated: the formats and levels of clause 4.20 and the levels
 //! clause 4.27 ties its attribute rules to, identified by TS 119 172-2's URIs for a signature level
 //! this program does not determine; augmentation, which this reader never performs; the levels of
 //! assurance of clauses 4.25 and 4.28; constraints on sets of signer attributes; and every `Other`
@@ -55,7 +56,7 @@ use std::borrow::Cow;
 
 use super::certification_path::{self, Path, Search, TrustPoint, TrustTrees};
 use super::duration::Duration;
-use super::revocation_checks::{self, Freshness, RETENTION};
+use super::revocation_checks::{self, Freshness};
 use super::{
     Budget, CertificateInfo, Finding, MAX_ENTRIES, MAX_POLICY_OCTETS, PolicyDocumentError,
     SIGNING_CERT_TRUST, SignerFacts, SignerTrust, Stated, Syntax, TIMESTAMP_TRUST, TimestampTrust,
@@ -543,7 +544,7 @@ fn instant(value: Option<Value<'_>>, member: &'static str) -> Result<Stated, Pol
 
 /// Clause 4.24.4's `SigningCertTrustConditions`: the trust trees, and the revocation trust — a
 /// check of each kind of certificate, clause 4.23.3's freshness, and its retention of expired
-/// revocation notices, which is named.
+/// revocation notices.
 fn read_signer_trust<'a>(
     value: &Value<'a>,
     budget: &mut Budget,
@@ -565,7 +566,13 @@ fn read_signer_trust<'a>(
             Some(0) => {
                 requirement.freshness = Some(read_freshness(&explicit(&member, "freshness")?)?);
             }
-            Some(1) => requirement.unprocessed.push(RETENTION),
+            Some(1) => {
+                // Clause 4.23.3.2's `Duration ::= PrintableString`, the lexical form `Freshness`
+                // takes.
+                let name = "CertificateRevTrust.sigCertIssuedByCAKeepsExpiredRevokedCertsInfo";
+                let stated = text(&explicit(&member, name)?, PRINTABLE_STRING, name)?;
+                requirement.retention = Some(Duration::parse(stated).ok_or(malformed(name))?);
+            }
             _ => return Err(malformed("CertificateRevTrust")),
         }
     }
@@ -606,7 +613,7 @@ fn read_revocation_requirement(
         end_entity: check("endCertRevReq")?,
         authorities: check("caCerts")?,
         freshness: None,
-        unprocessed: Vec::new(),
+        retention: None,
     })
 }
 

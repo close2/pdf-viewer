@@ -52,6 +52,29 @@
 //! would have answered is not evaluated rather than broken — EN 319 102-1's "try later", not a
 //! failure.
 //!
+//! # How long the signing certificate's issuer keeps a notice
+//!
+//! TS 119 172-2 clause 4.23.3.1 item 2, which TS 119 172-3 clause 4.23.3 adopts, lets the signing
+//! certificate's revocation trust mandate that its issuer keep revocation notices for revoked
+//! certificates after they expire, for a period exceeding a stated lower bound. RFC 6960 section
+//! 4.4.4 is where a file states that period: a responder that retains revocation information past
+//! a certificate's expiry may carry an archive cutoff in its response, `producedAt` less its
+//! retention interval. So ([`retention`], ADR 2785):
+//!
+//! - **Met** where an OCSP response for the signing certificate, from a responder authorised for
+//!   it under RFC 6960 section 4.2.2.2 — the issuing CA or its delegate — states a cutoff more
+//!   than the bound before its `producedAt`.
+//! - **Broken** where such responses state cutoffs and none of them reaches back that far: the
+//!   issuer, through the responder that speaks for it, has stated a retention that does not
+//!   exceed the bound.
+//! - **Not evaluated** where no path validated (so the issuer is not known), or no authorised
+//!   response for the signing certificate states a cutoff — nothing in the file states the
+//!   issuer's retention, which is not evidence of a short one.
+//!
+//! The cutoff is a statement of the responder's practice rather than of a status at an instant,
+//! so the policy's freshness and caution period, which bound which status information answers,
+//! do not bound which response states it.
+//!
 //! # Bounds
 //!
 //! The certificates asked about are those of a path [`super::certification_path::search`]
@@ -62,11 +85,13 @@
 use super::Verdict;
 use super::certification_path::Path;
 use super::duration::{self, Duration};
-use crate::revocation::{self, Evidence, Issuance, Material, Revocation, Subject, Undetermined};
+use crate::revocation::{
+    self, Evidence, Issuance, Material, Revocation, StatedRetention, Subject, Undetermined,
+};
 use crate::x509::{self, Instant};
 
 /// TS 119 172-2 clause 4.23.3's `SigCertIssuedByCAKeepsExpiredRevokedCertsInfo`, as a sentence
-/// names it.
+/// names it where a condition other than the signing certificate's states it.
 pub const RETENTION: &str = "retention of expired revocation notices required of the issuer";
 
 /// One of TR 102 272 clause 6.6.2's `EnuRevReq` values, TS 119 172-2 clause 4.23.2's.
@@ -139,9 +164,10 @@ pub struct Requirement {
     pub authorities: Check,
     /// TS 119 172-2 clause 4.23.3's `Freshness`, where the revocation trust states one.
     pub freshness: Option<Freshness>,
-    /// Members of clause 4.23.3's revocation trust this program does not evaluate, by name — the
-    /// retention of expired revocation notices.
-    pub unprocessed: Vec<&'static str>,
+    /// Clause 4.23.3's `SigCertIssuedByCAKeepsExpiredRevokedCertsInfo`, TS 119 172-3's
+    /// `sigCertIssuedByCAKeepsExpiredRevokedCertsInfo`: the period the signing certificate's
+    /// issuer must keep revocation notices for after the certificates expire, where stated.
+    pub retention: Option<Duration>,
 }
 
 /// TS 119 172-2 clause 4.23.3's `Freshness` choice, TS 119 172-3 clause 4.23.3.2's.
@@ -200,7 +226,7 @@ impl Requirement {
             end_entity: Check::NoCheck,
             authorities: Check::NoCheck,
             freshness: None,
-            unprocessed: Vec::new(),
+            retention: None,
         }
     }
 
@@ -210,7 +236,7 @@ impl Requirement {
         self.end_entity != Check::NoCheck
             || self.authorities != Check::NoCheck
             || self.freshness.is_some()
-            || !self.unprocessed.is_empty()
+            || self.retention.is_some()
     }
 }
 
@@ -462,6 +488,160 @@ fn answer(
     }
 }
 
+/// What the retention a requirement mandates found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RetentionFound {
+    /// No path validated to a trust point, so the signing certificate's issuer is not known.
+    NoPath,
+    /// The bound reaches outside the instants this program computes.
+    Unplaced,
+    /// No authorised OCSP response for the signing certificate states an archive cutoff.
+    Unstated(Undetermined),
+    /// A response states a retention exceeding the bound: the one that does.
+    Exceeds(StatedRetention),
+    /// Responses state retentions and none exceeds the bound: the longest stated.
+    Short(StatedRetention),
+}
+
+/// TS 119 172-2 clause 4.23.3.1 item 2's retention, as a signing certificate's revocation trust
+/// mandates it and the file's OCSP responses answer it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetentionCheck {
+    /// The lower bound the policy states.
+    pub bound: Duration,
+    /// What was found.
+    pub found: RetentionFound,
+}
+
+impl RetentionCheck {
+    /// The check's verdict, by the module comment's rules.
+    #[must_use]
+    pub const fn verdict(&self) -> Verdict {
+        match self.found {
+            RetentionFound::Exceeds(_) => Verdict::Met,
+            RetentionFound::Short(_) => Verdict::Broken,
+            RetentionFound::NoPath | RetentionFound::Unplaced | RetentionFound::Unstated(_) => {
+                Verdict::NotEvaluated
+            }
+        }
+    }
+}
+
+/// The retention `requirement` mandates of the issuer of `path`'s signing certificate, answered
+/// from the OCSP responses in `material`; `None` where the requirement mandates none.
+#[must_use]
+pub fn retention(
+    requirement: &Requirement,
+    path: Option<&Path>,
+    material: &Material<'_>,
+) -> Option<RetentionCheck> {
+    let bound = requirement.retention?;
+    Some(RetentionCheck {
+        bound,
+        found: retention_found(bound, path, material),
+    })
+}
+
+fn retention_found(
+    bound: Duration,
+    path: Option<&Path>,
+    material: &Material<'_>,
+) -> RetentionFound {
+    let certificates = path.map(Path::certificates).unwrap_or_default();
+    // The signing certificate is position 0 and its issuer position 1; a path of the trust point
+    // alone has no certificate below it whose issuer could be asked about.
+    let (Some(held), Some(issuer)) = (certificates.first(), certificates.get(1)) else {
+        return RetentionFound::NoPath;
+    };
+    // Both parsed before: a path is handed out only once every certificate on it validated.
+    let (Ok(certificate), Ok(issuer)) =
+        (x509::parse(&held.encoding), x509::parse(&issuer.encoding))
+    else {
+        return RetentionFound::NoPath;
+    };
+    let subject = Subject {
+        certificate: &certificate,
+        issuer_name: issuer.subject_encoding,
+        issuer_key_bits: issuer.public_key_bits,
+        issuer_key: issuer.public_key,
+        issuer_key_usage: issuer.extensions.key_usage,
+        position: 0,
+    };
+    let stated = match revocation::stated_retention(&subject, material) {
+        Ok(stated) => stated,
+        Err(why) => return RetentionFound::Unstated(why),
+    };
+    let mut longest: Option<StatedRetention> = None;
+    let mut unplaced = false;
+    for one in stated {
+        match bound.exceeded_between(one.archive_cutoff, one.produced_at) {
+            Some(true) => return RetentionFound::Exceeds(one),
+            Some(false) => {}
+            None => {
+                unplaced = true;
+                continue;
+            }
+        }
+        let interval = |at: StatedRetention| {
+            at.produced_at
+                .unix_seconds()
+                .saturating_sub(at.archive_cutoff.unix_seconds())
+        };
+        if longest.is_none_or(|kept| interval(one) > interval(kept)) {
+            longest = Some(one);
+        }
+    }
+    // A statement that could not be placed might have exceeded the bound, so the others falling
+    // short decide nothing; and `stated_retention` answers `Ok` only with at least one statement.
+    match longest {
+        Some(longest) if !unplaced => RetentionFound::Short(longest),
+        _ => RetentionFound::Unplaced,
+    }
+}
+
+/// The sentence for a retention check of `condition`'s requirement, with the verdict in its place.
+pub(super) fn retention_sentence(
+    f: &mut std::fmt::Formatter<'_>,
+    condition: &str,
+    check: &RetentionCheck,
+    verdict: &str,
+) -> std::fmt::Result {
+    write!(
+        f,
+        "the retention of expired revocation notices the policy's {condition} requires of the signing certificate's issuer is {verdict}: "
+    )?;
+    let stated = |f: &mut std::fmt::Formatter<'_>, one: &StatedRetention| {
+        write!(
+            f,
+            "an OCSP response from a responder authorised for the signing certificate, produced at {}, states an archive cutoff of {} (RFC 6960 section 4.4.4)",
+            duration::utc(one.produced_at),
+            duration::utc(one.archive_cutoff)
+        )
+    };
+    match &check.found {
+        RetentionFound::NoPath => f.write_str(
+            "no path validated to the policy's own trust points, so the signing certificate's issuer is not known",
+        ),
+        RetentionFound::Unplaced => f.write_str(
+            "the period the policy states falls outside the instants this program computes",
+        ),
+        RetentionFound::Unstated(why) => write!(
+            f,
+            "nothing in the file states how long the issuer keeps a notice: {why}"
+        ),
+        RetentionFound::Exceeds(one) => {
+            stated(f, one)?;
+            f.write_str(", a retention exceeding the period the policy states")
+        }
+        RetentionFound::Short(one) => {
+            stated(f, one)?;
+            f.write_str(
+                ", the longest retention stated, and it does not exceed the period the policy states",
+            )
+        }
+    }
+}
+
 /// The sentence for one kind's check of `condition`'s requirement, with the verdict in its place.
 pub(super) fn sentence(
     f: &mut std::fmt::Formatter<'_>,
@@ -542,3 +722,6 @@ fn capitalised(words: &str) -> String {
 
 #[cfg(test)]
 pub(super) mod tests;
+
+#[cfg(test)]
+pub(super) mod retention_tests;

@@ -100,3 +100,27 @@ fn a_fractional_second_rounds_up() {
         Some(noon)
     );
 }
+
+/// TS 119 172-2 clause 4.23.3.2's retention is a period *exceeding* the duration, so an interval
+/// equal to it does not exceed it: from noon on 2026-11-05 to noon on 2026-12-05 is one month by
+/// Appendix E's sum and thirty days, 2 592 000 seconds, so it exceeds `P29D` and `PT2591999.5S`
+/// and not `P1M`, `P30D`, `PT2592000S` or `PT2592000.5S` — decided for the stated fraction and not
+/// its rounding.
+#[test]
+fn an_interval_exceeds_a_duration_only_when_strictly_longer() {
+    let (start, month_later) = (at(2026, 11, 5, 12, 0, 0), at(2026, 12, 5, 12, 0, 0));
+    let exceeded =
+        |text| Duration::parse(text).and_then(|d| d.exceeded_between(start, month_later));
+    assert_eq!(exceeded("P1M"), Some(false));
+    assert_eq!(exceeded("P30D"), Some(false));
+    assert_eq!(exceeded("P29D"), Some(true));
+    assert_eq!(exceeded("PT2591999S"), Some(true));
+    assert_eq!(exceeded("PT2591999.5S"), Some(true));
+    assert_eq!(exceeded("PT2592000S"), Some(false));
+    assert_eq!(exceeded("PT2592000.5S"), Some(false));
+    assert_eq!(
+        Duration::parse("-PT0.5S").and_then(|d| d.exceeded_between(start, start)),
+        Some(true),
+        "nothing elapsed exceeds minus half a second"
+    );
+}
