@@ -10,7 +10,7 @@
   "parent_accepted_records": 343,
   "cross_reference_records": 25,
   "accepted_record_conclusions": {
-    "retain-with-qualification": 167,
+    "retain-with-qualification": 166,
     "revisit": 14,
     "retain": 91,
     "superseded": 14,
@@ -35,6 +35,7 @@
     "retain-with-bounded-scope-note": 2,
     "retain-architecture-with-activation-gap": 1,
     "revisit-unratified-editing-capability-boundary": 2,
+    "qualify-both-original-premises-after-effective-errata-and-scope-change": 1,
     "resolve-selected-source-reading-with-limits": 1,
     "retain-condition-grounding-with-recommendation-qualification": 1,
     "retain-normative-distinction-original-refusal-superseded": 1,

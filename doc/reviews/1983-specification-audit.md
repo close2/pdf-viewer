@@ -1199,3 +1199,8 @@ The source's R/D observations for PrinterMark and TrapNet are informative NOTES,
 
 
 A final physical-page and bounding-box check corrected the agents' errata mapping: Sound opens on physical511 but Table188 is on512; Screen opens on512 but Table190 and its P/AP prose are on513. EC3#676's rectangle matches the word Movie in Table189's T row and changes bold to plain text. It is not a Screen amendment. This typography-only correction does not change the tested behavior. Previously accepted FileAttachment cross-reference metadata was corrected in the same checkpoint.
+
+
+Effective-source correction to the preceding Screen checkpoint: EC3#42 on physical513 strikes the entire old no-AP/no-default-appearance/no-print sentence. The Widget agent rendered the page and parent independently matched the strikeout quadpoints to extracted word boxes. The no-AP test still passes but proves selected fallback policy only; the surviving stored-AP View/Print requirement is separately tested. ADR0901 therefore needs two qualifications: its no-AP source quotation was deleted by effective errata, and its rendition-exclusion premise was superseded by A254. No production defect follows merely from retaining the old fallback policy.
+
+Broad wave16 completed:5745 tests,5692 passed,53 expected failing assertions,53 skipped. Parent compared the exact binary/test failure set with the manifest: no unexpected failures. This run includes the newly accepted attachment, Sound/Movie, Screen and stored-mark tests.

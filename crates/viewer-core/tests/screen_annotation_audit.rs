@@ -99,8 +99,8 @@ fn draw(bytes: Vec<u8>, purpose: Purpose) -> [u8; 4] {
 
 #[test]
 fn screen_without_ap_is_not_printed_but_stored_normal_ap_is() {
-    // The AP absence is Screen's own rule. Table 167 would otherwise ignore Print where no
-    // appearance stream exists, so include /F 4 and assert the subtype-specific no-print result.
+    // EC3 #42 deletes the old no-AP sentence in this subtype clause. This half checks the
+    // selected absent-appearance policy; only the stored-AP half asserts the surviving rule.
     let absent = screen_page("/F 4", "");
     assert_eq!(draw(absent.clone(), Purpose::View), [0, 0, 0, 0]);
     assert_eq!(draw(absent, Purpose::Print), [0, 0, 0, 0]);

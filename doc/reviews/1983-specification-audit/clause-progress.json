@@ -6015,7 +6015,7 @@
       "code-supported-with-screen-rendition-consumer": 1,
       "confirmed-selected-no-reader-obligation-to-generate": 1,
       "confirmed-selected-page-and-membership-preconditions": 1,
-      "confirmed-selected-view-print": 1,
+      "confirmed-stored-ap-and-selected-absent-ap-policy": 1,
       "partial-dispatch-tested-title-not-consumer": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."

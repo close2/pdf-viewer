@@ -6241,7 +6241,7 @@
       {
         "source": "screen_annotation_audit/decisions.json",
         "decision_id": "A no-AP Screen is not a gap; vacate /P because rendition playback is excluded",
-        "conclusion": "retain-with-qualification",
+        "conclusion": "qualify-both-original-premises-after-effective-errata-and-scope-change",
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null

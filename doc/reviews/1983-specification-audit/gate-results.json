@@ -859,5 +859,16 @@
   "sound_screen_clippy": {
     "log": "clippy-sound-screen-reviewed-clean.log",
     "exit": 0
+  },
+  "broad_wave16": {
+    "log": "nextest-nine-crates-wave16.log",
+    "run": 5745,
+    "passed": 5692,
+    "expected_failed": 53,
+    "skipped": 53,
+    "unexpected": 0,
+    "exit": 100,
+    "exact_manifest_match": true,
+    "manifest": "Exact binary/test equality checked by parent; failing assertions are not necessarily distinct defects."
   }
 }
