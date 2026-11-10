@@ -390,7 +390,11 @@ mod stop_tests;
 
 #[path = "cff_cids_given.rs"]
 mod cids_given;
+
+#[path = "cff_stretch.rs"]
+mod stretched;
 pub use cids_given::{CidToGive, MOST_CID_BYTES_GIVEN, highest_cid, with_cids_given};
+pub use stretched::with_outlines_scaled;
 
 /// A CID-keyed program some of whose Font DICTs could not be read, with those replaced.
 ///

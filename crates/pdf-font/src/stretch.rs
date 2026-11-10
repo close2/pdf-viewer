@@ -52,6 +52,13 @@ pub enum StretchError {
         /// Which number.
         field: &'static str,
     },
+    /// A glyph's charstring cannot be stated again with its x coordinates scaled: it reaches an
+    /// operator the run that restates it does not follow (`crate::cff::with_outlines_scaled`).
+    #[error("glyph {glyph}'s charstring could not be stated again with its outline scaled")]
+    NotRestated {
+        /// The first glyph that could not be.
+        glyph: u16,
+    },
     /// The rewritten program does not draw the scaled outline of the one it was made from.
     #[error("glyph {glyph} of the rewritten program does not draw the scaled outline")]
     NotProved {
@@ -671,6 +678,10 @@ fn proved(original: &[u8], scaled: &[u8], scale: f32, glyphs: u16) -> Result<(),
     }
     Ok(())
 }
+
+#[path = "stretch_cff.rs"]
+mod cff_program;
+pub use cff_program::cff_outlines;
 
 #[cfg(test)]
 #[path = "stretch_tests.rs"]

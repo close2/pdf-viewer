@@ -273,8 +273,9 @@ pub(super) fn machine_face_proved(
     used: &SelectedFont,
     (source, face): (&LoadedFont, &ShippedFace),
     row: Table124,
-    program: &[u8],
+    (program, written): (&[u8], Option<f32>),
 ) -> Result<(), Because> {
+    let written = written_within(program, written)?;
     let descriptor = held_descriptor(document, used, &Dictionary::new())?;
     proved(
         document,
@@ -283,7 +284,7 @@ pub(super) fn machine_face_proved(
             source,
             drawn: Drawn::FromTheShippedFace,
             face,
-            written: None,
+            written,
         },
         &Dictionary::new(),
         &descriptor,
@@ -354,14 +355,7 @@ pub(super) fn restatement_proved(
     restatement: &Restatement,
     (program, written): (&[u8], Option<f32>),
 ) -> Result<(), Because> {
-    let written = match written {
-        Some(stretch) => Some((
-            stretch,
-            pdf_font::stretch::within_in_ems(program)
-                .ok_or(Because::NotBuiltYet(PROGRAM_NOT_MEASURED))?,
-        )),
-        None => None,
-    };
+    let written = written_within(program, written)?;
     let descriptor = held_descriptor(document, used, &restatement.descriptor)?;
     proved(
         document,
@@ -377,6 +371,18 @@ pub(super) fn restatement_proved(
         restatement.row,
         program,
     )
+}
+
+/// The scale written into `program`, where one was, with the distance [`proved`] holds a point
+/// of it to (`doc/adr/2769`).
+fn written_within(program: &[u8], written: Option<f32>) -> Result<Option<(f32, f32)>, Because> {
+    written
+        .map(|stretch| {
+            pdf_font::stretch::within_in_ems(program)
+                .map(|within| (stretch, within))
+                .ok_or(Because::NotBuiltYet(PROGRAM_NOT_MEASURED))
+        })
+        .transpose()
 }
 
 /// Which face the viewer draws a font from, and so what the converted font is held to.
@@ -776,10 +782,12 @@ pub(super) fn losses_of(drawn: Drawn, source: &LoadedFont) -> (Losses, Option<su
 /// **What the window drew, written into the face.** ADR 0358 draws a shipped face fitted to the
 /// file's widths by scaling each outline's x about the glyph's origin; [`pdf_font::stretch`]
 /// writes the same scale into a `glyf` program, so the output draws that shape and the loss
-/// `substitute-stretch` is not incurred. Asked only where `wanted`: a profile that authorises the
-/// loss embeds the face unmodified, the construction `doc/questions/A566` chose for it. `None`
-/// where the viewer drew no fitting, where the face is not a `glyf` program, or where the writer
-/// refuses the program — and then the face goes in unmodified and the loss is named as before.
+/// `substitute-stretch` is not incurred; [`pdf_font::stretch::cff_outlines`] does the same for a
+/// face whose outlines are CFF charstrings, a machine's URW face among them (`doc/adr/2789`).
+/// Asked only where `wanted`: a profile that authorises the loss embeds the face unmodified, the
+/// construction `doc/questions/A566` chose for it. `None` where the viewer drew no fitting or
+/// where the writer refuses the program — and then the face goes in unmodified and the loss is
+/// named as before.
 pub(super) fn with_the_fitting(
     program: &[u8],
     format: Format,
@@ -790,13 +798,15 @@ pub(super) fn with_the_fitting(
     if !wanted || drawn != Some(Drawn::FromTheShippedFace) || !fitted(source) {
         return None;
     }
-    if format != Format::Sfnt {
-        return None;
-    }
     let stretch = source.stretch();
-    pdf_font::stretch::sfnt_outlines(program, stretch)
-        .ok()
-        .map(|scaled| (scaled, stretch))
+    // Each outline format has its writer: a `glyf` face's points (ADR 2769), and an OpenType CFF
+    // face's charstrings, run and stated again (ADR 2789), which refuses a bare CFF program.
+    let scaled = if format == Format::BareCff || pdf_font::embed::has_cff_outlines(program) {
+        pdf_font::stretch::cff_outlines(program, stretch)
+    } else {
+        pdf_font::stretch::sfnt_outlines(program, stretch)
+    };
+    scaled.ok().map(|scaled| (scaled, stretch))
 }
 
 /// A program, and the scale written into it with the distance a point may stand from the viewer's.
@@ -1285,10 +1295,13 @@ fn same_once_wound(substituted: &pdf_render::Path, embedded: &pdf_render::Path) 
 /// outline: the same commands, every y the same and every x within `within` ems.
 ///
 /// The program states each scaled x as the integer nearest it, so a point stands up to half a unit
-/// of the program's em from the viewer's, and a component's point up to one (its offset is rounded
-/// too); [`pdf_font::stretch::sfnt_outlines`] has already held every glyph of the program to
-/// that, and this holds the glyphs the page shows to it as the converted font draws them. Winding
-/// is undone as [`same_once_wound`] does.
+/// of the program's em from the viewer's, and a component's or an accent's point up to one (its
+/// offset is rounded too); [`pdf_font::stretch::sfnt_outlines`] and
+/// [`pdf_font::stretch::cff_outlines`] have already held every glyph of the program to that, and
+/// this holds the glyphs the page shows to it as the converted font draws them. A CFF program
+/// does not state a line whose two ends round to one point, which a reader would drop (ADR 2789),
+/// so a line of the substitute no longer than `within` that does not move y may be missing.
+/// Winding is undone as [`same_once_wound`] does.
 fn same_once_written(
     substituted: &pdf_render::Path,
     embedded: &pdf_render::Path,
@@ -1303,9 +1316,10 @@ fn same_once_written(
     let near = |source: pdf_render::Point, point: pdf_render::Point| {
         (source.x - point.x).abs() <= within && (source.y - point.y).abs() <= ELEVATION_ROUNDING
     };
-    let (before, after) = (substituted.commands(), embedded.commands());
-    before.len() == after.len()
-        && before.iter().zip(after).all(|pair| match pair {
+    let mut after = embedded.commands().iter().peekable();
+    let mut pen: Option<pdf_render::Point> = None;
+    for command in substituted.commands() {
+        let alike = after.peek().is_some_and(|stated| match (command, stated) {
             (PathCommand::MoveTo(a), PathCommand::MoveTo(b))
             | (PathCommand::LineTo(a), PathCommand::LineTo(b)) => near(*a, *b),
             (PathCommand::CurveTo(a1, a2, a), PathCommand::CurveTo(b1, b2, b)) => {
@@ -1313,7 +1327,21 @@ fn same_once_written(
             }
             (PathCommand::Close, PathCommand::Close) => true,
             _ => false,
-        })
+        });
+        if alike {
+            after.next();
+        } else if !matches!(command, PathCommand::LineTo(to) if pen.is_some_and(|from| near(from, *to)))
+        {
+            return false;
+        }
+        pen = match command {
+            PathCommand::MoveTo(to) | PathCommand::LineTo(to) | PathCommand::CurveTo(_, _, to) => {
+                Some(*to)
+            }
+            PathCommand::Close => None,
+        };
+    }
+    after.next().is_none()
 }
 
 /// Whether an embedded program's outline, drawn at the horizontal scale the viewer fitted the

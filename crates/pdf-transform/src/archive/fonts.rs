@@ -1292,7 +1292,16 @@ fn embed_pass(
         // A machine's face the dictionary already admits is held to the viewer's drawing by the
         // same proof a restatement is, over the file's own descriptor (`doc/adr/2773`).
         if let (Face::Machine(_, _, shipped), None) = (&face, &restated) {
-            described::machine_face_proved(document, reading, (&font, shipped), row, &program)?;
+            described::machine_face_proved(
+                document,
+                reading,
+                (&font, shipped),
+                row,
+                (
+                    &program,
+                    fitting_written.as_ref().map(|(_, stretch)| *stretch),
+                ),
+            )?;
         }
         if let Some(restatement) = &restated {
             described::restatement_proved(

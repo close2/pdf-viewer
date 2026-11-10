@@ -16,6 +16,11 @@ use super::*;
 /// A page showing `A` in a simple font of `subtype` named `base_font`, stating a descriptor
 /// without a program, `/WinAnsiEncoding` and the width `667` (Annex D's `A` of Helvetica).
 fn a_font_named(subtype: &str, base_font: &str) -> Vec<u8> {
+    a_font_named_at(subtype, base_font, "667")
+}
+
+/// [`a_font_named`] with `A` stated at `width`.
+fn a_font_named_at(subtype: &str, base_font: &str, width: &str) -> Vec<u8> {
     Conforming {
         resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
                     [0.9505 1.0 1.089] >>] >>"
@@ -27,7 +32,7 @@ fn a_font_named(subtype: &str, base_font: &str) -> Vec<u8> {
         objects: vec![
             format!(
                 "<< /Type /Font /Subtype /{subtype} /BaseFont /{base_font} /FirstChar 65 \
-                 /LastChar 65 /Widths [667] /FontDescriptor 7 0 R /Encoding /WinAnsiEncoding >>"
+                 /LastChar 65 /Widths [{width}] /FontDescriptor 7 0 R /Encoding /WinAnsiEncoding >>"
             ),
             format!(
                 "<< /Type /FontDescriptor /FontName /{base_font} /Flags 32 \
@@ -142,5 +147,99 @@ fn where_the_profile_authorises_the_loss_the_shipped_face_goes_in_and_names_it()
             "{subtype} {base_font}: {}",
             font.losses.words()
         );
+    }
+}
+
+/// ADR 2789, R09: a font the viewer draws from a machine's CFF face fitted to narrower widths —
+/// `A` stated at 600 where `NimbusSans-Regular`'s is 667, so ADR 0358's scale is 600/667 — goes
+/// in with the fitting written into the face's charstrings where the profile withholds
+/// `substitute-stretch` and `machine-face` (`as-shown`), and loses nothing. ISO 19005-2 section 6.2.11.4.1 and ISO
+/// 19005-4 section 6.2.10.4.1 are met by the embedding; section 6.2.11.5 by the advance, which the
+/// scale does not touch, so the file's width stands. The expected outline is the window's: each
+/// x times the scale, within one unit of the face's 1000-unit em (a point's rounding to the
+/// integer a charstring states, ADR 2769's unit), each y the same. The plant: authorising the
+/// loss embeds the face unmodified (ADR 2770), whose `A` is wider than the window's by more than
+/// the unit.
+#[test]
+fn a_machines_cff_face_fitted_horizontally_is_embedded_with_its_fitting() {
+    let within = 1.0 / 1000.0 + f32::EPSILON;
+    for subtype in ["TrueType", "Type1"] {
+        let source = a_font_named_at(subtype, "NimbusSans-Regular", "600");
+        if !drawn_from_a_machine_face(&source) {
+            eprintln!("{subtype}: this machine has no NimbusSans-Regular, so nothing to embed");
+            continue;
+        }
+        let stretch = drawn_fitted(&source);
+        for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+            let (report, output) = convert(&source, target, Authorisations::default());
+            let output = written(&report, output);
+            let conversion = conversion(&report);
+            assert!(
+                conversion.settled.is_empty(),
+                "{subtype} {target}: a first-pass construction"
+            );
+            assert_eq!(
+                holds(&output, target).verdict(),
+                Verdict::Conforms,
+                "{subtype} {target}"
+            );
+            let font = conversion.substituted.first().cloned().expect("one font");
+            assert_eq!(
+                (font.authority, font.losses, font.fitting),
+                (
+                    pdf_transform::archive::FaceAuthority::Machine,
+                    Losses::default(),
+                    Some(Fitting::Written(stretch))
+                ),
+                "{subtype} {target}: the machine's face, its fitting written, nothing lost"
+            );
+            assert_eq!(stated_widths(&output), vec![600.0], "{subtype} {target}");
+            let (before, after) = (a_outline(&source), a_outline(&output));
+            assert!(
+                drawn_alike(&before, &after, within),
+                "{subtype} {target}: the output does not draw the window's A"
+            );
+        }
+        let unfitted = Authorisations {
+            substitute_stretch: true,
+            ..Authorisations::default()
+        };
+        let (report, output) = convert(&source, Target::Two(Level::B), unfitted);
+        let output = written(&report, output);
+        let font = conversion(&report)
+            .substituted
+            .first()
+            .cloned()
+            .expect("one font");
+        assert_eq!(
+            font.losses,
+            Losses::one(Loss::SubstituteStretch),
+            "{subtype}"
+        );
+        assert!(!drawn_alike(
+            &a_outline(&source),
+            &a_outline(&output),
+            within
+        ));
+    }
+}
+
+/// The outline the viewer draws `A` of the font `F1` (object 6) with, wound one way.
+fn a_outline(bytes: &[u8]) -> pdf_render::Path {
+    let document = Document::open(bytes.to_vec()).expect("it opens");
+    let dict = document
+        .get(ObjectId::new(6, 0))
+        .as_dict()
+        .cloned()
+        .expect("object 6 is the font");
+    let path = pdf_font::LoadedFont::load(&document, &dict, "F1")
+        .expect("the font loads")
+        .outline(pdf_font::Code::single_byte(b'A'))
+        .expect("A draws");
+    let path = pdf_render::Path::clone(&path);
+    if path.signed_area() < 0.0 {
+        path.reversed()
+    } else {
+        path
     }
 }

@@ -117,13 +117,14 @@ column. R02 is built (ADR 2498) and no document reaches it.
 | 12 | R05-press | 0 | 2 | 0 / 2 | builds only | A694 item 2: (a) built, ADR 2518; (b) built, ADR 2747; (c) built, ADR 2750: overprint mode 1 on a DeviceCMYK mark is ADR 1978's loss under the two shipped profiles; left, a mark blended in four components, ADR 1978's refusal |
 | 13 | R15-embedded-files | 0 | 2 | 3 / 7 | builds only | built: ADR 2536 |
 | 14 | D-defect | — | — | 7 / 7 | defect | section 8: the converter's own, diagnosed rather than ranked |
-| 15 | R09-as-shown-font-losses | 0 | 0 | 44 / 44 | builds only | `as-shown` only; ADR 2490: (c) decided; (b) built for a `glyf` face, ADR 2769; (a) built for a simple font, whole, ADR 2773; left, (a) for a composite font, a subset, and a fitted CFF face |
+| 15 | R09-as-shown-font-losses | 0 | 0 | 26 / 26 | builds only | `as-shown` only; ADR 2490: (c) decided; (b) built for a `glyf` face, ADR 2769, and an OpenType CFF face, ADR 2789; (a) built for a simple font, whole, ADR 2773; left, (a) for a composite font and a subset, and (b) for a bare CFF program |
 | 16 | X1-dynamic-xfa | — | — | 4 / 4 | exception | CLAUDE.md's exclusion; §K.1 |
 | 17 | X2-no-page-to-see | — | — | 6 / 6 | exception | the reader draws no page of it |
 
-Under `as-shown` the largest row is R09 (44 documents at each part, its simple fonts with a
-descriptor now embedding the machine's face the window drew, ADR 2773), then R03 and R08, each held
-by an answer of the owner's (A694 item 1) rather than by a build.
+Under `as-shown` the largest rows are R03 and R08, each held by an answer of the owner's (A694 item
+1) rather than by a build, then R09 (26 documents at each part, its simple fonts with a descriptor
+embedding the machine's face the window drew, ADR 2773, fitted where the window fitted it, ADRs
+2769 and 2789).
 
 ## 3. Fonts
 
@@ -141,9 +142,8 @@ named in the report so a reader knows what was lost. `as-shown` keeps its stop. 
 stays open: a photograph states no widths as the producer's, so it is the route that does not
 depend on Q687's answer. Mitigations section 5, `fonts/font-programs-embedded`; limits 2.1, 4.9.
 
-**R09 — the `as-shown` font losses** (44 documents at each part; per part, `substitute-stretch` 18,
-`machine-face` 13, with `glyphs-from-to-unicode` 4, with `layout-from-this-viewer` 4,
-`layout-from-this-viewer` alone 4, a machine's face lacking a shown code 1). `as-if-printed` converts
+**R09 — the `as-shown` font losses** (26 documents at each part; per part, `machine-face` 13,
+with `glyphs-from-to-unicode` 4, with `layout-from-this-viewer` 4, `layout-from-this-viewer` alone 4, a machine's face lacking a shown code 1). `as-if-printed` converts
 every one. *A company* that must keep what it saw keeps what its screen showed. **Remedy**: (a) for `machine-face`, embed *the machine's face the
 window drew*, where the face's own `fsType` permits: **built for a simple font with a descriptor**
 (ADR 2773), whole rather than a subset, the bytes the window loaded, a name-keyed `CFF ` OpenType
@@ -154,13 +154,17 @@ face. It freed 25 documents at 2b and 24 at 4 on this VM, whose drawn faces are 
 `DroidSansFallback`; a machine with other faces converts other documents. A glyph whose width a
 subroutine carries behind a nested call or a hint mask is restated since ADR 2779, which freed 6
 more at each part (every glyph of the 35 URW faces is restatable); of the other 19 it reached, 11
-stay here on another font drawn from a fitted CFF face (`substitute-stretch`) and 8 leave for R08
-and the rows they already stood in. Left:
-a fitted CFF face, now a machine's (`substitute-stretch`, 18); a standard font stated by name alone (`described`) and the composite routes (`rekeyed`, the CJK
+convert once their fitted CFF face is written (below) and 8 left for R08 and the rows they already
+stood in. Left:
+a standard font stated by name alone (`described`) and the composite routes (`rekeyed`, the CJK
 pack), which still embed a shipped or pack face over the machine's; a subset, which needs a
 compacting CFF writer; (b) for `substitute-stretch`, **built** (ADR 2769): the shipped `glyf` face
 goes in with the window's horizontal fitting (ADR 0358) written into its outlines, wherever the
 profile withholds the loss; a profile that authorises it keeps A566's unmodified face (ADR 2770);
+and **built for a machine's OpenType CFF face** (ADR 2789): each charstring run and stated again
+with its x scaled, which freed the 18 documents at each part that stopped on it — 14 convert under
+`as-shown` at both parts, and 020747, 064034, 492484 and 504076 leave for the content-stream and
+string rows they already stood in; a bare CFF program is still refused, with no witness;
 (c) `as-shown` may still authorise `machine-face` by name, which is what reopening its stop means
 (ADR 2490). Mitigations section 5; ADRs 0270, 0358, 2162.
 
@@ -583,7 +587,7 @@ disagrees with `/Widths` the refusal's sentence is `PROGRAM_NOT_RESTATABLE`.
 - R06b-the-other-part (42): corpora:020747.pdf, corpora:020806.pdf, corpora:027613.pdf, corpora:033689.pdf, corpora:040669.pdf, corpora:150277.pdf, corpora:219789.pdf, corpora:268346.pdf, corpora:427669.pdf, corpora:477139.pdf, corpora:492484.pdf, corpora:507676.pdf, corpora:PDF 2.0 UTF-8 string and annotation.pdf, corpora:PDF 2.0 image with BPC.pdf, corpora:PDF 2.0 via incremental save.pdf, corpora:PDF 2.0 with offset start.pdf, corpora:PDF 2.0 with page level output intent.pdf, corpora:Simple PDF 2.0 file.pdf, corpora:T01_001_header-invalid-major-version.pdf, corpora:UnknownFilter-Font.pdf, corpora:UnknownFilter-FormXObject.pdf, corpora:UnknownFilter-ICC.pdf, corpora:UnknownFilter-ImageXObject.pdf, corpora:UnknownFilter-Linearized.pdf, corpora:UnknownFilter-OutlineObjStm.pdf, corpora:UnknownFilter-PageContentStream.pdf, corpora:UnknownFilter-objstm.pdf, corpora:UnknownFilter-xrefstm.pdf, corpora:pdf20-utf8-test.pdf, pdf.js:auth-event-ef-open.pdf, pdf.js:bug1937438_af_from_latex.pdf, pdf.js:bug1937438_mml_from_latex.pdf, pdf.js:bug1997343.pdf, pdf.js:bug2009627.pdf, pdf.js:bug2025674.pdf, pdf.js:bug854315.pdf, pdf.js:issue14755.pdf, pdf.js:issue17069.pdf, pdf.js:issue19176.pdf, pdf.js:issue3928.pdf, pdf.js:issue6151.pdf, pdf.js:poppler-67295-0.pdf
 - R07-undecodable-stream (2): corpora:UnknownFilter-ICC.pdf, pdf.js:poppler-742-0-fuzzed.pdf
 - R08-unembedded-font-photograph (35): corpora:040669.pdf, corpora:150277.pdf, corpora:178360.pdf, corpora:189478.pdf, corpora:210260.pdf, corpora:219789.pdf, corpora:303226.pdf, corpora:392154.pdf, corpora:427669.pdf, corpora:435321.pdf, corpora:443752.pdf, corpora:455746.pdf, corpora:507676.pdf, corpora:ControlCharacters.pdf, corpora:F001u_3_7j.pdf, corpora:T02-04-01_006_resources_subtype_wrong.pdf, corpora:UnknownFilter-Font.pdf, corpora:VerticalText.pdf, corpora:embedded_zip.pdf, corpora:mattgib_1.pdf, pdf.js:ThuluthFeatures.pdf, pdf.js:bug1365930.pdf, pdf.js:bug1815476.pdf, pdf.js:issue11403_reduced.pdf, pdf.js:issue13916.pdf, pdf.js:issue17929.pdf, pdf.js:issue18059.pdf, pdf.js:issue20489.pdf, pdf.js:issue5244.pdf, pdf.js:issue6127.pdf, pdf.js:issue7835.pdf, pdf.js:noembed-identity-2.pdf, pdf.js:noembed-identity.pdf, pdf.js:poppler-90-0-fuzzed.pdf, pdf.js:standard_fonts.pdf
-- R09-as-shown-font-losses (44): corpora:008677.pdf, corpora:020747.pdf, corpora:064034.pdf, corpora:247224.pdf, corpora:316267.pdf, corpora:421197.pdf, corpora:492484.pdf, corpora:504076.pdf, corpora:All Quiet on the Third Coast.pdf, corpora:It's all about connecting Reasons for drug use among Latino gay men living in the San Francisco Bay Area.pdf, corpora:T02-04-01_001_resources-basefont-missing.pdf, corpora:T02-04-01_002_resources-basefont-wrong-font.pdf, corpora:UMTRI-2008-80.pdf, corpora:drafts_David-Cyberstructure_Washington(Brussels-5)+2figs.pdf, corpora:sample_fonts_solidconvertor.pdf, corpora:webCapture.pdf, pdf.js:90ms_rksj_h_sample.pdf, pdf.js:issue11555.pdf, pdf.js:issue11651.pdf, pdf.js:issue12295.pdf, pdf.js:issue13316_reduced.pdf, pdf.js:issue13343.pdf, pdf.js:issue14438.pdf, pdf.js:issue15053.pdf, pdf.js:issue15262.pdf, pdf.js:issue18099_reduced.pdf, pdf.js:issue19182.pdf, pdf.js:issue20065.pdf, pdf.js:issue2128r.pdf, pdf.js:issue2391-2.pdf, pdf.js:issue2840.pdf, pdf.js:issue3521.pdf, pdf.js:issue4934.pdf, pdf.js:issue6069.pdf, pdf.js:issue6106.pdf, pdf.js:issue6108.pdf, pdf.js:issue6286.pdf, pdf.js:issue8372.pdf, pdf.js:issue9084.pdf, pdf.js:mixedfonts.pdf, pdf.js:noembed-eucjp.pdf, pdf.js:noembed-jis7.pdf, pdf.js:noembed-sjis.pdf, pdf.js:non-embedded-NuptialScript.pdf
+- R09-as-shown-font-losses (26): corpora:All Quiet on the Third Coast.pdf, corpora:T02-04-01_001_resources-basefont-missing.pdf, corpora:T02-04-01_002_resources-basefont-wrong-font.pdf, pdf.js:90ms_rksj_h_sample.pdf, pdf.js:issue11555.pdf, pdf.js:issue11651.pdf, pdf.js:issue13316_reduced.pdf, pdf.js:issue13343.pdf, pdf.js:issue15053.pdf, pdf.js:issue18099_reduced.pdf, pdf.js:issue19182.pdf, pdf.js:issue20065.pdf, pdf.js:issue2128r.pdf, pdf.js:issue2391-2.pdf, pdf.js:issue2840.pdf, pdf.js:issue3521.pdf, pdf.js:issue6069.pdf, pdf.js:issue6106.pdf, pdf.js:issue6108.pdf, pdf.js:issue6286.pdf, pdf.js:issue8372.pdf, pdf.js:issue9084.pdf, pdf.js:mixedfonts.pdf, pdf.js:noembed-eucjp.pdf, pdf.js:noembed-jis7.pdf, pdf.js:noembed-sjis.pdf
 - R10-font-refiling (6): corpora:499039.pdf, pdf.js:SimFang-variant.pdf, pdf.js:XiaoBiaoSong.pdf, pdf.js:issue11740_reduced.pdf, pdf.js:issue12823.pdf, pdf.js:issue215.pdf
 - R11-truetype-route (7): corpora:507676.pdf, corpora:sample_fonts_solidconvertor.pdf, pdf.js:SimFang-variant.pdf, pdf.js:XiaoBiaoSong.pdf, pdf.js:issue13316_reduced.pdf, pdf.js:issue20489.pdf, pdf.js:issue6127.pdf
 - R12-spot-colourant (1): pdf.js:devicen.pdf
