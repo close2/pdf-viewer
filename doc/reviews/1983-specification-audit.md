@@ -19,7 +19,7 @@ historical ADRs remain unchanged. Selected assertion reviews and isolated mutati
 exposed both implementation gaps and passing tests unable to detect their stated defect.
 
 Since that broad run, the new OpenType target adds four passing cases and one confirmed failure;
-the failure manifest now contains 42 assertions. The watermark n-up consumer and PaintType tests also pass.
+the failure manifest now contains 43 assertions, including the subsequently reproduced note-paragraph writer failure. The watermark n-up consumer and PaintType tests also pass.
 
 This remains a partial audit. The reproducible continuation inventory and per-clause/ADR progress
 are committed in [the audit evidence directory](1983-specification-audit/), with full local working data
@@ -1126,3 +1126,12 @@ A stronger §9.9.1 glyph-selection test exposed a Type1/OpenType CFF defect. An 
 Parent review replaced corpus-dependent draft fonts with two tiny synthetic rectangle fonts and their offline reproducible generator, corrected flags and CID glyf cmap filing, and checked expected glyph names, indices and nonempty outlines with FontTools. The simple glyf case swaps A/B; composite CFF and glyf cases cover identity mapping. Nonidentity CID-keyed CFF remains open. The selected ADR 0015 TrueType route and ADR 0050 exact-name lookup remain justified within their scopes; neither justifies using the TrueType symbolic route for valid Type1/CFF. ADR 0029's separation of mappings remains sound, with its other branches still unverified here.
 
 The host/core printing handoff now has a passing complete-PDF consumer test. Actual `printing::placed` and `cell` values feed public `Viewer` printing; rasterized `PrintPage` bounds match independently calculated paper coordinates in two-up and four-up layouts, retain the 20-point physical size, stay within their cells and do not overlap. This checks uniform page sizes and the public interface; native printer integrations and mixed-page geometry remain outside this test.
+
+
+The markup/state/ink review adds eight consumer regressions: seven pass and the known Contents writer departure fails. Edited paragraph text serializes as LF instead of the CR required by EC3 #90; the separate single-line control passes. FDF reply names resolve to the exact existing same-page annotation after saving and reopening, while absent and other-page names are refused with IRT/RT omitted. Existing XFDF tests already covered parts of the shared resolution path; the draft's claim that no such exact assertion existed was corrected. The governing link-resolution decision is ADR 1297, not ADR 1224.
+
+Markup review also distinguishes individual Table 172 duties, optional defaults, group attributes and Table 173 external-data constraints. The draft omitted ExData's required Type/Subtype; those are now inventoried. MarkupGeo has no additional entries or stated display operation, consistent with ADR 1212's decision to avoid a consumerless reader; its producer constraints remain unverified. The earlier no-formatting decision in ADR 0199 was superseded in part by ADRs 1634/1642 and is not a current blanket exclusion. Existing group/thread assertions cover selected values, not all ten group keys across every host.
+
+The annotation-state regression passes through a comment-only reply to the later state update. It asserts the user, model, state and source object, plus an empty result for the leaf itself. Missing required T or StateModel in existing fixtures is tolerant recovery, not a rule supplied by the standard. The state model has no native-host consumer, and this clause does not independently demand a comments panel.
+
+Ink tests now distinguish a bent three-point InkList and a genuinely bowed cubic Path from a shortcut or chord; both pass. The Path fixture deliberately exercises missing-AP construction policy and is not a conforming PDF 2.0 writer witness. A separate complete PDF with a stored appearance proves public activation opens the Ink note's popup with its exact text. In an isolated checkout, replacing cubic drawing with a straight chord leaves the old collinear test passing but makes the new cubic test fail; both unmodified controls pass. The mutation was restored and checked against live source. This directly demonstrates the old assertion's limit without alleging a production curve defect.

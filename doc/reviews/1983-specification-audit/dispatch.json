@@ -794,19 +794,40 @@
       "clauses": [
         "12.5.6.2"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-consumer-regressions"
     },
     {
       "agent": "annotation_states_audit",
       "clauses": [
         "12.5.6.3"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-consumer-regressions"
     },
     {
       "agent": "ink_annotation_audit",
       "clauses": [
         "12.5.6.13"
+      ],
+      "state": "parent-reviewed-partial-with-consumer-regressions"
+    },
+    {
+      "agent": "font_subset_audit",
+      "clauses": [
+        "9.9.2"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "free_text_annotation_audit",
+      "clauses": [
+        "12.5.6.6"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "line_annotation_audit",
+      "clauses": [
+        "12.5.6.7"
       ],
       "state": "running"
     }

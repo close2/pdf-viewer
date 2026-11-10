@@ -1266,6 +1266,52 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/1051-the-state-is-a-walk-and-depth-is-its-clock.md",
+    "decision_id": "annotation_states_follow_reply_chains_by_user_and_model",
+    "original_decision": "Read §12.5.6.3 state from page-local Text replies; a deeper reply is later for the same user/model; infer a missing StateModel from a recognized State; preserve other strings; do not require a UI because the clause states no display duty.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "The primary decisions remain supported: the clause locates state in a separate Text annotation; later changes reply to the prior reply for that user; Table174 separates models; and the clause contains no UI/rendering SHALL. However, Table175 explicitly says StateModel is required when State is present, and §12.5.6.3 says T shall specify the user when a user makes a state change. Inferring the model without StateModel and treating missing T as a shared None user are tolerant recovery policies for inputs that violate those producer constraints, not normative behavior established by the clause. The existing valid-chain coverage is strong; a no-state intermediate Text reply is a small assertion gap.",
+    "current_code_evidence": "annotation_state::states indexes page Annots Text annotations with direct IRT references, traverses outward breadth-first, and records by (user, model). state_change uses Table175 defaults and infers a known model from State where StateModel is absent; the text helper maps missing/empty T to None. markup::group_source resolves T from the primary for an RT Group subordinate, consistent with §12.5.6.2's group-attribute rule.",
+    "test_evidence": "Verified actual tests `a_reply_sets_the_state_of_the_annotation_it_replies_to`, `the_deeper_reply_in_a_users_chain_supersedes_the_shallower`, `a_user_holds_one_state_per_model`, `one_of_the_two_entries_is_enough`, `a_reply_with_no_state_states_none`, `a_name_the_table_does_not_have_is_kept_as_the_file_spells_it`, `a_subordinates_user_is_the_primarys`, `a_looping_chain_terminates`, and `only_a_text_annotation_sets_a_state`. They use compact Document::open test fragments, not complete xref-indexed PDF fixtures. The scratch draft `a_state_chain_crosses_a_text_reply_without_a_state` uses a complete xref fixture and checks the later state after a comment-only reply.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 §12.5.6.3, printed pp. 480–481 / physical pp. 495–496",
+      "ISO 32000-2 Table 172, printed pp. 478–480 / physical pp. 493–495",
+      "ISO 32000-2 Tables 174–175, printed pp. 481–482 / physical pp. 496–497",
+      "EC3 Issue #479, one-based physical pp. 496–497; Table 176 citations corrected to Table 172",
+      "doc/adr/1051-the-state-is-a-walk-and-depth-is-its-clock.md"
+    ],
+    "changed_premise": "The selected decision remains current for conforming chains, but the standard text itself makes T mandatory for a state change and StateModel mandatory whenever State is present. The earlier rationale treated missing T as a valid anonymous author and described a missing-model inference as if it were a normative table deduction; those are recovery choices for malformed input.",
+    "remaining_work": "No new error behavior inferred for nonconforming missing/empty T, missing StateModel, wrong-typed/unresolved IRT, or mismatched/unknown state-model pairs. If a future host relies on anonymous user identity, decide how separate unnamed authors are represented rather than assuming all None values identify one author. Run the scratch complete-PDF chain test only if parent promotes it.",
+    "review_type": "reviewed_decision_unit",
+    "parent_review": "Parentreadactualdecisionandselectedassertions;retainmodelbehaviorqualificationandnohostcallerboundary. MissingT/modelrecoveryisnotnormative.",
+    "reviewer": "annotation_states_audit",
+    "source": "annotation_states_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1784-the-annotation-rows-claims-read-against-their-lines-and-an-ending-no-longer-takes-its-line.md",
+    "decision_id": "annotation_state_reader_is_not_yet_a_host_display_requirement",
+    "original_decision": "Keep §12.5.6.3 implemented for its page-local state reader, while noting that the API has no caller outside tests and a census; the clause does not require displaying these states.",
+    "current_conclusion": "retain",
+    "reason": "The effective §12.5.6.3 text describes how author-specific state changes are recorded and how they chain. It imposes no display or rasterization requirement on a processor. The public state API remains useful model data, but absence of a host comments-panel consumer is not a defect under this clause.",
+    "current_code_evidence": "`pdf_model::annotation_state::states` is public and its module is re-exported; source search found no viewer host/query consumer. `markup::thread_window` is a separate §12.5.6.2 path that builds threaded popup comments and does not consume the state API.",
+    "test_evidence": "The named `annotation_state.rs` unit tests assert the returned state records directly. No visual or UI test is required by the audited clause. Parent ADR1784 specifically verified the function had no caller outside tests/census at that revision; this bounded review confirmed no new consumer in the current source tree.",
+    "spec_or_external_sources": [
+      "ISO 32000-2 §12.5.6.3",
+      "ISO 32000-2 §12.5.6.2 threaded-comments SHALL",
+      "doc/adr/1784-the-annotation-rows-claims-read-against-their-lines-and-an-ending-no-longer-takes-its-line.md"
+    ],
+    "changed_premise": "No relevant changed premise found; the state API is still not connected to a host UI, and that is not an ISO requirement of §12.5.6.3.",
+    "remaining_work": "Do not conflate threaded popup comments with author-specific State/StateModel data. A future feature may choose to expose these states, but it would be a product decision rather than a gap in this clause.",
+    "review_type": "reviewed_decision_unit",
+    "parent_review": "Parentreadactualdecisionandselectedassertions;retainmodelbehaviorqualificationandnohostcallerboundary. MissingT/modelrecoveryisnotnormative.",
+    "reviewer": "annotation_states_audit",
+    "source": "annotation_states_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/1175-the-actions-a-target-forbids-and-what-follows-them.md",
     "decision_id": "1175.promotion_preserves_next_order",
     "original_decision": "When conversion removes a forbidden action, promote its surviving Next subtree to the removed action's position and preserve Table 196 NOTE 1's recursive order.",
@@ -3385,6 +3431,58 @@
     "parent_accepted": true
   },
   {
+    "adr_path": "doc/adr/0030-constructing-an-appearance-and-the-two-roles-of-one-key.md",
+    "decision_id": "construct_ink_appearance_from_declared_shape",
+    "original_decision": "Construct Ink appearance from its stated InkList geometry, using the shared content-stream interpreter and annotation placement path.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "§12.5.6.13 states stroked paths and explicitly allows line or curve connections between InkList points in an implementation-dependent way. Current code builds/strokes Ink paths through the shared appearance stream. The extra PDF 2.0 Path alternative is also stated and reachable. ADR 0030 predates this audit's explicit qualification that Path/InkList precedence is not specified by Table 185; current code's precedence remains a documented policy, not an ISO mandate.",
+    "current_code_evidence": "crates/pdf-model/src/appearance.rs::ink reads the shared border, draws optional Path first when present, otherwise creates one open polyline per InkList entry and strokes it. path_segments maps first two operands to Move, later pairs to Line, and six values to Curve.",
+    "test_evidence": "annotations.rs::an_ink_annotation_is_stroked_along_its_ink_list asserts separate strokes; ::an_ink_annotations_path_is_drawn_and_outranks_its_ink_list asserts Path and implementation precedence. Existing curve test uses collinear control points and therefore does not distinguish true cubic behavior. Scratch test drafts add a bent InkList and a discriminating non-collinear cubic. Newbent/cubicconsumerstestspass;chordmutationevadesoldtestandfailsnewtest. MissingAPpolicyqualified.",
+    "spec_or_external_sources": "ISO 32000-2:2020 plus EC3, §12.5.6.13 and Table 185, physical pp.509–510 (printed pp.494–495); §12.5.5 common appearance placement.",
+    "changed_premise": "PDF 2.0 Table 185 adds optional /Path; the older subtype construction decision must be read alongside it. The table does not say Path replaces required InkList.",
+    "remaining_work": "Parent review of the proposed test vectors. Keep the precedence stated as project policy and do not promote it to a standard requirement.",
+    "parent_review": "ParentreadselectedADRunit,Table185andactualassertions;notwholeADRrecertification.",
+    "reviewer": "ink_annotation_audit",
+    "source": "ink_annotation_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0294-a-flag-on-the-note-and-a-style-the-table-does-not-give.md",
+    "decision_id": "border_style_scope_is_subtype_specific",
+    "original_decision": "Use Table 168 styles only where the relevant subtype's clauses assign them; do not apply unsupported bevel/inset semantics indiscriminately.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "Table 185 explicitly allows /BS to set line width and dash pattern for Ink paths. ink() passes the annotation to shared Border::read and applies the resulting stroke state. ADR 0294's demonstrated defect concerned square/circle handling, not an Ink conformance failure; its argument is reusable only for the common border parser/scope discipline.",
+    "current_code_evidence": "crates/pdf-model/src/appearance.rs::ink invokes Border::read with C and then border.apply before painting. Dedicated accepted annotation-border audit covers shared /BS interpretation; its own evidence says its Square-versus-Link test does not execute Ink.",
+    "test_evidence": "Existing Ink tests use /BS /W 2 and verify path painting, but do not independently test dash progression or width scaling for Ink. The shared audit is cross-reference evidence, not a subtype-specific proof.",
+    "spec_or_external_sources": "ISO 32000-2:2020 plus EC3, §12.5.4 and Table 185 /BS row; ADR 0294.",
+    "changed_premise": "None for the ADR's subtype-specific border principle. Table 185 explicitly establishes the Ink width/dash applicability that a generic annotation test alone would miss.",
+    "remaining_work": "No duplicate border test drafted; if parent requires subtype-specific coverage, add an Ink stroke-width/dash control with a complete valid annotation fixture.",
+    "parent_review": "ParentreadselectedADRunit,Table185andactualassertions;notwholeADRrecertification.",
+    "reviewer": "ink_annotation_audit",
+    "source": "ink_annotation_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0114-a-missing-operand-makes-the-map-the-identity.md",
+    "decision_id": "missing_rect_identity_only_applies_to_stored_appearance_operand",
+    "original_decision": "A stored appearance with no annotation Rect may be placed by the appearance's own transformed BBox; dynamically constructed annotations with no Rect still lack the needed geometry and may be refused.",
+    "current_conclusion": "cross-reference-only",
+    "reason": "This general placement decision is not contradicted by §12.5.6.13. The Ink geometry requirements do not define a fallback Rect. The current audit does not reinterpret malformed/missing common annotation operands as mandatory reader rejection; the special identity construction applies only when a stored AP supplies the other mapping operand.",
+    "current_code_evidence": "crates/pdf-model/src/annotation.rs has separate constructed-appearance bounding behavior and comments on stored appearances; appearance::ink builds in annotation coordinates and consumes the shared rectangle/placement path.",
+    "test_evidence": "ADR 0114 records the two-direction test pair for stored-appearance placement. No new no-Rect Ink test is needed because this shard does not identify an Ink-specific contrary requirement.",
+    "spec_or_external_sources": "ISO 32000-2:2020 plus EC3, §12.5.2 Table 166 and §12.5.5; Table 185 does not supply a Rect default.",
+    "changed_premise": "None identified. Distinguish stored AP placement from a dynamic Ink path whose geometry is generated directly in the annotation's page coordinate frame.",
+    "remaining_work": "Alreadyacceptedappearanceplacementreviewownsrecoverychoice;thisshardaddsnospecificInkRectcase.",
+    "parent_review": "ParentreadselectedADRunit,Table185andactualassertions;notwholeADRrecertification.",
+    "review_type": "cross_reference_only",
+    "reviewer": "ink_annotation_audit",
+    "source": "ink_annotation_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "parent_accepted": true
+  },
+  {
     "adr_path": "doc/adr/0019-inline-images.md",
     "decision_id": "decode_inline_images_as_shared_image_streams",
     "original_decision": "Scan BI/ID/EI, expand Tables 91–92, resolve /CS resource names, and hand the resulting Stream to the shared image decoder. Initially state the extent algorithm as /L, unfiltered arithmetic, then EI search for filtered legacy files.",
@@ -3579,6 +3677,166 @@
     "reviewer": "link_annotations_residual_audit",
     "source": "link_annotations_residual_audit/decisions.json",
     "parent_review_state": "parent-reviewed-partial-with-findings",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0315-the-nine-entries-a-group-shares-and-the-window-that-came-up-blank.md",
+    "decision_id": "group-attribute-source-and-one-hop",
+    "original_decision": "Use a per-key group_source lookup: only the listed group attributes come from the primary, RT must be Group, and the relation is one hop because a conforming primary has no IRT.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "Current markup.rs and callers follow the Table 172 list and correctly distinguish R/default from Group. The unit test proves value selection but uses parser-light synthetic documents; it is useful behavioral evidence, not valid-PDF integration evidence. One-hop recovery should be described as malformed-input behavior outside the producer conformance rule.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/markup.rs::group_source",
+      "crates/pdf-model/src/markup.rs::GROUP_ATTRIBUTES",
+      "crates/pdf-model/src/popup.rs::popups",
+      "crates/pdf-model/src/appearance.rs group_source callers",
+      "crates/pdf-model/src/view/markup.rs::set_note_text"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/src/markup.rs::only_a_group_reply_type_takes_the_primarys_entries",
+      "crates/pdf-model/src/markup.rs::a_group_with_no_primary_is_its_own_source",
+      "crates/pdf-model/src/popup.rs::a_window_on_a_group_shows_the_primarys_words"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 §12.5.6.2 Table 172 and grouping paragraphs; EC3 Issue #297, source annotations physical page 495 / printed 480.",
+    "changed_premise": "The implementation remains materially as decided; what changed is this audit's evidence qualification and the effective EC3 date split: IRT relationships date to PDF 1.5 while RT=Group dates to PDF 1.6.",
+    "remaining_work": "If integration-level confidence is required, use a complete valid PDF fixture with same-page primary/subordinate, exact xref, and visible group attribute differences. Do not impose version refusal from #297.",
+    "parent_review": "SelecteddecisionunitreadagainstactualADR,successorsandcurrentcode;no wholeADRcertification.",
+    "reviewer": "markup_annotation_audit",
+    "source": "markup_annotation_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1090-what-a-clause-conditions-on-the-pointer-and-what-it-leaves-unsaid.md",
+    "decision_id": "thread-reply-default-r-and-hosted-window",
+    "original_decision": "Thread replies together; RT absent defaults to R; route each reply to the highest ancestor with a popup, retaining own window only where no ancestor window exists.",
+    "current_conclusion": "retain",
+    "reason": "The exact normative shall applies to R replies. Code carries replies, depth and activation to the window; tests assert one window, ordered texts/depths, opened state, and activation target, plus control for Group. The malformed-cycle test is only a bounded recovery test, not conformance evidence.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/popup.rs::thread_window",
+      "crates/pdf-model/src/popup.rs::popups",
+      "crates/pdf-model/src/popup.rs::popup_of",
+      "crates/viewer-core/src/query.rs PopupWindow replies",
+      "crates/viewer-ui/src/chrome.rs reply rendering"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/src/popup.rs::replies_are_threaded_into_one_window_rather_than_opened_beside_it",
+      "crates/pdf-model/src/popup.rs::a_thread_hangs_on_the_highest_window_its_chain_states",
+      "crates/pdf-model/src/popup.rs::only_a_reply_is_threaded_and_a_group_member_is_not",
+      "crates/pdf-model/src/popup.rs::a_reply_chain_that_loops_still_answers"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 §12.5.6.2 Table 172 RT row; Table 172 default R and the threaded-comments shall.",
+    "changed_premise": "No material change to the original thread behavior decision; current implementation exposes replies through viewer-core/host/UI, making the old comments-pane capability rationale stale but already resolved by this ADR.",
+    "remaining_work": "No behavior gap identified. Keep malformed cycle and dangling-reference tests separately labeled from valid-thread conformance tests.",
+    "parent_review": "SelecteddecisionunitreadagainstactualADR,successorsandcurrentcode;no wholeADRcertification.",
+    "reviewer": "markup_annotation_audit",
+    "source": "markup_annotation_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1798-a-carriage-return-and-line-feed-are-one-paragraph-break-in-every-note-window.md",
+    "decision_id": "reader-line-ending-acceptance-and-writer-departure",
+    "original_decision": "Readers split on CR, LF, and CRLF as one break; writing note text continues to emit LF and the producer-side CR requirement was explicitly left for later work.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "Readerparagraphnormalization remainsreasonabletolerance;itdoesnotfulfilltheproducerrule. NewregressionfailsLFvsCR, separate singlelinecontrolpasses. Writerdeferralisstilloutstanding.",
+    "current_code_evidence": [
+      "crates/viewer-host/src/popup.rs::paragraphs",
+      "crates/pdf-model/src/view/markup.rs::set_note_text",
+      "crates/pdf-model/src/view/markup.rs::write_additions",
+      "crates/viewer-ui/src/bin/quorra/typing.rs"
+    ],
+    "test_evidence": [
+      "crates/viewer-host/src/popup.rs::a_carriage_return_and_line_feed_together_are_one_paragraph_break",
+      "crates/pdf-model/tests/markup_annotation_audit.rs::writer_uses_cr_for_contents_paragraphs",
+      "crates/pdf-model/tests/markup_annotation_audit.rs::writer_preserves_single_line_note_text"
+    ],
+    "spec_or_external_sources": "Effective§12.5.6.2physical493/printed478;EC3#90 producerContentsinsertion.",
+    "changed_premise": "The standard text is clarified by EC3 as producer-scoped; this strengthens rather than expires the ADR's explicit writer-departure statement.",
+    "remaining_work": "Knownwriterdeparture independentlyreproduced;fixinseparatetask. RetainreaderCR/LF/CRLFpolicy.",
+    "parent_review": "SelecteddecisionunitreadagainstactualADR,successorsandcurrentcode;no wholeADRcertification.",
+    "reviewer": "markup_annotation_audit",
+    "source": "markup_annotation_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/0199-the-characters-of-a-rich-text-string.md",
+    "decision_id": "contents-rc-precedence-and-textual-equivalence",
+    "original_decision": "Read RC text for popup content, prefer Contents when both exist, treat NOTE 1 textual equivalence as producer expectation, and do not apply XFA formatting.",
+    "current_conclusion": "superseded-in-part",
+    "reason": "The character fallback and precedence remain, but the no-formatting decision was overtaken by ADR 1634 (XFA chapter 27 subset for rich markup) and ADR 1642 (popup hosts draw rich runs). Current popup::RichNote and host/UI routes carry and draw formatting. This audit does not certify that separate rich-text implementation. Table 172 NOTE 1 says textual equivalence is expected; it does not require rejecting or reconciling mismatched strings.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/popup.rs::Popup::rich and read_text",
+      "crates/pdf-model/src/popup/rich.rs",
+      "crates/viewer-host/src/popup.rs::html",
+      "crates/viewer-ui/src/chrome.rs::draw_rich",
+      "crates/viewer-gtk/src/host.rs rich_note"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/src/popup.rs::a_rich_text_string_fills_a_window_a_plain_one_would_have_left_empty",
+      "doc/adr/1642-a-popup-window-draws-its-rich-text-run-by-run-in-the-hosts-own-toolkit.md records later host tests"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 §12.5.6.2 NOTE 1 and Table 172 RC row; Adobe XFA v3.3 chapter 27 as later scoped by ADR 1634.",
+    "changed_premise": "Later accepted successors removed the earlier XFA-formatting exclusion for a named supported subset. This is a material premise change and supersedes only the no-formatting decision; text extraction and Contents precedence stand.",
+    "remaining_work": "Review formatting behavior under ADRs 1634/1642 in the rich-text shard, not this common-markup audit.",
+    "parent_review": "SelecteddecisionunitreadagainstactualADR,successorsandcurrentcode;no wholeADRcertification.",
+    "reviewer": "markup_annotation_audit",
+    "source": "markup_annotation_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1224-an-fdf-annotation-is-an-annotation-and-three-entries-read-as-themselves.md",
+    "decision_id": "shared_annotation_model_and_import_log",
+    "original_decision": "FDFannotations use§12.5dictionarysemantics plusFDFPageordinal and theexistingViewStateadditionlog,notasecondannotationrepresentation.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "ParentreadADR1224;itdoesnotstate theexactIRTlinkingdecisionattributedbydraft. Sharedmodeldecisionretained;exactlinkingarrivedinADR1297section2.",
+    "current_code_evidence": [
+      "crates/pdf-model/src/forms_data.rs::read_annotations",
+      "crates/pdf-model/src/forms_data.rs::read_annotation",
+      "crates/pdf-model/src/view/markup.rs::link_reply"
+    ],
+    "test_evidence": [
+      "crates/pdf-model/tests/markup_annotation_audit.rs"
+    ],
+    "spec_or_external_sources": "ISO 32000-2 §12.5.6.2 Table 172 IRT row (FDF paragraph), read with §12.7.8; ADR 1224 records the interpretation.",
+    "changed_premise": "No changed normative premise; implementation is clearer than the available direct assertion evidence.",
+    "remaining_work": "SharedmodeldoesnotcertifyallFDFentries;1297selectedlinkingdecisionreviewedseparately.",
+    "parent_review": "SelecteddecisionunitreadagainstactualADR,successorsandcurrentcode;no wholeADRcertification.",
+    "reviewer": "markup_annotation_audit",
+    "source": "markup_annotation_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1297-an-xfdf-annotation-is-read-from-the-held-text-onto-iso-32000-2s-keys.md",
+    "decision_id": "shared_fdf_form_irt_same_page_linking",
+    "original_decision": "Import resolves IRT NM string on samepage:currentimport,prioradditions,existingAnnots;unresolvedname removesIRT/RTandreports.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "Table172explicitFDFstringformandsamepageconstraint supportsharedlinking. ExistingXFDFtest alreadychecksnewimporttarget,existingtargetandmissingname. NewFDFtestsverify saved/reopenedreferenceandcrosspageexclusion.",
+    "current_code_evidence": "crates/pdf-model/src/view/markup.rs::link_reply",
+    "test_evidence": "crates/pdf-model/tests/xfdf_annotations.rs::a_reply_is_linked_to_the_annotation_its_name_names_on_the_same_page; crates/pdf-model/tests/markup_annotation_audit.rs",
+    "remaining_work": "Prioradditionlookupnotseparatelytestedhere;noentireXFDFcertification.",
+    "parent_review": "ParentreadADR1297section2andexistingexactassertions.",
+    "reviewer": "markup_annotation_audit",
+    "source": "markup_annotation_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "parent_accepted": true
+  },
+  {
+    "adr_path": "doc/adr/1212-a-merged-document-states-its-metadata-and-derives-none.md",
+    "decision_id": "exdata_markupgeo_has_no_defined_extra_reader_operation",
+    "original_decision": "Do notaddconsumerlessMarkupGeoreader;Table173definesType/Subtypeandnoadditionalentries.",
+    "current_conclusion": "retain-with-qualification",
+    "reason": "ParentreadTable173andADR1212section4. NoadditionalMarkupGeooperationisdemandedhere;3Dalternativesareseparatescope. ThisdoesnotcertifyproducerType/Subtypeconditionsorallimportpreservation.",
+    "current_code_evidence": "crates/pdf-model/src/xfdf/annotations.rs",
+    "test_evidence": "Sourceinventory;noinventeddisplayassertion.",
+    "remaining_work": "Recheckwhenanexternal-data consumerisadded;writerdutiesremaininventoried.",
+    "parent_review": "Selectedsection4only;metadata mergedictionarydecisionsnotreviewedhere.",
+    "reviewer": "markup_annotation_audit",
+    "source": "markup_annotation_audit/decisions.json",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
     "parent_accepted": true
   },
   {

@@ -710,5 +710,15 @@
   "opentype_nup_clippy": {
     "log": "clippy-opentype-nup-final.log",
     "exit": 0
+  },
+  "markup_state_ink": {
+    "log": "markup-state-ink-reviewed-target.log",
+    "pass": 7,
+    "expected_fail": 1,
+    "exit": 101
+  },
+  "markup_state_ink_clippy": {
+    "log": "clippy-markup-state-ink-final.log",
+    "exit": 0
   }
 }

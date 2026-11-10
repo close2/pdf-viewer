@@ -232,6 +232,12 @@
       "test": "opentype_cff_under_simple_type1_uses_encoding_glyph_names_and_cff_charset",
       "evidence": "opentype-decoy-control-target.log",
       "classification": "Type1/OpenType CFF symbolic font incorrectly uses TrueType Macintosh cmap before explicit encoding; bareType1C control passes"
+    },
+    {
+      "binary": "pdf-model::markup_annotation_audit",
+      "test": "writer_uses_cr_for_contents_paragraphs",
+      "evidence": "markup-state-ink-reviewed-target.log",
+      "classification": "EC3#90 ContentsproducerCRrule;ADR1798explicitlydeferredwriterhalf;singlelinecontrolpasses"
     }
   ]
 }

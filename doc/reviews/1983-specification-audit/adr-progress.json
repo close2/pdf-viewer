@@ -400,7 +400,7 @@
         "source": "ink_annotation_audit/decisions.json",
         "decision_id": "construct_ink_appearance_from_declared_shape",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -1078,9 +1078,9 @@
       {
         "source": "ink_annotation_audit/decisions.json",
         "decision_id": "missing_rect_identity_only_applies_to_stored_appearance_operand",
-        "conclusion": "retain",
-        "parent_accepted": false,
-        "review_type": "selected-decision-unit",
+        "conclusion": "cross-reference-only",
+        "parent_accepted": true,
+        "review_type": "cross_reference_only",
         "duplicates_decision": null
       }
     ]
@@ -1781,14 +1781,14 @@
   },
   {
     "path": "doc/adr/0199-the-characters-of-a-rich-text-string.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "markup_annotation_audit/decisions.json",
         "decision_id": "contents-rc-precedence-and-textual-equivalence",
-        "conclusion": "superseded",
-        "parent_accepted": false,
+        "conclusion": "superseded-in-part",
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2467,14 +2467,14 @@
   },
   {
     "path": "doc/adr/0294-a-flag-on-the-note-and-a-style-the-table-does-not-give.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "ink_annotation_audit/decisions.json",
         "decision_id": "border_style_scope_is_subtype_specific",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2638,14 +2638,14 @@
   },
   {
     "path": "doc/adr/0315-the-nine-entries-a-group-shares-and-the-window-that-came-up-blank.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "markup_annotation_audit/decisions.json",
         "decision_id": "group-attribute-source-and-one-hop",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -6702,14 +6702,14 @@
   },
   {
     "path": "doc/adr/1051-the-state-is-a-walk-and-depth-is-its-clock.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "annotation_states_audit/decisions.json",
         "decision_id": "annotation_states_follow_reply_chains_by_user_and_model",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       }
@@ -6977,14 +6977,14 @@
   },
   {
     "path": "doc/adr/1090-what-a-clause-conditions-on-the-pointer-and-what-it-leaves-unsaid.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "markup_annotation_audit/decisions.json",
         "decision_id": "thread-reply-default-r-and-hosted-window",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -7794,6 +7794,14 @@
     "whole_document_complete": false,
     "review_records": [
       {
+        "source": "markup_annotation_audit/decisions.json",
+        "decision_id": "exdata_markupgeo_has_no_defined_extra_reader_operation",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
         "source": "metadata_audit/decisions.json",
         "decision_id": "merge_info_only_when_operator_states_it",
         "conclusion": "retain-with-qualification",
@@ -7880,14 +7888,14 @@
   },
   {
     "path": "doc/adr/1224-an-fdf-annotation-is-an-annotation-and-three-entries-read-as-themselves.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "markup_annotation_audit/decisions.json",
-        "decision_id": "irt-in-fdf-name-string-is-resolved-as-link",
+        "decision_id": "shared_annotation_model_and_import_log",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -8314,9 +8322,18 @@
   },
   {
     "path": "doc/adr/1297-an-xfdf-annotation-is-read-from-the-held-text-onto-iso-32000-2s-keys.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "markup_annotation_audit/decisions.json",
+        "decision_id": "shared_fdf_form_irt_same_page_linking",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1299-a-withheld-quantity-is-chosen-written-down-and-reported.md",
@@ -10848,14 +10865,14 @@
   },
   {
     "path": "doc/adr/1784-the-annotation-rows-claims-read-against-their-lines-and-an-ending-no-longer-takes-its-line.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "annotation_states_audit/decisions.json",
         "decision_id": "annotation_state_reader_is_not_yet_a_host_display_requirement",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       }
@@ -10899,14 +10916,14 @@
   },
   {
     "path": "doc/adr/1798-a-carriage-return-and-line-feed-are-one-paragraph-break-in-every-note-window.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "markup_annotation_audit/decisions.json",
         "decision_id": "reader-line-ending-acceptance-and-writer-departure",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }

@@ -111,6 +111,40 @@
       "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/function-mutation-reverse-sample-dimensions-mutated.log"
     }
   ],
+  "ink-curve-mutation-results.json": [
+    {
+      "variant": "control",
+      "test_version": "old",
+      "test": "an_ink_annotations_path_is_drawn_and_outranks_its_ink_list",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "ink-curve-mutation-control-old.log"
+    },
+    {
+      "variant": "control",
+      "test_version": "new",
+      "test": "ink_path_six_operands_produce_a_cubic_curve_not_an_endpoint_chord",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "ink-curve-mutation-control-new.log"
+    },
+    {
+      "variant": "cubic-replaced-by-chord",
+      "test_version": "old",
+      "test": "an_ink_annotations_path_is_drawn_and_outranks_its_ink_list",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "ink-curve-mutation-cubic-replaced-by-chord-old.log"
+    },
+    {
+      "variant": "cubic-replaced-by-chord",
+      "test_version": "new",
+      "test": "ink_path_six_operands_produce_a_cubic_curve_not_an_endpoint_chord",
+      "returncode": 101,
+      "outcome": "assertion-failed",
+      "log": "ink-curve-mutation-cubic-replaced-by-chord-new.log"
+    }
+  ],
   "interpolation-mutation-results.json": [
     {
       "arm": "baseline",
