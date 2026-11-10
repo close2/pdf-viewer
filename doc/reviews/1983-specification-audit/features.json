@@ -16503,7 +16503,7 @@
       "crates/pdf-model/tests/free_text_annotation_spec_audit.rs::freetext_rd_independently_insets_each_edge_of_the_text_box"
     ],
     "verdict": "confirmed-selected-independent-inset-consumers",
-    "evidence": "Each inset changes alone with border width zero: left/right translate glyph bounds by 24/30 points without vertical movement; top shifts both vertical bounds by 12 without horizontal movement; bottom removes nonempty text below y28 while every pixel above is unchanged. These pass. The bundled draft could pass on border movement alone; rejected and replaced. Producer nonnegative/sum constraints are inventoried, not reader-rejection duties.",
+    "evidence": "Each inset changes alone with border width zero: left/right translate glyph bounds by 24/30 points without vertical movement; top shifts both vertical bounds by 12 without horizontal movement; bottom removes nonempty text below y28 while every pixel above is unchanged. These pass. The bundled draft could pass on border movement alone; rejected and replaced. Producer nonnegative/sum constraints are inventoried, not reader-rejection duties. Isolated mutation deleting only FreeText glyph output while retaining border makes the original draft still PASS and the reviewed test FAIL; both unmodified controls PASS. Source restored and byte-compared. A separate earlier mutation ignoring RD for text made both tests fail, so that broader claim was not used.",
     "parent_review": "Read Table 177, EC3 #299/#524, selected ADR units, current appearance routing and actual assertions. Standalone fixtures remove the Fields ambiguity; new tests disable borders and isolate each inset.",
     "test_result": "New FreeText target: two PASS in free-text-borderless-target.log. Existing tests were included in prior broad wave14; execution does not certify all assertions.",
     "reviewer": "free_text_annotation_audit",
@@ -24252,7 +24252,7 @@
   {
     "clause": "12.5.6.7",
     "feature_id": "required_line_geometry_and_leader_endpoints",
-    "requirement": "`/L` is four default-user-space coordinates. Without `/LL` they are the line endpoints; if `/LL` is present they are the leader endpoints instead. The line proper is displaced perpendicular to the line by signed `/LL`; positive is clockwise from the first-to-second direction and negative is the opposite. `/LL` defaults to zero and produces no leaders.",
+    "requirement": "L gives line endpoints without LL and leader endpoints with LL. Leaders extend FROM the line proper in the signed perpendicular direction: clockwise for positive LL. Therefore line proper is L minus clockwiseUnit times LL. LL defaults zero.",
     "source_location": "Table 178 `/L` and `/LL`, printed p.486 / physical p.501; Figure 80 printed p.488 / physical p.503.",
     "errata": "No effective EC3 semantic change identified for `/L` or `/LL`.",
     "ledger_status": "implemented",
@@ -24262,17 +24262,18 @@
     ],
     "test_refs": [
       "crates/pdf-model/tests/annotations.rs::a_line_annotations_leader_lines_put_the_line_where_the_clause_says",
-      "crates/pdf-model/tests/annotations.rs::a_negative_leader_length_reverses_the_side"
+      "crates/pdf-model/tests/annotations.rs::a_negative_leader_length_reverses_the_side",
+      "crates/pdf-model/tests/line_ending_endpoint_spec_audit.rs::positive_ll_places_the_proper_line_opposite_the_clockwise_leaders"
     ],
-    "verdict": "confirmed-selected-raster",
-    "evidence": "The positive test asserts line ink at the y=30 displaced segment, no ink on the middle of the original y=50 segment, and leader ink at the stated endpoint locations. The negative test asserts the opposite side and excludes the positive side, discriminating an absolute-value implementation. Missing `/LL` and explicit zero behavior are described in implementation but no separate default-vs-zero equality oracle was cited; this remains a narrow default-value assertion residual.",
+    "verdict": "implementation-gap-incorrect-leader-direction",
+    "evidence": "Follow-up original-figure review overturned the initial arithmetic reading. Figure80 positive example puts the main line above the L leader endpoints, negative below. Table178 defines signed leader direction from the line proper, not displacement from L to it. Parent and independent agent agree. Existing tests encode ADR0075 opposite sign and pass; new no-LL/zero controls pass, then both positive/negative assertions fail with reversed positions. This is direct evidence that passing assertions can preserve an incorrect specification interpretation.",
     "test_command": null,
-    "test_result": "New diagonal caption and public popup PASS in free-text-line-target.log; endpoint regression FAILS in line-ending-endpoint-target.log. Existing tests ran in broad wave14; review is bounded to described assertions.",
+    "test_result": "line-leader-direction-target.log: new direction regression fails as predicted, existing endpoint regression remains expected failure.",
     "parent_review": "Parent read effective Tables178/179 and visually inspected Figure80 on physical503. Read actual leader, ending, caption, intent and measurement assertions and corresponding code. Missing-AP construction tests are policy witnesses, not producer-conformance certificates.",
     "reviewer": "line_annotation_audit",
     "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
     "reviewer_ledger_status": "implemented",
-    "reviewer_verdict": "confirmed-selected-raster",
+    "reviewer_verdict": "implementation-gap-incorrect-leader-direction",
     "superseded": false
   },
   {
@@ -24369,8 +24370,8 @@
       "crates/pdf-model/tests/annotations.rs::a_leader_line_has_an_offset_before_it_and_an_extension_beyond_it",
       "crates/pdf-model/tests/annotations.rs::a_negative_leader_length_reverses_the_side"
     ],
-    "verdict": "confirmed-selected-raster",
-    "evidence": "The raster test asserts an empty gap before the leader, visible leader interior, extension beyond the line proper, and no ink past the extension end. The implementation clamps negative LLE/LLO to zero as a recovery/policy choice; the standard's nonnegative condition is a writer requirement and does not mandate rejection. The test does not exercise absent-vs-explicit-zero LLE/LLO defaults.",
+    "verdict": "partial-with-leader-direction-conflict",
+    "evidence": "The raster test asserts an empty gap before the leader, visible leader interior, extension beyond the line proper, and no ink past the extension end. The implementation clamps negative LLE/LLO to zero as a recovery/policy choice; the standard's nonnegative condition is a writer requirement and does not mandate rejection. The test does not exercise absent-vs-explicit-zero LLE/LLO defaults. Follow-up Figure80 reading finds the sign convention inverted in common leader geometry. Existing gap/extension pixels are tied to that same sign; retain only the relative-distance evidence, not correct absolute placement.",
     "test_command": null,
     "test_result": "New diagonal caption and public popup PASS in free-text-line-target.log; endpoint regression FAILS in line-ending-endpoint-target.log. Existing tests ran in broad wave14; review is bounded to described assertions.",
     "parent_review": "Parent read effective Tables178/179 and visually inspected Figure80 on physical503. Read actual leader, ending, caption, intent and measurement assertions and corresponding code. Missing-AP construction tests are policy witnesses, not producer-conformance certificates.",
@@ -24378,7 +24379,7 @@
     "reviewer": "line_annotation_audit",
     "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
     "reviewer_ledger_status": "implemented",
-    "reviewer_verdict": "confirmed-selected-raster",
+    "reviewer_verdict": "partial-with-leader-direction-conflict",
     "superseded": false
   },
   {

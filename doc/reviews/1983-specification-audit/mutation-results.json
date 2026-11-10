@@ -81,6 +81,40 @@
       "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/mutation-inverted-stroking.log"
     }
   ],
+  "free-text-inset-mutation-results.json": [
+    {
+      "variant": "control",
+      "test_version": "draft",
+      "test": "freetext_rd_insets_the_right_and_top_and_bottom_of_the_text_box",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "free-text-inset-mutation-control-draft.log"
+    },
+    {
+      "variant": "control",
+      "test_version": "reviewed",
+      "test": "freetext_rd_independently_insets_each_edge_of_the_text_box",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "free-text-inset-mutation-control-reviewed.log"
+    },
+    {
+      "variant": "text-omitted-border-kept",
+      "test_version": "draft",
+      "test": "freetext_rd_insets_the_right_and_top_and_bottom_of_the_text_box",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "free-text-inset-mutation-text-omitted-border-kept-draft.log"
+    },
+    {
+      "variant": "text-omitted-border-kept",
+      "test_version": "reviewed",
+      "test": "freetext_rd_independently_insets_each_edge_of_the_text_box",
+      "returncode": 101,
+      "outcome": "assertion-failed",
+      "log": "free-text-inset-mutation-text-omitted-border-kept-reviewed.log"
+    }
+  ],
   "function-mutation-results.json": [
     {
       "name": "ignore-exponent",

@@ -5765,10 +5765,12 @@
       "confirmed-selected-default-and-diagonal-axis-consumer": 1,
       "confirmed-selected-model": 2,
       "confirmed-selected-public-popup-consumer": 1,
-      "confirmed-selected-raster": 4,
+      "confirmed-selected-raster": 2,
       "cross-reference-only": 1,
       "implementation-conflicts-with-literal-endpoint-rule": 1,
-      "partial-shape-and-version-inventory": 1
+      "implementation-gap-incorrect-leader-direction": 1,
+      "partial-shape-and-version-inventory": 1,
+      "partial-with-leader-direction-conflict": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
@@ -5789,6 +5791,7 @@
       "implemented-with-ellipse-axis-test-gap": 1,
       "missing-asymmetric-geometry-test": 1,
       "missing-component-count-consumer-test": 1,
+      "producer-version-duty-reader-gate-unactivated": 3,
       "reachable-square-popup-tested": 1,
       "reader-dispatch-tested-producer-duty": 1
     },
@@ -5797,10 +5800,14 @@
   {
     "clause": "12.5.6.9",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "polygon_polyline_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "implementation-gap": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {

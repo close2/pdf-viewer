@@ -744,5 +744,14 @@
   "free_text_line_clippy": {
     "log": "clippy-free-text-line-final.log",
     "exit": 0
+  },
+  "line_leader_direction": {
+    "log": "line-leader-direction-target.log",
+    "expected_fail": 2,
+    "exit": 101
+  },
+  "line_leader_clippy": {
+    "log": "clippy-line-leader-final.log",
+    "exit": 0
   }
 }

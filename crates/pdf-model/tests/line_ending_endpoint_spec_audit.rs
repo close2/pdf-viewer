@@ -48,11 +48,7 @@ fn assemble(body: &str) -> Vec<u8> {
     out.into_bytes()
 }
 
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "indices and sums are bounded by the fixed 400 by 400 raster"
-)]
-fn filled_ending_center(extra: &str) -> (f32, f32) {
+fn draw(extra: &str) -> pdf_render::Raster {
     let document = Document::open(line_with(extra)).expect("complete PDF syntax");
     assert!(!document.was_recovered(), "exact cross references");
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
@@ -64,10 +60,18 @@ fn filled_ending_center(extra: &str) -> (f32, f32) {
     );
     let list = interpretation.display_list;
     let target = TargetSpec::for_page(&list, 4.0, 1 << 30).expect("small target");
-    let raster = CpuRasterizer::new()
+    CpuRasterizer::new()
         .with_medium(pdf_render::Medium::NONE)
         .rasterize(&list, target)
-        .expect("supported drawing");
+        .expect("supported drawing")
+}
+
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "indices and sums are bounded by the fixed 400 by 400 raster"
+)]
+fn filled_ending_center(extra: &str) -> (f32, f32) {
+    let raster = draw(extra);
     let mut bounds = (u32::MAX, 0, u32::MAX, 0);
     let mut count = 0;
     for row in 0..raster.height {
@@ -112,5 +116,40 @@ fn line_endings_use_the_l_coordinate_pairs_even_with_leader_lines() {
         actual,
         [(20.0, 50.0), (80.0, 50.0)],
         "Table 178 LE names L coordinates; the line proper is a different segment when LL exists"
+    );
+}
+
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "fixed raster scale and bounded sample coordinates"
+)]
+fn painted(raster: &pdf_render::Raster, x: u32, y: u32) -> bool {
+    let row = raster.height - 1 - y * 4;
+    raster.data[((row * raster.width + x * 4) * 4 + 3) as usize] > 200
+}
+
+#[test]
+fn positive_ll_places_the_proper_line_opposite_the_clockwise_leaders() {
+    let absent = draw("");
+    let zero = draw("/LL 0");
+    assert_eq!(absent.data, zero.data, "zero means no leaders");
+    assert!(painted(&absent, 50, 50));
+    assert!(!painted(&absent, 50, 30));
+    assert!(!painted(&absent, 50, 70));
+
+    // Table 178: leaders extend FROM the line proper in the signed direction. L holds
+    // their far endpoints. Figure 80's positive example puts the proper line above these
+    // endpoints; its negative example puts it below. For horizontal left-to-right L,
+    // clockwise is (0,-1), so proper = L - LL*(0,-1), not L + LL*(0,-1).
+    let positive = draw("/LL 20");
+    let negative = draw("/LL -20");
+    let positions = [
+        [painted(&positive, 50, 70), painted(&positive, 50, 30)],
+        [painted(&negative, 50, 70), painted(&negative, 50, 30)],
+    ];
+    assert_eq!(
+        positions,
+        [[true, false], [false, true]],
+        "LL describes leader direction from the line proper, not displacement from L to it"
     );
 }

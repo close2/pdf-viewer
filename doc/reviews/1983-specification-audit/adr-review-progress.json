@@ -6,13 +6,13 @@
     "selected-decision-units-reviewed": 182,
     "review-in-progress": 18
   },
-  "decision_review_records": 297,
+  "decision_review_records": 301,
   "parent_accepted_records": 294,
   "cross_reference_records": 22,
   "accepted_record_conclusions": {
     "retain-with-qualification": 150,
     "revisit": 14,
-    "retain": 79,
+    "retain": 78,
     "superseded": 13,
     "superseded-in-part": 2,
     "cross-reference-only": 22,
@@ -26,6 +26,7 @@
     "retain-scoped-edit-regeneration": 1,
     "retain-scoped-rich-text-routing": 1,
     "retain-as-project-policy": 1,
+    "revisit-leader-direction": 1,
     "reconsider-literal-table-conflict": 1,
     "reconsider-premise-for-tiling-patterns": 1,
     "retain-reader-policy": 1,

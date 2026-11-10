@@ -800,7 +800,7 @@
       {
         "source": "line_annotation_audit/decisions.json",
         "decision_id": "draw-line-with-leaders-by-interpreting-signed-LL-and-zero-as-no-leaders",
-        "conclusion": "retain",
+        "conclusion": "revisit-leader-direction",
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
@@ -1783,6 +1783,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "polygon_polyline_audit/decisions.json",
+        "decision_id": "0192-line-ending-geometry-and-subtype-ic",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -1804,6 +1812,14 @@
         "decision_id": "do-not-bound-constructed-line-by-Rect",
         "conclusion": "retain",
         "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "polygon_polyline_audit/decisions.json",
+        "decision_id": "0193-default-user-space-geometry-not-clipped-to-rect",
+        "conclusion": "retain",
+        "parent_accepted": false,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -6859,6 +6875,14 @@
         "duplicates_decision": null
       },
       {
+        "source": "polygon_polyline_audit/decisions.json",
+        "decision_id": "1057-polygon-cloud-effect-scope",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
         "source": "watermark_audit/decisions.json",
         "decision_id": "1057-watermark-has-no-popup-or-pointer-interaction",
         "conclusion": "retain",
@@ -11014,6 +11038,14 @@
         "conclusion": "retain",
         "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "polygon_polyline_audit/decisions.json",
+        "decision_id": "1784-polygon-le-ignored-and-path-polyline-le-named",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
     ]

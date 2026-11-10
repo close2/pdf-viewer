@@ -244,6 +244,12 @@
       "test": "line_endings_use_the_l_coordinate_pairs_even_with_leader_lines",
       "evidence": "line-ending-endpoint-target.log",
       "classification": "Table178 literal LE-to-L endpoint mapping conflicts with ADR0192 construction; no-LL controls pass, Figure80 premise unsupported"
+    },
+    {
+      "binary": "pdf-model::line_ending_endpoint_spec_audit",
+      "test": "positive_ll_places_the_proper_line_opposite_the_clockwise_leaders",
+      "evidence": "line-leader-direction-target.log",
+      "classification": "Table178 signed direction and Figure80: existing ADR0075/tests invert displacement from leader endpoints to proper line"
     }
   ]
 }

@@ -1,6 +1,6 @@
 {
   "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
-  "checkpoint_utc": "2026-11-10T16:17:59.814917+00:00",
+  "checkpoint_utc": "2026-11-10T16:22:34.741042+00:00",
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
@@ -31,7 +31,7 @@
     "exit": 100,
     "manifest": "Parent verified exact binary/test set equality; assertions are not necessarily distinct defects."
   },
-  "latest_clippy": "clippy-free-text-line-final.log",
+  "latest_clippy": "clippy-line-leader-final.log",
   "new_failures_since_wave8": [
     "catalog Named OpenAction consumer missing",
     "page-visible neighbor omitted",
@@ -77,8 +77,9 @@
     "671a5ab3",
     "6ada0e99",
     "3ebb419a",
-    "efa78384"
+    "efa78384",
+    "d150b6c1"
   ],
-  "expected_failures_manifest_count": 44,
-  "broad_run_predates": "FreeText/Line four passing tests and one endpoint failure"
+  "expected_failures_manifest_count": 45,
+  "broad_run_predates": "FreeText/Line four passes plus two expected failures"
 }
