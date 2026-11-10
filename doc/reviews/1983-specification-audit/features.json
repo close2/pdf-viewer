@@ -3557,6 +3557,112 @@
     "superseded": false
   },
   {
+    "clause": "12.5.3",
+    "feature_id": "12.5.3.table167.locked_contents",
+    "requirement": "Table 167 bit 10 LockedContents: if set, do not allow the annotation's contents to be modified by the user. The clause states an interactive processor obligation; the restriction is evaluated at the actual contents-edit operation.",
+    "source_location": "ISO 32000-2 §12.5.3 Table 167, bit 10, printed p. 472 / physical p. 487; scratchpad/r1983/spec-audit/source/spec-layout.txt:28356-28360",
+    "errata": "No EC3 change to bit 10 found. EC3 Issue #1 adds a reference to §12.5.5 and Table 167 bits 1–2 in §12.5.1; it does not amend LockedContents.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/restriction.rs::asserted",
+      "crates/viewer-core/src/viewer/editing.rs::edit",
+      "crates/viewer-core/src/viewer/editing.rs::standing",
+      "crates/viewer-core/src/command.rs::Edit::SetNoteText"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::table_167s_locked_flag_is_not_its_locked_contents_flag",
+      "crates/viewer-core/tests/headless.rs::a_note_is_retyped_through_its_window_and_saved_as_its_contents",
+      "crates/viewer-core/tests/annotation_lock_policy_audit.rs::locked_contents_obeys_the_reader_policy_and_locked_alone_does_not_prompt"
+    ],
+    "verdict": "selected-public-policy-tested",
+    "evidence": "The model asserts Restriction::AnnotationLocked only for Operation::Annotate when F bit 10 is set, and the public editing path calls decide before committing SetNoteText. Existing model test asserts the restriction and confirms ViewState itself still accepts the edit, preserving the reader-policy seam. Existing viewer test covers retyping and saved output but no policy levels. The proposed public test exercises Off, On, Ask/no, Ask/yes, plus the bit-8 control; draft is not executed evidence. Parent promotes a PDF1.7 fixture because a nondegenerate PDF2.0 Text annotation would require AP. Exact xref checked. Public popup Contents stays before under On, unanswered Ask and Ask/no; changes under Off, Ask/yes and Warn. Bit8-only Ask proceeds without prompt. Warn emits Dirty before Warned. All assertions pass.",
+    "test_command": "cargo test -p viewer-core --test annotation_lock_policy_audit",
+    "test_result": "1pass, annotation-lock-policy-order-target.log",
+    "parent_review": "Root inspected actual Table167 text, model restriction mapping, Viewer standing/edit/answer branches and public readback assertions. Contents-only, selected policy path; no ISO default-Off claim or native-host replay.",
+    "reviewer": "annotation_lock_policy_audit",
+    "parent_review_state": "parent-reviewed-partial-public-four-level-contents-policy",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "selected-public-policy-tested",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "12.5.3.table167.locked_excludes_contents",
+    "requirement": "Table 167 bit 8 Locked governs user deletion and property changes, but expressly does not restrict changes to annotation contents (including a form field value). Therefore it must not cause a contents edit to be refused or asked about.",
+    "source_location": "ISO 32000-2 §12.5.3 Table 167, bit 8, printed p. 471 / physical p. 486; scratchpad/r1983/spec-audit/source/spec-layout.txt:28346-28355",
+    "errata": "No EC3 change to bit 8 found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/restriction.rs::asserted",
+      "crates/viewer-core/src/viewer/editing.rs::edit"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::table_167s_locked_flag_is_not_its_locked_contents_flag",
+      "crates/viewer-core/tests/annotation_lock_policy_audit.rs::locked_contents_obeys_the_reader_policy_and_locked_alone_does_not_prompt"
+    ],
+    "verdict": "selected-public-policy-tested",
+    "evidence": "The existing model test pairs flags that differ only in bit 8 versus bit 10, asserts asserted() is empty for bit 8, then confirms ViewState::set_free_text permits the change. It does not run through Viewer policy. The draft uses an Ask policy with bit 8 alone and requires the contents edit to proceed without an Asking event. No deletion/property-edit duty is claimed because this viewer currently offers no such edit command. Parent promotes a PDF1.7 fixture because a nondegenerate PDF2.0 Text annotation would require AP. Exact xref checked. Public popup Contents stays before under On, unanswered Ask and Ask/no; changes under Off, Ask/yes and Warn. Bit8-only Ask proceeds without prompt. Warn emits Dirty before Warned. All assertions pass.",
+    "test_command": "cargo test -p viewer-core --test annotation_lock_policy_audit",
+    "test_result": "1pass, annotation-lock-policy-order-target.log",
+    "parent_review": "Root inspected actual Table167 text, model restriction mapping, Viewer standing/edit/answer branches and public readback assertions. Contents-only, selected policy path; no ISO default-Off claim or native-host replay.",
+    "reviewer": "annotation_lock_policy_audit",
+    "parent_review_state": "parent-reviewed-partial-public-four-level-contents-policy",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "selected-public-policy-tested",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "policy.annotate.reader_levels",
+    "requirement": "The host/user policy for Operation::Annotate independently selects Off, On, Ask, or Warn. Off is the reader-favouring project default; it is an explicit policy choice, not an ISO default or an undiscovered defect.",
+    "source_location": "CLAUDE.md principle 3; crates/viewer-core/src/command.rs::RestrictionPolicy and RestrictionLevel; doc/adr/1144-a-restriction-level-per-restriction-and-off-is-the-default.md",
+    "errata": "Not a specification requirement; no EC3 scope.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/viewer/editing.rs::standing",
+      "crates/viewer-core/src/viewer/editing.rs::verdict_of",
+      "crates/viewer-core/src/viewer/editing.rs::edit",
+      "crates/pdf-model/src/restriction.rs::Level::verdict"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/restriction_levels.rs::a_copy_obeys_the_level_the_reader_set_for_copying",
+      "crates/viewer-core/tests/annotation_lock_policy_audit.rs::locked_contents_obeys_the_reader_policy_and_locked_alone_does_not_prompt"
+    ],
+    "verdict": "selected-public-policy-tested",
+    "evidence": "RestrictionPolicy has a separate Annotate level. Viewer resolves the edit and calls restriction::decide before commit; Refuse, Ask, Warn, and Proceed have distinct branches. ADR 1144 records that Off is default by owner policy and that restrictions must remain switchable. Existing generic viewer tests prove level behavior for Copy, while this draft exercises it for an annotation contents edit. Parent promotes a PDF1.7 fixture because a nondegenerate PDF2.0 Text annotation would require AP. Exact xref checked. Public popup Contents stays before under On, unanswered Ask and Ask/no; changes under Off, Ask/yes and Warn. Bit8-only Ask proceeds without prompt. Warn emits Dirty before Warned. All assertions pass.",
+    "test_command": "cargo test -p viewer-core --test annotation_lock_policy_audit",
+    "test_result": "1pass, annotation-lock-policy-order-target.log",
+    "parent_review": "Root inspected actual Table167 text, model restriction mapping, Viewer standing/edit/answer branches and public readback assertions. Contents-only, selected policy path; no ISO default-Off claim or native-host replay.",
+    "reviewer": "annotation_lock_policy_audit",
+    "parent_review_state": "parent-reviewed-partial-public-four-level-contents-policy",
+    "reviewer_ledger_status": "project policy",
+    "reviewer_verdict": "selected-public-policy-tested",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "12.5.3.table167.locked_property_scope",
+    "requirement": "The bit-8 property/deletion restriction and bit-10 deletion/property exception apply to operations on those properties. No current viewer command changes or deletes a producer-stated annotation's properties, so those conditional capabilities are outside this test's active path.",
+    "source_location": "ISO 32000-2 §12.5.3 Table 167, bits 8 and 10, printed pp. 471–472 / physical pp. 486–487",
+    "errata": "No EC3 change to either row found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/command.rs::Edit",
+      "crates/viewer-core/src/viewer/editing.rs::operation_of"
+    ],
+    "test_refs": [],
+    "verdict": "conditional-scope-unactivated",
+    "evidence": "The current edit vocabulary has contents retyping and new annotation creation but no property-edit or producer-annotation deletion command. Do not infer a property-edit test obligation from the existence of these flag definitions.",
+    "test_command": "cargo test -p viewer-core --test annotation_lock_policy_audit",
+    "test_result": "1pass, annotation-lock-policy-order-target.log",
+    "parent_review": "Root inspected actual Table167 text, model restriction mapping, Viewer standing/edit/answer branches and public readback assertions. Contents-only, selected policy path; no ISO default-Off claim or native-host replay.",
+    "reviewer": "annotation_lock_policy_audit",
+    "parent_review_state": "parent-reviewed-partial-public-four-level-contents-policy",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "conditional-scope-unactivated",
+    "superseded": false
+  },
+  {
     "feature_id": "12.6.2.table196.next_removal_preserves_reachable_recursive_order",
     "clause": "12.6.2",
     "requirement": "A Next array is performed in array order, each action followed by its own Next subtree; when a forbidden action is removed, the surviving reachable sequence must retain that order.",

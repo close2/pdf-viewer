@@ -533,9 +533,18 @@
   },
   {
     "path": "doc/adr/0049-a-cid-into-a-type-1-program.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_programs_audit/decisions.json",
+        "decision_id": "misfiled_fontfile_bytes_select_the_program_reader",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0050-a-list-is-a-list.md",
@@ -1250,9 +1259,18 @@
   },
   {
     "path": "doc/adr/0141-the-container-where-a-font-program-was-stated.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_programs_audit/decisions.json",
+        "decision_id": "read_named_face_from_malformed_collection_input",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0142-a-panel-drawn-in-the-fonts-the-clause-guarantees.md",
@@ -1779,9 +1797,18 @@
   },
   {
     "path": "doc/adr/0209-a-fragment-is-eleven-shalls-in-a-grammar-the-annex-never-states.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_dictionary_audit/decisions.json",
+        "decision_id": "annotation_nm_lookup_is_page_scoped",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0210-two-rasters-and-the-grid-only-a-device-knows.md",
@@ -2465,14 +2492,14 @@
   },
   {
     "path": "doc/adr/0304-the-annotation-the-producer-wrote.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "annotation_lock_policy_audit/decisions.json",
         "decision_id": "Table 167 bit 10 is a reader policy restriction on producer-stated annotation contents edits; bit 8 is not that restriction",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2618,9 +2645,18 @@
   },
   {
     "path": "doc/adr/0325-the-page-that-answered-with-silence.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_dictionary_audit/decisions.json",
+        "decision_id": "annotation_struct_parent_requires_its_own_tree_route",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "cross-reference-only",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0326-the-coverage-was-already-in-the-binary.md",
@@ -3573,9 +3609,18 @@
   },
   {
     "path": "doc/adr/0459-two-extents-one-a-clause-states-and-one-an-identifier-could-not.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_programs_audit/decisions.json",
+        "decision_id": "use_table125_extent_for_truncated_font_stream",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0460-the-threshold-a-clause-stated-and-three-documents-denied.md",
@@ -5177,7 +5222,7 @@
         "source": "annotation_lock_policy_audit/decisions.json",
         "decision_id": "Ask and Warn are distinct public outcomes, with unanswered edits held until Answer",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -5936,9 +5981,34 @@
   },
   {
     "path": "doc/adr/0934-what-was-left-of-the-matrix-that-cancels-the-page.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "watermark_audit/decisions.json",
+        "decision_id": "0934-fixedprint-transformed-rectangle-and-media-origin",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "watermark_audit/decisions.json",
+        "decision_id": "0934-page-rotation-cancellation-choice",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "watermark_audit/decisions.json",
+        "decision_id": "0934-fixedprint-keeps-bbox-and-fixed-point-input-rect",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0935-the-clarification-that-adds-failures-and-the-one-that-withdraws-them.md",
@@ -5957,9 +6027,18 @@
   },
   {
     "path": "doc/adr/0940-a-font-program-stream-of-no-bytes-is-no-program.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_programs_audit/decisions.json",
+        "decision_id": "empty_decoded_stream_is_absent_program",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0941-the-item-that-names-one-part-and-the-exemption-nobody-measured.md",
@@ -6550,6 +6629,22 @@
         "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "watermark_audit/decisions.json",
+        "decision_id": "1057-watermark-has-no-popup-or-pointer-interaction",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "watermark_audit/decisions.json",
+        "decision_id": "1057-defers-print-tiling-and-n-up",
+        "conclusion": "superseded",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -7019,7 +7114,7 @@
   },
   {
     "path": "doc/adr/1144-a-restriction-level-per-restriction-and-off-is-the-default.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
@@ -7034,7 +7129,7 @@
         "source": "annotation_lock_policy_audit/decisions.json",
         "decision_id": "Off default and an independent restriction level for annotation edits",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -7111,9 +7206,18 @@
   },
   {
     "path": "doc/adr/1160-what-time-it-is-is-an-input-a-host-supplies.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_dictionary_audit/decisions.json",
+        "decision_id": "annotation_modified_time_is_host_time",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1161-encryption-on-the-way-out-is-asked-for-never-inherited.md",
@@ -7337,6 +7441,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "watermark_audit/decisions.json",
+        "decision_id": "1180-print-paper-arrives-after-grant-and-targets-core-rendering",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -7480,9 +7592,26 @@
   },
   {
     "path": "doc/adr/1204-a-page-on-a-sheet-is-where-matrix-b-stops-being-the-identity.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "watermark_audit/decisions.json",
+        "decision_id": "1204-nup-cell-media-and-cancel-page-scale",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "watermark_audit/decisions.json",
+        "decision_id": "1204-nup-grid-and-centering-conventions",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1205-the-knockouts-shape-is-an-input-to-each-composite-not-a-pass-over-the-result.md",
@@ -13140,9 +13269,18 @@
   },
   {
     "path": "doc/adr/2327-a-font-collection-is-in-no-row-of-table-124-and-the-writer-asks-the-validators-rows.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_programs_audit/decisions.json",
+        "decision_id": "reuse_table124_rows_for_writer_and_validator",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2328-the-c-window-s-title-carries-the-title-notes-and-a-turn-back-is-judged-by-the-window-s-paint.md",
@@ -13224,9 +13362,18 @@
   },
   {
     "path": "doc/adr/2343-a-font-collection-is-written-out-as-the-face-its-descriptor-names.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_programs_audit/decisions.json",
+        "decision_id": "write_only_named_collection_face_as_single_sfnt",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2344-a-page-turn-s-read-leaves-the-toolkit-thread.md",

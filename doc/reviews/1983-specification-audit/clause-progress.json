@@ -4209,9 +4209,10 @@
     "feature_record_verdicts": {
       "code-supported-not-executed": 2,
       "confirmed": 1,
+      "confirmed-with-test-residual": 1,
       "implementation-gap": 1,
       "no-independent-requirement": 1,
-      "unreviewed": 2
+      "unreviewed": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
@@ -5451,6 +5452,7 @@
     "review_state": "partial-parent-review",
     "artifact_directories": [
       "annotation_appearance_audit",
+      "annotation_dictionary_audit",
       "annotation_flags_audit"
     ],
     "parent_reviewed_artifacts": [
@@ -5458,8 +5460,12 @@
       "annotation_flags_audit"
     ],
     "feature_record_verdicts": {
+      "confirmed": 1,
       "confirmed-as-informative-scope": 1,
-      "partial": 1
+      "confirmed-selected-consumer": 1,
+      "cross-reference-only": 2,
+      "delegated-covered": 7,
+      "partial": 4
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
@@ -5472,7 +5478,8 @@
       "annotation_lock_policy_audit"
     ],
     "parent_reviewed_artifacts": [
-      "annotation_flags_audit"
+      "annotation_flags_audit",
+      "annotation_lock_policy_audit"
     ],
     "feature_record_verdicts": {
       "conditional-scope-unactivated": 1,
@@ -5481,11 +5488,11 @@
       "confirmed-screen-behavior-and-print-defect": 1,
       "confirmed-selected-consumer": 5,
       "implemented-with-policy-departure": 1,
-      "partial": 2,
       "partial-with-discriminating-recovery-control": 1,
       "partially-tested": 1,
       "qualified-no-edit-operation": 1,
-      "reader-bit-behavior-tested; producer-zeroing-not-certified": 1
+      "reader-bit-behavior-tested; producer-zeroing-not-certified": 1,
+      "selected-public-policy-tested": 3
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
@@ -5745,10 +5752,25 @@
   {
     "clause": "12.5.6.22",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "watermark_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "cell target and scale handoff tested; no n-up watermark raster-through-print-host test found": 1,
+      "conditional-scope-unactivated; no tiling selection or multi-sheet composition path found": 1,
+      "matrix rotation and translation raster behavior tested": 1,
+      "model and public print-query consumer exercised": 1,
+      "model scale cancellation and host n-up geometry tested at separate seams": 1,
+      "non-default H/V and media-origin tested; omitted H/V defaults draft only": 1,
+      "pointer and popup consumer tests have controls": 1,
+      "producer constraint is not reader behavior; no false conformance test proposed": 1,
+      "subtype dispatch exercised; malformed producer combinations have no reader-prescribed rejection": 1,
+      "tested against conflicting supplied sheet and MediaBox values": 1,
+      "tested as Print with absent sheet": 1,
+      "tested with fixed and no-FixedPrint raster controls": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {

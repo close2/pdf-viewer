@@ -620,5 +620,15 @@
   "clippy_appearance_strengthened": {
     "log": "clippy-appearance-strengthened.log",
     "exit": 0
+  },
+  "annotation_lock_policy": {
+    "log": "annotation-lock-policy-order-target.log",
+    "passed": 1,
+    "exit": 0,
+    "scope": "Additional to broadwave12; public policy readback and event ordering."
+  },
+  "clippy_annotation_lock_policy": {
+    "log": "clippy-annotation-lock-policy-final.log",
+    "exit": 0
   }
 }

@@ -11,7 +11,7 @@
     "warning": "Percent is account allowance, not convertible fixed tokens; counters may lag. Continue extending while useful work and room remain."
   },
   "agents": {
-    "associated_files_audit": "annotation_lock_policy_audit",
+    "associated_files_audit": "watermark_audit",
     "catalog_pages_audit": "annotation_dictionary_audit",
     "inapplicable_conditions_audit": "font_programs_audit"
   },
@@ -53,15 +53,14 @@
     "CLAUDE.md requires unsigned commits; use git -c commit.gpgsign=false commit because inherited global setting enables GPG."
   ],
   "branch": "audit/specification-evidence-2026-11-10",
-  "pending_parent_review": [
-    "annotation_lock_policy_audit"
-  ],
+  "pending_parent_review": [],
   "pushed_commits": [
     "a299121c",
     "f413d15f",
     "44a167d1",
     "ebc9f42b",
     "1424ef73",
-    "37d9df68"
+    "37d9df68",
+    "3ee266f8"
   ]
 }

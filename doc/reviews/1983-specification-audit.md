@@ -987,3 +987,17 @@ both unmutated controls pass. The production source in the isolated checkout was
 live production code was never mutated. This strengthens an assertion, without alleging a real
 knockout rendering defect. Wave12 predates this final assertion; its targeted run is recorded
 separately.
+
+
+## Annotation contents policy at the public boundary
+
+The new LockedContents test passes through public Viewer commands and reads effective text back
+from the note popup. Default Off changes the text; On refuses; Ask leaves it unchanged while
+unanswered and after no, and commits after yes. Warn commits and emits Dirty before Warned.
+Locked bit8 alone creates no contents-edit question. The fixture uses PDF1.7, where this Text
+annotation may omit AP, and verifies exact cross-reference parsing.
+
+These are product-policy assertions around Table167's restriction, not a claim that ISO defaults
+to Off. The selected ADR0304/0814/1144 decisions remain supported. ADR0304 originally concerned
+FreeText; this Text/SetNoteText test exercises their shared restriction boundary and does not
+recertify appearance regeneration or saved output. The test is additional to wave12 totals.
