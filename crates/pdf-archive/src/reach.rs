@@ -753,6 +753,14 @@ fn holds_a_stream(document: &Document, value: &Object) -> bool {
 }
 
 /// Adds every name a content stream, or an array of them, states as an operand.
+///
+/// **An inline image's data is not tokens** (ISO 32000-2 §8.9.7): the bytes between `ID` and
+/// `EI` are samples, and a `(` among them read as a string's opening swallows every operator up
+/// to the next `)` it meets — the names of the `Do`s it hides among them, which this exemption
+/// would then call unreferenced. So the data is stepped over where `pdf_model`'s interpreter
+/// steps over it, at the end [`pdf_model::inline_image::scan`] finds for the image whose `BI`
+/// preceded it; the names of the image's own dictionary, which can name a colour space resource,
+/// were read on the way to its `ID`.
 fn read_names(document: &Document, object: &Object, into: &mut Names) {
     match object {
         Object::Array(items) => {
@@ -765,9 +773,26 @@ fn read_names(document: &Document, object: &Object, into: &mut Names) {
                 return;
             };
             let mut lexer = Lexer::new(&data);
+            let mut image_at = None;
             while let Some(token) = lexer.next_token() {
-                if let Token::Name(name) = token {
-                    into.insert(name);
+                match token {
+                    Token::Name(name) => {
+                        into.insert(name);
+                    }
+                    Token::Keyword(b"BI") => image_at = Some(lexer.position()),
+                    Token::Keyword(b"ID") => {
+                        if let Some(at) = image_at.take() {
+                            let scanned = pdf_model::inline_image::scan(
+                                document,
+                                &data,
+                                at,
+                                &Dictionary::new(),
+                                true,
+                            );
+                            lexer.seek(scanned.resume);
+                        }
+                    }
+                    _ => {}
                 }
             }
         }

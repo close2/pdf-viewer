@@ -149,9 +149,13 @@ fn a_width_before_an_empty_stack_pop_is_not_written() {
 fn a_subroutine_is_spliced_up_to_its_first_return() {
     // 0 0 rmoveto return 0 0 rmoveto return
     let subr = [139, 139, 21, 11, 139, 139, 21, 11];
-    assert_eq!(subroutine_body(&subr), Some(3));
-    assert_eq!(subroutine_body(&[139, 139, 21]), Some(3));
-    assert_eq!(subroutine_body(&[]), None);
+    let none = Subroutines {
+        global: &[],
+        local: &[],
+    };
+    assert_eq!(subroutine_body(&subr, &[], &none), Some(3));
+    assert_eq!(subroutine_body(&[139, 139, 21], &[], &none), Some(3));
+    assert_eq!(subroutine_body(&[], &[], &none), None);
     let local = [subr.to_vec()];
     let subrs = Subroutines {
         global: &[],
@@ -160,6 +164,54 @@ fn a_subroutine_is_spliced_up_to_its_first_return() {
     // -107 callsubr endchar: the bias of a small INDEX makes -107 subroutine 0.
     let restated = charstring_with_advance(&[32, 10, 14], 500, 0, &subrs).expect("restated");
     assert_eq!(restated, [28, 1, 244, 139, 139, 21, 14]);
+}
+
+/// A mask's length counts the stems the caller's operands declare to the subroutine's first stem
+/// hint (Adobe Technical Note #5177 section 4.3, ADR 2779): `0 10 20 10` before the call are two
+/// stems for the `hstemhm` that opens it, so the `hintmask` after takes one mask byte, here 11 —
+/// which a count that began at the call would take for `return` and splice the glyph short.
+#[test]
+fn a_mask_counts_the_stems_the_caller_declares() {
+    let none = Subroutines {
+        global: &[],
+        local: &[],
+    };
+    // hstemhm hintmask <0x0b> return
+    let subr = [18, 19, 0x0b, 11];
+    assert_eq!(
+        subroutine_body(&subr, &[139, 149, 159, 149], &none),
+        Some(3)
+    );
+    assert_eq!(
+        subroutine_body(&subr, &[], &none),
+        Some(2),
+        "with no stems declared the mask is empty and 11 is the return"
+    );
+}
+
+/// The width a subroutine pushes before calling another for its first stems, then stating a
+/// mask, is restated — the shape URW's Nimbus faces give a glyph whose hints are factored out
+/// (ADR 2779). The local subroutine is `500 -107 callgsubr hstemhm hintmask <0xc0> return`, the
+/// global one `0 10 20 10 return`: the mask's length is known only by running the nested call,
+/// and the width is the stack's bottom at `hstemhm`, as section 3.1 puts it.
+#[test]
+fn a_width_behind_a_nested_call_and_a_mask_is_restated() {
+    let local = [vec![248, 136, 32, 29, 18, 19, 0xc0, 11]];
+    let global = [vec![139, 149, 159, 149, 11]];
+    let subrs = Subroutines {
+        global: &global,
+        local: &local,
+    };
+    // -107 callsubr 0 0 rmoveto endchar
+    let restated =
+        charstring_with_advance(&[32, 10, 139, 139, 21, 14], 600, 0, &subrs).expect("restated");
+    // 600 0 10 20 10 hstemhm hintmask <0xc0> 0 0 rmoveto endchar
+    assert_eq!(
+        restated,
+        [
+            28, 2, 88, 139, 149, 159, 149, 18, 19, 0xc0, 139, 139, 21, 14
+        ]
+    );
 }
 
 /// A glyph that reaches 12 6, itself or through a call, or whose call cannot be told, is the

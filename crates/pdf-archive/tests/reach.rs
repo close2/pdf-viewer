@@ -140,6 +140,24 @@ fn a_named_resource_the_stream_invokes_exempts_nothing() {
     );
 }
 
+/// ISO 32000-2 §8.9.7: an inline image's samples, between `ID` and `EI`, are data rather than
+/// tokens, so a sample byte that is `(` opens no string. The image here is one 8-bit grey sample,
+/// and that sample is `(`; read as a token it would swallow `/GS0 gs` up to the `)` of the `Tj`
+/// after it, and the resource the page invokes would be called one nothing invokes.
+#[test]
+fn a_name_after_an_inline_images_data_is_still_read() {
+    let document = page_with(
+        "<< /ExtGState << /GS0 5 0 R >> >>",
+        "BI /W 1 /H 1 /BPC 8 /CS /G ID (\nEI /GS0 gs 0 0 200 200 re f BT (x) Tj ET",
+        UNINVOKED_STATE,
+    );
+    let exam = Examination::new(&document, Target::Four(Flavour::Plain));
+    assert!(
+        exam.exempt().is_empty(),
+        "the content stream states /GS0 after the image, so the resource is used for rendering"
+    );
+}
+
 #[test]
 fn the_exemption_withdraws_a_failure_outside_the_carve_out() {
     let invoked = page_with(

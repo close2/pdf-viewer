@@ -1854,80 +1854,159 @@ struct Subroutines<'a> {
     local: &'a [Vec<u8>],
 }
 
-/// How many bytes of a subroutine are its body: the bytes before its first `return`, read as
-/// Type 2, or all of them where it states none.
+/// How many bytes of a subroutine are its body: the bytes before the `return` that ends it, read
+/// as Type 2, or all of them where it states none.
 ///
 /// A subroutine is spliced into a charstring in place of the call, which is what `callsubr`
 /// does; the `return` that ends it has nothing to return to once it is inlined, so it is
-/// dropped. The first `return` read is the one that ends it, wherever it stands: the
-/// interpreter goes back to the caller there (Adobe Technical Note #5177 section 4.7), so a byte
-/// after it is never run, and splicing that byte in would run it (ADR 2628). Finding it means
-/// reading the subroutine as Type 2 rather than looking at its bytes, because `hintmask`'s mask
-/// bytes follow the operator as data and one of them may be 11.
+/// dropped. The first `return` read at the subroutine's own level is the one that ends it,
+/// wherever it stands: the interpreter goes back to the caller there (Adobe Technical Note #5177
+/// section 4.7), so a byte after it is never run, and splicing that byte in would run it (ADR
+/// 2628).
 ///
-/// `None` where the subroutine cannot be read that far: a mask whose length depends on stems
-/// counted inside a *nested* call is one this does not follow, and a subroutine holding both is
-/// declined rather than guessed at.
-fn subroutine_body(subr: &[u8]) -> Option<usize> {
-    let mut stems = 0usize;
-    let mut operands = 0usize;
-    let mut called = false;
-    let mut at = 0usize;
-    while let Some(&b0) = subr.get(at) {
-        let step = match b0 {
-            28 => {
-                operands = operands.saturating_add(1);
-                3
-            }
-            32..=246 => {
-                operands = operands.saturating_add(1);
-                1
-            }
-            247..=254 => {
-                operands = operands.saturating_add(1);
-                2
-            }
-            255 => {
-                operands = operands.saturating_add(1);
-                5
-            }
-            stack_clearing::HSTEM
-            | stack_clearing::VSTEM
-            | stack_clearing::HSTEMHM
-            | stack_clearing::VSTEMHM => {
-                stems = stems.saturating_add(operands / 2);
-                operands = 0;
-                1
-            }
-            stack_clearing::HINTMASK | stack_clearing::CNTRMASK => {
-                if called {
-                    return None;
-                }
-                stems = stems.saturating_add(operands / 2);
-                operands = 0;
-                1usize.saturating_add(stems.div_ceil(8))
-            }
-            ESCAPE_BYTE => {
-                operands = 0;
-                2
-            }
-            CALL_LOCAL | CALL_GLOBAL => {
-                called = true;
-                operands = operands.saturating_sub(1);
-                1
-            }
-            RETURN => return Some(at),
-            _ => {
-                operands = 0;
-                1
-            }
-        };
-        at = at.checked_add(step)?;
-        if at > subr.len() {
-            return None;
-        }
+/// **Finding it means running the subroutine as the interpreter would, nested calls and all**
+/// (ADR 2779). `hintmask` and `cntrmask` are followed by one data bit per stem hint declared so
+/// far (section 4.3), and a mask byte may be 11. The count includes the stems the caller's
+/// operands declare when the subroutine's first operator takes them, and the stems declared
+/// inside every subroutine the body calls before the mask — URW's Nimbus faces factor the hints
+/// of a glyph into a subroutine that calls another for its first stems and then states a mask —
+/// so `head` is the caller's operands before the call, its subroutine number left out, and
+/// every call the body makes is run to count what it declares. An `endchar` ends the glyph
+/// wherever it is run: at the subroutine's own level the body is the bytes through it, and in a
+/// nested call the whole subroutine, whose later bytes are never run.
+///
+/// `None` where the subroutine is empty, where a call names no subroutine or nests past Appendix
+/// B's ten levels, where the walk passes [`CHARSTRING_OPERATIONS`], or where an escaped operator
+/// other than the four flex operators is met: an arithmetic or storage operator changes the
+/// stack by a rule this walk does not keep, and a stem count after it would be a guess.
+fn subroutine_body(subr: &[u8], head: &[u8], subrs: &Subroutines<'_>) -> Option<usize> {
+    if subr.is_empty() {
+        return None;
     }
-    (!subr.is_empty()).then_some(subr.len())
+    let mut walk = BodyWalk {
+        subrs,
+        stack: Vec::new(),
+        stems: 0,
+        operations: CHARSTRING_OPERATIONS,
+    };
+    // The caller's operands are numbers only, so running them pushes them and returns.
+    walk.run(head, 0)?;
+    match walk.run(subr, 1)? {
+        BodyEnd::Returned(at) | BodyEnd::Ended(at) => Some(at),
+    }
+}
+
+/// Where [`BodyWalk::run`] stopped in the code it was given.
+enum BodyEnd {
+    /// At a `return` at this offset, or at the end of the code, which returns as well.
+    Returned(usize),
+    /// Just past an `endchar`, which ends the glyph; the code's end where a call it made ran one.
+    Ended(usize),
+}
+
+/// [`subroutine_body`]'s walk: the operand stack, the stems declared, and the operations left.
+struct BodyWalk<'s, 'a> {
+    /// The subroutines a call reaches.
+    subrs: &'s Subroutines<'a>,
+    /// The operand stack, bottom first.
+    stack: Vec<i64>,
+    /// The stem hints declared so far, which size a mask.
+    stems: usize,
+    /// How many operands and operators are still to be read.
+    operations: u32,
+}
+
+impl BodyWalk<'_, '_> {
+    /// Runs `code` at nesting `depth` until its `return`, its end or an `endchar`.
+    fn run(&mut self, code: &[u8], depth: usize) -> Option<BodyEnd> {
+        use stack_clearing::{CNTRMASK, ENDCHAR, HINTMASK, HSTEM, HSTEMHM, VSTEM, VSTEMHM};
+        // Adobe Technical Note #5177 Appendix B bounds subroutine nesting to ten levels.
+        const MAX_NESTING: usize = 10;
+        // `hflex`, `flex`, `hflex1` and `flex1` (section 4.1): path operators, which clear.
+        const FLEX: std::ops::RangeInclusive<u8> = 34..=37;
+        let mut at = 0usize;
+        while let Some(&b0) = code.get(at) {
+            self.operations = self.operations.checked_sub(1)?;
+            let step = match b0 {
+                28 => {
+                    let bytes = code.get(at.checked_add(1)?..at.checked_add(3)?)?;
+                    self.stack
+                        .push(i64::from(i16::from_be_bytes([bytes[0], bytes[1]])));
+                    3
+                }
+                32..=254 => {
+                    let next = code.get(at.saturating_add(1)).copied().unwrap_or(0);
+                    let (value, width) = small_operand(b0, next);
+                    self.stack.push(value);
+                    width
+                }
+                255 => {
+                    // 16.16 fixed; only the integer part could name a subroutine.
+                    let bytes = code.get(at.checked_add(1)?..at.checked_add(5)?)?;
+                    self.stack.push(
+                        i64::from(i32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+                            >> 16,
+                    );
+                    5
+                }
+                CALL_LOCAL | CALL_GLOBAL => {
+                    let named = self.stack.pop()?;
+                    let table = if b0 == CALL_LOCAL {
+                        self.subrs.local
+                    } else {
+                        self.subrs.global
+                    };
+                    let index = usize::try_from(named.checked_add(bias(table.len()))?).ok()?;
+                    if depth >= MAX_NESTING {
+                        return None;
+                    }
+                    if let BodyEnd::Ended(_) =
+                        self.run(table.get(index)?, depth.saturating_add(1))?
+                    {
+                        return Some(BodyEnd::Ended(code.len()));
+                    }
+                    1
+                }
+                RETURN => return Some(BodyEnd::Returned(at)),
+                ENDCHAR => return Some(BodyEnd::Ended(at.saturating_add(1))),
+                HSTEM | VSTEM | HSTEMHM | VSTEMHM => {
+                    self.declare();
+                    1
+                }
+                HINTMASK | CNTRMASK => {
+                    // Operands before a mask are an implicit vstem (section 4.3).
+                    self.declare();
+                    1usize.saturating_add(self.stems.div_ceil(8))
+                }
+                ESCAPE_BYTE => {
+                    if !code
+                        .get(at.saturating_add(1))
+                        .is_some_and(|b1| FLEX.contains(b1))
+                    {
+                        return None;
+                    }
+                    self.stack.clear();
+                    2
+                }
+                _ => {
+                    self.stack.clear();
+                    1
+                }
+            };
+            at = at.checked_add(step)?;
+            if at > code.len() {
+                return None;
+            }
+        }
+        Some(BodyEnd::Returned(code.len()))
+    }
+
+    /// The stems a stem hint or a mask declares out of the stack, which it clears; a width the
+    /// first of them takes is the odd operand the halving drops.
+    fn declare(&mut self) {
+        self.stems = self.stems.saturating_add(self.stack.len() / 2);
+        self.stack.clear();
+    }
 }
 
 /// The charstring with the leading subroutine call it begins with spliced out.
@@ -1955,7 +2034,7 @@ fn inline_leading_call(charstring: &[u8], subrs: &Subroutines<'_>) -> Option<Vec
                 };
                 let chosen = usize::try_from(named.checked_add(bias(table.len()))?).ok()?;
                 let body = table.get(chosen)?;
-                let keep = subroutine_body(body)?;
+                let keep = subroutine_body(body, charstring.get(..index.start)?, subrs)?;
                 let mut out = Vec::with_capacity(charstring.len().saturating_add(body.len()));
                 out.extend_from_slice(charstring.get(..index.start)?);
                 out.extend_from_slice(body.get(..keep)?);
