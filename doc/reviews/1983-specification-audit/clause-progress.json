@@ -5413,19 +5413,29 @@
   {
     "clause": "12.5.2",
     "ledger_status": "departed",
-    "review_state": "pending",
-    "artifact_directories": [],
-    "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "review_state": "partial-parent-review",
+    "artifact_directories": [
+      "annotation_appearance_audit"
+    ],
+    "parent_reviewed_artifacts": [
+      "annotation_appearance_audit"
+    ],
+    "feature_record_verdicts": {
+      "partial": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
     "clause": "12.5.3",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "annotation_flags_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "confirmed-with-scope-limit": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
@@ -5433,13 +5443,16 @@
     "ledger_status": "implemented",
     "review_state": "partial-parent-review",
     "artifact_directories": [
-      "annotation_border_audit"
+      "annotation_border_audit",
+      "cloudy_border_residual_audit"
     ],
     "parent_reviewed_artifacts": [
-      "annotation_border_audit"
+      "annotation_border_audit",
+      "cloudy_border_residual_audit"
     ],
     "feature_record_verdicts": {
       "confirmed": 12,
+      "confirmed-selected-consumer": 2,
       "partial": 3,
       "partial-confirmed-with-new-test": 1,
       "partially-tested": 1,
@@ -5450,14 +5463,19 @@
   {
     "clause": "12.5.5",
     "ledger_status": "departed",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "annotation_appearance_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "annotation_appearance_audit"
+    ],
     "feature_record_verdicts": {
-      "confirmed": 2,
-      "delegated-covered": 1
+      "confirmed": 1,
+      "confirmed-defect": 1,
+      "delegated-covered": 1,
+      "departed": 1,
+      "partial": 4
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },

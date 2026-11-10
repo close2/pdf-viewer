@@ -80,7 +80,7 @@
         "source": "annotation_appearance_audit/decisions.json",
         "decision_id": "draw_stored_appearances_without_synthesizing_missing_subtype_art",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       },
@@ -367,14 +367,14 @@
   },
   {
     "path": "doc/adr/0030-constructing-an-appearance-and-the-two-roles-of-one-key.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "annotation_appearance_audit/decisions.json",
         "decision_id": "stored_vs_constructed_annotation_parameters",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       }
@@ -1471,9 +1471,18 @@
   },
   {
     "path": "doc/adr/0168-an-annotation-that-does-not-zoom.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_flags_audit/decisions.json",
+        "decision_id": "0168-nozoom-norotate-user-space-adjustment",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0169-a-stencil-through-a-tiling-pattern.md",
@@ -1495,9 +1504,18 @@
   },
   {
     "path": "doc/adr/0172-two-shalls-that-cannot-both-hold.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_flags_audit/decisions.json",
+        "decision_id": "0172-text-markup-subtype-precedence-over-nozoom-norotate",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0173-a-mask-is-not-a-coloured-figure.md",
@@ -3423,14 +3441,14 @@
   },
   {
     "path": "doc/adr/0439-the-shape-a-lossy-name-makes-and-where-else-it-lived.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "annotation_appearance_audit/decisions.json",
         "decision_id": "appearance_state_keys_are_exact_binary_names",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       }
@@ -3776,9 +3794,18 @@
   },
   {
     "path": "doc/adr/0493-the-population-a-flag-could-not-reach.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_flags_audit/decisions.json",
+        "decision_id": "0493-toggle-no-view-population-census",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0494-the-profile-that-exists-on-no-disk.md",
@@ -4045,14 +4072,14 @@
   },
   {
     "path": "doc/adr/0579-the-group-a-sentence-named-and-nobody-read.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "annotation_appearance_audit/decisions.json",
         "decision_id": "appearance_group_values_and_flattening_report",
-        "conclusion": "retain",
-        "parent_accepted": false,
+        "conclusion": "superseded-in-part",
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       }
@@ -6498,6 +6525,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "cloudy_border_residual_audit/decisions.json",
+        "decision_id": "cloud-geometry-and-radius-choice",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -6967,9 +7002,18 @@
   },
   {
     "path": "doc/adr/1144-a-restriction-level-per-restriction-and-off-is-the-default.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_flags_audit/decisions.json",
+        "decision_id": "1144-owner-controls-restriction-level-default-off",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1145-a-document-may-depart-from-the-windows-levels-and-a-menu-is-what-sets-both.md",
@@ -7066,14 +7110,14 @@
   },
   {
     "path": "doc/adr/1165-twelve-departures-re-derived-and-the-one-whose-premise-expired.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "annotation_appearance_audit/decisions.json",
         "decision_id": "rederive_appearance_opacity_departure",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
         "duplicates_decision": null
       }
@@ -7227,15 +7271,23 @@
   },
   {
     "path": "doc/adr/1179-table-167-states-two-answers-and-the-output-decides-which.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "annotation_appearance_audit/decisions.json",
         "decision_id": "annotation_flags_depend_on_render_output_purpose",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "annotation_flags_audit/decisions.json",
+        "decision_id": "1179-purpose-selects-screen-versus-print-flag-columns",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
     ]
@@ -7245,6 +7297,14 @@
     "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
+      {
+        "source": "annotation_flags_audit/decisions.json",
+        "decision_id": "1180-shared-print-intent-and-job-resolution",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
       {
         "source": "viewer_preferences_audit/decisions.json",
         "decision_id": "treat dialog preferences as editable defaults; report rather than obey Enforce",
@@ -13011,7 +13071,7 @@
         "source": "annotation_appearance_audit/decisions.json",
         "decision_id": "single_push_button_stream_under_as_selected_subdictionary",
         "conclusion": "cross-reference-only",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "cross_reference_only",
         "duplicates_decision": null
       }
@@ -15258,7 +15318,7 @@
         "source": "annotation_appearance_audit/decisions.json",
         "decision_id": "archive_treats_empty_ap_as_absent",
         "conclusion": "cross-reference-only",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "cross_reference_only",
         "duplicates_decision": null
       }

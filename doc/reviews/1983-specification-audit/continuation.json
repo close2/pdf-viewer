@@ -1,6 +1,6 @@
 {
   "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
-  "checkpoint_utc": "2026-11-10T14:44:18.526435+00:00",
+  "checkpoint_utc": "2026-11-10T14:57:04.889941+00:00",
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
@@ -11,9 +11,9 @@
     "warning": "Percent is account allowance, not convertible fixed tokens; counters may lag. Continue extending while useful work and room remain."
   },
   "agents": {
-    "associated_files_audit": "annotation_flags_audit",
-    "catalog_pages_audit": "annotation_appearance_audit",
-    "inapplicable_conditions_audit": "font_descriptor_cid_audit"
+    "associated_files_audit": "font_descriptors_peer_review",
+    "catalog_pages_audit": "appearance_group_and_state_followup",
+    "inapplicable_conditions_audit": "presentations_peer_review"
   },
   "next_candidates": [],
   "latest_broad": {
@@ -24,7 +24,7 @@
     "skipped": 53,
     "unexpected": 0
   },
-  "latest_clippy": "clippy-widths-borders-final.log",
+  "latest_clippy": "clippy-appearance-cloud.log",
   "new_failures_since_wave8": [
     "catalog Named OpenAction consumer missing",
     "page-visible neighbor omitted",
@@ -55,14 +55,17 @@
   "branch": "audit/specification-evidence-2026-11-10",
   "pending_parent_review": [
     "font_descriptors_audit",
-    "annotation_appearance_audit",
     "annotation_flags_audit",
-    "font_descriptor_cid_audit"
+    "font_descriptor_cid_audit",
+    "font_descriptors_peer_review",
+    "presentations_peer_review"
   ],
   "pushed_commits": [
     "a299121c",
     "f413d15f",
     "44a167d1",
-    "ebc9f42b"
-  ]
+    "ebc9f42b",
+    "1424ef73"
+  ],
+  "pending_reproduced_failure": "annotation_print_geometry_audit:NoZoom print dimensions160x160 at1x view shrink80x80 at2x. Source/ADR adjudication pending."
 }

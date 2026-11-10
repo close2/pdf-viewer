@@ -892,7 +892,7 @@ default no-effect BE, and Table 168's explicit requirement to use solid for an u
 The unknown-style sentence was absent from the draft inventory. Default-versus-explicit dash
 equality alone could pass with two equally wrong phases, so the test also compares independently
 authored page strokes at phases zero and one. Every fixture checks that parsing required no
-cross-reference recovery. Cloud-specific preservation of BS width/dash remains a recorded gap.
+cross-reference recovery. A later residual pass below supplies selected cloud-specific BS width/dash assertions.
 
 The border ADR review retains the inside placement, precedence, cloud and relief decisions with
 their chosen geometry distinguished from ISO requirements. ADR 0674's two thresholds are not
@@ -903,3 +903,31 @@ and pass; the inaccurate explanation is not evidence of a current rendering defe
 Broad wave11 includes these additions: 5,677 run, 5,639 pass, exactly the same 38 manifested
 failures, 53 skipped and no unexpected failures. The pdf-font 370-test run is separate from
 that total. Warning-denied Clippy passes for the changed model/core test targets.
+
+
+## Appearance selection and cloud-specific border controls
+
+Table 170 requires the normal appearance for printing. New complete-PDF regressions reproduce
+one defect at two layers: Print purpose with a retained pressed pointer selects the blue down
+appearance instead of red normal. The public Viewer test first observes red on screen and paper,
+then performs a real pointer press and observes blue on screen before querying the print page.
+The print raster is blue. The model target has one passing rollover/default test and one expected
+failure; the public Viewer target has one expected failure. The failure manifest now contains
+40 assertions; wave11 above predates these additions.
+
+Two cloudy-polygon tests pass. They vary dash arrays and line widths while preserving the
+selected cloud path, require visible ink, check thicker coverage, and require zero width to
+suppress the stroke. These verify Table 169's separate width/dash duty; the scallop radius is
+still an implementation choice. Warning-denied Clippy passes for these model/core additions.
+
+The appearance ADR review corrects stale evidence. ADR 0579's report-only group limitation was
+superseded by commit 72ca5e99: stored appearances now enter transparency-group rendering, and an
+existing pixel test distinguishes isolation and knockout. The CA/ca text conflict remains.
+The actual opacity regression uses CA0.5 and an opaque stream and expects alpha255; it does not
+assert the historical 0.8-versus-0.64 example. Name-tree tests prove lookup and shared object
+identity, not rejection of an AP-name input. R/D state dictionaries and absent-Group equivalence
+remain targeted follow-ups.
+
+Physical page 485 places the EC3 #34 no-AP sentence in the amended NOTE2 before the heading
+12.5.3. The existing errata narrative and ledger's 12.5.3 attribution are misplaced; it belongs
+to 12.5.2. This corrects the citation, without changing the implementation-dependent meaning.

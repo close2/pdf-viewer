@@ -559,5 +559,23 @@
   "clippy_widths_borders_final": {
     "log": "clippy-widths-borders-final.log",
     "exit": 0
+  },
+  "appearance_model": {
+    "log": "appearance-model-fixed-import-target.log",
+    "passed": 1,
+    "expected_failed": 1
+  },
+  "appearance_viewer": {
+    "log": "appearance-viewer-print-target.log",
+    "expected_failed": 1
+  },
+  "cloudy_border": {
+    "log": "cloudy-border-target.log",
+    "passed": 2,
+    "exit": 0
+  },
+  "clippy_appearance_cloud": {
+    "log": "clippy-appearance-cloud.log",
+    "exit": 0
   }
 }

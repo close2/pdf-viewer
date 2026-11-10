@@ -2475,6 +2475,265 @@
     "superseded": false
   },
   {
+    "feature_id": "annotation_appearance_is_form_xobject_with_three_step_mapping",
+    "clause": "12.5.5",
+    "entry_kind": "direct",
+    "requirement": "Each appearance stream is a self-contained form XObject rendered inside the annotation rectangle. The specified algorithm transforms its BBox by Matrix, encloses the quadrilateral in an upright rectangle, maps that rectangle's extreme corners to Rect, and composes Matrix with A.",
+    "source_location": "§12.5.5 opening paragraph and numbered Algorithm steps 1–3.",
+    "errata": "No EC3 annotation on the effective §12.5.5 algorithm page changes the mapping text. Adjacent Form XObject BBox/Matrix mechanics are cross-referenced to the partial §8.10 audit.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::placement",
+      "crates/pdf-model/src/appearance.rs",
+      "crates/pdf-model/src/content/annotations.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::an_appearance_is_scaled_and_translated_onto_the_annotation_rectangle",
+      "crates/pdf-model/tests/annotations.rs::an_appearance_invoked_under_its_placement_draws_what_the_annotation_draws"
+    ],
+    "verdict": "delegated-covered",
+    "evidence": "Existing tests assert placed marks on rendered output. This feature is not re-tested here; the Form audit covers BBox/Matrix mapping and related form behavior. This shard focuses on appearance selection and annotation-specific conditions. Prior Form review is partial, not completed clause certification.",
+    "remaining": "Cross-reference only; no Form mapping re-audit in this shard.",
+    "test_command": null,
+    "test_result": "Assertions inspected; no Cargo run.",
+    "parent_review": "Root read effective12.5.5/Table170 and relevant EC3 marks, current consumers, assertion bodies and selected ADR units. Bounded selection/group review; dependencies and producer duties remain partial.",
+    "reviewer": "annotation_appearance_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "delegated-covered",
+    "superseded": false
+  },
+  {
+    "feature_id": "table170_normal_rollover_down_and_printing",
+    "clause": "12.5.5",
+    "entry_kind": "direct",
+    "requirement": "N is required and used when the annotation is not interacting and for printing; R is optional and defaults to N when the cursor is over the active area without pressing; D is optional and defaults to N while the button is pressed or held in the active area.",
+    "source_location": "§12.5.5 appearance-situation bullets and Table 170 N/R/D rows.",
+    "errata": "No EC3 change to Table 170's selection/default text. Issue #422 at one-based physical page 491 (printed page 476) only changes italic typography in the check-box example; it is not a selection rule.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/view/annotations.rs::ViewState::appearance_for",
+      "crates/pdf-model/src/annotation.rs::stored_appearance"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::the_pointer_chooses_between_an_annotations_appearances",
+      "crates/pdf-model/tests/annotation_appearance_audit.rs::explicit_rollover_is_selected_and_missing_down_defaults_to_normal",
+      "crates/pdf-model/tests/annotation_appearance_audit.rs::printing_uses_normal_even_if_the_view_state_carries_a_pressed_pointer",
+      "crates/viewer-core/tests/annotation_print_appearance_audit.rs::public_print_query_uses_normal_after_pointer_press_selected_down"
+    ],
+    "verdict": "confirmed-defect",
+    "evidence": "Promoted complete-PDF model test proves explicit green R and absent-D red-N fallback. Separate model Print+Down fails blue vs red. Public Viewer control opens red, prints red, finishes, presses the actual annotation and observes blue screen, then prints blue D rather than red N. This confirms reachable Table170 violation at two layers, one underlying defect.",
+    "remaining": "Fix outside this audit; retained failing tests. No full annotation interaction audit.",
+    "test_command": "cargo test -p pdf-model --test annotation_appearance_audit; cargo test -p viewer-core --test annotation_print_appearance_audit",
+    "test_result": "Model1pass/1fail; Viewer1fail; appearance-model-fixed-import-target.log and appearance-viewer-print-target.log.",
+    "parent_review": "Root read effective12.5.5/Table170 and relevant EC3 marks, current consumers, assertion bodies and selected ADR units. Bounded selection/group review; dependencies and producer duties remain partial.",
+    "reviewer": "annotation_appearance_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "confirmed-defect",
+    "superseded": false
+  },
+  {
+    "feature_id": "appearance_entry_may_be_stream_or_state_subdictionary_and_as_selects",
+    "clause": "12.5.5",
+    "entry_kind": "direct",
+    "requirement": "Each N/R/D value may be one stream or a state subdictionary whose values define the appearance streams; where an AP contains one or more subdictionaries, AS selects the applicable state.",
+    "source_location": "§12.5.5 paragraphs after Table 170, example and final AS sentence; Table 166 /AS.",
+    "errata": "EC3 #422 (physical page 491, printed 476) changes only the italic f glyph in the example's placeholder names. No semantic change to the state mechanism.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::stored_appearance",
+      "crates/pdf-model/src/appearance.rs::appearance_state"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::an_appearance_state_is_selected_by_as",
+      "crates/pdf-model/tests/names_are_bytes.rs::an_appearance_state_that_is_not_utf_8_selects_its_stream",
+      "crates/pdf-model/tests/names_are_bytes.rs::two_appearance_states_differing_only_outside_utf_8_are_two_states"
+    ],
+    "verdict": "partial",
+    "evidence": "The state-selection test asserts a rendered mark for /AS /On and empty output for missing /Off; name tests use distinct byte names to assert exact key selection. The same `stored_appearance` resolves the stream/subdictionary for N/R/D.",
+    "remaining": "No independent state-subdictionary test for R or D, but shared resolver path is directly inspected; do not count Table 229 field-value synchronization as this clause's independent requirement.",
+    "test_command": null,
+    "test_result": "Assertions inspected; no Cargo run.",
+    "parent_review": "Root read effective12.5.5/Table170 and relevant EC3 marks, current consumers, assertion bodies and selected ADR units. Bounded selection/group review; dependencies and producer duties remain partial.",
+    "reviewer": "annotation_appearance_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "feature_id": "undefined_as_state_has_reasonable_behavior_such_as_nothing",
+    "clause": "12.5.5",
+    "entry_kind": "direct",
+    "requirement": "A processor shall attempt reasonable behavior, with displaying nothing given as an example, if AS designates a state absent from the appearance dictionary.",
+    "source_location": "Final paragraph of §12.5.5.",
+    "errata": "No EC3 modification found on effective clause page.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::Normal::StateNotDefined",
+      "crates/pdf-model/src/annotation.rs::decided"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::an_appearance_state_is_selected_by_as"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The fixture uses an AP state dictionary containing only On while AS names Off; interpretation produces no commands and no unsupported report. This asserts the documented reasonable outcome at the page consumer.",
+    "remaining": "The implementation's no-mark choice is allowed behavior, not a universal SHALL to suppress every malformed appearance.",
+    "test_command": null,
+    "test_result": "Assertion inspected; no Cargo run.",
+    "parent_review": "Root read effective12.5.5/Table170 and relevant EC3 marks, current consumers, assertion bodies and selected ADR units. Bounded selection/group review; dependencies and producer duties remain partial.",
+    "reviewer": "annotation_appearance_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "feature_id": "processor_without_native_annotation_support_uses_normal",
+    "clause": "12.5.5",
+    "entry_kind": "conditional",
+    "requirement": "If the processor lacks native support for an annotation subtype, it shall render that annotation using its normal appearance.",
+    "source_location": "Penultimate paragraph of §12.5.5.",
+    "errata": "No EC3 modification found on effective clause page.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/annotation.rs::stored_appearance"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance"
+    ],
+    "verdict": "partial",
+    "evidence": "The test gives an unknown subtype an N stream and checks that its rasterized mark appears without a shortfall; a companion no-AP case expects no mark and no report as implementation policy under the EC3 note.",
+    "remaining": "The exact population of unknown subtypes is a separate census; native handlers for standard types are covered elsewhere. Cited test supplies only N; it does not prove N preference with R/D and a reachable interactive pointer. No defect inferred from direct forcing of an otherwise unreachable state.",
+    "test_command": null,
+    "test_result": "Assertions inspected; no Cargo run.",
+    "parent_review": "Root read effective12.5.5/Table170 and relevant EC3 marks, current consumers, assertion bodies and selected ADR units. Bounded selection/group review; dependencies and producer duties remain partial.",
+    "reviewer": "annotation_appearance_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "feature_id": "named_appearance_tree_is_optional_and_streams_are_not_referenced_by_name",
+    "clause": "12.5.5",
+    "entry_kind": "direct-forward-reference",
+    "requirement": "For convenience, the catalog/name dictionary may hold an AP name tree mapping strings to reusable appearance streams, but names have no standard meanings and PDF objects cannot refer to an appearance stream by name.",
+    "source_location": "Final paragraph of §12.5.5; §7.7.4 Table 32 /AP.",
+    "errata": "No EC3 modification found on effective clause page.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-syntax/src/tree.rs",
+      "crates/pdf-model/src/annotation.rs::stored_appearance"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/named_appearances.rs::table_32s_appearance_tree_is_read_by_the_general_name_tree_reader",
+      "crates/pdf-model/tests/named_appearances.rs::a_named_appearance_and_a_widgets_appearance_are_one_object"
+    ],
+    "verdict": "partial",
+    "evidence": "First test checks generic name-tree lookup and absent-AP control. Second checks the widget N and name-tree value share object identity, and fixture AP is not a name. Neither supplies an AP-name input to prove rejection or non-resolution: this is producer-shape/object-identity evidence, not that reader assertion.",
+    "remaining": "Name-tree traversal details are §7.7.4/§7.9.6 dependencies and are not duplicated.",
+    "test_command": null,
+    "test_result": "Assertions inspected; no Cargo run.",
+    "parent_review": "Root read effective12.5.5/Table170 and relevant EC3 marks, current consumers, assertion bodies and selected ADR units. Bounded selection/group review; dependencies and producer duties remain partial.",
+    "reviewer": "annotation_appearance_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "feature_id": "appearance_group_default_and_declared_group_parameters",
+    "clause": "12.5.5",
+    "entry_kind": "direct-conditional-forward-reference",
+    "requirement": "For PDF 1.4+ appearances, absent Group means a non-isolated, non-knockout transparency group; otherwise the Group's isolation and knockout values govern. Group contents are composited over page content and previously painted annotations, with an SMask of None.",
+    "source_location": "§12.5.5 transparency paragraphs; group parameters defined by §11.6.6.",
+    "errata": "No EC3 mark changes this paragraph on physical pages489–490 (printed474–475). EC3 Issue #215 is on printed page 259 (physical 274), in image soft-mask rules, and is a separate §8.9.5.1/§11.6.4 dependency; it is not an appearance-clause erratum.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/content/annotations.rs::draw_appearance",
+      "crates/pdf-model/src/content/transparency.rs::appearance_group",
+      "crates/pdf-model/src/content/transparency.rs::run_transparency_group"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::an_appearance_group_is_isolated_and_knocked_out_as_the_file_states"
+    ],
+    "verdict": "partial",
+    "evidence": "ADR 0579's report-only decision is obsolete for this implementation. Commit 72ca5e99 routes every stored appearance through run_transparency_group using appearance_group's parsed /I and /K (or its absent-Group default), with the annotation state supplied as the group composite state. The existing pixel test proves declared /K by comparing overlap with a single-element control, declared /I by distinguishing Multiply over transparency from Multiply over the blue page, and a declared /Transparency Group with omitted /I and /K by exercising the default non-isolated/non-knockout case. The absent-Group fallback is explicit in appearance_group's code; the cited pixel test does not compare an absent /Group entry against that explicit default. Full §11 color-space, mask, and other transparency semantics remain conditional forward references.",
+    "remaining": "The missing-Group case lacks a separate raster equality control in this selected test set, though its default is directly implemented in appearance_group. Do not infer full §11 transparency conformance from this fixture. The current §12.5.5 departure is the independent CA/ca contradiction; unsupported Group /I or /K is not a current implementation limitation.",
+    "test_command": null,
+    "test_result": "Existing assertions and ADR reviewed; no Cargo run.",
+    "parent_review": "Root read effective12.5.5/Table170 and relevant EC3 marks, current consumers, assertion bodies and selected ADR units. Bounded selection/group review; dependencies and producer duties remain partial.",
+    "reviewer": "annotation_appearance_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "feature_id": "annotation_blend_mode_effective_ec3_and_opacity_text_conflict",
+    "clause": "12.5.5",
+    "entry_kind": "direct-conflict-with-residual-departure",
+    "requirement": "§12.5.5 says to composite the appearance group with annotation BM, ca and CA and SMask None. Effective EC3 removes BM from the §12.5.2 ignore list, so BM applies (Table 166 defaults to Normal). CA and ca remain on the ignore list and Table 166 says each shall not be used with a stored appearance; the ledger's departure for those two opacity constants remains a declared conflict rather than a covered reader obligation.",
+    "source_location": "§12.5.5 transparency paragraph; Table 166 /BM /CA /ca; §12.5.2 closing reader sentence as amended by EC3 #23/#34/#56.",
+    "errata": "EC3 annotations on one-based physical page 485 (printed page 470): StrikeOut removes the blanket 'without regard to any other keys' phrase and BM from the ignore list; Caret inserts the replacement lead-in; #56 inserts MK; #34 adds notes. Table166 /AP writer row changed by #22 on physical 483 (printed 468); not an appearance renderer duty.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::blend_mode",
+      "crates/pdf-model/src/content/annotations.rs::draw_appearance",
+      "crates/pdf-model/src/content/transparency.rs::run_transparency_group"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_stored_appearance_ignores_the_annotations_opacity",
+      "crates/pdf-model/tests/annotations.rs::an_appearance_group_is_isolated_and_knocked_out_as_the_file_states",
+      "doc/adr/0030-constructing-an-appearance-and-the-two-roles-of-one-key.md",
+      "doc/adr/0579-the-group-a-sentence-named-and-nobody-read.md"
+    ],
+    "verdict": "departed",
+    "evidence": "Actual stored-opacity fixture has annotation CA0.5 and an opaque red stream; alpha255 proves CA ignored. It has no internal ca0.8 and no0.64 assertion. Current BM and declared Group I/K are exercised separately; group routing supersedes ADR0579 report-only mechanics. Only CA/ca conflict remains in the selected departure.",
+    "remaining": "The surviving ca/CA contradiction is the specific normative departure; no general claim of transparency conformance. Reconcile separately if an authoritative resolution changes the competing text.",
+    "test_command": null,
+    "test_result": "Assertions and effective errata inspected; no Cargo run.",
+    "parent_review": "Root read effective12.5.5/Table170 and relevant EC3 marks, current consumers, assertion bodies and selected ADR units. Bounded selection/group review; dependencies and producer duties remain partial.",
+    "reviewer": "annotation_appearance_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "departed",
+    "superseded": false
+  },
+  {
+    "feature_id": "table166_appearance_presence_writer_rule_and_no_ap_behavior",
+    "clause": "12.5.2",
+    "entry_kind": "producer-duty-and-reader-policy-boundary",
+    "requirement": "EC3 #22 makes AP required for PDF 2.0 writers except for the stated degenerate Rect and Popup/Projection/Link cases; PDF 1.2–1.7 retains optionality. EC3 #34 states that when AP is absent, rendered appearance is implementation-dependent. Do not convert the writer SHALL into a general reader rejection or render obligation; subtype-specific clauses can impose further duties.",
+    "source_location": "Table 166 /AP row; §12.5.2 EC3-added sentence; subtype-specific §§12.5.6.*.",
+    "errata": "Issue #22 on physical page 483 (printed page 468) changes the Table166 AP row; Issue #34 on physical page 485 (printed page 470) inserts the AP-absent implementation-dependent sentence and NOTE 1.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/appearance.rs::construct",
+      "crates/pdf-transform/src/archive/prepare.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_screen_annotation_without_an_appearance_draws_nothing_and_is_not_a_gap",
+      "crates/pdf-model/tests/annotations.rs::a_text_annotations_icon_is_one_size_whatever_its_rect_states",
+      "crates/pdf-model/tests/print_intent.rs::a_print_flag_that_is_clear_is_ignored_where_the_annotation_has_no_appearance_stream"
+    ],
+    "verdict": "partial",
+    "evidence": "The viewer constructs subtype-specific appearances where it has defined a choice; the archive writer emits AP according to its profile route. Tests cover several subtype-specific constructed/stored paths. EC3 makes generic AP-absent rendering implementation-dependent, not a reader MUST. AP writer exceptions and the intentional §12.5.2 writer departure are recorded in the ledger. Parent verified physical485 text coordinates: amended NOTE2 follows the appearance paragraph before heading12.5.3. doc/errata-read.md and ledger reference12.5.3 misattribute its clause; the insertion belongs to12.5.2. No normative meaning change follows from this citation correction.",
+    "remaining": "Full Table166 AP writer-policy validation is not part of this reader-selection shard.",
+    "test_command": null,
+    "test_result": "Existing assertions and EC3 source locations inspected.",
+    "parent_review": "Root read effective12.5.5/Table170 and relevant EC3 marks, current consumers, assertion bodies and selected ADR units. Bounded selection/group review; dependencies and producer duties remain partial.",
+    "reviewer": "annotation_appearance_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
     "clause": "12.5.4",
     "feature_id": "border-inside-annotation-rect",
     "requirement": "Any constructed annotation border is drawn completely inside /Rect, including underline style U.",
@@ -2896,7 +3155,7 @@
     ],
     "test_refs": [],
     "verdict": "partial",
-    "evidence": "Parent adds missing conditional requirement to inventory. Existing clouds prove geometry but this pass has no independently discriminating cloud dash/width assertion; retain as follow-up.",
+    "evidence": "Parent adds missing conditional requirement to inventory. Existing clouds prove geometry but this pass has no independently discriminating cloud dash/width assertion; retain as follow-up. Follow-up cloudy_border_residual_audit now supplies two passing Polygon controls; other subtypes remain partial.",
     "test_result": "New border target4passed.",
     "reviewer": "annotation_border_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
@@ -6030,6 +6289,66 @@
     "parent_review_state": "parent-reviewed-partial-table-inventory-with-corrections",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "unreviewed",
+    "superseded": false
+  },
+  {
+    "feature_id": "cloudy-border-honors-bs-width",
+    "clause": "12.5.4",
+    "requirement": "When a cloudy border is applied, the line width specified by the annotation's /BS dictionary shall be honored.",
+    "source_location": "Table169 S=C, printed474/physical489; Table168 dash rules printed473/physical488.",
+    "errata": "Parent corrects draft page offset: Table169 physical489, not488. No effective amendment to this width/dash sentence identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::cloudy",
+      "crates/pdf-model/src/appearance.rs::square_or_circle",
+      "crates/pdf-model/src/appearance.rs::polygon",
+      "crates/pdf-model/src/appearance.rs::Stream::set_stroke",
+      "crates/pdf-model/src/appearance.rs::Stream::cloud"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_cloudy_square_is_scalloped_inside_its_rectangle",
+      "crates/pdf-model/tests/annotations.rs::a_cloudy_circle_has_a_cusp_where_the_straight_ellipse_has_none",
+      "crates/pdf-model/tests/annotations.rs::a_cloudy_polygon_bulges_outward_and_a_polylines_effect_is_not_meaningful",
+      "crates/pdf-model/tests/cloudy_border_audit.rs::a_cloudy_polygon_honours_bs_width_and_zero_suppresses_its_stroke"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "The consumer reads BS width, passes it to cloudy(), and emits the stroke width before the generated cloud path is stroked. Existing raster tests verify scallops but do not vary BS width while holding the cloud path radius constant. Draft polygon controls use /I 2, whose selected radius is six points; widths 1 and 4 leave that path radius unchanged in this implementation, so their raster difference specifically exercises stroke width. Width zero is a no-border control. The six-point radius is only the implementation's choice, not an ISO requirement. Parent promotes complete fixtures and confirms both tests pass. Width test additionally requires positive thin ink and thick alpha coverage >2x thin coverage; zero width has no ink. Dash test requires visible marks and distinct rasters. Polygon-selected result, not every subtype or exact-cloud-geometry certification.",
+    "test_command": "cargo test -p pdf-model --test cloudy_border_audit",
+    "test_result": "2pass, cloudy-border-target.log",
+    "parent_review": "Source sentence, renderer path and distinguishing pixel controls inspected by root.",
+    "reviewer": "cloudy_border_residual_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "feature_id": "cloudy-border-honors-bs-dash-array",
+    "clause": "12.5.4",
+    "requirement": "A cloudy border shall honor the dash array specified by /BS, using the line-dash format and zero phase specified by Table 168 and §8.4.3.6.",
+    "source_location": "Table169 S=C, printed474/physical489; Table168 dash rules printed473/physical488.",
+    "errata": "Parent corrects draft page offset: Table169 physical489, not488. No effective amendment to this width/dash sentence identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::Border::from_style_dictionary",
+      "crates/pdf-model/src/appearance.rs::Border::apply",
+      "crates/pdf-model/src/appearance.rs::Stream::set_stroke",
+      "crates/pdf-model/src/appearance.rs::Stream::cloud"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_cloudy_square_is_scalloped_inside_its_rectangle",
+      "crates/pdf-model/tests/annotations.rs::a_cloudy_polygon_bulges_outward_and_a_polylines_effect_is_not_meaningful",
+      "crates/pdf-model/tests/cloudy_border_audit.rs::a_cloudy_polygon_honours_distinct_border_dash_arrays"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "The dash is parsed for /BS /S /D and serialized before the cloud path. Current cloud raster tests use solid /BS and therefore do not assert that dash state survives the cloud construction/paint path. Draft compares otherwise identical complete Polygon appearances with active, distinct dash arrays and includes a visible-ink control; equality under a renderer that ignores /D would fail the difference assertion. Parent promotes complete fixtures and confirms both tests pass. Width test additionally requires positive thin ink and thick alpha coverage >2x thin coverage; zero width has no ink. Dash test requires visible marks and distinct rasters. Polygon-selected result, not every subtype or exact-cloud-geometry certification.",
+    "test_command": "cargo test -p pdf-model --test cloudy_border_audit",
+    "test_result": "2pass, cloudy-border-target.log",
+    "parent_review": "Source sentence, renderer path and distinguishing pixel controls inspected by root.",
+    "reviewer": "cloudy_border_residual_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
     "superseded": false
   },
   {

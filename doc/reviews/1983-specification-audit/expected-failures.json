@@ -208,6 +208,18 @@
       "binary": "pdf-model::image_masking_audit",
       "test": "an_image_mask_with_more_than_one_bit_per_component_reports_inconsistency",
       "evidence": "image-masking-six-target.log"
+    },
+    {
+      "binary": "pdf-model::annotation_appearance_audit",
+      "test": "printing_uses_normal_even_if_the_view_state_carries_a_pressed_pointer",
+      "evidence": "appearance-model-fixed-import-target.log",
+      "classification": "Table170 normal-for-print violated by retained pointer state; two layers reproduce one defect"
+    },
+    {
+      "binary": "viewer-core::annotation_print_appearance_audit",
+      "test": "public_print_query_uses_normal_after_pointer_press_selected_down",
+      "evidence": "appearance-viewer-print-target.log",
+      "classification": "Table170 normal-for-print violated by retained pointer state; two layers reproduce one defect"
     }
   ]
 }

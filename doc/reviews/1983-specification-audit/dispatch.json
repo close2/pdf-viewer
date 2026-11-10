@@ -689,7 +689,7 @@
       "clauses": [
         "12.5.5"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-consumer-tests"
     },
     {
       "agent": "annotation_flags_audit",
@@ -706,6 +706,13 @@
         "9.8.3.3"
       ],
       "state": "running"
+    },
+    {
+      "agent": "cloudy_border_residual_audit",
+      "clauses": [
+        "12.5.4"
+      ],
+      "state": "parent-reviewed-partial-with-consumer-tests"
     }
   ]
 }
