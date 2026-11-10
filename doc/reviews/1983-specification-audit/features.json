@@ -15209,6 +15209,166 @@
     "superseded": false
   },
   {
+    "clause": "9.9.2",
+    "feature_id": "subset_names_both_pdf_entries",
+    "requirement": "For a subset, both BaseFont and descriptor FontName begin with the same six-uppercase-letter tag, a plus sign, and the source font PostScript name.",
+    "source_location": "ISO 32000-2 §9.9.2, printed p. 355 / physical p. 370",
+    "errata": "Physical370 has navigation annotations but no semantic amendment to this clause found; the draft falsely claimed no annotations. Adjacent #462 targets ToUnicode, not subset naming.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/embed.rs::tag",
+      "crates/pdf-model/src/variable_text.rs",
+      "crates/pdf-font/src/embed/cff.rs::written"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/embed.rs::a_subset_keeps_notdef_and_the_composite_closure_renumbered",
+      "crates/pdf-font/src/embed/cff.rs::a_subset_is_tagged_and_names_itself_as_the_file_does",
+      "crates/pdf-model/tests/machine_cff_face_written.rs::a_value_saved_in_a_cff_machine_face_draws_from_the_file_alone",
+      "crates/pdf-model/src/variable_text_subset_audit.rs::appearance_writer_allocates_distinct_tags_for_sibling_subsets"
+    ],
+    "verdict": "confirmed-selected-name-propagation",
+    "evidence": "The TrueType writer derives Embedded.name from a six-letter tag plus the source PostScript name. The save path uses that name for both Type0 BaseFont / descendant BaseFont and descriptor FontName; the CFF writer also puts the same name in its Name INDEX. Existing tests inspect tag shape and CFF name agreement.",
+    "test_command": null,
+    "test_result": "New writer unit fails after distinct-stream and paired-name controls (font-subset-reviewed-fixed-target.log); public reader passes (font-subset-square-circle-final-target.log). Existing pdf-font suite previously passed separately; evidence bounded to inspected assertions.",
+    "parent_review": "Parent read clause, applicable annotation context, production writer and reader/cache paths, actual prior assertions, repaired drafts and reproduced both new tests. Partial review, not all font closure or saved-document certification.",
+    "reviewer": "font_subset_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-name-propagation",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.2",
+    "feature_id": "tag_six_uppercase_letters",
+    "requirement": "The subset tag is exactly six uppercase letters; the choice of letters is arbitrary.",
+    "source_location": "ISO 32000-2 §9.9.2, printed p. 355 / physical p. 370",
+    "errata": "Physical370 has navigation annotations but no semantic amendment to this clause found; the draft falsely claimed no annotations. Adjacent #462 targets ToUnicode, not subset naming.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/embed.rs::tag",
+      "crates/pdf-font/src/substitute.rs::strip_subset_prefix"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/embed.rs::a_subset_keeps_notdef_and_the_composite_closure_renumbered",
+      "crates/pdf-font/src/substitute.rs::a_subset_prefix_is_removed_only_when_it_is_one"
+    ],
+    "verdict": "confirmed",
+    "evidence": "tag emits six base-26 letters in A..Z. The subset-name test asserts six uppercase letters and '+'. The reader strips only exactly six uppercase letters followed by '+', preserving malformed lookalikes.",
+    "test_command": null,
+    "test_result": "New writer unit fails after distinct-stream and paired-name controls (font-subset-reviewed-fixed-target.log); public reader passes (font-subset-square-circle-final-target.log). Existing pdf-font suite previously passed separately; evidence bounded to inspected assertions.",
+    "parent_review": "Parent read clause, applicable annotation context, production writer and reader/cache paths, actual prior assertions, repaired drafts and reproduced both new tests. Partial review, not all font closure or saved-document certification.",
+    "reviewer": "font_subset_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.2",
+    "feature_id": "different_subsets_same_pdf_unique_tags",
+    "requirement": "Different subsets of the same font in one PDF shall have different tags.",
+    "source_location": "ISO 32000-2 §9.9.2, printed p. 355 / physical p. 370",
+    "errata": "Physical370 has navigation annotations but no semantic amendment to this clause found; the draft falsely claimed no annotations. Adjacent #462 targets ToUnicode, not subset naming.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/embed.rs::tag",
+      "crates/pdf-model/src/variable_text.rs",
+      "crates/pdf-model/src/view/writing.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/embed.rs::different_subsets_are_tagged_differently",
+      "crates/pdf-font/src/embed/cff.rs::a_subset_is_tagged_and_names_itself_as_the_file_does",
+      "crates/pdf-model/src/variable_text_subset_audit.rs::appearance_writer_allocates_distinct_tags_for_sibling_subsets"
+    ],
+    "verdict": "implementation-gap",
+    "evidence": "Production machine_font then for_a_file emit two distinct program streams into one resource dictionary with the identical name NQYCPV+LiberationSans. Both BaseFont/FontName agreements pass before uniqueness fails. Bundled font closures {0,42,220,488,570} and {0,38,97,120,135} collide. Parent traced view/writing.rs construction and resource promotion: each font is converted independently, stream numbering does not reconcile tags. This tests the production resource-writer seam; it does not execute a full ViewState save.",
+    "test_command": null,
+    "test_result": "New writer unit fails after distinct-stream and paired-name controls (font-subset-reviewed-fixed-target.log); public reader passes (font-subset-square-circle-final-target.log). Existing pdf-font suite previously passed separately; evidence bounded to inspected assertions.",
+    "parent_review": "Parent read clause, applicable annotation context, production writer and reader/cache paths, actual prior assertions, repaired drafts and reproduced both new tests. Partial review, not all font closure or saved-document certification.",
+    "reviewer": "font_subset_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.2",
+    "feature_id": "notdef_glyph_in_subset",
+    "requirement": "The glyph named .notdef shall be defined in the font subset.",
+    "source_location": "ISO 32000-2 §9.9.2, printed p. 355 / physical p. 370",
+    "errata": "Physical370 has navigation annotations but no semantic amendment to this clause found; the draft falsely claimed no annotations. Adjacent #462 targets ToUnicode, not subset naming.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/embed.rs::for_embedding",
+      "crates/pdf-font/src/embed.rs",
+      "crates/pdf-font/src/embed/cff.rs::subset"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/embed.rs::a_subset_keeps_notdef_and_the_composite_closure_renumbered",
+      "crates/pdf-font/src/embed/cff.rs::a_subset_draws_its_kept_glyphs_as_the_whole_face_does"
+    ],
+    "verdict": "confirmed-selected-glyph-zero-retention",
+    "evidence": "TrueType for_embedding inserts glyph index 0 into the kept set before closure and renumbering; the test's exact map includes 0→0. The CFF subset adds glyph 0 and checks its kept outline. The two output program forms preserve the source's glyph-zero slot.",
+    "test_command": null,
+    "test_result": "New writer unit fails after distinct-stream and paired-name controls (font-subset-reviewed-fixed-target.log); public reader passes (font-subset-square-circle-final-target.log). Existing pdf-font suite previously passed separately; evidence bounded to inspected assertions.",
+    "parent_review": "Parent read clause, applicable annotation context, production writer and reader/cache paths, actual prior assertions, repaired drafts and reproduced both new tests. Partial review, not all font closure or saved-document certification.",
+    "reviewer": "font_subset_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-glyph-zero-retention",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.2",
+    "feature_id": "processors_treat_subsets_independently_note",
+    "requirement": "NOTE recommendation: processors are recommended to treat multiple subset fonts as completely independent even when they appear to come from the same source font.",
+    "source_location": "ISO 32000-2 §9.9.2 NOTE, printed p. 355 / physical p. 370",
+    "errata": "Physical370 has navigation annotations but no semantic amendment to this clause found; the draft falsely claimed no annotations. Adjacent #462 targets ToUnicode, not subset naming.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/font.rs::FontKey::Referenced",
+      "crates/pdf-model/src/content/font.rs::FontCache",
+      "crates/pdf-model/src/content.rs::interpret_with_fonts"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/content.rs::a_kept_font_changes_what_a_page_costs_and_not_what_it_says",
+      "crates/pdf-model/tests/form_font_once.rs::the_layout_and_the_appearance_s_tf_load_the_font_once",
+      "crates/pdf-model/tests/font_subset_reader_audit.rs::public_reader_keeps_same_source_subsets_independent"
+    ],
+    "verdict": "confirmed-selected-reader-recommendation",
+    "evidence": "New complete PDF1.7 embeds two distinct validly tagged CID2 subsets from one source face, with renumbered glyph IDs and matching explicit W widths. Six nonempty outlines prove repeated G equality and G/C distinction; advances match stated widths. Cache has two font entries. A second interpretation with the same cache preserves all commands, adds hits and no misses. Intrapage repeat alone does not prove a FontCache hit (draft premise corrected). This supports the NOTE recommendation, not a separate SHALL or recovery from colliding tags.",
+    "test_command": null,
+    "test_result": "New writer unit fails after distinct-stream and paired-name controls (font-subset-reviewed-fixed-target.log); public reader passes (font-subset-square-circle-final-target.log). Existing pdf-font suite previously passed separately; evidence bounded to inspected assertions.",
+    "parent_review": "Parent read clause, applicable annotation context, production writer and reader/cache paths, actual prior assertions, repaired drafts and reproduced both new tests. Partial review, not all font closure or saved-document certification.",
+    "reviewer": "font_subset_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-reader-recommendation",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.3.3",
+    "feature_id": "charset_table_122_cross_reference_only",
+    "requirement": "Table 122 CharSet is a separate §9.8.3.3 Type1-only optional/deprecated subset-name list; .notdef is omitted from this list while remaining required in the font program under §9.9.2.",
+    "source_location": "ISO 32000-2 §9.8.3.3, Table 122; cross-reference only, page provenance delegated to the §9.8 audit",
+    "errata": "Not independently reassessed in this shard.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/loading.rs"
+    ],
+    "test_refs": [],
+    "verdict": "unreviewed",
+    "evidence": "CharSet is not a §9.9.2 obligation and its optional/deprecated dictionary semantics are delegated to the §9.8.3.3 audit; it is cross-referenced here only to prevent conflating omission of .notdef from CharSet with omission of the .notdef glyph from a subset program.",
+    "test_command": null,
+    "test_result": "Not reviewed in this shard.",
+    "parent_review": "Parent read clause, applicable annotation context, production writer and reader/cache paths, actual prior assertions, repaired drafts and reproduced both new tests. Partial review, not all font closure or saved-document certification. Removed nonexistent archive/restate.rs draft citation; no archive CharSet implementation certified.",
+    "reviewer": "font_subset_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "separate-row",
+    "reviewer_verdict": "unreviewed",
+    "superseded": false
+  },
+  {
     "clause": "8.10.1",
     "feature_id": "form_xobject_is_content_stream",
     "entry_kind": "direct",
@@ -30343,6 +30503,388 @@
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-ec3-policy-corrections",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "unreviewed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.8",
+    "feature_id": "12.5.6.8.default_border_without_border_or_bs",
+    "requirement": "Shared §12.5.4 specifies a solid one-point border when Border/BS are absent. This test supplies C[0] explicitly under the project Square outline-colour policy; it does not infer an absent-colour black default.",
+    "source_location": "ISO 32000-2 §12.5.4, printed p. 472 / physical p. 487; §8.4.1 Table 51 initial stroke colour; source/spec-layout.txt:28386-28402 and Table 51; applied to §12.5.6.8 Table 180",
+    "errata": "No EC3 change to §12.5.4's default border-width sentence found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::square_or_circle",
+      "crates/pdf-model/src/appearance.rs::Border::geometry",
+      "crates/pdf-model/src/appearance.rs::Border::strokes"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/square_circle_spec_audit.rs::square_without_border_entries_uses_one_point_solid_with_stated_colour"
+    ],
+    "verdict": "confirmed-selected-explicit-colour-default-width",
+    "evidence": "Whole raster matches stored one-point black rectangle AP with complete Resources; edge is black and centre transparent. The draft no-C expected failure was rejected: neither Table180 nor enumerated Table166 C uses establish default Square outline colour. Initial graphics-state black alone does not establish that the constructor must emit a stroke.",
+    "test_command": "cargo test -p pdf-model --test square_circle_spec_audit",
+    "test_result": "Three new tests PASS in font-subset-square-circle-final-target.log; pdf-model all-target clippy PASS in clippy-font-subset-square-circle-clean.log. Prior tests passed broad wave14; only inspected assertions support feature claims.",
+    "parent_review": "Parent read Table180, EC3 #524, relevant ADR units and actual assertions. Rejected unproven absent-colour oracle; promoted three passing tests with explicit construction-policy scope.",
+    "reviewer": "square_circle_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-explicit-colour-default-width",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.8",
+    "feature_id": "12.5.6.8.outline_colour_c_scope",
+    "requirement": "Table 166 /C enumerates uses for a closed icon background, popup title bar, and Link border; Table 180 does not specify /C as the Square/Circle outline colour, while /BS supplies only width and dash. Whether a Square/Circle /C should recolour its outline is not established by those entries and remains a scoped interpretation/implementation choice.",
+    "source_location": "ISO 32000-2 §12.5.2 Table 166 /C, printed p. 468 / physical p. 483; §12.5.6.8 Table 180 /BS, /IC, /BE, /RD, printed pp. 489-490 / physical pp. 504-505; source/spec-layout.txt:28171-28184 and 29383-29423",
+    "errata": "No EC3 amendment to Table 166 /C or Table 180 color scope located.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::square_or_circle",
+      "crates/pdf-model/src/appearance.rs::Border::read",
+      "crates/pdf-model/src/appearance.rs::colour"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_squares_border_style_raises_nothing_and_a_links_is_drawn_in_relief",
+      "crates/pdf-model/tests/annotations.rs::a_square_whose_line_is_wider_than_it_is_covered_by_that_line"
+    ],
+    "verdict": "unresolved-interpretation-not-proven-defect",
+    "evidence": "Existing coloured-border tests verify the project C-to-outline policy; Table166 enumerates other uses and Table180 does not expressly name this colour source. Missing C currently yields transparent colour. No proven normative absent-colour oracle was established, so the draft default-black defect is rejected. Follow-up should document policy explicitly, not infer an ISO failure.",
+    "test_command": "cargo test -p pdf-model --test square_circle_spec_audit",
+    "test_result": "Three new tests PASS in font-subset-square-circle-final-target.log; pdf-model all-target clippy PASS in clippy-font-subset-square-circle-clean.log. Prior tests passed broad wave14; only inspected assertions support feature claims.",
+    "parent_review": "Parent read Table180, EC3 #524, relevant ADR units and actual assertions. Rejected unproven absent-colour oracle; promoted three passing tests with explicit construction-policy scope.",
+    "reviewer": "square_circle_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented (choice asserted as requirement in ledger note)",
+    "reviewer_verdict": "unresolved-interpretation-not-proven-defect",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.8",
+    "feature_id": "12.5.6.8.square_circle_marks_inscribed",
+    "requirement": "A Square shall display a rectangle and a Circle shall display an ellipse. The mark is inscribed within the annotation /Rect; Rect width and height need not be equal, so Circle may be an unequal-axis ellipse.",
+    "source_location": "ISO 32000-2 §12.5.6.8, printed p. 489 / physical p. 504; source/spec-layout.txt:29357-29370",
+    "errata": "No EC3 amendment to this prose or Table 180 /Subtype located.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::square_or_circle",
+      "crates/pdf-model/src/appearance.rs::rectangle",
+      "crates/pdf-model/src/appearance.rs::differences"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_square_with_no_appearance_is_drawn_from_its_interior_colour",
+      "crates/pdf-model/tests/annotations.rs::a_circle_is_an_ellipse_inscribed_in_its_rectangle",
+      "crates/pdf-model/tests/square_circle_spec_audit.rs::square_and_circle_rd_use_the_asymmetric_left_top_right_bottom_differences"
+    ],
+    "verdict": "confirmed-selected-unequal-axis-geometry",
+    "evidence": "New RD fixture uses Rect[10 10 90 70], differences[10 15 20 5], independently computed inner bounds[20 15 70 55]. Square has exact extent; ellipse has unequal radii25/20, axis pixels inside and corner outside. Border width0 separates fill geometry from stroke inset.",
+    "test_command": "cargo test -p pdf-model --test square_circle_spec_audit",
+    "test_result": "Three new tests PASS in font-subset-square-circle-final-target.log; pdf-model all-target clippy PASS in clippy-font-subset-square-circle-clean.log. Prior tests passed broad wave14; only inspected assertions support feature claims.",
+    "parent_review": "Parent read Table180, EC3 #524, relevant ADR units and actual assertions. Rejected unproven absent-colour oracle; promoted three passing tests with explicit construction-policy scope.",
+    "reviewer": "square_circle_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-unequal-axis-geometry",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.8",
+    "feature_id": "12.5.6.8.table180.subtype_required",
+    "requirement": "A producer shall use /Subtype /Square or /Subtype /Circle for the corresponding annotation type.",
+    "source_location": "ISO 32000-2 §12.5.6.8 Table 180 /Subtype, printed p. 490 / physical p. 505; source/spec-layout.txt:29383-29389",
+    "errata": "No EC3 change to /Subtype.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::subtype dispatch",
+      "crates/pdf-model/src/appearance.rs::construct"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_square_with_no_appearance_is_drawn_from_its_interior_colour",
+      "crates/pdf-model/tests/annotations.rs::a_circle_is_an_ellipse_inscribed_in_its_rectangle"
+    ],
+    "verdict": "reader-dispatch-tested-producer-duty",
+    "evidence": "The dispatch reaches square_or_circle for both names and uses subtype only to choose the path primitive. Fixtures state the two required names. Malformed subtype behavior is not a Table 180 reader rejection requirement.",
+    "test_command": "cargo test -p pdf-model --test square_circle_spec_audit",
+    "test_result": "Three new tests PASS in font-subset-square-circle-final-target.log; pdf-model all-target clippy PASS in clippy-font-subset-square-circle-clean.log. Prior tests passed broad wave14; only inspected assertions support feature claims.",
+    "parent_review": "Parent read Table180, EC3 #524, relevant ADR units and actual assertions. Rejected unproven absent-colour oracle; promoted three passing tests with explicit construction-policy scope.",
+    "reviewer": "square_circle_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "reader-dispatch-tested-producer-duty",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.8",
+    "feature_id": "12.5.6.8.table180.bs_width_dash_only",
+    "requirement": "Optional /BS specifies the width and dash pattern used to draw the rectangle or ellipse. Table 180 and §12.5.4 restrict this subtype's BS role to width and dash; Table 168's S relief/underline styles are not specified for this shape.",
+    "source_location": "ISO 32000-2 §12.5.6.8 Table 180 /BS, printed p. 490 / physical p. 505; §12.5.4; source/spec-layout.txt:29390-29395",
+    "errata": "No EC3 change to Table 180 /BS located.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::square_or_circle",
+      "crates/pdf-model/src/appearance.rs::Border::from_style_dictionary",
+      "crates/pdf-model/src/appearance.rs::Border::fills"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_squares_border_style_raises_nothing_and_a_links_is_drawn_in_relief",
+      "crates/pdf-model/tests/annotations.rs::a_square_whose_line_is_wider_than_it_is_covered_by_that_line",
+      "crates/pdf-model/tests/annotation_border_audit.rs::a_dashed_border_without_a_pattern_uses_the_table_168_default"
+    ],
+    "verdict": "covered-by-square-and-border-tests",
+    "evidence": "Square-specific test asserts a /BS /S /B does not draw link-like relief, and a positive Link control proves that relief path is active there. The border audit checks the constructed Square consumer's dash default and the wide-line cover rule. Common width/dash/defaults are not duplicated here.",
+    "test_command": "cargo test -p pdf-model --test square_circle_spec_audit",
+    "test_result": "Three new tests PASS in font-subset-square-circle-final-target.log; pdf-model all-target clippy PASS in clippy-font-subset-square-circle-clean.log. Prior tests passed broad wave14; only inspected assertions support feature claims.",
+    "parent_review": "Parent read Table180, EC3 #524, relevant ADR units and actual assertions. Rejected unproven absent-colour oracle; promoted three passing tests with explicit construction-policy scope.",
+    "reviewer": "square_circle_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "covered-by-square-and-border-tests",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.8",
+    "feature_id": "12.5.6.8.table180.ic_component_count_and_range",
+    "requirement": "Optional /IC is an interior colour array whose components shall be in [0,1]. Count 0 means no colour/transparent, 1 means DeviceGray, 3 DeviceRGB, and 4 DeviceCMYK.",
+    "source_location": "ISO 32000-2 §12.5.6.8 Table 180 /IC, printed p. 490 / physical p. 505; source/spec-layout.txt:29396-29404",
+    "errata": "No EC3 change to /IC located.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::colour",
+      "crates/pdf-model/src/appearance.rs::Stream::set_colour",
+      "crates/pdf-model/src/appearance.rs::square_or_circle"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_square_with_no_appearance_is_drawn_from_its_interior_colour",
+      "crates/pdf-model/tests/annotations.rs::a_circle_is_an_ellipse_inscribed_in_its_rectangle",
+      "crates/pdf-model/tests/square_circle_spec_audit.rs::square_interior_ic_count_selects_gray_rgb_cmyk_or_transparency"
+    ],
+    "verdict": "confirmed-selected-component-count-consumers",
+    "evidence": "New Square fixture with BSW0 checks neutral nontrivial Gray, exact RGB red, cyan CMYK channel contrast, and empty-array transparency. It does not test producer invalid ranges or assert a blue C outline (draft claim had no matching assertion).",
+    "test_command": "cargo test -p pdf-model --test square_circle_spec_audit",
+    "test_result": "Three new tests PASS in font-subset-square-circle-final-target.log; pdf-model all-target clippy PASS in clippy-font-subset-square-circle-clean.log. Prior tests passed broad wave14; only inspected assertions support feature claims.",
+    "parent_review": "Parent read Table180, EC3 #524, relevant ADR units and actual assertions. Rejected unproven absent-colour oracle; promoted three passing tests with explicit construction-policy scope.",
+    "reviewer": "square_circle_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-component-count-consumers",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.8",
+    "feature_id": "12.5.6.8.table180.be_effect",
+    "requirement": "Optional /BE describes an effect applied to the border described by /BS, in conjunction with §12.5.4's requirement to apply a stated border effect.",
+    "source_location": "ISO 32000-2 §12.5.6.8 Table 180 /BE, printed p. 490 / physical p. 505; §12.5.4; source/spec-layout.txt:29405-29408",
+    "errata": "No EC3 amendment to Table 180 /BE located.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::square_or_circle",
+      "crates/pdf-model/src/cloud.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_cloudy_square_is_scalloped_inside_its_rectangle",
+      "crates/pdf-model/tests/annotations.rs::a_cloudy_circle_has_a_cusp_where_the_straight_ellipse_has_none",
+      "crates/pdf-model/tests/annotation_border_audit.rs::a_border_effect_without_a_style_defaults_to_no_effect"
+    ],
+    "verdict": "covered-by-cloud-and-border-shards",
+    "evidence": "Square and Circle consumer tests assert separate cloud pixels against straight-outline/corner controls. The border audit separately covers omitted /S and explicit no-effect defaults. Cloud shape, radius, and style remain implementation choices reviewed by ADR 1057; this record does not promote those choices to normative geometry.",
+    "test_command": "cargo test -p pdf-model --test square_circle_spec_audit",
+    "test_result": "Three new tests PASS in font-subset-square-circle-final-target.log; pdf-model all-target clippy PASS in clippy-font-subset-square-circle-clean.log. Prior tests passed broad wave14; only inspected assertions support feature claims.",
+    "parent_review": "Parent read Table180, EC3 #524, relevant ADR units and actual assertions. Rejected unproven absent-colour oracle; promoted three passing tests with explicit construction-policy scope.",
+    "reviewer": "square_circle_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "covered-by-cloud-and-border-shards",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.8",
+    "feature_id": "12.5.6.8.table180.rd_insets_asymmetric_order",
+    "requirement": "Optional /RD is four nonnegative differences between Rect and the actual underlying square/ellipse, ordered left, top, right, bottom; top+bottom must be less than Rect height and left+right less than Rect width. It permits Rect to be larger than the shape, including where BE expands Rect.",
+    "source_location": "ISO 32000-2 §12.5.6.8 Table 180 /RD, printed p. 490 / physical p. 505; source/spec-layout.txt:29409-29423",
+    "errata": "EC3 #524 at physical p. 505 (issue objects 5270/5271) changes the /RD Type cell from rectangle to array. It does not change the four differences, order, or constraints.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::square_or_circle",
+      "crates/pdf-model/src/appearance.rs::differences",
+      "crates/pdf-model/src/appearance.rs::Border::inset"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/square_circle_spec_audit.rs::square_and_circle_rd_use_the_asymmetric_left_top_right_bottom_differences"
+    ],
+    "verdict": "confirmed-selected-asymmetric-insets",
+    "evidence": "New positive rectangle extents and four outside-edge controls discriminate left/top/right/bottom mapping. Unequal ellipse axes and corner controls also pass. Producer nonnegative/sum constraints remain inventoried, not reader rejection requirements.",
+    "test_command": "cargo test -p pdf-model --test square_circle_spec_audit",
+    "test_result": "Three new tests PASS in font-subset-square-circle-final-target.log; pdf-model all-target clippy PASS in clippy-font-subset-square-circle-clean.log. Prior tests passed broad wave14; only inspected assertions support feature claims.",
+    "parent_review": "Parent read Table180, EC3 #524, relevant ADR units and actual assertions. Rejected unproven absent-colour oracle; promoted three passing tests with explicit construction-policy scope.",
+    "reviewer": "square_circle_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-asymmetric-insets",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.8",
+    "feature_id": "12.5.6.8.when_open_popup_text",
+    "requirement": "When a Square or Circle annotation is opened, it shall display a popup window containing the associated note text.",
+    "source_location": "ISO 32000-2 §12.5.6.8 first paragraph, printed p. 489 / physical p. 504; source/spec-layout.txt:29357-29365",
+    "errata": "No EC3 change to this sentence located.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/popup.rs::popups",
+      "crates/pdf-model/src/popup.rs::popup_of",
+      "crates/viewer-core/src/viewer/geometry.rs::popup_windows"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/headless.rs::a_reply_that_states_no_popup_is_a_comment_in_the_window_of_what_it_answers",
+      "crates/viewer-core/tests/headless.rs::a_window_whose_text_is_not_a_note_s_offers_no_retyping_and_refuses_one"
+    ],
+    "verdict": "reachable-square-popup-tested",
+    "evidence": "The headless fixture includes a Square parent annotation whose popup is open; assertions require two windows, find the window by popup object, and assert the square popup's text is `a square`. It shares popup open/content processing with the markup popup path. The fixture omits AP, a writer conformance violation under Table 166, but popup routing is independent of the appearance construction question. Parent read both headless bodies: the Square text and window exist, but no Circle activation case is established; this is partial popup coverage.",
+    "test_command": "cargo test -p pdf-model --test square_circle_spec_audit",
+    "test_result": "Three new tests PASS in font-subset-square-circle-final-target.log; pdf-model all-target clippy PASS in clippy-font-subset-square-circle-clean.log. Prior tests passed broad wave14; only inspected assertions support feature claims.",
+    "parent_review": "Parent read Table180, EC3 #524, relevant ADR units and actual assertions. Rejected unproven absent-colour oracle; promoted three passing tests with explicit construction-policy scope.",
+    "reviewer": "square_circle_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "reachable-square-popup-tested",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.8",
+    "feature_id": "12.5.6.8.effective_errata_scope",
+    "requirement": "Apply EC3's effective type correction to Table 180 /RD while preserving the semantic four-difference array definition.",
+    "source_location": "ISO 32000-2 §12.5.6.8 Table 180 /RD, printed p. 490 / physical p. 505; source/spec-layout.txt:29409-29423",
+    "errata": "EC3 #524 /State Review/Completed strikes `rectangle` and inserts `array` in the type cell on physical p. 505 (objects 5270/5271); no semantic change to the row's value description.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/appearance.rs::differences"
+    ],
+    "test_refs": [],
+    "verdict": "implemented-type-cell-correction",
+    "evidence": "The consumer reads an array of four differences. EC3 #513 is an editor note on adjacent Table 179, #515 amends a Table 179 line-ending description, and neither changes Table 180.",
+    "test_command": "cargo test -p pdf-model --test square_circle_spec_audit",
+    "test_result": "Three new tests PASS in font-subset-square-circle-final-target.log; pdf-model all-target clippy PASS in clippy-font-subset-square-circle-clean.log. Prior tests passed broad wave14; only inspected assertions support feature claims.",
+    "parent_review": "Parent read Table180, EC3 #524, relevant ADR units and actual assertions. Rejected unproven absent-colour oracle; promoted three passing tests with explicit construction-policy scope.",
+    "reviewer": "square_circle_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implemented-type-cell-correction",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.8",
+    "feature_id": "12.5.6.8.stored_ap_characteristic_precedence",
+    "requirement": "For a stored appearance, shared §12.5.2 requires rendering AP without regard to C, IC, Border, BS, BE, and other listed characteristics. Table 180 characteristics are used on the constructed/no-AP path.",
+    "source_location": "ISO 32000-2 §12.5.2 and §12.5.5; §12.5.6.8 Table 180 /BS, /IC, /BE, /RD",
+    "errata": "Effective EC3 #23/#34 amend the §12.5.2 ignore list for BM; they do not remove C, IC, Border, BS, or BE. Shared AP audit owns the complete list and AP execution path.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decide",
+      "crates/pdf-model/src/appearance.rs::appearance"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_stored_appearance_ignores_the_annotations_opacity"
+    ],
+    "verdict": "cross-reference-ap-audit",
+    "evidence": "The AP dispatch chooses the stored appearance before the constructed subtype routine, so Table 180 entries are not passed through square_or_circle there. The cited alpha test is not evidence for ignoring IC/BS/BE specifically; those keys are covered by the shared AP audit, not re-proved here.",
+    "test_command": "cargo test -p pdf-model --test square_circle_spec_audit",
+    "test_result": "Three new tests PASS in font-subset-square-circle-final-target.log; pdf-model all-target clippy PASS in clippy-font-subset-square-circle-clean.log. Prior tests passed broad wave14; only inspected assertions support feature claims.",
+    "parent_review": "Parent read Table180, EC3 #524, relevant ADR units and actual assertions. Rejected unproven absent-colour oracle; promoted three passing tests with explicit construction-policy scope.",
+    "reviewer": "square_circle_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "cross-reference-ap-audit",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.8",
+    "feature_id": "12.5.6.8.construction_without_ap_reader_choice",
+    "requirement": "The table defines the shape and characteristics used by the project's constructed appearance when no AP exists. Table 166 makes omission of AP a writer violation for an ordinary nondegenerate Square/Circle; this row does not by itself impose a general reader obligation to construct that missing appearance.",
+    "source_location": "ISO 32000-2 §12.5.2 Table 166 /AP and §12.5.6.8; doc/adr/0030-constructing-an-appearance-and-the-two-roles-of-one-key.md",
+    "errata": "No EC3 change to the Table 166 writer obligation or this distinction found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decide",
+      "crates/pdf-model/src/appearance.rs::square_or_circle"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_square_with_no_appearance_is_drawn_from_its_interior_colour",
+      "crates/pdf-model/tests/annotations.rs::a_circle_is_an_ellipse_inscribed_in_its_rectangle"
+    ],
+    "verdict": "implemented-reader-choice-not-normative-conformance-credit",
+    "evidence": "The no-AP tests intentionally exercise the constructed branch on syntactically complete PDFs that violate the Table 166 writer AP rule. ADR 0030 records this as robustness rendering and Table 180 supplies the requested shape. This shard does not turn fallback construction into a reader-side shall absent an explicit clause.",
+    "test_command": "cargo test -p pdf-model --test square_circle_spec_audit",
+    "test_result": "Three new tests PASS in font-subset-square-circle-final-target.log; pdf-model all-target clippy PASS in clippy-font-subset-square-circle-clean.log. Prior tests passed broad wave14; only inspected assertions support feature claims.",
+    "parent_review": "Parent read Table180, EC3 #524, relevant ADR units and actual assertions. Rejected unproven absent-colour oracle; promoted three passing tests with explicit construction-policy scope.",
+    "reviewer": "square_circle_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented (reader robustness policy)",
+    "reviewer_verdict": "implemented-reader-choice-not-normative-conformance-credit",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.8",
+    "feature_id": "12.5.6.8.clause_pdf_version",
+    "requirement": "Table 180 marks §12.5.6.8 as PDF 1.3. This is a producer-version classification, not an inferred reader header gate.",
+    "source_location": "ISO 32000-2 §12.5.6.8 §12.5.6.8 version label, printed p. 489 / physical p. 504; source/spec-layout.txt:29357",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "No Table180-specific PDF header gate identified in the consumer path."
+    ],
+    "test_refs": [],
+    "verdict": "producer-version-duty-inventoried-not-certified",
+    "evidence": "The version marker constrains a conforming producer. No reader obligation to suppress or reject the entry merely because the file header names an earlier version was identified in this clause.",
+    "test_command": "cargo test -p pdf-model --test square_circle_spec_audit",
+    "test_result": "Three new tests PASS in font-subset-square-circle-final-target.log; pdf-model all-target clippy PASS in clippy-font-subset-square-circle-clean.log. Prior tests passed broad wave14; only inspected assertions support feature claims.",
+    "parent_review": "Parent read Table180, EC3 #524, relevant ADR units and actual assertions. Rejected unproven absent-colour oracle; promoted three passing tests with explicit construction-policy scope.",
+    "reviewer": "square_circle_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "producer-version-duty-inventoried-not-certified",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.8",
+    "feature_id": "12.5.6.8.ic_pdf_version",
+    "requirement": "Table 180 marks /IC as PDF 1.4. This is a producer-version classification, not an inferred reader header gate.",
+    "source_location": "ISO 32000-2 §12.5.6.8 /IC version label, printed p. 490 / physical p. 505; source/spec-layout.txt:29396-29404",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "No Table180-specific PDF header gate identified in the consumer path."
+    ],
+    "test_refs": [],
+    "verdict": "producer-version-duty-inventoried-not-certified",
+    "evidence": "The version marker constrains a conforming producer. No reader obligation to suppress or reject the entry merely because the file header names an earlier version was identified in this clause.",
+    "test_command": "cargo test -p pdf-model --test square_circle_spec_audit",
+    "test_result": "Three new tests PASS in font-subset-square-circle-final-target.log; pdf-model all-target clippy PASS in clippy-font-subset-square-circle-clean.log. Prior tests passed broad wave14; only inspected assertions support feature claims.",
+    "parent_review": "Parent read Table180, EC3 #524, relevant ADR units and actual assertions. Rejected unproven absent-colour oracle; promoted three passing tests with explicit construction-policy scope.",
+    "reviewer": "square_circle_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "producer-version-duty-inventoried-not-certified",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.6.8",
+    "feature_id": "12.5.6.8.be_rd_pdf_version",
+    "requirement": "Table 180 marks /BE and /RD as PDF 1.5. This is a producer-version classification, not an inferred reader header gate.",
+    "source_location": "ISO 32000-2 §12.5.6.8 /BE and /RD version label, printed p. 490 / physical p. 505; source/spec-layout.txt:29405-29423",
+    "errata": "EC3 #524 changes RD type cell, not version label.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "No Table180-specific PDF header gate identified in the consumer path."
+    ],
+    "test_refs": [],
+    "verdict": "producer-version-duty-inventoried-not-certified",
+    "evidence": "The version marker constrains a conforming producer. No reader obligation to suppress or reject the entry merely because the file header names an earlier version was identified in this clause.",
+    "test_command": "cargo test -p pdf-model --test square_circle_spec_audit",
+    "test_result": "Three new tests PASS in font-subset-square-circle-final-target.log; pdf-model all-target clippy PASS in clippy-font-subset-square-circle-clean.log. Prior tests passed broad wave14; only inspected assertions support feature claims.",
+    "parent_review": "Parent read Table180, EC3 #524, relevant ADR units and actual assertions. Rejected unproven absent-colour oracle; promoted three passing tests with explicit construction-policy scope.",
+    "reviewer": "square_circle_annotation_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-regressions",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "producer-version-duty-inventoried-not-certified",
     "superseded": false
   },
   {

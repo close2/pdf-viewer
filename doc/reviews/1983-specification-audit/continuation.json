@@ -1,25 +1,24 @@
 {
   "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
-  "checkpoint_utc": "2026-11-10T16:26:54.769811+00:00",
+  "checkpoint_utc": "2026-11-10T16:35:39.943591+00:00",
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
-    "last_weekly_used_percent": 76,
+    "last_weekly_used_percent": 77,
     "target_approx_percent": 92,
     "stop_new_work_near_percent": 87,
     "probe": "python scratchpad/r1983/spec-audit/usage.py",
     "warning": "Percent is account allowance, not convertible fixed tokens; counters may lag. Continue extending while useful work and room remain."
   },
   "agents": {
-    "associated_files_audit": "square_circle_annotation_audit",
-    "catalog_pages_audit": "font_subset_audit draft refinement",
+    "associated_files_audit": "caret_stamp_annotation_audit",
+    "catalog_pages_audit": "text_annotation_audit",
     "inapplicable_conditions_audit": "text_markup_annotation_audit"
   },
   "next_candidates": [
-    "12.5.6.2 markup common entries and reply threading",
-    "12.5.6.3 annotation review states",
-    "12.5.6.13 InkList/Path and effective errata",
-    "9.9.2 subset tags and independently loaded same-source subsets"
+    "ADR0674 frame closure vs inset-path degeneracy explanation",
+    "12.5.6.14 Popup specific entries and parent routing",
+    "12.5.6.15 FileAttachment annotation"
   ],
   "latest_broad": {
     "log": "nextest-nine-crates-wave14.log",
@@ -31,7 +30,7 @@
     "exit": 100,
     "manifest": "Parent verified exact binary/test set equality; assertions are not necessarily distinct defects."
   },
-  "latest_clippy": "clippy-polygon-polyline.log",
+  "latest_clippy": "clippy-font-subset-square-circle-clean.log",
   "new_failures_since_wave8": [
     "catalog Named OpenAction consumer missing",
     "page-visible neighbor omitted",
@@ -79,8 +78,9 @@
     "3ebb419a",
     "efa78384",
     "d150b6c1",
-    "45bf73c8"
+    "45bf73c8",
+    "73eeaa0f"
   ],
-  "expected_failures_manifest_count": 48,
-  "broad_run_predates": "FreeText/Line four passes, two Line failures, three Polygon/Polyline failures"
+  "expected_failures_manifest_count": 49,
+  "broad_run_predates": "FreeText/Line four passes, two Line failures, three Polygon/Polyline failures; four Font/Square passes and subset writer failure"
 }

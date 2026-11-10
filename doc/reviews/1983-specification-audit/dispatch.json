@@ -815,7 +815,7 @@
       "clauses": [
         "9.9.2"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-consumer-regressions"
     },
     {
       "agent": "free_text_annotation_audit",
@@ -836,7 +836,7 @@
       "clauses": [
         "12.5.6.8"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-consumer-regressions"
     },
     {
       "agent": "polygon_polyline_audit",
@@ -849,6 +849,21 @@
       "agent": "text_markup_annotation_audit",
       "clauses": [
         "12.5.6.10"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "text_annotation_audit",
+      "clauses": [
+        "12.5.6.4"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "caret_stamp_annotation_audit",
+      "clauses": [
+        "12.5.6.11",
+        "12.5.6.12"
       ],
       "state": "running"
     }

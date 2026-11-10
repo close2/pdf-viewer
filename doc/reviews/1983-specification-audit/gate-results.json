@@ -762,5 +762,19 @@
   "polygon_polyline_clippy": {
     "log": "clippy-polygon-polyline.log",
     "exit": 0
+  },
+  "font_subset_square_circle": {
+    "log": "font-subset-square-circle-final-target.log",
+    "passed": 4,
+    "exit": 0
+  },
+  "font_subset_writer": {
+    "log": "font-subset-reviewed-fixed-target.log",
+    "expected_fail": 1,
+    "exit": 101
+  },
+  "font_subset_square_circle_clippy": {
+    "log": "clippy-font-subset-square-circle-clean.log",
+    "exit": 0
   }
 }

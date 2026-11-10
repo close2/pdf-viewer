@@ -4238,7 +4238,8 @@
       "font_subset_audit"
     ],
     "parent_reviewed_artifacts": [
-      "font_descriptor_cid_audit"
+      "font_descriptor_cid_audit",
+      "font_subset_audit"
     ],
     "feature_record_verdicts": {
       "optional recommendation; no reader debt": 1,
@@ -4305,11 +4306,15 @@
       "font_subset_audit"
     ],
     "parent_reviewed_artifacts": [
-      "font_programs_audit"
+      "font_programs_audit",
+      "font_subset_audit"
     ],
     "feature_record_verdicts": {
-      "code-supported-not-executed": 2,
-      "confirmed": 3,
+      "code-supported-not-executed": 1,
+      "confirmed": 1,
+      "confirmed-selected-glyph-zero-retention": 1,
+      "confirmed-selected-name-propagation": 1,
+      "confirmed-selected-reader-recommendation": 1,
       "implementation-gap": 1,
       "unreviewed": 1
     },
@@ -5643,10 +5648,15 @@
   {
     "clause": "12.5.6.1",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "text_annotation_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "confirmed-with-child-clause-scope": 1,
+      "partial-cross-reference": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
@@ -5698,10 +5708,18 @@
   {
     "clause": "12.5.6.4",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "text_annotation_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "confirmed": 1,
+      "confirmed-with-artwork-choice": 1,
+      "confirmed-with-host-choice": 1,
+      "partial-cross-reference": 1,
+      "partial-missing-discriminator": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
@@ -5777,23 +5795,27 @@
   {
     "clause": "12.5.6.8",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "square_circle_annotation_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "square_circle_annotation_audit"
+    ],
     "feature_record_verdicts": {
+      "confirmed-selected-asymmetric-insets": 1,
+      "confirmed-selected-component-count-consumers": 1,
+      "confirmed-selected-explicit-colour-default-width": 1,
+      "confirmed-selected-unequal-axis-geometry": 1,
       "covered-by-cloud-and-border-shards": 1,
       "covered-by-square-and-border-tests": 1,
       "cross-reference-ap-audit": 1,
       "implemented-reader-choice-not-normative-conformance-credit": 1,
       "implemented-type-cell-correction": 1,
-      "implemented-with-ellipse-axis-test-gap": 1,
-      "missing-asymmetric-geometry-test": 1,
-      "missing-component-count-consumer-test": 1,
-      "producer-version-duty-reader-gate-unactivated": 3,
+      "producer-version-duty-inventoried-not-certified": 3,
       "reachable-square-popup-tested": 1,
-      "reader-dispatch-tested-producer-duty": 1
+      "reader-dispatch-tested-producer-duty": 1,
+      "unresolved-interpretation-not-proven-defect": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
@@ -5822,28 +5844,42 @@
   {
     "clause": "12.5.6.10",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "text_markup_annotation_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "confirmed-selected-mark-types": 1,
+      "cross-reference-existing-popup-consumer": 1,
+      "retain-chosen-geometry-cross-reference-blend": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
     "clause": "12.5.6.11",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "caret_stamp_annotation_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "confirmed": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
     "clause": "12.5.6.12",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "caret_stamp_annotation_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "implementation-gap": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {

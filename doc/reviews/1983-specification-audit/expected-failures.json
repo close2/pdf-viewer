@@ -268,6 +268,12 @@
       "test": "polyline_first_ending_is_at_first_vertex_not_second_vertex",
       "evidence": "polygon-polyline-effective-ec3-target.log",
       "classification": "First style placed on second vertex; plain-line and last-endpoint controls pass"
+    },
+    {
+      "binary": "pdf-model",
+      "test": "variable_text::subset_collision_audit::appearance_writer_allocates_distinct_tags_for_sibling_subsets",
+      "evidence": "font-subset-reviewed-fixed-target.log",
+      "classification": "Two distinct same-source subset resources receive identical NQYCPV tag; distinct program streams and paired PDF-name controls pass"
     }
   ]
 }

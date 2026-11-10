@@ -408,7 +408,7 @@
         "source": "square_circle_annotation_audit/decisions.json",
         "decision_id": "Use a constructed content stream for Square/Circle without AP and derive rectangle/ellipse, /IC fill, /C stroke, and /RD inset geometry",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -531,9 +531,18 @@
   },
   {
     "path": "doc/adr/0043-what-a-highlight-is.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "text_markup_annotation_audit/decisions.json",
+        "decision_id": "0043-mark-dimensions-highlight-blend-and-quad-frame",
+        "conclusion": "retain-selected-dimensions-with-rotation-choice-risk",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0044-the-last-silence.md",
@@ -1136,7 +1145,7 @@
         "source": "font_subset_audit/decisions.json",
         "decision_id": "ADR 0115 FontKey identity",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "decision-review",
         "duplicates_decision": null
       },
@@ -1608,6 +1617,14 @@
         "decision_id": "0172-text-markup-subtype-precedence-over-nozoom-norotate",
         "conclusion": "retain-with-qualification",
         "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "text_markup_annotation_audit/decisions.json",
+        "decision_id": "0172-text-markup-nozoom-priority",
+        "conclusion": "cross-reference-explicit-policy-not-recertified",
+        "parent_accepted": false,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2311,9 +2328,18 @@
   },
   {
     "path": "doc/adr/0257-the-joins-that-were-missing-and-a-walk-that-saw-half-a-tree.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "text_markup_annotation_audit/decisions.json",
+        "decision_id": "0257-text-under-markup-retrieval",
+        "conclusion": "retain-api-with-citation-and-polygon-precision-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0258-three-corpora-a-fetcher-that-refuses-and-the-first-page-from-outside.md",
@@ -2575,7 +2601,7 @@
         "source": "square_circle_annotation_audit/decisions.json",
         "decision_id": "Do not apply Table168 B/I relief styles to Square/Circle /BS because Table180 permits only width and dash",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -4416,7 +4442,7 @@
         "source": "square_circle_annotation_audit/decisions.json",
         "decision_id": "Keep Square/Circle /BS styles limited to width and dash; distinguish border style from the line the annotation itself draws",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -4679,7 +4705,7 @@
         "source": "square_circle_annotation_audit/decisions.json",
         "decision_id": "When an inside border stroke covers the shape, fill the Square/Circle shape with the border colour rather than drawing an empty inset stroke",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -5538,13 +5564,21 @@
   },
   {
     "path": "doc/adr/0825-a-rectangle-of-no-area-stops-only-the-marks-it-places.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "square_circle_annotation_audit/decisions.json",
         "decision_id": "A Square whose /Rect has no area draws nothing because its clause places the shape inside /Rect",
         "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "text_markup_annotation_audit/decisions.json",
+        "decision_id": "0825-quadpoints-geometry-not-clipped-to-rect",
+        "conclusion": "retain-bounded",
         "parent_accepted": false,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
@@ -6927,7 +6961,7 @@
         "source": "square_circle_annotation_audit/decisions.json",
         "decision_id": "Apply a cloudy /BE to Square/Circle borders; choose scallop construction and keep its outer reach on the shape's border band",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -7001,7 +7035,7 @@
         "source": "square_circle_annotation_audit/decisions.json",
         "decision_id": "Use relief styles for a border where the governing subtype actually defines /BS as a border; do not extend the relief to Square/Circle lines",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -9101,14 +9135,14 @@
   },
   {
     "path": "doc/adr/1425-a-machine-face-is-written-subset-embedded-and-under-its-licence.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_subset_audit/decisions.json",
         "decision_id": "ADR 1425 §2 Names",
         "conclusion": "revise",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "decision-review",
         "duplicates_decision": null
       }
@@ -9224,14 +9258,14 @@
   },
   {
     "path": "doc/adr/1449-a-cff-machine-face-is-subset-as-a-bare-cid-keyed-program.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_subset_audit/decisions.json",
         "decision_id": "ADR 1449 CFF subset form and closure",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "decision-review",
         "duplicates_decision": null
       }
