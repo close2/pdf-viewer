@@ -4201,17 +4201,28 @@
   {
     "clause": "9.9.1",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
+      "cidfont_cmap_validation_audit",
       "font_programs_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "font_programs_audit"
+    ],
     "feature_record_verdicts": {
-      "code-supported-not-executed": 2,
+      "code-supported-not-executed": 5,
       "confirmed": 1,
-      "confirmed-with-test-residual": 1,
-      "implementation-gap": 1,
+      "confirmed-Length3zero-reader-consumer; requiredkeys-not-certified": 1,
+      "confirmed-recovery-policy; producer-key-not-certified": 1,
+      "confirmed-selected-display-consumer": 1,
+      "implementation-gap-candidate": 1,
+      "inventoried-forward-duty; downstream-coverage-partial": 4,
+      "inventoried-producer-constraints; validation-not-certified": 1,
+      "inventoried-producer-recommendation": 1,
       "no-independent-requirement": 1,
+      "partial-format-pairing": 1,
+      "partial; broader-cmap-validation-unresolved": 3,
+      "profile-rule-characterized; base-recommendation-not-certified": 1,
       "unreviewed": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
@@ -4219,11 +4230,13 @@
   {
     "clause": "9.9.2",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "font_programs_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "font_programs_audit"
+    ],
     "feature_record_verdicts": {
       "code-supported-not-executed": 1,
       "unreviewed": 1

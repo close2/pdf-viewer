@@ -1020,3 +1020,32 @@ Parent review rejected a claimed combined OC/flag test: the cited configuration-
 no annotation fixture. An older annotation test varies only group visibility with F4 fixed.
 Combined gating is a focused follow-up. A draft's unrelated ADR0444 attribution was removed;
 selected ADR0209 and ADR1160 decisions were checked against their actual text.
+
+
+## Embedded font programs: corrected scope and a consumer control
+
+The effective §9.9 inventory now includes four previously omitted OpenType glyph-selection duties
+and the separate writer recommendation for Type0/Identity-H. Table124 format pairings, required
+producer keys and external font-format conformance remain separate from tolerant reader behavior.
+The Length3=0 assertions do check unchanged program bytes, 512 added zeros and the terminator;
+other required-key and CFF single-program constraints are not certified by parsing one program.
+
+Parent and peer review rejected a proposed failing cmap test. The shared helper explicitly answers
+Table124, while the simple/CID cmap rules appear elsewhere in §9.9.1. Demanding an empty helper result
+would change that contract. Simple-font archive checks exist separately, and the composite writer
+strips cmap from FontFile2 output. A possible CID validation gap is being investigated with a
+complete-PDF test; it is not in the failure manifest.
+
+One new display-consumer test passes with no system-font dependence. A repository font receives
+embedded vertical advances of 5 versus 7 em; the diagnostic API confirms they are loaded and the
+three glyphs have outlines. Their placed quads remain identical. Changing W2 moves the second
+glyph, while changing only DW2 advance leaves the second unchanged and moves the third. Parent
+review corrected the font’s units-per-em, the vhea extrema and a confounded control. The vhea
+metadata follows the [OpenType definition](https://learn.microsoft.com/en-us/typography/opentype/spec/vhea).
+This establishes display placement, while archive inspection of those metrics remains a distinct
+interpretation question. Warning-denied Clippy passes; this test is additional to wave12.
+
+ADR0049 was also corrected in the audit: its decision concerns CID indexing into a malformed bare
+Type1 embedding, not the adjacent CFF signature-dispatch test. The actual corpus regression compares
+glyph shape, which distinguishes the wrong substitute; it can return early without its corpus file.
+Historical archive conversions and external font-format conformance were not freshly certified.

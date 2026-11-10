@@ -13831,6 +13831,610 @@
     "superseded": false
   },
   {
+    "clause": "9.9.1",
+    "feature_id": "embedding_scope_and_rendering_mode",
+    "requirement": "Font programs may be embedded for text in rendering mode 3; for other modes they should be embedded. These are producer permissions/recommendations, not reader rejection rules.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.366 (printed p.351), §9.9.1 first paragraph",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-archive/src/table/fonts.rs::font_programs_embedded",
+      "crates/pdf-font/src/program.rs::embedded_program"
+    ],
+    "test_refs": [
+      "crates/pdf-archive/src/table/fonts.rs::a_rendered_font_with_no_program_is_reported_and_a_mode_three_one_is_not"
+    ],
+    "verdict": "profile-rule-characterized; base-recommendation-not-certified",
+    "evidence": "The archive assertion contrasts mode3 and rendered text for its profile rule. This is separate from the base standard’s MAY/SHOULD wording and does not certify general producer compliance with a recommendation.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9.1 implemented",
+    "reviewer_verdict": "profile-rule-characterized; base-recommendation-not-certified",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "font_license_and_default_use_policy",
+    "requirement": "Embedding is constrained by the font copyright/license; absent contrary information, an embedded program is for viewing and printing only. This governs use of the program, not parsing or rendering of a PDF page.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.366 (printed p.351), §9.9.1 second paragraph",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/embedding.rs::permission",
+      "crates/pdf-font/src/embed.rs::for_embedding",
+      "crates/pdf-transform/src/archive/fonts.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/embed/cff.rs::the_licence_decides_whether_a_cff_face_is_subset_written_whole_or_not_at_all",
+      "crates/pdf-transform/tests/archive/layout_from_this_viewer.rs"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "The writer reads OS/2 fsType before embedding/subsetting and has permission branches; CFF tests assert restricted and no-subsetting outcomes. A separate license is not available to this code path, and the source says permissions may be separate. The reader still uses embedded programs for display.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9.1 implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "fontfile_type1_pairing",
+    "requirement": "FontFile carries original Type 1 programs and may appear for Type1 or MMType1 dictionaries; the supplied program shall conform to the named Type 1 formats.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical pp.367–368 (printed pp.352–353), Table 124 FontFile row",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs::embedded_program",
+      "crates/pdf-font/src/type1.rs",
+      "crates/pdf-archive/src/table/fonts.rs::table_124_rows"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/program.rs::a_font_file_that_really_is_type_1_is_untouched",
+      "crates/pdf-transform/tests/archive/type1_notdef_glyph.rs"
+    ],
+    "verdict": "partial-format-pairing",
+    "evidence": "FontFile is decoded separately and sent to the Type 1 reader when the bytes have Type 1 signatures. The unit test checks ASCII and PFB Type 1 signatures; archive fixtures assert embedded Type 1 glyph behavior. The archive row helper returns FontFile only for Type1/MMType1 dictionaries. External-format conformance is a producer requirement, not evidence that the PDF reader must validate every Type 1 rule. Signature assertions do not prove full AdobeType1 conformance or allFontFile dictionary combinations.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9 / 9.9.1 implemented",
+    "reviewer_verdict": "partial-format-pairing",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "fontfile2_truetype_pairing_and_tables",
+    "requirement": "FontFile2 carries TrueType programs for TrueType or CIDFontType2 dictionaries. Required tables are glyf, head, hhea, hmtx, loca, and maxp; cvt , fpgm, and prep are included when font instructions require them.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.367 (printed p.352), Table 124 FontFile2 row",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs::embedded_program",
+      "crates/pdf-font/src/embedding.rs::sfnt_tables",
+      "crates/pdf-archive/src/table/fonts.rs::table_124_rows"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/embedding.rs::a_glyf_sfnt_carries_no_cff_table",
+      "crates/pdf-font/src/embedding.rs::a_cmap_is_dropped_and_every_other_table_is_the_programs_own",
+      "crates/pdf-archive/src/table/fonts.rs::a_font_program_is_filed_under_the_key_and_name_of_its_format"
+    ],
+    "verdict": "partial; broader-cmap-validation-unresolved",
+    "evidence": "Parent and peer reject the proposed empty table_124_rows result: the helper explicitly answers Table 124, while simple/CID cmap conditions appear in separate §9.9.1 prose. Later archive rules check rendered simple TrueType cmap subtables, subject to population and program-readability limits. The composite archive writer explicitly strips cmap when emitting FontFile2. No writer defect demonstrated. A CIDFontType2 forbidden-cmap validation candidate needs a complete PDF and an applicable rule contract. Six-table inventory assertions do not establish preservation of every optional original table.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "remaining": "Review the complete-PDF validator and downstream glyph-selection algorithms; no helper regression promoted.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9 / 9.9.1 implemented",
+    "reviewer_verdict": "partial; broader-cmap-validation-unresolved",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "fontfile3_type1c_and_cidfonttype0c_pairings",
+    "requirement": "FontFile3 /Type1C carries a compact Type 1 equivalent for Type1/MMType1 dictionaries; /CIDFontType0C carries a compact Type 0 CIDFont program for CIDFontType0. Each program shall conform to Adobe Technical Note #5176.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.367 (printed p.352), Table 124 FontFile3 Type1C and CIDFontType0C rows",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs::embedded_program",
+      "crates/pdf-font/src/cff.rs",
+      "crates/pdf-font/src/embed/cff.rs",
+      "crates/pdf-archive/src/table/fonts.rs::table_124_rows"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/program.rs::a_cff_header_of_another_minor_version_is_read_as_one",
+      "crates/pdf-font/src/embed/cff.rs::a_subset_draws_its_kept_glyphs_as_the_whole_face_does",
+      "crates/pdf-transform/tests/archive/cff_notdef_glyph.rs",
+      "crates/pdf-transform/tests/archive/cid_cff_notdef_glyph.rs"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "The PDF reader distinguishes bare CFF from sfnt and passes it to the CFF reader; CFF writer tests compare drawn outlines and CID mapping. The archive table test does not exercise Type1C/CIDFontType0C pairings in its cited assertion body. Full external CFF conformance is not established by parser acceptance or a valid outline.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9 / 9.9.1 implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "opentype_glyf_pairing",
+    "requirement": "OpenType with glyf outlines may be used by TrueType or CIDFontType2 dictionaries and carries the glyf-side TrueType required tables. The dictionary kind controls the additional cmap rule in §9.9.1.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.368 (printed p.353), Table 124 OpenType first bullet; physical p.369 (printed p.354), following TrueType table paragraph",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs::embedded_program",
+      "crates/pdf-font/src/embedding.rs::sfnt_tables",
+      "crates/pdf-archive/src/table/fonts.rs::table_124_rows"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/embedding.rs::a_glyf_sfnt_carries_no_cff_table",
+      "crates/pdf-archive/src/table/fonts.rs::a_font_program_is_filed_under_the_key_and_name_of_its_format"
+    ],
+    "verdict": "partial; broader-cmap-validation-unresolved",
+    "evidence": "Parent and peer reject the proposed empty table_124_rows result: the helper explicitly answers Table 124, while simple/CID cmap conditions appear in separate §9.9.1 prose. Later archive rules check rendered simple TrueType cmap subtables, subject to population and program-readability limits. The composite archive writer explicitly strips cmap when emitting FontFile2. No writer defect demonstrated. A CIDFontType2 forbidden-cmap validation candidate needs a complete PDF and an applicable rule contract. Six-table inventory assertions do not establish preservation of every optional original table.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "remaining": "Review the complete-PDF validator and downstream glyph-selection algorithms; no helper regression promoted.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9 / 9.9.1 implemented",
+    "reviewer_verdict": "partial; broader-cmap-validation-unresolved",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "opentype_cff_pairings_and_required_cmap",
+    "requirement": "OpenType CFF with CIDFont operators is paired with CIDFontType0; Type1 or CIDFontType0 may carry OpenType CFF without CIDFont operators. Each case requires CFF and cmap; table lists differ by dictionary and the standard explicitly says not every general OpenType table is required.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical pp.368–369 (printed pp.353–354), Table 124 OpenType CFF bullets and qualification",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs::extracted_cff",
+      "crates/pdf-font/src/embedding.rs::sfnt_tables",
+      "crates/pdf-font/src/embed/cff.rs::for_embedding",
+      "crates/pdf-archive/src/table/fonts.rs::table_124_rows"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/program.rs::an_opentype_program_with_no_head_is_read_as_the_cff_it_carries",
+      "crates/pdf-font/src/program.rs::an_opentype_program_with_a_head_is_still_an_sfnt",
+      "crates/pdf-font/src/embed/cff.rs::a_cff_face_is_written_whole_with_its_cmap_and_no_glyf"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "The reader extracts an OpenType CFF table without head and otherwise retains the sfnt path; the first case is discriminated by CFF parsing, the second by the presence of head. CFF writer tests assert cmap and the selected table set for a whole CFF face. The archive classifier checks cmap and CFF keying for OpenType CFF. Tests do not exhaust every Type1/CIDFontType0 keying combination. Parent corrected an invented test name: the actual whole-CFF table and charmap test can return early when no machine CFF font is installed. Its count does not certify that branch.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9 / 9.9.1 implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "opentype_subtype_and_external_conformance",
+    "requirement": "FontFile3 /OpenType may appear for the listed TrueType or CIDFont dictionaries; the embedded program shall conform to ISO/IEC 14496-22:2019, subject to the row-specific table lists.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical pp.368–369 (printed pp.353–354), Table 124 OpenType row",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs::embedded_program",
+      "crates/pdf-archive/src/table/fonts.rs::font_programs_filed_by_their_format"
+    ],
+    "test_refs": [
+      "crates/pdf-archive/src/table/fonts.rs::a_font_program_is_filed_under_the_key_and_name_of_its_format",
+      "crates/pdf-transform/tests/archive.rs::a_standard_font_written_inside_its_resource_dictionary_becomes_an_object_holding_its_descriptor"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "The archive classifier checks key/subtype/dictionary pairing and known table rules; the reader dispatches by signature. It does not validate full ISO/IEC 14496-22 conformance, and neither a valid SFNT container nor parser success proves all external format constraints.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9 / 9.9.1 implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "embedded_stream_normal_entries",
+    "requirement": "An embedded-font stream has normal stream dictionary entries such as Length and Filter plus the additional Table 125 entries that apply to its program/key.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.368 (printed p.353), paragraph before Table 125",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs::embedded_program",
+      "crates/pdf-transform/src/archive/font_files.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/program.rs::font_file_signature::descriptor_with",
+      "crates/pdf-transform/tests/archive/rekeyed.rs::an_identity_font_is_given_the_glyphs_its_to_unicode_values_select_at_its_own_cids"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "Fixtures use valid stream lengths and decoding; archive output carries streams and tests decode them. The source says 'such as' and Table 5 governs other stream fields, so this audit does not claim exhaustive stream dictionary validation.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9.1 implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "length1_decoded_extent",
+    "requirement": "Length1 is required for Type 1 and TrueType programs and counts decoded Type 1 clear-text bytes or all decoded TrueType bytes.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.368 (printed p.353), Table 125 Length1 row",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs::stated_extent",
+      "crates/pdf-font/src/program.rs::whole_program",
+      "crates/pdf-transform/src/archive/font_files.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/program.rs::a_font_program_that_reaches_its_stated_length_survives_a_truncated_filter",
+      "crates/pdf-font/src/program.rs::a_font_program_short_of_its_stated_length_is_still_refused",
+      "doc/adr/0459-two-extents-one-a-clause-states-and-one-an-identifier-could-not.md"
+    ],
+    "verdict": "confirmed-recovery-policy; producer-key-not-certified",
+    "evidence": "The reader compares a decoded TrueType extent to Length1 and salvages only truncation that reached the full length; tests contrast exactly reaching it with a one-byte shortfall. This is a reader recovery policy built on the standard-stated extent, distinct from the producer's required key. Existing recovery fixtures wrapCFF-underFontFile2, deliberatelymalformedpairing; they prove byte-extent policy,not validTrueType formatconformance.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9.1 implemented",
+    "reviewer_verdict": "confirmed-recovery-policy; producer-key-not-certified",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "length2_and_length3_type1_segments",
+    "requirement": "Length2 and Length3 are required for Type 1 programs and give decoded encrypted and fixed-content portions; Length3=0 says the 512 zeros and cleartomark are absent and the PDF processor shall add them.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.368 (printed p.353), Table 125 Length2/Length3 rows",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs::stated_extent",
+      "crates/pdf-font/src/program.rs::with_fixed_content"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/program.rs::a_stated_length3_of_zero_restores_the_512_zeros_and_cleartomark",
+      "crates/pdf-font/src/program.rs::any_other_length3_leaves_the_program_alone"
+    ],
+    "verdict": "confirmed-Length3zero-reader-consumer; requiredkeys-not-certified",
+    "evidence": "Length3 zero causes exactly 512 ASCII zero bytes and a cleartomark to be appended, while positive or absent Length3 leaves program bytes unchanged. The positive test asserts producer bytes and the required zeros/terminator. Table125 lengths also bound the truncated Type 1 recovery path. Root read exact unchanged-prefix,512ASCIIzeros andcleartomark terminator assertions pluspositive/absentLength3unchangedcontrols. Producerkeypresence remains untestedseparately.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9.1 implemented",
+    "reviewer_verdict": "confirmed-Length3zero-reader-consumer; requiredkeys-not-certified",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "fontfile3_subtype_required_values",
+    "requirement": "A FontFile3 stream requires Subtype and the recognized names are Type1C, CIDFontType0C, and OpenType.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.369 (printed p.354), Table 125 Subtype row",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-archive/src/table/fonts.rs::font_programs_filed_by_their_format",
+      "crates/pdf-font/src/program.rs::embedded_program"
+    ],
+    "test_refs": [
+      "crates/pdf-archive/src/table/fonts.rs::a_font_program_is_filed_under_the_key_and_name_of_its_format",
+      "crates/pdf-archive/src/table/fonts.rs::a_font_program_whose_format_cannot_be_read_is_not_judged_by_its_bytes"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The archive checker reports missing and unrecognized Subtype names; its test checks absent, invalid, and mispaired names. The font reader deliberately determines a usable parser by bytes, which is robustness behavior for malformed inputs, not producer conformance.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9.1 implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "cff_lengths_absent_and_one_program",
+    "requirement": "For CFF compact formats Length1/2/3 are not needed and shall not be present; an embedded CFF stream consists of exactly one font or CIDFont, as appropriate.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.369 (printed p.354), paragraph after Table 125",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs::stated_extent",
+      "crates/pdf-font/src/cff.rs",
+      "crates/pdf-archive/src/table/fonts.rs::table_124_rows"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/program.rs::a_compact_font_program_has_no_stated_extent_and_is_refused",
+      "crates/pdf-font/src/embed/cff.rs::a_subset_draws_its_kept_glyphs_as_the_whole_face_does"
+    ],
+    "verdict": "inventoried-producer-constraints; validation-not-certified",
+    "evidence": "Reader code treats compact programs as having no Table125 extent and parses a single CFF program; writer tests parse and compare subsets. The archive program-pairing path does not inspect Length1/2/3 presence for CFF or count bundled programs as an independent checker condition. The no-length assertion in the cited unit is about no stated extent for recovery, not rejection of forbidden length keys. Parser readingoneprogram doesnotprove noextra program present; no independent enforcement assertionaccepted.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9.1 implemented",
+    "reviewer_verdict": "inventoried-producer-constraints; validation-not-certified",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "type1_painttype_ignored",
+    "requirement": "The Type 1 program PaintType entry shall be ignored for embedded programs; PDF text rendering mode determines whether outlines are filled or stroked. This applies to Type1C and CIDFontType0C too.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.369 (printed p.354), paragraph following Table 125",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/type1.rs",
+      "crates/pdf-model/src/content/text/show.rs",
+      "crates/pdf-model/src/content/text/paint.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/type1.rs",
+      "crates/pdf-model/tests/text_render_modes.rs"
+    ],
+    "verdict": "unreviewed",
+    "evidence": "The clause assigns embedded Type 1 PaintType to be ignored and PDF text rendering mode to select paint. No focused assertion was found which varies the embedded Type 1 PaintType while holding the PDF text rendering mode constant and observes the result. Existing Type 1 reader and text-render-mode tests do not establish this interaction.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9.1 implemented",
+    "reviewer_verdict": "unreviewed",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "truetype_tables_preserved_if_original",
+    "requirement": "The listed TrueType tables shall remain if present in the original program. A simple font additionally needs cmap; a CIDFont does not need cmap and it shall not be present because character mapping is supplied separately.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.369 (printed p.354), TrueType table paragraph",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/embedding.rs::without_tables",
+      "crates/pdf-font/src/embed.rs",
+      "crates/pdf-archive/src/table/fonts.rs::table_124_rows"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/embedding.rs::a_cmap_is_dropped_and_every_other_table_is_the_programs_own",
+      "crates/pdf-transform/tests/archive/rekeyed.rs::an_identity_font_is_given_the_glyphs_its_to_unicode_values_select_at_its_own_cids"
+    ],
+    "verdict": "partial; broader-cmap-validation-unresolved",
+    "evidence": "Parent and peer reject the proposed empty table_124_rows result: the helper explicitly answers Table 124, while simple/CID cmap conditions appear in separate §9.9.1 prose. Later archive rules check rendered simple TrueType cmap subtables, subject to population and program-readability limits. The composite archive writer explicitly strips cmap when emitting FontFile2. No writer defect demonstrated. A CIDFontType2 forbidden-cmap validation candidate needs a complete PDF and an applicable rule contract. Six-table inventory assertions do not establish preservation of every optional original table.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "remaining": "Review the complete-PDF validator and downstream glyph-selection algorithms; no helper regression promoted.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9.1 implemented",
+    "reviewer_verdict": "partial; broader-cmap-validation-unresolved",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "vertical_sfnt_tables_not_used",
+    "requirement": "A PDF processor shall never use the OpenType/TrueType vhea or vmtx tables for vertical metrics; PDF CIDFont DW2/W2 supplies those metrics.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.370 (printed p.355), paragraph after TrueType table list",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/text/show.rs::vertical_metrics",
+      "crates/pdf-font/src/loading/advances.rs::vertical_metrics",
+      "crates/pdf-font/src/metrics.rs::CompositeVerticalMetrics::from_descendant",
+      "crates/pdf-archive/src/table/fonts.rs::vertical_metrics_agree_with_the_program"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/composite_fonts.rs::a_vertical_cmap_takes_the_second_set_of_metrics",
+      "crates/pdf-model/tests/composite_font_fixtures.rs::the_w2_array_of_example_3_states_each_vertical_metric",
+      "crates/pdf-font/src/metrics.rs::the_w2_example_and_a_range_are_read_from_the_array",
+      "crates/pdf-model/tests/vertical_program_metrics_audit.rs::embedded_vmtx_cannot_override_vertical_cidfont_text_placement"
+    ],
+    "verdict": "confirmed-selected-display-consumer",
+    "evidence": "Display metrics come from CIDFont DW2/W2; program_vertical_advance is a separate archive diagnostic. A new exact-xref PDF embeds the repository Liberation Sans with cmap removed and vhea/vmtx advances of 5 versus 7 em. The diagnostic API observes those values and all three codes have outlines. Placed text quads remain identical across programs. Changing only W2 advance moves glyph 2; changing only DW2 advance leaves glyph 2 unchanged and moves glyph 3. Parent corrected UPEM=2048, vhea extrema from glyph heights, the Write import, and the formerly confounded DW2 control. No system font or fallback dependency.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "remaining": "Archive inspection uses program metrics for profile consistency. The source’s literal never-used wording requires an interpretation separating inspection from PDF placement. This test establishes the selected display consumer, not complete external font conformance.",
+    "fixture_source": "vhea metadata checked against https://learn.microsoft.com/en-us/typography/opentype/spec/vhea (2026-11-10); yMaxExtent uses glyph height plus top side bearing.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9.1 implemented",
+    "reviewer_verdict": "confirmed-selected-display-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "opentype_layout_note",
+    "requirement": "OpenType may carry advanced layout data, but absence of optional layout tables can prevent editing; this is an informative note and does not mandate a reader shaping algorithm.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.370 (printed p.355), NOTE 3",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/shaping",
+      "crates/pdf-font/src/program.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/shaping/mod.rs"
+    ],
+    "verdict": "no-independent-requirement",
+    "evidence": "The note describes uses a processor can make of layout tables and the consequence of missing optional tables; it does not impose a duty to implement editing or shaping beyond other applicable clauses. No separate ISO 9.9 reader test follows from this note.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9.1 implemented",
+    "reviewer_verdict": "no-independent-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.2",
+    "feature_id": "subset_name_tag_and_notdef",
+    "requirement": "A subset Type1, TrueType, or OpenType font's BaseFont and descriptor FontName begin with exactly six uppercase letters, a plus, and the source PostScript name; subsets of the same font in one PDF have different tags; the subset defines .notdef.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.370 (printed p.355), §9.9.2",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/embed.rs::for_embedding",
+      "crates/pdf-font/src/embed.rs",
+      "crates/pdf-font/src/embed/cff.rs",
+      "crates/pdf-transform/src/archive/fonts.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/embed/cff.rs::a_subset_is_tagged_and_names_itself_as_the_file_does",
+      "crates/pdf-transform/tests/archive/rekeyed.rs::two_shown_descendants_of_one_rekeyed_descriptor_state_the_descriptors_final_name",
+      "crates/pdf-transform/tests/archive/cff_notdef_glyph.rs"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "Writer code creates six-letter subset prefixes and includes glyph zero; CFF tests assert a tagged subset name and drawing behavior, while archive integration checks descriptor names after shared-font rekeying. This pass did not inspect the TrueType subset-tag test assertion body or establish all subset formats' `.notdef` definitions; reader recognition is not a writer compliance test. Tags/.notdefareproducerconstraints; successfulsubsetting/outlineparse doesnot proveeachformat or same-font distincttag uniqueness.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9.2 implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.2",
+    "feature_id": "subset_independence_recommendation",
+    "requirement": "PDF processors are recommended to treat multiple subset fonts as independent even when they appear to come from the same source font.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.370 (printed p.355), NOTE after §9.9.2",
+    "errata": "No substantive correction changes this §9.9 requirement. Physical p.369 has two Widget annotations, one titled “Goto errata-p1022” leading to appended Issue #462 Table 125a for ToUnicode CMap stream entries; that misplaced/cross-reference material does not modify ordinary embedded-font Table 125. Issue #190 is on physical p.359 (printed p.344) and applies to §9.8, outside this clause.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/loading.rs",
+      "crates/pdf-font/src/collection.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/collection.rs::a_subset_prefix_and_a_hyphen_do_not_make_two_faces"
+    ],
+    "verdict": "unreviewed",
+    "evidence": "The note is a recommendation. The inspected test normalizes subset prefixes for collection face lookup and is not evidence that two embedded PDF subset fonts with distinct tags are loaded independently. The reader's cache identity question is outside this pass's proved assertions.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": "9.9.2 implemented",
+    "reviewer_verdict": "unreviewed",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "opentype_glyph_selection_type1_cff",
+    "requirement": "The processor SHALL find glyphs for Type1 using CFF as described in §9.6.5.2.",
+    "source_location": "§9.9.1 final four bullets, physical p.370 / printed p.355",
+    "verdict": "inventoried-forward-duty; downstream-coverage-partial",
+    "evidence": "Independent peer found this direct duty omitted from the original inventory. A normative forward reference still requires accounting; adjacent font suites do not prove every downstream selection branch.",
+    "code_locations": [
+      "crates/pdf-font/src/name_keyed.rs"
+    ],
+    "test_refs": [],
+    "remaining": "Trace effective §9.6.5.2 to discriminating embedded-OpenType consumer assertions.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": null,
+    "ledger_status": "implemented",
+    "reviewer_verdict": "inventoried-forward-duty; downstream-coverage-partial",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "opentype_glyph_selection_truetype_glyf",
+    "requirement": "The processor SHALL find glyphs for TrueType using glyf as described in §9.6.5.4.",
+    "source_location": "§9.9.1 final four bullets, physical p.370 / printed p.355",
+    "verdict": "inventoried-forward-duty; downstream-coverage-partial",
+    "evidence": "Independent peer found this direct duty omitted from the original inventory. A normative forward reference still requires accounting; adjacent font suites do not prove every downstream selection branch.",
+    "code_locations": [
+      "crates/pdf-font/src/truetype.rs"
+    ],
+    "test_refs": [],
+    "remaining": "Trace effective §9.6.5.4 to discriminating embedded-OpenType consumer assertions.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": null,
+    "ledger_status": "implemented",
+    "reviewer_verdict": "inventoried-forward-duty; downstream-coverage-partial",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "opentype_glyph_selection_cidfonttype0_cff",
+    "requirement": "The processor SHALL find glyphs for CIDFontType0 using CFF as described in §9.7.4.2, embedded Type0.",
+    "source_location": "§9.9.1 final four bullets, physical p.370 / printed p.355",
+    "verdict": "inventoried-forward-duty; downstream-coverage-partial",
+    "evidence": "Independent peer found this direct duty omitted from the original inventory. A normative forward reference still requires accounting; adjacent font suites do not prove every downstream selection branch.",
+    "code_locations": [
+      "crates/pdf-font/src/composite.rs"
+    ],
+    "test_refs": [],
+    "remaining": "Trace effective §9.7.4.2, embedded Type0 to discriminating embedded-OpenType consumer assertions.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": null,
+    "ledger_status": "implemented",
+    "reviewer_verdict": "inventoried-forward-duty; downstream-coverage-partial",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "opentype_glyph_selection_cidfonttype2_glyf",
+    "requirement": "The processor SHALL find glyphs for CIDFontType2 using glyf as described in §9.7.4.2, embedded Type2.",
+    "source_location": "§9.9.1 final four bullets, physical p.370 / printed p.355",
+    "verdict": "inventoried-forward-duty; downstream-coverage-partial",
+    "evidence": "Independent peer found this direct duty omitted from the original inventory. A normative forward reference still requires accounting; adjacent font suites do not prove every downstream selection branch.",
+    "code_locations": [
+      "crates/pdf-font/src/composite.rs"
+    ],
+    "test_refs": [],
+    "remaining": "Trace effective §9.7.4.2, embedded Type2 to discriminating embedded-OpenType consumer assertions.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": null,
+    "ledger_status": "implemented",
+    "reviewer_verdict": "inventoried-forward-duty; downstream-coverage-partial",
+    "superseded": false
+  },
+  {
+    "clause": "9.9.1",
+    "feature_id": "opentype_simple_glyf_writer_identity_recommendation",
+    "requirement": "To avoid simple TrueType glyph-selection ambiguity, PDF writers SHOULD use Type0 with Identity-H and glyph indices as character codes.",
+    "source_location": "§9.9.1 second OpenType bullet, physical p.370 / printed p.355",
+    "verdict": "inventoried-producer-recommendation",
+    "evidence": "This is separate from the mandatory reader encoding algorithm. It does not require rejection or rewriting of otherwise supported simple fonts.",
+    "test_refs": [],
+    "remaining": "Inspect writer choices separately; no reader defect demonstrated.",
+    "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
+    "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
+    "code_locations": [],
+    "reviewer": "font_programs_audit",
+    "parent_review_state": "parent-reviewed-partial-helper-claim-corrected",
+    "reviewer_ledger_status": null,
+    "ledger_status": "implemented",
+    "reviewer_verdict": "inventoried-producer-recommendation",
+    "superseded": false
+  },
+  {
     "clause": "8.10.1",
     "feature_id": "form_xobject_is_content_stream",
     "entry_kind": "direct",

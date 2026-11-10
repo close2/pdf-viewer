@@ -533,14 +533,14 @@
   },
   {
     "path": "doc/adr/0049-a-cid-into-a-type-1-program.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_programs_audit/decisions.json",
-        "decision_id": "misfiled_fontfile_bytes_select_the_program_reader",
+        "decision_id": "cid_indexes_bare_type1_charstrings_in_malformed_embedding",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -1259,14 +1259,14 @@
   },
   {
     "path": "doc/adr/0141-the-container-where-a-font-program-was-stated.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_programs_audit/decisions.json",
         "decision_id": "read_named_face_from_malformed_collection_input",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -3635,14 +3635,14 @@
   },
   {
     "path": "doc/adr/0459-two-extents-one-a-clause-states-and-one-an-identifier-could-not.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_programs_audit/decisions.json",
         "decision_id": "use_table125_extent_for_truncated_font_stream",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -6062,14 +6062,14 @@
   },
   {
     "path": "doc/adr/0940-a-font-program-stream-of-no-bytes-is-no-program.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_programs_audit/decisions.json",
         "decision_id": "empty_decoded_stream_is_absent_program",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -13304,14 +13304,14 @@
   },
   {
     "path": "doc/adr/2327-a-font-collection-is-in-no-row-of-table-124-and-the-writer-asks-the-validators-rows.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_programs_audit/decisions.json",
         "decision_id": "reuse_table124_rows_for_writer_and_validator",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -13397,14 +13397,14 @@
   },
   {
     "path": "doc/adr/2343-a-font-collection-is-written-out-as-the-face-its-descriptor-names.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_programs_audit/decisions.json",
         "decision_id": "write_only_named_collection_face_as_single_sfnt",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }

@@ -640,5 +640,16 @@
     "log": "clippy-dictionary-followup-final.log",
     "exit": 0,
     "initial": "Unused expect_used lint expectation removed after initial denied-warning failure."
+  },
+  "vertical_program_metrics": {
+    "log": "vertical-program-metrics-target-v2.log",
+    "passed": 1,
+    "exit": 0,
+    "initial": "Draft failedcompile because fmt::Write instead ofio::Write; rootfixed andstrengthenedfontmetadata/control."
+  },
+  "vertical_program_metrics_clippy": {
+    "log": "clippy-vertical-program-metrics-final.log",
+    "exit": 0,
+    "initial": "Fixed similar names, doc backticks, checked cast and is_multiple_of; justified the long fixture builder lint."
   }
 }
