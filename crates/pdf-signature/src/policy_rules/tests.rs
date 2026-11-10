@@ -61,6 +61,8 @@ struct Fixture {
     issuer_algorithms: Vec<Vec<u8>>,
     /// Clause 6.8's `TimestampTrustCondition` members, each already context-tagged.
     timestamp_condition: Vec<Vec<u8>>,
+    /// Clause 6.9's `AttributeTrustCondition`, its members already encoded.
+    attribute_condition: Option<Vec<Vec<u8>>>,
 }
 
 impl Default for Fixture {
@@ -76,6 +78,7 @@ impl Default for Fixture {
             trust_points: Vec::new(),
             issuer_algorithms: Vec::new(),
             timestamp_condition: Vec::new(),
+            attribute_condition: None,
         }
     }
 }
@@ -117,6 +120,9 @@ impl Fixture {
             ]),
         ));
         common.push(tagged(2, &seq(&self.timestamp_condition)));
+        if let Some(condition) = &self.attribute_condition {
+            common.push(tagged(3, &seq(condition)));
+        }
         if self.algorithms.is_some() || !self.issuer_algorithms.is_empty() {
             let mut lists = Vec::new();
             if let Some(algorithms) = &self.algorithms {
@@ -820,4 +826,136 @@ fn the_time_stamp_trust_condition_is_judged_on_the_authoritys_own_path() {
     let document = PolicyDocument::parse(&octets).expect("a clause 6 document");
     let inherited = findings(&document, &signed, &facts(None).validated_at(at));
     assert_eq!(verdict_of(&inherited, stamp), [Verdict::Met]);
+}
+
+/// Clause 6.9's `AttributeTrustCondition`: `attributeMandated`, `howCertAttribute`, and the
+/// `attributeConstraints` lists given.
+fn attribute_condition(
+    mandated: bool,
+    how: u8,
+    types: Option<&[&[u8]]>,
+    value_types: Option<&[&[u8]]>,
+) -> Vec<Vec<u8>> {
+    let mut members = vec![
+        tlv(BOOLEAN, &[if mandated { 0xFF } else { 0x00 }]),
+        tlv(ENUMERATED, &[how]),
+    ];
+    let mut lists = Vec::new();
+    if let Some(types) = types {
+        lists.push(tagged(0, &identifiers(types)));
+    }
+    if let Some(value_types) = value_types {
+        let pairs: Vec<_> = value_types
+            .iter()
+            .map(|kind| seq(&[oid(kind), tlv(0x0C, b"x")]))
+            .collect();
+        lists.push(tagged(1, &seq(&pairs)));
+    }
+    if types.is_some() || value_types.is_some() {
+        members.push(tagged(2, &seq(&lists)));
+    }
+    members
+}
+
+#[test]
+fn a_mandated_attribute_within_the_attribute_trust_condition_is_met_and_its_absence_broken() {
+    use signer_attributes::Check;
+    use signer_attributes::tests::{ROLE, TITLE, carrying, v2};
+    // TR 102 272 clause 6.9: `attributeMandated` true requires an attribute within the
+    // condition's constraints; `claimedAttribute` (0) accepts claimed ones, and
+    // `attributeTypeConstraints` names the role as valid with any value.
+    let octets = Fixture {
+        attribute_condition: Some(attribute_condition(true, 0, Some(&[ROLE]), None)),
+        ..Fixture::default()
+    }
+    .octets();
+    let document = PolicyDocument::parse(&octets).expect("a clause 6 document");
+    let mandated =
+        |c: &Constraint| matches!(c, Constraint::SignerAttribute(Check::Mandated { .. }));
+    let certified =
+        |c: &Constraint| matches!(c, Constraint::SignerAttribute(Check::Certified { .. }));
+    let verdicts = |value: &[u8], wanted: &dyn Fn(&Constraint) -> bool| {
+        verdict_of(
+            &findings(
+                &document,
+                &carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, value),
+                &facts(None),
+            ),
+            wanted,
+        )
+    };
+    assert_eq!(verdicts(&v2(&[ROLE], 0, 0), &mandated), [Verdict::Met]);
+    assert_eq!(verdicts(&v2(&[TITLE], 0, 0), &mandated), [Verdict::Broken]);
+    // An attribute certificate is not of the accepted kind: it is passed over, never judged.
+    assert_eq!(verdicts(&v2(&[], 1, 0), &mandated), [Verdict::Broken]);
+    assert!(verdicts(&v2(&[], 1, 0), &certified).is_empty());
+    let none = findings(&document, &default_cms(), &facts(None));
+    assert_eq!(verdict_of(&none, mandated), [Verdict::Broken]);
+    let sentence = none
+        .iter()
+        .find(|finding| mandated(&finding.constraint))
+        .map(ToString::to_string)
+        .unwrap_or_default();
+    assert!(
+        sentence.contains("claimed") && sentence.contains("broken"),
+        "{sentence}"
+    );
+}
+
+#[test]
+fn a_certified_or_value_constrained_attribute_leaves_the_condition_not_evaluated() {
+    use signer_attributes::Check;
+    use signer_attributes::tests::{TITLE, carrying, v2};
+    let mandated =
+        |c: &Constraint| matches!(c, Constraint::SignerAttribute(Check::Mandated { .. }));
+    let named = |c: &Constraint| {
+        matches!(
+            c,
+            Constraint::SignerAttribute(Check::Certified { .. } | Check::ConditionValues)
+        )
+    };
+    // `either` (2) accepts a certified attribute, whose validity needs RFC 5755 section 5.
+    let either = Fixture {
+        attribute_condition: Some(attribute_condition(true, 2, None, None)),
+        ..Fixture::default()
+    }
+    .octets();
+    let document = PolicyDocument::parse(&either).expect("a clause 6 document");
+    let value = v2(&[], 1, 0);
+    let found = findings(
+        &document,
+        &carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, &value),
+        &facts(None),
+    );
+    assert_eq!(verdict_of(&found, mandated), [Verdict::NotEvaluated]);
+    assert_eq!(verdict_of(&found, named), [Verdict::NotEvaluated]);
+    // A claimed title that only `attributeValueConstraints` names is valid for one value only.
+    let by_value = Fixture {
+        attribute_condition: Some(attribute_condition(true, 0, None, Some(&[TITLE]))),
+        ..Fixture::default()
+    }
+    .octets();
+    let document = PolicyDocument::parse(&by_value).expect("a clause 6 document");
+    let value = v2(&[TITLE], 0, 0);
+    let found = findings(
+        &document,
+        &carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, &value),
+        &facts(None),
+    );
+    assert_eq!(verdict_of(&found, mandated), [Verdict::NotEvaluated]);
+    assert_eq!(verdict_of(&found, named), [Verdict::NotEvaluated]);
+    // Not mandated, and nothing certified carried: nothing to judge.
+    let optional = Fixture {
+        attribute_condition: Some(attribute_condition(false, 2, None, None)),
+        ..Fixture::default()
+    }
+    .octets();
+    let document = PolicyDocument::parse(&optional).expect("a clause 6 document");
+    let found = findings(&document, &default_cms(), &facts(None));
+    assert!(
+        !found
+            .iter()
+            .any(|finding| matches!(finding.constraint, Constraint::SignerAttribute(_))),
+        "{found:?}"
+    );
 }

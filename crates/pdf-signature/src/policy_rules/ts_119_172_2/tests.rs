@@ -1121,3 +1121,57 @@ fn the_xml_retention_is_answered_for_the_signer_and_named_elsewhere() {
         [Verdict::NotEvaluated]
     );
 }
+
+#[test]
+fn a_signer_attribute_identified_by_its_urn_must_be_claimed_where_the_set_accepts_claims() {
+    use crate::policy_rules::signer_attributes::Check;
+    use crate::policy_rules::signer_attributes::tests::{ROLE, TITLE, carrying, v2};
+    // Clause 4.26.2: an object identifier is written as RFC 3061's URN, here `id-at-role`.
+    let rules = [rule(
+        "<SignerAttributesConstraints><ConstraintsOnOneSetOfAttributes>\
+         <HowCertAttribute>ClaimedAttribute</HowCertAttribute>\
+         <AttributeConstraints><AttributeIdMustBePresent>urn:oid:2.5.4.72</AttributeIdMustBePresent>\
+         </AttributeConstraints></ConstraintsOnOneSetOfAttributes></SignerAttributesConstraints>",
+        None,
+    )];
+    let present = |c: &policy_rules::Constraint| {
+        matches!(
+            c,
+            policy_rules::Constraint::SignerAttribute(Check::MustBePresent { .. })
+        )
+    };
+    let role = v2(&[ROLE], 0, 0);
+    let found = judged(
+        &rules,
+        &carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, &role),
+        &facts(None),
+    );
+    assert_eq!(verdict_of(&found, present), [Verdict::Met]);
+    let title = v2(&[TITLE], 0, 0);
+    let found = judged(
+        &rules,
+        &carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, &title),
+        &facts(None),
+    );
+    assert_eq!(verdict_of(&found, present), [Verdict::Broken]);
+    let sentence = found
+        .iter()
+        .find(|finding| present(&finding.constraint))
+        .map(ToString::to_string)
+        .unwrap_or_default();
+    assert!(sentence.contains("2.5.4.72"), "{sentence}");
+    // A level outside `HowCertAttributeType`'s four is refused by name.
+    let wrong = document_of(
+        &rule(
+            "<SignerAttributesConstraints><ConstraintsOnOneSetOfAttributes>\
+             <HowCertAttribute>Trusted</HowCertAttribute>\
+             </ConstraintsOnOneSetOfAttributes></SignerAttributesConstraints>",
+            None,
+        ),
+        None,
+    );
+    assert_eq!(
+        Reading::parse(wrong.as_bytes()).and_then(|reading| reading.document().map(|_| ())),
+        Err(PolicyDocumentError::ElementMalformed("HowCertAttribute"))
+    );
+}

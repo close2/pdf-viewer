@@ -960,3 +960,106 @@ fn the_signing_certificates_retention_is_read_and_answered_by_an_archive_cutoff(
         "a retention of exactly ten years does not exceed ten years"
     );
 }
+
+/// Clause 4.26.2's `AttributeSetConstraints` with `howCertAttribute` `how` and, where given, an
+/// `AttributeConstraints` naming `identifier` with `values` value constraints.
+fn attribute_set(how: u8, identifier: Option<&[u8]>, values: usize) -> Vec<u8> {
+    let mut members = vec![enumeration(how)];
+    let mut parts = Vec::new();
+    if let Some(identifier) = identifier {
+        parts.push(tagged(0, &oid(identifier)));
+    }
+    if values > 0 {
+        parts.push(tagged(1, &seq(&vec![seq(&[oid(&[0x2A, 0x03])]); values])));
+    }
+    if !parts.is_empty() {
+        members.push(tagged(2, &seq(&parts)));
+    }
+    seq(&members)
+}
+
+#[test]
+fn a_signer_attribute_set_is_judged_on_the_attributes_the_signature_carries() {
+    use crate::policy_rules::signer_attributes::Check;
+    use crate::policy_rules::signer_attributes::tests::{ROLE, carrying, v2};
+    // Clause 4.26 item 4: `certifiedAttribtes` (1) and the role identified, so a claimed role is
+    // below the level and the certified one the policy mandates is missing.
+    let rule = basic(
+        8,
+        &seq(&[
+            tlv(BOOLEAN, &[0x00]),
+            seq(&[attribute_set(1, Some(ROLE), 0)]),
+        ]),
+        None,
+    );
+    let kinds = |found: &[Finding]| -> Vec<(Verdict, bool)> {
+        found
+            .iter()
+            .filter_map(|finding| match &finding.constraint {
+                policy_rules::Constraint::SignerAttribute(Check::Level { .. }) => {
+                    Some((finding.verdict, true))
+                }
+                policy_rules::Constraint::SignerAttribute(Check::MustBePresent { .. }) => {
+                    Some((finding.verdict, false))
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let claimed = v2(&[ROLE], 0, 0);
+    let found = judged(
+        std::slice::from_ref(&rule),
+        &carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, &claimed),
+        &facts(None),
+    );
+    assert_eq!(
+        kinds(&found),
+        [(Verdict::Broken, true), (Verdict::Broken, false)]
+    );
+    let sentence = found
+        .iter()
+        .find(|finding| {
+            matches!(
+                finding.constraint,
+                policy_rules::Constraint::SignerAttribute(Check::Level { .. })
+            )
+        })
+        .map(ToString::to_string)
+        .unwrap_or_default();
+    assert!(
+        sentence.contains("a claimed attribute") && sentence.contains("certified"),
+        "{sentence}"
+    );
+    let certified = v2(&[], 1, 0);
+    let found = judged(
+        &[rule],
+        &carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, &certified),
+        &facts(None),
+    );
+    assert_eq!(
+        kinds(&found),
+        [(Verdict::Met, true), (Verdict::NotEvaluated, false)]
+    );
+}
+
+#[test]
+fn a_value_constraint_without_an_identifier_or_an_unknown_level_is_refused() {
+    // TS 119 172-2 clause 4.26.1, which clause 4.26.1 here adopts: no value component without the
+    // identifier; and `HowCertAttribute` has four values.
+    for (set, member) in [
+        (
+            attribute_set(0, None, 1),
+            "AttributeConstraints.attributeIdMustBePresent",
+        ),
+        (
+            attribute_set(4, None, 0),
+            "AttributeSetConstraints.howCertAttribute",
+        ),
+    ] {
+        let rule = basic(8, &seq(&[tlv(BOOLEAN, &[0x00]), seq(&[set])]), None);
+        assert_eq!(
+            PolicyDocument::parse(&document(&[rule])),
+            Err(PolicyDocumentError::ComponentMalformed(member))
+        );
+    }
+}

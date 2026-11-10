@@ -137,6 +137,12 @@ pub const ID_AA_ETS_CONTENT_TIMESTAMP: &[u8] = &[
 /// arc is ETSI's own rather than PKCS #9's, which is why (j) could not be implemented before the
 /// text was obtained.
 pub const ID_AA_ETS_SIGNER_ATTR_V2: &[u8] = &[0x04, 0x00, 0x81, 0x95, 0x32, 0x01, 0x01];
+/// `id-aa-ets-signerAttr`, `1.2.840.113549.1.9.16.2.18` — the first signer-attributes attribute,
+/// RFC 5126 section 5.11.3's, which ETSI EN 319 122-1 Annex A.2.3 deprecates in favour of
+/// [`ID_AA_ETS_SIGNER_ATTR_V2`].
+pub const ID_AA_ETS_SIGNER_ATTR: &[u8] = &[
+    0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x02, 0x12,
+];
 /// `id-aa-ets-sigPolicyId`, `1.2.840.113549.1.9.16.2.15` — what tells §12.8.3.4.4's two profiles
 /// apart.
 ///
@@ -1554,12 +1560,15 @@ pub(crate) mod fixtures {
         let signature_token = timestamp_token(&over_the_signature);
         // `SignerAttributeV2 ::= SEQUENCE { claimedAttributes [0] OPTIONAL, … }` with one claimed
         // attribute in it, which clause 5.2.6.1 admits and its last sentence requires something
-        // like.
+        // like; the module is `EXPLICIT TAGS`, so `[0]` wraps the `SEQUENCE OF Attribute`.
         let signer_attributes = tagged(
             0x30,
             &[tagged(
                 0xA0,
-                &[attribute(ID_DATA, primitive(0x04, b"role"))],
+                &[tagged(
+                    0x30,
+                    &[attribute(ID_DATA, primitive(0x04, b"role"))],
+                )],
             )],
         );
         // `SignaturePolicyId ::= SEQUENCE { sigPolicyId, sigPolicyHash, … }` with a digest in it.
@@ -1654,7 +1663,7 @@ pub(crate) mod fixtures {
             }
             R::SignerAttributesEmptyCertified => signed.push(attribute(
                 ID_AA_ETS_SIGNER_ATTR_V2,
-                tagged(0x30, &[tagged(0xA1, &[])]),
+                tagged(0x30, &[tagged(0xA1, &[tagged(0x30, &[])])]),
             )),
             _ => signed.push(attribute(ID_AA_ETS_SIGNER_ATTR_V2, signer_attributes)),
         }

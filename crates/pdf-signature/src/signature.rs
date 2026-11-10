@@ -2031,12 +2031,14 @@ fn signer_attributes_are_empty(value: &der::Value<'_>) -> bool {
     let mut any = false;
     while let Ok(Some(member)) = members.next_value() {
         any = true;
-        // `[1]` and `[2]` are `SEQUENCE OF`, and the clause requires each to be non-empty.
+        // `[1]` and `[2]` are `SEQUENCE OF`, and the clause requires each to be non-empty. The
+        // module is `EXPLICIT TAGS`, so each tag wraps its list.
         if member.identifier == 0xA1 || member.identifier == 0xA2 {
-            let empty = member
+            let list = member
                 .children()
-                .is_ok_and(|mut entries| matches!(entries.next_value(), Ok(None)));
-            if empty {
+                .ok()
+                .and_then(|mut wrapped| wrapped.next_value().ok().flatten());
+            if list.is_some_and(|list| list.identifier == der::SEQUENCE && !has_a_member(&list)) {
                 return true;
             }
         }

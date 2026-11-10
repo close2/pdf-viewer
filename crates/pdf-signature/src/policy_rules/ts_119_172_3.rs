@@ -22,7 +22,8 @@
 //! relative position of clause 4.19, a PDF signature being embedded in the object it signs; clause
 //! 4.24's mandated signing-certificate information where it asks for the signer's own certificate;
 //! clause 4.25's delay between the claimed signing time and the signature timestamp; clause 4.26's
-//! prohibition of signer attributes; and clause 4.29's cryptographic suites for the signature and
+//! prohibition of signer attributes, and its constraints on sets of them as far as presence and
+//! kind decide them ([`super::signer_attributes`], ADR 2787); and clause 4.29's cryptographic suites for the signature and
 //! for the signing certificate, with their minimum key and hash lengths where this program
 //! measures them; clause 4.24's signing-certificate trust conditions over a path built to the
 //! policy's own trust points, with its `fullPath` information requirement, and clause 4.29's
@@ -37,7 +38,8 @@
 //! evaluated: the formats and levels of clause 4.20 and the levels
 //! clause 4.27 ties its attribute rules to, identified by TS 119 172-2's URIs for a signature level
 //! this program does not determine; augmentation, which this reader never performs; the levels of
-//! assurance of clauses 4.25 and 4.28; constraints on sets of signer attributes; and every `Other`
+//! assurance of clauses 4.25 and 4.28; the validity of a certified signer attribute or a signed
+//! assertion, and a constraint on a signer attribute's value; and every `Other`
 //! extension, whose syntax is whatever its identifier names.
 //!
 //! # Budgets, before the work
@@ -57,6 +59,7 @@ use std::borrow::Cow;
 use super::certification_path::{self, Path, Search, TrustPoint, TrustTrees};
 use super::duration::Duration;
 use super::revocation_checks::{self, Freshness};
+use super::signer_attributes::{self, Accepted, Mandated, SetConstraints};
 use super::{
     Budget, CertificateInfo, Finding, MAX_ENTRIES, MAX_POLICY_OCTETS, PolicyDocumentError,
     SIGNING_CERT_TRUST, SignerFacts, SignerTrust, Stated, Syntax, TIMESTAMP_TRUST, TimestampTrust,
@@ -98,12 +101,6 @@ pub const SIGNING_CERT_USAGE: [&str; 2] = [
 /// certification paths: here the CA certificates between the signing certificate and the policy's
 /// trust point, the signing certificate having a usage of its own.
 pub const PATH_CERT_USAGE: &str = "http://uri.etsi.org/19172/v1.1.1/Usage#PathCert";
-
-/// The first signer-attributes attribute, `id-aa-ets-signerAttr` (`1.2.840.113549.1.9.16.2.18`), which
-/// signer-attributes-v2 succeeded.
-const ID_AA_ETS_SIGNER_ATTR: &[u8] = &[
-    0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x02, 0x12,
-];
 
 /// Clause 4.14.2's `SigPolicyScope`: where the policy recommends a rule be used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -330,8 +327,8 @@ pub enum BasicRule<'a> {
     SignerAttributes {
         /// `noSignerAttributesAllowed`.
         none_allowed: bool,
-        /// How many `AttributeSetConstraints` it states.
-        constrained_sets: usize,
+        /// `constraintsOnOneSetOfAttributes`.
+        sets: Vec<SetConstraints<'a>>,
     },
     /// `[9]` clause 4.27: the level each `LevelAttributesRules` is for.
     QualifyingAttributes(Vec<&'a str>),
@@ -1077,7 +1074,7 @@ fn read_relation<'a>(
     })
 }
 
-/// Clause 4.26.2's `SignerAttributeConstraints`: the prohibition, and how many sets it constrains.
+/// Clause 4.26.2's `SignerAttributeConstraints`: the prohibition, and the constraints on each set.
 fn read_signer_attributes<'a>(
     inner: &Value<'a>,
     budget: &mut Budget,
@@ -1095,17 +1092,111 @@ fn read_signer_attributes<'a>(
         SEQUENCE,
         "SignerAttributeConstraints.constraintsOnOneSetOfAttributes",
     )?;
-    let mut constrained_sets: usize = 0;
+    let mut read = Vec::new();
     let mut sets = sets.children()?;
     while let Some(set) = sets.next_value()? {
         budget.take()?;
-        need(Some(set), SEQUENCE, "AttributeSetConstraints")?;
-        constrained_sets = constrained_sets.saturating_add(1);
+        read.push(read_attribute_set(
+            &need(Some(set), SEQUENCE, "AttributeSetConstraints")?,
+            budget,
+        )?);
     }
     Ok(BasicRule::SignerAttributes {
         none_allowed,
-        constrained_sets,
+        sets: read,
     })
+}
+
+/// Clause 4.26.2's `AttributeSetConstraints`: its `howCertAttribute`, whether its trust trees and
+/// revocation trust are stated, and its `AttributeConstraints`, whose value constraints TS 119
+/// 172-2 clause 4.26.1 forbids without an identifier.
+fn read_attribute_set<'a>(
+    set: &Value<'a>,
+    budget: &mut Budget,
+) -> Result<SetConstraints<'a>, PolicyDocumentError> {
+    let mut members = set.children()?;
+    let accepted = match enumerated(
+        members.next_value()?,
+        4,
+        "AttributeSetConstraints.howCertAttribute",
+    )? {
+        0 => Accepted::Claimed,
+        1 => Accepted::Certified,
+        2 => Accepted::SignedAssertion,
+        _ => Accepted::Any,
+    };
+    let mut out = SetConstraints {
+        accepted,
+        trust_trees: false,
+        revocation: false,
+        mandated: Vec::new(),
+    };
+    let mut previous = None;
+    while let Some(member) = members.next_value()? {
+        let number = context_number(&member)
+            .filter(|number| *number <= 2 && previous.is_none_or(|last| *number > last))
+            .ok_or(malformed("AttributeSetConstraints"))?;
+        previous = Some(number);
+        match number {
+            0 => out.trust_trees = true,
+            1 => out.revocation = true,
+            _ => {
+                let constraints = need(
+                    Some(explicit(&member, "AttributeConstraints")?),
+                    SEQUENCE,
+                    "AttributeConstraints",
+                )?;
+                let mut identifier = None;
+                let mut value_constraints: usize = 0;
+                let mut parts = constraints.children()?;
+                while let Some(part) = parts.next_value()? {
+                    match context_number(&part) {
+                        Some(0) if identifier.is_none() && value_constraints == 0 => {
+                            identifier = Some(
+                                explicit(&part, "AttributeConstraints.attributeIdMustBePresent")?
+                                    .object_identifier()
+                                    .ok_or(malformed(
+                                        "AttributeConstraints.attributeIdMustBePresent",
+                                    ))?,
+                            );
+                        }
+                        Some(1) if value_constraints == 0 => {
+                            let list = need(
+                                Some(explicit(
+                                    &part,
+                                    "AttributeConstraints.attributeValueConstraints",
+                                )?),
+                                SEQUENCE,
+                                "AttributeConstraints.attributeValueConstraints",
+                            )?;
+                            let mut entries = list.children()?;
+                            while entries.next_value()?.is_some() {
+                                budget.take()?;
+                                value_constraints = value_constraints.saturating_add(1);
+                            }
+                            if value_constraints == 0 {
+                                return Err(malformed(
+                                    "AttributeConstraints.attributeValueConstraints",
+                                ));
+                            }
+                        }
+                        _ => return Err(malformed("AttributeConstraints")),
+                    }
+                }
+                match identifier {
+                    Some(oid) => out.mandated.push(Mandated {
+                        identifier: Identifier::Oid(oid),
+                        value_constraints,
+                    }),
+                    None if value_constraints > 0 => {
+                        return Err(malformed("AttributeConstraints.attributeIdMustBePresent"));
+                    }
+                    None => {}
+                }
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Clause 4.16.2's `DataToBeSignedRules`; TS 119 172-2 clause 4.16.2 says a rule is not empty.
@@ -1459,8 +1550,6 @@ pub enum Constraint {
     },
     /// Clause 4.26's `noSignerAttributesAllowed`.
     NoSignerAttributes,
-    /// Clause 4.26's constraints on sets of signer attributes, by their count.
-    SignerAttributeSets(usize),
     /// Clause 4.27's attribute rules for one signature level.
     QualifyingAttributes(String),
     /// Clause 4.28's level of assurance of the signature creation device.
@@ -1666,21 +1755,15 @@ fn judge(
                 judge_time_evidence(rule, cms, facts, paths.authorities, out);
             }
         }
-        BasicRule::SignerAttributes {
-            none_allowed,
-            constrained_sets,
-        } => {
+        BasicRule::SignerAttributes { none_allowed, sets } => {
             if *none_allowed {
-                let carried = [cms::ID_AA_ETS_SIGNER_ATTR_V2, ID_AA_ETS_SIGNER_ATTR]
+                let carried = [cms::ID_AA_ETS_SIGNER_ATTR_V2, cms::ID_AA_ETS_SIGNER_ATTR]
                     .iter()
                     .any(|oid| cms.has_signed_attribute(oid));
                 out.push(component(verdict(!carried), Constraint::NoSignerAttributes));
             }
-            if *constrained_sets > 0 {
-                out.push(component(
-                    Verdict::NotEvaluated,
-                    Constraint::SignerAttributeSets(*constrained_sets),
-                ));
+            for set in sets {
+                signer_attributes::judge_set(set, cms, out);
             }
         }
         BasicRule::QualifyingAttributes(levels) => {
@@ -2171,10 +2254,6 @@ impl Constraint {
             Self::NoSignerAttributes => write!(
                 f,
                 "the policy's prohibition of signer attributes is {verdict}"
-            ),
-            Self::SignerAttributeSets(count) => write!(
-                f,
-                "the policy's {count} constraint(s) on sets of signer attributes are {verdict}: their trust conditions are not the anchors this program validates under, and this program does not read the attributes' values"
             ),
             Self::QualifyingAttributes(level) => write!(
                 f,

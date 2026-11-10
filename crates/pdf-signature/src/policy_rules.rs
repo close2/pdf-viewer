@@ -35,9 +35,10 @@
 //! only material issued after clause 6.8's caution period where the policy states one; the
 //! signature time-stamp delay of clause 6.8 is held against the claimed signing time (ADR 2775).
 //! A trust point's acceptable policy set, name constraints and policy constraints, and the
-//! authority's name constraints, are RFC 5280 section 6.1's processing (ADR 2724). Named and
-//! not evaluated: the attribute trust
-//! condition of clause 6.9 and clause 6.10's attribute-authority list, which concern attribute
+//! authority's name constraints, are RFC 5280 section 6.1's processing (ADR 2724). Clause 6.9's
+//! attribute trust condition is evaluated as far as the presence and kind of the signer attributes
+//! decide it ([`signer_attributes`], ADR 2787). Named and not evaluated: that condition's
+//! certified attributes and clause 6.10's attribute-authority list, which concern attribute
 //! certificates this program does not read; the verifier rules of clause 6.5.2, which ask a
 //! verifier to *add* attributes and so are an augmentation this reader never performs; and every
 //! extension of clause 6.11, whose syntax is whatever its own identifier names.
@@ -72,6 +73,7 @@ pub mod canonical_xml;
 pub mod certification_path;
 pub mod duration;
 pub mod revocation_checks;
+pub mod signer_attributes;
 pub mod ts_119_172_2;
 pub mod ts_119_172_3;
 
@@ -301,6 +303,8 @@ pub struct Rules<'a> {
     /// Which of clauses 6.7 to 6.9's trust conditions are stated, by [`SIGNING_CERT_TRUST`],
     /// [`TIMESTAMP_TRUST`] and [`ATTRIBUTE_TRUST`].
     pub trust_conditions: Vec<&'static str>,
+    /// Clause 6.9's `attributeTrustCondition`, where stated.
+    pub attribute_trust: Option<signer_attributes::AttributeTrust<'a>>,
     /// Whether `algorithmConstraintSet` is stated at all.
     pub algorithm_constraints: bool,
     /// `signerAlgorithmConstraints`, where stated.
@@ -693,7 +697,10 @@ fn read_rules<'a>(
                 rules.trust_conditions.push(TIMESTAMP_TRUST);
                 rules.timestamp_trust = Some(read_timestamp_trust(&member, extensions, budget)?);
             }
-            3 => rules.trust_conditions.push(ATTRIBUTE_TRUST),
+            3 => {
+                rules.trust_conditions.push(ATTRIBUTE_TRUST);
+                rules.attribute_trust = Some(read_attribute_trust(&member, budget)?);
+            }
             4 => {
                 rules.algorithm_constraints = true;
                 let set = expect(
@@ -1078,6 +1085,102 @@ fn read_signer_rules<'a>(
     Ok(rules)
 }
 
+/// Clause 6.9's `AttributeTrustCondition`: the two members presence and kind are decided from, the
+/// types and value types `attributeConstraints` lists, and whether the members only an attribute
+/// certificate's validation would read are stated.
+fn read_attribute_trust<'a>(
+    tagged: &Value<'a>,
+    budget: &mut Budget,
+) -> Result<signer_attributes::AttributeTrust<'a>, PolicyDocumentError> {
+    use signer_attributes::Accepted;
+    let condition = expect(
+        Some(explicit(tagged, "attributeTrustCondition")?),
+        SEQUENCE,
+        "attributeTrustCondition",
+    )?;
+    let mut members = condition.children()?;
+    let mandated = match members.next_value()? {
+        Some(value) if value.identifier == BOOLEAN && value.contents.len() == 1 => {
+            value.contents != [0]
+        }
+        _ => return Err(PolicyDocumentError::Malformed("attributeMandated")),
+    };
+    let accepted = match enumerated(&expect(
+        members.next_value()?,
+        ENUMERATED,
+        "howCertAttribute",
+    )?)? {
+        0 => Accepted::Claimed,
+        1 => Accepted::Certified,
+        2 => Accepted::Either,
+        _ => return Err(PolicyDocumentError::Malformed("howCertAttribute")),
+    };
+    let mut out = signer_attributes::AttributeTrust {
+        mandated,
+        accepted,
+        trust_trees: false,
+        revocation: false,
+        types: None,
+        value_types: None,
+    };
+    let mut previous = None;
+    while let Some(member) = members.next_value()? {
+        let number = (member.class() == der::Class::ContextSpecific && member.is_constructed())
+            .then(|| member.tag_number())
+            .filter(|number| *number <= 2 && previous.is_none_or(|last| *number > last))
+            .ok_or(PolicyDocumentError::Malformed("attributeTrustCondition"))?;
+        previous = Some(number);
+        match number {
+            0 => out.trust_trees = true,
+            1 => out.revocation = true,
+            _ => {
+                let constraints = expect(
+                    Some(explicit(&member, "attributeConstraints")?),
+                    SEQUENCE,
+                    "attributeConstraints",
+                )?;
+                let mut lists = constraints.children()?;
+                while let Some(list) = lists.next_value()? {
+                    match (list.class(), list.tag_number()) {
+                        (der::Class::ContextSpecific, 0) if out.types.is_none() => {
+                            out.types = Some(read_identifiers(
+                                &explicit(&list, "attributeTypeConstraints")?,
+                                "attributeTypeConstraints",
+                                budget,
+                            )?);
+                        }
+                        (der::Class::ContextSpecific, 1) if out.value_types.is_none() => {
+                            // `AttributeTypeAndValue ::= SEQUENCE { type, value }`: the type is
+                            // kept, the value is not compared (`signer_attributes`).
+                            let pairs = expect(
+                                Some(explicit(&list, "attributeValueConstraints")?),
+                                SEQUENCE,
+                                "attributeValueConstraints",
+                            )?;
+                            let mut types = Vec::new();
+                            let mut entries = pairs.children()?;
+                            while let Some(pair) = entries.next_value()? {
+                                budget.take()?;
+                                let kind = expect(Some(pair), SEQUENCE, "AttributeTypeAndValue")?
+                                    .children()?
+                                    .next_value()?
+                                    .and_then(|kind| kind.object_identifier())
+                                    .ok_or(PolicyDocumentError::Malformed(
+                                        "AttributeTypeAndValue.type",
+                                    ))?;
+                                types.push(kind);
+                            }
+                            out.value_types = Some(types);
+                        }
+                        _ => return Err(PolicyDocumentError::Malformed("attributeConstraints")),
+                    }
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// A one-octet `ENUMERATED`, which is every enumeration clause 6 defines.
 fn enumerated(value: &Value<'_>) -> Result<u8, PolicyDocumentError> {
     match (value.identifier, value.contents) {
@@ -1402,6 +1505,9 @@ pub enum Constraint {
     Extension(String),
     /// A constraint of TS 119 172-3's policy components with no counterpart in clause 6.
     PolicyComponent(ts_119_172_3::Constraint),
+    /// The presence and kind of the signer attributes, against TR 102 272 clause 6.9 or TS 119
+    /// 172 clause 4.26.
+    SignerAttribute(signer_attributes::Check),
 }
 
 /// One constraint and its verdict.
@@ -1908,8 +2014,13 @@ fn judge_trust_conditions(
         caution_seconds,
     };
     for condition in &rules.trust_conditions {
-        match (*condition, &rules.signer_trust, &rules.timestamp_trust) {
-            (SIGNING_CERT_TRUST, Some(trust), _) => {
+        match (
+            *condition,
+            &rules.signer_trust,
+            &rules.timestamp_trust,
+            &rules.attribute_trust,
+        ) {
+            (SIGNING_CERT_TRUST, Some(trust), _, _) => {
                 trust_path_findings(
                     condition,
                     paths.signer,
@@ -1919,7 +2030,7 @@ fn judge_trust_conditions(
                     out,
                 );
             }
-            (TIMESTAMP_TRUST, _, Some(stamp)) => {
+            (TIMESTAMP_TRUST, _, Some(stamp), _) => {
                 trust_path_findings(
                     condition,
                     paths.authority,
@@ -1941,6 +2052,9 @@ fn judge_trust_conditions(
                         constraint: Constraint::ConditionMember { condition, member },
                     });
                 }
+            }
+            (ATTRIBUTE_TRUST, _, _, Some(trust)) => {
+                signer_attributes::judge_condition(trust, cms, out);
             }
             _ => out.push(Finding {
                 verdict: Verdict::NotEvaluated,
@@ -2279,6 +2393,7 @@ impl std::fmt::Display for Finding {
                 "the policy's extension {oid} is {verdict}: its syntax is whatever its identifier names"
             ),
             Constraint::PolicyComponent(constraint) => constraint.sentence(f, verdict),
+            Constraint::SignerAttribute(check) => check.sentence(f, verdict),
         }
     }
 }
@@ -2287,10 +2402,6 @@ impl Constraint {
     /// The sentences of the constraints on the certification path (ADR 2714).
     fn path_sentence(&self, f: &mut std::fmt::Formatter<'_>, verdict: &str) -> std::fmt::Result {
         match self {
-            Self::TrustCondition(condition) if *condition == ATTRIBUTE_TRUST => write!(
-                f,
-                "the policy's {condition} is {verdict}: it concerns attribute certificates, which this program does not read"
-            ),
             Self::TrustCondition(condition) => write!(
                 f,
                 "the policy's {condition} is {verdict}: it states no trust trees of its own and no rule applies another condition's, so no path was searched for it"

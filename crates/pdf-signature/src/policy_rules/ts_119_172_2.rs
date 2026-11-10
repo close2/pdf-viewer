@@ -49,6 +49,7 @@ use const_oid::db::rfc5912;
 use super::certification_path::{TrustPoint, TrustTrees};
 use super::duration::Duration;
 use super::revocation_checks::{self, Freshness};
+use super::signer_attributes::{Accepted, Mandated, SetConstraints};
 use super::ts_119_172_3::{
     self, AlgorithmConstraint, BasicRule, Cardinality, CommitmentRule, Comparison, ExtensionName,
     FormatsAndLevels, Identifier, Matching, MediaTypes, PolicyRule, Position, Scope, ScopedRule,
@@ -195,7 +196,8 @@ struct Tree {
 #[derive(Debug)]
 pub struct Reading {
     tree: Tree,
-    /// Per element, the object identifier its text spells as a URN, where it does.
+    /// Per `Identifier`, `AlgId` and `AttributeIdMustBePresent` element, the object identifier its
+    /// text spells as a URN, where it does.
     oids: Vec<Option<Vec<u8>>>,
     /// What is left of [`MAX_ENTRIES`] once the elements were charged.
     remaining: usize,
@@ -281,7 +283,9 @@ impl Reading {
             .elements
             .iter()
             .map(|element| match element.local.as_str() {
-                "Identifier" | "AlgId" => encoded_oid(element.text.trim()),
+                "Identifier" | "AlgId" | "AttributeIdMustBePresent" => {
+                    encoded_oid(element.text.trim())
+                }
                 _ => None,
             })
             .collect();
@@ -661,6 +665,40 @@ impl<'t> Reader<'t> {
         Ok(match element.children.first() {
             Some(&first) => ExtensionName::Element(&self.element(first)?.expanded),
             None => ExtensionName::Element("text"),
+        })
+    }
+
+    /// Clause 4.26.2's `AttributesSetConstraintsType`, read as [`ts_119_172_3`] reads the ASN.1
+    /// `AttributeSetConstraints`; a signer attribute identifier that is an RFC 3061 URN is the
+    /// object identifier it spells, as clause 4.26.2 requires of an attribute type an object
+    /// identifier names.
+    fn attribute_set(&self, set: usize) -> Result<SetConstraints<'t>, PolicyDocumentError> {
+        let accepted = match self.text_of(set, "HowCertAttribute", "HowCertAttribute")? {
+            "ClaimedAttribute" => Accepted::Claimed,
+            "CertifiedAttribute" => Accepted::Certified,
+            "SignedAssertion" => Accepted::SignedAssertion,
+            "Any" => Accepted::Any,
+            _ => return Err(malformed("HowCertAttribute")),
+        };
+        let mut mandated = Vec::new();
+        for constraints in self.all(set, Space::Policy, "AttributeConstraints")? {
+            let identifier = self.required(
+                constraints,
+                "AttributeIdMustBePresent",
+                "AttributeIdMustBePresent",
+            )?;
+            mandated.push(Mandated {
+                identifier: self.identifier(identifier, false, "AttributeIdMustBePresent")?,
+                value_constraints: self
+                    .all(constraints, Space::Policy, "AttributeValueConstraint")?
+                    .len(),
+            });
+        }
+        Ok(SetConstraints {
+            accepted,
+            trust_trees: self.optional(set, "AttrCertTrustTrees")?.is_some(),
+            revocation: self.optional(set, "AttributeRevocationTrust")?.is_some(),
+            mandated,
         })
     }
 
@@ -1167,16 +1205,14 @@ impl<'t> Reader<'t> {
             "TimeEvidencesRules" => BasicRule::TimeEvidences(self.time_evidences(index)?),
             "SignerAttributesConstraints" => {
                 let none_allowed = self.optional(index, "NoSignerAttributesAllowed")?.is_some();
-                let constrained_sets = self
-                    .all(index, Space::Policy, "ConstraintsOnOneSetOfAttributes")?
-                    .len();
-                if none_allowed == (constrained_sets > 0) {
+                let mut sets = Vec::new();
+                for set in self.all(index, Space::Policy, "ConstraintsOnOneSetOfAttributes")? {
+                    sets.push(self.attribute_set(set)?);
+                }
+                if none_allowed != sets.is_empty() {
                     return Err(malformed("SignerAttributesConstraints"));
                 }
-                BasicRule::SignerAttributes {
-                    none_allowed,
-                    constrained_sets,
-                }
+                BasicRule::SignerAttributes { none_allowed, sets }
             }
             "QualifyingPropertiesRules" => {
                 let mut levels = Vec::new();
