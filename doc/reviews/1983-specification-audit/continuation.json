@@ -1,30 +1,30 @@
 {
   "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
-  "checkpoint_utc": "2026-11-10T14:57:04.889941+00:00",
+  "checkpoint_utc": "2026-11-10T15:08:58.496535+00:00",
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
-    "last_weekly_used_percent": 72,
+    "last_weekly_used_percent": 73,
     "target_approx_percent": 92,
     "stop_new_work_near_percent": 87,
     "probe": "python scratchpad/r1983/spec-audit/usage.py",
     "warning": "Percent is account allowance, not convertible fixed tokens; counters may lag. Continue extending while useful work and room remain."
   },
   "agents": {
-    "associated_files_audit": "font_descriptors_peer_review",
-    "catalog_pages_audit": "appearance_group_and_state_followup",
-    "inapplicable_conditions_audit": "presentations_peer_review"
+    "associated_files_audit": "annotation_lock_policy_audit",
+    "catalog_pages_audit": "annotation_dictionary_audit",
+    "inapplicable_conditions_audit": "font_programs_audit"
   },
   "next_candidates": [],
   "latest_broad": {
-    "log": "nextest-nine-crates-wave11.log",
-    "run": 5677,
-    "passed": 5639,
-    "expected_failed": 38,
+    "log": "nextest-nine-crates-wave12.log",
+    "run": 5692,
+    "passed": 5651,
+    "expected_failed": 41,
     "skipped": 53,
     "unexpected": 0
   },
-  "latest_clippy": "clippy-appearance-cloud.log",
+  "latest_clippy": "clippy-font-flags-followup-final.log",
   "new_failures_since_wave8": [
     "catalog Named OpenAction consumer missing",
     "page-visible neighbor omitted",
@@ -54,18 +54,14 @@
   ],
   "branch": "audit/specification-evidence-2026-11-10",
   "pending_parent_review": [
-    "font_descriptors_audit",
-    "annotation_flags_audit",
-    "font_descriptor_cid_audit",
-    "font_descriptors_peer_review",
-    "presentations_peer_review"
+    "annotation_lock_policy_audit"
   ],
   "pushed_commits": [
     "a299121c",
     "f413d15f",
     "44a167d1",
     "ebc9f42b",
-    "1424ef73"
-  ],
-  "pending_reproduced_failure": "annotation_print_geometry_audit:NoZoom print dimensions160x160 at1x view shrink80x80 at2x. Source/ADR adjudication pending."
+    "1424ef73",
+    "37d9df68"
+  ]
 }

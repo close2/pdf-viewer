@@ -29,6 +29,32 @@
       "log": "alternate-order-last_visible-alternate_images_audit.log"
     }
   ],
+  "appearance-default-mutation-results.json": [
+    {
+      "name": "control",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "appearance-default-mutation-control.log"
+    },
+    {
+      "name": "default-knockout-true-before-strengthening",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "appearance-default-mutation-default-knockout-true-before-strengthening.log"
+    },
+    {
+      "name": "strengthened-control",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "appearance-default-mutation-strengthened-control.log"
+    },
+    {
+      "name": "default-knockout-true-after-strengthening",
+      "returncode": 101,
+      "outcome": "assertion-failed",
+      "log": "appearance-default-mutation-default-knockout-true-after-strengthening.log"
+    }
+  ],
   "before-strengthening-mutation-results.json": [
     {
       "name": "control",

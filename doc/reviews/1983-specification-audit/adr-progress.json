@@ -447,14 +447,14 @@
   },
   {
     "path": "doc/adr/0039-the-encoding-a-font-program-brings-with-it.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_descriptors_audit/decisions.json",
         "decision_id": "§9.8.2 contradictory Symbolic/Nonsymbolic flags",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -462,7 +462,7 @@
         "source": "font_descriptors_audit/decisions.json",
         "decision_id": "§9.8.1 MissingWidth default zero",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -816,14 +816,14 @@
   },
   {
     "path": "doc/adr/0086-a-classification-against-a-careless-bitfield.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_descriptor_cid_audit/decisions.json",
         "decision_id": "panose_priority_and_fd_use_boundary",
         "conclusion": "retain-Panose-choice; superseded-FD-deferral",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -1352,14 +1352,14 @@
   },
   {
     "path": "doc/adr/0158-a-name-that-ends-in-the-word-symbol.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_descriptors_audit/decisions.json",
         "decision_id": "Nonsymbolic descriptor wins over Symbol-like BaseFont name for substitution classification",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -1471,14 +1471,14 @@
   },
   {
     "path": "doc/adr/0168-an-annotation-that-does-not-zoom.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "annotation_flags_audit/decisions.json",
         "decision_id": "0168-nozoom-norotate-user-space-adjustment",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -1504,14 +1504,14 @@
   },
   {
     "path": "doc/adr/0172-two-shalls-that-cannot-both-hold.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "annotation_flags_audit/decisions.json",
         "decision_id": "0172-text-markup-subtype-precedence-over-nozoom-norotate",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -1830,14 +1830,14 @@
   },
   {
     "path": "doc/adr/0216-a-band-a-descriptor-cannot-lie-outside.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_descriptors_audit/decisions.json",
         "decision_id": "Use plausible Ascent/Descent pair for selection geometry; positive descent recovery; do not add a CapHeight bound",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2198,14 +2198,14 @@
   },
   {
     "path": "doc/adr/0267-a-substituted-serif-costs-nothing-and-a-substituted-sans-costs-one-number.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_descriptors_audit/decisions.json",
         "decision_id": "Do not scale substitute caps to descriptor CapHeight without a usable conforming value",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2465,9 +2465,18 @@
   },
   {
     "path": "doc/adr/0304-the-annotation-the-producer-wrote.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_lock_policy_audit/decisions.json",
+        "decision_id": "Table 167 bit 10 is a reader policy restriction on producer-stated annotation contents edits; bit 8 is not that restriction",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0305-a-pin-is-not-a-copy-and-a-node-is-not-a-page.md",
@@ -2832,7 +2841,7 @@
         "source": "font_descriptors_audit/decisions.json",
         "decision_id": "Substituted simple-font stretch from declared Widths; descriptor metric inputs and scope",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -3794,14 +3803,14 @@
   },
   {
     "path": "doc/adr/0493-the-population-a-flag-could-not-reach.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "annotation_flags_audit/decisions.json",
         "decision_id": "0493-toggle-no-view-population-census",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -4549,14 +4558,14 @@
   },
   {
     "path": "doc/adr/0716-the-floor-a-descent-was-already-standing-on.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_descriptors_audit/decisions.json",
         "decision_id": "EC3 #190 Descent floor",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -4564,7 +4573,7 @@
         "source": "font_descriptors_audit/decisions.json",
         "decision_id": "EC3 #474 FontWeight range and classes",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -4572,7 +4581,7 @@
         "source": "font_descriptors_audit/decisions.json",
         "decision_id": "EC3 #152 changes FontWeight type to integer",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -5164,6 +5173,14 @@
     "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
+      {
+        "source": "annotation_lock_policy_audit/decisions.json",
+        "decision_id": "Ask and Warn are distinct public outcomes, with unanswered edits held until Answer",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
       {
         "source": "associated_files_audit/decisions.json",
         "decision_id": "document-attachment-description-optional",
@@ -5778,14 +5795,14 @@
   },
   {
     "path": "doc/adr/0912-five-answers-to-one-clause.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_descriptors_audit/decisions.json",
         "decision_id": "FontWeight is read as number for substitution ranking",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -6648,14 +6665,14 @@
   },
   {
     "path": "doc/adr/1074-a-glyph-class-is-decided-by-the-character.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_descriptor_cid_audit/decisions.json",
         "decision_id": "fd_membership_and_refusal_policy",
         "conclusion": "retain-with-Table-123-matrix-coverage-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -7008,6 +7025,14 @@
       {
         "source": "annotation_flags_audit/decisions.json",
         "decision_id": "1144-owner-controls-restriction-level-default-off",
+        "conclusion": "cross-reference-only",
+        "parent_accepted": true,
+        "review_type": "cross_reference_only",
+        "duplicates_decision": null
+      },
+      {
+        "source": "annotation_lock_policy_audit/decisions.json",
+        "decision_id": "Off default and an independent restriction level for annotation edits",
         "conclusion": "retain",
         "parent_accepted": false,
         "review_type": "selected-decision-unit",
@@ -7286,7 +7311,7 @@
         "source": "annotation_flags_audit/decisions.json",
         "decision_id": "1179-purpose-selects-screen-versus-print-flag-columns",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -7301,7 +7326,7 @@
         "source": "annotation_flags_audit/decisions.json",
         "decision_id": "1180-shared-print-intent-and-job-resolution",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -7560,14 +7585,14 @@
   },
   {
     "path": "doc/adr/1220-a-sentence-with-no-modal-verb-is-not-a-debt.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_descriptor_cid_audit/decisions.json",
         "decision_id": "fd_reader_override_vs_writer_validation",
         "conclusion": "retain-with-effective-EC3-correction",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -8669,14 +8694,14 @@
   },
   {
     "path": "doc/adr/1441-a-substitute-is-ranked-by-its-descriptor-and-one-covering-search-serves-page-and-chrome.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_descriptors_audit/decisions.json",
         "decision_id": "Descriptor ranking order and StemV threshold for substitute face selection",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -10479,14 +10504,14 @@
   },
   {
     "path": "doc/adr/1772-the-text-rows-claims-read-against-their-lines.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "font_descriptors_audit/decisions.json",
         "decision_id": "Route shared font Flags through descriptor_flags for rich-text and archive consumers",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -13862,9 +13887,9 @@
       {
         "source": "font_descriptors_audit/decisions.json",
         "decision_id": "Archive rekeying preserves Table120 FontName/BaseFont equality for unconverted bystanders",
-        "conclusion": "retain",
-        "parent_accepted": false,
-        "review_type": "selected-decision-unit",
+        "conclusion": "cross-reference-only",
+        "parent_accepted": true,
+        "review_type": "cross_reference_only",
         "duplicates_decision": null
       }
     ]
@@ -13934,9 +13959,9 @@
       {
         "source": "font_descriptors_audit/decisions.json",
         "decision_id": "All shown CIDFont descendants receive final BaseFont when a shared embedded descriptor is widened",
-        "conclusion": "retain",
-        "parent_accepted": false,
-        "review_type": "selected-decision-unit",
+        "conclusion": "cross-reference-only",
+        "parent_accepted": true,
+        "review_type": "cross_reference_only",
         "duplicates_decision": null
       }
     ]
@@ -14050,9 +14075,9 @@
       {
         "source": "font_descriptors_audit/decisions.json",
         "decision_id": "Supply a Table120-compliant FontName/BaseFont when archive conversion embeds its own face",
-        "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
-        "review_type": "selected-decision-unit",
+        "conclusion": "cross-reference-only",
+        "parent_accepted": true,
+        "review_type": "cross_reference_only",
         "duplicates_decision": null
       }
     ]

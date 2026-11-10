@@ -157,12 +157,12 @@ fn navigation_node_duration_runs_at_its_maximum_without_a_page_duration() {
     let _ = viewer.handle(Command::Tick { millis: 1_999 }).count();
     assert!(
         !layer_on(&viewer, 12),
-        "one millisecond remains before /Dur 2"
+        "this reader chooses to wait until the exact maximum"
     );
     let _ = viewer.handle(Command::Tick { millis: 1 }).count();
     assert!(
         layer_on(&viewer, 12),
-        "at the maximum the current node advances"
+        "at the maximum the terminal node action runs"
     );
     assert_eq!(
         current_page(&viewer),
@@ -220,4 +220,146 @@ fn an_omitted_transition_style_replaces_immediately_despite_a_stated_duration() 
             "R ignores D, including when S defaults: {entries}"
         );
     }
+}
+
+// Additional controls for timer successor selection and action redirection.
+// The public helpers `viewer_for`, `layer_on`, `current_page`, and `arriving_transition` are the
+// ones above.
+
+/// A middle node's stated maximum is reached, after which a later forward request runs the
+/// successor's distinct action. This proves successor selection, unlike a terminal-node fixture.
+fn timed_middle_fixture() -> Vec<u8> {
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [10 0 R 11 0 R 12 0 R] /D << /BaseState /OFF /Order [10 0 R 11 0 R 12 0 R] >> >> >>",
+        "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 20 20] /Resources <<>> /Contents 5 0 R >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 20 20] /Resources <<>> /Contents 6 0 R /PresSteps 7 0 R >>",
+        "<< /Length 0 >>\nstream\nendstream",
+        "<< /Length 0 >>\nstream\nendstream",
+        "<< /Type /NavNode /NA 13 0 R /Next 8 0 R >>",
+        "<< /Type /NavNode /NA 14 0 R /Next 9 0 R /Prev 7 0 R /Dur 2 >>",
+        "<< /Type /NavNode /NA 15 0 R /Prev 8 0 R >>",
+        "<< /Type /OCG /Name (arrival) >>",
+        "<< /Type /OCG /Name (timed middle node) >>",
+        "<< /Type /OCG /Name (timed successor) >>",
+        "<< /S /SetOCGState /State [/ON 10 0 R] >>",
+        "<< /S /SetOCGState /State [/ON 11 0 R] >>",
+        "<< /S /SetOCGState /State [/ON 12 0 R] >>",
+    ];
+    make_complete_pdf(&objects)
+}
+
+/// Reach the timed middle node by arrival; at its maximum the timer runs its action, then a
+/// subsequent request must reach the actual Next node. No page Dur is stated. Because Dur is a
+/// maximum, this asserts progress by 2s but deliberately makes no assertion that progress must
+/// wait until 2s.
+#[test]
+fn a_timed_middle_node_selects_its_successor_by_its_maximum_without_page_dur() {
+    let mut viewer = viewer_for(timed_middle_fixture());
+    let _ = viewer.handle(Command::GoTo(PageTarget::Index(1))).count();
+    assert_eq!(current_page(&viewer), 1);
+    assert!(layer_on(&viewer, 10), "arrival primary action ran");
+    assert!(!layer_on(&viewer, 11), "timed node has not acted");
+    assert!(!layer_on(&viewer, 12), "successor has not acted");
+
+    // The clause says the node must automatically advance within this maximum; an implementation
+    // may do so earlier, so do not require a below-boundary idle interval.
+    let _ = viewer.handle(Command::Tick { millis: 2_000 }).count();
+    assert!(
+        layer_on(&viewer, 11),
+        "timed middle node's NA ran by its 2s maximum"
+    );
+    assert!(
+        !layer_on(&viewer, 12),
+        "the successor's NA waits for its own request"
+    );
+    assert_eq!(
+        current_page(&viewer),
+        1,
+        "node advance is not a page advance"
+    );
+
+    let _ = viewer.handle(Command::GoTo(PageTarget::Next)).count();
+    assert!(
+        layer_on(&viewer, 12),
+        "the node selected by the timer is the successor"
+    );
+    assert_eq!(current_page(&viewer), 1);
+}
+
+#[test]
+fn fly_motion_default_and_explicit_outward_are_delivered_to_the_host() {
+    use pdf_model::navigation::{Motion, Style};
+
+    let default = arriving_transition("/S /Fly");
+    assert_eq!(default.style, Style::Fly);
+    assert_eq!(
+        default.motion,
+        Motion::Inward,
+        "Table 164 /M default is I for Fly"
+    );
+
+    let outward = arriving_transition("/S /Fly /M /O");
+    assert_eq!(outward.style, Style::Fly);
+    assert_eq!(outward.motion, Motion::Outward, "the explicit /O control");
+}
+
+/// A source node whose NA is a valid same-document `GoTo` has no Next (Table 165 says it should
+/// not). Arrival at page three must run page three's own primary node and must not then perform
+/// the source request's sequential page-four turn.
+fn action_redirect_fixture() -> Vec<u8> {
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [11 0 R 12 0 R] /D << /BaseState /OFF /Order [11 0 R 12 0 R] >> >> >>",
+        "<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R 6 0 R] /Count 4 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 20 20] /Resources <<>> /Contents 7 0 R /PresSteps 8 0 R >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 20 20] /Resources <<>> /Contents 7 0 R >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 20 20] /Resources <<>> /Contents 7 0 R /PresSteps 9 0 R >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 20 20] /Resources <<>> /Contents 7 0 R >>",
+        "<< /Length 0 >>\nstream\nendstream",
+        "<< /Type /NavNode /NA 13 0 R >>",
+        "<< /Type /NavNode /NA 14 0 R /Next 10 0 R >>",
+        "<< /Type /NavNode /NA 15 0 R /Prev 9 0 R >>",
+        "<< /Type /OCG /Name (destination primary) >>",
+        "<< /Type /OCG /Name (destination next) >>",
+        "<< /S /GoTo /D [5 0 R /Fit] >>",
+        "<< /S /SetOCGState /State [/ON 11 0 R] >>",
+        "<< /S /SetOCGState /State [/ON 12 0 R] >>",
+    ];
+    make_complete_pdf(&objects)
+}
+
+#[test]
+fn a_presentation_action_redirect_arrives_at_its_target_without_a_second_sequential_turn() {
+    let mut viewer = viewer_for(action_redirect_fixture());
+    let _ = viewer.handle(Command::GoTo(PageTarget::Next)).count();
+
+    assert_eq!(current_page(&viewer), 2, "source NA chose page three");
+    assert!(layer_on(&viewer, 11), "target page's primary NA ran");
+    assert!(
+        !layer_on(&viewer, 12),
+        "target page's Next remains current, not executed"
+    );
+}
+
+/// Complete PDF builder for the additional controls. IDs are 16-byte values, every
+/// object is listed in the xref, and the page/contents/action structures above are complete.
+fn make_complete_pdf(objects: &[&str]) -> Vec<u8> {
+    use std::fmt::Write as _;
+    let mut bytes = String::from("%PDF-2.0\n");
+    let mut offsets = Vec::with_capacity(objects.len());
+    for (i, body) in objects.iter().enumerate() {
+        offsets.push(bytes.len());
+        let _ = writeln!(bytes, "{} 0 obj\n{body}\nendobj", i + 1);
+    }
+    let xref = bytes.len();
+    let _ = writeln!(bytes, "xref\n0 {}\n0000000000 65535 f ", objects.len() + 1);
+    for offset in offsets {
+        let _ = writeln!(bytes, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        bytes,
+        "trailer\n<< /Size {} /Root 1 0 R /ID [<0123456789abcdef0123456789abcdef> <fedcba9876543210fedcba9876543210>] >>\nstartxref\n{xref}\n%%EOF\n",
+        objects.len() + 1
+    );
+    bytes.into_bytes()
 }

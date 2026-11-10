@@ -12,9 +12,9 @@ a reference does not establish that its assertions prove the associated feature.
 
 ## Latest checkpoint
 
-The latest broad run covered nine crates: **5,677 tests run, 5,639 passed, 38 expected audit
+The latest broad run covered nine crates: **5,692 tests run, 5,651 passed, 41 expected audit
 failures, 53 skipped, no unexpected failures**. Several failures share a cause. This includes
-the presentation, held-operation, font-width and border-default tests. Production behavior, ledger statuses and
+the presentation, held-operation, font-width, border and annotation-state tests. Production behavior, ledger statuses and
 historical ADRs remain unchanged. Selected assertion reviews and isolated mutation checks have
 exposed both implementation gaps and passing tests unable to detect their stated defect.
 
@@ -931,3 +931,59 @@ remain targeted follow-ups.
 Physical page 485 places the EC3 #34 no-AP sentence in the amended NOTE2 before the heading
 12.5.3. The existing errata narrative and ledger's 12.5.3 attribution are misplaced; it belongs
 to 12.5.2. This corrects the citation, without changing the implementation-dependent meaning.
+
+
+## Descriptor, flag and assertion follow-up
+
+Three annotation-flag tests pass through public model consumers: Invisible on an unknown subtype
+versus a standard Square, hit testing for ReadOnly/Hidden/NoView/ToggleNoView with the Widget
+exception, and containment of an unselected appearance stream. The old undefined-AS no-mark
+assertion could pass because the selected state was absent, independently of Print gating. The
+new containment test has explicit rendered controls; its malformed-N construction fallback is
+labeled recovery policy rather than valid-file conformance.
+
+A separate public Viewer regression fails: with identical print scale, an 80-unit NoZoom
+annotation prints 160×160 pixels after view zoom 1 and 80×80 after view zoom 2. Ordinary-annotation
+controls print 160×160 in both cases. The test filters nonempty red pixels on a transparent medium,
+so paper background cannot satisfy the size assertion. This is screen magnification leaking into
+print geometry. NoRotate's intended paper behavior remains unresolved. ADRs 0168, 1179 and 1180
+retain their screen-placement and output-purpose architecture with this interaction qualified.
+LockedContents default-Off enforcement remains an explicit product policy, with its public edit
+path delegated for further testing.
+
+The selected common descriptor and CID descriptor reviews separate writer constraints from
+reader behavior. Missing required descriptor entries, reserved bits, and font-file exclusivity
+are not certified by reader tests. Font substitution ranking, positive-Descent recovery and
+numeric FontWeight tolerance are choices. ForceBold remains unresolved: the specification requires
+the flag to determine an extra-pixel decision but permits thickening without prescribing a raster.
+Current substitute weight selection does not prove that low-resolution decision.
+
+Two new font unit tests pass without system-font dependence. One gives Symbolic and Nonsymbolic
+routes different glyph indices and checks that conflicting flags follow Symbolic. The previous
+cited test never set both bits. The other tests a distinctive class for each of Table 123's six
+collection rows, with nonmember and wrong-collection controls. All 372 pdf-font unit tests pass;
+some older installed-font consumers can return early and are not thereby certified. EC3 #5
+repairs the old FD/Table120 contradiction. ADR 0086's FD deferral is superseded, and ADR 1074's
+claim that StemV and ascent/descent are unused is stale after later consumers. The class-selection
+policy remains bounded; external collection/Supplement semantics and PDF/A output checks are open.
+
+Peer review corrected the presentation timing claim: a terminal node action does not prove
+successor selection, and Dur's maximum-time wording does not require waiting until the exact
+deadline. A new middle-node test observes a distinct successor action after the timer; Fly motion
+default/override and action-redirection controls also pass. The presentation target now has seven
+passing tests. The ambiguous #304 terminal-arrival composition remains open. Three additional
+appearance tests pass for absent-Group/default isolation, knockout overlap and R/D state selection;
+the retained print-selection regression still fails.
+
+
+Broad wave12 runs 5,692 tests: 5,651 pass, exactly 41 manifested failures, 53 skipped and no
+unexpected failures. The separate pdf-font suite passes 372 tests. Warning-denied Clippy passes
+for pdf-font, pdf-model and viewer-core after the added tests.
+
+An isolated mutation check then exposed a narrower weakness in the new absent-Group test:
+changing its default knockout flag to true still passed the single-element isolation control.
+An added overlap comparison against explicit non-isolated/non-knockout now fails that mutation;
+both unmutated controls pass. The production source in the isolated checkout was restored, and
+live production code was never mutated. This strengthens an assertion, without alleging a real
+knockout rendering defect. Wave12 predates this final assertion; its targeted run is recorded
+separately.

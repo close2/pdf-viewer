@@ -2495,7 +2495,7 @@
     "evidence": "Existing tests assert placed marks on rendered output. This feature is not re-tested here; the Form audit covers BBox/Matrix mapping and related form behavior. This shard focuses on appearance selection and annotation-specific conditions. Prior Form review is partial, not completed clause certification.",
     "remaining": "Cross-reference only; no Form mapping re-audit in this shard.",
     "test_command": null,
-    "test_result": "Assertions inspected; no Cargo run.",
+    "test_result": "Appearance target4pass/1expectedfail, annotation-flags-followup-target.log. Public Viewer print appearance failure remains recorded separately.",
     "parent_review": "Root read effective12.5.5/Table170 and relevant EC3 marks, current consumers, assertion bodies and selected ADR units. Bounded selection/group review; dependencies and producer duties remain partial.",
     "reviewer": "annotation_appearance_audit",
     "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
@@ -2525,7 +2525,7 @@
     "evidence": "Promoted complete-PDF model test proves explicit green R and absent-D red-N fallback. Separate model Print+Down fails blue vs red. Public Viewer control opens red, prints red, finishes, presses the actual annotation and observes blue screen, then prints blue D rather than red N. This confirms reachable Table170 violation at two layers, one underlying defect.",
     "remaining": "Fix outside this audit; retained failing tests. No full annotation interaction audit.",
     "test_command": "cargo test -p pdf-model --test annotation_appearance_audit; cargo test -p viewer-core --test annotation_print_appearance_audit",
-    "test_result": "Model1pass/1fail; Viewer1fail; appearance-model-fixed-import-target.log and appearance-viewer-print-target.log.",
+    "test_result": "Appearance target4pass/1expectedfail, annotation-flags-followup-target.log. Public Viewer print appearance failure remains recorded separately.",
     "parent_review": "Root read effective12.5.5/Table170 and relevant EC3 marks, current consumers, assertion bodies and selected ADR units. Bounded selection/group review; dependencies and producer duties remain partial.",
     "reviewer": "annotation_appearance_audit",
     "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
@@ -2548,18 +2548,19 @@
     "test_refs": [
       "crates/pdf-model/tests/annotations.rs::an_appearance_state_is_selected_by_as",
       "crates/pdf-model/tests/names_are_bytes.rs::an_appearance_state_that_is_not_utf_8_selects_its_stream",
-      "crates/pdf-model/tests/names_are_bytes.rs::two_appearance_states_differing_only_outside_utf_8_are_two_states"
+      "crates/pdf-model/tests/names_are_bytes.rs::two_appearance_states_differing_only_outside_utf_8_are_two_states",
+      "scratchpad/r1983/spec-audit/annotation_appearance_audit/tests.rs::rollover_and_down_state_subdictionaries_select_the_state_named_by_as"
     ],
-    "verdict": "partial",
-    "evidence": "The state-selection test asserts a rendered mark for /AS /On and empty output for missing /Off; name tests use distinct byte names to assert exact key selection. The same `stored_appearance` resolves the stream/subdictionary for N/R/D.",
-    "remaining": "No independent state-subdictionary test for R or D, but shared resolver path is directly inspected; do not count Table 229 field-value synchronization as this clause's independent requirement.",
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "The state-selection test asserts a rendered mark for /AS /On and empty output for missing /Off; name tests use distinct byte names to assert exact key selection. The same `stored_appearance` resolves the stream/subdictionary for N/R/D. Scratch draft adds distinct On/Off colors for both /R and /D subdictionaries, while /N remains a stream, and checks the /AS-selected state at hover/press. Follow-up passes R/D On/Off distinct colors and streamN red control; exact AS selection is now independently asserted for both paths.",
+    "remaining": "General field-value synchronization remains separate.",
     "test_command": null,
-    "test_result": "Assertions inspected; no Cargo run.",
+    "test_result": "Appearance target4pass/1expectedfail, annotation-flags-followup-target.log. Public Viewer print appearance failure remains recorded separately.",
     "parent_review": "Root read effective12.5.5/Table170 and relevant EC3 marks, current consumers, assertion bodies and selected ADR units. Bounded selection/group review; dependencies and producer duties remain partial.",
     "reviewer": "annotation_appearance_audit",
     "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
     "reviewer_ledger_status": "departed",
-    "reviewer_verdict": "partial",
+    "reviewer_verdict": "confirmed-selected-consumer",
     "superseded": false
   },
   {
@@ -2581,7 +2582,7 @@
     "evidence": "The fixture uses an AP state dictionary containing only On while AS names Off; interpretation produces no commands and no unsupported report. This asserts the documented reasonable outcome at the page consumer.",
     "remaining": "The implementation's no-mark choice is allowed behavior, not a universal SHALL to suppress every malformed appearance.",
     "test_command": null,
-    "test_result": "Assertion inspected; no Cargo run.",
+    "test_result": "Appearance target4pass/1expectedfail, annotation-flags-followup-target.log. Public Viewer print appearance failure remains recorded separately.",
     "parent_review": "Root read effective12.5.5/Table170 and relevant EC3 marks, current consumers, assertion bodies and selected ADR units. Bounded selection/group review; dependencies and producer duties remain partial.",
     "reviewer": "annotation_appearance_audit",
     "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
@@ -2608,7 +2609,7 @@
     "evidence": "The test gives an unknown subtype an N stream and checks that its rasterized mark appears without a shortfall; a companion no-AP case expects no mark and no report as implementation policy under the EC3 note.",
     "remaining": "The exact population of unknown subtypes is a separate census; native handlers for standard types are covered elsewhere. Cited test supplies only N; it does not prove N preference with R/D and a reachable interactive pointer. No defect inferred from direct forcing of an otherwise unreachable state.",
     "test_command": null,
-    "test_result": "Assertions inspected; no Cargo run.",
+    "test_result": "Appearance target4pass/1expectedfail, annotation-flags-followup-target.log. Public Viewer print appearance failure remains recorded separately.",
     "parent_review": "Root read effective12.5.5/Table170 and relevant EC3 marks, current consumers, assertion bodies and selected ADR units. Bounded selection/group review; dependencies and producer duties remain partial.",
     "reviewer": "annotation_appearance_audit",
     "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
@@ -2636,7 +2637,7 @@
     "evidence": "First test checks generic name-tree lookup and absent-AP control. Second checks the widget N and name-tree value share object identity, and fixture AP is not a name. Neither supplies an AP-name input to prove rejection or non-resolution: this is producer-shape/object-identity evidence, not that reader assertion.",
     "remaining": "Name-tree traversal details are §7.7.4/§7.9.6 dependencies and are not duplicated.",
     "test_command": null,
-    "test_result": "Assertions inspected; no Cargo run.",
+    "test_result": "Appearance target4pass/1expectedfail, annotation-flags-followup-target.log. Public Viewer print appearance failure remains recorded separately.",
     "parent_review": "Root read effective12.5.5/Table170 and relevant EC3 marks, current consumers, assertion bodies and selected ADR units. Bounded selection/group review; dependencies and producer duties remain partial.",
     "reviewer": "annotation_appearance_audit",
     "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
@@ -2658,13 +2659,15 @@
       "crates/pdf-model/src/content/transparency.rs::run_transparency_group"
     ],
     "test_refs": [
-      "crates/pdf-model/tests/annotations.rs::an_appearance_group_is_isolated_and_knocked_out_as_the_file_states"
+      "crates/pdf-model/tests/annotations.rs::an_appearance_group_is_isolated_and_knocked_out_as_the_file_states",
+      "scratchpad/r1983/spec-audit/annotation_appearance_audit/tests.rs::an_appearance_without_group_equals_the_explicit_default_and_group_flags_change_pixels",
+      "scratchpad/r1983/spec-audit/annotation_appearance_audit/tests.rs::an_appearance_group_knockout_changes_only_the_overlapping_element_result"
     ],
     "verdict": "partial",
-    "evidence": "ADR 0579's report-only decision is obsolete for this implementation. Commit 72ca5e99 routes every stored appearance through run_transparency_group using appearance_group's parsed /I and /K (or its absent-Group default), with the annotation state supplied as the group composite state. The existing pixel test proves declared /K by comparing overlap with a single-element control, declared /I by distinguishing Multiply over transparency from Multiply over the blue page, and a declared /Transparency Group with omitted /I and /K by exercising the default non-isolated/non-knockout case. The absent-Group fallback is explicit in appearance_group's code; the cited pixel test does not compare an absent /Group entry against that explicit default. Full §11 color-space, mask, and other transparency semantics remain conditional forward references.",
-    "remaining": "The missing-Group case lacks a separate raster equality control in this selected test set, though its default is directly implemented in appearance_group. Do not infer full §11 transparency conformance from this fixture. The current §12.5.5 departure is the independent CA/ca contradiction; unsupported Group /I or /K is not a current implementation limitation.",
+    "evidence": "ADR 0579's report-only decision is obsolete for this implementation. Commit 72ca5e99 routes every stored appearance through run_transparency_group using appearance_group's parsed /I and /K (or its absent-Group default), with the annotation state supplied as the group composite state. The existing pixel test proves declared /K by comparing overlap with a single-element control, declared /I by distinguishing Multiply over transparency from Multiply over the blue page, and a declared /Transparency Group with omitted /I and /K by exercising the default non-isolated/non-knockout case. The absent-Group fallback is explicit in appearance_group's code; the cited pixel test does not compare an absent /Group entry against that explicit default. Full §11 color-space, mask, and other transparency semantics remain conditional forward references. Two additional complete-PDF drafts add an absent-Group versus explicit I=false/K=false raster equality with an isolated /I true control, plus an independently discriminating knockout overlap control. They are not run. Follow-up passes missingGroup==explicitIfalse/Kfalse, isolatedred vs nonisolatedblack under Multiply, and Ktrue overlap==single-green with Kfalse differing and outside-overlap equality. Parent mutation revealed absentGroup one-element test did not detect wrong defaultKtrue. New overlapping-element comparison absentGroup versus explicitIfalse/Kfalse now fails that isolated mutant; original/strengthened controls pass. Mutation source restored. Selected defaultK gap closed by stronger assertion, not a production fix.",
+    "remaining": "Absent-group selected raster gap closed; full§11 transparency still pending.",
     "test_command": null,
-    "test_result": "Existing assertions and ADR reviewed; no Cargo run.",
+    "test_result": "Appearance target4pass/1expectedfail, annotation-flags-followup-target.log. Public Viewer print appearance failure remains recorded separately. See appearance-default-mutation-results.json for before/after sensitivity.",
     "parent_review": "Root read effective12.5.5/Table170 and relevant EC3 marks, current consumers, assertion bodies and selected ADR units. Bounded selection/group review; dependencies and producer duties remain partial.",
     "reviewer": "annotation_appearance_audit",
     "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
@@ -2692,10 +2695,10 @@
       "doc/adr/0579-the-group-a-sentence-named-and-nobody-read.md"
     ],
     "verdict": "departed",
-    "evidence": "Actual stored-opacity fixture has annotation CA0.5 and an opaque red stream; alpha255 proves CA ignored. It has no internal ca0.8 and no0.64 assertion. Current BM and declared Group I/K are exercised separately; group routing supersedes ADR0579 report-only mechanics. Only CA/ca conflict remains in the selected departure.",
+    "evidence": "Actual stored-opacity fixture has annotation CA0.5 and an opaque red stream; alpha255 proves CA ignored. It has no internal ca0.8 and no0.64 assertion. Current BM and declared Group I/K are exercised separately; group routing supersedes ADR0579 report-only mechanics. Only CA/ca conflict remains in the selected departure. The absent-Group equality draft uses an internal Multiply over blue page content, so it also has an isolated positive control whose red result distinguishes the group backdrop. Follow-up group assertions pass; opacity conflict unchanged.",
     "remaining": "The surviving ca/CA contradiction is the specific normative departure; no general claim of transparency conformance. Reconcile separately if an authoritative resolution changes the competing text.",
     "test_command": null,
-    "test_result": "Assertions and effective errata inspected; no Cargo run.",
+    "test_result": "Appearance target4pass/1expectedfail, annotation-flags-followup-target.log. Public Viewer print appearance failure remains recorded separately.",
     "parent_review": "Root read effective12.5.5/Table170 and relevant EC3 marks, current consumers, assertion bodies and selected ADR units. Bounded selection/group review; dependencies and producer duties remain partial.",
     "reviewer": "annotation_appearance_audit",
     "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
@@ -2725,7 +2728,7 @@
     "evidence": "The viewer constructs subtype-specific appearances where it has defined a choice; the archive writer emits AP according to its profile route. Tests cover several subtype-specific constructed/stored paths. EC3 makes generic AP-absent rendering implementation-dependent, not a reader MUST. AP writer exceptions and the intentional §12.5.2 writer departure are recorded in the ledger. Parent verified physical485 text coordinates: amended NOTE2 follows the appearance paragraph before heading12.5.3. doc/errata-read.md and ledger reference12.5.3 misattribute its clause; the insertion belongs to12.5.2. No normative meaning change follows from this citation correction.",
     "remaining": "Full Table166 AP writer-policy validation is not part of this reader-selection shard.",
     "test_command": null,
-    "test_result": "Existing assertions and EC3 source locations inspected.",
+    "test_result": "Appearance target4pass/1expectedfail, annotation-flags-followup-target.log. Public Viewer print appearance failure remains recorded separately.",
     "parent_review": "Root read effective12.5.5/Table170 and relevant EC3 marks, current consumers, assertion bodies and selected ADR units. Bounded selection/group review; dependencies and producer duties remain partial.",
     "reviewer": "annotation_appearance_audit",
     "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
@@ -3183,6 +3186,374 @@
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-missing-rule-inventory",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "f-is-integer-low-bit-first-reserved-zero",
+    "requirement": "The annotation F value is an integer bit field; bit positions are numbered low-to-high starting at 1, and producers shall set every other bit to zero. This is a producer constraint; it does not by itself prescribe recovery for a reader that sees reserved bits.",
+    "source_location": "12.5.3 opening physical485/printed470; Table167 physical486–487/printed471–472; following geometry paragraphs physical487/printed472.",
+    "errata": "No Table 167 change identified. Effective EC3 #34 is adjacent in §12.5.2/Table 166 and adds a note on subtype relevance / absent AP; it does not redefine flag numbering or reserved bits.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::FLAG_* constants",
+      "crates/pdf-model/src/annotation.rs::stated_flags"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::toggle_no_view_inverts_no_view_under_the_pointer",
+      "crates/pdf-model/tests/print_intent.rs::table_167s_print_bit_decides_the_printed_page_and_the_view_bits_decide_the_screen"
+    ],
+    "verdict": "reader-bit-behavior-tested; producer-zeroing-not-certified",
+    "evidence": "Constants encode PDF bit positions as (1 << (position-1)); actual assertions use values 2,4,32,256 and test interactions. No consumer requirement is inferred for malformed reserved bits; they are not rejected or given a special interpretation here.",
+    "test_command": "not run; assertion bodies inspected",
+    "test_result": "New flags target3passed; prior referenced tests passed broadwave11. Each evidence claim is bounded to inspected assertions.",
+    "parent_review": "Root read effective flags/source coordinates, public consumers, assertion bodies and selected ADR units. No host-wide or full annotation-edit certification.",
+    "reviewer": "annotation_flags_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "reader-bit-behavior-tested; producer-zeroing-not-certified",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "invisible-unknown-types-only",
+    "requirement": "Invisible applies only to subtypes outside Table 171 for which no handler is available. When set, an unknown annotation is neither rendered nor printed even with Print set; when clear, render its AP appearance if any.",
+    "source_location": "12.5.3 opening physical485/printed470; Table167 physical486–487/printed471–472; following geometry paragraphs physical487/printed472.",
+    "errata": "Effective EC3 #1 (`Review/Completed`) on physical p.482 (printed p.467) changes §12.5.1's unknown-type pointer to §12.5.5 and Table 167 bits 1/2. StrikeOut object 4874 and Caret object 4876; replacement points to AP and flag bits. `doc/errata-read.md:1195-1213` traces it. It reinforces the combined reader duty. EC3 #34 physical p.485 includes a separate Table166/AP note and does not change bit 1.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::STANDARD_SUBTYPES",
+      "crates/pdf-model/src/annotation.rs::decided"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance",
+      "crates/pdf-model/tests/annotations.rs::an_unknown_subtype_with_no_appearance_dictionary_draws_nothing_and_reports_nothing",
+      "crates/pdf-model/tests/annotation_flags_audit.rs::invisible_suppresses_unknown_subtype_even_when_print_is_set"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "Tests prove an unknown type with a normal AP is rendered when Invisible is clear and no-AP behavior is quiet; they do not exercise bit 1 set, its explicit no-print consequence despite Print, or the control where the same bit is ignored for a Table171 subtype. Draft supplies both unknown and Square print controls. Promoted test checks both View and Print, unknownF4 red, unknownF5 absent, standardSquareF5 red. No-recovery fixture and unsupported-empty checks; passes.",
+    "test_command": "not run; scratch draft only",
+    "test_result": "New flags target3passed; prior referenced tests passed broadwave11. Each evidence claim is bounded to inspected assertions.",
+    "parent_review": "Root read effective flags/source coordinates, public consumers, assertion bodies and selected ADR units. No host-wide or full annotation-edit certification.",
+    "reviewer": "annotation_flags_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "hidden-suppresses-screen-print-and-interaction",
+    "requirement": "Hidden suppresses rendering and user interaction regardless of subtype/handler; when printing it also suppresses despite Print. §12.6.4.11 may set or clear this same Hidden state for the session.",
+    "source_location": "12.5.3 opening physical485/printed470; Table167 physical486–487/printed471–472; following geometry paragraphs physical487/printed472.",
+    "errata": "No Table167 alteration found; EC3 #1 adds §12.5.1's pointer to bits 1/2 and supports unknown-subtype interpretation.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::displayed",
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/annotation.rs::decided"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::the_hidden_and_no_view_flags_draw_nothing_and_report_nothing",
+      "crates/pdf-model/tests/print_intent.rs::table_167s_print_bit_decides_the_printed_page_and_the_view_bits_decide_the_screen",
+      "crates/pdf-model/tests/annotation_flags_audit.rs::annotation_hit_testing_respects_readonly_and_toggle_no_view"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "Raster/interpretation tests check Hidden alone and Hidden+NoView are quiet; print truth table separately checks Hidden, Hidden+Print, NoView+Hidden on paper and screen. Pointer consumer uses annotation::interacts. Assertion bodies inspected, not rerun. New public annotation_at test passes ordinary positive, ReadOnly/NoView/Hidden negatives, Toggle+NoView positive, Widget ReadOnly exception, and outside-rectangle controls. ReadOnly remains red in View and Print. This tests model hit reachability, not native-host replay.",
+    "test_command": "not run; assertion bodies inspected",
+    "test_result": "New flags target3passed; prior referenced tests passed broadwave11. Each evidence claim is bounded to inspected assertions.",
+    "parent_review": "Root read effective flags/source coordinates, public consumers, assertion bodies and selected ADR units. No host-wide or full annotation-edit certification.",
+    "reviewer": "annotation_flags_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "print-flag-and-hidden-precedence",
+    "requirement": "On paper, Print set prints unless Hidden; Print clear prevents printing even if screen-rendered. Print selection is separate from screen NoView.",
+    "source_location": "12.5.3 opening physical485/printed470; Table167 physical486–487/printed471–472; following geometry paragraphs physical487/printed472.",
+    "errata": "No Table167 change identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::displayed",
+      "crates/pdf-model/src/view.rs::AnnotationView::purpose"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/print_intent.rs::table_167s_print_bit_decides_the_printed_page_and_the_view_bits_decide_the_screen"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Seven-row print/screen truth table includes Print, Hidden, Hidden+Print, NoView, NoView+Print and no flags, with assertions for both outputs and no unsupported reports.",
+    "test_command": "not run; assertion body inspected",
+    "test_result": "New flags target3passed; prior referenced tests passed broadwave11. Each evidence claim is bounded to inspected assertions.",
+    "parent_review": "Root read effective flags/source coordinates, public consumers, assertion bodies and selected ADR units. No host-wide or full annotation-edit certification.",
+    "reviewer": "annotation_flags_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "print-flag-ignored-without-contained-appearance-stream",
+    "requirement": "If the annotation contains no appearance streams, the Print flag shall be ignored. Containment includes streams under AP appearance-state subdictionaries even if AS selects none.",
+    "source_location": "12.5.3 opening physical485/printed470; Table167 physical486–487/printed471–472; following geometry paragraphs physical487/printed472.",
+    "errata": "No Table167 change identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::contains_appearance_streams",
+      "crates/pdf-model/src/annotation.rs::displayed"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/print_intent.rs::a_print_flag_that_is_clear_is_ignored_where_the_annotation_has_no_appearance_stream",
+      "crates/pdf-model/tests/annotation_flags_audit.rs::an_unselected_rollover_state_stream_still_makes_the_print_flag_apply"
+    ],
+    "verdict": "partial-with-discriminating-recovery-control",
+    "evidence": "Parent finds existing ASOff/NOn no-mark assertion cannot distinguish Print gating from undefined-state suppression. New test uses malformed N42 red constructed fallback as explicit policy control; unselected R/On stream then suppresses paper with F0 while View and F4 still red. It passes and discriminates stream-containment gating, but the malformed-N fallback is reader policy, not valid-file conformance.",
+    "test_command": "not run; assertion body inspected",
+    "test_result": "New flags target3passed; prior referenced tests passed broadwave11. Each evidence claim is bounded to inspected assertions.",
+    "parent_review": "Root read effective flags/source coordinates, public consumers, assertion bodies and selected ADR units. No host-wide or full annotation-edit certification.",
+    "reviewer": "annotation_flags_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-with-discriminating-recovery-control",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "nozoom-screen-size-and-fixed-upper-left",
+    "requirement": "On screen, NoZoom keeps annotation appearance size unchanged as page magnification changes, with its location anchored at the Rect upper-left corner; the Rect itself is not changed.",
+    "source_location": "12.5.3 opening physical485/printed470; Table167 physical486–487/printed471–472; following geometry paragraphs physical487/printed472.",
+    "errata": "No specific Table167 correction identified. EC3 #34 physical p.485 adds §12.5.2 NOTE 2 on absent AP appearance being implementation-dependent; unrelated to NoZoom.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::ViewGeometry::adjustment",
+      "crates/pdf-model/src/annotation.rs::decide",
+      "crates/pdf-model/src/content/annotations.rs::draw_annotation"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_no_zoom_annotation_keeps_its_size_when_the_page_is_magnified",
+      "crates/viewer-core/tests/headless.rs::a_no_zoom_annotation_is_the_one_thing_a_zoom_re_interprets",
+      "crates/viewer-core/tests/annotation_print_geometry_audit.rs::a_screen_nozoom_flag_does_not_shrink_the_printed_annotation_at_view_zoom"
+    ],
+    "verdict": "confirmed-screen-behavior-and-print-defect",
+    "evidence": "Existing screen extent assertions discriminate unchanged/2x/0.5x and ordinary flags. New public Viewer test holds print scale2 constant: F4 prints160x160 at both view1x/2x; F12 prints160x160 at1x but80x80 at2x. It filters red nonempty pixels on transparent medium. This confirms stale screen magnification changes print geometry. Root treats view independence as required output separation supported by NoZoom screen wording and ADR1180, without inventing a NoRotate paper rule.",
+    "test_command": "not run; draft only",
+    "test_result": "Expected failure annotation-print-geometry-target.log; ordinary and1xNoZoom controls pass.",
+    "parent_review": "Root read effective flags/source coordinates, public consumers, assertion bodies and selected ADR units. No host-wide or full annotation-edit certification.",
+    "reviewer": "annotation_flags_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-screen-behavior-and-print-defect",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "norotate-screen-orientation-and-fixed-upper-left",
+    "requirement": "NoRotate keeps appearance orientation on screen despite page /Rotate, pivoting around Rect upper-left; Rect remains unchanged.",
+    "source_location": "12.5.3 opening physical485/printed470; Table167 physical486–487/printed471–472; following geometry paragraphs physical487/printed472.",
+    "errata": "No Table167 change identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::ViewGeometry::adjustment",
+      "crates/pdf-model/src/annotation.rs::decide"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_no_rotate_annotation_pivots_about_its_own_corner"
+    ],
+    "verdict": "confirmed-on-screen; print scope unresolved",
+    "evidence": "The raster test uses asymmetric mark and /Rotate 90 to independently assert normal rotation, counterrotation, and pivot bounds. Current code adjustment is not purpose-gated. Table text's further description explicitly says on-screen; this audit does not draft a print-orientation expectation because Table167's first sentence itself is broader and the intended paper behavior is unresolved.",
+    "test_command": "not run; assertion body inspected",
+    "test_result": "New flags target3passed; prior referenced tests passed broadwave11. Each evidence claim is bounded to inspected assertions.",
+    "parent_review": "Root read effective flags/source coordinates, public consumers, assertion bodies and selected ADR units. No host-wide or full annotation-edit certification.",
+    "reviewer": "annotation_flags_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-on-screen; print scope unresolved",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "nozoom-norotate-adjustment-does-not-mutate-rect",
+    "requirement": "The processor automatically adjusts the other Rect corners around the user-space upper-left anchor when user space scales/rotates, but shall not change the annotation's stored Rect.",
+    "source_location": "12.5.3 opening physical485/printed470; Table167 physical486–487/printed471–472; following geometry paragraphs physical487/printed472.",
+    "errata": "No applicable Table167 amendment found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::ViewGeometry::adjustment",
+      "crates/pdf-model/src/annotation.rs::decide"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::a_no_rotate_annotation_pivots_about_its_own_corner",
+      "crates/pdf-model/tests/annotations.rs::a_no_zoom_annotation_keeps_its_size_when_the_page_is_magnified"
+    ],
+    "verdict": "partially-tested",
+    "evidence": "Both tests verify rendered geometry around the corner. Input `Document` is immutable and adjustment is applied to display list, not dictionary; no direct assertion checks serialized/parsed Rect is unchanged, but this consumer path does not mutate the document.",
+    "test_command": "not run; assertion bodies inspected",
+    "test_result": "New flags target3passed; prior referenced tests passed broadwave11. Each evidence claim is bounded to inspected assertions.",
+    "parent_review": "Root read effective flags/source coordinates, public consumers, assertion bodies and selected ADR units. No host-wide or full annotation-edit certification.",
+    "reviewer": "annotation_flags_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partially-tested",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "noview-screen-suppression-and-print-allowed",
+    "requirement": "NoView suppresses screen render and user interaction; it may still print depending on Print. ToggleNoView modifies this pointer-dependent screen reading and does not govern paper.",
+    "source_location": "12.5.3 opening physical485/printed470; Table167 physical486–487/printed471–472; following geometry paragraphs physical487/printed472.",
+    "errata": "No direct Table167 change. EC3 #1 points unknown subtype expected behavior to flags bits1/2 only; #34 adds AP note on physical p.485.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::displayed",
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/annotation.rs::no_view"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::the_hidden_and_no_view_flags_draw_nothing_and_report_nothing",
+      "crates/pdf-model/tests/annotations.rs::toggle_no_view_inverts_no_view_under_the_pointer",
+      "crates/pdf-model/tests/print_intent.rs::table_167s_print_bit_decides_the_printed_page_and_the_view_bits_decide_the_screen",
+      "crates/pdf-model/tests/annotation_flags_audit.rs::annotation_hit_testing_respects_readonly_and_toggle_no_view"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "NoView screen/print truth table checks device distinction; ToggleNoView test checks all four bit combinations as pixel values under Appearance::Normal, Over and Down. It sets ViewState pointer directly, so the test does not exercise the host/viewer hit-test route that must permit pointer entry for NoView+ToggleNoView. Draft in this shard adds a public annotation_at positive-hit test for that combination and negatives for NoView alone. New public annotation_at test passes ordinary positive, ReadOnly/NoView/Hidden negatives, Toggle+NoView positive, Widget ReadOnly exception, and outside-rectangle controls. ReadOnly remains red in View and Print. This tests model hit reachability, not native-host replay.",
+    "test_command": "not run; assertion bodies inspected",
+    "test_result": "New flags target3passed; prior referenced tests passed broadwave11. Each evidence claim is bounded to inspected assertions.",
+    "parent_review": "Root read effective flags/source coordinates, public consumers, assertion bodies and selected ADR units. No host-wide or full annotation-edit certification.",
+    "reviewer": "annotation_flags_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "readonly-blocks-nonwidget-interaction-only",
+    "requirement": "ReadOnly prevents annotation interaction and mouse-driven appearance change without suppressing rendering/printing; it is ignored on Widget because field ReadOnly controls it.",
+    "source_location": "12.5.3 opening physical485/printed470; Table167 physical486–487/printed471–472; following geometry paragraphs physical487/printed472.",
+    "errata": "No relevant Table167 correction found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/view/annotations.rs::annotation_interacts",
+      "crates/pdf-model/src/view/annotations.rs::annotation_at"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotation_flags_audit.rs::annotation_hit_testing_respects_readonly_and_toggle_no_view"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "Code explicitly gates interaction only and exempts widgets. I found no assertion covering annotation F bit 7 in the linked consumer tests. A deterministic annotation_at draft checks ordinary-square hit, ReadOnly-square exclusion, and the Widget exception. It leaves Table226 field-level ReadOnly behavior to its own form path. New public annotation_at test passes ordinary positive, ReadOnly/NoView/Hidden negatives, Toggle+NoView positive, Widget ReadOnly exception, and outside-rectangle controls. ReadOnly remains red in View and Print. This tests model hit reachability, not native-host replay.",
+    "test_command": "not run; scratch draft only",
+    "test_result": "New flags target3passed; prior referenced tests passed broadwave11. Each evidence claim is bounded to inspected assertions.",
+    "parent_review": "Root read effective flags/source coordinates, public consumers, assertion bodies and selected ADR units. No host-wide or full annotation-edit certification.",
+    "reviewer": "annotation_flags_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "locked-properties-distinct-from-content-edit",
+    "requirement": "Locked blocks deletion/property changes but not content changes (including field value). A reader need only enforce this where it offers such a user operation.",
+    "source_location": "12.5.3 opening physical485/printed470; Table167 physical486–487/printed471–472; following geometry paragraphs physical487/printed472.",
+    "errata": "No applicable Table167 correction found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs (does not treat bit 8 as interaction suppression)",
+      "crates/pdf-model/src/restriction.rs::asserted"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::table_167s_locked_flag_is_not_its_locked_contents_flag"
+    ],
+    "verdict": "qualified-no-edit-operation",
+    "evidence": "Existing test shows bit 8 does not block free-text content entry while bit 10 reports AnnotationLocked; present editing commands add annotations or edit contents and no existing-annotation delete/property mutation path was identified. Thus the current reader exposes no operation whose locked-property condition needs enforcement. Do not treat absence of a property editor as a reader failure.",
+    "test_command": "not run; assertion body inspected",
+    "test_result": "New flags target3passed; prior referenced tests passed broadwave11. Each evidence claim is bounded to inspected assertions.",
+    "parent_review": "Root read effective flags/source coordinates, public consumers, assertion bodies and selected ADR units. No host-wide or full annotation-edit certification.",
+    "reviewer": "annotation_flags_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "qualified-no-edit-operation",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "toggle-no-view-inverts-hover-and-selection",
+    "requirement": "ToggleNoView inverts NoView for annotation selection and mouse hovering: with only toggle the annotation disappears while hovered; with NoView+toggle it becomes visible while hovered/selected. This is screen-only.",
+    "source_location": "12.5.3 opening physical485/printed470; Table167 physical486–487/printed471–472; following geometry paragraphs physical487/printed472.",
+    "errata": "No Table167 amendment found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::no_view",
+      "crates/pdf-model/src/annotation.rs::interacts",
+      "crates/pdf-model/src/view/annotations.rs::annotation_at"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/annotations.rs::toggle_no_view_inverts_no_view_under_the_pointer",
+      "crates/pdf-model/tests/annotation_flags_audit.rs::annotation_hit_testing_respects_readonly_and_toggle_no_view"
+    ],
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "The raster test covers NoView alone, NoView+Toggle, Toggle alone, and ordinary control under normal/over/down appearance; however it constructs the pointer state directly and does not prove a viewer can reach the hover state through annotation_at. New draft tests the public model hit-test control. No corpus witness is claimed: ADR 0493's counted crawl was the actual object-model census and found none. New public annotation_at test passes ordinary positive, ReadOnly/NoView/Hidden negatives, Toggle+NoView positive, Widget ReadOnly exception, and outside-rectangle controls. ReadOnly remains red in View and Print. This tests model hit reachability, not native-host replay.",
+    "test_command": "not run; assertion inspected; scratch draft only",
+    "test_result": "New flags target3passed; prior referenced tests passed broadwave11. Each evidence claim is bounded to inspected assertions.",
+    "parent_review": "Root read effective flags/source coordinates, public consumers, assertion bodies and selected ADR units. No host-wide or full annotation-edit certification.",
+    "reviewer": "annotation_flags_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.3",
+    "feature_id": "locked-contents-restriction-policy",
+    "requirement": "LockedContents says the user's annotation contents may not be modified; unlike Locked it does not block deletion or other properties. In this product it is presented as a document restriction that a host policy can enforce, ask about, warn about or turn off.",
+    "source_location": "12.5.3 opening physical485/printed470; Table167 physical486–487/printed471–472; following geometry paragraphs physical487/printed472.",
+    "errata": "No relevant Table167 correction found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/restriction.rs::asserted",
+      "crates/viewer-core/src/viewer/editing.rs",
+      "crates/viewer-core/src/notes.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/variable_text.rs::table_167s_locked_flag_is_not_its_locked_contents_flag",
+      "crates/viewer-core/tests/restriction_levels.rs::one_operations_level_says_nothing_about_another"
+    ],
+    "verdict": "implemented-with-policy-departure",
+    "evidence": "The PDF model reports AnnotationLocked and host restriction policy decides its disposition. ADR 1144 explicitly makes restriction level Off the default and owner-controlled; this remains an owner choice, not an undiscovered code defect. The cited tests prove model distinction/level isolation, not specifically all viewer prompt/refusal outcomes for an annotation lock.",
+    "test_command": "not run; assertions inspected",
+    "test_result": "New flags target3passed; prior referenced tests passed broadwave11. Each evidence claim is bounded to inspected assertions.",
+    "parent_review": "Root read effective flags/source coordinates, public consumers, assertion bodies and selected ADR units. No host-wide or full annotation-edit certification.",
+    "reviewer": "annotation_flags_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implemented-with-policy-departure",
+    "superseded": false
+  },
+  {
+    "clause": "12.5.2",
+    "feature_id": "absent-appearance-style-is-implementation-dependent",
+    "requirement": "When an annotation has no appearance dictionary, rendered appearance is implementation-dependent; absence does not imply one prescribed fallback artwork.",
+    "source_location": "EC3#34 caret5013, physical485/printed470, amended NOTE2 before heading12.5.3.",
+    "errata": "Parent corrects existing errata narrative/ledger misattribution. PDF text bbox places original NOTE at y542 and heading12.5.3 at y573; caret5013 lies at PDF bottom-origin274–281, between note and heading. Linked Review state5015, not5011, belongs to caret5013.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/annotation.rs::decided",
+      "crates/pdf-model/src/appearance.rs (synthesized appearance consumers)"
+    ],
+    "test_refs": [],
+    "verdict": "confirmed-as-informative-scope",
+    "evidence": "Source places inserted no-AP sentence in12.5.2 NOTE2. Informative implementation-dependent appearance statement, not a change to Table167 flags. Existing doc/errata-read.md wrongly calls it12.5.3.",
+    "test_command": "not applicable",
+    "test_result": "New flags target3passed; prior referenced tests passed broadwave11. Each evidence claim is bounded to inspected assertions.",
+    "parent_review": "Root read effective flags/source coordinates, public consumers, assertion bodies and selected ADR units. No host-wide or full annotation-edit certification.",
+    "reviewer": "annotation_flags_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-as-informative-scope",
     "superseded": false
   },
   {
@@ -11668,6 +12039,1287 @@
     "parent_review_state": "parent-reviewed-with-discriminating-test",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.3.1",
+    "feature_id": "style_optional_descriptor_hint",
+    "requirement": "Style is an optional dictionary describing the CIDFont glyph style; only its defined Panose value is specified in 9.8.3.2.",
+    "source_location": "ISO 32000-2 PDF physical p.363 (printed p.348), Table 122; §9.8.3.2 physical p.363",
+    "errata": "No applicable EC3 annotation identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/substitute.rs::panose",
+      "crates/pdf-font/src/panose.rs::Panose::read"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/panose.rs::the_clauses_own_example_classifies_a_light_serif_face",
+      "crates/pdf-model/tests/panose.rs::a_panose_number_changes_the_substitute_for_some_fonts_and_not_others"
+    ],
+    "verdict": "supported; Table 122 grants optional input and does not require readers to use it",
+    "evidence": "The request builder reads /Style/Panose when it can; embedded programs use their own face, and the corpus measurement asserts actual request changes for the two no-embedded-program documents. This feature cross-references the selected Panose review within this shard rather than treating it as a new vote.",
+    "test_command": "Not run: scratch audit only; parent owns Cargo/test promotion.",
+    "test_result": "pdf-font372unit tests pass; font-descriptor-unit-target.log. Class-outline consumers can early-return on catalogue limitations; deterministic new collection matrix cannot.",
+    "parent_review": "Root read Tables122/123 andEC3#5, current glyph-class merge/selection and selected assertion bodies. Partial substitution review; external CID collection tables and profile validation not certified.",
+    "reviewer": "font_descriptor_cid_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented (cross-reference 9.8.3.2)",
+    "reviewer_verdict": "supported; Table 122 grants optional input and does not require readers to use it",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.3.1",
+    "feature_id": "lang_optional_language_tag_and_absence_semantics",
+    "requirement": "Lang is an optional PDF 1.5 name containing a BCP 47 Language-Tag, usable when encoding does not imply language. Absence conveys no information about document language and does not itself state that the document language is unknown.",
+    "source_location": "ISO 32000-2 PDF physical p.363 (printed p.348), Table 122",
+    "errata": "No applicable EC3 annotation identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/substitute.rs::language",
+      "crates/pdf-font/src/substitute.rs::Language::read",
+      "crates/pdf-font/src/substituted.rs::script_sample"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/substitute.rs::a_language_tag_is_read_case_insensitively_and_only_as_far_as_its_primary_subtag",
+      "crates/pdf-font/src/substituted.rs::an_identity_ordering_takes_its_script_from_table_122s_lang"
+    ],
+    "verdict": "supported; optional substitution hint; absence is not a document-language assertion",
+    "evidence": "The font language is consulted as a substitution hint for Identity orderings where the collection itself names no script; the tests assert case-insensitive primary-subtag handling and an Identity-ordering consumer. This entry is covered in the sibling shard and is not recounted as a new test draft.",
+    "test_command": "Not run: scratch audit only; parent owns Cargo/test promotion.",
+    "test_result": "pdf-font372unit tests pass; font-descriptor-unit-target.log. Class-outline consumers can early-return on catalogue limitations; deterministic new collection matrix cannot.",
+    "parent_review": "Root read Tables122/123 andEC3#5, current glyph-class merge/selection and selected assertion bodies. Partial substitution review; external CID collection tables and profile validation not certified.",
+    "reviewer": "font_descriptor_cid_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented (cross-reference 9.8.3.1)",
+    "reviewer_verdict": "supported; optional substitution hint; absence is not a document-language assertion",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.3.1",
+    "feature_id": "fd_optional_per_class_overrides",
+    "requirement": "FD is optional; each key identifies a CIDFont glyph class and its descriptor value overrides corresponding main-descriptor values for that class.",
+    "source_location": "ISO 32000-2 PDF physical p.363 (printed p.348), Table 122; §9.8.3.3 physical pp.363–365 (printed pp.348–350)",
+    "errata": "EC3 Issue #5, annotation on ISO PDF physical p.364 (printed p.349), corrects the glyph-class descriptor restriction; it does not change the override rule.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/substitute.rs::glyph_classes",
+      "crates/pdf-font/src/substitute.rs::overridden",
+      "crates/pdf-font/src/loading.rs::class_faces",
+      "crates/pdf-font/src/glyph_class.rs::Decision"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/loading.rs::glyph_class_tests::a_glyph_class_descriptor_chooses_the_face_for_its_own_class_alone",
+      "crates/pdf-font/src/glyph_class.rs::the_clauses_own_example_states_two_classes_and_both_are_applied"
+    ],
+    "verdict": "supported on the nonembedded CIDFont substitution route",
+    "evidence": "class_faces merges each descriptor override into the common descriptor, derives a class request, and uses that face only for the class's assigned characters. Embedded programs already provide the page's glyph face. Existing assertions compare a proportional Latin glyph against the unchanged kanji control and separately exercise the exact two-class example.",
+    "test_command": "Not run: scratch audit only; parent owns Cargo/test promotion.",
+    "test_result": "pdf-font372unit tests pass; font-descriptor-unit-target.log. Class-outline consumers can early-return on catalogue limitations; deterministic new collection matrix cannot.",
+    "parent_review": "Root read Tables122/123 andEC3#5, current glyph-class merge/selection and selected assertion bodies. Partial substitution review; external CID collection tables and profile validation not certified.",
+    "reviewer": "font_descriptor_cid_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "supported on the nonembedded CIDFont substitution route",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.3.1",
+    "feature_id": "cidset_subset_stream_and_bit_order",
+    "requirement": "CIDSet is optional and deprecated in PDF 2.0. If present it describes a subset of the CID collection; absent CIDSet leaves the subset tag in FontName as the stated indication. Its data is a CID-indexed bit table, MSB first with bit zero representing CID 0.",
+    "source_location": "ISO 32000-2 PDF physical p.363 (printed p.348), Table 122; §9.9.2 subset reference",
+    "errata": "No applicable EC3 annotation identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/loading/program.rs::LoadedFont::program_character_identifiers",
+      "crates/pdf-archive/src/table/fonts.rs::cidset_lists_every_cid_in_the_program"
+    ],
+    "test_refs": [
+      "crates/pdf-archive/src/table/fonts.rs",
+      "crates/pdf-font/src/restate.rs"
+    ],
+    "verdict": "not a reader behavior condition; PDF/A validation is a separate profile requirement",
+    "evidence": "Table 122 states which CIDs the producer stream describes and its bit order. Core font loading exposes the embedded program's CID set but does not consult /CIDSet to choose glyphs. The archive validator checks complete CID coverage under ISO 19005-2; that profile check does not establish a general ISO 32000 reader rejection or rendering requirement. Archive references are cross-reference only; no directCIDSet bit-table assertion accepted here.",
+    "test_command": "Not run: scratch audit only; parent owns Cargo/test promotion.",
+    "test_result": "pdf-font372unit tests pass; font-descriptor-unit-target.log. Class-outline consumers can early-return on catalogue limitations; deterministic new collection matrix cannot.",
+    "parent_review": "Root read Tables122/123 andEC3#5, current glyph-class merge/selection and selected assertion bodies. Partial substitution review; external CID collection tables and profile validation not certified.",
+    "reviewer": "font_descriptor_cid_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "producer-side descriptor statement; ISO 32000 reader obligation not identified",
+    "reviewer_verdict": "not a reader behavior condition; PDF/A validation is a separate profile requirement",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.3.2",
+    "feature_id": "style_panose_twelve_byte_structure",
+    "requirement": "Only Panose is defined in Style. Its value SHALL be a 12-byte string: two OS/2 FamilyClass bytes and ten bytes of PANOSE classification.",
+    "source_location": "ISO 32000-2 PDF physical p.363 (printed p.348), §9.8.3.2 and its example",
+    "errata": "No applicable EC3 annotation identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/panose.rs::Panose::read",
+      "crates/pdf-font/src/substitute.rs::panose"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/panose.rs::the_clauses_own_example_classifies_a_light_serif_face",
+      "crates/pdf-font/src/panose.rs::the_digits_boundaries_are_panoses_own",
+      "crates/pdf-font/src/panose.rs::only_twelve_bytes_are_a_panose_number"
+    ],
+    "verdict": "supported as a conditional input; malformed length is ignored for substitution, with no general reader rejection inferred",
+    "evidence": "Panose::read requires exactly twelve bytes; unit assertions cover the clause example, interpreted digits, and lengths 0/11/12/13. Panose metadata is only used to select a machine substitute, not to override an embedded program.",
+    "test_command": "Not run: scratch audit only; parent owns Cargo/test promotion.",
+    "test_result": "pdf-font372unit tests pass; font-descriptor-unit-target.log. Class-outline consumers can early-return on catalogue limitations; deterministic new collection matrix cannot.",
+    "parent_review": "Root read Tables122/123 andEC3#5, current glyph-class merge/selection and selected assertion bodies. Partial substitution review; external CID collection tables and profile validation not certified.",
+    "reviewer": "font_descriptor_cid_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "supported as a conditional input; malformed length is ignored for substitution, with no general reader rejection inferred",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.3.3",
+    "feature_id": "fd_default_attributes_and_exception_role",
+    "requirement": "The main descriptor shall define defaults applying to every CIDFont glyph; FD contains exceptions to those defaults.",
+    "source_location": "ISO 32000-2 PDF physical p.363 (printed p.348), §9.8.3.3",
+    "errata": "EC3 Issue #5 changes the class-descriptor field restriction, not this default/exception distinction.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/loading.rs::class_faces",
+      "crates/pdf-font/src/substitute.rs::overridden"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/loading.rs::glyph_class_tests::a_glyph_class_descriptor_chooses_the_face_for_its_own_class_alone",
+      "crates/pdf-font/src/loading.rs::glyph_class_tests::a_class_no_character_decides_leaves_every_glyph_on_the_main_face"
+    ],
+    "verdict": "supported for substitution attributes that this reader consumes",
+    "evidence": "The main face is loaded first and remains the fallback. Each class-derived request is built from a copy of the main descriptor with that class's entries applied; an equal request is treated as no substitution exception. The paired glyph assertion distinguishes the class glyph from an unclassified kanji.",
+    "test_command": "Not run: scratch audit only; parent owns Cargo/test promotion.",
+    "test_result": "pdf-font372unit tests pass; font-descriptor-unit-target.log. Class-outline consumers can early-return on catalogue limitations; deterministic new collection matrix cannot.",
+    "parent_review": "Root read Tables122/123 andEC3#5, current glyph-class merge/selection and selected assertion bodies. Partial substitution review; external CID collection tables and profile validation not certified.",
+    "reviewer": "font_descriptor_cid_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "supported for substitution attributes that this reader consumes",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.3.3",
+    "feature_id": "fd_keys_are_collection_specific_and_apply_to_that_class_only",
+    "requirement": "Each FD key shall name a class/subset of the CIDFont collection; the entry descriptor overrides font-wide attributes for that class only. Table 123 keys by collection: Adobe-GB1 and Adobe-CNS1 = Alphabetic, Dingbats, Generic, Hanzi, HRoman, HRomanRot, Kana, Proportional, ProportionalRot; Adobe-Japan1 = Alphabetic, AlphaNum, Dingbats, DingbatsRot, Generic, GenericRot, HKana, HKanaRot, HRoman, HRomanRot, Kana, Kanji, Proportional, ProportionalRot, Ruby; Adobe-Japan2 (deprecated in PDF 2.0) = Alphabetic, Dingbats, HojoKanji; Adobe-Korea1 (deprecated in PDF 2.0) and Adobe-KR (added in PDF 2.0) = Alphabetic, Dingbats, Generic, Hangul, Hanja, HRoman, HRomanRot, Kana, Proportional, ProportionalRot. Class names depend on Registry, Ordering, and Supplement.",
+    "source_location": "ISO 32000-2 PDF physical pp.363–365 (printed pp.348–350), §9.8.3.3 and Table 123",
+    "errata": "No Table 123 change found under EC3 Issue #5. The Issue #5 pointer correction concerns the following descriptor-content restriction.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/composite.rs::collection_names",
+      "crates/pdf-font/src/glyph_class.rs::tabulated",
+      "crates/pdf-font/src/glyph_class.rs::membership",
+      "crates/pdf-font/src/glyph_class.rs::Decision::read",
+      "crates/pdf-font/src/loading.rs::class_faces"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/glyph_class.rs::one_stated_class_takes_the_characters_table_123_gives_it",
+      "crates/pdf-font/src/glyph_class.rs::a_contested_kind_is_refused_and_an_uncontested_one_is_not",
+      "crates/pdf-font/src/glyph_class.rs::the_clauses_own_example_states_two_classes_and_both_are_applied",
+      "crates/pdf-font/src/glyph_class.rs::a_class_no_character_decides_is_refused_by_name",
+      "crates/pdf-font/src/loading.rs::glyph_class_tests::a_glyph_class_descriptor_chooses_the_face_for_its_own_class_alone",
+      "crates/pdf-font/src/glyph_class_audit.rs::each_table_123_collection_row_recognizes_its_distinctive_character_classes"
+    ],
+    "verdict": "reader behavior present; Table 123 collection matrix needs a discriminating test; supplement handling is a scoped residual",
+    "evidence": "tabulated() contains separate GB1/CNS1, Japan1, Japan2, Korea1/KR key lists; membership() maps the described glyph categories and Decision refuses unknown, ambiguous, form-dependent, and undescribed classes. Current unit tests mostly exercise Japan1, with one invalid GB1 key and no positive Japan2, Korea1, KR or CNS1 control. collection_names supplies Registry and Ordering but drops Supplement. Table 123 itself presents no per-Supplement variation in allowed class names, so no changed rendering conclusion follows from that omission here; nevertheless, the clause's triple-identification sentence and absent explicit supplement-sensitive test remain a review residual. Promoted matrix passes one positive from each six collection rows, LatinA negative for each, and invalid collection/class pairs tested with the character the class would otherwise include. This covers selected distinct rows, not every class/CID/Supplement.",
+    "test_command": "Not run: scratch audit only; parent owns Cargo/test promotion.",
+    "test_result": "pdf-font372unit tests pass; font-descriptor-unit-target.log. Class-outline consumers can early-return on catalogue limitations; deterministic new collection matrix cannot.",
+    "parent_review": "Root read Tables122/123 andEC3#5, current glyph-class merge/selection and selected assertion bodies. Partial substitution review; external CID collection tables and profile validation not certified.",
+    "reviewer": "font_descriptor_cid_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented; collection-row test coverage incomplete",
+    "reviewer_verdict": "reader behavior present; Table 123 collection matrix needs a discriminating test; supplement handling is a scoped residual",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.3.3",
+    "feature_id": "fd_descriptor_restrictions_as_amended_by_ec3",
+    "requirement": "A class descriptor's keys are a subset of Table 120 keys and it must not contain embedded font files or Table 122 CIDFont-specific entries. This is a producer constraint; the clause does not direct a reader to reject malformed descriptors.",
+    "source_location": "ISO 32000-2 PDF physical p.363 (printed p.348), §9.8.3.3; Errata Collection 3 Issue #5 annotation physical p.364 (printed p.349)",
+    "errata": "Issue #5 inserts the subset-of-Table-120 wording, softens 'shall contain' to 'contains', and changes the forbidden-table reference from Table 120 to Table 122.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/substitute.rs::overridden (FORBIDDEN keys)"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/substitute.rs",
+      "crates/pdf-model/tests/panose.rs::the_corpuss_one_glyph_class_dictionary_states_what_the_clause_forbids"
+    ],
+    "verdict": "reader behavior supported; do not count validator rejection as required",
+    "evidence": "The merge ignores FontFile/2/3, Style, Lang, recursive FD, and CIDSet, keeping class substitution scoped to Table 120 attributes. The corpus test is an observation of the sole FD example and does not prove that malformed source must be rejected. EC3 #5 resolves the printed contradiction by changing the table reference; it does not create a reader-side validation mandate. Root places#5carets12308/12314/12322physical364/printed349: subsetTable120 and forbiddenTable122. overridehelper is code evidence, not a test.",
+    "test_command": "Not run: scratch audit only; parent owns Cargo/test promotion.",
+    "test_result": "pdf-font372unit tests pass; font-descriptor-unit-target.log. Class-outline consumers can early-return on catalogue limitations; deterministic new collection matrix cannot.",
+    "parent_review": "Root read Tables122/123 andEC3#5, current glyph-class merge/selection and selected assertion bodies. Partial substitution review; external CID collection tables and profile validation not certified.",
+    "reviewer": "font_descriptor_cid_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented reader override; producer-constraint validation not an ISO 32000 reader duty",
+    "reviewer_verdict": "reader behavior supported; do not count validator rejection as required",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.3.3",
+    "feature_id": "fd_should_recommend_proportional_latin_metrics",
+    "requirement": "FD should contain at least metrics for proportional Latin glyphs, to permit more accurate substitution.",
+    "source_location": "ISO 32000-2 PDF physical p.363 (printed p.348), §9.8.3.3",
+    "errata": "No applicable EC3 annotation identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/loading.rs::class_faces",
+      "crates/pdf-font/src/glyph_class.rs::tabulated"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/loading.rs::glyph_class_tests::a_glyph_class_descriptor_chooses_the_face_for_its_own_class_alone",
+      "crates/pdf-font/src/glyph_class.rs::the_clauses_own_example_states_two_classes_and_both_are_applied"
+    ],
+    "verdict": "optional recommendation; no reader debt",
+    "evidence": "The reader uses a proportional class override if present and applicable. Neither absence of that recommended class nor absence of metrics is an ISO 32000 reader rejection condition.",
+    "test_command": "Not run: scratch audit only; parent owns Cargo/test promotion.",
+    "test_result": "pdf-font372unit tests pass; font-descriptor-unit-target.log. Class-outline consumers can early-return on catalogue limitations; deterministic new collection matrix cannot.",
+    "parent_review": "Root read Tables122/123 andEC3#5, current glyph-class merge/selection and selected assertion bodies. Partial substitution review; external CID collection tables and profile validation not certified.",
+    "reviewer": "font_descriptor_cid_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "producer recommendation; not a reader condition",
+    "reviewer_verdict": "optional recommendation; no reader debt",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.3.3",
+    "feature_id": "table123_class_descriptions_and_uncertain_membership",
+    "requirement": "Table 123 descriptions: Alphabetic = full-width Latin/Greek/Cyrillic; AlphaNum = numeric; Dingbats = special symbols; Generic = typeface-independent symbols such as line-drawing; Hanzi/Kanji/Hanja/HojoKanji = collection-specific full-width ideographs; Hangul = Hangul and jamo; Kana = full-width Japanese kana; HKana = half-width kana; HRoman = half-width Latin; Proportional = proportional Latin; DingbatsRot, GenericRot, HKanaRot, HRomanRot, and ProportionalRot are corresponding glyph forms rotated for vertical writing; Ruby is small annotation glyphs. Classes described by code point can be distinguished in character-based substitution; Rot/Ruby form differences and Dingbats/Generic semantics cannot.",
+    "source_location": "ISO 32000-2 PDF physical pp.364–365 (printed pp.349–350), Table 123",
+    "errata": "No Table 123 change found under EC3 Issue #5.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/glyph_class.rs::membership",
+      "crates/pdf-font/src/glyph_class.rs::kind_of",
+      "crates/pdf-font/src/glyph_class.rs::Decision::read",
+      "crates/pdf-font/src/loading/substitution.rs::refused_glyph_classes"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/glyph_class.rs::a_character_is_the_kind_table_123_describes",
+      "crates/pdf-font/src/glyph_class.rs::two_classes_holding_one_kind_of_character_are_both_refused",
+      "crates/pdf-font/src/glyph_class.rs::a_class_no_character_decides_is_refused_by_name",
+      "crates/pdf-font/src/loading.rs::glyph_class_tests::a_class_no_character_decides_leaves_every_glyph_on_the_main_face"
+    ],
+    "verdict": "supported as a substitution policy; no ISO mandate to approximate undecidable CID membership",
+    "evidence": "The Unicode character decides only classes whose Table 123 description names a character category. Form-dependent and semantically underspecified classes are explicitly refused. Ambiguous overlap of proportional and half-width Latin is also refused. Refusal keeps the main font selection, and the loading test compares the unchanged control glyph.",
+    "test_command": "Not run: scratch audit only; parent owns Cargo/test promotion.",
+    "test_result": "pdf-font372unit tests pass; font-descriptor-unit-target.log. Class-outline consumers can early-return on catalogue limitations; deterministic new collection matrix cannot.",
+    "parent_review": "Root read Tables122/123 andEC3#5, current glyph-class merge/selection and selected assertion bodies. Partial substitution review; external CID collection tables and profile validation not certified.",
+    "reviewer": "font_descriptor_cid_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented with explicit refusal policy for unresolved classes",
+    "reviewer_verdict": "supported as a substitution policy; no ISO mandate to approximate undecidable CID membership",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.descriptor_scope",
+    "requirement": "Descriptors describe a simple font or CIDFont, not Type0 wrapper; from PDF1.5 they may also be used for Type3. Producer applicability rule, not reader-mandated rejection.",
+    "source_location": "ISO §9.8.1 opening paragraph; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change to applicability.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/loading.rs::load_composite",
+      "crates/pdf-font/src/loading/opening.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/selection_geometry.rs::a_type_3_fonts_box_is_the_em_box_in_text_space"
+    ],
+    "verdict": "partial-reader-behavior; producer-constraints-not-certified",
+    "evidence": "Composite loading reads the descendant CIDFont descriptor rather than Type0 wrapper; Type3 follows separate Table110 path. Test uses nonstandard FontMatrix and asserts box/advance. No invalid-wrapper rejection requirement was found.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-reader-behavior; producer-constraints-not-certified",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.dimensions_glyph_space",
+    "requirement": "All dimensional descriptor values are in glyph-space units; non-Type3 glyph space is 1000 units per text-space unit, Type3 uses its FontMatrix.",
+    "source_location": "ISO §9.8.1 opening paragraph plus §9.2.4; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/metrics.rs::EM",
+      "crates/pdf-font/src/metrics.rs::missing_width",
+      "crates/pdf-font/src/metrics.rs::vertical_extent",
+      "crates/pdf-model/src/type3.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/selection_geometry.rs::a_type_3_fonts_box_is_the_em_box_in_text_space"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Ordinary dimensional values use EM scaling; Type3 uses a separate FontMatrix path. Type3 test discriminates matrix application for advance from already-text-space selection box.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.type_field",
+    "requirement": "Table120 /Type is required and equals /FontDescriptor. Producer constraint; reader may recover dictionaries lacking it.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/loading.rs",
+      "crates/pdf-syntax/src"
+    ],
+    "test_refs": [],
+    "verdict": "no-independent-reader-requirement",
+    "evidence": "No validation enforcing /Type for page font loading was found; the table labels it as a writer requirement and gives no reader rejection instruction. Ledger groups this in the descriptor row; not independently tested as producer conformance here.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-reader-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.font_name",
+    "requirement": "Table120 /FontName is required and matches referring font /BaseFont; for Type3 EC3 #11 changes the comparison target to that font dictionary /Name.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "EC3 #11, physical p.358 / printed343: Type3 uses /Name; all other font dictionaries use /BaseFont.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs::embedded_program",
+      "crates/pdf-font/src/loading.rs"
+    ],
+    "test_refs": [],
+    "verdict": "code-supported-not-executed",
+    "evidence": "FontName selects a matching face in a TrueType collection. EC3 #11 changes the producer equality target for Type3 to Name. No reader rejection for missing/mismatched name was found, and no direct assertion for descriptor-name equality was located.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.font_family",
+    "requirement": "Optional since PDF1.5 byte string gives preferred family.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/rich_text/layout.rs::family_of"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/rich_text.rs::a_family_list_is_a_search_path_through_the_faces"
+    ],
+    "verdict": "partial",
+    "evidence": "Rich-text family matching checks descriptor /FontFamily at rich_text/layout.rs:617, then matching /DR face; the cited family-list assertion is adjacent public consumer coverage but does not isolate the descriptor /FontFamily field. Treat field-specific test coverage as incomplete.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.font_stretch",
+    "requirement": "Optional PDF1.5 /FontStretch is one of nine ordered names from UltraCondensed through UltraExpanded; interpretation varies by font.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/substitute.rs::Style::derive"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/substitute.rs::a_condensed_stretch_is_drawn_in_a_narrow_face"
+    ],
+    "verdict": "policy-characterized-with-producer-boundary",
+    "evidence": "Reader maps recognized stretch names into substitute width ranking; assertion checks a condensed request chooses a narrower installed face when one is available, otherwise skips. This is policy evidence, not conformance obligation.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "policy-characterized-with-producer-boundary",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.font_weight",
+    "requirement": "Optional PDF1.5 weight data; 400 normal and 700 bold. Effective type/range and nine class recommendations are amended by EC3; specific interpretation varies by font.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "EC3 #152 changes number to integer; #474 makes 1..1000 SHALL and nine hundreds SHOULD.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/substitute.rs::Style::derive",
+      "crates/pdf-font/src/substitute.rs::weight_stated"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/substitute.rs::a_font_weight_is_read_as_the_nearest_class"
+    ],
+    "verdict": "policy-characterized-with-producer-boundary",
+    "evidence": "Used only to rank substitutions. Test asserts 300 remains 300, 649 maps to 600, 1 maps to 100 and out-of-range 1001 uses default 400. Numeric noninteger tolerance is ADR0912, not producer conformance.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "policy-characterized-with-producer-boundary",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.flags_required",
+    "requirement": "/Flags is a required integer collection of characteristics, whose effective word interpretation is §9.8.2.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No §9.8.1 erratum; see §9.8.2.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/metrics.rs::descriptor_flags"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/metrics.rs::flag_tests::a_word_in_range_is_read_by_its_bits",
+      "crates/pdf-font/src/metrics.rs::flag_tests::a_word_outside_thirty_two_unsigned_bits_sets_nothing",
+      "crates/pdf-model/tests/rich_text.rs::a_flags_word_outside_thirty_two_unsigned_bits_states_no_style"
+    ],
+    "verdict": "partial-reader-behavior; producer-constraints-not-certified",
+    "evidence": "Shared reader uses valid u32 integer; absent/malformed field reads as no flags. Helper tests assert set and clear bits and malformed values; public rich-text assertion verifies an out-of-range value has no bold/italic effect. Required presence remains writer-side.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-reader-behavior; producer-constraints-not-certified",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.font_bbox",
+    "requirement": "/FontBBox is required except for Type3; the described box is in glyph coordinates and SHOULD be smallest rectangle enclosing the filled outlines of all glyphs.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [],
+    "test_refs": [],
+    "verdict": "no-independent-reader-requirement",
+    "evidence": "Ordinary Table120 descriptor FontBBox is not consumed by the page font loader or substitution path. Type3 uses its own Table110 FontBBox in redaction/drawing; that is a separate field rule, not evidence for this entry. Table120 smallest-box statement is a producer SHOULD and required presence is producer-side except Type3.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-reader-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.italic_angle",
+    "requirement": "Required angle in degrees from vertical; right-sloping fonts shall have negative angle.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/substitute.rs::Style::derive"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/substitute.rs::an_italic_angle_is_drawn_in_a_sloped_face"
+    ],
+    "verdict": "policy-characterized-with-producer-boundary",
+    "evidence": "ItalicAngle is consumed for substitute slope/style. Assertion checks a nonzero angle selects an italic face if available, otherwise skips; exact installed face is policy.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "policy-characterized-with-producer-boundary",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.ascent",
+    "requirement": "Required except Type3: maximum height above baseline, excluding accented-character glyph heights.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No direct erratum.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/metrics.rs::vertical_extent",
+      "crates/pdf-model/src/variable_text.rs::Metrics::read"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/ocr_text_layer.rs::the_selection_band_is_the_descriptors_not_the_outlines",
+      "crates/pdf-model/tests/selection_geometry.rs::a_measured_descriptor_is_believed_to_the_number"
+    ],
+    "verdict": "policy-characterized-with-producer-boundary",
+    "evidence": "Used for selection extent and variable text baseline. Assertions check coordinates against descriptor metrics, with hollow outline as discriminating control; plausibility band is ADR0216 reader policy, not table formula.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "policy-characterized-with-producer-boundary",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.descent",
+    "requirement": "Required except Type3: maximum depth below baseline; effective value must be <=0.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "EC3 #190 replaces negative-only with <=0 and inserts note that fonts may encode either sign but PDF expects negative.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/metrics.rs::measured_extent",
+      "crates/pdf-model/src/variable_text.rs::Metrics::read"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/selection_geometry.rs::a_positive_descent_is_the_depth_it_states",
+      "crates/pdf-model/tests/selection_geometry.rs::a_measured_descriptor_is_believed_to_the_number"
+    ],
+    "verdict": "policy-characterized-with-producer-boundary",
+    "evidence": "Zero accepted under amended table. Positive descent repair is not conformance; selection geometry test asserts coordinates and recovery. Variable text path has a separate baseline behavior not fully audited here.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "policy-characterized-with-producer-boundary",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.leading",
+    "requirement": "Optional inter-baseline spacing; default 0.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src"
+    ],
+    "test_refs": [],
+    "verdict": "no-independent-reader-requirement",
+    "evidence": "Search found no Table120 descriptor Leading read in font/layout code; text line leading comes from text-state TL. Optional substitute hint has no processor action mandated; no test is warranted as conformance assertion.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-reader-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.cap_height",
+    "requirement": "Required for fonts with Latin characters except Type3; vertical coordinate of flat capital top.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [],
+    "test_refs": [],
+    "verdict": "no-independent-reader-requirement",
+    "evidence": "CapHeight is not used in ordinary substitute selection per ADR0267 and the ledger note. ADR0216 considered but declines an Ascent>=CapHeight guard because corpus entries contradict it; writer condition remains. Type3 exception is explicit.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-reader-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.x_height",
+    "requirement": "Optional x-height metric for Latin fonts; default 0.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src"
+    ],
+    "test_refs": [],
+    "verdict": "no-independent-reader-requirement",
+    "evidence": "No consumer read found in assigned font paths; optional substitute information only. No reader operation or obligation follows from absence.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-reader-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.stem_v",
+    "requirement": "Required except Type3; horizontal thickness of dominant vertical stems; positive values; zero means unknown.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/substitute.rs::weight_from_stem"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/substitute.rs::a_stem_as_thick_as_a_bold_ones_is_drawn_in_a_bold_face",
+      "crates/pdf-font/src/substitute.rs::a_stem_is_bold_from_one_hundred_and_twenty"
+    ],
+    "verdict": "policy-characterized-with-producer-boundary",
+    "evidence": "Fallback substitute bold classification consumes StemV only when name, FontWeight, and PANOSE provide no weight; zero is unknown. Assertions check bold/nonbold threshold behavior but are host-font-catalogue dependent and skip if a suitable face is unavailable; threshold is documented project choice. Parent distinguishes pure weight_from_stem threshold test (deterministic) from installed-face consumer tests (may return early).",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "policy-characterized-with-producer-boundary",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.stem_h",
+    "requirement": "Optional vertical thickness of dominant horizontal stems; positive; zero unknown; default 0.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [],
+    "test_refs": [],
+    "verdict": "no-independent-reader-requirement",
+    "evidence": "No ordinary page-reader consumer found in selected paths; optional descriptive metric. Archive checks of font embedding or synthesis are not part of this field audit.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-reader-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.avg_width",
+    "requirement": "Optional average glyph width; default 0.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [],
+    "test_refs": [],
+    "verdict": "no-independent-reader-requirement",
+    "evidence": "No current consumer found; optional descriptive metric and no text positioning role. ADR0358 considers it as evidence in a substitution stretch calculation but does not use AvgWidth to compute that result.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-reader-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.max_width",
+    "requirement": "Optional maximum glyph width; default 0.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [],
+    "test_refs": [],
+    "verdict": "no-independent-reader-requirement",
+    "evidence": "No current consumer found; optional substitute hint only.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-reader-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.missing_width",
+    "requirement": "Optional simple-font fallback width for codes not covered by Widths; effective text says predictable results require all such codes map to glyphs whose actual width matches MissingWidth, otherwise results are implementation dependent; default 0.",
+    "source_location": "ISO §9.8.1 Table120 and §9.6.2.1 Table109; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "EC3 #453, physical page 360/printed page 345, replaces “shall have a predictable effect only if” with “To ensure predictable results … otherwise results are implementation dependent.” Inconsistent glyph widths do not dictate one reader result.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/metrics.rs::missing_width",
+      "crates/pdf-font/src/loading.rs simple metrics"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/refused_font_metrics.rs::a_refused_program_falls_back_to_the_stated_missing_width",
+      "crates/pdf-model/tests/refused_font_metrics.rs::a_refused_program_stating_no_width_advances_by_nothing"
+    ],
+    "verdict": "policy-characterized-with-producer-boundary",
+    "evidence": "Reader uses stated value or zero and public consumer tests assert following glyph x positions. Tests use malformed embedded font and no xref: recovery evidence, not valid-input conformance. Table120 caveat makes inconsistent actual glyph width results implementation-dependent after #453. Width-array bounds delegated to separate audit.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "policy-characterized-with-producer-boundary",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.font_program_key_exclusivity",
+    "requirement": "At most one of FontFile, FontFile2, FontFile3 may be present.",
+    "source_location": "ISO §9.8.1 Table120 trailing sentence; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 correction found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs::embedded_program",
+      "crates/pdf-archive/src/table/fonts.rs"
+    ],
+    "test_refs": [],
+    "verdict": "no-independent-reader-requirement",
+    "evidence": "The at-most-one condition is a producer constraint. Reader dispatch can choose among keys but no processor rejection requirement appears in Table120; no assertion enforcing multiple-key rejection was located. Archive checks format/existence of programs, not this constraint.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-reader-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.fontfile",
+    "requirement": "Optional stream containing Type1 program; see §9.9.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs::embedded_program",
+      "crates/pdf-font/src/type1.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/program.rs::a_font_file_that_really_is_type_1_is_untouched"
+    ],
+    "verdict": "partial-program-route",
+    "evidence": "Program route reads Type1 stream under FontFile. Test checks raw valid Type1 stream bytes stay intact; Table120 optionality and mutual exclusion are writer-side. Program helper citations do not independently prove every dictionary dispatch/format condition. Full9.9 audit is separate.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-program-route",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.fontfile2",
+    "requirement": "Optional since PDF1.1 TrueType program stream; see §9.9.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs::embedded_program",
+      "crates/pdf-font/src/sfnt.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/program.rs::a_font_program_that_reaches_its_stated_length_survives_a_truncated_filter",
+      "crates/pdf-font/src/program.rs::a_font_file_that_really_is_type_1_is_untouched"
+    ],
+    "verdict": "partial-program-route",
+    "evidence": "FontFile2 route dispatches TrueType parser; separate parser/extent tests exercise decoding, not Table120 mutual-exclusion conformance. Program helper citations do not independently prove every dictionary dispatch/format condition. Full9.9 audit is separate.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-program-route",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.fontfile3",
+    "requirement": "Optional since PDF1.2 program stream whose format is given by stream Subtype; see §9.9 Table124.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/program.rs::embedded_program"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/program.rs::a_font_file_whose_bytes_are_a_cff_is_read_as_one"
+    ],
+    "verdict": "partial-program-route",
+    "evidence": "Reader identifies program by stream subtype/content and routes to CFF/OpenType parser. Parser test covers a CFF-valued stream; subtype and exclusivity writer constraints are not validated by this test. Program helper citations do not independently prove every dictionary dispatch/format condition. Full9.9 audit is separate.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-program-route",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.charset",
+    "requirement": "Optional Type1-only (meaningful only Type1), deprecated PDF2.0; lists subset glyph names in PDF name syntax, excluding .notdef; if absent, subset status is indicated only by the FontName subset tag.",
+    "source_location": "ISO §9.8.1 Table120; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-archive/src/table/fonts.rs::charset"
+    ],
+    "test_refs": [
+      "crates/pdf-archive/src/table/fonts.rs::charset_lists_every_glyph_in_the_program",
+      "crates/pdf-archive/src/table/fonts.rs::a_charset_string_is_read_as_names_and_an_unreadable_one_is_not_an_empty_set"
+    ],
+    "verdict": "partial",
+    "evidence": "Page interpretation does not rely on CharSet; archive conformance validator checks complete Type1 subset glyph-name claims and name syntax. This is a separate validator route, and deprecated/Type1 scope is retained.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.1",
+    "feature_id": "9.8.1.examples_and_note",
+    "requirement": "Examples illustrate metric values; font attributes enable synthesis/similar-font selection, but table does not require a particular substitute algorithm.",
+    "source_location": "ISO §9.8.1 introductory text and Examples; ISO 32000-2 §9.8.1 Table 120; doc/md/ISO_32000-2_sponsored_EC3.md:8338-8380; physical PDF pp. 358-359, printed pp. 343-344",
+    "errata": "No EC3 change beyond item-specific annotations above.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/substitute.rs"
+    ],
+    "test_refs": [],
+    "verdict": "no-independent-requirement",
+    "evidence": "Purpose sentence is enabling, and examples are explanatory. Exact face ranking is an implementation choice; ledger note and ADR1441 document it.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.2",
+    "feature_id": "9.8.2.flags_range_and_bit_order",
+    "requirement": "Flags must be unsigned 32-bit integer; bit 1 is low-order and bit32 high-order; writers zero undefined reserved bits.",
+    "source_location": "ISO §9.8.2 first paragraph; ISO 32000-2 §9.8.2 Table 121 and following text; doc/md/ISO_32000-2_sponsored_EC3.md:8395-8420; physical PDF pp. 360-361, printed pp. 345-346",
+    "errata": "No EC3 annotation.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/metrics.rs::descriptor_flags"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/metrics.rs::flag_tests::a_word_in_range_is_read_by_its_bits",
+      "crates/pdf-font/src/metrics.rs::flag_tests::a_word_outside_thirty_two_unsigned_bits_sets_nothing"
+    ],
+    "verdict": "partial-reader-behavior; producer-constraints-not-certified",
+    "evidence": "Reader accepts u32 range and bit uses position-1. Tests assert flags 4/32 map to positions 3/6, and negative, over-wide and real values are treated as absent. Reserved bits zero is writer-side.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-reader-behavior; producer-constraints-not-certified",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.2",
+    "feature_id": "9.8.2.flag_fixed_pitch",
+    "requirement": "Table121 bit 1 FixedPitch: All glyphs same width.",
+    "source_location": "ISO §9.8.2 Table121; ISO 32000-2 §9.8.2 Table 121 and following text; doc/md/ISO_32000-2_sponsored_EC3.md:8395-8420; physical PDF pp. 360-361, printed pp. 345-346",
+    "errata": "No EC3 annotation.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/substitute.rs::family_of"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/substitute.rs::a_fixed_pitch_flag_is_drawn_in_a_fixed_pitch_face"
+    ],
+    "verdict": "partial",
+    "evidence": "Bit 1 can choose Monospace only after name/PANOSE signals; test checks chosen face reports fixed pitch if host catalogue offers one, otherwise skips.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.2",
+    "feature_id": "9.8.2.flag_serif",
+    "requirement": "Table121 bit 2 Serif: Glyphs have serifs.",
+    "source_location": "ISO §9.8.2 Table121; ISO 32000-2 §9.8.2 Table 121 and following text; doc/md/ISO_32000-2_sponsored_EC3.md:8395-8420; physical PDF pp. 360-361, printed pp. 345-346",
+    "errata": "No EC3 annotation.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/substitute.rs::family_of"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/substitute.rs::a_serif_flag_is_drawn_in_a_serifed_face"
+    ],
+    "verdict": "partial",
+    "evidence": "Bit 2 can choose Serif if name/PANOSE did not decide; test asserts serif face and sans control when available, otherwise skips.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.2",
+    "feature_id": "9.8.2.flag_symbolic",
+    "requirement": "Table121 bit 3 Symbolic: Glyph set outside Standard Latin; must not contradict Nonsymbolic.",
+    "source_location": "ISO §9.8.2 Table121; ISO 32000-2 §9.8.2 Table 121 and following text; doc/md/ISO_32000-2_sponsored_EC3.md:8395-8420; physical PDF pp. 360-361, printed pp. 345-346",
+    "errata": "No EC3 annotation.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/truetype.rs::is_symbolic",
+      "crates/pdf-font/src/substitute.rs::family_of"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/metrics.rs::flag_tests::a_word_in_range_is_read_by_its_bits",
+      "crates/pdf-font/src/name_keyed.rs::the_symbolic_flag_changes_nothing_for_an_embedded_program"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Processor SHOULD check bit3 alone; embedding and substitution consumers differ. ADR0039 and ADR0158 reviewed.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.2",
+    "feature_id": "9.8.2.flag_script",
+    "requirement": "Table121 bit 4 Script: Glyphs resemble cursive handwriting.",
+    "source_location": "ISO §9.8.2 Table121; ISO 32000-2 §9.8.2 Table 121 and following text; doc/md/ISO_32000-2_sponsored_EC3.md:8395-8420; physical PDF pp. 360-361, printed pp. 345-346",
+    "errata": "No EC3 annotation.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/metrics.rs::descriptor_flags"
+    ],
+    "test_refs": [],
+    "verdict": "no-independent-reader-requirement",
+    "evidence": "No specific reader branch found; trait description alone gives no processor obligation.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-reader-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.2",
+    "feature_id": "9.8.2.flag_nonsymbolic",
+    "requirement": "Table121 bit 6 Nonsymbolic: Standard Latin character set or subset; standard glyph names; classification affects default encoding and may affect substitution.",
+    "source_location": "ISO §9.8.2 Table121; ISO 32000-2 §9.8.2 Table 121 and following text; doc/md/ISO_32000-2_sponsored_EC3.md:8395-8420; physical PDF pp. 360-361, printed pp. 345-346",
+    "errata": "No EC3 annotation.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/substitute.rs::family_of",
+      "crates/pdf-font/src/truetype.rs::is_symbolic"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/substitute.rs::a_document_that_states_latin_codes_is_not_given_a_symbolic_substitute"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Bit6 supplies the inverse compatibility signal for substitution, but when conflicting the processor follows bit3. Embedded built-in encoding follows separate rule.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.2",
+    "feature_id": "9.8.2.flag_italic",
+    "requirement": "Table121 bit 7 Italic: Dominant vertical strokes slanted.",
+    "source_location": "ISO §9.8.2 Table121; ISO 32000-2 §9.8.2 Table 121 and following text; doc/md/ISO_32000-2_sponsored_EC3.md:8395-8420; physical PDF pp. 360-361, printed pp. 345-346",
+    "errata": "No EC3 annotation.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/substitute.rs::Style::derive",
+      "crates/pdf-model/src/rich_text/layout.rs::family_of"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/substitute.rs::an_italic_angle_is_drawn_in_a_sloped_face"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "Bit7 participates in substitution/rich-text style. The cited italic-angle assertion exercises angle, not bit7 itself; no direct valid Flags=64 versus Flags=32 output assertion located.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.2",
+    "feature_id": "9.8.2.flag_allcap",
+    "requirement": "Table121 bit 17 AllCap: Font contains no lowercase letters; typically display titles/headlines.",
+    "source_location": "ISO §9.8.2 Table121; ISO 32000-2 §9.8.2 Table 121 and following text; doc/md/ISO_32000-2_sponsored_EC3.md:8395-8420; physical PDF pp. 360-361, printed pp. 345-346",
+    "errata": "No EC3 annotation.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/metrics.rs::descriptor_flags"
+    ],
+    "test_refs": [],
+    "verdict": "no-independent-reader-requirement",
+    "evidence": "No reader action located; descriptive flag only.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-reader-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.2",
+    "feature_id": "9.8.2.flag_smallcap",
+    "requirement": "Table121 bit 18 SmallCap: Font contains uppercase/lowercase forms where lowercase glyphs resemble resized uppercase glyphs.",
+    "source_location": "ISO §9.8.2 Table121; ISO 32000-2 §9.8.2 Table 121 and following text; doc/md/ISO_32000-2_sponsored_EC3.md:8395-8420; physical PDF pp. 360-361, printed pp. 345-346",
+    "errata": "No EC3 annotation.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/metrics.rs::descriptor_flags"
+    ],
+    "test_refs": [],
+    "verdict": "no-independent-reader-requirement",
+    "evidence": "No reader action located; descriptive flag only.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-reader-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.2",
+    "feature_id": "9.8.2.flag_forcebold",
+    "requirement": "Table121 bit 19 ForceBold: Forces decision whether bold glyphs paint extra pixels at very small sizes; if set, bold features may be thickened.",
+    "source_location": "ISO §9.8.2 Table121; ISO 32000-2 §9.8.2 Table 121 and following text; doc/md/ISO_32000-2_sponsored_EC3.md:8395-8420; physical PDF pp. 360-361, printed pp. 345-346",
+    "errata": "No EC3 annotation.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/substitute.rs::Style::derive",
+      "crates/pdf-model/src/rich_text/layout.rs::family_of"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/rich_text.rs::a_flags_word_outside_thirty_two_unsigned_bits_states_no_style"
+    ],
+    "verdict": "ambiguous",
+    "evidence": "Current code uses ForceBold bit to elevate substitute and rich-text style to bold, but no renderer/raster path receives a ForceBold state and the cited public test checks malformed flags as absent, not valid bit 19. No assertion observes extra-pixel painting at tiny text sizes. Since thickening is explicitly MAY, a test requiring thickened output would overstate conformance; no deterministic, non-platform-specific consumer regression is justified. Escalate as behavior/policy ambiguity.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "remaining_work": "Unresolved: SHALL use flag to determine extra-pixel decision versus MAY thicken. Current substitute/rich-style weight is not evidence of low-resolution raster decision. Do not require arbitrary golden thickening.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "ambiguous",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.2",
+    "feature_id": "9.8.2.symbolic_classification_constraints",
+    "requirement": "Symbolic and Nonsymbolic shall not both be set or both clear; characters beyond Standard Latin imply Symbolic. Processor SHOULD always use Symbolic to choose state; writers SHOULD set inverse Nonsymbolic for compatibility. NOTE1 states PDF classification treats extended Latin characters outside Standard Latin as symbolic.",
+    "source_location": "ISO §9.8.2 Table121 and following paragraphs; ISO 32000-2 §9.8.2 Table 121 and following text; doc/md/ISO_32000-2_sponsored_EC3.md:8395-8420; physical PDF pp. 360-361, printed pp. 345-346",
+    "errata": "No EC3 annotation.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/truetype.rs::is_symbolic",
+      "crates/pdf-font/src/substitute.rs::family_of"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/metrics.rs::flag_tests::a_word_in_range_is_read_by_its_bits",
+      "crates/pdf-font/src/substitute.rs::a_document_that_states_latin_codes_is_not_given_a_symbolic_substitute",
+      "crates/pdf-font/src/truetype_flags_audit.rs::a_conflicting_flags_word_follows_symbolic_with_route_controls"
+    ],
+    "verdict": "partial",
+    "evidence": "Code reads Symbolic bit alone for TrueType and Nonsymbolic for Latin-code evidence/substitute selection. Tests cover individual flags and Latin encoding vs Symbol-like name. No test asserts the conflicting both-set word that ADR0039 uses as its witness; the processor SHOULD is implemented directly, but assertion adequacy remains partial. New synthetic cmap unit passes: code0x41 mapsglyph7 withSymbolic,9withNonsymbolic,7withbothset36. No system font and distinct routes make assertion discriminating. Minimal descriptor is deliberately partial; both-set is invalid producer input, recommendation/recovery evidence only.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.2",
+    "feature_id": "9.8.2.forcebold_note_and_figure",
+    "requirement": "NOTE2 explains the low-resolution minimum pixel-width rationale; Figure63 and example Flags 262178 illustrate bit states, not independent processing obligations.",
+    "source_location": "ISO §9.8.2 NOTE2, Figure63, example; ISO 32000-2 §9.8.2 Table 121 and following text; doc/md/ISO_32000-2_sponsored_EC3.md:8395-8420; physical PDF pp. 360-361, printed pp. 345-346",
+    "errata": "No EC3 annotation.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/substitute.rs::Style::derive"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/rich_text.rs"
+    ],
+    "verdict": "no-independent-requirement",
+    "evidence": "Explanatory note and illustration do not add a separate operation. ForceBold behavior is separately tracked in 9.8.2.flag_forcebold.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.3.1",
+    "feature_id": "9.8.3.1.table122_style",
+    "requirement": "Table122 optional /Style dictionary describes style attributes; only /Panose is defined in §9.8.3.2.",
+    "source_location": "ISO §9.8.3.1 Table122; ISO 32000-2 §9.8.3.1 Table 122; doc/md/ISO_32000-2_sponsored_EC3.md:8478-8485; physical PDF p. 363, printed p. 348",
+    "errata": "No Table122 annotation; EC3 #5 changes FD restriction sentence, not this entry.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/substitute.rs::panose"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/panose.rs::the_clauses_own_example_classifies_a_light_serif_face",
+      "crates/pdf-model/tests/panose.rs::a_panose_number_changes_the_substitute_for_some_fonts_and_not_others"
+    ],
+    "verdict": "cross-reference-partial",
+    "evidence": "Table entry enumerated; existing ledger maps Panose substitution and assertions. §9.8.3.2 detail remains explicitly pending in this shard. See separately parent-reviewed font_descriptor_cid_audit for boundedTable122/Panose/FD review. No exhaustive§9.8 certification.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "cross-reference-partial",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.3.1",
+    "feature_id": "9.8.3.1.table122_lang",
+    "requirement": "Table122 optional PDF1.5 /Lang name is a BCP47 Language-Tag; absence alone conveys no information about document language.",
+    "source_location": "ISO §9.8.3.1 Table122; ISO 32000-2 §9.8.3.1 Table 122; doc/md/ISO_32000-2_sponsored_EC3.md:8478-8485; physical PDF p. 363, printed p. 348",
+    "errata": "No Table122 annotation.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/substitute.rs::language_tag",
+      "crates/pdf-font/src/substituted.rs::script_sample"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/substitute.rs::a_language_tag_is_read_case_insensitively_and_only_as_far_as_its_primary_subtag",
+      "crates/pdf-font/src/substituted.rs::an_identity_ordering_takes_its_script_from_table_122s_lang"
+    ],
+    "verdict": "cross-reference-partial",
+    "evidence": "Entry enumerated and mapped to existing ledger assertions; §9.8.3.1 language/substitution semantics remain explicitly pending in this shard. See separately parent-reviewed font_descriptor_cid_audit for boundedTable122/Panose/FD review. No exhaustive§9.8 certification.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "cross-reference-partial",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.3.1",
+    "feature_id": "9.8.3.1.table122_fd",
+    "requirement": "Table122 optional /FD maps glyph-class names to descriptor dictionaries whose values override corresponding main descriptor values for that class.",
+    "source_location": "ISO §9.8.3.1 Table122; ISO 32000-2 §9.8.3.1 Table 122; doc/md/ISO_32000-2_sponsored_EC3.md:8478-8485; physical PDF p. 363, printed p. 348",
+    "errata": "EC3 #5 corrects §9.8.3.3 restriction on keys within FD values; does not alter Table122 overriding sentence.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-font/src/loading.rs::class_faces",
+      "crates/pdf-font/src/substitute.rs::overridden"
+    ],
+    "test_refs": [
+      "crates/pdf-font/src/loading.rs::a_glyph_class_descriptor_chooses_the_face_for_its_own_class_alone",
+      "crates/pdf-font/src/glyph_class.rs::the_clauses_own_example_states_two_classes_and_both_are_applied"
+    ],
+    "verdict": "cross-reference-partial",
+    "evidence": "Entry enumerated; override behavior has an earlier parent review, but this extension leaves §9.8.3.3 class mapping semantics pending and does not reaccept it. See separately parent-reviewed font_descriptor_cid_audit for boundedTable122/Panose/FD review. No exhaustive§9.8 certification.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "cross-reference-partial",
+    "superseded": false
+  },
+  {
+    "clause": "9.8.3.1",
+    "feature_id": "9.8.3.1.table122_cidset",
+    "requirement": "Table122 optional CIDSet stream is deprecated in PDF2.0; if present it identifies subset CIDs, and every bit is indexed by CID, with high-order bit first in each byte beginning at CID0. If absent, subset indication is only the FontName subset tag.",
+    "source_location": "ISO §9.8.3.1 Table122; ISO 32000-2 §9.8.3.1 Table 122; doc/md/ISO_32000-2_sponsored_EC3.md:8478-8485; physical PDF p. 363, printed p. 348",
+    "errata": "No Table122 annotation; PDF2.0 deprecates key.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-archive/src/table/fonts.rs CIDSet validator",
+      "crates/pdf-font/src/restate.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-archive/src/table/fonts.rs::cidset_lists_every_cid_in_the_program"
+    ],
+    "verdict": "cross-reference-partial",
+    "evidence": "Entry enumerated; archive validator checks present subset claims. Full §9.8.3.1 bit-table and subset semantics and assertion adequacy remain pending by scope. See separately parent-reviewed font_descriptor_cid_audit for boundedTable122/Panose/FD review. No exhaustive§9.8 certification.",
+    "test_command": "cargo test -p pdf-font --lib",
+    "test_result": "372pass, font-descriptor-unit-target.log. Host-dependent tests may early-return; this count is execution, not proof of every asserted branch.",
+    "parent_review": "Parent and independent Luna peer reviewed effective Tables120/121, source/errata, selected code/assertions/ADRs. Writer-required entries/reserved bits/exclusivity are inventoried, not producer-certified;370+2unit executions do not imply all branches exercised.",
+    "reviewer": "font_descriptors_audit",
+    "parent_review_state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "cross-reference-partial",
     "superseded": false
   },
   {
@@ -24403,7 +26055,7 @@
     "verdict": "confirmed",
     "evidence": "Presentation mode is an explicit host-driven command. The core does not infer presentation from fullscreen. The referenced test sends PresentationMode::Off and demonstrates arrow navigation goes to the next page without applying the page's OCG node action. Host entry implementations are distinct; this audit did not replay every native host interaction.",
     "test_command": "not run; audit only",
-    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
@@ -24431,7 +26083,7 @@
     "verdict": "confirmed",
     "evidence": "Core test asserts automatic advance after accumulated tick duration, and host clock test asserts ticks do not accrue during a transition, then resume after /D. Existing tests also assert transition frame contains outgoing/incoming pages. `/Dur` absence behavior is covered in core transition/headless tests; no host-specific manual timing measurement was performed here.",
     "test_command": "not run; audit only",
-    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
@@ -24460,7 +26112,7 @@
     "verdict": "confirmed",
     "evidence": "The manual page-turn test reads Event::Transition and asserts the target page's /Wipe appears only while presentation is on. Headless frame test rasterizes at halfway and checks both faces, while endpoint test compares final frame to the incoming raster byte-for-byte. Host Clock::frame computes elapsed / transition.duration and ends at fraction >=1.0.",
     "test_command": "not run; audit only",
-    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
@@ -24484,12 +26136,13 @@
     "test_refs": [
       "crates/pdf-model/src/navigation.rs::the_clauses_own_example_page_states_a_split_and_five_seconds",
       "crates/viewer-core/src/transition.rs::the_report_fires_on_exactly_what_is_not_drawn",
-      "crates/viewer-core/src/transition.rs::a_style_drawn_at_a_chosen_quantity_says_the_quantity_is_ours"
+      "crates/viewer-core/src/transition.rs::a_style_drawn_at_a_chosen_quantity_says_the_quantity_is_ours",
+      "crates/viewer-core/tests/presentations_audit.rs::fly_motion_default_and_explicit_outward_are_delivered_to_the_host"
     ],
     "verdict": "partial",
     "evidence": "Parent rejects the draft blanket confirmation from one explicit example. Four new integration tests cover selected defaults and controls through Event::Transition, not all twelve rendered effects or every applicability combination. Separate records below distinguish entries. Existing core frame assertions cover selected geometry and endpoints.",
     "test_command": "not run; audit only",
-    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
@@ -24517,7 +26170,7 @@
     "verdict": "confirmed",
     "evidence": "Tests verify the selected geometry and reporting, not a numeric quantity mandated by ISO. ADR 1299 records A72's owner-authorized choice of quantities: eight Blinds lines, forty Dissolve cells on the long edge, Glitter width 0.25, and changed-pixel bounding rectangle for Fly. Those are implementation choices and reported as such, not standards minima.",
     "test_command": "not run; audit only",
-    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
@@ -24542,7 +26195,7 @@
     "verdict": "confirmed",
     "evidence": "The clock test starts a two-second transition, verifies a tick during playback returns None, ends the transition, then verifies the arriving page receives a fresh 500 ms tick. Assertion discriminates a clock that counted transition time against one that restarted after the effect.",
     "test_command": "not run; audit only",
-    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
@@ -24567,12 +26220,13 @@
       "crates/viewer-core/tests/sub_page_navigation.rs::a_forward_request_walks_a_pages_states_before_it_turns_the_page",
       "crates/viewer-core/tests/sub_page_navigation.rs::a_backward_request_undoes_a_state_and_then_leaves_the_page",
       "crates/viewer-core/tests/sub_page_navigation.rs::a_navigation_nodes_own_duration_advances_it_and_its_absence_does_not",
-      "crates/viewer-core/tests/presentations_audit.rs::navigation_node_duration_runs_at_its_maximum_without_a_page_duration"
+      "crates/viewer-core/tests/presentations_audit.rs::navigation_node_duration_runs_at_its_maximum_without_a_page_duration",
+      "crates/viewer-core/tests/presentations_audit.rs::a_timed_middle_node_selects_its_successor_by_its_maximum_without_page_dur"
     ],
     "verdict": "confirmed",
-    "evidence": "Existing body assertions inspect OCG state changes for forward NA and backward PA and node transitions; the timer test verifies absent duration stays idle and a stated duration advances a node. Source PDF layout shows Key=/Type, Type=name, not a /name entry; reader can identify node by reachability from PresSteps without requiring optional /Type.",
+    "evidence": "Existing body assertions inspect OCG state changes for forward NA and backward PA and node transitions; the timer test verifies absent duration stays idle and a stated duration advances a node. Source PDF layout shows Key=/Type, Type=name, not a /name entry; reader can identify node by reachability from PresSteps without requiring optional /Type. Peer correction: original timed node is terminal, so its NA action does not prove successor selection; below2s no-action is exact-timing product policy because Dur states a maximum. New middle-node test proves selection via later distinct successor action.",
     "test_command": "not run; audit only",
-    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
@@ -24598,7 +26252,7 @@
     "verdict": "confirmed",
     "evidence": "Existing forward test asserts node one action and then node two action, with expected page unchanged while a successor exists; backward test asserts second node's PA precedes return to first and then first PA. Action order is observable in OCG layer state.",
     "test_command": "not run; audit only",
-    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
@@ -24623,7 +26277,7 @@
     "verdict": "confirmed",
     "evidence": "The off-mode test opens a fixture with OCG node actions, sends next, and asserts page index changes while the OCG remains off. This proves the selected permission path rather than merely parsing PresentationMode.",
     "test_command": "not run; audit only",
-    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
@@ -24649,7 +26303,7 @@
     "verdict": "confirmed",
     "evidence": "Test starts with both OCGs off, runs node action to turn one on, leaves presentation and asserts it is off again. It reaches the public command path and checks layer state, not only a snapshot helper. This confirms adopted guidance, not a standalone normative requirement introduced by a NOTE.",
     "test_command": "not run; audit only",
-    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
@@ -24670,12 +26324,13 @@
     ],
     "test_refs": [
       "crates/viewer-core/tests/presentations_audit.rs::random_access_arrival_runs_primary_action_then_selects_next_node",
-      "crates/viewer-core/tests/presentations_audit.rs::navigation_node_duration_runs_at_its_maximum_without_a_page_duration"
+      "crates/viewer-core/tests/presentations_audit.rs::navigation_node_duration_runs_at_its_maximum_without_a_page_duration",
+      "crates/viewer-core/tests/presentations_audit.rs::a_timed_middle_node_selects_its_successor_by_its_maximum_without_page_dur"
     ],
     "verdict": "partial-confirmed-with-new-test",
-    "evidence": "Complete three-page fixture: random arrival at a two-node page runs primary NA once, leaves second NA idle, then Previous runs second PA without leaving. Separate last-page arrival advances second NA at its maximum2s without page Dur. This closes the selected random-access gap; backward arrival and terminal one-node arrival remain separate.",
+    "evidence": "Complete three-page fixture: random arrival at a two-node page runs primary NA once, leaves second NA idle, then Previous runs second PA without leaving. Separate last-page arrival advances second NA at its maximum2s without page Dur. This closes the selected random-access gap; backward arrival and terminal one-node arrival remain separate. Peer correction: original timed node is terminal, so its NA action does not prove successor selection; below2s no-action is exact-timing product policy because Dur states a maximum. New middle-node test proves selection via later distinct successor action.",
     "test_command": "scratch-only; not run",
-    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
@@ -24703,7 +26358,7 @@
     "verdict": "confirmed",
     "evidence": "The base clause omits behavior when Next/Prev is absent. The effective Completed EC3 additions settle the missing branch. Public tests assert running the last node with a next page advances on the same request and running off the front on the first page retains the node; implementation uses page bounds to advance if one exists and leaves node position intact at document ends. The separate page-arrival composition is not covered by that evidence. `doc/errata-read.md` explicitly says Review/Completed and Review/Accepted changes are binding, so Text subtype alone is not grounds to discount these corrections.",
     "test_command": "not run; audit only",
-    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
@@ -24726,7 +26381,7 @@
     "verdict": "ambiguous",
     "evidence": "`arrived` calls step, then returns only its actions and drops `Step::onward`; its comment says step (c) requires the requested incoming page to remain visible. The effective #304 sentence can also be read as requiring the same absent-Next page turn because arrival says execute as previously. The source sequence has both instructions and the supplied materials do not settle whether this onward turn is suppressed on arrival. Existing tests do not cover a destination page with a terminal node. Do not assert a conformance failure until the interaction is resolved.",
     "test_command": "not run; audit only",
-    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
@@ -24749,7 +26404,7 @@
     "test_refs": [],
     "verdict": "producer-constraint",
     "evidence": "The dictionary is reached through page Trans; absence is valid. No new reader-rejection obligation inferred from producer Type constraint.",
-    "test_result": "New presentations target4passed; existing relevant core/model/host targets passed wave10.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
     "reviewer_ledger_status": "implemented",
@@ -24773,7 +26428,7 @@
     ],
     "verdict": "confirmed",
     "evidence": "New test covers omitted S with omitted D and D99, and explicit R/D99; all deliver Replace with zero effect duration.",
-    "test_result": "New presentations target4passed; existing relevant core/model/host targets passed wave10.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
     "reviewer_ledger_status": "implemented",
@@ -24797,7 +26452,7 @@
     ],
     "verdict": "confirmed",
     "evidence": "Split with omitted D delivers1s; explicit D3 delivers3s. This proves metadata propagation, not native elapsed-time precision.",
-    "test_result": "New presentations target4passed; existing relevant core/model/host targets passed wave10.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
     "reviewer_ledger_status": "implemented",
@@ -24817,11 +26472,12 @@
       "crates/viewer-core/src/transition.rs"
     ],
     "test_refs": [
-      "crates/viewer-core/tests/presentations_audit.rs::transition_defaults_are_delivered_to_the_host_for_the_styles_that_use_them"
+      "crates/viewer-core/tests/presentations_audit.rs::transition_defaults_are_delivered_to_the_host_for_the_styles_that_use_them",
+      "crates/viewer-core/tests/presentations_audit.rs::fly_motion_default_and_explicit_outward_are_delivered_to_the_host"
     ],
     "verdict": "partial",
     "evidence": "New Split defaultH/I and explicitV/O assertions pass. Shared parser path supports the other listed styles; full per-style conditional applicability matrix remains unreviewed.",
-    "test_result": "New presentations target4passed; existing relevant core/model/host targets passed wave10.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
     "reviewer_ledger_status": "implemented",
@@ -24845,7 +26501,7 @@
     ],
     "verdict": "partial",
     "evidence": "Wipe omittedDi0 and explicit180 pass. Fly None/SS0.5 passes. Fractional numeric recovery is deliberately tolerated by the parser; no mandatory rejection is inferred. Allowed-direction geometry and all style-condition combinations remain partial.",
-    "test_result": "New presentations target4passed; existing relevant core/model/host targets passed wave10.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
     "reviewer_ledger_status": "implemented",
@@ -24865,11 +26521,12 @@
       "crates/viewer-core/src/transition.rs"
     ],
     "test_refs": [
-      "crates/viewer-core/tests/presentations_audit.rs::transition_defaults_are_delivered_to_the_host_for_the_styles_that_use_them"
+      "crates/viewer-core/tests/presentations_audit.rs::transition_defaults_are_delivered_to_the_host_for_the_styles_that_use_them",
+      "crates/viewer-core/tests/presentations_audit.rs::fly_motion_default_and_explicit_outward_are_delivered_to_the_host"
     ],
     "verdict": "partial",
     "evidence": "New consumer metadata test asserts default1/false and explicit0.5/true/None. Existing Fly pixel tests provide separate visual evidence; this test alone does not establish flown-image correctness.",
-    "test_result": "New presentations target4passed; existing relevant core/model/host targets passed wave10.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
     "reviewer_ledger_status": "implemented",
@@ -24891,11 +26548,32 @@
     "test_refs": [],
     "verdict": "unreviewed",
     "evidence": "Retained as an independent conditional requirement/recommendation. Existing architecture distinguishes action navigation from list exhaustion, but this pass adds no discriminating redirect/arrival test. Follow-up should prevent double page-turns.",
-    "test_result": "New presentations target4passed; existing relevant core/model/host targets passed wave10.",
+    "test_result": "7pass, presentations-followup-target.log; new timer successor,Flymotion andGoTo redirect controls pass.",
     "reviewer": "presentations_audit",
     "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "unreviewed",
+    "superseded": false
+  },
+  {
+    "clause": "12.4.4.2",
+    "feature_id": "presentation_action_redirect_does_not_double_turn",
+    "requirement": "Table165 NA can change pages; target arrival processes its own primary node. Do not apply an additional source sequential page turn after action redirection.",
+    "source_location": "12.4.4.2 Table165 and navigation procedure,physical479–480/printed464–465,EC3#304",
+    "verdict": "confirmed-selected-consumer",
+    "evidence": "Four-page complete fixture: sourceNA GoTo page3,noNext; destinationprimary togglesOCG11 andselectsNext withouttoggling12. PublicNext landsindex2,notsequentialpage4, andtargetprimaryactionobserved. Pass; separate ambiguous terminal-arrival#304composition remains open.",
+    "test_refs": [
+      "crates/viewer-core/tests/presentations_audit.rs::a_presentation_action_redirect_arrives_at_its_target_without_a_second_sequential_turn"
+    ],
+    "code_locations": [
+      "crates/viewer-core/src/presentation.rs",
+      "crates/viewer-core/src/viewer/navigation.rs"
+    ],
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": null,
+    "ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-consumer",
     "superseded": false
   },
   {

@@ -42,13 +42,25 @@ fn stream(dictionary: &str, content: &str) -> Vec<u8> {
 }
 
 fn appearance_pdf(appearance_dictionary: &str, streams: &[(&str, &str)]) -> Vec<u8> {
+    appearance_pdf_over("", appearance_dictionary, streams)
+}
+
+fn appearance_pdf_over(
+    page_content: &str,
+    appearance_dictionary: &str,
+    streams: &[(&str, &str)],
+) -> Vec<u8> {
     let mut objects = vec![
         b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
         b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> \
           /Contents 4 0 R /Annots [5 0 R] >>"
             .to_vec(),
-        b"<< /Length 0 >>\nstream\n\nendstream".to_vec(),
+        format!(
+            "<< /Length {} >>\nstream\n{page_content}\nendstream",
+            page_content.len()
+        )
+        .into_bytes(),
         format!(
             "<< /Type /Annot /Subtype /Square /Rect [10 10 90 90] /F 4 \
              /AP {appearance_dictionary} >>"
@@ -63,7 +75,13 @@ fn appearance_pdf(appearance_dictionary: &str, streams: &[(&str, &str)]) -> Vec<
     assemble(&objects)
 }
 
-fn centre_rgb(bytes: Vec<u8>, purpose: Purpose, pointer: Option<Pointer>) -> (u8, u8, u8) {
+fn sample_rgb(
+    bytes: Vec<u8>,
+    purpose: Purpose,
+    pointer: Option<Pointer>,
+    x: u32,
+    y: u32,
+) -> (u8, u8, u8) {
     let document = Document::open(bytes).expect("complete PDF fixture parses");
     assert!(!document.was_recovered(), "fixture uses exact xref offsets");
     let page = pdf_model::Pages::new(&document).get(0).expect("one page");
@@ -88,12 +106,176 @@ fn centre_rgb(bytes: Vec<u8>, purpose: Purpose, pointer: Option<Pointer>) -> (u8
         .with_medium(pdf_render::Medium::NONE)
         .rasterize(&list, target)
         .expect("supported raster");
-    let offset = ((50 * raster.width + 50) as usize) * 4;
+    let row = raster.height.saturating_sub(1).saturating_sub(y);
+    let offset = ((row * raster.width + x) as usize) * 4;
     (
         raster.data[offset],
         raster.data[offset + 1],
         raster.data[offset + 2],
     )
+}
+
+fn centre_rgb(bytes: Vec<u8>, purpose: Purpose, pointer: Option<Pointer>) -> (u8, u8, u8) {
+    sample_rgb(bytes, purpose, pointer, 50, 50)
+}
+
+#[test]
+fn an_appearance_without_group_equals_the_explicit_default_and_group_flags_change_pixels() {
+    let page = "0 0 1 rg 0 0 100 100 re f";
+    // Red multiplied with the non-isolated group's blue initial backdrop is black. With an
+    // isolated group, the element first sees transparency and remains red.
+    let content = "1 0 0 rg /G1 gs 10 10 80 80 re f";
+    let resources = "/Resources << /ExtGState << /G1 << /BM /Multiply >> >> >>";
+    let missing_group = appearance_pdf_over(page, "<< /N 6 0 R >>", &[(resources, content)]);
+    let explicit_default_group = appearance_pdf_over(
+        page,
+        "<< /N 6 0 R >>",
+        &[(
+            &format!("/Group << /S /Transparency /I false /K false >> {resources}"),
+            content,
+        )],
+    );
+    let isolated_control = appearance_pdf_over(
+        page,
+        "<< /N 6 0 R >>",
+        &[(
+            &format!("/Group << /S /Transparency /I true /K false >> {resources}"),
+            content,
+        )],
+    );
+
+    let missing = centre_rgb(missing_group, Purpose::View, None);
+    let explicit = centre_rgb(explicit_default_group, Purpose::View, None);
+    let isolated = centre_rgb(isolated_control, Purpose::View, None);
+    assert_eq!(
+        missing, explicit,
+        "a missing /Group uses its stated default"
+    );
+    assert_ne!(
+        missing, isolated,
+        "the /I true control changes the backdrop seen by Multiply"
+    );
+    assert_eq!(
+        missing,
+        (0, 0, 0),
+        "non-isolated Multiply sees the blue page backdrop"
+    );
+    assert_eq!(
+        isolated,
+        (255, 0, 0),
+        "isolated Multiply starts on transparency"
+    );
+}
+
+#[test]
+fn an_appearance_group_knockout_changes_only_the_overlapping_element_result() {
+    let page = "0 0 1 rg 0 0 100 100 re f";
+    let resources = "/Resources << /ExtGState << /G0 << /ca 0.5 >> >> >>";
+    let content = "/G0 gs 1 0 0 rg 10 10 50 50 re f 0 1 0 rg 40 40 50 50 re f";
+    let draw = |knockout: bool| {
+        let group = format!("/Group << /S /Transparency /I true /K {knockout} >> {resources}");
+        appearance_pdf_over(page, "<< /N 6 0 R >>", &[(group.as_str(), content)])
+    };
+
+    let knockout = draw(true);
+    let stacked = draw(false);
+    let missing = appearance_pdf_over(page, "<< /N 6 0 R >>", &[(resources, content)]);
+    let default_group = format!("/Group << /S /Transparency /I false /K false >> {resources}");
+    let explicit_default =
+        appearance_pdf_over(page, "<< /N 6 0 R >>", &[(default_group.as_str(), content)]);
+    assert_eq!(
+        sample_rgb(missing.clone(), Purpose::View, None, 50, 50),
+        sample_rgb(explicit_default, Purpose::View, None, 50, 50),
+        "the absent Group also defaults K to false where elements overlap"
+    );
+    assert_ne!(
+        sample_rgb(missing, Purpose::View, None, 50, 50),
+        sample_rgb(knockout.clone(), Purpose::View, None, 50, 50),
+        "the absent default is observably non-knockout"
+    );
+    let green_alone = sample_rgb(knockout.clone(), Purpose::View, None, 70, 70);
+    assert_eq!(
+        sample_rgb(knockout, Purpose::View, None, 50, 50),
+        green_alone,
+        "/K true composites the later element with the group's initial backdrop"
+    );
+    assert_ne!(
+        sample_rgb(stacked.clone(), Purpose::View, None, 50, 50),
+        green_alone,
+        "the non-knockout control composites over the earlier red element"
+    );
+    assert_eq!(
+        sample_rgb(stacked, Purpose::View, None, 70, 70),
+        green_alone,
+        "the control is identical outside the overlap"
+    );
+}
+
+fn appearance_pdf_with_state(
+    appearance_dictionary: &str,
+    state: &str,
+    streams: &[(&str, &str)],
+) -> Vec<u8> {
+    let mut objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> \
+          /Contents 4 0 R /Annots [5 0 R] >>"
+            .to_vec(),
+        b"<< /Length 0 >>\nstream\n\nendstream".to_vec(),
+        format!(
+            "<< /Type /Annot /Subtype /Square /Rect [10 10 90 90] /F 4 /AS /{state} \
+             /AP {appearance_dictionary} >>"
+        )
+        .into_bytes(),
+    ];
+    objects.extend(
+        streams
+            .iter()
+            .map(|(dictionary, content)| stream(dictionary, content)),
+    );
+    assemble(&objects)
+}
+
+#[test]
+fn rollover_and_down_state_subdictionaries_select_the_state_named_by_as() {
+    let ap = "<< /N 6 0 R /R << /On 7 0 R /Off 8 0 R >> \
+             /D << /On 9 0 R /Off 10 0 R >> >>";
+    let streams = [
+        ("", "1 0 0 rg 0 0 80 80 re f"),
+        ("", "0 1 0 rg 0 0 80 80 re f"),
+        ("", "1 1 0 rg 0 0 80 80 re f"),
+        ("", "0 0 1 rg 0 0 80 80 re f"),
+        ("", "1 0 1 rg 0 0 80 80 re f"),
+    ];
+    let on = appearance_pdf_with_state(ap, "On", &streams);
+    let off = appearance_pdf_with_state(ap, "Off", &streams);
+
+    assert_eq!(
+        centre_rgb(on.clone(), Purpose::View, None),
+        (255, 0, 0),
+        "/N remains a stream"
+    );
+    assert_eq!(
+        centre_rgb(on.clone(), Purpose::View, Some(Pointer::Over)),
+        (0, 255, 0),
+        "/AS /On selects /R /On"
+    );
+    assert_eq!(
+        centre_rgb(on, Purpose::View, Some(Pointer::Down)),
+        (0, 0, 255),
+        "/AS /On selects /D /On"
+    );
+    assert_eq!(
+        centre_rgb(off.clone(), Purpose::View, Some(Pointer::Over)),
+        (255, 255, 0),
+        "/AS /Off selects /R /Off"
+    );
+    assert_eq!(
+        centre_rgb(off, Purpose::View, Some(Pointer::Down)),
+        (255, 0, 255),
+        "/AS /Off selects /D /Off"
+    );
 }
 
 #[test]

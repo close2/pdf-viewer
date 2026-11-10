@@ -577,5 +577,48 @@
   "clippy_appearance_cloud": {
     "log": "clippy-appearance-cloud.log",
     "exit": 0
+  },
+  "annotation_flags_followup": {
+    "log": "annotation-flags-followup-target.log",
+    "flags_passed": 3,
+    "appearance_passed": 4,
+    "appearance_expected_failed": 1
+  },
+  "print_geometry": {
+    "log": "annotation-print-geometry-target.log",
+    "expected_failed": 1
+  },
+  "presentations_followup": {
+    "log": "presentations-followup-target.log",
+    "passed": 7,
+    "exit": 0
+  },
+  "font_descriptor_units": {
+    "log": "font-descriptor-unit-target.log",
+    "passed": 372,
+    "exit": 0
+  },
+  "broad_wave12": {
+    "log": "nextest-nine-crates-wave12.log",
+    "run": 5692,
+    "passed": 5651,
+    "expected_failed": 41,
+    "skipped": 53,
+    "unexpected": 0,
+    "exit": 100,
+    "note": "Predates extra missingGroup knockout overlap assertion, separately calibrated afterward."
+  },
+  "clippy_font_flags_followup": {
+    "log": "clippy-font-flags-followup-final.log",
+    "exit": 0
+  },
+  "appearance_group_strengthened": {
+    "log": "appearance-group-strengthened-target.log",
+    "passed": 2,
+    "exit": 0
+  },
+  "clippy_appearance_strengthened": {
+    "log": "clippy-appearance-strengthened.log",
+    "exit": 0
   }
 }

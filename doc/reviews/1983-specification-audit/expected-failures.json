@@ -220,6 +220,12 @@
       "test": "public_print_query_uses_normal_after_pointer_press_selected_down",
       "evidence": "appearance-viewer-print-target.log",
       "classification": "Table170 normal-for-print violated by retained pointer state; two layers reproduce one defect"
+    },
+    {
+      "binary": "viewer-core::annotation_print_geometry_audit",
+      "test": "a_screen_nozoom_flag_does_not_shrink_the_printed_annotation_at_view_zoom",
+      "evidence": "annotation-print-geometry-target.log",
+      "classification": "NoZoom screen magnification leaks into print display-list geometry; fixed job outputs differ by prior viewport zoom"
     }
   ]
 }

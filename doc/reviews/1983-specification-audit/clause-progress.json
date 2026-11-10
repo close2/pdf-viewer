@@ -4085,35 +4085,43 @@
   {
     "clause": "9.8.1",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "font_descriptors_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "font_descriptors_audit"
+    ],
     "feature_record_verdicts": {
       "code-supported-not-executed": 1,
-      "confirmed": 13,
+      "confirmed": 1,
       "no-independent-reader-requirement": 9,
       "no-independent-requirement": 1,
-      "partial": 2
+      "partial": 2,
+      "partial-program-route": 3,
+      "partial-reader-behavior; producer-constraints-not-certified": 2,
+      "policy-characterized-with-producer-boundary": 7
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
     "clause": "9.8.2",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "font_descriptors_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "font_descriptors_audit"
+    ],
     "feature_record_verdicts": {
       "ambiguous": 1,
       "code-supported-not-executed": 1,
-      "confirmed": 3,
+      "confirmed": 2,
       "no-independent-reader-requirement": 3,
       "no-independent-requirement": 1,
-      "partial": 3
+      "partial": 3,
+      "partial-reader-behavior; producer-constraints-not-certified": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
@@ -4129,24 +4137,34 @@
   {
     "clause": "9.8.3.1",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
+      "font_descriptor_cid_audit",
       "font_descriptors_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "font_descriptor_cid_audit",
+      "font_descriptors_audit"
+    ],
     "feature_record_verdicts": {
-      "pending": 4
+      "cross-reference-partial": 4,
+      "not a reader behavior condition; PDF/A validation is a separate profile requirement": 1,
+      "supported on the nonembedded CIDFont substitution route": 1,
+      "supported; Table 122 grants optional input and does not require readers to use it": 1,
+      "supported; optional substitution hint; absence is not a document-language assertion": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
     "clause": "9.8.3.2",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "font_descriptor_cid_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "font_descriptor_cid_audit"
+    ],
     "feature_record_verdicts": {
       "supported as a conditional input; malformed length is ignored for substitution, with no general reader rejection inferred": 1
     },
@@ -4155,15 +4173,18 @@
   {
     "clause": "9.8.3.3",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
       "font_descriptor_cid_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "font_descriptor_cid_audit"
+    ],
     "feature_record_verdicts": {
       "optional recommendation; no reader debt": 1,
       "reader behavior present; Table 123 collection matrix needs a discriminating test; supplement handling is a scoped residual": 1,
       "reader behavior supported; do not count validator rejection as required": 1,
+      "supported as a substitution policy; no ISO mandate to approximate undecidable CID membership": 1,
       "supported for substitution attributes that this reader consumes": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
@@ -4180,19 +4201,32 @@
   {
     "clause": "9.9.1",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "font_programs_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "code-supported-not-executed": 2,
+      "confirmed": 1,
+      "implementation-gap": 1,
+      "no-independent-requirement": 1,
+      "unreviewed": 2
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
     "clause": "9.9.2",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "font_programs_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "code-supported-not-executed": 1,
+      "unreviewed": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
@@ -5387,6 +5421,7 @@
     "feature_record_verdicts": {
       "ambiguous": 1,
       "confirmed": 5,
+      "confirmed-selected-consumer": 1,
       "partial-confirmed-with-new-test": 1,
       "unreviewed": 1
     },
@@ -5415,12 +5450,15 @@
     "ledger_status": "departed",
     "review_state": "partial-parent-review",
     "artifact_directories": [
-      "annotation_appearance_audit"
+      "annotation_appearance_audit",
+      "annotation_flags_audit"
     ],
     "parent_reviewed_artifacts": [
-      "annotation_appearance_audit"
+      "annotation_appearance_audit",
+      "annotation_flags_audit"
     ],
     "feature_record_verdicts": {
+      "confirmed-as-informative-scope": 1,
       "partial": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
@@ -5428,13 +5466,26 @@
   {
     "clause": "12.5.3",
     "ledger_status": "implemented",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
+      "annotation_flags_audit",
+      "annotation_lock_policy_audit"
+    ],
+    "parent_reviewed_artifacts": [
       "annotation_flags_audit"
     ],
-    "parent_reviewed_artifacts": [],
     "feature_record_verdicts": {
-      "confirmed-with-scope-limit": 1
+      "conditional-scope-unactivated": 1,
+      "confirmed": 1,
+      "confirmed-on-screen; print scope unresolved": 1,
+      "confirmed-screen-behavior-and-print-defect": 1,
+      "confirmed-selected-consumer": 5,
+      "implemented-with-policy-departure": 1,
+      "partial": 2,
+      "partial-with-discriminating-recovery-control": 1,
+      "partially-tested": 1,
+      "qualified-no-edit-operation": 1,
+      "reader-bit-behavior-tested; producer-zeroing-not-certified": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
@@ -5473,9 +5524,10 @@
     "feature_record_verdicts": {
       "confirmed": 1,
       "confirmed-defect": 1,
+      "confirmed-selected-consumer": 1,
       "delegated-covered": 1,
       "departed": 1,
-      "partial": 4
+      "partial": 3
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },

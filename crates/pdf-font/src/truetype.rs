@@ -1255,4 +1255,5 @@ mod truetype_encoding_tests {
             started.elapsed()
         );
     }
+    include!("truetype_flags_audit.rs");
 }

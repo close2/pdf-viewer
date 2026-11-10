@@ -433,3 +433,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "glyph_class_audit.rs"]
+mod audit_tests;

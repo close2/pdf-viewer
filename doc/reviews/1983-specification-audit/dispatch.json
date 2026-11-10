@@ -668,7 +668,7 @@
       "clauses": [
         "9.8 and descendants"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries"
     },
     {
       "agent": "document_trigger_timing_residual_audit",
@@ -696,7 +696,7 @@
       "clauses": [
         "12.5.3"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries"
     },
     {
       "agent": "font_descriptor_cid_audit",
@@ -705,7 +705,7 @@
         "9.8.3.2",
         "9.8.3.3"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-consumer-controls-and-policy-boundaries"
     },
     {
       "agent": "cloudy_border_residual_audit",
@@ -713,6 +713,27 @@
         "12.5.4"
       ],
       "state": "parent-reviewed-partial-with-consumer-tests"
+    },
+    {
+      "agent": "font_programs_audit",
+      "clauses": [
+        "9.9 and descendants"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "annotation_dictionary_audit",
+      "clauses": [
+        "12.5.2 remaining entries"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "annotation_lock_policy_audit",
+      "clauses": [
+        "12.5.3 LockedContents policy"
+      ],
+      "state": "running"
     }
   ]
 }
