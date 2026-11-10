@@ -2603,9 +2603,18 @@
   },
   {
     "path": "doc/adr/0315-the-nine-entries-a-group-shares-and-the-window-that-came-up-blank.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "markup_annotation_audit/decisions.json",
+        "decision_id": "group-attribute-source-and-one-hop",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0316-the-mode-a-clause-conditions-its-states-on.md",
@@ -6287,9 +6296,18 @@
   },
   {
     "path": "doc/adr/0984-the-clause-that-says-what-conformance-means.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "conformance_aggregate_audit/decisions.json",
+        "decision_id": "include_clause_6_and_check_ledger_population_against_standard",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0985-the-sweep-that-had-no-denominator.md",
@@ -6915,9 +6933,18 @@
   },
   {
     "path": "doc/adr/1090-what-a-clause-conditions-on-the-pointer-and-what-it-leaves-unsaid.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "markup_annotation_audit/decisions.json",
+        "decision_id": "thread-reply-default-r-and-hosted-window",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1092-an-unsanctioned-array-destination-is-read-not-dropped.md",
@@ -7815,9 +7842,18 @@
   },
   {
     "path": "doc/adr/1225-annex-f-is-a-network-reader-and-this-one-reads-a-disk.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "conformance_aggregate_audit/decisions.json",
+        "decision_id": "decline_annex_f_linearized_reading_recommendation_on_local_disk_cost",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1226-a-gate-that-says-which-of-its-figures-the-machine-was-fit-to-judge.md",
@@ -9004,6 +9040,14 @@
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
+      },
+      {
+        "source": "conformance_aggregate_audit/decisions.json",
+        "decision_id": "writer_side_conditions_must_be_rechecked_when_this_program_writes",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
       }
     ]
   },
@@ -9396,9 +9440,18 @@
   },
   {
     "path": "doc/adr/1535-an-inapplicable-row-quotes-its-condition-and-a-clause-stating-no-requirement-is-a-heading.md",
-    "review_state": "pending",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "conformance_aggregate_audit/decisions.json",
+        "decision_id": "condition_quote_is_grounding_not_semantic_proof",
+        "conclusion": "retain",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1537-a-turn-is-judged-only-on-a-quiet-device-read-off-the-drivers-own-counter.md",
@@ -9914,6 +9967,14 @@
         "source": "adr_ledger_review/decisions.json",
         "decision_id": "1622.2-forty-row-audit-snapshot",
         "conclusion": "superseded",
+        "parent_accepted": true,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "conformance_aggregate_audit/decisions.json",
+        "decision_id": "departed_is_reserved_for_unfulfilled_shall",
+        "conclusion": "retain",
         "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
@@ -10776,9 +10837,18 @@
   },
   {
     "path": "doc/adr/1798-a-carriage-return-and-line-feed-are-one-paragraph-break-in-every-note-window.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "markup_annotation_audit/decisions.json",
+        "decision_id": "reader-line-ending-acceptance-and-writer-departure",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1799-a-gtk-combo-box-s-arrow-selects-in-its-open-list-and-says-so.md",

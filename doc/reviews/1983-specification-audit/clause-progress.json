@@ -2,73 +2,126 @@
   {
     "clause": "6.1",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
-    "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "review_state": "partial-parent-review",
+    "artifact_directories": [
+      "conformance_aggregate_audit"
+    ],
+    "parent_reviewed_artifacts": [
+      "conformance_aggregate_audit"
+    ],
+    "feature_record_verdicts": {
+      "no-independent-requirement": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
     "clause": "6.2",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
-    "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "review_state": "partial-parent-review",
+    "artifact_directories": [
+      "conformance_aggregate_audit"
+    ],
+    "parent_reviewed_artifacts": [
+      "conformance_aggregate_audit"
+    ],
+    "feature_record_verdicts": {
+      "implementation-gap": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
     "clause": "6.3",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
-    "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "review_state": "partial-parent-review",
+    "artifact_directories": [
+      "conformance_aggregate_audit"
+    ],
+    "parent_reviewed_artifacts": [
+      "conformance_aggregate_audit"
+    ],
+    "feature_record_verdicts": {
+      "no-independent-requirement": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
     "clause": "6.3.1",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
-    "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "review_state": "partial-parent-review",
+    "artifact_directories": [
+      "conformance_aggregate_audit"
+    ],
+    "parent_reviewed_artifacts": [
+      "conformance_aggregate_audit"
+    ],
+    "feature_record_verdicts": {
+      "definition-and-optional-permission-inventoried": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
     "clause": "6.3.2",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
-    "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "review_state": "partial-parent-review",
+    "artifact_directories": [
+      "conformance_aggregate_audit"
+    ],
+    "parent_reviewed_artifacts": [
+      "conformance_aggregate_audit"
+    ],
+    "feature_record_verdicts": {
+      "no-independent-requirement": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
     "clause": "6.3.2.1",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
-    "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "review_state": "partial-parent-review",
+    "artifact_directories": [
+      "conformance_aggregate_audit"
+    ],
+    "parent_reviewed_artifacts": [
+      "conformance_aggregate_audit"
+    ],
+    "feature_record_verdicts": {
+      "ambiguous": 1,
+      "code-supported-not-executed": 4,
+      "implementation-gap": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
     "clause": "6.3.2.2",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
-    "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "review_state": "partial-parent-review",
+    "artifact_directories": [
+      "conformance_aggregate_audit"
+    ],
+    "parent_reviewed_artifacts": [
+      "conformance_aggregate_audit"
+    ],
+    "feature_record_verdicts": {
+      "ambiguous": 1,
+      "code-supported-not-executed": 2,
+      "implementation-gap": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
     "clause": "6.3.2.3",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
-    "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "review_state": "partial-parent-review",
+    "artifact_directories": [
+      "conformance_aggregate_audit"
+    ],
+    "parent_reviewed_artifacts": [
+      "conformance_aggregate_audit"
+    ],
+    "feature_record_verdicts": {
+      "ambiguous": 1,
+      "code-supported-not-executed": 1
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {
@@ -5592,10 +5645,17 @@
   {
     "clause": "12.5.6.2",
     "ledger_status": "implemented",
-    "review_state": "pending",
-    "artifact_directories": [],
+    "review_state": "review-in-progress",
+    "artifact_directories": [
+      "markup_annotation_audit"
+    ],
     "parent_reviewed_artifacts": [],
-    "feature_record_verdicts": {},
+    "feature_record_verdicts": {
+      "conditional-scope-unactivated": 3,
+      "confirmed": 6,
+      "confirmed-gap": 1,
+      "producer-constraint": 2
+    },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
   {

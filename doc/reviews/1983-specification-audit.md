@@ -1106,3 +1106,13 @@ checking display commands. Parent repaired the draft Type1 dictionary constructi
 independently parsed all three fixtures with PaintType2, width500 and the same closed rectangle.
 This checks the specific PDF override, without claiming complete font-format conformance. The
 single test is additional to wave13; warning-denied Clippy passes.
+
+An isolated mutation calibrates the new vertical-metrics assertion: replacing PDF vertical advance
+with embedded vmtx advance makes the cross-program quad comparison fail, while the unmodified
+control passes. The isolated production file was restored and compared byte-for-byte with live
+source. This demonstrates sensitivity to the prohibited dependency, not a defect in current code.
+
+
+The clause 6 review inventories seventeen aggregate, definitional and optional-permission records across its eight ledger rows. The ledger integrity test checks population, citations and accounting; it explicitly cannot prove implementation. qpdf acceptance and foreign-reader readback are useful bounded checks, and both cited consumers can return successfully without their external prerequisites. Existing accepted writer and annotation-printing counterexamples carry through to the aggregate claims; they are not counted as additional defects. Headings and definitions do not require invented behavior tests.
+
+The selected decisions in ADRs 0984, 1461, 1535 and 1622 remain sound with those qualifications: include clause 6, recheck writer applicability, distinguish grounded quotations from correct interpretation, and distinguish mandatory requirements from recommendations. ADR 1225's local-disk decision to decline linearized access optimization remains reasonable on its historical measurements; those measurements were not repeated and would need reconsideration if the IO model or latency costs change. No whole ADR is certified by this bounded review.

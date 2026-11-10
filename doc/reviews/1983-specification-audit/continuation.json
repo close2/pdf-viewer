@@ -11,11 +11,16 @@
     "warning": "Percent is account allowance, not convertible fixed tokens; counters may lag. Continue extending while useful work and room remain."
   },
   "agents": {
-    "associated_files_audit": "opentype_selection_audit",
-    "catalog_pages_audit": "watermark_nup_consumer_audit",
-    "inapplicable_conditions_audit": "font_paint_type_audit"
+    "associated_files_audit": "markup_annotation_audit",
+    "catalog_pages_audit": "annotation_states_audit",
+    "inapplicable_conditions_audit": "ink_annotation_audit"
   },
-  "next_candidates": [],
+  "next_candidates": [
+    "12.5.6.2 markup common entries and reply threading",
+    "12.5.6.3 annotation review states",
+    "12.5.6.13 InkList/Path and effective errata",
+    "9.9.2 subset tags and independently loaded same-source subsets"
+  ],
   "latest_broad": {
     "log": "nextest-nine-crates-wave13.log",
     "run": 5698,
@@ -24,7 +29,7 @@
     "skipped": 53,
     "unexpected": 0
   },
-  "latest_clippy": "clippy-font-flags-followup-final.log",
+  "latest_clippy": "clippy-font-paint-type-final.log",
   "new_failures_since_wave8": [
     "catalog Named OpenAction consumer missing",
     "page-visible neighbor omitted",
@@ -53,7 +58,10 @@
     "CLAUDE.md requires unsigned commits; use git -c commit.gpgsign=false commit because inherited global setting enables GPG."
   ],
   "branch": "audit/specification-evidence-2026-11-10",
-  "pending_parent_review": [],
+  "pending_parent_review": [
+    "opentype_selection_audit",
+    "watermark_nup_consumer_audit"
+  ],
   "pushed_commits": [
     "a299121c",
     "f413d15f",
@@ -65,6 +73,7 @@
     "0bdf7c9b",
     "1277f3fc",
     "0589f24a",
-    "8907adf4"
+    "8907adf4",
+    "a1fa6e70"
   ]
 }

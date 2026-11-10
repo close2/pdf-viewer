@@ -7363,6 +7363,417 @@
     "superseded": false
   },
   {
+    "clause": "6.1",
+    "feature_id": "conformance_clause_introduction",
+    "requirement": "This clause introduces the document's conformance rules but states no independent behavior of its own.",
+    "source_location": "§6.1 physical33/printed18",
+    "errata": "EC3 annotation JSON has only a heading/navigation link for §6.1; no substantive correction applies.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "doc/conformance/ledger.toml",
+      "tools/conformance/src/ledger.rs"
+    ],
+    "test_refs": [
+      "tools/conformance/tests/conformance.rs::the_ledger_agrees_with_the_standard_and_with_the_tree"
+    ],
+    "verdict": "no-independent-requirement",
+    "evidence": "The source sentence only says what the clause describes. The test checks ledger structure and citations; it is not an implementation test and need not be one for this introductory row.",
+    "parent_review": "Parent read effective physical33–34, selected ADR decision units and actual assertions. Aggregate status is not certified by structural tests or interoperability. No new defect counted.",
+    "reviewer": "conformance_aggregate_audit",
+    "parent_review_state": "parent-reviewed-partial-aggregate-claims-qualified",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "6.2",
+    "feature_id": "conforming_document_obligations_aggregate",
+    "requirement": "A conforming PDF file must satisfy all applicable requirements of the standard, while it need not contain optional features that the standard does not require.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.33 (printed p.18), §6.2 and NOTE",
+    "errata": "No substantive EC3 annotation applies to §6.2.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-syntax/src/serialize.rs",
+      "crates/pdf-syntax/src/write.rs",
+      "crates/pdf-transform/src/",
+      "crates/pdf-transform/src/split.rs",
+      "crates/pdf-transform/src/merge.rs",
+      "crates/pdf-transform/src/update.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-transform/tests/split.rs::qpdf_accepts_a_piece_this_program_wrote",
+      "crates/pdf-transform/tests/foreign_corpus.rs::what_this_suite_writes_is_read_the_same_way_by_poppler_and_mupdf",
+      "crates/pdf-syntax/tests/incremental_update.rs::an_update_replaces_an_object_and_keeps_the_file_under_it"
+    ],
+    "verdict": "implementation-gap",
+    "evidence": "This is a writer/file aggregate, not a property one syntax validator can certify. qpdf acceptance establishes that one emitted piece passes qpdf's checks, not all PDF 2.0 requirements; the foreign-reader walk can skip when its corpus or tools are unavailable and checks readback, not complete conformance. Incremental-update assertions establish append preservation and replacement visibility. The parent reports accepted date-writer failures as counterexamples to the aggregate conformance claim; this audit does not recount or restate those defects. qpdf_accepts_a_piece_this_program_wrote also returns successfully when qpdf is unavailable; an undifferentiated passing count is not evidence qpdf executed.",
+    "parent_review": "Parent read effective physical33–34, selected ADR decision units and actual assertions. Aggregate status is not certified by structural tests or interoperability. No new defect counted.",
+    "reviewer": "conformance_aggregate_audit",
+    "parent_review_state": "parent-reviewed-partial-aggregate-claims-qualified",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "6.3",
+    "feature_id": "processor_classification",
+    "requirement": "The standard distinguishes a general processor, writer, reader, and interactive processor according to the work each performs; this row is a heading for those definitions and duties.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.33 (printed p.18), §6.3 heading",
+    "errata": "The EC3 annotations are navigational links for the heading, not substantive corrections.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/view.rs",
+      "crates/pdf-syntax/src/write.rs",
+      "crates/viewer-core/src/command.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/delegated_widgets.rs::a_delegated_page_loses_the_field_and_keeps_everything_else"
+    ],
+    "verdict": "no-independent-requirement",
+    "evidence": "The heading itself creates no behavior. The classifications are supplied by §6.3.1 and the specialized obligations by §6.3.2 and its children; a test of an unrelated widget delegation does not prove the whole classification.",
+    "parent_review": "Parent read effective physical33–34, selected ADR decision units and actual assertions. Aggregate status is not certified by structural tests or interoperability. No new defect counted.",
+    "reviewer": "conformance_aggregate_audit",
+    "parent_review_state": "parent-reviewed-partial-aggregate-claims-qualified",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "6.3.1",
+    "feature_id": "processor_definitions_and_annex_o_permission",
+    "requirement": "This subclause defines the processor classes used in the normative obligations and permits a processor to support URI fragment identifiers; the permission is optional, not a conformance debt.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.33 (printed p.18), §6.3.1",
+    "errata": "No substantive EC3 correction applies to §6.3.1.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/fragment.rs",
+      "crates/pdf-syntax/src/write.rs",
+      "crates/viewer-core/src/command.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/fragment.rs::every_parameter_the_two_tables_define_is_read"
+    ],
+    "verdict": "definition-and-optional-permission-inventoried",
+    "evidence": "Fragment tests cover parameters defined in Annex O; they do not test the normative class definitions, which are labels derived from the program's observable reading, writing, rendering, and interaction roles. ADR 1622's rule means declining the fragment permission would also be conforming. The permission's carried implementation is outside this aggregate review. Existing accepted Annex O review owns its detailed behavior; the permission itself requires no negative implementation test.",
+    "parent_review": "Parent read effective physical33–34, selected ADR decision units and actual assertions. Aggregate status is not certified by structural tests or interoperability. No new defect counted.",
+    "reviewer": "conformance_aggregate_audit",
+    "parent_review_state": "parent-reviewed-partial-aggregate-claims-qualified",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "definition-and-optional-permission-inventoried",
+    "superseded": false
+  },
+  {
+    "clause": "6.3.2",
+    "feature_id": "processor_conformance_heading",
+    "requirement": "This is a heading; its children define the general, rendering, and interactive processor obligations.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.33 (printed p.18), §6.3.2 heading",
+    "errata": "The EC3 annotations are section-navigation links only; no substantive correction applies.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/view.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/optional_content.rs::a_marked_section_belonging_to_a_group_that_is_off_is_not_drawn"
+    ],
+    "verdict": "no-independent-requirement",
+    "evidence": "The heading contains no separate normative behavior; the test is evidence for one child requirement only.",
+    "parent_review": "Parent read effective physical33–34, selected ADR decision units and actual assertions. Aggregate status is not certified by structural tests or interoperability. No new defect counted.",
+    "reviewer": "conformance_aggregate_audit",
+    "parent_review_state": "parent-reviewed-partial-aggregate-claims-qualified",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "no-independent-requirement",
+    "superseded": false
+  },
+  {
+    "clause": "6.3.2.1",
+    "feature_id": "writer_creates_conforming_file",
+    "requirement": "A PDF writer that creates a PDF file must create one conforming to the standard.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.33 (printed p.18), §6.3.2.1 first paragraph",
+    "errata": "No substantive EC3 correction applies to this sentence.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-syntax/src/serialize.rs",
+      "crates/pdf-syntax/src/write.rs",
+      "crates/pdf-transform/src/"
+    ],
+    "test_refs": [
+      "crates/pdf-transform/tests/split.rs::qpdf_accepts_a_piece_this_program_wrote",
+      "crates/pdf-transform/tests/foreign_corpus.rs::what_this_suite_writes_is_read_the_same_way_by_poppler_and_mupdf"
+    ],
+    "verdict": "implementation-gap",
+    "evidence": "These tests provide useful syntax and cross-reader evidence but cannot establish all applicable requirements. The parent reports accepted date-writer counterexamples to this aggregate writer claim; this record intentionally does not recount them as new defects. qpdf_accepts_a_piece_this_program_wrote also returns successfully when qpdf is unavailable; an undifferentiated passing count is not evidence qpdf executed.",
+    "parent_review": "Parent read effective physical33–34, selected ADR decision units and actual assertions. Aggregate status is not certified by structural tests or interoperability. No new defect counted.",
+    "reviewer": "conformance_aggregate_audit",
+    "parent_review_state": "parent-reviewed-partial-aggregate-claims-qualified",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "6.3.2.1",
+    "feature_id": "writer_amendments_conform_and_remain_consistent",
+    "requirement": "When a writer adds or amends objects in an existing file, the changed elements must meet the file-format rules and remain consistent with related existing elements.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.33 (printed p.18), §6.3.2.1 first paragraph",
+    "errata": "No substantive EC3 correction applies to this sentence.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-syntax/src/write.rs",
+      "crates/pdf-syntax/tests/incremental_update.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-syntax/tests/incremental_update.rs::an_update_replaces_an_object_and_keeps_the_file_under_it",
+      "crates/pdf-syntax/tests/incremental_update.rs::an_update_chains_onto_an_update"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "Those tests show appended bytes preserve the original and that a replacement is read back through one and two revisions. They do not establish every format rule or consistency relation of every writer/amendment path. No new specific counterexample was investigated in this aggregate audit.",
+    "parent_review": "Parent read effective physical33–34, selected ADR decision units and actual assertions. Aggregate status is not certified by structural tests or interoperability. No new defect counted.",
+    "reviewer": "conformance_aggregate_audit",
+    "parent_review_state": "parent-reviewed-partial-aggregate-claims-qualified",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "6.3.2.1",
+    "feature_id": "linearized_reading_recommendation",
+    "requirement": "Linearized files are recommended to be read according to Annex F and Annex G; this recommendation is distinct from the recommendation for non-linearized files to use the trailer and cross-reference table.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.33 (printed p.18), §6.3.2.1 second paragraph",
+    "errata": "No substantive EC3 correction changes the recommendation.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-syntax/src/xref.rs",
+      "crates/pdf-syntax/src/document.rs",
+      "crates/pdf-syntax/examples/linearised_census.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-syntax/tests/cross_references.rs::the_pages_of_a_linearized_file_are_reached_through_a_main_section_its_previous_misses"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "ADR 1225 explicitly declines this recommendation on measured local-disk cost and Annex F.1 says the effect is efficiency, not correctness. Under ADR 1622 this should is not a departure from a shall. Its present price is machine/corpus dependent; no new measurement was made in this audit.",
+    "parent_review": "Parent read effective physical33–34, selected ADR decision units and actual assertions. Aggregate status is not certified by structural tests or interoperability. No new defect counted.",
+    "reviewer": "conformance_aggregate_audit",
+    "parent_review_state": "parent-reviewed-partial-aggregate-claims-qualified",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "6.3.2.1",
+    "feature_id": "nonlinearized_trailer_xref_read_recommendation",
+    "requirement": "Except for linearized files, PDF files are recommended to be read by the trailer and cross-reference table described in §7.5.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.33 (printed p.18), §6.3.2.1 second paragraph",
+    "errata": "No substantive EC3 correction applies.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-syntax/src/document.rs",
+      "crates/pdf-syntax/src/xref.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-syntax/tests/cross_references.rs"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "The production reader follows trailer/startxref and the cross-reference chain. This should recommendation is followed as the normal open route, but the cited test file's existence or individual cross-reference fixtures do not certify every file-opening behavior. ADR 1622 treats a should as a recommendation rather than a departure from a shall.",
+    "parent_review": "Parent read effective physical33–34, selected ADR decision units and actual assertions. Aggregate status is not certified by structural tests or interoperability. No new defect counted.",
+    "reviewer": "conformance_aggregate_audit",
+    "parent_review_state": "parent-reviewed-partial-aggregate-claims-qualified",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "6.3.2.1",
+    "feature_id": "processor_selects_subsets_and_obeys_each_selected_subset",
+    "requirement": "A processor may choose which functionality subsets it supports, but for every chosen subset it must follow the applicable provisions.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.34 (printed p.19), §6.3.2.1 second paragraph",
+    "errata": "No substantive EC3 correction applies.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "doc/conformance/ledger.toml",
+      "tools/conformance/src/ledger.rs"
+    ],
+    "test_refs": [
+      "tools/conformance/tests/conformance.rs::the_ledger_agrees_with_the_standard_and_with_the_tree"
+    ],
+    "verdict": "ambiguous",
+    "evidence": "The ledger test verifies clause/status references, that cited paths exist, and that cited clauses are not unreviewed; its own documentation says it does not check whether the code implements a clause. The ledger is useful scope accounting but cannot independently prove the universal subset-compliance sentence. Specific feature audits are the evidence needed; known accepted writer/rendering failures prevent treating this aggregate claim as certified.",
+    "parent_review": "Parent read effective physical33–34, selected ADR decision units and actual assertions. Aggregate status is not certified by structural tests or interoperability. No new defect counted.",
+    "reviewer": "conformance_aggregate_audit",
+    "parent_review_state": "parent-reviewed-partial-aggregate-claims-qualified",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "ambiguous",
+    "superseded": false
+  },
+  {
+    "clause": "6.3.2.1",
+    "feature_id": "standard_security_respected_on_open",
+    "requirement": "When opening a file for processing, the processor must honor the standard security rules.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.34 (printed p.19), §6.3.2.1 second paragraph",
+    "errata": "No substantive EC3 correction applies.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-syntax/src/crypt.rs",
+      "crates/pdf-model/src/restriction.rs",
+      "crates/viewer-core/src/command.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/restriction_levels.rs::a_copy_obeys_the_level_the_reader_set_for_copying",
+      "crates/pdf-transform/tests/writer.rs::every_level_is_answered_against_encryption_and_certification"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "The cited tests exercise selected Table 22 restrictions and certified-document operations, including named refusals and warn/off behavior. They are not a complete audit of every standard-security requirement; the detailed §7.6.4 rows and accepted departures govern the full assessment. Parent read corpus-dependent early-return in the copy test; it expressly asserts Off default allows copying, On refuses, and Ask/Warn choices. This is owner-selected policy and is not changed by this review; it does not establish universal security enforcement.",
+    "parent_review": "Parent read effective physical33–34, selected ADR decision units and actual assertions. Aggregate status is not certified by structural tests or interoperability. No new defect counted.",
+    "reviewer": "conformance_aggregate_audit",
+    "parent_review_state": "parent-reviewed-partial-aggregate-claims-qualified",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "6.3.2.2",
+    "feature_id": "page_contents_render_as_defined",
+    "requirement": "A processor that renders a page must render its page contents as the standard defines them.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.34 (printed p.19), §6.3.2.2 first paragraph",
+    "errata": "The two physical-p.34 annotations are links to the section heading. They do not amend this sentence.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/view.rs",
+      "crates/pdf-model/src/content.rs",
+      "crates/pdf-render/src/"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/optional_content.rs::a_marked_section_belonging_to_a_group_that_is_off_is_not_drawn"
+    ],
+    "verdict": "ambiguous",
+    "evidence": "A page-content rendering obligation is an aggregate over the applicable page-description clauses; one optional-content test is a focused witness, not proof of the whole. The clause's aggregate status must be read through those specific rows and their accepted contradictions, not inferred from a general corpus or smoke test.",
+    "parent_review": "Parent read effective physical33–34, selected ADR decision units and actual assertions. Aggregate status is not certified by structural tests or interoperability. No new defect counted.",
+    "reviewer": "conformance_aggregate_audit",
+    "parent_review_state": "parent-reviewed-partial-aggregate-claims-qualified",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "ambiguous",
+    "superseded": false
+  },
+  {
+    "clause": "6.3.2.2",
+    "feature_id": "default_or_user_optional_content_respected",
+    "requirement": "While rendering, the processor must respect default optional-content definitions or a user-selected configuration, when present.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.34 (printed p.19), §6.3.2.2 first paragraph",
+    "errata": "The physical-p.34 annotations only link to the subclause heading; no semantic change applies.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/view/settings.rs",
+      "crates/pdf-model/src/optional_content.rs",
+      "crates/viewer-core/src/command.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/optional_content.rs::a_marked_section_belonging_to_a_group_that_is_off_is_not_drawn",
+      "crates/pdf-model/tests/optional_content.rs::a_group_whose_intent_the_configuration_ignores_does_not_hide_anything"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "The first assertion contrasts ON and OFF states for marked content; the second contrasts default View intent with /Intent /All. They establish those cases only; optional-content configuration/state coverage is addressed separately in optional_content_config_audit.",
+    "parent_review": "Parent read effective physical33–34, selected ADR decision units and actual assertions. Aggregate status is not certified by structural tests or interoperability. No new defect counted.",
+    "reviewer": "conformance_aggregate_audit",
+    "parent_review_state": "parent-reviewed-partial-aggregate-claims-qualified",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "6.3.2.2",
+    "feature_id": "appropriate_annotation_appearance_streams_rendered",
+    "requirement": "The page renderer must render the appearance stream designated for each annotation by its flags, unless instructed otherwise.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.34 (printed p.19), §6.3.2.2 first paragraph",
+    "errata": "The physical-p.34 annotations are heading links, not corrections to annotation appearance behavior.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/annotations.rs",
+      "crates/pdf-model/src/view.rs",
+      "crates/viewer-gtk/src/host.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/delegated_widgets.rs::a_delegated_page_loses_the_field_and_keeps_everything_else",
+      "crates/pdf-model/tests/annotation_appearance_audit.rs"
+    ],
+    "verdict": "implementation-gap",
+    "evidence": "The ledger's delegated-widget test exercises a host-instructed omission and is not general evidence for correct normal/down appearance selection. The parent reports an accepted Print N-versus-D appearance failure that directly contradicts this aggregate obligation; this audit does not recreate or recount that finding.",
+    "parent_review": "Parent read effective physical33–34, selected ADR decision units and actual assertions. Aggregate status is not certified by structural tests or interoperability. No new defect counted.",
+    "reviewer": "conformance_aggregate_audit",
+    "parent_review_state": "parent-reviewed-partial-aggregate-claims-qualified",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "6.3.2.2",
+    "feature_id": "annotation_appearance_exception_when_instructed",
+    "requirement": "The appearance obligation has an explicit exception when the processor is otherwise instructed; this exception limits the renderer requirement rather than imposing an additional rendering duty.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.34 (printed p.19), §6.3.2.2 first paragraph final phrase",
+    "errata": "No substantive EC3 correction applies.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/view.rs",
+      "crates/viewer-gtk/src/host.rs"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/delegated_widgets.rs::a_delegated_page_loses_the_field_and_keeps_everything_else"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "The delegated-widget test exercises a host-instructed omission and checks the field is removed while other page content remains. This is evidence for one intended-instruction route, not proof all annotation types and hosts implement the exception.",
+    "parent_review": "Parent read effective physical33–34, selected ADR decision units and actual assertions. Aggregate status is not certified by structural tests or interoperability. No new defect counted.",
+    "reviewer": "conformance_aggregate_audit",
+    "parent_review_state": "parent-reviewed-partial-aggregate-claims-qualified",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "6.3.2.3",
+    "feature_id": "interactive_processor_obeys_rendering_obligations",
+    "requirement": "An interactive processor also has to satisfy the requirements placed on a rendering processor in §6.3.2.2.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.34 (printed p.19), §6.3.2.3",
+    "errata": "No substantive EC3 annotation applies to §6.3.2.3.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/command.rs",
+      "crates/viewer-core/src/presentation.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-ui/tests/panel.rs::a_layer_switch_throws_unless_the_document_locked_it"
+    ],
+    "verdict": "ambiguous",
+    "evidence": "The panel test checks the locked-group UI constraint and one offered state change; it cannot certify all page-rendering obligations inherited from §6.3.2.2. The interactive layer switch and inherited rendering are separately audited; known failures under §6.3.2.2 carry through.",
+    "parent_review": "Parent read effective physical33–34, selected ADR decision units and actual assertions. Aggregate status is not certified by structural tests or interoperability. No new defect counted.",
+    "reviewer": "conformance_aggregate_audit",
+    "parent_review_state": "parent-reviewed-partial-aggregate-claims-qualified",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "ambiguous",
+    "superseded": false
+  },
+  {
+    "clause": "6.3.2.3",
+    "feature_id": "interactive_aspects_of_optional_content_supported",
+    "requirement": "An interactive processor must support the interactive aspects of optional content, including user-facing configuration and state changes subject to the standard's limits.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, physical p.34 (printed p.19), §6.3.2.3",
+    "errata": "No substantive EC3 annotation applies to §6.3.2.3.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/command.rs",
+      "crates/viewer-ui/src/chrome.rs",
+      "crates/viewer-ui/tests/panel.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-ui/tests/panel.rs::a_layer_switch_throws_unless_the_document_locked_it",
+      "scratchpad/r1983/spec-audit/optional_content_config_audit/findings.txt"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "The test checks an unlocked group yields the inverse state and a locked group's switch yields no action. This is a meaningful UI control but not exhaustive support for all optional-content interaction. Optional configuration and state work is separately audited.",
+    "parent_review": "Parent read effective physical33–34, selected ADR decision units and actual assertions. Aggregate status is not certified by structural tests or interoperability. No new defect counted.",
+    "reviewer": "conformance_aggregate_audit",
+    "parent_review_state": "parent-reviewed-partial-aggregate-claims-qualified",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
     "clause": "7.8",
     "feature_id": "content_stream_resource_pair",
     "requirement": "A content stream and its associated resource dictionary are interpreted together as the self-contained graphical entity.",
@@ -14405,7 +14816,7 @@
       "crates/pdf-model/tests/vertical_program_metrics_audit.rs::embedded_vmtx_cannot_override_vertical_cidfont_text_placement"
     ],
     "verdict": "confirmed-selected-display-consumer",
-    "evidence": "Display metrics come from CIDFont DW2/W2; program_vertical_advance is a separate archive diagnostic. A new exact-xref PDF embeds the repository Liberation Sans with cmap removed and vhea/vmtx advances of 5 versus 7 em. The diagnostic API observes those values and all three codes have outlines. Placed text quads remain identical across programs. Changing only W2 advance moves glyph 2; changing only DW2 advance leaves glyph 2 unchanged and moves glyph 3. Parent corrected UPEM=2048, vhea extrema from glyph heights, the Write import, and the formerly confounded DW2 control. No system font or fallback dependency.",
+    "evidence": "Display metrics come from CIDFont DW2/W2; program_vertical_advance is a separate archive diagnostic. A new exact-xref PDF embeds the repository Liberation Sans with cmap removed and vhea/vmtx advances of 5 versus 7 em. The diagnostic API observes those values and all three codes have outlines. Placed text quads remain identical across programs. Changing only W2 advance moves glyph 2; changing only DW2 advance leaves glyph 2 unchanged and moves glyph 3. Parent corrected UPEM=2048, vhea extrema from glyph heights, the Write import, and the formerly confounded DW2 control. No system font or fallback dependency. An isolated mutation replaces PDF vertical displacement with program vmtx advance: the control passes and the mutated test fails its cross-program quad equality. Source was restored and compared byte-for-byte with the live original.",
     "parent_review": "Parent and independent peer reviewed effective §9.9, selected code, assertion bodies and actual ADR text. No full external font-format certification. The proposed helper-level cmap failure was rejected; broader validation remains a separate candidate.",
     "test_result": "Earlier pdf-font suite: 372 passed; broad targets: wave12. New vertical consumer: 1 passed in vertical-program-metrics-target-v2.log. Counts do not certify corpus tests with early returns or every profile branch.",
     "remaining": "Archive inspection uses program metrics for profile consistency. The source’s literal never-used wording requires an interpretation separating inspection from PDF placement. This test establishes the selected display consumer, not complete external font conformance.",

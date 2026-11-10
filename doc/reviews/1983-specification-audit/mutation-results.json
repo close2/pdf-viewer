@@ -180,5 +180,19 @@
       "outcome": "killed",
       "log": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/mutation-inverted-stroking.log"
     }
+  ],
+  "vertical-metrics-mutation-results.json": [
+    {
+      "name": "control",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "vertical-metrics-mutation-control.log"
+    },
+    {
+      "name": "program-vmtx-overrides-pdf",
+      "returncode": 101,
+      "outcome": "assertion-failed",
+      "log": "vertical-metrics-mutation-program-vmtx-overrides-pdf.log"
+    }
   ]
 }

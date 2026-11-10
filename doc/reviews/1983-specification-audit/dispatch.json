@@ -787,6 +787,27 @@
       "clauses": [
         "6.1–6.3.2.3"
       ],
+      "state": "parent-reviewed-partial-aggregate-claims-qualified"
+    },
+    {
+      "agent": "markup_annotation_audit",
+      "clauses": [
+        "12.5.6.2"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "annotation_states_audit",
+      "clauses": [
+        "12.5.6.3"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "ink_annotation_audit",
+      "clauses": [
+        "12.5.6.13"
+      ],
       "state": "running"
     }
   ]
