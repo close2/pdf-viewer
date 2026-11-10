@@ -829,3 +829,37 @@ return `rc=false`, testing the project's non-veto policy separately from ISO's e
 ADR 1614's boundary still holds with the ADR 2763 qualification: XFA preSave can separately hold
 or refuse a save after `/WS`, and XFA postSave cleanup is distinct from catalog `/DS`. Combined
 cancellation/refusal tests and full host-by-host event timing remain in the continuation work.
+
+## Presentation defaults and held-operation timing
+
+Four new presentation tests pass. Random access to a page with two navigation nodes runs the
+primary forward action and makes the next node current; a backward request then runs that
+second node's backward action without leaving the page. A separate node-duration test checks
+the two-second boundary with no page duration. Transition metadata reaches the host with the
+selected Table 164 defaults and explicit controls; omitted style and explicit `R` both replace
+immediately even with `D 99`. These metadata assertions supplement existing visual tests;
+they do not certify every style or every native host's animation.
+
+The source review corrects the draft's blanket Table 164 confirmation into separate, bounded
+entry records. EC3 #36 makes `Di` an integer; parser tolerance remains a recovery policy.
+Effective #304 is binding despite its `Text` annotation subtype: linked Review/Completed
+annotations add the end-of-list rule. Ordinary exhaustion has tests. Its interaction with
+arrival at a page containing only one node remains an interpretation question, not a reported
+defect. Action-triggered redirects, backward arrival, and the complete style applicability
+matrix remain open. Notes and examples are retained as guidance, without inventing new shalls.
+
+The selected ADR decisions retain injected elapsed time and pure frame geometry. ADR 0316
+reverses ADR 0135's original absence of explicit presentation state and its tick-only transition
+rule; those historical premises must not be treated as current. ADR 1299's selected quantities
+remain explicit product choices. ADR 1853's final-frame assertion checks incoming raster bytes;
+its entire current host adoption path was not re-audited.
+
+Two additional operation tests close the combined cancellation/refusal gap described above.
+One ordered runner log distinguishes catalog `WS`/`DS` from XFA preSave/postSave. Successful
+saves run both catalog events; refused or declined saves omit `DS` but still perform XFA
+cleanup. An unanswered request runs neither `DS` nor cleanup yet. A complete encrypted print
+fixture with permission bit 3 clear verifies that `WP`/`DP` occur only after the configured
+policy admits the job. The test checks decrypted script bytes as well as callback order.
+`DS` follows the successful write internally; it precedes emission of the public `Saved` event,
+so no assertion claims the opposite. These six new tests pass independently of the earlier
+wave10 totals. Full host-by-host operation timing remains open.

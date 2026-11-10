@@ -7713,6 +7713,54 @@
     "superseded": false
   },
   {
+    "clause": "12.6.3",
+    "feature_id": "held_save_catalog_and_xfa_order",
+    "requirement": "Catalog WS precedes the save operation; DS follows a successful save. XFA cancellation cleanup is a distinct project policy.",
+    "source_location": "Table200 document additional actions, WS/DS/WP/DP",
+    "errata": "No additional effective change to these timing entries identified; inherited Table200 review.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/viewer.rs",
+      "crates/pdf-model/src/view/scripts.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/document_trigger_timing_residual_audit.rs::catalog_save_triggers_follow_xfa_cancellation_and_public_save_outcome"
+    ],
+    "verdict": "partial-confirmed-with-new-test",
+    "evidence": "One shared ordered runner log verifies WS/preSave/DS/postSave when Off permits cancellation or Ask is answered yes; On refusal and Ask/no omit DS but retain XFA postSave. Ask emits Asking and no cleanup/DS until answered. This proves callback order and successful public outcome, not DS after Event::Saved: code emits that event after the callback.",
+    "test_command": "cargo test -p viewer-core --test document_trigger_timing_residual_audit",
+    "test_result": "2passed, document-timing-residual-target.log",
+    "reviewer": "document_trigger_timing_residual_audit",
+    "parent_review_state": "parent-reviewed-with-two-held-operation-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-confirmed-with-new-test",
+    "superseded": false
+  },
+  {
+    "clause": "12.6.3",
+    "feature_id": "held_print_catalog_callbacks",
+    "requirement": "WP/DP surround an admitted print job, with no callbacks for a refused or unanswered request.",
+    "source_location": "Table200 document additional actions, WS/DS/WP/DP",
+    "errata": "No additional effective change to these timing entries identified; inherited Table200 review.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/viewer.rs",
+      "crates/pdf-model/src/view/scripts.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/document_trigger_timing_residual_audit.rs::print_triggers_are_absent_until_a_permission_denied_job_is_admitted"
+    ],
+    "verdict": "partial-confirmed-with-new-test",
+    "evidence": "Valid R2 encrypted fixture with print bit3clear: Off and Ask/yes run one WP/DP pair; On and Ask/no run neither, including after idle Finish. Parent adds exact decrypted script-byte assertion. Restriction levels are repository policy; no universal ISO requirement to expose these modes is claimed.",
+    "test_command": "cargo test -p viewer-core --test document_trigger_timing_residual_audit",
+    "test_result": "2passed, document-timing-residual-target.log",
+    "reviewer": "document_trigger_timing_residual_audit",
+    "parent_review_state": "parent-reviewed-with-two-held-operation-tests",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-confirmed-with-new-test",
+    "superseded": false
+  },
+  {
     "clause": "7.11.4",
     "feature_id": "overview.forms",
     "requirement": "Embedded streams are carried through file-specification /EF; stream references use /EF or /RF; file attachment annotations always include an embedded stream; document-wide /EmbeddedFiles association is optional unless another clause requires it.",
@@ -23562,6 +23610,521 @@
     "parent_review_state": "parent-reviewed-with-discriminating-policy-regressions",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "policy-implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "12.4.4",
+    "feature_id": "presentation-availability-is-optional",
+    "requirement": "An interactive processor may offer presentation mode; this permission does not require every processor or host to provide it.",
+    "source_location": "ISO_32000-2_sponsored_EC3.md:10978-10980; printed p461",
+    "errata": "None applicable identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/command.rs::Command::Present",
+      "crates/viewer-host/src/presentation.rs",
+      "crates/viewer-gtk/src/host/presentation.rs",
+      "crates/viewer-qt/src/host/presentation.rs",
+      "crates/viewer-ui/src/bin/quorra.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/sub_page_navigation.rs::nothing_walks_a_pages_states_while_no_presentation_is_running"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Presentation mode is an explicit host-driven command. The core does not infer presentation from fullscreen. The referenced test sends PresentationMode::Off and demonstrates arrow navigation goes to the next page without applying the page's OCG node action. Host entry implementations are distinct; this audit did not replay every native host interaction.",
+    "test_command": "not run; audit only",
+    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.4.4",
+    "feature_id": "page-trans-and-dur-are-optional-inputs",
+    "requirement": "Page Trans describes the transition to that page during presentation; page Dur is the maximum page display time before automatic forward advance; absence of Dur forbids automatic page advance.",
+    "source_location": "ISO_32000-2_sponsored_EC3.md:10980-10989; printed p461",
+    "errata": "No applicable annotation changes found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/navigation.rs",
+      "crates/viewer-core/src/viewer/navigation.rs",
+      "crates/viewer-host/src/clock.rs::Clock::tick"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/headless.rs::a_page_stating_a_duration_advances_when_it_is_told_the_time",
+      "crates/viewer-core/tests/headless.rs::a_transition_frame_is_between_the_two_pages",
+      "crates/viewer-host/src/clock.rs::the_clock_is_held_while_a_transition_is_drawn"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Core test asserts automatic advance after accumulated tick duration, and host clock test asserts ticks do not accrue during a transition, then resume after /D. Existing tests also assert transition frame contains outgoing/incoming pages. `/Dur` absence behavior is covered in core transition/headless tests; no host-specific manual timing measurement was performed here.",
+    "test_command": "not run; audit only",
+    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.4.4.1",
+    "feature_id": "transition-dictionary-style-and-duration",
+    "requirement": "A present page Trans dictionary states the style and duration of the visual transition used when moving from another page to the page carrying that dictionary, in presentation mode.",
+    "source_location": "ISO_32000-2_sponsored_EC3.md:10980-10982 and Table 164; printed pp461-463",
+    "errata": "No relevant Table 164 change identified for this audit slice; issue #36 on /Di type is a separate requirement and described in ledger note.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/navigation.rs",
+      "crates/viewer-core/src/viewer/navigation.rs",
+      "crates/viewer-core/src/transition.rs::frame",
+      "crates/viewer-host/src/clock.rs::Clock::frame"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/sub_page_navigation.rs::a_page_turned_by_hand_during_a_presentation_plays_its_transition",
+      "crates/viewer-core/tests/headless.rs::a_transition_frame_is_between_the_two_pages",
+      "crates/viewer-core/src/transition.rs::the_last_frame_is_the_arriving_page_byte_for_byte"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The manual page-turn test reads Event::Transition and asserts the target page's /Wipe appears only while presentation is on. Headless frame test rasterizes at halfway and checks both faces, while endpoint test compares final frame to the incoming raster byte-for-byte. Host Clock::frame computes elapsed / transition.duration and ends at fraction >=1.0.",
+    "test_command": "not run; audit only",
+    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.4.4.1",
+    "feature_id": "table164-style-entries-and-defaults",
+    "requirement": "Table 164 defines S default R; D default 1; and style-conditional entries Dm, M, Di, SS and B with their listed defaults/allowed values. Each entry applies only to styles specified in Table 164.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, printed pp462-463, Table 164 (use PDF layout; Markdown rendering duplicates Value cells)",
+    "errata": "EC3#36 changes Di number to integer on physical478/printed463; #75 corrects uppercase spelling. Parser tolerance of fractional angles is a recovery policy, not normative grammar.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/navigation.rs",
+      "crates/viewer-core/src/transition.rs::frame",
+      "crates/viewer-core/src/transition.rs::fly",
+      "crates/viewer-core/src/transition.rs::note"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/navigation.rs::the_clauses_own_example_page_states_a_split_and_five_seconds",
+      "crates/viewer-core/src/transition.rs::the_report_fires_on_exactly_what_is_not_drawn",
+      "crates/viewer-core/src/transition.rs::a_style_drawn_at_a_chosen_quantity_says_the_quantity_is_ours"
+    ],
+    "verdict": "partial",
+    "evidence": "Parent rejects the draft blanket confirmation from one explicit example. Four new integration tests cover selected defaults and controls through Event::Transition, not all twelve rendered effects or every applicability combination. Separate records below distinguish entries. Existing core frame assertions cover selected geometry and endpoints.",
+    "test_command": "not run; audit only",
+    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "clause": "12.4.4.1",
+    "feature_id": "transition-midpoint-shape-is-not-prescribed",
+    "requirement": "Table 164 names effects and descriptions but does not prescribe intermediate frame curves or withheld quantities for Blinds, Dissolve, Glitter, Fly; the standard therefore does not establish those exact algorithms/counts as conformance requirements.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, Table 164 pp462-463",
+    "errata": "No effective correction prescribing those quantities identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/transition.rs::BLINDS",
+      "crates/viewer-core/src/transition.rs::DISSOLVE_CELLS",
+      "crates/viewer-core/src/transition.rs::GLITTER_BAND",
+      "crates/viewer-core/src/transition.rs::fly"
+    ],
+    "test_refs": [
+      "crates/viewer-core/src/transition.rs::a_style_drawn_at_a_chosen_quantity_says_the_quantity_is_ours",
+      "crates/viewer-core/src/transition.rs::a_dissolve_replaces_the_share_of_its_cells_it_has_run_for"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Tests verify the selected geometry and reporting, not a numeric quantity mandated by ISO. ADR 1299 records A72's owner-authorized choice of quantities: eight Blinds lines, forty Dissolve cells on the long edge, Glitter width 0.25, and changed-pixel bounding rectangle for Fly. Those are implementation choices and reported as such, not standards minima.",
+    "test_command": "not run; audit only",
+    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.4.4.1",
+    "feature_id": "table164_transition_duration-is-pre-display",
+    "requirement": "The example illustrates transition duration preceding the incoming page display duration; the implementation follows that sequencing. The example is explanatory rather than an independent shall.",
+    "source_location": "ISO_32000-2_sponsored_EC3.md:11019-11024; printed p463",
+    "errata": "None applicable identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-host/src/clock.rs::Clock::tick",
+      "crates/viewer-host/src/clock.rs::Clock::frame"
+    ],
+    "test_refs": [
+      "crates/viewer-host/src/clock.rs::the_clock_is_held_while_a_transition_is_drawn"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The clock test starts a two-second transition, verifies a tick during playback returns None, ends the transition, then verifies the arriving page receives a fresh 500 ms tick. Assertion discriminates a clock that counted transition time against one that restarted after the effect.",
+    "test_command": "not run; audit only",
+    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.4.4.2",
+    "feature_id": "table165-navnode-fields",
+    "requirement": "A node may specify forward action NA, backward action PA, Next and Prev node references, and Dur; absent Dur means no automatic advance. The table's /Type key is optional and, if present, identifies NavNode.",
+    "source_location": "ISO_32000-2_sponsored_EC3.pdf, printed pp464-465, Table 165; Markdown at :11040-11050 has transposed Key/Type cells",
+    "errata": "#304 adds effective end-of-list behavior for missing Next/Prev; it does not change Table 165 field types or fields.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/navigation.rs::steps",
+      "crates/viewer-core/src/presentation.rs::step",
+      "crates/viewer-core/src/presentation.rs::node_due",
+      "crates/viewer-core/src/viewer/navigation.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/sub_page_navigation.rs::a_forward_request_walks_a_pages_states_before_it_turns_the_page",
+      "crates/viewer-core/tests/sub_page_navigation.rs::a_backward_request_undoes_a_state_and_then_leaves_the_page",
+      "crates/viewer-core/tests/sub_page_navigation.rs::a_navigation_nodes_own_duration_advances_it_and_its_absence_does_not",
+      "crates/viewer-core/tests/presentations_audit.rs::navigation_node_duration_runs_at_its_maximum_without_a_page_duration"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Existing body assertions inspect OCG state changes for forward NA and backward PA and node transitions; the timer test verifies absent duration stays idle and a stated duration advances a node. Source PDF layout shows Key=/Type, Type=name, not a /name entry; reader can identify node by reachability from PresSteps without requiring optional /Type.",
+    "test_command": "not run; audit only",
+    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.4.4.2",
+    "feature_id": "current-node-and-forward-backward-request-order",
+    "requirement": "Processor maintains a current node; a user forward request executes NA then makes Next current; backward request executes PA then makes Prev current.",
+    "source_location": "ISO_32000-2_sponsored_EC3.md:11050-11075; printed pp465-466",
+    "errata": "#304 adds the missing-Next/Prev behavior but leaves the NA/PA-before-Next/Prev ordering unchanged.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/presentation.rs::step",
+      "crates/viewer-core/src/viewer/navigation.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/sub_page_navigation.rs::a_forward_request_walks_a_pages_states_before_it_turns_the_page",
+      "crates/viewer-core/tests/sub_page_navigation.rs::a_backward_request_undoes_a_state_and_then_leaves_the_page"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Existing forward test asserts node one action and then node two action, with expected page unchanged while a successor exists; backward test asserts second node's PA precedes return to first and then first PA. Action order is observable in OCG layer state.",
+    "test_command": "not run; audit only",
+    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.4.4.2",
+    "feature_id": "navigation-only-in-presentation-mode",
+    "requirement": "A processor needs to respect navigation nodes only when in presentation mode (NOTE 3 permission).",
+    "source_location": "ISO_32000-2_sponsored_EC3.md:11035-11039; printed p465",
+    "errata": "None applicable identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/presentation.rs",
+      "crates/viewer-core/src/viewer/navigation.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/sub_page_navigation.rs::nothing_walks_a_pages_states_while_no_presentation_is_running"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The off-mode test opens a fixture with OCG node actions, sends next, and asserts page index changes while the OCG remains off. This proves the selected permission path rather than merely parsing PresentationMode.",
+    "test_command": "not run; audit only",
+    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.4.4.2",
+    "feature_id": "save-and-restore-optional-content-state",
+    "requirement": "Informative NOTE2 describes saving optional-content state on presentation entry and restoring it on exit; preserve its guidance without inventing an independent normative shall.",
+    "source_location": "ISO_32000-2_sponsored_EC3.md:10992-10995; printed p464",
+    "errata": "None applicable identified.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/presentation.rs::enter",
+      "crates/viewer-core/src/presentation.rs::leave",
+      "crates/pdf-model/src/view/optional_content.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/sub_page_navigation.rs::leaving_presentation_mode_puts_the_optional_content_back"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Test starts with both OCGs off, runs node action to turn one on, leaves presentation and asserts it is off again. It reaches the public command path and checks layer state, not only a snapshot helper. This confirms adopted guidance, not a standalone normative requirement introduced by a NOTE.",
+    "test_command": "not run; audit only",
+    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.4.4.2",
+    "feature_id": "arrival-at-page-with-pressteps",
+    "requirement": "On navigation to a page with PresSteps, that node becomes current; for forward or random access, execute its NA and make its Next node current, then display the new page and perform its Trans if present.",
+    "source_location": "ISO_32000-2_sponsored_EC3.md:11081-11094; printed p465",
+    "errata": "#304 is effective supplemental EC3 text on the absent-Next/Prev branch; whether that end-of-list behavior composes with arrival paragraph step (c) is separately unresolved.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/presentation.rs::arrived",
+      "crates/viewer-core/src/viewer/navigation.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/presentations_audit.rs::random_access_arrival_runs_primary_action_then_selects_next_node",
+      "crates/viewer-core/tests/presentations_audit.rs::navigation_node_duration_runs_at_its_maximum_without_a_page_duration"
+    ],
+    "verdict": "partial-confirmed-with-new-test",
+    "evidence": "Complete three-page fixture: random arrival at a two-node page runs primary NA once, leaves second NA idle, then Previous runs second PA without leaving. Separate last-page arrival advances second NA at its maximum2s without page Dur. This closes the selected random-access gap; backward arrival and terminal one-node arrival remain separate.",
+    "test_command": "scratch-only; not run",
+    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial-confirmed-with-new-test",
+    "superseded": false
+  },
+  {
+    "clause": "12.4.4.2",
+    "feature_id": "issue304-end-of-list-behavior",
+    "requirement": "Effective EC3 #304 supplemental text: if current node has no Next/Prev, navigate to the adjacent page; if already on last/first page, leave current node unchanged.",
+    "source_location": "ISO_32000-2_sponsored_EC3.md:11060-11075; EC3 annotation objects 4852/4856 on physical PDF page 480, printed p465; linked state objects 4854/4858.",
+    "errata": "Objects 4852/4856 are Text annotations with contents giving the inserted sentences; linked state annotations 4854/4858 are Review/Completed. Repository errata method treats Completed and Accepted as binding. Page metadata generic heading §12.5.1 reflects page straddle, not location of text being corrected.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/presentation.rs::step",
+      "crates/viewer-core/src/presentation.rs::arrived",
+      "doc/adr/0316-the-mode-a-clause-conditions-its-states-on.md",
+      "doc/adr/0473-the-clock-two-windows-did-not-have.md"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/sub_page_navigation.rs::a_forward_request_walks_a_pages_states_before_it_turns_the_page",
+      "crates/viewer-core/tests/sub_page_navigation.rs::running_off_the_list_where_there_is_no_page_to_go_to_leaves_the_node"
+    ],
+    "verdict": "confirmed",
+    "evidence": "The base clause omits behavior when Next/Prev is absent. The effective Completed EC3 additions settle the missing branch. Public tests assert running the last node with a next page advances on the same request and running off the front on the first page retains the node; implementation uses page bounds to advance if one exists and leaves node position intact at document ends. The separate page-arrival composition is not covered by that evidence. `doc/errata-read.md` explicitly says Review/Completed and Review/Accepted changes are binding, so Text subtype alone is not grounds to discount these corrections.",
+    "test_command": "not run; audit only",
+    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.4.4.2",
+    "feature_id": "issue304-composition-with-arrival-paragraph",
+    "requirement": "Determine how #304’s effective “no Next means navigate next page” addition composes when the page is reached by random access: arrival paragraph says execute NA and set Next “as described previously,” then make/display new page at step (c).",
+    "source_location": "ISO_32000-2_sponsored_EC3.md:11081-11094; EC3 #304 object 4852 physical p480 / printed p465, positioned at item (b).",
+    "errata": "#304 effective Text correction under Completed Review status; it is attached to item (b), while arrival step (b) incorporates prior behavior by reference and step (c) says to display the arrived page.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/viewer-core/src/presentation.rs::arrived",
+      "crates/viewer-core/src/presentation.rs::step"
+    ],
+    "test_refs": [],
+    "verdict": "ambiguous",
+    "evidence": "`arrived` calls step, then returns only its actions and drops `Step::onward`; its comment says step (c) requires the requested incoming page to remain visible. The effective #304 sentence can also be read as requiring the same absent-Next page turn because arrival says execute as previously. The source sequence has both instructions and the supplied materials do not settle whether this onward turn is suppressed on arrival. Existing tests do not cover a destination page with a terminal node. Do not assert a conformance failure until the interaction is resolved.",
+    "test_command": "not run; audit only",
+    "test_result": "Existing core/model/host references passed in broad wave10; four new presentation integration tests pass in presentations-four-target.log. Native window replay and viewer-ui transition device target not rerun.",
+    "parent_review": "Selected source/consumer/assertion review; no whole-clause or all-host certification.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "ambiguous",
+    "superseded": false
+  },
+  {
+    "feature_id": "transition_type_optional_trans",
+    "clause": "12.4.4.1",
+    "requirement": "Optional Type, if present, names Trans.",
+    "source_location": "ISO32000-2 §12.4.4.1; Table164 or Table165 and surrounding prose",
+    "errata": "Table164 checked in source PDF layout, physical477–478/printed462–463.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/navigation.rs",
+      "crates/viewer-core/src/presentation.rs",
+      "crates/viewer-core/src/transition.rs"
+    ],
+    "test_refs": [],
+    "verdict": "producer-constraint",
+    "evidence": "The dictionary is reached through page Trans; absence is valid. No new reader-rejection obligation inferred from producer Type constraint.",
+    "test_result": "New presentations target4passed; existing relevant core/model/host targets passed wave10.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "producer-constraint",
+    "superseded": false
+  },
+  {
+    "feature_id": "transition_style_default_replace_ignores_duration",
+    "clause": "12.4.4.1",
+    "requirement": "S defaults R; Replace has no special effect and ignores D.",
+    "source_location": "ISO32000-2 §12.4.4.1; Table164 or Table165 and surrounding prose",
+    "errata": "Table164 checked in source PDF layout, physical477–478/printed462–463.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/navigation.rs",
+      "crates/viewer-core/src/presentation.rs",
+      "crates/viewer-core/src/transition.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/presentations_audit.rs::an_omitted_transition_style_replaces_immediately_despite_a_stated_duration"
+    ],
+    "verdict": "confirmed",
+    "evidence": "New test covers omitted S with omitted D and D99, and explicit R/D99; all deliver Replace with zero effect duration.",
+    "test_result": "New presentations target4passed; existing relevant core/model/host targets passed wave10.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "feature_id": "transition_duration_default_one",
+    "clause": "12.4.4.1",
+    "requirement": "D defaults to one second for an effect.",
+    "source_location": "ISO32000-2 §12.4.4.1; Table164 or Table165 and surrounding prose",
+    "errata": "Table164 checked in source PDF layout, physical477–478/printed462–463.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/navigation.rs",
+      "crates/viewer-core/src/presentation.rs",
+      "crates/viewer-core/src/transition.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/presentations_audit.rs::transition_defaults_are_delivered_to_the_host_for_the_styles_that_use_them"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Split with omitted D delivers1s; explicit D3 delivers3s. This proves metadata propagation, not native elapsed-time precision.",
+    "test_result": "New presentations target4passed; existing relevant core/model/host targets passed wave10.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "feature_id": "transition_dimension_and_motion_defaults",
+    "clause": "12.4.4.1",
+    "requirement": "Dm defaults H for Split/Blinds; M defaults I for Split/Box/Fly.",
+    "source_location": "ISO32000-2 §12.4.4.1; Table164 or Table165 and surrounding prose",
+    "errata": "Table164 checked in source PDF layout, physical477–478/printed462–463.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/navigation.rs",
+      "crates/viewer-core/src/presentation.rs",
+      "crates/viewer-core/src/transition.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/presentations_audit.rs::transition_defaults_are_delivered_to_the_host_for_the_styles_that_use_them"
+    ],
+    "verdict": "partial",
+    "evidence": "New Split defaultH/I and explicitV/O assertions pass. Shared parser path supports the other listed styles; full per-style conditional applicability matrix remains unreviewed.",
+    "test_result": "New presentations target4passed; existing relevant core/model/host targets passed wave10.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "feature_id": "transition_direction_effective_integer_and_default",
+    "clause": "12.4.4.1",
+    "requirement": "Di is integer or name after EC3#36; default0. Listed angles and None are style-conditional.",
+    "source_location": "ISO32000-2 §12.4.4.1; Table164 or Table165 and surrounding prose",
+    "errata": "EC3#36 physical478/printed463 changes number to integer; #75 uppercase spelling editorial.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/navigation.rs",
+      "crates/viewer-core/src/presentation.rs",
+      "crates/viewer-core/src/transition.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/presentations_audit.rs::transition_defaults_are_delivered_to_the_host_for_the_styles_that_use_them"
+    ],
+    "verdict": "partial",
+    "evidence": "Wipe omittedDi0 and explicit180 pass. Fly None/SS0.5 passes. Fractional numeric recovery is deliberately tolerated by the parser; no mandatory rejection is inferred. Allowed-direction geometry and all style-condition combinations remain partial.",
+    "test_result": "New presentations target4passed; existing relevant core/model/host targets passed wave10.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "feature_id": "transition_fly_scale_and_opacity_defaults",
+    "clause": "12.4.4.1",
+    "requirement": "Fly SS defaults1; B defaultsfalse; None is relevant only with SS other than1.",
+    "source_location": "ISO32000-2 §12.4.4.1; Table164 or Table165 and surrounding prose",
+    "errata": "Table164 checked in source PDF layout, physical477–478/printed462–463.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/navigation.rs",
+      "crates/viewer-core/src/presentation.rs",
+      "crates/viewer-core/src/transition.rs"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/presentations_audit.rs::transition_defaults_are_delivered_to_the_host_for_the_styles_that_use_them"
+    ],
+    "verdict": "partial",
+    "evidence": "New consumer metadata test asserts default1/false and explicit0.5/true/None. Existing Fly pixel tests provide separate visual evidence; this test alone does not establish flown-image correctness.",
+    "test_result": "New presentations target4passed; existing relevant core/model/host targets passed wave10.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "partial",
+    "superseded": false
+  },
+  {
+    "feature_id": "navigation_action_redirect_and_transition_actions",
+    "clause": "12.4.4.2",
+    "requirement": "NA/PA that navigate elsewhere invoke arrival behavior; Next/Prev should then be absent. Transition actions may occur in either sequence.",
+    "source_location": "ISO32000-2 §12.4.4.2; Table164 or Table165 and surrounding prose",
+    "errata": "Table164 checked in source PDF layout, physical477–478/printed462–463.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/navigation.rs",
+      "crates/viewer-core/src/presentation.rs",
+      "crates/viewer-core/src/transition.rs"
+    ],
+    "test_refs": [],
+    "verdict": "unreviewed",
+    "evidence": "Retained as an independent conditional requirement/recommendation. Existing architecture distinguishes action navigation from list exhaustion, but this pass adds no discriminating redirect/arrival test. Follow-up should prevent double page-turns.",
+    "test_result": "New presentations target4passed; existing relevant core/model/host targets passed wave10.",
+    "reviewer": "presentations_audit",
+    "parent_review_state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "unreviewed",
     "superseded": false
   },
   {

@@ -1158,9 +1158,18 @@
   },
   {
     "path": "doc/adr/0133-the-fourteen-fonts-a-processor-is-said-to-have.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "simple_font_widths_audit/decisions.json",
+        "decision_id": "standard14_fonts_compiled_in",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0134-the-structure-tree-reaches-a-consumer.md",
@@ -1170,14 +1179,14 @@
   },
   {
     "path": "doc/adr/0135-a-state-machine-with-no-clock-is-told-the-time.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "presentations_audit/decisions.json",
         "decision_id": "0135-page-duration-boundary-and-target-transition",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -1870,14 +1879,14 @@
   },
   {
     "path": "doc/adr/0230-a-frame-is-two-pages-and-a-fraction.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "presentations_audit/decisions.json",
         "decision_id": "0230-pure-frame-shaping-at-progress-fraction",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2035,9 +2044,18 @@
   },
   {
     "path": "doc/adr/0253-the-seventy-six-were-read-and-the-instrument-was-half-blind.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "simple_font_widths_audit/decisions.json",
+        "decision_id": "errata_sweep_finds_retired_font_obligations",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0254-three-populations-of-quotation-and-only-one-had-a-gate.md",
@@ -2136,9 +2154,18 @@
   },
   {
     "path": "doc/adr/0267-a-substituted-serif-costs-nothing-and-a-substituted-sans-costs-one-number.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_descriptors_audit/decisions.json",
+        "decision_id": "Do not scale substitute caps to descriptor CapHeight without a usable conforming value",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0268-the-hairline-paints-the-projection-not-the-line.md",
@@ -2301,9 +2328,18 @@
   },
   {
     "path": "doc/adr/0293-a-border-that-shall-be-inside-and-an-entry-that-shall-be-ignored.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_border_audit/decisions.json",
+        "decision_id": "0293-underline-inside-rect-and-border-precedence",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0294-a-flag-on-the-note-and-a-style-the-table-does-not-give.md",
@@ -2466,14 +2502,14 @@
   },
   {
     "path": "doc/adr/0316-the-mode-a-clause-conditions-its-states-on.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "presentations_audit/decisions.json",
         "decision_id": "0316-host-states-presentation-mode",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -2745,9 +2781,26 @@
   },
   {
     "path": "doc/adr/0358-the-width-a-file-states-is-a-statement-about-the-shape.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_descriptors_audit/decisions.json",
+        "decision_id": "Substituted simple-font stretch from declared Widths; descriptor metric inputs and scope",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      },
+      {
+        "source": "simple_font_widths_audit/decisions.json",
+        "decision_id": "substitute_stretch_to_match_stated_widths",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0359-the-other-content-streams-a-clause-names.md",
@@ -3284,9 +3337,18 @@
   },
   {
     "path": "doc/adr/0432-the-border-a-default-draws-and-a-census-measured.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_border_audit/decisions.json",
+        "decision_id": "0432-free-text-default-border-black",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0433-the-head-of-the-ink-sweep-is-a-sentence-that-forbids-the-file.md",
@@ -3522,7 +3584,7 @@
         "source": "presentations_audit/decisions.json",
         "decision_id": "0470-fullscreen-enters-and-leaves-presentation-mode",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       },
@@ -3550,14 +3612,14 @@
   },
   {
     "path": "doc/adr/0473-the-clock-two-windows-did-not-have.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "presentations_audit/decisions.json",
         "decision_id": "0473-one-shared-clock-for-toolkit-hosts",
         "conclusion": "retain-with-qualification",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -4227,9 +4289,18 @@
   },
   {
     "path": "doc/adr/0674-the-border-a-stroke-could-not-draw.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_border_audit/decisions.json",
+        "decision_id": "0674-oversized-border-fills-rect-when-frame-closes",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/0675-the-rectangle-a-reference-draws-outside.md",
@@ -6373,9 +6444,18 @@
   },
   {
     "path": "doc/adr/1057-a-cloud-is-a-shall-behind-a-silence-and-a-watermark-has-no-window.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_border_audit/decisions.json",
+        "decision_id": "1057-cloud-effect-obligation-and-chosen-scallop-geometry",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1058-a-shading-interpolates-in-its-own-space-by-subdividing-to-the-tolerance.md",
@@ -6414,9 +6494,18 @@
   },
   {
     "path": "doc/adr/1061-a-bevel-is-a-shall-behind-a-silence-and-its-light-comes-from-one-corner.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "annotation_border_audit/decisions.json",
+        "decision_id": "1061-relief-geometry-for-B-and-I",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/1062-a-submission-is-composed-here-and-transmitted-by-whoever-has-a-network.md",
@@ -7786,14 +7875,14 @@
   },
   {
     "path": "doc/adr/1299-a-withheld-quantity-is-chosen-written-down-and-reported.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "presentations_audit/decisions.json",
         "decision_id": "1299-a72-transition-quantities",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -10517,14 +10606,14 @@
   },
   {
     "path": "doc/adr/1853-a-page-transition-s-last-frame-is-the-page-it-moves-to-and-nothing-else.md",
-    "review_state": "review-in-progress",
+    "review_state": "selected-decision-units-reviewed",
     "whole_document_complete": false,
     "review_records": [
       {
         "source": "presentations_audit/decisions.json",
         "decision_id": "1853-transition-end-presentation-settles-arriving-page",
         "conclusion": "retain",
-        "parent_accepted": false,
+        "parent_accepted": true,
         "review_type": "selected-decision-unit",
         "duplicates_decision": null
       }
@@ -11896,9 +11985,18 @@
   },
   {
     "path": "doc/adr/2146-a-standard-font-stated-by-name-alone-is-given-the-face-it-is-drawn-from-with-its-descriptor-and-widths.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "simple_font_widths_audit/decisions.json",
+        "decision_id": "archive_standard_font_with_descriptor_and_laid_out_widths",
+        "conclusion": "cross-reference-only",
+        "parent_accepted": false,
+        "review_type": "cross_reference_only",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2147-a-font-whose-shipped-face-is-the-other-kind-is-restated-as-the-face-s-kind.md",
@@ -12040,9 +12138,18 @@
   },
   {
     "path": "doc/adr/2178-a-simple-fonts-widths-array-states-the-range-the-reader-already-uses.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "simple_font_widths_audit/decisions.json",
+        "decision_id": "archive_repair_short_long_width_arrays",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2179-a-fonts-proof-must-survive-the-encoding-and-shared-descriptor-write.md",
@@ -12058,9 +12165,18 @@
   },
   {
     "path": "doc/adr/2181-last-char-bounds-the-widths-that-a-font-states.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "simple_font_widths_audit/decisions.json",
+        "decision_id": "reader_stops_at_lastchar_and_uses_missingwidth_outside",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2182-one-readback-allocation-with-explicit-residency-priority.md",
@@ -13591,9 +13707,18 @@
   },
   {
     "path": "doc/adr/2476-a-font-that-names-a-renamed-descriptor-keeps-a-copy-of-the-producers-own.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_descriptors_audit/decisions.json",
+        "decision_id": "Archive rekeying preserves Table120 FontName/BaseFont equality for unconverted bystanders",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2477-the-largest-refusal-a-remedy-could-carry-fills-in-widths-the-file-never-stated-and-waits-for-the-owner.md",
@@ -13654,9 +13779,18 @@
   },
   {
     "path": "doc/adr/2486-two-shown-descendants-of-one-rekeyed-descriptor-all-state-the-name-the-widened-program-ends-with.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_descriptors_audit/decisions.json",
+        "decision_id": "All shown CIDFont descendants receive final BaseFont when a shared embedded descriptor is widened",
+        "conclusion": "retain",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2487-a-font-written-inside-another-dictionary-that-names-a-renamed-descriptor-is-written-out-with-a-copy-of-the-producers-own.md",
@@ -13761,9 +13895,18 @@
   },
   {
     "path": "doc/adr/2505-the-name-supplied-for-a-font-that-names-none-is-its-embedded-programs-own-and-two-of-the-ten-stay-refused.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "font_descriptors_audit/decisions.json",
+        "decision_id": "Supply a Table120-compliant FontName/BaseFont when archive conversion embeds its own face",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "selected-decision-unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2506-a-stimulus-activates-the-calculations-in-the-order-of-page-379-and-they-cascade-by-the-names-their-scripts-resolved.md",
@@ -14623,15 +14766,33 @@
   },
   {
     "path": "doc/adr/2686-a-simple-font-states-its-widths-and-the-checker-fails-one-that-does-not.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "simple_font_widths_audit/decisions.json",
+        "decision_id": "pdfa_simple_font_widths_checker_and_rewriter",
+        "conclusion": "cross-reference-only",
+        "parent_accepted": false,
+        "review_type": "cross_reference_only",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2687-an-embedded-standard-font-with-no-widths-is-laid-out-by-its-published-metrics.md",
-    "review_state": "pending",
+    "review_state": "review-in-progress",
     "whole_document_complete": false,
-    "review_records": []
+    "review_records": [
+      {
+        "source": "simple_font_widths_audit/decisions.json",
+        "decision_id": "embedded_standard14_no_widths_uses_published_metrics",
+        "conclusion": "retain-with-qualification",
+        "parent_accepted": false,
+        "review_type": "reviewed_decision_unit",
+        "duplicates_decision": null
+      }
+    ]
   },
   {
     "path": "doc/adr/2688-a-font-drawn-only-in-mode-three-is-described-by-the-face-substituted-for-it.md",

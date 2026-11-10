@@ -1,18 +1,18 @@
 {
   "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
-  "checkpoint_utc": "2026-11-10T14:27:18.113053+00:00",
+  "checkpoint_utc": "2026-11-10T14:36:52.006118+00:00",
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
-    "last_weekly_used_percent": 70,
+    "last_weekly_used_percent": 71,
     "target_approx_percent": 92,
     "stop_new_work_near_percent": 87,
     "probe": "python scratchpad/r1983/spec-audit/usage.py",
     "warning": "Percent is account allowance, not convertible fixed tokens; counters may lag. Continue extending while useful work and room remain."
   },
   "agents": {
-    "associated_files_audit": "document_trigger_timing_residual_audit",
-    "catalog_pages_audit": "simple_font_widths_audit",
+    "associated_files_audit": "annotation_border_audit",
+    "catalog_pages_audit": "annotation_appearance_audit",
     "inapplicable_conditions_audit": "font_descriptors_audit"
   },
   "next_candidates": [],
@@ -53,13 +53,14 @@
   ],
   "branch": "audit/specification-evidence-2026-11-10",
   "pending_parent_review": [
-    "presentations_audit",
-    "font_descriptors_audit",
     "simple_font_widths_audit",
-    "document_trigger_timing_residual_audit"
+    "font_descriptors_audit",
+    "annotation_border_audit",
+    "annotation_appearance_audit"
   ],
   "pushed_commits": [
     "a299121c",
-    "f413d15f"
+    "f413d15f",
+    "44a167d1"
   ]
 }

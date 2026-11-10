@@ -513,5 +513,15 @@
     "log": "clippy-masking-timing-final.log",
     "exit": 0,
     "scope": "pdf-model/viewer-core all targets warnings denied, through 6mask/2timing tests"
+  },
+  "presentations_four": {
+    "log": "presentations-four-target.log",
+    "passed": 4,
+    "exit": 0
+  },
+  "document_timing_residual": {
+    "log": "document-timing-residual-target.log",
+    "passed": 2,
+    "exit": 0
   }
 }

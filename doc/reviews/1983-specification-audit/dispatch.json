@@ -654,7 +654,7 @@
       "clauses": [
         "12.4.4 and descendants"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial-with-four-tests-and-effective-errata-corrections"
     },
     {
       "agent": "simple_font_widths_audit",
@@ -674,6 +674,20 @@
       "agent": "document_trigger_timing_residual_audit",
       "clauses": [
         "12.6.3 Table200 held/refused operations"
+      ],
+      "state": "parent-reviewed-with-two-held-operation-tests"
+    },
+    {
+      "agent": "annotation_border_audit",
+      "clauses": [
+        "12.5.4"
+      ],
+      "state": "running"
+    },
+    {
+      "agent": "annotation_appearance_audit",
+      "clauses": [
+        "12.5.5"
       ],
       "state": "running"
     }
