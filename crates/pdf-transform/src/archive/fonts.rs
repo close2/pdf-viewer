@@ -281,6 +281,9 @@ pub enum FaceAuthority {
     Shipped,
     /// A program the operator named with `--font`, on the operator's own authority.
     Operator,
+    /// The face of the converting machine's the viewer drew the font from, whose own `OS/2`
+    /// `fsType` permits embedding it (`doc/adr/2773`).
+    Machine,
 }
 
 impl FaceAuthority {
@@ -290,6 +293,7 @@ impl FaceAuthority {
         match self {
             Self::Shipped => "shipped",
             Self::Operator => "operator",
+            Self::Machine => "machine",
         }
     }
 
@@ -300,6 +304,10 @@ impl FaceAuthority {
             Self::Shipped => "a face this program ships",
             Self::Operator => {
                 "a program the converting operator named, who states it may lawfully be embedded                  for unlimited, universal rendering"
+            }
+            Self::Machine => {
+                "the face installed on the converting machine that this viewer drew the font from, \
+                 whose own OS/2 fsType permits embedding it"
             }
         }
     }
@@ -317,7 +325,8 @@ pub enum Fitting {
     Written(f32),
 }
 
-/// One face a substitution may embed: this program's, or the one an operator named.
+/// One face a substitution may embed: this program's, the one an operator named, or the machine's
+/// face the viewer drew the font from.
 ///
 /// **One type rather than two paths**, because everything after the choice is the same: §9.9's
 /// Table 124 decides which key carries it, [`face_widths`] asks it for the glyph each shown code
@@ -329,6 +338,10 @@ enum Face {
     Shipped(ShippedFace),
     /// [`pdf_font::standard::supplied_face`]'s answer, over bytes the operator named.
     Supplied(SuppliedFace, String),
+    /// The same answer over the bytes of the machine's face the viewer drew the font from, with
+    /// the face's own name and its licence for the report, and the shipped face it stands in
+    /// for, which the restatement's proof is given (`doc/adr/2773`).
+    Machine(SuppliedFace, String, Box<ShippedFace>),
 }
 
 impl Face {
@@ -336,7 +349,7 @@ impl Face {
     fn program(&self) -> &[u8] {
         match self {
             Self::Shipped(face) => face.program,
-            Self::Supplied(face, _) => &face.program,
+            Self::Supplied(face, _) | Self::Machine(face, ..) => &face.program,
         }
     }
 
@@ -344,7 +357,7 @@ impl Face {
     const fn format(&self) -> Format {
         match self {
             Self::Shipped(face) => face.format,
-            Self::Supplied(face, _) => face.format,
+            Self::Supplied(face, _) | Self::Machine(face, ..) => face.format,
         }
     }
 
@@ -352,7 +365,7 @@ impl Face {
     fn glyph(&self, code: u8) -> Option<u16> {
         match self {
             Self::Shipped(face) => face.glyph(code),
-            Self::Supplied(face, _) => face.glyph(code),
+            Self::Supplied(face, _) | Self::Machine(face, ..) => face.glyph(code),
         }
     }
 
@@ -360,7 +373,7 @@ impl Face {
     fn describe(&self) -> String {
         match self {
             Self::Shipped(face) => face.describe().to_owned(),
-            Self::Supplied(_, named) => named.clone(),
+            Self::Supplied(_, named) | Self::Machine(_, named, _) => named.clone(),
         }
     }
 
@@ -369,6 +382,7 @@ impl Face {
         match self {
             Self::Shipped(_) => FaceAuthority::Shipped,
             Self::Supplied(..) => FaceAuthority::Operator,
+            Self::Machine(..) => FaceAuthority::Machine,
         }
     }
 }
@@ -1041,6 +1055,10 @@ pub(super) struct Routes<'a> {
     /// (`doc/adr/2769`): so where the profile withholds the loss `substitute-stretch`, and not
     /// where it authorises it, which keeps the unmodified face `doc/questions/A566` chose.
     pub(super) write_fitting: bool,
+    /// Whether the machine's face the viewer drew a font from is embedded where its licence
+    /// permits (`doc/adr/2773`): where the profile withholds the loss `machine-face`, and not where
+    /// it authorises it, which keeps the shipped face (`doc/adr/2774`).
+    pub(super) embed_machine_face: bool,
 }
 
 /// How many fonts one conversion photographs around ([`embed_faces`]).
@@ -1078,6 +1096,7 @@ fn embed_pass(
         gate,
         defined,
         write_fitting,
+        embed_machine_face,
     } = *routes;
     let mut substitutes = Substitutes::default();
     let mut drawn_whole = false;
@@ -1173,11 +1192,14 @@ fn embed_pass(
         // universal rendering, which ISO 32000-2 §9.9.1 makes a fact about a licence — so it is
         // the operator's to state and never this program's to find. `--font` is the statement,
         // and it is never a default: a font nobody named takes the shipped route exactly as
-        // before (`doc/adr/1209`, `doc/questions/A47`).
-        let face = face_for(document, supplied, &requested, reading)?;
-        let (row, restated) = row_for(document, reading, &subtype, &face)?;
+        // before (`doc/adr/1209`, `doc/questions/A47`). Then, where the profile withholds the
+        // loss `machine-face`, the machine's face the viewer drew the font from, where that face's
+        // own licence permits (`doc/adr/2773`).
         let font = LoadedFont::load(document, &reading.dict, &reading.name)
             .map_err(|_| Because::NotBuiltYet(FONT_NOT_READ))?;
+        let machine = embed_machine_face.then_some(&font);
+        let face = face_for(document, supplied, &requested, reading, machine)?;
+        let (row, restated) = row_for(document, reading, &subtype, &face)?;
         // **A code Annex D encodes twice, at a width of its own**: named for the character ISO
         // 32000-1 says it means, it reaches the face's glyph for that character, and the face
         // is read again under the restated encoding (`twin_codes`, `doc/adr/2723`). Not beside a
@@ -1197,9 +1219,10 @@ fn embed_pass(
                     dict: twins.dict.clone(),
                     ..reading.clone()
                 };
-                let face = face_for(document, supplied, &requested, &renamed)?;
                 let font = LoadedFont::load(document, &renamed.dict, &renamed.name)
                     .map_err(|_| Because::NotBuiltYet(FONT_NOT_READ))?;
+                let machine = embed_machine_face.then_some(&font);
+                let face = face_for(document, supplied, &requested, &renamed, machine)?;
                 let found =
                     face_widths(&font, &face, &renamed, &twins.codes).map_err(|_| refusal)?;
                 (face, font, found, Some(twins))
@@ -1229,8 +1252,11 @@ fn embed_pass(
         // neither.
         let drawn = match (&face, &restated) {
             (Face::Supplied(..), _) => None,
-            (Face::Shipped(_), Some(restatement)) => Some(restatement.drawn),
+            (Face::Shipped(_) | Face::Machine(..), Some(restatement)) => Some(restatement.drawn),
             (Face::Shipped(shipped), None) => described::drawn_by_the_viewer(&font, shipped),
+            // The face embedded is the one the viewer drew: `machine_face` took its bytes from
+            // the font as loaded.
+            (Face::Machine(..), None) => Some(described::Drawn::FromTheShippedFace),
         };
         // The fitting written into the face where the profile keeps it (`doc/adr/2769`), before
         // the advances are restated: the scale moves outlines only, and the advances are then
@@ -1248,7 +1274,12 @@ fn embed_pass(
                     .as_ref()
                     .map_or(base, |(scaled, _)| scaled.as_slice());
                 let modified = pdf_font::restate::with_widths(base, face.format(), &widths)
-                    .map_err(|_| Because::NotBuiltYet(FACE_NOT_RESTATABLE))?;
+                    .map_err(|_| {
+                        Because::NotBuiltYet(match face.authority() {
+                            FaceAuthority::Machine => MACHINE_FACE_NOT_RESTATABLE,
+                            FaceAuthority::Shipped | FaceAuthority::Operator => FACE_NOT_RESTATABLE,
+                        })
+                    })?;
                 renamed_modified(&modified, face.format())?
             }
         };
@@ -1258,6 +1289,11 @@ fn embed_pass(
         // would move every line of the page, so the program is asked again through the same two
         // readers a caller holding nothing but bytes has.
         proves(&program, face.format(), &widths, &BTreeMap::new())?;
+        // A machine's face the dictionary already admits is held to the viewer's drawing by the
+        // same proof a restatement is, over the file's own descriptor (`doc/adr/2773`).
+        if let (Face::Machine(_, _, shipped), None) = (&face, &restated) {
+            described::machine_face_proved(document, reading, (&font, shipped), row, &program)?;
+        }
         if let Some(restatement) = &restated {
             described::restatement_proved(
                 document,
@@ -1439,8 +1475,9 @@ pub(super) fn gains(
 /// **A dictionary of the other kind from its face is restated as the face's kind**, where Table
 /// 124 admits the face under no key of the dictionary's own `/Subtype` and the face is one this
 /// program ships; the restatement is held to the page the viewer draws before anything is
-/// written (`doc/adr/2147`). An operator's face is not restated: the refusal names the pairing
-/// and the kind of face that resolves it.
+/// written (`doc/adr/2147`). The machine's face the viewer drew is restated the same way, its
+/// proof held to that face (`doc/adr/2773`). An operator's face is not restated: the refusal names
+/// the pairing and the kind of face that resolves it.
 fn row_for(
     document: &Document,
     used: &SelectedFont,
@@ -1451,23 +1488,38 @@ fn row_for(
         return Ok((row, None));
     }
     let unadmitted = || Because::NotBuiltYet(no_row(subtype, face.format(), face.program()));
-    let Face::Shipped(shipped) = face else {
-        return Err(unadmitted());
-    };
-    let restatement =
-        described::restated_kind(document, used, subtype, shipped)?.ok_or_else(unadmitted)?;
+    let restatement = match face {
+        Face::Shipped(shipped) => described::restated_kind(document, used, subtype, shipped, None)?,
+        Face::Machine(machine, _, shipped) => {
+            described::restated_kind(document, used, subtype, shipped, Some(&machine.program))?
+        }
+        Face::Supplied(..) => return Err(unadmitted()),
+    }
+    .ok_or_else(unadmitted)?;
     Ok((restatement.row, Some(restatement)))
 }
 
 /// The face a substitution embeds for `reading`: the operator's where they named one for
-/// `requested`, this program's otherwise.
+/// `requested`; where `drawn` is given, the machine's face the viewer drew it from, where it drew
+/// it from one and that face's licence permits embedding it; this program's otherwise.
 fn face_for(
     document: &Document,
     supplied: &BTreeMap<String, std::sync::Arc<[u8]>>,
     requested: &str,
     reading: &SelectedFont,
+    drawn: Option<&LoadedFont>,
 ) -> Result<Face, Because> {
-    Ok(match named_program(supplied, requested) {
+    let named = named_program(supplied, requested);
+    if named.is_none()
+        && let Some(font) = drawn
+    {
+        let shipped = pdf_font::standard::shipped_face(document, &reading.dict, &reading.name)
+            .map_err(|_| Because::NotBuiltYet(NO_SHIPPED_FACE_COVERS_IT))?;
+        if let Some(face) = machine_face(document, reading, font, &shipped)? {
+            return Ok(face);
+        }
+    }
+    Ok(match named {
         Some((named, program)) => Face::Supplied(
             pdf_font::standard::supplied_face(
                 document,
@@ -1483,6 +1535,72 @@ fn face_for(
                 .map_err(|_| Because::NotBuiltYet(NO_SHIPPED_FACE_COVERS_IT))?,
         ),
     })
+}
+
+/// The machine's face the viewer drew `font` from, as a face to embed, where it drew it from one
+/// and the face's own licence permits embedding it (`doc/adr/2773`).
+///
+/// **The same face, never a second lookup.** The bytes are the ones the font was loaded with
+/// ([`LoadedFont::substitute_program`]), so what goes into the file is the program the window drew
+/// and not whatever a later search of the machine would answer; and its code table is built by the
+/// route the viewer built its own by ([`pdf_font::standard::supplied_face`] and the viewer both
+/// take `substitute_code_table`), which the proofs downstream hold to the drawing in any case.
+///
+/// **The licence is the face's own `OS/2` `fsType`**, which the OpenType specification defines as
+/// the font vendor's statement of what embedding the face permits: installable, editable and
+/// preview-and-print embedding each let a document carry the face and any reader render it, which
+/// is what ISO 19005-2 section 6.2.11.4.1 and ISO 19005-4 section 6.2.10.4.1 ask of an embedded
+/// program; restricted-licence embedding, and outlines a bitmap-only face withholds, do not
+/// ([`pdf_font::embed::may_be_embedded`]). Such a face is answered `None`, and the font takes the
+/// shipped face and names the loss `machine-face`, which a profile withholding it stops on.
+///
+/// `None` too where the viewer drew the shipped face or no substitute at all, and where the face is
+/// a collection, which no row of Table 124 admits as it stands.
+fn machine_face(
+    document: &Document,
+    reading: &SelectedFont,
+    font: &LoadedFont,
+    shipped: &ShippedFace,
+) -> Result<Option<Face>, Because> {
+    let Some(program) = font.substitute_program() else {
+        return Ok(None);
+    };
+    if program == shipped.program
+        || program.starts_with(b"ttcf")
+        || !pdf_font::embed::may_be_embedded(program)
+    {
+        return Ok(None);
+    }
+    let named = machine_face_named(program);
+    let face = pdf_font::standard::supplied_face(
+        document,
+        &reading.dict,
+        &reading.name,
+        std::sync::Arc::from(program),
+    )
+    .map_err(|_| Because::NotBuiltYet(MACHINE_FACE_NOT_READ))?;
+    Ok(Some(Face::Machine(face, named, Box::new(*shipped))))
+}
+
+/// How the report names a machine's face: its PostScript name and the licence its `fsType` states.
+fn machine_face_named(program: &[u8]) -> String {
+    use pdf_font::embed::Licence;
+    use skrifa::MetadataProvider as _;
+    let licence = match pdf_font::embed::permission(program).licence {
+        Licence::Installable => "installable",
+        Licence::Editable => "editable",
+        Licence::PreviewAndPrint => "preview-and-print",
+        Licence::Restricted => "restricted",
+    };
+    let name = skrifa::FontRef::new(program)
+        .ok()
+        .and_then(|face| {
+            face.localized_strings(skrifa::string::StringId::POSTSCRIPT_NAME)
+                .english_or_first()
+                .map(|name| name.chars().collect::<String>())
+        })
+        .unwrap_or_else(|| "a face stating no PostScript name".to_owned());
+    format!("{name}, a face of the converting machine's (OS/2 fsType: {licence} embedding)")
 }
 
 /// The face's program with each split code reaching a copy of its glyph, and each copy's advance
@@ -1559,6 +1677,7 @@ fn face_widths(
                 Because::NotBuiltYet(match face.authority() {
                     FaceAuthority::Shipped => NO_SHIPPED_FACE_COVERS_IT,
                     FaceAuthority::Operator => NO_SUPPLIED_FACE_COVERS_IT,
+                    FaceAuthority::Machine => NO_MACHINE_FACE_COVERS_IT,
                 })
             };
             let glyph = face
@@ -2098,6 +2217,13 @@ const SUPPLIED_FACE_NOT_READ: &str = "the font program named with --font for thi
      for CFF: an embedded font file shall consist of exactly one font";
 
 /// Why a face the operator named that does not cover the document's codes is not embedded.
+const NO_MACHINE_FACE_COVERS_IT: &str = "the machine's face this viewer drew a font from has no \
+     glyph, by the route a reader of the embedded font takes, for every code the document shows; \
+     embedding it would reference the .notdef glyph for the rest, which ISO 19005-2 section \
+     6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid (doc/adr/2773)";
+const MACHINE_FACE_NOT_READ: &str = "the machine's face this viewer drew a font from could not be \
+     read again as a program whose glyphs match the codes this document's own encoding names, so \
+     it is not embedded in place of the face it stands for (doc/adr/2773)";
 const NO_SUPPLIED_FACE_COVERS_IT: &str = "the font program named with --font has no glyph for \
      every code this document shows. Embedding it would reference the .notdef glyph for the \
      rest, which ISO 19005-2 section 6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid outright, \
@@ -2128,6 +2254,12 @@ const GLYF_UNDER_A_TYPE1_DICTIONARY: &str = "this document states a Type1 or MMT
 const FACE_NOT_RESTATABLE: &str = "the face this program ships would have to have its advances \
      restated to the widths this file states, and one of the glyphs it shows states its advance \
      in a place pdf_font::restate does not rewrite";
+
+/// [`FACE_NOT_RESTATABLE`] for the machine's face the viewer drew (`doc/adr/2773`).
+const MACHINE_FACE_NOT_RESTATABLE: &str = "the machine's face this viewer drew the font from \
+     would have to have its advances restated to the widths this file states, as ISO 19005-2 \
+     section 6.2.11.5 asks, and one of its glyphs states its advance in a place pdf_font::restate \
+     does not rewrite (doc/adr/2773)";
 
 /// Why a font this reader cannot load is not given a substitute.
 const FONT_NOT_READ: &str = "embedding a face means knowing which of its glyphs each code the \

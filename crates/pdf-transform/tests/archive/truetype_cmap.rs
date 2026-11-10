@@ -584,7 +584,10 @@ fn a_font_the_file_did_not_embed_is_restated_over_the_face_carrying_its_fitting(
     let mut authorised = Authorisations::default();
     authorised.authorise(Loss::MachineFace);
     let (report, output) = convert(&source, Target::Two(Level::B), authorised);
-    let decided = decision(&report, "fonts/non-symbolic-truetype-uses-a-standard-encoding");
+    let decided = decision(
+        &report,
+        "fonts/non-symbolic-truetype-uses-a-standard-encoding",
+    );
     assert!(
         matches!(
             decided,
@@ -599,7 +602,10 @@ fn a_font_the_file_did_not_embed_is_restated_over_the_face_carrying_its_fitting(
     let checked = holds(&output, Target::Two(Level::B));
     assert_eq!(checked.verdict(), Verdict::Conforms, "{}", checked.render());
     assert!(matches!(
-        conversion(&report).substituted.first().and_then(|font| font.fitting),
+        conversion(&report)
+            .substituted
+            .first()
+            .and_then(|font| font.fitting),
         Some(pdf_transform::archive::Fitting::Written(_))
     ));
     assert_eq!(glyphs_of(&output)[241], Some(drawn));

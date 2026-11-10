@@ -141,6 +141,7 @@ pub(super) fn prepare_fonts(
                 ),
                 defined,
                 write_fitting: !plan.authorised.grants(Loss::SubstituteStretch),
+                embed_machine_face: !plan.authorised.grants(Loss::MachineFace),
             },
         ),
         _ => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),

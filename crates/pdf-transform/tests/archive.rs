@@ -16041,9 +16041,10 @@ fn a_symbolic_descriptor_restated_as_truetype_is_made_nonsymbolic() {
     }
 }
 
-/// `doc/todo/72`'s owed entry: a TrueType font whose own descriptor states no program and needs no
-/// restating, drawn by the viewer from a face of this machine's, loses that face's shapes when the
-/// shipped one is embedded — the loss `machine-face`, as on the other two routes (`doc/adr/2279`).
+/// `doc/todo/72`'s owed entry: a TrueType font whose own descriptor states no program, drawn by the
+/// viewer from a face of this machine's, loses that face's shapes when the shipped one is embedded
+/// — the loss `machine-face`, as on the other two routes (`doc/adr/2279`). Where the profile
+/// withholds the loss, the machine's face goes in instead (`doc/adr/2773`), so nothing is refused.
 #[test]
 fn the_unrestated_route_over_a_machines_face_is_the_loss_machine_face() {
     let source = one_font_showing_h(
@@ -16069,16 +16070,17 @@ fn the_unrestated_route_over_a_machines_face_is_the_loss_machine_face() {
         return;
     }
     let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
-    assert!(
-        output.is_none(),
-        "the machine's shapes are not embedded over unasked"
-    );
+    written(&report, output);
     assert_eq!(
-        decision(&report, "fonts/font-programs-embedded"),
-        Decision::Unauthorised {
-            losses: Losses::one(Loss::MachineFace),
-            rewrite: Rewrite::SubstituteFontProgram,
-        }
+        conversion(&report)
+            .substituted
+            .first()
+            .map(|font| (font.authority, font.losses)),
+        Some((
+            pdf_transform::archive::FaceAuthority::Machine,
+            Losses::default()
+        )),
+        "the machine's face is embedded where the loss is withheld, and nothing is lost"
     );
     let authorised = Authorisations {
         machine_face: true,
@@ -16564,5 +16566,7 @@ mod configured_press;
 mod drawn_through_the_intent;
 #[path = "archive/kept_modification_date.rs"]
 mod kept_modification_date;
+#[path = "archive/machine_face.rs"]
+mod machine_face;
 #[path = "archive/twin_codes.rs"]
 mod twin_codes;

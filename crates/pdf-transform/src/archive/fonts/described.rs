@@ -191,23 +191,38 @@ pub(super) struct Restatement {
 /// Liberation face, which becomes `TrueType` with `/FontFile2` and, where its encoding is not one
 /// ISO 19005-2 section 6.2.11.6 admits, the restated one [`truetype_encoding`] writes. §9.6.3 lets
 /// the two dictionaries hold the same entries, so nothing else in the dictionary moves.
+///
+/// `machine` is the program of the machine's face the viewer drew the font from, where that is
+/// the face to be embedded (`doc/adr/2773`): its kind is read from its outlines — an `OpenType`
+/// program carrying a `CFF ` table goes under a `Type1` dictionary as `/FontFile3 /OpenType`, a
+/// `glyf` one under a `TrueType` dictionary — and the restatement is held to that face's drawing.
 pub(super) fn restated_kind(
     document: &Document,
     used: &SelectedFont,
     subtype: &str,
     face: &ShippedFace,
+    machine: Option<&[u8]>,
 ) -> Result<Option<Restatement>, Because> {
-    let other = match (subtype, face.format) {
-        ("TrueType", Format::BareCff) => "Type1",
-        ("Type1", Format::Sfnt) => "TrueType",
+    let (program, format) = machine.map_or((face.program, face.format), |program| {
+        (program, Format::Sfnt)
+    });
+    let compact = format == Format::BareCff || pdf_font::embed::has_cff_outlines(program);
+    let other = match (subtype, compact, format) {
+        ("TrueType", true, _) => "Type1",
+        ("Type1", false, Format::Sfnt) => "TrueType",
         _ => return Ok(None),
     };
-    let Some(row) = key_for(other, face.program) else {
+    let Some(row) = key_for(other, program) else {
         return Ok(None);
     };
     let source = LoadedFont::load(document, &used.dict, &used.name)
         .map_err(|_| Because::NotBuiltYet(super::FONT_NOT_READ))?;
-    let drawn = drawn_from(&source, used, face)?;
+    let drawn = match machine {
+        // The face embedded is the face drawn, which the outline proof then holds it to.
+        Some(program) if source.substitute_program() == Some(program) => Drawn::FromTheShippedFace,
+        Some(_) => return Err(Because::NotBuiltYet(ANOTHER_FACE_IS_DRAWN)),
+        None => drawn_from(&source, used, face)?,
+    };
     let mut entries = Dictionary::new();
     entries.insert(
         Name::new(&b"Subtype"[..]),
@@ -246,6 +261,64 @@ pub(super) fn restated_kind(
     }))
 }
 
+/// Holds the machine's face the viewer drew a font from, embedded under a dictionary that already
+/// admits it, to that drawing — [`proved`]'s check over the file's descriptor, the face embedded
+/// being the face drawn (`doc/adr/2773`).
+///
+/// The page then draws, code by code, the outline the window drew, at the advance it drew it at;
+/// a code the embedded font would reach another glyph for, by §9.6.5's route into the embedded
+/// program rather than the substitute's, is refused by name rather than written.
+pub(super) fn machine_face_proved(
+    document: &Document,
+    used: &SelectedFont,
+    (source, face): (&LoadedFont, &ShippedFace),
+    row: Table124,
+    program: &[u8],
+) -> Result<(), Because> {
+    let descriptor = held_descriptor(document, used, &Dictionary::new())?;
+    proved(
+        document,
+        used,
+        HeldTo {
+            source,
+            drawn: Drawn::FromTheShippedFace,
+            face,
+            written: None,
+        },
+        &Dictionary::new(),
+        &descriptor,
+        row,
+        program,
+    )
+}
+
+/// The file's own descriptor of `used` as the rewriter leaves it once a program is embedded into
+/// it: every value resolved, the program keys and the two glyph lists taken out, and `gains`
+/// written in.
+fn held_descriptor(
+    document: &Document,
+    used: &SelectedFont,
+    gains: &Dictionary,
+) -> Result<Dictionary, Because> {
+    let descriptor = document.get_key(&used.dict, "FontDescriptor");
+    let Object::Dictionary(mut descriptor) = resolved(
+        document,
+        &Object::Dictionary(descriptor.as_dict().cloned().unwrap_or_default()),
+        4,
+    ) else {
+        return Err(Because::NotBuiltYet(NOT_PROVED));
+    };
+    // What the rewriter takes out of the descriptor it embeds into, taken out here too, and what
+    // it writes into it, written here too.
+    for key in ["FontFile", "FontFile2", "FontFile3", "CharSet", "CIDSet"] {
+        descriptor.remove(key);
+    }
+    for (key, value) in gains.iter() {
+        descriptor.insert(key.clone(), value.clone());
+    }
+    Ok(descriptor)
+}
+
 /// The `/Flags` a `Type1` dictionary's own descriptor states once it is restated as `TrueType`
 /// over a Liberation face, where they are not already the non-symbolic ones.
 ///
@@ -281,7 +354,6 @@ pub(super) fn restatement_proved(
     restatement: &Restatement,
     (program, written): (&[u8], Option<f32>),
 ) -> Result<(), Because> {
-    let descriptor = document.get_key(&used.dict, "FontDescriptor");
     let written = match written {
         Some(stretch) => Some((
             stretch,
@@ -290,21 +362,7 @@ pub(super) fn restatement_proved(
         )),
         None => None,
     };
-    let Object::Dictionary(mut descriptor) = resolved(
-        document,
-        &Object::Dictionary(descriptor.as_dict().cloned().unwrap_or_default()),
-        4,
-    ) else {
-        return Err(Because::NotBuiltYet(NOT_PROVED));
-    };
-    // What the rewriter takes out of the descriptor it embeds into, taken out here too, and what
-    // it writes into it, written here too.
-    for key in ["FontFile", "FontFile2", "FontFile3", "CharSet", "CIDSet"] {
-        descriptor.remove(key);
-    }
-    for (key, value) in restatement.descriptor.iter() {
-        descriptor.insert(key.clone(), value.clone());
-    }
+    let descriptor = held_descriptor(document, used, &restatement.descriptor)?;
     proved(
         document,
         used,
@@ -325,7 +383,8 @@ pub(super) fn restatement_proved(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Drawn {
     /// The face being embedded: the converted font must draw every glyph the page shows with the
-    /// source's own outline.
+    /// source's own outline. The shipped face, or the machine's face where that is the one
+    /// embedded (`doc/adr/2773`).
     FromTheShippedFace,
     /// A face of this machine's, which ADR 0270 draws instead where the document's encoding names
     /// characters the shipped face lacks. The converted font is held to the shipped face's own
