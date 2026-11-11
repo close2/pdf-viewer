@@ -1281,7 +1281,7 @@ impl<'e> Protected<'e> {
     /// Which crypt filter one stream's data is encrypted with.
     ///
     /// **The writer has to choose what the reader will choose**, so this is
-    /// `Document::stream_method`'s three questions asked of the output's own dictionary, in the
+    /// `Document::stream_filter`'s three questions asked of the output's own dictionary, in the
     /// same order and with the same defaults. §7.6.2's Table 20, under `/StmF`, states two of
     /// them —
     ///

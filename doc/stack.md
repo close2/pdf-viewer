@@ -66,7 +66,8 @@ sites and prices removing them. **The one ASN.1 reader, the X.509 reader and the
 are `pdf-pki`'s**, under both `pdf-signature` and `pdf-syntax`, because §7.6.5's public-key
 security handler opens RFC 5652 `EnvelopedData` and decrypts with RSA while a document is being
 opened, below the signature crate (the owner's answers A66 and A800, ADR 2801). `pdf-pki` adds
-`aes` and `cbc`, which `pdf-syntax` already had, and no other package; it is still one reader,
+`aes`, `cbc` and `rc4`, which `pdf-syntax` already had, and RustCrypto's `des` and `rc2` for the
+envelope ciphers §7.6.5.3 lists as deprecated, read and never written (ADR 2809); it is still one reader,
 fuzzed once (`fuzz/`'s `enveloped` and `rsa_private_key` beside `cms` and `x509`).
 
 §12.8's signature verification keeps `crates/pdf-signature`'s `pkcs1`, `pss`, `dsa` and `cms`, and

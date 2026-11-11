@@ -18,6 +18,12 @@ crypto-bigint.workspace = true
 # current, AES in CBC mode (RFC 3565): the same two packages `pdf-syntax`'s §7.6.3 uses.
 aes.workspace = true
 cbc.workspace = true
+# The four ciphers §7.6.5.3 lists "deprecated in PDF 2.0", which a reader still meets: RC4 (the
+# package `pdf-syntax`'s §7.6.3.2 uses), DES and Triple DES, and RC2 with RFC 2268's effective key
+# bits. ADR 2809.
+rc4.workspace = true
+des.workspace = true
+rc2.workspace = true
 thiserror.workspace = true
 
 [lints]

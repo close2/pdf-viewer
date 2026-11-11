@@ -309,10 +309,29 @@ pub(crate) struct Encryption {
     embedded_file: Method,
     /// Table 20's `/CF`, so that a stream's own `/Crypt` filter can name one.
     filters: BTreeMap<Name, Method>,
+    /// Table 27's second case: the crypt filters a public-key handler's document reaches only from
+    /// a stream's `/Crypt` decode parameters, each with a recipient list and so a key of its own.
+    /// `None` where the reader is not among that filter's recipients, so that each stream it
+    /// protects refuses on its own (§7.6.6). Empty under the standard handler.
+    own_keys: BTreeMap<Name, Option<Vec<u8>>>,
     /// Table 21's `/EncryptMetadata`.
     encrypt_metadata: bool,
     /// Table 22's flags, and which password opened the document.
     permissions: Permissions,
+}
+
+/// The crypt filter one stream's data is under (§7.6.6).
+///
+/// A stream that names no filter of its own takes a default of Table 20's — `/StmF`, or `/EFF`
+/// for an embedded file — which is a method under the document's key. One whose `/Crypt` decode
+/// parameters name a filter is kept by that name, because under a public-key handler the filter
+/// may carry its own recipient list and decrypt under a key of its own (Table 27).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum StreamFilter {
+    /// A method under the document's file encryption key.
+    Method(Method),
+    /// The filter a `/Crypt` decode parameters dictionary's `/Name` names.
+    Named(Name),
 }
 
 impl Encryption {
@@ -385,6 +404,7 @@ impl Encryption {
             embedded_file,
             named: filters,
             key_at_open,
+            ..
         } = crypt_filters(&get, version, Handler::Standard { revision }, resolve)?;
 
         let authenticated = match revision {
@@ -458,6 +478,7 @@ impl Encryption {
             string,
             embedded_file,
             filters,
+            own_keys: BTreeMap::new(),
             encrypt_metadata,
             // The match above admits 2 to 6 and refuses everything else, so this conversion
             // cannot fail; `unwrap_or` names an impossible revision rather than panicking on
@@ -534,14 +555,42 @@ impl Encryption {
             // a stream for which authorization has failed as an error."
             return None;
         }
-        match method {
-            Method::Identity => Some(data.to_vec()),
-            Method::Rc4 => {
-                let mut out = data.to_vec();
-                rc4_apply(&self.object_key(method, id), &mut out)?;
-                Some(out)
-            }
-            Method::AesV2 | Method::AesV3 => aes_cbc_decrypt(&self.object_key(method, id), data),
+        decrypt_under(&self.key, method, id, data)
+    }
+
+    /// Decrypts one stream's data under the filter [`StreamFilter`] names: the document's key,
+    /// or, for a filter with recipients of its own (Table 27), that filter's key — and where the
+    /// reader is not one of them, nothing, which is §7.6.6's "treat any attempt to access a stream
+    /// for which authorization has failed as an error".
+    pub(crate) fn decrypt_stream(
+        &self,
+        filter: &StreamFilter,
+        id: ObjectId,
+        data: &[u8],
+    ) -> Option<Vec<u8>> {
+        match filter {
+            StreamFilter::Method(method) => self.decrypt(*method, id, data),
+            StreamFilter::Named(name) => match self.own_keys.get(name) {
+                Some(own) => decrypt_under(own.as_deref()?, self.named_method(name), id, data),
+                None => self.decrypt(self.named_method(name), id, data),
+            },
+        }
+    }
+
+    /// [`Self::encrypt`] for one stream, under the key [`Self::decrypt_stream`] would read it
+    /// with, so that a stream §7.5.6's writer re-emits stays readable by the recipients it had.
+    pub(crate) fn encrypt_stream(
+        &self,
+        filter: &StreamFilter,
+        id: ObjectId,
+        data: &[u8],
+    ) -> Option<Vec<u8>> {
+        match filter {
+            StreamFilter::Method(method) => self.encrypt(*method, id, data),
+            StreamFilter::Named(name) => match self.own_keys.get(name) {
+                Some(own) => encrypt_under(own.as_deref()?, self.named_method(name), id, data),
+                None => self.encrypt(self.named_method(name), id, data),
+            },
         }
     }
 
@@ -567,15 +616,7 @@ impl Encryption {
         if method != Method::Identity && !self.authenticated {
             return None;
         }
-        match method {
-            Method::Identity => Some(data.to_vec()),
-            Method::Rc4 => {
-                let mut out = data.to_vec();
-                rc4_apply(&self.object_key(method, id), &mut out)?;
-                Some(out)
-            }
-            Method::AesV2 | Method::AesV3 => aes_cbc_encrypt(&self.object_key(method, id), data),
-        }
+        encrypt_under(&self.key, method, id, data)
     }
 
     /// [`Self::encrypt`] with §7.6.3.3's initialisation vector supplied rather than generated.
@@ -636,40 +677,73 @@ impl Encryption {
             string: Method::AesV3,
             embedded_file: Method::AesV3,
             filters,
+            own_keys: BTreeMap::new(),
             encrypt_metadata,
             permissions: Permissions::from_flags(i64::from(flags), true, 6),
         }
     }
 
-    /// §7.6.3.2 steps (b) to (d), and §7.6.3.3 step (a).
-    ///
-    /// The two algorithms differ in exactly one way, which §7.6.3.1 states: "Algorithm 1.A
-    /// uses the starting key directly and does not modify the file encryption key at all."
+    /// [`object_key`] under the document's own file encryption key.
     fn object_key(&self, method: Method, id: ObjectId) -> Vec<u8> {
-        if method == Method::AesV3 {
-            return self.key.clone();
-        }
-
-        // (b) "extend the original n-byte file encryption key to n + 5 bytes by appending
-        // the low-order 3 bytes of the object number and the low-order 2 bytes of the
-        // generation number in that order, low-order byte first."
-        let number = id.number.to_le_bytes();
-        let generation = id.generation.to_le_bytes();
-        let mut hash = md5::Md5::new();
-        hash.update(&self.key);
-        hash.update(number.get(..3).unwrap_or_default());
-        hash.update(generation);
-        if method == Method::AesV2 {
-            // "If using the AES algorithm, extend the file encryption key an additional 4
-            // bytes by adding the value 'sAlT'".
-            hash.update(b"sAlT");
-        }
-
-        // (d) "Use the first (n + 5) bytes, up to a maximum of 16, of the output".
-        let take = self.key.len().saturating_add(5).min(16);
-        let digest = hash.finalize();
-        digest.get(..take).unwrap_or(&digest).to_vec()
+        object_key(&self.key, method, id)
     }
+}
+
+/// One string or stream decrypted under `key`, the file encryption key of whichever filter
+/// protects it: §7.6.3.2's Algorithm 1 for RC4 and `AESV2`, §7.6.3.3's Algorithm 1.A for `AESV3`.
+fn decrypt_under(key: &[u8], method: Method, id: ObjectId, data: &[u8]) -> Option<Vec<u8>> {
+    match method {
+        Method::Identity => Some(data.to_vec()),
+        Method::Rc4 => {
+            let mut out = data.to_vec();
+            rc4_apply(&object_key(key, method, id), &mut out)?;
+            Some(out)
+        }
+        Method::AesV2 | Method::AesV3 => aes_cbc_decrypt(&object_key(key, method, id), data),
+    }
+}
+
+/// The inverse of [`decrypt_under`], with §7.6.3.2 step (d)'s initialisation vector generated.
+fn encrypt_under(key: &[u8], method: Method, id: ObjectId, data: &[u8]) -> Option<Vec<u8>> {
+    match method {
+        Method::Identity => Some(data.to_vec()),
+        Method::Rc4 => {
+            let mut out = data.to_vec();
+            rc4_apply(&object_key(key, method, id), &mut out)?;
+            Some(out)
+        }
+        Method::AesV2 | Method::AesV3 => aes_cbc_encrypt(&object_key(key, method, id), data),
+    }
+}
+
+/// §7.6.3.2 steps (b) to (d), and §7.6.3.3 step (a), under the file encryption key `key`.
+///
+/// The two algorithms differ in exactly one way, which §7.6.3.1 states: "Algorithm 1.A
+/// uses the starting key directly and does not modify the file encryption key at all."
+fn object_key(key: &[u8], method: Method, id: ObjectId) -> Vec<u8> {
+    if method == Method::AesV3 {
+        return key.to_vec();
+    }
+
+    // (b) "extend the original n-byte file encryption key to n + 5 bytes by appending
+    // the low-order 3 bytes of the object number and the low-order 2 bytes of the
+    // generation number in that order, low-order byte first."
+    let number = id.number.to_le_bytes();
+    let generation = id.generation.to_le_bytes();
+    let mut hash = md5::Md5::new();
+    hash.update(key);
+    hash.update(number.get(..3).unwrap_or_default());
+    hash.update(generation);
+    if method == Method::AesV2 {
+        // "If using the AES algorithm, extend the file encryption key an additional 4
+        // bytes by adding the value 'sAlT'".
+        hash.update(b"sAlT");
+    }
+
+    // (d) "Use the first (n + 5) bytes, up to a maximum of 16, of the output".
+    let take = key.len().saturating_add(5).min(16);
+    let digest = hash.finalize();
+    digest.get(..take).unwrap_or(&digest).to_vec()
 }
 
 /// The arguments of §7.6.4.4.5's Algorithm 6 and §7.6.4.4.6's Algorithm 7.
@@ -1055,6 +1129,9 @@ struct CryptFilters {
     embedded_file: Method,
     /// `/CF`'s own entries, so that a stream's `/Crypt` filter can name one.
     named: BTreeMap<Name, Method>,
+    /// The `/CF` entries that name a cipher and want their key at `DocOpen` (Table 25's
+    /// `/AuthEvent`), so that a public-key handler can tell the document's key from a filter's own.
+    named_at_open: Vec<Name>,
     /// Whether a file encryption key has to be obtained before the document is open.
     ///
     /// True when anything the document states needs a key at §7.6.6's `DocOpen` event: either of
@@ -1088,6 +1165,7 @@ fn crypt_filters(
             string: Method::Rc4,
             embedded_file: Method::Rc4,
             named: BTreeMap::new(),
+            named_at_open: Vec::new(),
             key_at_open: true,
         });
     }
@@ -1218,18 +1296,23 @@ fn crypt_filters(
     // stream in the document for a `/Crypt` specifier before answering whether the document opens,
     // which is the whole file on the launch path (`CLAUDE.md` principle 2) to decide a question
     // Table 25 already answers by declaration. ADR 1040.
-    let key_at_open = stream != Method::Identity
-        || string != Method::Identity
-        || events.iter().any(|(name, event)| {
-            *event == AuthEvent::DocOpen
-                && filters.get(name).copied().unwrap_or(Method::Identity) != Method::Identity
-        });
+    let named_at_open: Vec<Name> = events
+        .iter()
+        .filter(|(name, event)| {
+            **event == AuthEvent::DocOpen
+                && filters.get(*name).copied().unwrap_or(Method::Identity) != Method::Identity
+        })
+        .map(|(name, _)| name.clone())
+        .collect();
+    let key_at_open =
+        stream != Method::Identity || string != Method::Identity || !named_at_open.is_empty();
 
     Ok(CryptFilters {
         stream,
         string,
         embedded_file,
         named: filters,
+        named_at_open,
         key_at_open,
     })
 }
@@ -1946,6 +2029,7 @@ mod tests {
             string: Method::Rc4,
             embedded_file: Method::Rc4,
             filters: BTreeMap::new(),
+            own_keys: BTreeMap::new(),
             encrypt_metadata: true,
             permissions: Permissions::from_flags(-1, false, 4),
         };
@@ -1972,6 +2056,7 @@ mod tests {
             string: Method::AesV2,
             embedded_file: Method::AesV2,
             filters: BTreeMap::new(),
+            own_keys: BTreeMap::new(),
             encrypt_metadata: true,
             permissions: Permissions::from_flags(-1, false, 4),
         };

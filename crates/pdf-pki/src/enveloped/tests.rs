@@ -214,23 +214,24 @@ fn a_subject_key_identifier_names_the_certificate_that_carries_it() {
 
 #[test]
 fn an_algorithm_this_reader_does_not_decrypt_is_named() {
-    // §7.6.5.3's Triple DES, "deprecated in PDF 2.0", and RSAES-OAEP (RFC 8017's
-    // 1.2.840.113549.1.1.7) as the key transport.
+    // AES-128 in GCM mode (RFC 5084's `id-aes128-GCM`, 2.16.840.1.101.3.4.1.6), which is none of
+    // the seven ciphers §7.6.5.3 lists, and RSAES-OAEP (RFC 8017's 1.2.840.113549.1.1.7) as the
+    // key transport.
     let certificate_bytes = hex(CERTIFICATE);
     let certificate = x509::parse(&certificate_bytes).unwrap();
     let key = PrivateKey::from_der(&hex(PKCS8)).unwrap();
     let content_key = [3u8; 16];
     let rid = || issuer_and_serial(&[0x19, 0x95]);
-    let des = [0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x03, 0x07];
+    let gcm = [0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x01, 0x06];
     let bytes = envelope(
         &[key_transport(rid(), &content_key, RSA_ENCRYPTION)],
-        &des,
+        &gcm,
         &content_key,
         b"x",
     );
     assert_eq!(
         parse(&bytes).unwrap().open(&certificate, &key),
-        Err(EnvelopeError::Cipher("Triple DES in CBC mode".into()))
+        Err(EnvelopeError::Cipher("2.16.840.1.101.3.4.1.6".into()))
     );
     let oaep = [0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x07];
     let bytes = envelope(
@@ -307,4 +308,229 @@ fn what_is_not_an_enveloped_data_is_malformed_by_name() {
         ))
     );
     assert!(matches!(parse(&[0x30, 0x05]), Err(EnvelopeError::Der(_))));
+}
+
+/// The envelopes `openssl cms -encrypt` wrote for [`CERTIFICATE`] over [`SEED_AND_PERMISSIONS`],
+/// one per cipher §7.6.5.3 lists "deprecated in PDF 2.0" (`gen_envelopes.py`, kept with the round
+/// that wrote them: `openssl cms -encrypt -provider legacy -provider default -binary -outform DER
+/// -<cipher>`). OpenSSL states the cipher it chose in the envelope's own
+/// `contentEncryptionAlgorithm`, and the test asserts that this reader read the same one, so the
+/// expected value is the plaintext the script put in and no reader's output.
+const OPENSSL_ENVELOPES: [(&str, &[u8]); 6] = [
+    ("des", include_bytes!("../../tests/envelopes/des.der")),
+    ("des3", include_bytes!("../../tests/envelopes/des3.der")),
+    ("rc2-40", include_bytes!("../../tests/envelopes/rc2-40.der")),
+    ("rc2-64", include_bytes!("../../tests/envelopes/rc2-64.der")),
+    ("rc2", include_bytes!("../../tests/envelopes/rc2.der")),
+    ("rc4", include_bytes!("../../tests/envelopes/rc4.der")),
+];
+
+#[test]
+fn each_deprecated_cipher_opens_an_envelope_another_tool_wrote() {
+    // §7.6.5.3: "RC4 with key lengths up to 256-bits (deprecated in PDF 2.0)" and "DES, Triple
+    // DES, RC2 with key lengths up to 128 bits (deprecated in PDF 2.0)". RC2 is written at 40, 64
+    // and 128 effective key bits, the three RFC 3370 section 5.2 names, so each of its three
+    // `rc2ParameterVersion` values (160, 120 and 58) is read once.
+    let certificate_bytes = hex(CERTIFICATE);
+    let certificate = x509::parse(&certificate_bytes).unwrap();
+    let key = PrivateKey::from_der(&hex(PKCS8)).unwrap();
+    for (name, bytes) in OPENSSL_ENVELOPES {
+        let parsed = parse(bytes).unwrap();
+        let (expected, bits) = match name {
+            "des" => (super::ID_DES_CBC, None),
+            "des3" => (super::ID_DES_EDE3_CBC, None),
+            "rc2-40" => (super::ID_RC2_CBC, Some(40)),
+            "rc2-64" => (super::ID_RC2_CBC, Some(64)),
+            "rc2" => (super::ID_RC2_CBC, Some(128)),
+            _ => (super::ID_RC4, None),
+        };
+        assert_eq!(parsed.content_algorithm, expected, "{name}");
+        if let Some(bits) = bits {
+            let Ok(super::ContentCipher::Rc2 { effective_bits, .. }) =
+                super::ContentCipher::of(parsed.content_algorithm, parsed.content_parameters)
+            else {
+                panic!("{name} reads as RC2");
+            };
+            assert_eq!(effective_bits, bits, "{name}");
+        }
+        assert_eq!(
+            parsed.open(&certificate, &key).unwrap(),
+            SEED_AND_PERMISSIONS,
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn rc2_versions_read_back_through_rfc_2268_s_table() {
+    // RFC 2268 section 6: a version below 256 is `Table[EKB]`, from 256 to 1024 it is EKB itself.
+    // RFC 3370 section 5.2 and RFC 8018 appendix B.2.3 each name three pairs of the table, which is
+    // a second document's reading of the same 256 octets: 40 bits are 160, 64 are 120, 128 are 58.
+    for (version, bits) in [(160, 40), (120, 64), (58, 128), (256, 256), (1024, 1024)] {
+        assert_eq!(super::rc2_effective_bits(version), Some(bits));
+    }
+    // `Table[0]` is 0xBD: zero effective bits is no key, and past 1024 is no version.
+    assert_eq!(super::rc2_effective_bits(0xBD), None);
+    assert_eq!(super::rc2_effective_bits(1025), None);
+    let mut sorted = super::RC2_VERSION;
+    sorted.sort_unstable();
+    assert!(
+        sorted.iter().enumerate().all(|(i, &v)| usize::from(v) == i),
+        "\"Table[] specifies a permutation on the numbers 0-255\""
+    );
+    // An `RC2-CBCParameter` that is a bare IV is the default, 32 effective bits.
+    let iv = tlv(0x04, &[0; 8]);
+    let value = crate::der::Reader::new(&iv).unwrap().next_value().unwrap();
+    assert_eq!(super::rc2_parameters(value).unwrap().0, 32);
+    // The version is an `INTEGER`, and 160 is two octets; one octet `A0` is negative.
+    let negative = sequence(&[tlv(0x02, &[0xA0]), tlv(0x04, &[0; 8])]);
+    let value = crate::der::Reader::new(&negative)
+        .unwrap()
+        .next_value()
+        .unwrap();
+    assert_eq!(
+        super::rc2_parameters(value),
+        Err(EnvelopeError::Malformed("RC2-CBCParameter"))
+    );
+}
+
+/// Block-level decryption with no padding to remove, for the known-answer tests below.
+fn decrypt_blocks<C: aes::cipher::BlockCipherDecrypt>(
+    cipher: C,
+    iv: &[u8],
+    body: &[u8],
+) -> Vec<u8> {
+    use aes::cipher::block_padding::NoPadding;
+    use aes::cipher::{BlockModeDecrypt, InnerIvInit};
+    let mut out = vec![0u8; body.len()];
+    let length = cbc::Decryptor::<C>::inner_iv_slice_init(cipher, iv)
+        .unwrap()
+        .decrypt_padded_b2b::<NoPadding>(body, &mut out)
+        .unwrap()
+        .len();
+    out.truncate(length);
+    out
+}
+
+#[test]
+fn each_cipher_decrypts_its_own_specification_s_known_answer() {
+    use aes::cipher::{KeyInit, StreamCipher};
+    // FIPS 81 Table C1, "AN EXAMPLE OF THE CIPHER BLOCK CHAINING (CBC) MODE": key 0123456789abcdef,
+    // initialisation vector 1234567890abcdef, and the ASCII of "Now is the time for all ".
+    let key = hex("0123456789abcdef");
+    let iv = hex("1234567890abcdef");
+    let ciphertext = hex("e5c7cdde872bf27c43e934008c389c0f683788499a7c05f6");
+    let des = des::Des::new_from_slice(&key).unwrap();
+    assert_eq!(
+        decrypt_blocks(des, &iv, &ciphertext),
+        b"Now is the time for all "
+    );
+    // Triple DES is "encrypt, decrypt, and encrypt" (RFC 3370 section 5.1), so with one key three
+    // times over the first two cancel and it is FIPS 81's DES again; with two keys it is the
+    // three-key cipher under K1, K2, K1.
+    let three =
+        des::TdesEde3::new_from_slice(&[key.clone(), key.clone(), key.clone()].concat()).unwrap();
+    assert_eq!(
+        decrypt_blocks(three, &iv, &ciphertext),
+        b"Now is the time for all "
+    );
+    let two = des::TdesEde2::new_from_slice(&[key.clone(), key].concat()).unwrap();
+    assert_eq!(
+        decrypt_blocks(two, &iv, &ciphertext),
+        b"Now is the time for all "
+    );
+    // RFC 2268 section 5's vectors, which state the effective key bits beside the key: one block,
+    // so a zero initialisation vector makes CBC the bare cipher.
+    for (key, bits, plaintext, ciphertext) in [
+        (
+            "0000000000000000",
+            63,
+            "0000000000000000",
+            "ebb773f993278eff",
+        ),
+        (
+            "ffffffffffffffff",
+            64,
+            "ffffffffffffffff",
+            "278b27e42e2f0d49",
+        ),
+        (
+            "88bca90e90875a7f0f79c384627bafb2",
+            64,
+            "0000000000000000",
+            "1a807d272bbe5db1",
+        ),
+        (
+            "88bca90e90875a7f0f79c384627bafb2",
+            128,
+            "0000000000000000",
+            "2269552ab0f85ca6",
+        ),
+    ] {
+        let rc2 = rc2::Rc2::new_with_eff_key_len(&hex(key), bits);
+        assert_eq!(
+            decrypt_blocks(rc2, &[0; 8], &hex(ciphertext)),
+            hex(plaintext)
+        );
+    }
+    // RFC 6229 section 2, "Key length: 128 bits" and "Key length: 256 bits": the keystream's
+    // first sixteen octets, which a stream cipher applied to zeros returns.
+    for (key, keystream) in [
+        (
+            "0102030405060708090a0b0c0d0e0f10",
+            "9ac7cc9a609d1ef7b2932899cde41b97",
+        ),
+        (
+            "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+            "eaa6bd25880bf93d3f5d1e4ca2611d91",
+        ),
+    ] {
+        let mut out = [0u8; 16];
+        rc4::Rc4::new_from_slice(&hex(key))
+            .unwrap()
+            .apply_keystream(&mut out);
+        assert_eq!(out.to_vec(), hex(keystream));
+    }
+}
+
+#[test]
+fn a_two_key_triple_des_envelope_opens_as_k1_k2_k1() {
+    // RFC 3370 section 5.1: "[t]he same algorithm identifiers are used for Three-Key Triple-DES
+    // and Two-Key Triple-DES", so a 16-octet content key is two-key: K1, K2 and K1 again.
+    use aes::cipher::block_padding::Pkcs7;
+    use aes::cipher::{BlockModeEncrypt, KeyIvInit};
+    let certificate_bytes = hex(CERTIFICATE);
+    let certificate = x509::parse(&certificate_bytes).unwrap();
+    let key = PrivateKey::from_der(&hex(PKCS8)).unwrap();
+    let (k1, k2) = ([0x13u8; 8], [0x57u8; 8]);
+    let iv = [0x24u8; 8];
+    let mut ciphertext = vec![0u8; 32];
+    let length = cbc::Encryptor::<des::TdesEde3>::new_from_slices(&[k1, k2, k1].concat(), &iv)
+        .unwrap()
+        .encrypt_padded_b2b::<Pkcs7>(SEED_AND_PERMISSIONS, &mut ciphertext)
+        .unwrap()
+        .len();
+    ciphertext.truncate(length);
+    let content_key = [k1, k2].concat();
+    let enveloped = sequence(&[
+        tlv(0x02, &[0]),
+        tlv(
+            0x31,
+            &key_transport(
+                issuer_and_serial(&[0x19, 0x95]),
+                &content_key,
+                RSA_ENCRYPTION,
+            ),
+        ),
+        sequence(&[
+            tlv(0x06, ID_DATA),
+            algorithm(super::ID_DES_EDE3_CBC, Some(tlv(0x04, &iv))),
+            tlv(0x80, &ciphertext),
+        ]),
+    ]);
+    let bytes = sequence(&[tlv(0x06, ID_ENVELOPED_DATA), tlv(0xA0, &enveloped)]);
+    assert_eq!(
+        parse(&bytes).unwrap().open(&certificate, &key).unwrap(),
+        SEED_AND_PERMISSIONS
+    );
 }

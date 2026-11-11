@@ -49,3 +49,6 @@ fuzz surface, one audit point. A800 (2026-11-06) lifted A66's trigger and ordere
    because `Encryption` holds one key.
 4. RFC 5652's `KeyAgreeRecipientInfo` (an elliptic-curve recipient), which no document this tree
    holds uses either.
+
+Items 2 and 3 were built by session 1999: ADR 2809 decrypts the four deprecated ciphers rather than
+refusing them, and ADR 2810 derives a per-stream filter's own key. Items 1 and 4 remain, in that order.

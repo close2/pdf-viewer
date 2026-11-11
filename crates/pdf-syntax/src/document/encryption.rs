@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use super::{Document, write};
-use crate::crypt::{Encryption, Method, Permissions, RecipientKey};
+use crate::crypt::{Encryption, Method, Permissions, RecipientKey, StreamFilter};
 use crate::error::{SyntaxError, SyntaxResult};
 use crate::object::{Dictionary, Name, Object, ObjectId, Stream};
 
@@ -141,8 +141,8 @@ impl Document {
             }
             Object::Stream(stream) => {
                 let dict = self.decrypt_dict(encryption, id, &stream.dict);
-                let method = self.stream_method(encryption, &stream.dict);
-                let decrypted = encryption.decrypt(method, id, &stream.data);
+                let filter = self.stream_filter(encryption, &stream.dict);
+                let decrypted = encryption.decrypt_stream(&filter, id, &stream.data);
                 let decryption_failed = decrypted.is_none();
                 let data = decrypted.map_or_else(|| Arc::from(&[][..]), Arc::from);
                 Object::Stream(Arc::new(Stream {
@@ -217,8 +217,8 @@ impl Document {
                 .map(Object::Dictionary),
             Object::Stream(stream) => {
                 let mut dict = self.encrypt_dict(encryption, id, &stream.dict)?;
-                let method = self.stream_method(encryption, &stream.dict);
-                let data = encryption.encrypt(method, id, &stream.data)?;
+                let filter = self.stream_filter(encryption, &stream.dict);
+                let data = encryption.encrypt_stream(&filter, id, &stream.data)?;
                 // §7.3.8.2's `/Length` is "[t]he number of bytes from the beginning of the
                 // line following the keyword stream to the last byte just before the keyword
                 // endstream" — the encoded form as it sits in the file — and AES makes that
@@ -274,7 +274,10 @@ impl Document {
     /// same filter — "related files ( RF ) shall use the same crypt filter as the embedded
     /// file ( EF )" — which holds here by construction, since both are `/Type
     /// /EmbeddedFile` streams and neither is reached by any other route.
-    fn stream_method(&self, encryption: &Encryption, dict: &Dictionary) -> Method {
+    ///
+    /// A `/Crypt` filter is returned by its name rather than its method, because under a
+    /// public-key handler it may hold a key of its own (Table 27, [`StreamFilter`]).
+    fn stream_filter(&self, encryption: &Encryption, dict: &Dictionary) -> StreamFilter {
         let stream_type = self
             .get_key(dict, "Type")
             .as_name()
@@ -282,10 +285,12 @@ impl Document {
         match stream_type.as_deref() {
             // A cross-reference stream has to be readable before any key exists, so it is
             // never encrypted.
-            Some(b"XRef") => return Method::Identity,
+            Some(b"XRef") => return StreamFilter::Method(Method::Identity),
             // Table 21's `/EncryptMetadata`, which §14.3.2's metadata stream is the subject
             // of.
-            Some(b"Metadata") if !encryption.encrypt_metadata() => return Method::Identity,
+            Some(b"Metadata") if !encryption.encrypt_metadata() => {
+                return StreamFilter::Method(Method::Identity);
+            }
             _ => {}
         }
 
@@ -296,14 +301,14 @@ impl Document {
             let named = self
                 .decode_parms(dict, index)
                 .and_then(|parms| self.get_key(&parms, "Name").as_name().cloned());
-            return named.map_or(Method::Identity, |name| encryption.named_method(&name));
+            return named.map_or(StreamFilter::Method(Method::Identity), StreamFilter::Named);
         }
 
         if stream_type.as_deref() == Some(b"EmbeddedFile") {
-            return encryption.embedded_file_method();
+            return StreamFilter::Method(encryption.embedded_file_method());
         }
 
-        encryption.stream_method()
+        StreamFilter::Method(encryption.stream_method())
     }
 }
 

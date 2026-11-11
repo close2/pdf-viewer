@@ -618,3 +618,106 @@ fn a_recipient_list_in_the_encryption_dictionary_opens_at_s3_and_s4() {
         assert!(!permissions.modify && !permissions.annotate && !permissions.owner);
     }
 }
+
+/// Page one's content streams, each as the document resolved it, decrypted or refused.
+fn content_streams(document: &Document) -> Vec<Object> {
+    let catalog = document.catalog().expect("a catalogue");
+    let pages = document.get_key(&catalog, "Pages");
+    let kids = document.get_key(pages.as_dict().expect("a page tree"), "Kids");
+    let page = document.resolve(kids.as_array().and_then(<[Object]>::first).expect("a kid"));
+    let contents = document.get_key(page.as_dict().expect("a page"), "Contents");
+    contents
+        .as_array()
+        .expect("an array of two streams")
+        .iter()
+        .map(|item| document.resolve(item))
+        .collect()
+}
+
+/// Table 27's second case: a crypt filter a stream's `/Crypt` decode parameters name, with a
+/// recipient list and so a key of its own.
+///
+/// No document this tree holds uses one, so three are written for these tests by a script that
+/// states its own algorithm (`gen_stream_recipients.py`, kept with the round that wrote it). Each
+/// is `/SubFilter /adbe.pkcs7.s5` at `/V` 4 with two `AESV2` filters. `/DefaultCryptFilter` is
+/// `/StmF` and `/StrF`, its `/Recipients` an array of one CMS object over a seed and Table 24's
+/// word, made by `openssl cms -encrypt` for `testnutzer`'s certificate. `/OwnRecipients` is named
+/// only by object 8's `/Crypt` decode parameters, and its `/Recipients` is one string, a CMS
+/// object over a 20-byte seed alone — Table 27: "\[t]he enveloped data contained in the CMS object
+/// shall be a 20-byte seed value", and §7.6.5.3: "the 4 bytes of permissions shall be absent".
+/// Each key is §7.6.5.3's SHA-1 over its seed and its own CMS object, and each stream is
+/// Algorithm 1 under its own key. So what each stream must decrypt to is the text the script
+/// wrote, and no reader's output is consulted.
+#[test]
+fn a_stream_s_own_crypt_filter_decrypts_under_its_own_recipients_key() {
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/public_key_witnesses");
+    let bytes = std::fs::read(directory.join("stream-recipients.pdf")).expect("a fixture");
+    let document =
+        Document::open_with_recipient(bytes, Limits::DEFAULT, &recipient_key("testnutzer"))
+            .expect("testnutzer is a recipient of both lists");
+    let content = page_content(&document);
+    assert!(
+        holds(&content, "(Document key) Tj"),
+        "object 4, the document's key"
+    );
+    assert!(
+        holds(&content, "(Own recipients) Tj"),
+        "object 8, the filter's own key"
+    );
+    // The document's permissions are the document list's: §7.6.5.3 puts none in a stream's.
+    let permissions = document.permissions().expect("encrypted");
+    assert!(permissions.print && permissions.copy && !permissions.modify);
+}
+
+/// The same construction with `/OwnRecipients` enveloped for `test`'s certificate rather than
+/// `testnutzer`'s. §7.6.6: "PDF readers and security handlers shall treat any attempt to access a
+/// stream for which authorization has failed as an error", and Table 25's `/AuthEvent` decides
+/// when that failure is met: at `EFOpen` the stream refuses on its own and the rest of the page
+/// reads; at `DocOpen`, the default, "\[i]f authorization fails, the event shall fail", and the
+/// event is the document's opening.
+#[test]
+fn a_reader_the_stream_s_own_list_does_not_name_is_refused_that_stream() {
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/public_key_witnesses");
+    let read = |name: &str| std::fs::read(directory.join(name)).expect("a fixture");
+
+    let document = Document::open_with_recipient(
+        read("stream-recipients-other-efopen.pdf"),
+        Limits::DEFAULT,
+        &recipient_key("testnutzer"),
+    )
+    .expect("the document's own list names testnutzer, and the filter defers to EFOpen");
+    let streams = content_streams(&document);
+    let [first, second] = streams.as_slice() else {
+        panic!("two content streams");
+    };
+    let first = first.as_stream().expect("a stream");
+    assert!(!first.decryption_failed);
+    assert!(holds(
+        &document.decoded_stream_data(first).expect("it decodes"),
+        "(Document key) Tj"
+    ));
+    let second = second.as_stream().expect("a stream");
+    assert!(
+        second.decryption_failed,
+        "the filter's own list does not name testnutzer"
+    );
+
+    // `test` holds the stream's key but is not on the document's list, which /StmF needs at open.
+    assert!(matches!(
+        Document::open_with_recipient(
+            read("stream-recipients-other-efopen.pdf"),
+            Limits::DEFAULT,
+            &recipient_key("test"),
+        ),
+        Err(SyntaxError::RecipientRequired)
+    ));
+    // At `DocOpen` the filter's own key is wanted at the open, and testnutzer cannot supply it.
+    assert!(matches!(
+        Document::open_with_recipient(
+            read("stream-recipients-other-docopen.pdf"),
+            Limits::DEFAULT,
+            &recipient_key("testnutzer"),
+        ),
+        Err(SyntaxError::RecipientRequired)
+    ));
+}

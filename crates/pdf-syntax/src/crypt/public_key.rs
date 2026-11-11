@@ -23,8 +23,10 @@
 //! used when using crypt filters", and its lists are Table 27's `/Recipients` in the crypt filter
 //! `/StmF` or `/StrF` names. A crypt filter reached only from a stream's own `/Crypt` decode
 //! parameters may carry a recipient list of its own and with it a key of its own (Table 27's second
-//! case); one key per document is what [`super::Encryption`] holds, so such a filter is refused by
-//! name rather than decrypted with the document's key, which would be the wrong key.
+//! case): one CMS object, whose enveloped data is a 20-byte seed and no permissions. Its key is
+//! derived beside the document's ([`own_key`]) and kept by the filter's name, so a stream that
+//! names the filter decrypts under it and a reader its list does not name is refused that stream
+//! alone, or the whole document where the filter's `/AuthEvent` is `DocOpen` (ADR 2810).
 
 use pdf_pki::enveloped::{self, EnvelopeError};
 use pdf_pki::rsa::PrivateKey;
@@ -164,6 +166,7 @@ impl Encryption {
                     })?,
                     encrypt_metadata: true,
                     length: key_length(get, version, resolve)?,
+                    own: Vec::new(),
                 }
             }
         };
@@ -174,12 +177,33 @@ impl Encryption {
                     string,
                     embedded_file,
                     named,
-                    key_at_open,
+                    named_at_open,
+                    ..
                 },
             lists,
             encrypt_metadata,
             length,
+            own,
         } = lists;
+        // Table 25's `/AuthEvent`, asked of the document's key and of each filter's own key
+        // separately: the two default filters always want theirs at the open, and every other
+        // filter whose event is `DocOpen` wants the key it decrypts under.
+        let owns = |name: &Name| own.iter().any(|list| &list.name == name);
+        let key_at_open = stream != Method::Identity
+            || string != Method::Identity
+            || named_at_open.iter().any(|name| !owns(name));
+        let own_keys = own
+            .iter()
+            .map(|list| {
+                let key = own_key(list, recipient)?;
+                if key.is_none() && named_at_open.contains(&list.name) {
+                    // "If authorization fails, the event shall fail" (Table 25), and the event
+                    // is the document's opening.
+                    return Err(SyntaxError::RecipientRequired);
+                }
+                Ok((list.name.clone(), key))
+            })
+            .collect::<SyntaxResult<_>>()?;
 
         let opened = match recipient {
             Some(recipient) => scan(&lists, recipient),
@@ -205,6 +229,7 @@ impl Encryption {
             string,
             embedded_file,
             filters: named,
+            own_keys,
             encrypt_metadata,
             permissions,
         })
@@ -220,6 +245,23 @@ struct RecipientLists {
     /// Table 27's `/EncryptMetadata`.
     encrypt_metadata: bool,
     /// The file encryption key's length, in bytes.
+    length: usize,
+    /// Table 27's second case: every other crypt filter that carries a recipient list of its own.
+    own: Vec<OwnList>,
+}
+
+/// A crypt filter a stream's `/Crypt` decode parameters reach, with its own recipient list.
+///
+/// Table 27: "If the crypt filter is referenced from a Crypt filter decode parameter dictionary
+/// (see "Table 14 - Optional parameters for Crypt filters"), this entry shall be a string that
+/// shall be a binary-encoded CMS object that shall contain a list of all recipients who are
+/// permitted to access the corresponding encrypted stream."
+struct OwnList {
+    /// The filter's key in `/CF`, which a stream's `/Crypt` decode parameters name.
+    name: Name,
+    /// The one CMS object.
+    list: Vec<u8>,
+    /// The filter's own key length, in bytes, by its `/CFM` as for the document's filter.
     length: usize,
 }
 
@@ -253,19 +295,39 @@ fn filter_lists(
     });
 
     // A filter other than the document's carrying a recipient list of its own encrypts under a
-    // key of its own (Table 27's second case), which one document key cannot stand for.
+    // key of its own (Table 27's second case), and its `/Recipients` is one CMS object.
+    let mut own = Vec::new();
     for (other, value) in entries.iter() {
-        if Some(other) != name.as_ref()
-            && resolve(value)
-                .as_dict()
-                .is_some_and(|dict| dict.get("Recipients").is_some())
-        {
-            return Err(unsupported(format!(
-                "the crypt filter /{} carries recipients of its own (§7.6.6 Table 27), whose key \
-                 this reader does not derive",
-                other.as_bytes().escape_ascii()
-            )));
+        if Some(other) == name.as_ref() {
+            continue;
         }
+        let Some(dict) = resolve(value).as_dict().cloned() else {
+            continue;
+        };
+        if dict.get("Recipients").is_none() {
+            continue;
+        }
+        let shown = other.as_bytes().escape_ascii();
+        let Some(list) = get_in(&dict, "Recipients", resolve)
+            .as_string()
+            .map(<[u8]>::to_vec)
+        else {
+            return Err(unsupported(format!(
+                "the crypt filter /{shown} is neither the one /StmF or /StrF names nor carries a \
+                 single CMS object in /Recipients, and Table 27 makes the entry an array only for \
+                 the first and a string for a filter a stream's /Crypt decode parameters name"
+            )));
+        };
+        let method = filters
+            .named
+            .get(other)
+            .copied()
+            .unwrap_or(Method::Identity);
+        own.push(OwnList {
+            name: other.clone(),
+            list,
+            length: filter_key_length(method, &dict, resolve)?,
+        });
     }
 
     let lists = if entry.get("Recipients").is_some() {
@@ -299,25 +361,73 @@ fn filter_lists(
     } else {
         filters.string
     };
-    let length = match method {
-        Method::AesV3 => 32,
-        Method::AesV2 | Method::Identity => 16,
-        Method::Rc4 => match get_in(&entry, "Length", resolve).as_integer() {
-            Some(bits @ 40..=128) if bits % 8 == 0 => usize::try_from(bits / 8).unwrap_or(16),
-            None => 16,
-            Some(other) => {
-                return Err(unsupported(format!(
-                    "Table 25's /Length {other} is not a key of 40 to 128 bits in steps of 8"
-                )));
-            }
-        },
-    };
+    let length = filter_key_length(method, &entry, resolve)?;
     Ok(RecipientLists {
         filters,
         lists,
         encrypt_metadata,
         length,
+        own,
     })
+}
+
+/// The file encryption key's length, in bytes, for a crypt filter whose method is `method`.
+///
+/// §7.6.5.3: SHA-256 "for a key length of 256 bits" under Algorithm 1.A, and SHA-1 "for a key
+/// length of 128 bits" under Algorithm 1. `/V` 5 is Algorithm 1.A's (Table 20); at `/V` 4 Table
+/// 25's `/Length` states the width of an `RC4` filter's key and the erratum to it fixes `AESV2`'s
+/// at 128 bits for a public-key handler.
+fn filter_key_length(
+    method: Method,
+    entry: &Dictionary,
+    resolve: &dyn Fn(&Object) -> Object,
+) -> SyntaxResult<usize> {
+    Ok(match method {
+        Method::AesV3 => 32,
+        Method::AesV2 | Method::Identity => 16,
+        Method::Rc4 => match get_in(entry, "Length", resolve).as_integer() {
+            Some(bits @ 40..=128) if bits % 8 == 0 => usize::try_from(bits / 8).unwrap_or(16),
+            None => 16,
+            Some(other) => {
+                return Err(SyntaxError::UnsupportedEncryption {
+                    detail: format!(
+                        "Table 25's /Length {other} is not a key of 40 to 128 bits in steps of 8"
+                    ),
+                });
+            }
+        },
+    })
+}
+
+/// The key of a crypt filter with its own recipient list (Table 27's second case), or `None`
+/// where the reader holds no certificate its list names.
+///
+/// Table 27: "The enveloped data contained in the CMS object shall be a 20-byte seed value that
+/// shall be used to create the file encryption key", and §7.6.5.3 says the permissions "shall be
+/// absent from the enveloped data" here, so the seed is the whole of it. The key is §7.6.5.3's
+/// digest over the seed and the one CMS object; its step c) is for "document-level encryption",
+/// which a stream's own filter is not.
+fn own_key(list: &OwnList, recipient: Option<&RecipientKey>) -> SyntaxResult<Option<Vec<u8>>> {
+    let Some(recipient) = recipient else {
+        return Ok(None);
+    };
+    let lists = std::slice::from_ref(&list.list);
+    let seed = match scan(lists, recipient) {
+        Ok(seed) => seed,
+        Err(SyntaxError::RecipientRequired) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if seed.len() != 20 {
+        return Err(SyntaxError::UnsupportedEncryption {
+            detail: format!(
+                "the crypt filter /{}'s enveloped data is {} bytes, where Table 27 puts a 20-byte \
+                 seed and §7.6.5.3 no permissions",
+                list.name.as_bytes().escape_ascii(),
+                seed.len()
+            ),
+        });
+    }
+    Ok(Some(file_key(&seed, lists, false, list.length)))
 }
 
 /// One entry of a dictionary, resolved.

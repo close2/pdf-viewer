@@ -227,21 +227,21 @@ or Table 300 `/S` makes "the rendition" non-viable from either dictionary (ADRs 
 ### 5. Built in part — the public-key security handler
 
 **One cluster, ordered built by the owner (`doc/questions/A800`, which lifted `doc/questions/A66`'s
-trigger) and built in part (ADRs 2801, 2802).** `crates/pdf-pki` holds the one ASN.1 reader, the X.509
-reader, the big-integer seam, RFC 5652 `EnvelopedData` and RFC 8017's RSA decryption, below both
-`pdf-syntax` and `pdf-signature`, with fuzz targets beside it. `crates/pdf-syntax/src/crypt/public_key.rs`
-scans the recipient lists, opens the one naming the reader's certificate, and digests §7.6.5.3's key.
-`crates/pdf-syntax/tests/public_key_witnesses.rs` opens `doc/questions/A168`'s four `PDFBox` witnesses
-with their keystores' keys, and two documents a script writes test s3 and s4. **What is left, in ADR
-2801's order, is effort only.** The host input (ADR 1134) comes first, then §7.6.5.3's four deprecated
-envelope ciphers, then Table 27's per-stream recipient list. §7.6.5.2 left the map: Tables 23
-and 24 are read and the row is `implemented`.
+trigger) and built in part (ADRs 2801, 2802, 2809, 2810).** `crates/pdf-pki` holds the one ASN.1 reader, the X.509
+reader, the big-integer seam, RFC 5652 `EnvelopedData` under all seven of §7.6.5.3's ciphers and RFC
+8017's RSA decryption, below both `pdf-syntax` and `pdf-signature`, with fuzz targets beside it.
+`crates/pdf-syntax/src/crypt/public_key.rs` scans the recipient lists, opens the one naming the reader's
+certificate, digests §7.6.5.3's key, and derives a key of its own for a crypt filter with Table 27's
+per-stream recipient list. `crates/pdf-syntax/tests/public_key_witnesses.rs` opens `doc/questions/A168`'s
+four `PDFBox` witnesses with their keystores' keys, and documents a script writes test s3, s4 and the
+per-stream list. **What is left, in ADR 2801's order, is effort only.** The host input (ADR 1134) comes
+first, then RFC 5652's key agreement for a certificate with an elliptic-curve key. §7.6.5.2 and §7.6.6
+left the map: both rows are `implemented`.
 
 - §7.6.5.1 — `partial`: the scan runs, and no host supplies the user's certificate and key yet.
-- §7.6.5.3 — `partial`: AES envelopes and both digests run, and RC4, DES, Triple DES and RC2 are
-  refused by name.
-- §7.6.6 — Table 27's per-stream recipient list, refused by name. Table 25's `/AuthEvent` is read
-  and load-bearing.
+- §7.6.5.3 — `partial`: all seven envelope ciphers and both digests run, the stream-level seed
+  included; a recipient reached by key agreement (an elliptic-curve certificate) is read and never
+  matched.
 
 **`doc/questions/`, and what each answer holds in this map.** `tools/state.sh questions` prints
 the parity and names the open ones. The owner's answers of 2026-09-22 are built: A98's client sends
