@@ -1,0 +1,8 @@
+{
+  "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
+  "scope": "Reviewed feature and selected ADR decision records, regression tests, execution summaries, and continuation backlog. This is a partial audit.",
+  "counts_are_not_coverage": "Records overlap and may contain compound requirements; execution and existing test paths do not prove assertion quality or exhaustive coverage.",
+  "local_evidence": "Log names and scratchpad paths identify local evidence. Raw PDF extracts, annotations, account usage logs, tool installations and unreviewed drafts are intentionally not exported.",
+  "reproduction": "Run cargo test -p <crate> --test <target> for an integration-test reference; use the named test filter for inline modules. expected-failures.json lists intentionally failing audit regressions. Broad run: cargo nextest run -p pdf-syntax -p pdf-model -p pdf-colour -p pdf-archive -p pdf-transform -p viewer-core -p render-cpu -p viewer-qt -p viewer-host --no-fail-fast. Filter expected failures by run scope: viewer-gtk entries are excluded from the nine-crate comparison. GTK supplemental: xvfb-run -a cargo test -p viewer-gtk --lib max_len_audit. viewer-ui outline_count_audit was run separately.",
+  "reviewed_feature_records": 1824
+}

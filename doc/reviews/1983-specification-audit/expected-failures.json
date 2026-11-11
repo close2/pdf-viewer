@@ -1,0 +1,420 @@
+{
+  "warning": "Expected failures are audit regressions, not waived defects or distinct-defect counts. Broad nine-crate run covers entries except viewer-gtk; GTK native controls run separately under Xvfb. Compare exact binary/test sets within each run scope.",
+  "failures": [
+    {
+      "binary": "pdf-archive",
+      "test": "survey::graphics_state::annex_q_audit_tests::a_q2_transparent_state_restored_before_painting_does_not_mark_the_page",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-archive",
+      "test": "survey::graphics_state::annex_q_audit_tests::q2_blend_mode_arrays_use_the_first_recognised_mode",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-colour::calculator_operators_spec_audit",
+      "test": "type4_right_bitshift_inserts_zero_bits_for_negative_values",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-colour::functions_spec_audit",
+      "test": "stitching_domain_start_bound_uses_its_explicit_degenerate_encode_value",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-model::file_specification_writer_audit",
+      "test": "document_home_file_spec_has_table43_desc",
+      "evidence": "filespec-writer-reviewed-target.log"
+    },
+    {
+      "binary": "pdf-model::text_strings_spec_audit",
+      "test": "a_pdfdocencoded_fdf_status_is_not_mistaken_for_a_unicode_marker",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-model::text_strings_spec_audit",
+      "test": "a_text_string_language_escape_overrides_property_list_language",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-model::text_strings_spec_audit",
+      "test": "a_text_string_language_escape_overrides_the_catalog_language",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-model::type3_residual_audit",
+      "test": "d1_ignores_color_related_extgstate_changes_and_continues",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-syntax::ascii85_runlength_boundaries",
+      "test": "ascii85_tilde_followed_by_anything_but_greater_than_is_an_error",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-syntax::ascii85_runlength_boundaries",
+      "test": "ascii85_windowed_reader_reports_a_malformed_eod_marker",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-syntax::file_structure_audit",
+      "test": "an_incremental_update_repeats_a_second_class_trailer_entry",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-syntax::spec_basic_objects",
+      "test": "a_cold_wrong_generation_reference_is_undefined",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-syntax::spec_basic_objects",
+      "test": "a_warm_wrong_generation_reference_is_undefined",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-transform::annex_i_insert_version",
+      "test": "inserting_a_newer_pdf_uses_the_newer_version",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-transform::archive",
+      "test": "associated_files_date_audit::associated_archive_file_does_not_omit_the_table45_required_modification_date",
+      "evidence": "associated-file-date-semantic-control.log"
+    },
+    {
+      "binary": "pdf-transform::date_spec_audit",
+      "test": "metadata_editing_does_not_publish_an_incomplete_numeric_field",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-transform::date_spec_audit",
+      "test": "metadata_editing_does_not_publish_an_out_of_range_month",
+      "evidence": "nextest-eight-crates-wave4.log"
+    },
+    {
+      "binary": "pdf-transform::metadata_requirements_audit",
+      "test": "pieceinfo_keeps_required_moddate_when_update_requests_removal",
+      "evidence": "metadata-content-expanded-target.log",
+      "classification": "ISO Table 349 conditional writer requirement"
+    },
+    {
+      "binary": "pdf-model::content_resources_audit",
+      "test": "hidden_gs_lookup_that_changes_visible_state_is_reported",
+      "evidence": "metadata-content-expanded-target.log",
+      "classification": "project recovery/reporting policy consistency; malformed input, not ISO conformance"
+    },
+    {
+      "binary": "pdf-transform::archive",
+      "test": "reader_resources::pattern_resource_audit::part2_pattern_resource_repair_preserves_the_readers_marks_or_refuses",
+      "evidence": "pattern-resource-discriminating-targets.log",
+      "classification": "mechanical preservation-policy failure on malformed source; not ISO malformed-input reader conformance"
+    },
+    {
+      "binary": "pdf-transform::archive",
+      "test": "reader_resources::pattern_resource_audit::part4_pattern_resource_repair_preserves_the_readers_marks_or_refuses",
+      "evidence": "pattern-resource-discriminating-targets.log",
+      "classification": "mechanical preservation-policy failure on malformed source; not ISO malformed-input reader conformance"
+    },
+    {
+      "binary": "viewer-core::destinations_residual_audit",
+      "test": "fitbh_fits_the_content_width_and_places_top_in_default_user_space",
+      "evidence": "destinations-residual-controls-target.log",
+      "classification": "specified destination geometry"
+    },
+    {
+      "binary": "viewer-core::destinations_residual_audit",
+      "test": "fitbv_fits_the_content_height_and_transforms_left_from_user_space",
+      "evidence": "destinations-residual-controls-target.log",
+      "classification": "specified destination geometry"
+    },
+    {
+      "binary": "viewer-core::destinations_residual_audit",
+      "test": "xyz_null_coordinates_and_zero_zoom_retain_the_current_window_values",
+      "evidence": "destinations-residual-controls-target.log",
+      "classification": "specified destination geometry"
+    },
+    {
+      "binary": "viewer-core::destinations_residual_audit",
+      "test": "xyz_null_coordinates_retain_user_position_when_zoom_changes_on_the_same_page",
+      "evidence": "destinations-residual-controls-target.log",
+      "classification": "specified destination geometry"
+    },
+    {
+      "binary": "viewer-host::page_labels_audit",
+      "test": "an_explicit_empty_page_label_is_not_replaced_by_the_unlabelled_fallback",
+      "evidence": "page-labels-empty-reviewed-target.log",
+      "classification": "specified empty label discarded by viewer query; model and nonempty range control pass"
+    },
+    {
+      "binary": "pdf-model::image_dictionary_consistency_audit",
+      "test": "an_image_decode_array_with_fewer_pairs_than_its_colour_space_errors",
+      "evidence": "image-dictionary-consistency-target.log",
+      "classification": "explicit ISO8.9.5.1 reader error requirement for inconsistent image dictionary; malformed-input case with mandated response"
+    },
+    {
+      "binary": "pdf-model::image_dictionary_consistency_audit",
+      "test": "an_image_decode_array_with_extra_pairs_for_its_colour_space_errors",
+      "evidence": "image-dictionary-consistency-target.log",
+      "classification": "explicit ISO8.9.5.1 reader error requirement for inconsistent image dictionary; malformed-input case with mandated response"
+    },
+    {
+      "binary": "pdf-model::action_next_occurrences_audit",
+      "test": "next_array_reads_each_occurrence_even_when_two_entries_share_an_object",
+      "evidence": "link-actions-reviewed-target.log",
+      "classification": "Table196 ordered array occurrence requirement; non-cyclic repeated reference, interpretation stated in report"
+    },
+    {
+      "binary": "pdf-model::link_highlighting_residual_audit",
+      "test": "an_unstated_link_mode_still_defaults_to_invert_when_a_down_appearance_exists",
+      "evidence": "link-actions-reviewed-target.log",
+      "classification": "Table176 default I; ADR0123 deliberate implicit-P policy extends widget rationale to Link"
+    },
+    {
+      "binary": "viewer-core::link_quadpoints_audit",
+      "test": "link_pressed_highlight_uses_quadpoints_active_region_not_the_larger_rect",
+      "evidence": "link-actions-reviewed-target.log",
+      "classification": "Table176 H active-area requirement; QuadPoints honored for activation but not pointer appearance"
+    },
+    {
+      "binary": "viewer-core::action_triggers_spec_audit",
+      "test": "catalog_open_action_executes_a_supported_non_goto_action",
+      "evidence": "action-triggers-reviewed-fixed-target.log",
+      "classification": "Table29 catalog OpenAction action dictionary consumer; supported Named action works through Link but not catalog"
+    },
+    {
+      "binary": "viewer-core::page_visibility_triggers_audit",
+      "test": "newly_visible_neighbor_gets_pv_before_it_becomes_current",
+      "evidence": "image-coordinates-page-visibility-target.log",
+      "classification": "Table197 visible set distinct from current-page lifecycle; documented restriction in ADR1750/1752"
+    },
+    {
+      "binary": "viewer-core::page_visibility_triggers_audit",
+      "test": "page_remaining_visible_does_not_get_pi_when_current_page_changes",
+      "evidence": "image-coordinates-page-visibility-target.log",
+      "classification": "Table197 visible set distinct from current-page lifecycle; documented restriction in ADR1750/1752"
+    },
+    {
+      "binary": "viewer-core::mixed_action_order_audit",
+      "test": "a_next_script_observes_preceding_non_script_action_state",
+      "evidence": "interpolation-mixed-action-target.log",
+      "classification": "Table196 Next execution order across supported script and non-script actions; documented ADR1602/1750/1752 limitation"
+    },
+    {
+      "binary": "pdf-model::image_masking_audit",
+      "test": "ec3_image_mask_ignores_its_own_mask_and_colour_space_entries",
+      "evidence": "image-masking-six-target.log"
+    },
+    {
+      "binary": "pdf-model::image_masking_audit",
+      "test": "an_image_mask_with_more_than_one_bit_per_component_reports_inconsistency",
+      "evidence": "image-masking-six-target.log"
+    },
+    {
+      "binary": "pdf-model::annotation_appearance_audit",
+      "test": "printing_uses_normal_even_if_the_view_state_carries_a_pressed_pointer",
+      "evidence": "appearance-model-fixed-import-target.log",
+      "classification": "Table170 normal-for-print violated by retained pointer state; two layers reproduce one defect"
+    },
+    {
+      "binary": "viewer-core::annotation_print_appearance_audit",
+      "test": "public_print_query_uses_normal_after_pointer_press_selected_down",
+      "evidence": "appearance-viewer-print-target.log",
+      "classification": "Table170 normal-for-print violated by retained pointer state; two layers reproduce one defect"
+    },
+    {
+      "binary": "viewer-core::annotation_print_geometry_audit",
+      "test": "a_screen_nozoom_flag_does_not_shrink_the_printed_annotation_at_view_zoom",
+      "evidence": "annotation-print-geometry-target.log",
+      "classification": "NoZoom screen magnification leaks into print display-list geometry; fixed job outputs differ by prior viewport zoom"
+    },
+    {
+      "binary": "pdf-model::opentype_selection_audit",
+      "test": "opentype_cff_under_simple_type1_uses_encoding_glyph_names_and_cff_charset",
+      "evidence": "opentype-decoy-control-target.log",
+      "classification": "Type1/OpenType CFF symbolic font incorrectly uses TrueType Macintosh cmap before explicit encoding; bareType1C control passes"
+    },
+    {
+      "binary": "pdf-model::markup_annotation_audit",
+      "test": "writer_uses_cr_for_contents_paragraphs",
+      "evidence": "markup-state-ink-reviewed-target.log",
+      "classification": "EC3#90 ContentsproducerCRrule;ADR1798explicitlydeferredwriterhalf;singlelinecontrolpasses"
+    },
+    {
+      "binary": "pdf-model::line_ending_endpoint_spec_audit",
+      "test": "line_endings_use_the_l_coordinate_pairs_even_with_leader_lines",
+      "evidence": "line-ending-endpoint-target.log",
+      "classification": "Table178 literal LE-to-L endpoint mapping conflicts with ADR0192 construction; no-LL controls pass, Figure80 premise unsupported"
+    },
+    {
+      "binary": "pdf-model::line_ending_endpoint_spec_audit",
+      "test": "positive_ll_places_the_proper_line_opposite_the_clockwise_leaders",
+      "evidence": "line-leader-direction-target.log",
+      "classification": "Table178 signed direction and Figure80: existing ADR0075/tests invert displacement from leader endpoints to proper line"
+    },
+    {
+      "binary": "pdf-model::polygon_polyline_spec_audit",
+      "test": "polyline_ic_fills_closed_endings_but_not_open_endings",
+      "evidence": "polygon-polyline-effective-ec3-target.log",
+      "classification": "PolyLine IC discarded before ending fill; Line and open-style controls pass"
+    },
+    {
+      "binary": "pdf-model::polygon_polyline_spec_audit",
+      "test": "polygon_path_strokes_its_closing_edge_while_polyline_path_stays_open",
+      "evidence": "polygon-polyline-effective-ec3-target.log",
+      "classification": "Ordinary Polygon Path not closed for stroking; explicit segments, ignored Vertices and open PolyLine controls pass"
+    },
+    {
+      "binary": "pdf-model::polygon_polyline_spec_audit",
+      "test": "polyline_first_ending_is_at_first_vertex_not_second_vertex",
+      "evidence": "polygon-polyline-effective-ec3-target.log",
+      "classification": "First style placed on second vertex; plain-line and last-endpoint controls pass"
+    },
+    {
+      "binary": "pdf-model",
+      "test": "variable_text::subset_collision_audit::appearance_writer_allocates_distinct_tags_for_sibling_subsets",
+      "evidence": "font-subset-reviewed-fixed-target.log",
+      "classification": "Two distinct same-source subset resources receive identical NQYCPV tag; distinct program streams and paired PDF-name controls pass"
+    },
+    {
+      "binary": "pdf-model::text_markup_orientation_audit",
+      "test": "underline_tracks_the_counterclockwise_quad_text_edge_not_its_opposite",
+      "evidence": "text-markup-orientation-target.log",
+      "classification": "Absolute page-y chooses opposite baseline edge for rotated valid CCW text; horizontal controls pass"
+    },
+    {
+      "binary": "pdf-model::text_markup_orientation_audit",
+      "test": "highlight_preserves_all_four_corners_of_a_counterclockwise_trapezoid",
+      "evidence": "text-markup-orientation-target.log",
+      "classification": "Quad reconstruction drops far corner and paints outside valid trapezoid; independent interior/exterior controls pass"
+    },
+    {
+      "binary": "viewer-core::stamp_popup_spec_audit",
+      "test": "opening_a_stamp_without_a_popup_reference_still_displays_its_associated_note",
+      "evidence": "stamp-popup-reviewed-target.log",
+      "classification": "Supplied Stamp note not exhibited on pointer activation without optional Popup; explicit-window and valid stored-AP controls pass; combined12.5.1/12.5.6.12 interpretation stated"
+    },
+    {
+      "binary": "viewer-core::file_attachment_annotation_audit",
+      "test": "a_present_empty_attachment_contents_does_not_reveal_the_filespec_description",
+      "evidence": "file-attachment-routing-description-target.log",
+      "classification": "Present empty Contents incorrectly exposes lower-precedence Filespec Desc at public Attachment reader boundary"
+    },
+    {
+      "binary": "pdf-model::widget_annotation_spec_audit",
+      "test": "omitted_widget_h_retains_the_table_191_invert_default_even_with_a_down_stream",
+      "evidence": "widget-reviewed-target-v2.log",
+      "classification": "Absent Widget H uses Push when D exists instead of Table191 default Invert; parent subtype-rule precedence interpretation, explicit-I valid-AP control passes"
+    },
+    {
+      "binary": "viewer-core::sigflags_discovery_audit",
+      "test": "absent_sigflags_does_not_hide_a_candidate_from_the_public_signature_api",
+      "evidence": "forms-reviewed-target-v3.log",
+      "classification": "SigFlagsgate hidesfieldcandidate; ordinarysignature APIpromise vs timestamp12.8.5.2explicitreaderSHALL distinguished. Exactrange/setbitpositivecontrols pass."
+    },
+    {
+      "binary": "viewer-core::sigflags_discovery_audit",
+      "test": "zero_sigflags_does_not_hide_a_candidate_from_the_public_signature_api",
+      "evidence": "forms-reviewed-target-v3.log",
+      "classification": "SigFlagsgate hidesfieldcandidate; ordinarysignature APIpromise vs timestamp12.8.5.2explicitreaderSHALL distinguished. Exactrange/setbitpositivecontrols pass."
+    },
+    {
+      "binary": "viewer-core::sigflags_discovery_audit",
+      "test": "document_timestamp_existence_is_examined_when_sigflags_is_explicitly_zero",
+      "evidence": "forms-reviewed-target-v3.log",
+      "classification": "SigFlagsgate hidesfieldcandidate; ordinarysignature APIpromise vs timestamp12.8.5.2explicitreaderSHALL distinguished. Exactrange/setbitpositivecontrols pass."
+    },
+    {
+      "binary": "viewer-core::sigflags_discovery_audit",
+      "test": "document_timestamp_existence_scans_signature_fields_even_without_sigflags_bit_one",
+      "evidence": "forms-reviewed-target-v3.log",
+      "classification": "SigFlagsgate hidesfieldcandidate; ordinarysignature APIpromise vs timestamp12.8.5.2explicitreaderSHALL distinguished. Exactrange/setbitpositivecontrols pass."
+    },
+    {
+      "binary": "pdf-model::variable_text_resource_merge_audit",
+      "test": "a_new_variable_text_appearance_uses_origin_and_widget_dimensions",
+      "evidence": "variable-text-resource-target-v5.log",
+      "classification": "New non-rich Widget AP BBox copies page Rect instead of clause12.7.4.3 local origin and dimensions; other save/interpretation controls pass."
+    },
+    {
+      "binary": "viewer-gtk",
+      "test": "controls::max_len_audit::multiline_entry_obeys_maxlen_and_remains_unlimited_when_unspecified",
+      "evidence": "gtk-maxlen-native-target.log",
+      "classification": "Native GTK control accepts and emits text past PDF MaxLen; actual builder/insertion/callback controls. Display required.",
+      "run_scope": "GTK supplemental: xvfb-run -a cargo test -p viewer-gtk --lib max_len_audit"
+    },
+    {
+      "binary": "viewer-gtk",
+      "test": "controls::max_len_audit::password_entry_obeys_maxlen_and_remains_unlimited_when_unspecified",
+      "evidence": "gtk-maxlen-native-target.log",
+      "classification": "Native GTK control accepts and emits text past PDF MaxLen; actual builder/insertion/callback controls. Display required.",
+      "run_scope": "GTK supplemental: xvfb-run -a cargo test -p viewer-gtk --lib max_len_audit"
+    },
+    {
+      "binary": "viewer-gtk",
+      "test": "controls::max_len_audit::zero_maxlen_rejects_insertion_instead_of_using_gtk_zero_as_unlimited",
+      "evidence": "gtk-maxlen-native-target.log",
+      "classification": "Native GTK control accepts and emits text past PDF MaxLen; actual builder/insertion/callback controls. Display required.",
+      "run_scope": "GTK supplemental: xvfb-run -a cargo test -p viewer-gtk --lib max_len_audit"
+    },
+    {
+      "binary": "viewer-qt",
+      "test": "host::tests::choice_commit_audit::an_explicit_choice_commit_runs_the_acroform_validate_action",
+      "evidence": "choice-commit-target-v3.log",
+      "classification": "Choice has no pending core commit state; explicit commit skips V validation; text positive control passes."
+    },
+    {
+      "binary": "viewer-qt",
+      "test": "host::tests::choice_commit_audit::commit_on_selection_runs_the_acroform_validate_action_in_the_qt_choice_callback",
+      "evidence": "choice-commit-target-v3.log",
+      "classification": "Bit27 timing: Qt Set-only callback and core no-pending-choice semantics; not isolated host causation."
+    },
+    {
+      "binary": "pdf-model::variable_text_resource_metric_audit",
+      "test": "saved_quadding_uses_the_font_that_the_appearance_resource_name_resolves_to",
+      "evidence": "forms-metric-target.log",
+      "classification": "Right quadding measured with DR font disagrees with preserved AP font: final ink right edge167 instead178."
+    },
+    {
+      "binary": "pdf-model::named_pages_spec_audit",
+      "test": "a_template_without_type_is_reported_as_not_a_template",
+      "evidence": "da-gray-named-target.log",
+      "classification": "NamedPages diagnostic omits missing/non-name Type; API/document-conformance reporting gap, not mandatory reader rejection. Valid Template and wrong Page controls pass."
+    },
+    {
+      "binary": "pdf-model::named_pages_spec_audit",
+      "test": "a_template_with_non_name_type_is_reported_as_not_a_template",
+      "evidence": "da-gray-named-target.log",
+      "classification": "NamedPages diagnostic omits missing/non-name Type; API/document-conformance reporting gap, not mandatory reader rejection. Valid Template and wrong Page controls pass."
+    },
+    {
+      "binary": "pdf-model::fdf_field_dictionary_audit",
+      "test": "imported_choice_options_replace_the_target_options",
+      "evidence": "fdf-fields-target-v3.log",
+      "classification": "FDF choice Opt parsed but dropped before import: old option list persists in form descriptor and saved target. Save deferral known; ADR1661 presentation premise contradicted."
+    },
+    {
+      "binary": "pdf-model::fdf_field_dictionary_audit",
+      "test": "imported_choice_options_reach_the_form_control_before_saving",
+      "evidence": "fdf-fields-target-v3.log",
+      "classification": "FDF choice Opt parsed but dropped before import: old option list persists in form descriptor and saved target. Save deferral known; ADR1661 presentation premise contradicted."
+    },
+    {
+      "binary": "viewer-core::fdf_script_order_audit",
+      "test": "fdf_doc_before_after_and_after_perms_scripts_reach_the_import_runner_in_order",
+      "evidence": "fdf-script-order-target.log",
+      "classification": "Enabled ordinary script runner receives no FDFTable248 scripts; stale blanket exclusion despite amended in-document scope. FailsatDoc; laterorder/rights assertionsnotexecuted."
+    },
+    {
+      "binary": "pdf-model::soft_mask_dictionary_audit",
+      "test": "a_luminosity_soft_mask_respects_a_knockout_group_against_normal_control",
+      "evidence": "soft-mask-dictionary-target.log",
+      "classification": "Luminosity mask source Ktrue treatedasordinary group: overlap63 instead128; normalandunaffectedcontrolsPASS. CIEYdeparturedoesnotcoverthis."
+    },
+    {
+      "binary": "pdf-model::fdf_template_count_audit",
+      "test": "template_array_members_do_not_multiply_the_fdf_page_count",
+      "evidence": "fdf-template-count-target-v2.log",
+      "classification": "One FDF page dictionary containing two Templates creates two live pages instead of one. Two separate page dictionaries positive control and parsed nesting checks pass; no composition geometry inferred."
+    }
+  ]
+}

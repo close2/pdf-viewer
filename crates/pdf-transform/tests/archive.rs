@@ -16847,3 +16847,9 @@ fn a_requirement_changed_where_the_check_looked_and_failed_where_it_did_not_is_c
         conversion(&report).settled
     );
 }
+
+#[path = "archive/associated_files_date_audit.rs"]
+mod associated_files_date_audit;
+
+#[path = "archive/action_promotion_audit.rs"]
+mod action_promotion_audit;

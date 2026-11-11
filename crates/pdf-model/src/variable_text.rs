@@ -3675,3 +3675,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "variable_text_subset_audit.rs"]
+mod subset_collision_audit;
