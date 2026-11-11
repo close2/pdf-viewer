@@ -1,6 +1,6 @@
 {
   "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
-  "checkpoint_utc": "2026-11-10T19:28:08.873084+00:00",
+  "checkpoint_utc": "2026-11-11T07:39:56.679059+00:00",
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
@@ -11,24 +11,22 @@
     "warning": "Percent is account allowance, not convertible fixed tokens; counters may lag. Continue extending while useful work and room remain."
   },
   "agents": {
-    "associated_files_audit": "FDFremoteFdictionary",
-    "catalog_pages_audit": "foreignAPP14 ready; spotrevision",
-    "inapplicable_conditions_audit": "damagedmaskconsumer"
+    "inapplicable_conditions_audit": "finaltransferlimitsdraftready; nootheractivework"
   },
   "next_candidates": [
     "Continue these bounded shards until stop-new87percent; preserve remainingwork ratherthan weaken review."
   ],
   "latest_broad": {
-    "log": "nextest-nine-crates-wave20.log",
-    "run": 5798,
-    "passed": 5731,
-    "expected_failed": 67,
+    "log": "nextest-nine-crates-wave21.log",
+    "run": 5809,
+    "passed": 5740,
+    "expected_failed": 69,
     "unexpected_failed": 0,
     "skipped": 53,
     "exit": 100,
-    "comparison": "Exact manifest match excluding3 GTK supplemental assertions. Nextest reports67.125s; wrapper reports3014s."
+    "comparison": "Exact manifest match excluding3GTK supplemental assertions."
   },
-  "latest_clippy": "clippy-soft-mask-dictionary.log",
+  "latest_clippy": "clippy-fdf-spot-final-v2.log",
   "new_failures_since_wave8": [
     "catalog Named OpenAction consumer missing",
     "page-visible neighbor omitted",
@@ -58,11 +56,7 @@
   ],
   "branch": "audit/specification-evidence-2026-11-10",
   "pending_parent_review": [
-    "FDFpages3tests",
-    "softmaskspot",
-    "foreignAPP14",
-    "damagedmaskconsumer",
-    "FDFremoteFdictionary"
+    "soft_mask_transfer_limits_audit"
   ],
   "pushed_commits": [
     "a299121c",
@@ -104,12 +98,14 @@
     "ecfbeaee",
     "983af7f9",
     "a9e9d399",
-    "b0dcb662"
+    "b0dcb662",
+    "9fdc12c1",
+    "d0cbd29f"
   ],
-  "expected_failures_manifest_count": 71,
-  "broad_run_predates": "Broad20predatesAlphaTR1PASS andmaskdictionary1PASS1expectedFAIL. Nextbroadafterremainingpromotions.",
+  "expected_failures_manifest_count": 72,
+  "broad_run_predates": "Broad21predatesRGBspot1PASS, validRename true1PASS, andtransferlimits2targetPASSawaitingparentmetadata.",
   "expected_failures_by_scope": {
-    "broad_nine_crates": 68,
+    "broad_nine_crates": 69,
     "gtk_supplemental": 3
   }
 }

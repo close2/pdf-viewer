@@ -1126,5 +1126,44 @@
     "new_passed": 1,
     "mutation": "foreign-app14-mutation-results.json",
     "clippy": "clippy-final-small-v2.log"
+  },
+  "nextest_nine_crates_wave21": {
+    "log": "nextest-nine-crates-wave21.log",
+    "run": 5809,
+    "passed": 5740,
+    "failed": 69,
+    "skipped": 53,
+    "unexpected_failures": 0,
+    "exit": 100,
+    "scope": "All promotedtests throughdamagedmask, FDFpages/fields/count/remote,spotSeparation,foreignAPP14; manifestmatch excludingGTK3."
+  },
+  "damaged_mask_consumer": {
+    "log": "damaged-mask-consumer-target.log",
+    "exit": 0,
+    "passed": 1,
+    "clippy": "clippy-damaged-mask.log",
+    "mutation": "damaged-mask-consumer-mutation-results.json"
+  },
+  "soft_mask_spot_consumers": {
+    "log": "soft-mask-spot-rgb-target.log",
+    "exit": 0,
+    "passed": 2,
+    "scope": "Gray/RGBSeparation; RGBtestaddedafterbroad21",
+    "mutation": [
+      "soft-mask-spot-mutation-results.json",
+      "soft-mask-spot-rgb-mutation-results.json"
+    ],
+    "clippy": "clippy-fdf-spot-final-v2.log"
+  },
+  "fdf_pages_consumers": {
+    "scope": "localviewer1PASS, referencedfields2PASS, remotefilespec2PASS, pagecardinality1expectedFAIL",
+    "logs": [
+      "fdf-pages-viewer-target.log",
+      "fdf-template-fields-final.log",
+      "final-small-controls.log",
+      "fdf-template-count-target-v2.log"
+    ],
+    "clippy": "clippy-fdf-spot-final-v2.log",
+    "note": "Default/explicitRename truetest addedafterbroad21; otherFDFtestsincludedbroad21. Initialcountdraftbadcontrolsuperseded, notproductfailure."
   }
 }

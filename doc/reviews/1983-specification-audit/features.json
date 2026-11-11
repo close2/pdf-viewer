@@ -9538,6 +9538,36 @@
     "superseded": false
   },
   {
+    "clause": "11.6.5.1",
+    "feature_id": "damaged-mask-group-prefix-rendering",
+    "requirement": "Project policy: after a RunLengthDecode soft-mask group stream ends before its EOD marker, interpret and render the decoded content prefix, report the truncation, and derive mask values where the prefix painted nothing using the applicable outside-box BC and transfer values.",
+    "source_location": "ADR-0359; §11.6.5.1 printed p.418 / physical p.433 supplies the soft-mask outside-Box value; §7.4.5 RunLengthDecode EOD semantics",
+    "errata": "No EC3 change to the relevant §11.6.5.1 outside-box sentence found. This test concerns malformed-input recovery policy, not an ISO requirement to recover malformed streams.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/run/nested.rs::content_stream",
+      "crates/pdf-model/src/content/run/notes.rs (damage report construction)",
+      "crates/pdf-model/src/content/transparency/soft_mask.rs (mask group interpretation)",
+      "crates/pdf-render/src/soft_mask.rs (outside value derivation)"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/damaged_content_streams.rs::a_damaged_soft_mask_group_draws_its_prefix_and_reports_the_shortfall",
+      "crates/pdf-model/tests/damaged_mask_consumer_audit.rs::a_truncated_luminosity_mask_retains_decoded_prefix_and_uses_bc_transfer_outside"
+    ],
+    "verdict": "policy-consumer-confirmed-rationale-needs-qualification",
+    "evidence": "The existing test asserts only damage-report tuples; its helper discards display-list and raster output. The promoted test uses exact-xref/no-recovery complete PDFs for an intact full-artwork control, an intact prefix-only control, and a deliberately EOD-truncated prefix. It asserts each pixel's RGBA channels at checked 1:1 coordinates, the truncation report and `kept == prefix.len()`. With a 0.75-grey prefix and inverse transfer over /BC 0.25, independent expectations are RGBA [191,191,191,255] for the retained prefix and [64,64,64,255] both for an unpainted point inside the BBox and outside it. The full control separately checks its white suffix at [255,255,255,255]. Parent target and broad21PASS. Removing only damagedmask prefix afterreporting in isolatedcopy leaves oldreporttestPASS andnewconsumerFAIL; bothcontrolsPASS,sourcerestored. Fullartworkwhite255versusrecovered64 also demonstrates recoveredpageinkneednotbeasubset.",
+    "test_command": "cargo test -p pdf-model --test damaged_mask_consumer_audit",
+    "test_result": "1PASS damaged-mask-consumer-target.log; alsoPASSbroad21; ClippyPASSclippy-damaged-mask.log.",
+    "parent_review": "Accepted partial after actualADR, source, currentcode, validcontrols, independentpixels andmutationreview. 1PASS; ClippyPASS.",
+    "scope": "ADR0359 malformedstreamrecoverypolicy only, not newnormativevalidinputrequirement.",
+    "mutation_evidence": "damaged-mask-consumer-mutation-results.json",
+    "reviewer": "damaged_mask_consumer_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "Policy/evidence follow-up; not a new valid-input conformance claim",
+    "reviewer_verdict": "policy-consumer-confirmed-rationale-needs-qualification",
+    "superseded": false
+  },
+  {
     "clause": "7.9.4",
     "feature_id": "date-text-string",
     "requirement": "Date grammar applies after decoding the PDF text string, not to raw encoded bytes.",
@@ -12650,6 +12680,332 @@
     "parent_review_state": "parent-reviewed-partial-with-consumer-tests",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "cross-referenced-not-recertified",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.3",
+    "feature_id": "fdf-pages-array-adds-pages",
+    "requirement": "When an FDF /Pages entry is present, it is an array of page dictionaries describing new pages that shall be added to the target document.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:13081-13083; ISO 32000-2 source physical p.580 / printed p.565",
+    "errata": "No numbered EC3 annotation on physical pp.580-581 changes Tables 251-253.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::read_pages",
+      "crates/pdf-model/src/view/pages.rs::append_templates",
+      "crates/viewer-core/src/interact.rs::import",
+      "crates/viewer-core/src/open/pages.rs::page"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/forms_data.rs::an_imported_template_adds_a_page_the_document_already_held",
+      "crates/viewer-core/tests/fdf_pages_import_audit.rs::imported_local_template_is_counted_navigable_and_rendered_by_the_viewer"
+    ],
+    "verdict": "implementation-gap",
+    "evidence": "The live ViewState and viewer paths append local/carried pages, report the count, and expose them to navigation/rendering. Save does not add appended pages to the target page tree; Written::unwritten_pages reports that departure under ADR 2154. Existing model test checks the live AppendedPage and separately verifies save leaves the original tree unchanged. The promoted public viewer integration test passes page-count, navigation and red-mark assertions on the appended page.",
+    "test_command": "cargo test -p viewer-core --test fdf_pages_import_audit",
+    "test_result": "Parent run passed: fdf-pages-viewer-target.log; exact-xref fixture navigates to page 1 and samples the red mark.",
+    "parent_review": "Accepted partial: sourceTables251–253/43 andapplicableEC3, codeandassertionbodies reviewed. FDFcountactual2vs1; remainingnewconsumersPASS; clippy-fdf-spot-final-v2.logPASS.",
+    "reviewer": "fdf_pages_import_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.3",
+    "feature_id": "table251-templates-required",
+    "requirement": "Each FDF page dictionary has a required Templates array of FDF template dictionaries describing the named pages used as templates on that page.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:13085-13092; physical p.580 / printed p.565",
+    "errata": "No numbered EC3 annotation on physical p.580 changes Table 251.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::read_pages",
+      "crates/pdf-model/src/view/pages.rs::append_templates"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/forms_data.rs::an_imported_template_adds_a_page_the_document_already_held",
+      "crates/pdf-model/tests/fdf_template_count_audit.rs::template_array_members_do_not_multiply_the_fdf_page_count"
+    ],
+    "verdict": "implementation-gap",
+    "evidence": "The data model reads the page/template nesting, but append_templates creates an AppendedPage for each Templates member. Table 251 describes each outer FDF page dictionary as a new page and its Templates array as source pages serving as templates on that page. The promoted regression has two FDF page dictionaries with one template each as a passing control, then one FDF page dictionary with two templates; the latter produces 2 additions where 1 is required. Malformed/missing required-entry recovery is separate; the table does not mandate reader rejection.",
+    "test_command": "cargo test -p pdf-model --test fdf_template_count_audit",
+    "test_result": "Product regression confirmed by fdf-template-count-target-v2.log: the two-page positive control passes, then the one-FDF-page/two-templates case returns 2 instead of 1. An earlier run used an invalid control and is superseded.",
+    "parent_review": "Accepted partial: sourceTables251–253/43 andapplicableEC3, codeandassertionbodies reviewed. FDFcountactual2vs1; remainingnewconsumersPASS; clippy-fdf-spot-final-v2.logPASS.",
+    "reviewer": "fdf_pages_import_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.3",
+    "feature_id": "table251-info-opaque",
+    "requirement": "Optional Info is a dictionary that shall contain additional information about the page; this table defines no Info subentries or consumer behavior.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:13085-13090; physical p.580 / printed p.565",
+    "errata": "No numbered EC3 annotation on physical p.580 changes Table 251.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::FdfPage::has_info",
+      "crates/pdf-model/src/forms_data.rs::read_pages"
+    ],
+    "test_refs": [],
+    "verdict": "ambiguous",
+    "evidence": "The reader preserves presence as has_info and reports that it owes information because the table names no entries. There is no independently stated consumer operation against which to assert behavior.",
+    "test_command": "None: no defined Info subentry behavior to test.",
+    "test_result": "Not applicable.",
+    "parent_review": "Accepted partial: sourceTables251–253/43 andapplicableEC3, codeandassertionbodies reviewed. FDFcountactual2vs1; remainingnewconsumersPASS; clippy-fdf-spot-final-v2.logPASS.",
+    "reviewer": "fdf_pages_import_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "ambiguous",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.3",
+    "feature_id": "table252-tref-required",
+    "requirement": "A template dictionary has required TRef, a named page reference specifying the template location.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:13094-13106; Table 252 physical p.581 / printed p.566",
+    "errata": "No numbered EC3 annotation on physical pp.580-581 changes Table 252.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::read_pages",
+      "crates/pdf-model/src/named_page.rs::Reference::read",
+      "crates/pdf-model/src/view/pages.rs::append_templates",
+      "crates/pdf-model/src/view/pages.rs::supply_named_pages"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/forms_data.rs::an_imported_template_adds_a_page_the_document_already_held",
+      "crates/pdf-model/tests/forms_data.rs::a_template_in_another_file_is_supplied_and_added",
+      "crates/viewer-core/tests/fdf_pages_import_audit.rs::imported_local_template_is_counted_navigable_and_rendered_by_the_viewer",
+      "crates/viewer-core/tests/fdf_pages_import_audit.rs::imported_local_template_is_counted_navigable_and_rendered_by_the_viewer",
+      "crates/viewer-core/tests/fdf_remote_reference_audit.rs::table253_dictionary_file_spec_uses_uf_on_public_host_path"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Local TRef resolves through the associated document's Templates/Pages name trees; remote TRef asks for the named file and copies its page when supplied. Missing names are reported by name. Template type /Type /Template and absence of Parent and B are governing §12.7.7/§7.7.3 conditions; the promoted public viewer test's source named page meets them and exercises reachability/rendering rather than only parsing.",
+    "test_command": "cargo test -p viewer-core --test fdf_pages_import_audit",
+    "test_result": "Parent run passed: fdf-pages-viewer-target.log; exact-xref source Template obeys Type/MediaBox/Resources/no-Parent/no-B rules.",
+    "parent_review": "Accepted partial: sourceTables251–253/43 andapplicableEC3, codeandassertionbodies reviewed. FDFcountactual2vs1; remainingnewconsumersPASS; clippy-fdf-spot-final-v2.logPASS.",
+    "reviewer": "fdf_pages_import_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.3",
+    "feature_id": "table252-fields-root-refs-import",
+    "requirement": "Optional Fields is an array of references to FDF field dictionaries describing root fields, and those fields shall be imported.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:13094-13101; physical p.581 / printed p.566",
+    "errata": "No numbered EC3 annotation on physical p.581 changes Table 252.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::read_pages",
+      "crates/pdf-model/src/view/pages.rs::append_templates",
+      "crates/pdf-model/src/forms_data.rs::match_fields"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/fdf_template_fields_audit.rs::a_template_field_updates_every_target_field_with_the_same_name"
+    ],
+    "verdict": "confirmed",
+    "evidence": "append_templates routes referenced FDF fields through match_fields when Rename is false. Existing tests exercised analogous application but encoded /Fields as direct dictionaries, not Table 252 references. The promoted valid fixture uses an indirect FDF field reference and checks the value reaches both same-named target fields. Source §12.7.4.2 permits same fully qualified names only when FT, V and DV agree; the two target fields have the same FT and V and both omit DV.",
+    "test_command": "cargo test -p pdf-model --test fdf_template_fields_audit",
+    "test_result": "Parent run passed: fdf-pages-model-target.log.",
+    "parent_review": "Accepted partial: sourceTables251–253/43 andapplicableEC3, codeandassertionbodies reviewed. FDFcountactual2vs1; remainingnewconsumersPASS; clippy-fdf-spot-final-v2.logPASS.",
+    "reviewer": "fdf_pages_import_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.3",
+    "feature_id": "table252-rename-default-true",
+    "requirement": "The default value of optional Rename is true, so this branch governs conflicting names when no explicit Rename value is supplied.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:13098-13103; Table 252 physical p.581 / printed p.566",
+    "errata": "No numbered EC3 annotation on physical p.581 changes Table 252.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::read_pages",
+      "crates/pdf-model/src/view/pages.rs::append_templates"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/forms_data.rs::a_template_asking_for_renaming_is_refused_rather_than_imported_over_the_document",
+      "crates/pdf-model/tests/fdf_template_fields_audit.rs::default_and_explicit_rename_true_report_the_departure_without_overwriting_fields"
+    ],
+    "verdict": "documented-departure",
+    "evidence": "When Rename is absent, the parsed FdfTemplate default is true; with conflicting fields the implementation names a refusal rather than performing the required unique renaming. This is a deliberate, reported departure. The informative NOTE does not prescribe a unique-name algorithm; no special owner-approval prerequisite is established. ParentaddedvalidreferencedFieldscontrol: defaultandexplicitRename truebothreportandpreservebothoriginalfieldvalues. No unique-nameimplementationclaimed.",
+    "test_command": "Existing named test body inspected; no test run in this shard.",
+    "test_result": "Parent validindirectreference testPASS bothomitteddefaultandexplicittruein fdf-template-fields-final.log. FalsecontrolalsoPASS. Truebranch remainsdocumenteddeparture.",
+    "parent_review": "Accepted partial: sourceTables251–253/43 andapplicableEC3, codeandassertionbodies reviewed. FDFcountactual2vs1; remainingnewconsumersPASS; clippy-fdf-spot-final-v2.logPASS.",
+    "reviewer": "fdf_pages_import_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "documented-departure",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.3",
+    "feature_id": "table252-rename-true-unique-conflicts",
+    "requirement": "Rename defaults true; for conflicting names, true requires imported fields to be renamed to guarantee uniqueness. The NOTE's example algorithm is optional, not normative.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:13094-13106; Table 252 physical p.581 / printed p.566",
+    "errata": "No numbered EC3 annotation on physical pp.580-581 changes Table 252.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/forms_data.rs::FdfTemplate::rename",
+      "crates/pdf-model/src/view/pages.rs::append_templates"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/forms_data.rs::a_template_asking_for_renaming_is_refused_rather_than_imported_over_the_document",
+      "crates/pdf-model/tests/fdf_template_fields_audit.rs::default_and_explicit_rename_true_report_the_departure_without_overwriting_fields"
+    ],
+    "verdict": "documented-departure",
+    "evidence": "The implementation refuses by name when fields are present and Rename is true. The current refusal test uses direct /Fields dictionaries, so it is not valid evidence for the required reference route; a valid indirect-reference default/explicit-true control is pending parent execution. The note’s candidate prefix algorithm is “might,” so no particular spelling is required. Save still omits appended pages (ADR 2154); any conforming implementation would need unique names, but the specification leaves the algorithm open. ParentaddedvalidreferencedFieldscontrol: defaultandexplicitRename truebothreportandpreservebothoriginalfieldvalues. No unique-nameimplementationclaimed.",
+    "test_command": "cargo test -p pdf-model --test forms_data a_template_asking_for_renaming_is_refused_rather_than_imported_over_the_document",
+    "test_result": "Parent validindirectreference testPASS bothomitteddefaultandexplicittruein fdf-template-fields-final.log. FalsecontrolalsoPASS. Truebranch remainsdocumenteddeparture.",
+    "parent_review": "Accepted partial: sourceTables251–253/43 andapplicableEC3, codeandassertionbodies reviewed. FDFcountactual2vs1; remainingnewconsumersPASS; clippy-fdf-spot-final-v2.logPASS.",
+    "reviewer": "fdf_pages_import_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "documented-departure",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.3",
+    "feature_id": "table252-rename-false-no-rename-update-all",
+    "requirement": "With Rename false, fields keep their names; multiple same-named fields result and each time FDF provides attributes for a name all fields with that name shall be updated.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:13098-13103; physical p.581 / printed p.566",
+    "errata": "No numbered EC3 annotation on physical p.581 changes Table 252.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/view/pages.rs::append_templates",
+      "crates/pdf-model/src/forms_data.rs::match_fields"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/fdf_template_fields_audit.rs::a_template_field_updates_every_target_field_with_the_same_name"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Implementation collects all matching widget IDs and inserts the same import value for each. The existing test used a single target field and direct /Fields. The promoted test uses a referenced FDF root field and two compliant same-name target fields; §12.7.4.2 requires same FT, V and DV for equal fully qualified names, so the fixture uses the same field type/value and omits DV from both.",
+    "test_command": "cargo test -p pdf-model --test fdf_template_fields_audit",
+    "test_result": "Parent run passed: fdf-pages-model-target.log.",
+    "parent_review": "Accepted partial: sourceTables251–253/43 andapplicableEC3, codeandassertionbodies reviewed. FDFcountactual2vs1; remainingnewconsumersPASS; clippy-fdf-spot-final-v2.logPASS.",
+    "reviewer": "fdf_pages_import_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.3",
+    "feature_id": "table253-name-required",
+    "requirement": "Named page reference Name is a required string naming the referenced page.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:13108-13111; physical p.581 / printed p.566",
+    "errata": "No numbered EC3 annotation on physical p.581 changes Table 253.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/named_page.rs::Reference::read",
+      "crates/pdf-model/src/view/pages.rs::append_templates"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/forms_data.rs::a_template_this_document_cannot_reach_is_named"
+    ],
+    "verdict": "code-supported-not-executed",
+    "evidence": "A missing local target is explicitly named in refusal. The required producer string is read as text; test exercises a valid string name and an unresolved-name outcome.",
+    "test_command": "See test_refs; existing target inspected.",
+    "test_result": "Assertion checks the missing name is in refusal.",
+    "parent_review": "Accepted partial: sourceTables251–253/43 andapplicableEC3, codeandassertionbodies reviewed. FDFcountactual2vs1; remainingnewconsumersPASS; clippy-fdf-spot-final-v2.logPASS.",
+    "reviewer": "fdf_pages_import_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "code-supported-not-executed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.3",
+    "feature_id": "table253-file-optional-associated-pdf-default",
+    "requirement": "Optional F identifies the file containing the named page; when absent, the page is assumed to reside in the associated PDF file.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:13108-13114; physical p.581 / printed p.566",
+    "errata": "No numbered EC3 annotation on physical p.581 changes Table 253.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/named_page.rs::Reference::read",
+      "crates/pdf-model/src/view/pages.rs::append_templates",
+      "crates/pdf-model/src/view/pages.rs::supply_named_pages",
+      "crates/viewer-core/src/interact.rs::import"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/forms_data.rs::an_imported_template_adds_a_page_the_document_already_held",
+      "crates/pdf-model/tests/forms_data.rs::a_template_in_another_file_is_supplied_and_added",
+      "crates/viewer-core/tests/fdf_pages_import_audit.rs::imported_local_template_is_counted_navigable_and_rendered_by_the_viewer",
+      "crates/viewer-core/tests/fdf_remote_reference_audit.rs::table253_dictionary_file_spec_uses_uf_on_public_host_path"
+    ],
+    "verdict": "confirmed",
+    "evidence": "No F means local name-tree lookup; F names an external file, requested through the host and copied when supplied. Existing model assertions cover both paths, and the promoted public viewer test exercises the F-absent default with an exact-xref FDF and associated PDF Template page. Table 253 does not choose page insertion position; append-after-current-pages is a recorded implementation choice.",
+    "test_command": "cargo test -p viewer-core --test fdf_pages_import_audit --test fdf_remote_reference_audit",
+    "test_result": "Parent-run public viewer tests passed in fdf-pages-viewer-target.log and final-small-controls.log.",
+    "parent_review": "Accepted partial: sourceTables251–253/43 andapplicableEC3, codeandassertionbodies reviewed. FDFcountactual2vs1; remainingnewconsumersPASS; clippy-fdf-spot-final-v2.logPASS.",
+    "reviewer": "fdf_pages_import_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.3",
+    "feature_id": "table253-file-spec-dictionary-form",
+    "requirement": "F is a file specification, whose PDF file-specification syntax permits a string or dictionary form; this subsection does not select one form.",
+    "source_location": "doc/md/ISO_32000-2_sponsored_EC3.md:13108-13114; ISO 32000-2 §7.11.1; Table 253 physical p.581 / printed p.566",
+    "errata": "Table 253 has no numbered EC3 annotation on physical p.581. Related §7.11.3 Table 43 has EC3 Issue #298, Caret object 2977 on physical p.149, adding PDF 1.3 applicability to Type; it does not change dictionary file-spec form or UF precedence.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/named_page.rs::Reference::read"
+    ],
+    "test_refs": [
+      "crates/viewer-core/tests/fdf_remote_reference_audit.rs::table253_string_file_specification_requests_and_adds_remote_template",
+      "crates/viewer-core/tests/fdf_remote_reference_audit.rs::table253_dictionary_file_spec_uses_uf_on_public_host_path"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Reference::read handles simple strings and dictionaries, checking /UF before /F. Parent-promoted public viewer tests exercise both forms through ImportData, named-file host request, and successful supply of the named Template. The dictionary test distinguishes /UF over /F as Table 43 requires.",
+    "test_command": "cargo test -p viewer-core --test fdf_remote_reference_audit",
+    "test_result": "Parent run passed both tests in final-small-controls.log.",
+    "parent_review": "Accepted partial: sourceTables251–253/43 andapplicableEC3, codeandassertionbodies reviewed. FDFcountactual2vs1; remainingnewconsumersPASS; clippy-fdf-spot-final-v2.logPASS.",
+    "reviewer": "fdf_pages_import_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "confirmed",
+    "superseded": false
+  },
+  {
+    "clause": "12.7.8.3.3",
+    "cross_reference_clauses": [
+      "7.11.1",
+      "7.11.3"
+    ],
+    "feature_id": "table253-remote-file-spec-dictionary-reaches-host-supply",
+    "requirement": "Table 253 /F is a file specification. §7.11.1 permits a simple string or a dictionary; dictionary form shall identify the remote file through the file-specification entries that apply.",
+    "source_location": "ISO 32000-2 §12.7.8.3.3 Table 253, physical p.581/printed p.566; §7.11.1 and §7.11.3 Table 43, physical p.149/printed p.134; sponsored EC3 Markdown lines 3905-3912",
+    "errata": "EC3 annotation Issue #298 is Caret object 2977 on physical p.149, contents '; PDF 1.3', rect [456.826, 458.469, 464.778, 464.949]. The caret is anchored to Table 43 Type's 'recommended always' text and inserts the PDF 1.3 applicability. It does not amend /F or /UF precedence. No numbered EC3 annotation changes Table 253 on physical p.581.",
+    "ledger_status": "departed",
+    "code_locations": [
+      "crates/pdf-model/src/named_page.rs::Reference::read",
+      "crates/pdf-model/src/view/pages.rs::append_templates",
+      "crates/pdf-model/src/view/pages.rs::supply_named_pages",
+      "crates/viewer-core/src/interact.rs::request_named_page",
+      "crates/viewer-core/src/interact.rs::supply_named_page"
+    ],
+    "test_refs": [
+      "crates/pdf-model/src/named_page.rs::tests::a_named_page_reference_states_a_name_and_maybe_a_file",
+      "crates/pdf-model/tests/forms_data.rs::a_template_in_another_file_is_supplied_and_added",
+      "crates/viewer-core/tests/fdf_remote_reference_audit.rs::table253_string_file_specification_requests_and_adds_remote_template",
+      "crates/viewer-core/tests/fdf_remote_reference_audit.rs::table253_dictionary_file_spec_uses_uf_on_public_host_path"
+    ],
+    "verdict": "confirmed",
+    "evidence": "Reference::read explicitly handles both Table 253 forms and for a dictionary checks /UF before /F. The promoted public Viewer tests exercise the ImportData action, subsequent NeedsFile(Purpose::NamedPage) request, and supply of the named external Template. The dictionary case uses a PDF 1.7 FDF catalog version and a Type /Filespec dictionary carrying both /UF and /F, so the Table 43 shall-use-UF rule is observable through the host path.",
+    "test_command": "cargo test -p viewer-core --test fdf_remote_reference_audit",
+    "test_result": "Parent run passed both string and dictionary tests: scratchpad/r1983/spec-audit/final-small-controls.log.",
+    "parent_review": "Accepted partial: sourceTables251–253/43 andapplicableEC3, codeandassertionbodies reviewed. FDFcountactual2vs1; remainingnewconsumersPASS; clippy-fdf-spot-final-v2.logPASS.",
+    "reviewer": "fdf_remote_reference_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "departed",
+    "reviewer_verdict": "confirmed",
     "superseded": false
   },
   {
@@ -36724,6 +37080,98 @@
     "parent_review_state": "parent-reviewed-partial-with-defect",
     "reviewer_ledger_status": "Conflict: 11.5.3 is marked departed for the CIE-Y branch only and states remaining requirements are implemented; the current mask builder explicitly ignores /K and reports a departure.",
     "reviewer_verdict": "implementation-gap",
+    "superseded": false
+  },
+  {
+    "clause": "11.6.5.1",
+    "feature_id": "spot_components_unavailable_in_soft_mask_group",
+    "requirement": "Spot colour components are never available in a transparency-group XObject that defines a soft mask, regardless of whether the colourant is available on the page or in the group.",
+    "source_location": "ISO 32000-2 §11.6.5.1, printed p.418 / one-based physical p.433; original PDF footer independently checked.",
+    "errata": "Errata Collection 3 has no amendment to this paragraph. Physical-page annotations are cross-reference links, not strikes or insertions.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/transparency/soft_mask.rs::enter_mask_compositing",
+      "crates/pdf-model/src/content/transparency/soft_mask.rs::build_soft_mask"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/soft_masks.rs::a_luminosity_mask_takes_the_groups_grey_and_the_backdrops_outside_it",
+      "crates/pdf-model/tests/spot_planes.rs::a_stencil_mask_leaves_the_spot_plane_beneath_it",
+      "crates/pdf-model/tests/soft_mask_spot_audit.rs::soft_mask_group_uses_spot_alternate_when_native_colourant_is_available",
+      "crates/pdf-model/tests/soft_mask_spot_audit.rs::rgb_soft_mask_group_uses_spot_alternate_when_native_colourant_is_available"
+    ],
+    "verdict": "confirmed-selected-Separation-consumers",
+    "evidence": "Exact-xref fullPDF DeviceGray and DeviceRGB maskgroups use SeparationInk tint.25, alternategray.75 and directalternatecontrol. With simulationOFF independent pixels64/191/255pass; ONmaskpixelsmatchafterpressconversionandordinaryspotplanetint.75provesnativeavailability. Retain-spots mutation survivesGray because Luminositypaint bypassessidecar, but failsRGB consumer: spot[0,0,0]vsdirect[29,24,25]. OldplainlumteststillPASS; alloriginalcontrolsPASS,sourcerestored.",
+    "remaining": "DeviceN and specialAll/None branches remain untested in this boundedreview. These tests do not certify every spot/press configuration.",
+    "test_command": "cargo test -p pdf-model --test soft_mask_spot_audit",
+    "test_result": "2PASSsoft-mask-spot-rgb-target.log. Initialsimulatedabsolute64oraclewasinvalidandcorrected; no productfailureclaimed. Clippyclippy-fdf-spot-final-v2.log.",
+    "parent_review": "Accepted partial after source433/418, ADR1329 selectedmaskexception, codeandconsumerassertion review.",
+    "mutation_evidence": [
+      "soft-mask-spot-mutation-results.json",
+      "soft-mask-spot-rgb-mutation-results.json"
+    ],
+    "reviewer": "soft_mask_spot_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-Separation-consumers",
+    "superseded": false
+  },
+  {
+    "clause": "11.6.5.1",
+    "feature_id": "mask_group_separation_devicen_uses_alternate",
+    "requirement": "When the soft-mask group's content stream specifies a Separation or DeviceN that uses spot components, substitute that space's alternate colour space.",
+    "source_location": "ISO 32000-2 §11.6.5.1, printed p.418 / physical p.433; cross-references §8.6.6.4 and §8.6.6.5.",
+    "errata": "No EC3 amendment at the clause location.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/transparency/soft_mask.rs::enter_mask_compositing",
+      "crates/pdf-model/src/soft_mask.rs::read",
+      "crates/pdf-model/src/content/colour.rs::set_colour_space",
+      "crates/pdf-model/src/content/colour.rs::spot_group_compositing"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/soft_masks.rs::a_luminosity_mask_takes_the_groups_grey_and_the_backdrops_outside_it",
+      "crates/pdf-model/tests/spot_press.rs",
+      "crates/pdf-model/tests/spot_planes.rs",
+      "crates/pdf-model/tests/soft_mask_spot_audit.rs::soft_mask_group_uses_spot_alternate_when_native_colourant_is_available",
+      "crates/pdf-model/tests/soft_mask_spot_audit.rs::rgb_soft_mask_group_uses_spot_alternate_when_native_colourant_is_available"
+    ],
+    "verdict": "confirmed-selected-Separation-consumers",
+    "evidence": "Exact-xref fullPDF DeviceGray and DeviceRGB maskgroups use SeparationInk tint.25, alternategray.75 and directalternatecontrol. With simulationOFF independent pixels64/191/255pass; ONmaskpixelsmatchafterpressconversionandordinaryspotplanetint.75provesnativeavailability. Retain-spots mutation survivesGray because Luminositypaint bypassessidecar, but failsRGB consumer: spot[0,0,0]vsdirect[29,24,25]. OldplainlumteststillPASS; alloriginalcontrolsPASS,sourcerestored.",
+    "remaining": "DeviceN and specialAll/None branches remain untested in this boundedreview. These tests do not certify every spot/press configuration.",
+    "test_command": "cargo test -p pdf-model --test soft_mask_spot_audit",
+    "test_result": "2PASSsoft-mask-spot-rgb-target.log. Initialsimulatedabsolute64oraclewasinvalidandcorrected; no productfailureclaimed. Clippyclippy-fdf-spot-final-v2.log.",
+    "parent_review": "Accepted partial after source433/418, ADR1329 selectedmaskexception, codeandconsumerassertion review.",
+    "mutation_evidence": [
+      "soft-mask-spot-mutation-results.json",
+      "soft-mask-spot-rgb-mutation-results.json"
+    ],
+    "reviewer": "soft_mask_spot_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-Separation-consumers",
+    "superseded": false
+  },
+  {
+    "clause": "11.6.5.1",
+    "feature_id": "all_none_colorant_names_exempt",
+    "requirement": "The named colourants All and None do not denote spot components and are outside the no-spot soft-mask requirement.",
+    "source_location": "NOTE immediately following the soft-mask spot paragraph, printed p.418 / physical p.433.",
+    "errata": "No EC3 amendment at the clause location.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/content/transparency/soft_mask.rs::enter_mask_compositing"
+    ],
+    "test_refs": [],
+    "verdict": "bounded-exception-not-exercised",
+    "evidence": "The note is explicit. The candidate uses an ordinary named Separation colourant Ink, so it does not infer that special All/None entries are spot colors or require their alternate substitution.",
+    "remaining": "Whether the current mask path preserves the special All/None colorant semantics is not evaluated in this narrow test; do not treat absence of spot planes as a failure of this note.",
+    "test_command": "Not run; scratch-only audit.",
+    "test_result": "Not applicable.",
+    "parent_review": "Accepted partial after source433/418, ADR1329 selectedmaskexception, codeandconsumerassertion review.",
+    "reviewer": "soft_mask_spot_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "bounded-exception-not-exercised",
     "superseded": false
   },
   {

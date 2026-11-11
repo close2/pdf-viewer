@@ -97,6 +97,36 @@
       "log": "blend-oracle-mutation-hardlight-mapped-to-overlay.log"
     }
   ],
+  "damaged-mask-consumer-mutation-results.json": [
+    {
+      "variant": "control",
+      "test": "a_damaged_soft_mask_group_draws_its_prefix_and_reports_the_shortfall",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "damaged-mask-consumer-mutation-control-damaged_content_streams.log"
+    },
+    {
+      "variant": "control",
+      "test": "a_truncated_luminosity_mask_retains_decoded_prefix_and_uses_bc_transfer_outside",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "damaged-mask-consumer-mutation-control-damaged_mask_consumer_audit.log"
+    },
+    {
+      "variant": "discard-damaged-mask-prefix",
+      "test": "a_damaged_soft_mask_group_draws_its_prefix_and_reports_the_shortfall",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "damaged-mask-consumer-mutation-discard-damaged-mask-prefix-damaged_content_streams.log"
+    },
+    {
+      "variant": "discard-damaged-mask-prefix",
+      "test": "a_truncated_luminosity_mask_retains_decoded_prefix_and_uses_bc_transfer_outside",
+      "returncode": 101,
+      "outcome": "assertion-failed",
+      "log": "damaged-mask-consumer-mutation-discard-damaged-mask-prefix-damaged_mask_consumer_audit.log"
+    }
+  ],
   "foreign-app14-mutation-results.json": [
     {
       "variant": "control",
@@ -461,6 +491,36 @@
       "returncode": 0,
       "outcome": "passed",
       "log": "soft-mask-spot-mutation-mutant-1.log"
+    }
+  ],
+  "soft-mask-spot-rgb-mutation-results.json": [
+    {
+      "variant": "control",
+      "test": "a_non_isolated_luminosity_mask_group_blends_with_its_backdrop_and_is_not_reported",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "soft-mask-spot-rgb-mutation-control-soft_masks.log"
+    },
+    {
+      "variant": "control",
+      "test": "rgb_soft_mask_group_uses_spot_alternate_when_native_colourant_is_available",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "soft-mask-spot-rgb-mutation-control-soft_mask_spot_audit.log"
+    },
+    {
+      "variant": "retain-spot-sidecar",
+      "test": "a_non_isolated_luminosity_mask_group_blends_with_its_backdrop_and_is_not_reported",
+      "returncode": 0,
+      "outcome": "passed",
+      "log": "soft-mask-spot-rgb-mutation-retain-spot-sidecar-soft_masks.log"
+    },
+    {
+      "variant": "retain-spot-sidecar",
+      "test": "rgb_soft_mask_group_uses_spot_alternate_when_native_colourant_is_available",
+      "returncode": 101,
+      "outcome": "assertion-failed",
+      "log": "soft-mask-spot-rgb-mutation-retain-spot-sidecar-soft_mask_spot_audit.log"
     }
   ],
   "text-no-rotate-mutation-results.json": [

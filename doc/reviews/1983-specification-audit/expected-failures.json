@@ -409,6 +409,12 @@
       "test": "a_luminosity_soft_mask_respects_a_knockout_group_against_normal_control",
       "evidence": "soft-mask-dictionary-target.log",
       "classification": "Luminosity mask source Ktrue treatedasordinary group: overlap63 instead128; normalandunaffectedcontrolsPASS. CIEYdeparturedoesnotcoverthis."
+    },
+    {
+      "binary": "pdf-model::fdf_template_count_audit",
+      "test": "template_array_members_do_not_multiply_the_fdf_page_count",
+      "evidence": "fdf-template-count-target-v2.log",
+      "classification": "One FDF page dictionary containing two Templates creates two live pages instead of one. Two separate page dictionaries positive control and parsed nesting checks pass; no composition geometry inferred."
     }
   ]
 }

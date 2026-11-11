@@ -5229,20 +5229,23 @@
     "ledger_status": "implemented",
     "review_state": "partial-parent-review",
     "artifact_directories": [
+      "damaged_mask_consumer_audit",
       "soft_mask_dictionary_audit",
       "soft_mask_spot_audit"
     ],
     "parent_reviewed_artifacts": [
-      "soft_mask_dictionary_audit"
+      "damaged_mask_consumer_audit",
+      "soft_mask_dictionary_audit",
+      "soft_mask_spot_audit"
     ],
     "feature_record_verdicts": {
       "bounded-exception-not-exercised": 1,
-      "code-supported-no-mask-specific-spot-consumer-assertion": 1,
       "code-supported-not-executed": 2,
       "confirmed": 2,
+      "confirmed-selected-Separation-consumers": 2,
       "confirmed-with-discriminating-consumer": 1,
-      "missing-discriminating-mask-specific-consumer-test": 1,
-      "no-independent-requirement": 1
+      "no-independent-requirement": 1,
+      "policy-consumer-confirmed-rationale-needs-qualification": 1
     },
     "warning": "Overlapping and compound records do not establish exhaustive clause coverage."
   },
@@ -7057,15 +7060,19 @@
   {
     "clause": "12.7.8.3.3",
     "ledger_status": "departed",
-    "review_state": "review-in-progress",
+    "review_state": "partial-parent-review",
     "artifact_directories": [
-      "fdf_pages_import_audit"
+      "fdf_pages_import_audit",
+      "fdf_remote_reference_audit"
     ],
-    "parent_reviewed_artifacts": [],
+    "parent_reviewed_artifacts": [
+      "fdf_pages_import_audit",
+      "fdf_remote_reference_audit"
+    ],
     "feature_record_verdicts": {
       "ambiguous": 1,
       "code-supported-not-executed": 1,
-      "confirmed": 5,
+      "confirmed": 6,
       "documented-departure": 2,
       "implementation-gap": 2
     },

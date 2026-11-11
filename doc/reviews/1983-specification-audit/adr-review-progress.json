@@ -2,22 +2,23 @@
   "warning": "Records can overlap or cross-reference prior reviews. Selected units do not establish that every decision in an ADR was reviewed; no whole document is marked complete.",
   "adr_documents": 2233,
   "document_states": {
-    "pending": 1941,
-    "selected-decision-units-reviewed": 273,
-    "review-in-progress": 19
+    "pending": 1940,
+    "selected-decision-units-reviewed": 277,
+    "review-in-progress": 16
   },
-  "decision_review_records": 453,
-  "parent_accepted_records": 445,
+  "decision_review_records": 454,
+  "parent_accepted_records": 454,
   "cross_reference_records": 30,
   "accepted_record_conclusions": {
-    "retain-with-qualification": 199,
-    "revisit": 17,
-    "retain": 127,
+    "retain-with-qualification": 202,
+    "revisit": 18,
+    "retain": 131,
     "superseded": 15,
     "superseded-in-part": 2,
     "cross-reference-only": 26,
     "revisit-whole-stamp-row-completion": 1,
     "revisit-policy-consistency": 1,
+    "retain-policy-with-qualification; revisit-additive-rationale": 1,
     "retain-as-reader-robustness-choice": 1,
     "superseded-by-ADR-1183-and-ADR-2468": 1,
     "ranking-retained-default-departure-superseded-by-ADR-2468": 1,
@@ -71,12 +72,5 @@
     "revisit-compatibility-choice-that-replaces-explicit-default": 1,
     "revisit-whole-widget-completion-evidence": 1
   },
-  "issues": [
-    {
-      "source": "soft_mask_spot_audit/decisions.json",
-      "missing": [
-        "current_code_evidence"
-      ]
-    }
-  ]
+  "issues": []
 }

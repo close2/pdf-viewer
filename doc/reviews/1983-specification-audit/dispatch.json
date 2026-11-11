@@ -1110,7 +1110,7 @@
       "clauses": [
         "12.7.8.3.3"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial"
     },
     {
       "agent": "dct_marker_reference_audit",
@@ -1134,21 +1134,21 @@
       "clauses": [
         "11.6.5.1"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial"
     },
     {
       "agent": "damaged_mask_consumer_audit",
       "clauses": [
         "11.6.5.1"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial"
     },
     {
       "agent": "fdf_remote_reference_audit",
       "clauses": [
         "12.7.8.3.3"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial"
     },
     {
       "agent": "foreign_app14_audit",
@@ -1156,6 +1156,13 @@
         "7.4.8"
       ],
       "state": "parent-reviewed-partial"
+    },
+    {
+      "agent": "soft_mask_transfer_limits_audit",
+      "clauses": [
+        "11.6.5.1"
+      ],
+      "state": "running"
     }
   ]
 }
