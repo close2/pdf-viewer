@@ -193,8 +193,26 @@ data = open(sys.argv[1], "rb").read()
 for found in re.findall(rb"/Recipients \[<([0-9a-f]+)>", data):
     sys.stdout.buffer.write(bytes.fromhex(found.decode()))' "$pdf" > "$root/$t/$(basename "$pdf" .pdf)"
         done
+        cp --update=none "$tree"/crates/pdf-pki/tests/envelopes/kari/kari-*.der \
+            "$tree"/crates/pdf-pki/tests/envelopes/kari/openssl-*.der "$root/$t/"
         ;;
     rsa_private_key) cp --update=none "$tree"/crates/pdf-syntax/tests/public_key_witnesses/*.key.der "$root/$t/" ;;
+    # RFC 5915's key bare and inside RFC 5958's, on each curve, as this tree's generator wrote them.
+    ec_private_key)
+        cp --update=none "$tree"/crates/pdf-pki/tests/envelopes/kari/*.ec.der \
+            "$tree"/crates/pdf-pki/tests/envelopes/kari/*.p8.der "$root/$t/"
+        ;;
+    # RFC 3394 section 4.1's and 4.6's vectors, each its KEK followed by its ciphertext.
+    key_unwrap)
+        python3 -I -c 'import sys
+vectors = {
+    "rfc3394-4.1": "000102030405060708090A0B0C0D0E0F1FA68B0A8112B447AEF34BD8FB5A7B829D3E862371D2CFE5",
+    "rfc3394-4.6": "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F"
+                   "28C9F404C4B810F4CBCCB35CFB87F8263F5786E2D80ED326CBC7F0E71A99F43BFB988B9B7A02DD21",
+}
+for name, text in vectors.items():
+    open(sys.argv[1] + "/" + name, "wb").write(bytes.fromhex(text))' "$root/$t"
+        ;;
     # Annex O's fragments arrive with a request, never in a file, so the seeds are the fragments
     # this tree's own reader and its tests state.
     fragment)

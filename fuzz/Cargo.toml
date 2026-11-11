@@ -364,3 +364,17 @@ path = "fuzz_targets/rsa_private_key.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "ec_private_key"
+path = "fuzz_targets/ec_private_key.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "key_unwrap"
+path = "fuzz_targets/key_unwrap.rs"
+test = false
+doc = false
+bench = false

@@ -160,7 +160,10 @@ answer to a licence question, and it is the rule rather than an accident.
 - **Scope.** Nothing else is copied. A further copy needs its own entry here. The fixtures this tree
   writes for these recipients (`crates/pdf-syntax/tests/public_key_witnesses/stream-recipients*.pdf`,
   ADR 2810) are not copies: each is enveloped by `openssl cms` to the certificates above and carries
-  of them only the issuer and serial number RFC 5652 section 6.2.1 names a recipient by.
+  of them only the issuer and serial number RFC 5652 section 6.2.1 names a recipient by. Nor are the
+  elliptic-curve fixtures (`crates/pdf-pki/tests/envelopes/kari/`, and `key-agreement-s5.pdf` and
+  `ec-p256.*.der` beside the witnesses, ADR 2821): their keys and certificates are this tree's own,
+  generated with the envelopes by the round's own script.
 
 **`openpreserve/format-corpus`** carries no licence GitHub detects; its `README.md` says "[a]ll
 items are CC0 licenced **unless otherwise stated**", and per-file `.md` sidecars are where such a

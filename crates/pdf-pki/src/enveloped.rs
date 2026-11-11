@@ -11,13 +11,16 @@
 //!
 //! # What is read, and what is refused by name
 //!
-//! RFC 5652 section 6.2 defines five recipient kinds. Key transport (`KeyTransRecipientInfo`,
-//! section 6.2.1) is the one a recipient's certificate and RSA private key can open, and the only
-//! one any public-key document this tree has seen uses; the other four are read as what they are
-//! and are never a match, because none of them can name a certificate's RSA key (section 6.2.2's
-//! key agreement needs a Diffie–Hellman key, 6.2.3 a symmetric key, 6.2.4 a password). Of key
-//! transport's algorithms, RFC 8017's `rsaEncryption` is opened ([`crate::rsa`]); anything else
-//! is refused with its object identifier.
+//! RFC 5652 section 6.2 defines five recipient kinds, and two of them name a certificate: key
+//! transport (`KeyTransRecipientInfo`, section 6.2.1), which an RSA private key opens and which
+//! every public-key document this tree has seen uses, and key agreement
+//! (`KeyAgreeRecipientInfo`, section 6.2.2), which an elliptic-curve private key opens by RFC
+//! 5753 section 3.1's ephemeral-static Diffie–Hellman ([`agreement`]). The other three are read as
+//! what they are and are never a match, because none of them names a certificate (6.2.3 a
+//! previously distributed symmetric key, 6.2.4 a password, 6.2.5 another scheme). Of key
+//! transport's algorithms, RFC 8017's `rsaEncryption` is opened ([`crate::rsa`]); of key
+//! agreement's, RFC 5753's `dhSinglePass` schemes under its AES key wraps; anything else is
+//! refused with its object identifier.
 //!
 //! §7.6.5.3 lists the ciphers that "shall be used to encrypt the enveloped data": RC4, DES, Triple
 //! DES and RC2, all four "deprecated in PDF 2.0", and AES in CBC mode at 128, 192 and 256 bits.
@@ -36,7 +39,7 @@ use rc2::Rc2;
 use rc4::Rc4;
 
 use crate::der::{DerError, OCTET_STRING, Reader, SEQUENCE, SET, Value};
-use crate::rsa::PrivateKey;
+use crate::key::PrivateKey;
 use crate::x509::{Certificate, RSA_ENCRYPTION};
 
 /// RFC 5652 section 6.1's `id-envelopedData`, 1.2.840.113549.1.7.3.
@@ -100,14 +103,30 @@ pub enum EnvelopeError {
     /// names the member that is missing or of the wrong type.
     #[error("the CMS object is not an RFC 5652 EnvelopedData: {0}")]
     Malformed(&'static str),
-    /// No key-transport recipient names this certificate, by issuer and serial number or by
-    /// subject key identifier (RFC 5652 section 6.2.1's `rid`).
+    /// No key-transport or key-agreement recipient names this certificate, by issuer and serial
+    /// number or by subject key identifier (RFC 5652 sections 6.2.1 and 6.2.2's `rid`).
     #[error("no recipient of the CMS object is this certificate")]
     NotARecipient,
     /// The recipient's key is transported under an algorithm other than `rsaEncryption`; the
     /// string is the object identifier in dotted form.
     #[error("the recipient's key is encrypted under {0}, which this reader does not decrypt")]
     KeyTransport(String),
+    /// The recipient is a key-agreement one under a scheme this reader does not run — 1-Pass
+    /// ECMQV, or an originator key that is not `id-ecPublicKey` — the string is the object
+    /// identifier in dotted form.
+    #[error("the recipient's key is agreed under {0}, which this reader does not run")]
+    KeyAgreement(String),
+    /// The content-encryption key is wrapped under an algorithm this reader does not unwrap; the
+    /// string is the object identifier in dotted form.
+    #[error("the recipient's key is wrapped under {0}, which this reader does not unwrap")]
+    KeyWrap(String),
+    /// The certificate names a recipient of the other kind than the key handed over can open: an
+    /// RSA key for a key-agreement recipient, or an elliptic-curve key for a key-transport one.
+    /// The string names the recipient kind.
+    #[error(
+        "the recipient that names this certificate is a {0} recipient, which this private key cannot open"
+    )]
+    KeyKind(&'static str),
     /// The content is encrypted under a cipher this reader does not decrypt; the string names it.
     #[error("the enveloped data is encrypted with {0}, which this reader does not decrypt")]
     Cipher(String),
@@ -153,7 +172,7 @@ impl RecipientIdentifier<'_> {
 }
 
 /// One `RecipientInfo` (RFC 5652 section 6.2).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecipientInfo<'a> {
     /// `ktri`, section 6.2.1.
     KeyTransport {
@@ -164,14 +183,29 @@ pub enum RecipientInfo<'a> {
         /// `encryptedKey`: the content-encryption key under the recipient's public key.
         encrypted_key: &'a [u8],
     },
-    /// `kari`, `kekri`, `pwri` or `ori` — sections 6.2.2 to 6.2.5 — by the context tag number
-    /// that chose it. None of them can be opened with a certificate's RSA key.
+    /// `kari`, section 6.2.2.
+    KeyAgreement(KeyAgreement<'a>),
+    /// `kekri`, `pwri` or `ori` — sections 6.2.3 to 6.2.5 — by the context tag number that chose
+    /// it. None of them names a certificate.
     Other(u8),
+}
+
+/// The recipient a certificate matched: the entry, and the encrypted key that is its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Recipient<'e, 'a> {
+    /// The `RecipientInfo` that names the certificate.
+    pub info: &'e RecipientInfo<'a>,
+    /// Its `encryptedKey` — for a key agreement, the one `RecipientEncryptedKey` whose `rid`
+    /// names the certificate.
+    pub encrypted_key: &'a [u8],
 }
 
 /// RFC 5652 section 6.1's `EnvelopedData`, as far as opening it for a recipient needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnvelopedData<'a> {
+    /// `originatorInfo`'s certificates, each a whole `Certificate` encoding: where a key
+    /// agreement's sender names its key by certificate, this is where that certificate is.
+    pub originator_certificates: Vec<Value<'a>>,
     /// `recipientInfos`, in the order the encoding states them.
     pub recipients: Vec<RecipientInfo<'a>>,
     /// `encryptedContentInfo.contentEncryptionAlgorithm`'s object identifier.
@@ -214,9 +248,24 @@ pub fn parse(bytes: &[u8]) -> Result<EnvelopedData<'_>, EnvelopeError> {
     let mut next = members
         .next_value()?
         .ok_or(EnvelopeError::Malformed("recipientInfos"))?;
-    // "originatorInfo [0] IMPLICIT OriginatorInfo OPTIONAL": certificates for key agreement,
-    // which no key-transport recipient needs.
+    // "originatorInfo [0] IMPLICIT OriginatorInfo OPTIONAL", "OriginatorInfo ::= SEQUENCE {
+    // certs [0] IMPLICIT CertificateSet OPTIONAL, crls [1] IMPLICIT RevocationInfoChoices
+    // OPTIONAL }": the certificates a key agreement's originator may name (section 6.2.2). Of
+    // section 10.2.2's `CertificateChoices` only the plain `Certificate`, a `SEQUENCE`, can carry
+    // a key to agree with; the tagged alternatives are skipped.
+    let mut originator_certificates = Vec::new();
     if next.is_context(0) {
+        let mut info = next.children()?;
+        while let Some(member) = info.next_value()? {
+            if member.is_context(0) && member.is_constructed() {
+                let mut certificates = member.children()?;
+                while let Some(certificate) = certificates.next_value()? {
+                    if certificate.identifier == SEQUENCE {
+                        originator_certificates.push(certificate);
+                    }
+                }
+            }
+        }
         next = members
             .next_value()?
             .ok_or(EnvelopeError::Malformed("recipientInfos"))?;
@@ -253,6 +302,7 @@ pub fn parse(bytes: &[u8]) -> Result<EnvelopedData<'_>, EnvelopeError> {
         .filter(|value| value.is_context(0))
         .ok_or(EnvelopeError::Malformed("encryptedContent"))?;
     Ok(EnvelopedData {
+        originator_certificates,
         recipients,
         content_algorithm,
         content_parameters,
@@ -260,45 +310,76 @@ pub fn parse(bytes: &[u8]) -> Result<EnvelopedData<'_>, EnvelopeError> {
     })
 }
 
-impl EnvelopedData<'_> {
-    /// The first key-transport recipient whose `rid` names `certificate`, as §7.6.5.1's reader
-    /// "shall attempt to find a match with a certificate that belongs to the user".
+impl<'a> EnvelopedData<'a> {
+    /// The first recipient whose `rid` names `certificate`, as §7.6.5.1's reader "shall attempt
+    /// to find a match with a certificate that belongs to the user": a key-transport entry, or
+    /// the one `RecipientEncryptedKey` of a key-agreement entry.
     #[must_use]
-    pub fn recipient(&self, certificate: &Certificate<'_>) -> Option<RecipientInfo<'_>> {
-        self.recipients.iter().copied().find(|info| match info {
-            RecipientInfo::KeyTransport { recipient, .. } => recipient.names(certificate),
-            RecipientInfo::Other(_) => false,
+    pub fn recipient(&self, certificate: &Certificate<'_>) -> Option<Recipient<'_, 'a>> {
+        self.recipients.iter().find_map(|info| match info {
+            RecipientInfo::KeyTransport {
+                recipient,
+                encrypted_key,
+                ..
+            } => recipient.names(certificate).then_some(Recipient {
+                info,
+                encrypted_key,
+            }),
+            RecipientInfo::KeyAgreement(agreement) => agreement
+                .recipients
+                .iter()
+                .find(|entry| entry.recipient.names(certificate))
+                .map(|entry| Recipient {
+                    info,
+                    encrypted_key: entry.encrypted_key,
+                }),
+            RecipientInfo::Other(_) => None,
         })
     }
 
     /// Opens the envelope for `certificate`'s holder, whose private key is `key`: RFC 5652
-    /// section 6.2.1's key transport undone with RFC 8017's `RSAES-PKCS1-v1_5`, then section
+    /// section 6.2.1's key transport undone with RFC 8017's `RSAES-PKCS1-v1_5`, or section
+    /// 6.2.2's key agreement undone as RFC 5753 section 3.1.3's receiving agent, then section
     /// 6.3's content decryption.
     ///
     /// # Errors
     ///
     /// [`EnvelopeError::NotARecipient`] where no recipient names the certificate,
-    /// [`EnvelopeError::KeyTransport`] and [`EnvelopeError::Cipher`] naming an algorithm this
-    /// reader does not decrypt, and [`EnvelopeError::Decryption`] where the key does not open it.
+    /// [`EnvelopeError::KeyKind`] where the one that does is of the kind the key cannot open,
+    /// [`EnvelopeError::KeyTransport`], [`EnvelopeError::KeyAgreement`],
+    /// [`EnvelopeError::KeyWrap`] and [`EnvelopeError::Cipher`] naming an algorithm this reader
+    /// does not run, and [`EnvelopeError::Decryption`] where the key does not open it.
     pub fn open(
         &self,
         certificate: &Certificate<'_>,
         key: &PrivateKey,
     ) -> Result<Vec<u8>, EnvelopeError> {
-        let Some(RecipientInfo::KeyTransport {
-            algorithm,
+        let Some(Recipient {
+            info,
             encrypted_key,
-            ..
         }) = self.recipient(certificate)
         else {
             return Err(EnvelopeError::NotARecipient);
         };
-        if algorithm != RSA_ENCRYPTION {
-            return Err(EnvelopeError::KeyTransport(dotted(algorithm)));
-        }
-        let content_key = key
-            .decrypt(encrypted_key)
-            .map_err(|_| EnvelopeError::Decryption)?;
+        let content_key = match (info, key) {
+            (RecipientInfo::KeyTransport { algorithm, .. }, PrivateKey::Rsa(key)) => {
+                if *algorithm != RSA_ENCRYPTION {
+                    return Err(EnvelopeError::KeyTransport(dotted(algorithm)));
+                }
+                key.decrypt(encrypted_key)
+                    .map_err(|_| EnvelopeError::Decryption)?
+            }
+            (RecipientInfo::KeyAgreement(agreement), PrivateKey::Ec(key)) => {
+                agreement.content_key(encrypted_key, key, &self.originator_certificates)?
+            }
+            (RecipientInfo::KeyTransport { .. }, PrivateKey::Ec(_)) => {
+                return Err(EnvelopeError::KeyKind("key-transport"));
+            }
+            (RecipientInfo::KeyAgreement(_), PrivateKey::Rsa(_)) => {
+                return Err(EnvelopeError::KeyKind("key-agreement"));
+            }
+            (RecipientInfo::Other(_), _) => return Err(EnvelopeError::NotARecipient),
+        };
         self.decrypt_content(&content_key)
     }
 
@@ -565,9 +646,12 @@ fn cbc_decrypt<C: BlockCipherDecrypt>(
     out.truncate(length);
     Ok(out)
 }
-/// One `RecipientInfo` CHOICE (section 6.2): `ktri` is the untagged `SEQUENCE`, the other four
-/// are context-tagged.
+/// One `RecipientInfo` CHOICE (section 6.2): `ktri` is the untagged `SEQUENCE`, `kari` is
+/// `[1]` around an implicit `SEQUENCE`, and the other three are context-tagged too.
 fn recipient_info(info: Value<'_>) -> Result<RecipientInfo<'_>, EnvelopeError> {
+    if info.is_context(1) && info.is_constructed() {
+        return Ok(RecipientInfo::KeyAgreement(agreement::read(info)?));
+    }
     if info.identifier != SEQUENCE {
         return Ok(RecipientInfo::Other(info.tag_number()));
     }
@@ -578,26 +662,7 @@ fn recipient_info(info: Value<'_>) -> Result<RecipientInfo<'_>, EnvelopeError> {
     let rid = members
         .next_value()?
         .ok_or(EnvelopeError::Malformed("KeyTransRecipientInfo.rid"))?;
-    let recipient = if rid.identifier == SEQUENCE {
-        // "IssuerAndSerialNumber ::= SEQUENCE { issuer Name, serialNumber CertificateSerialNumber }"
-        // (section 10.2.4).
-        let mut pair = rid.children()?;
-        let issuer = expect(&mut pair, SEQUENCE, "IssuerAndSerialNumber.issuer")?;
-        let serial = expect(
-            &mut pair,
-            crate::der::INTEGER,
-            "IssuerAndSerialNumber.serialNumber",
-        )?;
-        RecipientIdentifier::IssuerAndSerialNumber {
-            issuer: issuer.contents,
-            serial: serial.contents,
-        }
-    } else if rid.is_context(0) && !rid.is_constructed() {
-        // "subjectKeyIdentifier [0] SubjectKeyIdentifier", an implicitly tagged OCTET STRING.
-        RecipientIdentifier::SubjectKeyIdentifier(rid.contents)
-    } else {
-        return Err(EnvelopeError::Malformed("KeyTransRecipientInfo.rid"));
-    };
+    let recipient = recipient_identifier(rid, "KeyTransRecipientInfo.rid")?;
     let algorithm = expect(&mut members, SEQUENCE, "keyEncryptionAlgorithm")?
         .children()?
         .next_value()?
@@ -609,6 +674,35 @@ fn recipient_info(info: Value<'_>) -> Result<RecipientInfo<'_>, EnvelopeError> {
         algorithm,
         encrypted_key: encrypted_key.contents,
     })
+}
+
+/// A certificate named by `IssuerAndSerialNumber` or by an implicitly tagged
+/// `subjectKeyIdentifier [0]` — `ktri`'s `rid`, and two of `kari`'s `originator` choices and
+/// one of its `rid` ones; `member` names the field in the refusal.
+fn recipient_identifier<'a>(
+    value: Value<'a>,
+    member: &'static str,
+) -> Result<RecipientIdentifier<'a>, EnvelopeError> {
+    if value.identifier == SEQUENCE {
+        // "IssuerAndSerialNumber ::= SEQUENCE { issuer Name, serialNumber CertificateSerialNumber }"
+        // (section 10.2.4).
+        let mut pair = value.children()?;
+        let issuer = expect(&mut pair, SEQUENCE, "IssuerAndSerialNumber.issuer")?;
+        let serial = expect(
+            &mut pair,
+            crate::der::INTEGER,
+            "IssuerAndSerialNumber.serialNumber",
+        )?;
+        Ok(RecipientIdentifier::IssuerAndSerialNumber {
+            issuer: issuer.contents,
+            serial: serial.contents,
+        })
+    } else if value.is_context(0) && !value.is_constructed() {
+        // "subjectKeyIdentifier [0] SubjectKeyIdentifier", an implicitly tagged OCTET STRING.
+        Ok(RecipientIdentifier::SubjectKeyIdentifier(value.contents))
+    } else {
+        Err(EnvelopeError::Malformed(member))
+    }
 }
 
 /// The next value, which must carry `identifier`; `member` names it in the refusal.
@@ -652,6 +746,10 @@ fn dotted(oid: &[u8]) -> String {
         })
     })
 }
+
+pub mod agreement;
+
+pub use agreement::{KeyAgreement, Originator, RecipientEncryptedKey};
 
 #[cfg(test)]
 pub(crate) mod tests;

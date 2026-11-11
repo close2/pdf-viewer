@@ -29,7 +29,7 @@
 //! alone, or the whole document where the filter's `/AuthEvent` is `DocOpen` (ADR 2810).
 
 use pdf_pki::enveloped::{self, EnvelopeError};
-use pdf_pki::rsa::PrivateKey;
+use pdf_pki::key::PrivateKey;
 use pdf_pki::x509;
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
@@ -71,16 +71,18 @@ impl SubFilter {
     }
 }
 
-/// The reader's own certificate and RSA private key, for §7.6.5.1's match.
+/// The reader's own certificate and private key, for §7.6.5.1's match.
 ///
 /// A host supplies both, as bytes it read itself: the certificate in X.509's DER and the key as
-/// RFC 5958's `OneAsymmetricKey` or RFC 8017's `RSAPrivateKey`. Both are read here once, so that a
-/// key that cannot be used is refused when it is handed over rather than when a document is
-/// opened with it. The key never appears in a `Debug` output.
+/// RFC 5958's `OneAsymmetricKey`, RFC 8017's `RSAPrivateKey` or RFC 5915's `ECPrivateKey`. An RSA
+/// key opens a key-transport recipient and an elliptic-curve key a key-agreement one (RFC 5652
+/// sections 6.2.1 and 6.2.2; ADR 2821). Both are read here once, so that a key that cannot be used
+/// is refused when it is handed over rather than when a document is opened with it. The key never
+/// appears in a `Debug` output.
 pub struct RecipientKey {
     /// The certificate's DER, read again when matching because a parsed certificate borrows it.
     certificate: Vec<u8>,
-    /// The private key, as `pdf_pki::rsa` holds one.
+    /// The private key, as `pdf_pki::key` holds one of either family.
     key: PrivateKey,
 }
 
@@ -96,12 +98,13 @@ impl std::fmt::Debug for RecipientKey {
 }
 
 impl RecipientKey {
-    /// A certificate and the RSA private key that belongs to it.
+    /// A certificate and the private key that belongs to it.
     ///
     /// # Errors
     ///
     /// [`SyntaxError::RecipientKey`] where the certificate is not an X.509 certificate this
-    /// reader can read, or the key is not an RSA private key in either encoding.
+    /// reader can read, or the key is neither an RSA private key nor an elliptic-curve one on a
+    /// curve this reader computes on, in any of the three encodings.
     pub fn new(certificate: Vec<u8>, private_key: &[u8]) -> SyntaxResult<Self> {
         x509::parse(&certificate).map_err(|error| SyntaxError::RecipientKey {
             detail: format!("the certificate does not read as X.509: {error}"),
@@ -464,12 +467,14 @@ fn scan(lists: &[Vec<u8>], recipient: &RecipientKey) -> SyntaxResult<Vec<u8>> {
         return envelope
             .open(&certificate, &recipient.key)
             .map_err(|error| match error {
-                EnvelopeError::Decryption => SyntaxError::RecipientKey {
-                    detail: format!(
-                        "the private key does not open the recipient list that names its \
+                EnvelopeError::Decryption | EnvelopeError::KeyKind(_) => {
+                    SyntaxError::RecipientKey {
+                        detail: format!(
+                            "the private key does not open the recipient list that names its \
                          certificate: {error}"
-                    ),
-                },
+                        ),
+                    }
+                }
                 other => SyntaxError::UnsupportedEncryption {
                     detail: format!("§7.6.5.3's enveloped data: {other}"),
                 },

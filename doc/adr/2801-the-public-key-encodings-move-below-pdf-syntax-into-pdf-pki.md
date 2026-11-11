@@ -51,4 +51,5 @@ fuzz surface, one audit point. A800 (2026-11-06) lifted A66's trigger and ordere
    holds uses either.
 
 Items 2 and 3 were built by session 1999: ADR 2809 decrypts the four deprecated ciphers rather than
-refusing them, and ADR 2810 derives a per-stream filter's own key. Items 1 and 4 remain, in that order.
+refusing them, and ADR 2810 derives a per-stream filter's own key. Item 4 was built by session 2001:
+ADR 2821 opens a key-agreement recipient with an elliptic-curve key. Item 1 remains.

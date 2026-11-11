@@ -721,3 +721,36 @@ fn a_reader_the_stream_s_own_list_does_not_name_is_refused_that_stream() {
         Err(SyntaxError::RecipientRequired)
     ));
 }
+
+/// §7.6.5 end to end with an elliptic-curve recipient: `key-agreement-s5.pdf`'s one recipient list
+/// is an RFC 5652 `EnvelopedData` whose recipient is a `KeyAgreeRecipientInfo` (RFC 5753 section
+/// 3.1's ephemeral-static ECDH on P-256, `dhSinglePass-stdDH-sha256kdf-scheme`, `id-aes256-wrap`,
+/// a `ukm`, and `rKeyId` naming `ec-p256.certificate.der`), written with the key by this tree's
+/// generator (`gen_kari.py`, kept with the round's record), which states every step. §7.6.5.3's
+/// byte array is a 20-byte seed and Table 24's word with bits 3 and 5 set; at `/V` 5 the file key is
+/// SHA-256 over the seed and the list (§7.6.5.3 a, b, d), and `AESV3` decrypts page one's stream
+/// and the `/Info` title under it (Algorithm 1.A). So the page shows what the script wrote, and the
+/// permissions are revision 3's reading of that word ("security handlers of revision 3 permissions
+/// shall apply"). The RSA key of the same tree is no recipient of it: §7.6.5.1's scan finds no list
+/// naming that certificate, and the reader is asked for another.
+#[test]
+fn an_elliptic_curve_recipient_opens_a_key_agreement_list() {
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/public_key_witnesses");
+    let bytes = std::fs::read(directory.join("key-agreement-s5.pdf")).expect("a fixture");
+    let document =
+        Document::open_with_recipient(bytes.clone(), Limits::DEFAULT, &recipient_key("ec-p256"))
+            .unwrap_or_else(|error| panic!("the key-agreement document opens: {error}"));
+    assert!(holds(&page_content(&document), "(Key agreement) Tj"));
+    let permissions = document.permissions().expect("encrypted");
+    assert_eq!(permissions.revision, 3);
+    assert!(
+        permissions.print && permissions.copy,
+        "bits 3 and 5 are set"
+    );
+    assert!(!permissions.modify && !permissions.annotate && !permissions.owner);
+
+    match Document::open_with_recipient(bytes, Limits::DEFAULT, &recipient_key("testnutzer")) {
+        Err(SyntaxError::RecipientRequired) => {}
+        other => panic!("an RSA certificate the list does not name is asked for again: {other:?}"),
+    }
+}

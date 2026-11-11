@@ -19,7 +19,7 @@ use super::{
     EnvelopeError, ID_AES128_CBC, ID_AES256_CBC, ID_ENVELOPED_DATA, RecipientIdentifier,
     RecipientInfo, parse,
 };
-use crate::rsa::PrivateKey;
+use crate::key::PrivateKey;
 use crate::rsa::tests::{PKCS8, eme_pkcs1_v1_5, hex, rsaep};
 use crate::x509::{self, RSA_ENCRYPTION};
 

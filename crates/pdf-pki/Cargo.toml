@@ -24,6 +24,18 @@ cbc.workspace = true
 rc4.workspace = true
 des.workspace = true
 rc2.workspace = true
+# RFC 5652 section 6.2.2's key agreement for an elliptic-curve recipient (RFC 5753 section 3.1):
+# SEC 1's Diffie-Hellman primitive on the five curves `pdf-signature` already verifies on, each the
+# reviewed RustCrypto package the workspace pins (`doc/stack.md`), and SEC 1 section 3.6.1's KDF
+# under the five hashes RFC 5753 section 7.1.4's identifiers name. No package new to the
+# workspace; ADR 2821.
+p256.workspace = true
+p384.workspace = true
+p521.workspace = true
+bp256.workspace = true
+bp384.workspace = true
+sha1.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 
 [lints]

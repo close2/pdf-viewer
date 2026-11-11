@@ -869,10 +869,15 @@ cd fuzz && cargo +nightly fuzz run revocation   -- -runs=1000000  # §12.8.4's r
   # `openssl crl -inform DER` and `openssl ocsp -respin` classify what it wrote, which is evidence
   # about the reading and never the definition of it (`CLAUDE.md` principle 5)
 cd fuzz && cargo +nightly fuzz run enveloped    -- -runs=1000000  # §7.6.5's recipient lists:
-  # `pdf_pki::enveloped` parses RFC 5652's `EnvelopedData` and opens it under a fixed test key, so
-  # RSA decryption, the padding check and AES-CBC all see hostile input (ADR 2801)
+  # `pdf_pki::enveloped` parses RFC 5652's `EnvelopedData` and opens it under a fixed RSA and a fixed
+  # P-256 test key, so RSA decryption, the padding check, key agreement and AES-CBC all see hostile
+  # input (ADRs 2801, 2821)
 cd fuzz && cargo +nightly fuzz run rsa_private_key -- -runs=1000000  # RFC 8017's private key in
   # both encodings, and section 7.2.2's decryption under whatever key the input reads as (ADR 2801)
+cd fuzz && cargo +nightly fuzz run ec_private_key -- -runs=1000000  # RFC 5915's private key in
+  # all three encodings, and SEC 1's Diffie-Hellman primitive under whatever key the input reads as (ADR 2821)
+cd fuzz && cargo +nightly fuzz run key_unwrap   -- -runs=1000000  # RFC 3394's AES key unwrap under
+  # keys of all three widths cut from the input (ADR 2821)
 cd fuzz && cargo +nightly fuzz run x509         -- -runs=1000000  # the signer's certificate and
   # the verifications that run on the key inside it: `pdf_signature::x509` walks RFC 5280's
   # structure and `pdf_signature::pkcs1`, `pss` and `dsa` run the tree's only loops whose trip

@@ -1815,12 +1815,19 @@ name = "pdf-pki"
 version = "0.1.0"
 dependencies = [
  "aes",
+ "bp256",
+ "bp384",
  "cbc",
  "const-oid",
  "crypto-bigint",
  "des",
+ "p256",
+ "p384",
+ "p521",
  "rc2",
  "rc4",
+ "sha1",
+ "sha2",
  "thiserror",
 ]
 
