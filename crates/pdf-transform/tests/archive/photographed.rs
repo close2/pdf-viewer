@@ -1238,3 +1238,112 @@ fn the_groups_a_photographed_page_names_are_listed_to_the_bound_and_the_rest_cou
     assert!(first.ends_with(" ..."), "{first}");
     assert!(fixed.named().ends_with(" and 2 more"), "{}", fixed.named());
 }
+
+#[test]
+fn an_operator_inside_an_annotation_appearance_keeps_the_refusal_a_photograph_cannot_answer() {
+    // The page's content and an annotation's appearance stream (ISO 32000-2 §12.5.5) each use an
+    // operator the base standard does not define. A photograph replaces the page's /Contents and
+    // /Resources and leaves its /Annots, so the appearance and its operator would still be in the
+    // output: the row keeps the fence's refusal rather than writing a file its own check refuses
+    // (ADR 2803).
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R >>".to_owned(),
+        page: "/Annots [7 0 R]".to_owned(),
+        contents: Some((
+            String::new(),
+            b"BT /F1 12 Tf 10 100 Td (Hello) Tj ET 1 2 Frobnicate".to_vec(),
+        )),
+        objects: vec![
+            HELVETICA.to_owned(),
+            "<< /Type /Annot /Subtype /Square /Rect [0 0 50 50] /F 4 /AP << /N 8 0 R >> >>"
+                .to_owned(),
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 50 50] /Resources << >> /Length 22 >>\n\
+             stream\n0 0 10 10 re f 3 Twirl\nendstream"
+                .to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    let target = Target::Two(Level::B);
+    let (report, output) = convert_with_plan(&source, &printing("as-if-printed", target));
+    assert!(
+        matches!(decision(&report, OPERATORS), Decision::Refused(_)),
+        "{:?}",
+        decision(&report, OPERATORS)
+    );
+    assert!(output.is_none());
+    assert!(conversion(&report).photographed.is_empty());
+}
+
+#[test]
+fn a_run_in_a_stream_whose_filter_does_not_decode_whole_is_photographed() {
+    // `20.5.5` is a run this reader draws as 20.5 (ADR 2638), in a page content stream whose
+    // ASCII85 data ends in a group past 2^32 (ISO 32000-2 §7.4.3), so the window draws the
+    // bytes before it. The whole decode the number would be written back into does not exist, so
+    // the run stays and its page is photographed under as-if-printed (ADR 2803). The form the
+    // page draws holds a run in a stream that decodes, so the writer has a stream to write.
+    let source = Conforming {
+        resources: "/XObject << /Fm0 6 0 R >>".to_owned(),
+        contents: Some((
+            "/Filter /ASCII85Decode".to_owned(),
+            b"01Ke4+@L,j0H`%l0d(LL+>PW'2(ga/1,'h.0H`5,+ED$9AdTY'uuuuu~>".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] /Resources << >> /Length 26 >>\n\
+             stream\n1 0 0 rg 10.5.5 0 5 5 re f\nendstream"
+                .to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    let target = Target::Two(Level::B);
+    let (report, output) = convert_with_plan(&source, &printing("as-if-printed", target));
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert_eq!(conversion(&report).photographed.len(), 1);
+    assert!(
+        conversion(&report).settled.is_empty(),
+        "a first-pass construction"
+    );
+    let difference = largest_difference(&drawn(&source), &drawn(&output));
+    assert!(
+        difference <= 1,
+        "the photograph moved a level by {difference}"
+    );
+}
+
+#[test]
+fn a_page_group_the_photograph_takes_off_its_page_is_given_no_default() {
+    // ISO 19005-2 section 6.2.10 judges a transparency group's CS. The page's /Group blends in
+    // DeviceCMYK beside the sRGB intent, and the page is photographed for its unreadable text,
+    // which writes it without its /Group: the photograph answers the row, and no DefaultCMYK
+    // over a press is written for a group that is gone (ADR 2804).
+    let source = a_page_no_reader_can_read(
+        "",
+        b"",
+        "/Group << /S /Transparency /CS /DeviceCMYK >>",
+        &[],
+    );
+    let target = Target::Two(Level::B);
+    let (report, output) = convert_with_plan(&source, &printing("as-if-printed", target));
+    let Decision::Authorised { losses, .. } = decision(
+        &report,
+        "graphics/transparency-group-colour-spaces-obey-the-colour-rules",
+    ) else {
+        panic!("{}", conversion(&report).render());
+    };
+    assert!(
+        !losses.iter().any(|loss| loss == Loss::PressAssumed),
+        "{}",
+        losses.words()
+    );
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert_eq!(conversion(&report).photographed.len(), 1);
+    // The archive writes no object stream, so every dictionary is in the file's own bytes.
+    assert!(
+        !output.windows(11).any(|window| window == b"DefaultCMYK"),
+        "no DefaultCMYK: {}",
+        conversion(&report).render()
+    );
+}

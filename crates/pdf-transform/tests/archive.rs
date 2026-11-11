@@ -16717,3 +16717,133 @@ mod kept_modification_date;
 mod machine_face;
 #[path = "archive/twin_codes.rs"]
 mod twin_codes;
+
+#[test]
+fn a_soft_mask_group_stating_no_resources_is_given_its_own_for_the_default() {
+    // A luminosity soft mask's /G (ISO 32000-2 §11.6.5.2) blends in DeviceCMYK beside the sRGB
+    // intent and states no /Resources, so TechNote 0010's A028 leaves it no default and ISO
+    // 19005-2 section 6.2.10 refuses its CS. §7.8.3 asks a writer to "include a Resources entry
+    // in the stream's dictionary"; its content names nothing, so an empty dictionary of its own,
+    // holding the default, is that entry, and no name in the form resolves differently (ADR 2804).
+    let source = Conforming {
+        resources: "/ExtGState << /GS0 << /Type /ExtGState /SMask << /Type /Mask /S /Luminosity \
+                    /G 6 0 R >> >> >>"
+            .to_owned(),
+        contents: Some((String::new(), b"/GS0 gs 0 0 1 rg 0 0 10 10 re f".to_vec())),
+        objects: vec![
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Group << /S /Transparency \
+             /CS /DeviceCMYK >> /Length 3 >>\nstream\nq Q\nendstream"
+                .to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    let target = Target::Two(Level::B);
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(
+        conversion(&report).settled.is_empty(),
+        "a first-pass construction"
+    );
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("one page");
+    let resources = document.get_key(&page.dict, "Resources");
+    let states = resources
+        .as_dict()
+        .map(|resources| document.get_key(resources, "ExtGState"))
+        .expect("the page's resources");
+    let state = states
+        .as_dict()
+        .map(|states| document.get_key(states, "GS0"))
+        .expect("the graphics states");
+    let mask = state
+        .as_dict()
+        .map(|state| document.get_key(state, "SMask"))
+        .expect("the graphics state");
+    let group = mask
+        .as_dict()
+        .map(|mask| document.get_key(mask, "G"))
+        .expect("the soft mask");
+    let group = group.as_stream().expect("a form XObject");
+    let own = document.get_key(&group.dict, "Resources");
+    let spaces = own
+        .as_dict()
+        .map(|own| document.get_key(own, "ColorSpace"))
+        .expect("the form's own resources");
+    assert!(
+        spaces
+            .as_dict()
+            .is_some_and(|spaces| spaces.get("DefaultCMYK").is_some()),
+        "{spaces:?}"
+    );
+}
+
+#[test]
+fn a_requirement_changed_where_the_check_looked_and_failed_where_it_did_not_is_converted_again() {
+    // Two graphics states state /TR /Identity, which ISO 19005-2 section 6.2.5 forbids. The
+    // newest section's /Prev is a reference, which ISO 32000-2 Table 15 does not admit, so the
+    // older section is never read and the check enumerates the newest table: it finds object 6
+    // and not object 5, which the reader finds by its header. The first pass removes the entry
+    // where the check found it; the output's fresh table lists object 5 and still fails the
+    // requirement that pass changed, so it is converted once more (ADR 2803).
+    let mut file: Vec<u8> = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    let mut object = |file: &mut Vec<u8>, body: &[u8]| {
+        offsets.push(file.len());
+        file.extend_from_slice(body);
+    };
+    object(
+        &mut file,
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+    );
+    object(
+        &mut file,
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << \
+          /ExtGState << /A 5 0 R /B 6 0 R >> >> /Contents 4 0 R >>\nendobj\n",
+    );
+    object(
+        &mut file,
+        b"4 0 obj\n<< /Length 26 >>\nstream\n/A gs /B gs 0 0 10 10 re f\nendstream\nendobj\n",
+    );
+    object(
+        &mut file,
+        b"5 0 obj\n<< /Type /ExtGState /TR /Identity >>\nendobj\n",
+    );
+    let older = file.len();
+    file.extend_from_slice(b"xref\n2 4\n");
+    for at in &offsets {
+        file.extend_from_slice(format!("{at:010} 00000 n \n").as_bytes());
+    }
+    file.extend_from_slice(b"trailer\n<< /Size 7 >>\n");
+    let catalog = file.len();
+    file.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+    let state = file.len();
+    file.extend_from_slice(b"6 0 obj\n<< /Type /ExtGState /TR /Identity /LW 2 >>\nendobj\n");
+    let newest = file.len();
+    file.extend_from_slice(
+        format!(
+            "xref\n0 2\n0000000000 65535 f \n{catalog:010} 00000 n \n6 1\n{state:010} 00000 n \n\
+             trailer\n<< /Size 7 /Root 1 0 R /Prev {older} 0 R >>\nstartxref\n{newest}\n%%EOF\n"
+        )
+        .as_bytes(),
+    );
+    let source = Document::open_with_limits(file.clone(), Limits::DEFAULT).expect("it opens");
+    assert!(
+        source.cross_reference_chain_was_cut(),
+        "the fixture cuts the chain"
+    );
+    let target = Target::Two(Level::B);
+    let (report, output) = to_part_two(&file);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert!(
+        conversion(&report)
+            .settled
+            .contains(&"graphics/no-transfer-function-in-a-graphics-state"),
+        "{:?}",
+        conversion(&report).settled
+    );
+}

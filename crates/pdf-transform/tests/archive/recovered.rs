@@ -1504,3 +1504,86 @@ fn the_statement_page_extends_a_label_tree_of_any_shape_with_a_range_of_its_own(
         }
     }
 }
+
+#[test]
+fn a_page_tree_whose_kids_name_their_own_root_is_written_from_the_page_drawn() {
+    // ISO 32000-2 §7.7.3.1: the page tree "defines the ordering of pages in the document", and a
+    // root whose only child is itself reaches no page object, so the reader draws the page it
+    // finds by its own /Type. Copied as it stood, the archive's closure from the catalog held no
+    // page and failed the count row the source met; it is now declined and, with
+    // `recovered-structure` granted, written with a new root over the page drawn (ADR 2803).
+    let source = file(
+        &[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [2 0 R] /Count 1 >>",
+            PAGE,
+        ],
+        "/Root 1 0 R",
+    );
+    for target in TARGETS {
+        let (report, document, _) = recovered(&source, target);
+        assert_eq!(pdf_model::Pages::new(&document).len(), 1, "{target}");
+        assert!(
+            conversion(&report).settled.is_empty(),
+            "{target}: a first-pass construction"
+        );
+        let refusal = attempt(&source, target, Authorisations::default())
+            .expect_err("nothing authorised, nothing rebuilt");
+        assert!(
+            refusal
+                .to_string()
+                .contains("reaches none of the 1 page object(s)"),
+            "{target}: {refusal}"
+        );
+    }
+}
+
+#[test]
+fn an_embedded_file_the_file_s_own_encryption_withholds_is_decided_in_the_first_pass() {
+    // The attachment's crypt filter states /AuthEvent /EFOpen (ISO 32000-2 §7.6.6) and the file
+    // supplies no password for it, so no reader of the file alone holds its bytes: the check
+    // fails ISO 19005-4 section 6.9 there rather than passing it unread, and the first pass
+    // answers it by the profile's embedded-file answer instead of copying the stream still
+    // encrypted, or refuses it by name where the profile keeps every file (ADR 2803).
+    let Some(source) = corpus("doc/pdf.js/test/pdfs/auth-event-ef-open.pdf") else {
+        return;
+    };
+    let target = Target::Four(Flavour::Plain);
+    let source_report = holds(&source, target);
+    assert!(
+        source_report.failures().any(|judgement| judgement.id
+            == "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile"),
+        "{}",
+        source_report.render()
+    );
+    let profile = |name: &str| {
+        let text = pdf_transform::profiles::named(name)
+            .expect("a shipped profile")
+            .text;
+        let mut plan = plan_from(text, target);
+        plan.authorised = pdf_transform::archive::Configuration::read(text, target)
+            .expect("the shipped profile reads")
+            .authorisations(target);
+        plan
+    };
+    let (report, output) = convert_with_plan(&source, &profile("as-shown"));
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert!(
+        conversion(&report).settled.is_empty(),
+        "a first-pass construction"
+    );
+    let (report, output) = convert_with_plan(&source, &profile("no-data-loss"));
+    assert!(output.is_none());
+    assert!(
+        matches!(
+            decision(
+                &report,
+                "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile"
+            ),
+            Decision::Refused(_)
+        ),
+        "{}",
+        conversion(&report).render()
+    );
+}

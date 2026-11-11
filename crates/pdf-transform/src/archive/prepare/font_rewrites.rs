@@ -106,9 +106,13 @@ pub(super) fn prepare_fonts(
     spare: &mut Spare,
     wants_substitutes: bool,
     wants_metrics: Directions,
-    // What the checker read: the survey, the input's report and whether the runs it read as
-    // operators were written as numbers (`doc/adr/2638`), so that their pages are not fenced.
-    (survey, input, runs_written): (Option<&Survey>, &pdf_archive::Report, bool),
+    // What the checker read: the survey, the input's report and the runs it read as operators
+    // that were written as numbers (`doc/adr/2638`), so that their pages are not fenced.
+    (survey, input, drawn): (
+        Option<&Survey>,
+        &pdf_archive::Report,
+        Option<&super::super::as_drawn::Drawn>,
+    ),
     defined: &BTreeMap<Vec<u8>, ObjectId>,
 ) -> PreparedFonts {
     // **The wider photograph gate, where the profile authorised it** (A694 item 1): the pages that
@@ -116,7 +120,7 @@ pub(super) fn prepare_fonts(
     // preparation a font asks for even when no font failed.
     let anywhere = plan.authorised.grants(Loss::PageAsImage) && fonts::Gate::admits(plan.target);
     let fenced = match survey {
-        Some(survey) if anywhere => super::super::fenced::pages(input, survey, runs_written),
+        Some(survey) if anywhere => super::super::fenced::pages(document, input, survey, drawn),
         _ => super::super::fenced::Fenced::default(),
     };
     let substitutes = match (wants_substitutes || !fenced.pages.is_empty(), survey) {

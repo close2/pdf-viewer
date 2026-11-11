@@ -29,7 +29,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
-use pdf_archive::survey::Survey;
+use pdf_archive::survey::{Survey, UnlistedOperator};
 use pdf_model::Pages;
 use pdf_model::content::reader::draws_the_salvage;
 use pdf_syntax::object::{Object, ObjectId};
@@ -100,6 +100,28 @@ pub(super) struct Drawn {
     /// Whether every operator the survey found that the base standard does not define is a run
     /// this reader draws as a number, so that writing the numbers answers the operator row.
     pub(super) answers_every_operator: bool,
+    /// The content streams the survey read whose filters do not decode whole, so that no run in
+    /// them is written (ADR 2803).
+    pub(super) unread: BTreeSet<ObjectId>,
+}
+
+impl Drawn {
+    /// Whether the stream an operator the survey found stood in is one this write could not read,
+    /// so that the run in it is still in the output: the object the survey names, or for a page's
+    /// own content, any stream its `/Contents` names.
+    pub(super) fn left(&self, document: &Document, unlisted: &UnlistedOperator) -> bool {
+        if self.unread.is_empty() {
+            return false;
+        }
+        match unlisted.place.object {
+            Some(object) => self.unread.contains(&object),
+            None => Pages::new(document).get(unlisted.page).is_none_or(|page| {
+                hexadecimal::contents_of(document, &page.dict)
+                    .iter()
+                    .any(|id| self.unread.contains(id))
+            }),
+        }
+    }
 }
 
 /// Writes the number this reader draws in place of every run it salvages, in every content
@@ -135,6 +157,11 @@ pub(super) fn write(
             continue;
         };
         let Some(data) = document.decoded_stream_data(stream) else {
+            // The survey read this stream through the content reader, which draws what a
+            // damaged filter yields before the damage; the whole decode the bytes would be
+            // written back from does not exist, so its runs stay and its page is photographed
+            // where the profile allows (ADR 2803).
+            out.unread.insert(id);
             continue;
         };
         let room = MOST_RUNS.saturating_sub(out.runs.len());
@@ -174,6 +201,8 @@ pub(super) fn write(
     if out.at.is_empty() {
         return Err(Because::NotBuiltYet(NO_STREAM_HOLDS_ONE));
     }
+    // A run left in a stream this write could not read is an operator the numbers do not answer.
+    out.answers_every_operator &= out.unread.is_empty();
     Ok(out)
 }
 

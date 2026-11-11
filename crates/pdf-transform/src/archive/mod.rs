@@ -733,7 +733,8 @@ fn rebuild_a_declined_structure(
 ) -> Result<Option<recovered::Recovered>, Refusal> {
     let declined = crate::optimize::catalog_of(document).and_then(|root| {
         crate::optimize::refuse_a_document_only_recovery_reads(document, root)?;
-        page_tree::refuse_a_page_tree_node_with_no_children(document, root)
+        page_tree::refuse_a_page_tree_node_with_no_children(document, root)?;
+        page_tree::refuse_a_page_tree_reaching_none_of_the_pages_drawn(document)
     });
     match declined {
         Ok(()) => Ok(None),
@@ -1909,12 +1910,20 @@ fn apply_the_decisions(
         hold_the_output_to_the_target(&converted.bytes, input, plan.target)?;
     let mut bytes = converted.bytes;
     // **An output that would be refused is converted once more** where this conversion
-    // constructed appearances, or where the output fails a requirement the source met: both are
-    // content no earlier pass judged (`settle`). The requirements an appearance's output fails
-    // need not be ones the source met: a face the source never embedded and a face the
-    // appearance names are two sites of the one requirement (`doc/adr/2534`, `doc/adr/2795`).
+    // constructed appearances, where the output fails a requirement the source met, or where it
+    // still fails one whose places this pass changed: each is content no earlier pass judged
+    // (`settle`). The requirements an appearance's output fails need not be ones the source met:
+    // a face the source never embedded and a face the appearance names are two sites of the one
+    // requirement (`doc/adr/2534`, `doc/adr/2795`). And a requirement changed at every place the
+    // source's check enumerated, still failed, failed at a place that check never reached, which
+    // the output's fresh cross-reference table lists (`doc/adr/2803`).
+    let changed_and_still_failed = conversion.decided.iter().any(|decided| {
+        decided.changed > 0 && achieved.still_failing.contains(&decided.requirement)
+    });
     if let Some(budget) = settle_under
-        && (!conversion.appearances.is_empty() || !achieved.regressions.is_empty())
+        && (!conversion.appearances.is_empty()
+            || !achieved.regressions.is_empty()
+            || changed_and_still_failed)
         && !stands_as_departed(&achieved, departed_ids, omit_identification)
         && let Some(second) = settle::second_conversion(plan, &bytes, input, budget)
         && stands_as_departed(&second.achieved, departed_ids, omit_identification)

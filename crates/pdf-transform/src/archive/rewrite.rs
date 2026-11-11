@@ -2596,6 +2596,16 @@ struct DefaultSites {
     /// by reference, and a copy of the dictionary otherwise. Neither changes what any name on
     /// that page resolves to.
     pages: BTreeMap<ObjectId, Object>,
+    /// Form `XObject`s stating no `/Resources` whose content names no resource, each to be given
+    /// an empty dictionary of its own that the default is then written into (ADR 2804).
+    ///
+    /// ISO 32000-2 §7.8.3 asks a writer to "include a Resources entry in the stream's dictionary
+    /// specifying the resource dictionary which contains all the resources used by that content
+    /// stream", and A028 leaves a form without one no default at all. Where the content names
+    /// nothing, the empty dictionary is that entry exactly, and no name in the form resolves
+    /// differently: a form that names a resource still looks it up on the page (§7.8.3's
+    /// earlier-versions rule), so it is not given one.
+    unresourced: BTreeSet<ObjectId>,
 }
 
 /// How many objects [`DefaultSites`] visits before it stops.
@@ -2677,6 +2687,11 @@ impl DefaultSites {
             _ => {
                 if let Some(page) = page {
                     self.inherited(document, id, page);
+                } else if Wanted::Form.matches(document, &Object::Reference(id))
+                    && names_no_resource(document, id)
+                {
+                    self.unresourced.insert(id);
+                    self.direct.insert(id);
                 }
             }
         }
@@ -2808,11 +2823,45 @@ impl Wanted {
     }
 }
 
+/// Whether the content stream of the form at `id` names no resource, read conservatively: its
+/// only name operands are the three device colour spaces §8.6.3 makes self-identifying, which
+/// never name an entry of the `ColorSpace` subdictionary, and it holds no inline image.
+///
+/// Any other name — a font, an `XObject`, a graphics state, a property list, or a marked-content
+/// tag that is no resource at all — answers no, as does a stream that does not decode: a form
+/// left without the entry keeps the refusal it had, where one given an empty dictionary over a
+/// name it needed would draw something else.
+fn names_no_resource(document: &Document, id: ObjectId) -> bool {
+    let object = document.get(id);
+    let Some(data) = object
+        .as_stream()
+        .and_then(|stream| document.decoded_stream_data(stream))
+    else {
+        return false;
+    };
+    let mut lexer = pdf_syntax::Lexer::new(&data);
+    while let Some(token) = lexer.next_token() {
+        match token {
+            pdf_syntax::Token::Name(name)
+                if !matches!(
+                    name.as_slice(),
+                    b"DeviceGray" | b"DeviceRGB" | b"DeviceCMYK"
+                ) =>
+            {
+                return false;
+            }
+            pdf_syntax::Token::Keyword(b"BI") => return false,
+            _ => {}
+        }
+    }
+    true
+}
+
 /// Every appearance stream §12.5.5 reaches from one page's annotations.
 ///
 /// An annotation's appearance is a form `XObject` with resources of its own, so it is one of
 /// A003's four dictionaries — and nothing in a page's own `/Resources` reaches it.
-fn appearance_streams(document: &Document, page: &Dictionary) -> Vec<Object> {
+pub(super) fn appearance_streams(document: &Document, page: &Dictionary) -> Vec<Object> {
     let mut out = Vec::new();
     let Some(annotations) = document
         .get_key(page, "Annots")

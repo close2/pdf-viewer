@@ -22,6 +22,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use pdf_archive::Report;
 use pdf_archive::report::Outcome;
 use pdf_archive::survey::Survey;
+use pdf_model::Pages;
+use pdf_syntax::Document;
+use pdf_syntax::object::{Object, ObjectId};
 
 /// The operator row, whose pages the survey names exactly.
 pub(super) const OPERATORS: &str = "graphics/only-operators-the-base-standard-defines";
@@ -54,11 +57,24 @@ pub(super) struct Fenced {
 /// The pages each failed fenced row holds a fault on.
 ///
 /// A row whose pages are not all known is absent from every value, so the requirement keeps the
-/// refusal it had. Where `runs_written` holds, `super::as_drawn` wrote the number this reader
-/// draws in place of every run it salvages, so an operator that is such a run holds no page: its
-/// page converts as text (`doc/adr/2638`).
-pub(super) fn pages(input: &Report, survey: &Survey, runs_written: bool) -> Fenced {
+/// refusal it had. Where `drawn` is given, `super::as_drawn` wrote the number this reader draws
+/// in place of every run it salvages in the streams it could read, so an operator that is such a
+/// run, in such a stream, holds no page: its page converts as text (`doc/adr/2638`). A run in a
+/// stream it could not read is still in the output, and its page is photographed (ADR 2803).
+///
+/// **An operator in a stream an annotation's appearance reaches holds no page either**, and its
+/// row keeps the refusal (ADR 2803): a photograph replaces the page's `/Contents` and
+/// `/Resources` and leaves its `/Annots`, so ISO 32000-2 §12.5.5's appearance stream, and every
+/// form, pattern, glyph procedure and soft mask group it names, is still in the output with the
+/// operator in it.
+pub(super) fn pages(
+    document: &Document,
+    input: &Report,
+    survey: &Survey,
+    drawn: Option<&super::as_drawn::Drawn>,
+) -> Fenced {
     let mut found = Fenced::default();
+    let mut annotations_reach: Option<BTreeSet<ObjectId>> = None;
     for judgement in input.failures() {
         let Some(row) = ROWS.iter().copied().find(|row| *row == judgement.id) else {
             continue;
@@ -66,9 +82,22 @@ pub(super) fn pages(input: &Report, survey: &Survey, runs_written: bool) -> Fenc
         let pages: BTreeSet<usize> = if row == OPERATORS {
             let unwritten = || {
                 survey.unlisted_operators().iter().filter(|unlisted| {
-                    !(runs_written && super::as_drawn::is_drawn_as_a_number(&unlisted.spelling))
+                    !drawn.is_some_and(|drawn| {
+                        super::as_drawn::is_drawn_as_a_number(&unlisted.spelling)
+                            && !drawn.left(document, unlisted)
+                    })
                 })
             };
+            let reached =
+                annotations_reach.get_or_insert_with(|| reached_from_annotations(document));
+            if unwritten().any(|unlisted| {
+                unlisted
+                    .place
+                    .object
+                    .is_some_and(|object| reached.contains(&object))
+            }) {
+                continue;
+            }
             for unlisted in unwritten() {
                 found
                     .operators
@@ -91,4 +120,61 @@ pub(super) fn pages(input: &Report, survey: &Survey, runs_written: bool) -> Fenc
         }
     }
     found
+}
+
+/// How many objects [`reached_from_annotations`] visits before it stops; past it the walk keeps
+/// what it found, and an operator in a stream it did not reach is photographed over and still
+/// held to the target afterwards, which refuses a file the photograph left failing.
+const MOST_REACHED: usize = 1 << 16;
+
+/// Every stream an annotation's appearance reaches: the appearance streams themselves (§12.5.5's
+/// Table 168) and, through each one's `/Resources`, every form `XObject`, pattern, Type 3 glyph
+/// procedure and soft mask group below them.
+fn reached_from_annotations(document: &Document) -> BTreeSet<ObjectId> {
+    let mut reached = BTreeSet::new();
+    let mut queue: Vec<Object> = Vec::new();
+    for page in Pages::new(document).every().into_iter().flatten() {
+        queue.extend(super::rewrite::appearance_streams(document, &page.dict));
+    }
+    while let Some(next) = queue.pop() {
+        if reached.len() >= MOST_REACHED {
+            break;
+        }
+        let Some(id) = next.as_reference() else {
+            continue;
+        };
+        if !reached.insert(id) {
+            continue;
+        }
+        let object = document.get(id);
+        let dict = match &object {
+            Object::Stream(stream) => &stream.dict,
+            Object::Dictionary(dict) => dict,
+            _ => continue,
+        };
+        // A Type 3 font's glyph procedures, where this object is one.
+        if let Some(procedures) = document.get_key(dict, "CharProcs").as_dict() {
+            queue.extend(procedures.iter().map(|(_, procedure)| procedure.clone()));
+        }
+        let resources = document.get_key(dict, "Resources");
+        let Some(resources) = resources.as_dict() else {
+            continue;
+        };
+        for category in ["XObject", "Pattern", "Font"] {
+            if let Some(entries) = document.get_key(resources, category).as_dict() {
+                queue.extend(entries.iter().map(|(_, entry)| entry.clone()));
+            }
+        }
+        if let Some(states) = document.get_key(resources, "ExtGState").as_dict() {
+            for (_, state) in states.iter() {
+                let state = document.resolve(state);
+                let group = state
+                    .as_dict()
+                    .map(|state| document.get_key(state, "SMask"))
+                    .and_then(|mask| mask.as_dict().and_then(|mask| mask.get("G").cloned()));
+                queue.extend(group);
+            }
+        }
+    }
+    reached
 }

@@ -90,6 +90,33 @@ pub(super) fn refuse_a_page_tree_node_with_no_children(
     refuse(document, root, Held::KidsOnly)
 }
 
+/// Declines a source whose page tree reaches none of the pages this reader draws, which it found
+/// instead by their own declarations — the conversion's third check (ADR 2803).
+///
+/// §7.7.3.1 makes the page tree the structure that "defines the ordering of pages in the
+/// document", built of page tree nodes and page objects; a tree whose `/Kids` lead back to their
+/// own node, or to nothing, reaches no page object, so `pdf_model::Pages` draws what a scan of the
+/// file finds. The closure the conversion copies from the catalog reaches no page object either,
+/// and the output would hold none of them. Declined here, the source is either refused by name or,
+/// where the caller grants `recovered-structure`, written with a new root whose children are the
+/// pages drawn (ADR 2502), which [`super::recovered`] already checks the rebuilt file against.
+///
+/// # Errors
+///
+/// [`Refusal::Reconstructed`] naming how many pages the scan found.
+pub(super) fn refuse_a_page_tree_reaching_none_of_the_pages_drawn(
+    document: &Document,
+) -> Result<(), Refusal> {
+    match pdf_model::Pages::new(document).found_by_scanning() {
+        Some(found) => Err(Refusal::Reconstructed(format!(
+            "§7.7.3.1 makes the page tree what \"defines the ordering of pages in the document\", \
+             and this one reaches none of the {found} page object(s) this reader found by their \
+             own /Type; carried as it stands, the archive would hold none of them"
+        ))),
+        None => Ok(()),
+    }
+}
+
 /// Both refusals' walk, from the catalog's `/Pages`.
 fn refuse(document: &Document, root: ObjectId, held: Held) -> Result<(), Refusal> {
     let Some(pages) = document

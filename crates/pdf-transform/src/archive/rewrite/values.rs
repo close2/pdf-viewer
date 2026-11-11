@@ -941,6 +941,12 @@ impl Rewriter<'_> {
             {
                 out.insert(Name::new(&b"Resources"[..]), resources.clone());
             }
+            if sites.unresourced.contains(&id) && out.get("Resources").is_none() {
+                out.insert(
+                    Name::new(&b"Resources"[..]),
+                    Object::Dictionary(Dictionary::new()),
+                );
+            }
             sites
                 .direct
                 .contains(&id)

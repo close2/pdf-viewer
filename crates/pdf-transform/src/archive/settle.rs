@@ -14,7 +14,10 @@
 //! its cross-reference chain was cut and the reader found it by its own header (ISO 32000-2
 //! Table 15's `/Prev`), which the output's fresh table lists. Each shows as a requirement the
 //! source met and the output fails, so that is the second condition for the pass
-//! (`doc/adr/2795`).
+//! (`doc/adr/2795`). Where the source failed the requirement too, at places its check did
+//! enumerate, the first pass changes those and the output still fails it at the object the check
+//! never reached: a requirement the first pass changed and the output still fails is the third
+//! condition (`doc/adr/2803`).
 //!
 //! The remedy is the one the converter already has: the output, which now holds those
 //! appearances as ordinary content, is converted as a source. One extra pass at most (`settling`

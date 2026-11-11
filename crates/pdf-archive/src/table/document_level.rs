@@ -783,6 +783,13 @@ impl Drop for Descent {
 /// A stream this reader cannot decode is passed over in silence rather than reported. A filter
 /// `pdf_syntax` does not decode is a fact about this program, and recording it as a fault would be
 /// failing a document over the reader in front of it.
+///
+/// **A stream the file's own encryption withholds is not that** (ADR 2803): ISO 32000-2 section
+/// 7.6.6 lets a crypt filter's `/AuthEvent /EFOpen` keep an embedded file's data behind a
+/// password the document does not supply, and then no reader of the file alone holds the bytes
+/// the condition is about. Passing it would be the validator vouching for data nobody it could
+/// hand the file to can read, and a conversion that took the pass on trust copied the stream still
+/// encrypted.
 fn embedded_file_is_itself_pdfa(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_embedded_file_specification(exam, |place, specification| {
@@ -805,8 +812,18 @@ fn embedded_file_is_itself_pdfa(exam: &Examination<'_>, findings: &mut Findings)
             let Some(stream) = object.as_stream() else {
                 continue;
             };
-            let Some(bytes) = document.decoded_stream_data(stream) else {
-                continue;
+            let bytes = match document.decoded_stream_data_reported(stream) {
+                Ok(decoded) => decoded.data,
+                Err(pdf_syntax::StreamRefusal::DecryptionFailed) => {
+                    findings.record(
+                        place.clone().named((*key).to_owned()),
+                        "an embedded file's data does not decrypt without a password the file \
+                         does not supply, so nothing in the file shows it conforms to a part of \
+                         ISO 19005",
+                    );
+                    continue;
+                }
+                Err(_) => continue,
             };
             judge_embedded(&place.clone().named((*key).to_owned()), bytes, findings);
         }

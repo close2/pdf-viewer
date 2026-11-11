@@ -1882,6 +1882,59 @@ pub(super) fn answers_nothing(id: &str) -> bool {
     !WRITER_EMITS.contains(&id) && !REMEDIES.iter().any(|remedy| remedy.requirement == id)
 }
 
+/// The two transparency group rows, ISO 19005-2 section 6.2.10's and ISO 19005-4's.
+const PAGE_GROUP_ROWS: [&str; 2] = [
+    "graphics/transparency-group-colour-spaces-obey-the-colour-rules",
+    "graphics/transparency-group-colour-spaces-obey-the-colour-rules-of-part-four",
+];
+
+/// Whether the only failed requirements that could want a supplied or stand-in `/DefaultCMYK`
+/// are page group rows the photographs answer ([`only_on_photographed_page_groups`]), so that the
+/// preparation built one for a group that is gone and nothing will write it (ADR 2804).
+pub(super) fn only_photographed_page_groups_want_a_supplied_default(
+    input: &pdf_archive::Report,
+    substitutes: &super::fonts::Substitutes,
+) -> bool {
+    let mut wanting = input.failures().filter(|judgement| {
+        REMEDIES.iter().any(|remedy| {
+            remedy.requirement == judgement.id
+                && remedy
+                    .answer
+                    .rewrites()
+                    .contains(&Some(Rewrite::SuppliedDefaultCmyk))
+        })
+    });
+    let mut any = false;
+    let all = wanting.all(|judgement| {
+        any = true;
+        PAGE_GROUP_ROWS.contains(&judgement.id)
+            && only_on_photographed_page_groups(judgement, substitutes)
+    });
+    any && all
+}
+
+/// Whether every place `judgement` fails is a page's own `/Group` (a place naming a page and no
+/// object) on a page this conversion photographs, with the list whole.
+fn only_on_photographed_page_groups(
+    judgement: &Judgement,
+    substitutes: &super::fonts::Substitutes,
+) -> bool {
+    let pdf_archive::report::Outcome::Failed { places, total } = &judgement.outcome else {
+        return false;
+    };
+    !places.is_empty()
+        && places.len() == *total
+        && places.iter().all(|finding| {
+            finding.place.object.is_none()
+                && finding.place.page.is_some_and(|page| {
+                    substitutes
+                        .photographed
+                        .iter()
+                        .any(|photographed| photographed.page == page.saturating_add(1))
+                })
+        })
+}
+
 pub(super) fn decide(
     input: &pdf_archive::Report,
     judgement: &Judgement,
@@ -1897,6 +1950,22 @@ pub(super) fn decide(
     // The same answer for §7.3.4.3's digit where every stream that omitted one was a content
     // stream the photographs took off their pages, so that no stream is left for the repair to
     // write into (`super::hexadecimal::Completed::leaving_out`, `doc/adr/2640`).
+    // **A page group a photograph takes off its page needs no default** (ADR 2804): ISO 19005-2
+    // section 6.2.10 and ISO 19005-4 section 6.2.10 judge a transparency group's `CS`, and a
+    // photographed page is written without its `/Group` (ISO 32000-2 §11.6.6's group attributes
+    // describe how the content that went was composited). Where every place the row fails is the
+    // `/Group` of a page photographed for another row, the photograph answers it at the losses it
+    // already takes, and no `/DefaultCMYK` is written for a group that is no longer there.
+    if PAGE_GROUP_ROWS.contains(&judgement.id)
+        && let Ok(substitutes) = prepared.substitutes.as_ref()
+        && only_on_photographed_page_groups(judgement, substitutes)
+    {
+        return losing(
+            substitutes.photograph_losses(),
+            Rewrite::SubstituteFontProgram,
+            authorised,
+        );
+    }
     let only_photographed = judgement.id == ODD_HEXADECIMAL_DIGITS
         && prepared
             .hexadecimal

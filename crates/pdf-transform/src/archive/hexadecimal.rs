@@ -222,7 +222,7 @@ pub(super) fn taken_off_by(
 }
 
 /// The objects one page's `/Contents` names, which §7.7.3.3 lets be one stream or an array.
-fn contents_of(document: &Document, page: &Dictionary) -> Vec<ObjectId> {
+pub(super) fn contents_of(document: &Document, page: &Dictionary) -> Vec<ObjectId> {
     match page.get("Contents") {
         Some(Object::Reference(id)) => match document.get(*id) {
             Object::Array(items) => items.iter().filter_map(Object::as_reference).collect(),

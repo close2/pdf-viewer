@@ -1069,9 +1069,23 @@ impl Prepared {
             &mut spare,
             wanted(Rewrite::SubstituteFontProgram),
             metric_directions(&failed),
-            (survey.as_ref(), input, as_drawn.is_ok()),
+            (survey.as_ref(), input, as_drawn.as_ref().ok()),
             &standard_fonts,
         );
+        // A stand-in `/DefaultCMYK` built only for page groups the photographs take off their
+        // pages is written nowhere, so it is neither kept nor recorded in the history (ADR 2804).
+        let only_photographed_groups = supplied_cmyk.is_ok()
+            && substitutes.as_ref().is_ok_and(|substitutes| {
+                super::decision::only_photographed_page_groups_want_a_supplied_default(
+                    input,
+                    substitutes,
+                )
+            });
+        let supplied_cmyk = if only_photographed_groups {
+            Err(Because::NotBuiltYet(ONLY_PHOTOGRAPHED_GROUPS))
+        } else {
+            supplied_cmyk
+        };
         let edited = Edited {
             fresh: fresh.as_ref().ok(),
             headers: headers.as_ref().ok(),
@@ -2363,6 +2377,10 @@ const MAX_SPARE_NUMBERS: usize = 64;
 
 /// ISO 19005-2 section 6.2.4.3's grey row, which any PDF/A output intent answers.
 const DEVICE_GRAY_ROW: &str = "graphics/device-gray-needs-a-default-or-an-output-intent";
+
+/// Why no `/DefaultCMYK` is kept where only photographed page groups asked for one.
+const ONLY_PHOTOGRAPHED_GROUPS: &str = "the only transparency groups blending in DeviceCMYK are \
+     the /Group entries of pages this conversion photographs, which are written without them";
 
 /// ISO 19005-2 section 6.2.10's row for a transparency group's `CS`, the one part 2 answers with an
 /// `ICCBased` `/DefaultCMYK` where the group blends in `DeviceCMYK` (`doc/adr/2795`).
