@@ -102,6 +102,9 @@ fn every_carried_command_round_trips() {
             zoom: Zoom::FitWidth,
             scroll: (0.0, 0.0),
         }),
+        // Both steps along the window's history of views (ADR 2805).
+        Command::History(viewer_core::Retrace::Back),
+        Command::History(viewer_core::Retrace::Forward),
         Command::Restrict(RestrictionScope::Window(RestrictionPolicy::uniform(
             RestrictionLevel::Off,
         ))),

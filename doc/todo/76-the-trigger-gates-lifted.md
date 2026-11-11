@@ -1,6 +1,6 @@
 # 76 — The trigger gates, audited and lifted
 
-Status: **open** — the audit is done and its first effort-only gate is built (ADR 2799); the rest of
+Status: **open** — the audit is done and rows 1 and 4 are built (ADRs 2799, 2805); the rest of
 section 2 is the order. ADR 2800 is the decision this file carries out.
 Priority: the owner's, 2026-11-06, `doc/questions/A800` item 2: "build now and revisit all 'wait for
 a trigger' gates".
@@ -33,7 +33,7 @@ a test's timing are not work held back and are not here.
 | 1 | `doc/questions/A45`; `viewer-core/src/notes.rs` | the attachments panel's row for a file outside the document | §14.13.2, §14.13.4 | **built** (ADR 2799) |
 | 2 | `doc/questions/A66`, `A168`; ADRs 1485, 1202; `doc/todo/01`; `doc/todo/65` section 5 | §7.6.5's public-key handler | §7.6.5, §7.6.5.1–3, §7.6.6 | **built in part** (ADRs 2801, 2802, 2809, 2810): the handler, all seven envelope ciphers and Table 27's per-stream list run; the host input (ADR 1134) and RFC 5652 key agreement are left, effort only |
 | 3 | ADR 2529 (status deferred to Q713) | §12.8.3.4.4's policy enforcement | §12.8.3.4.4 | another lane's — `doc/questions/A713` placed the documents |
-| 4 | ADR 1736 section 1 | `app.goBack`/`goForward`, held in `surface::REFUSED` until a window keeps a history of views | JavaScript `app` members | effort only |
+| 4 | ADR 1736 section 1 | `app.goBack`/`goForward`, held in `surface::REFUSED` until a window keeps a history of views | JavaScript `app` members | **built** (ADR 2805) |
 | 5 | `doc/todo/63` "what is left" | one `Query` for a page's text on the confined pipe | `viewer-core` vocabulary | effort only |
 | 6 | `doc/todo/65` section 1's host rows | per-host reads of print and collection entries | rows needing a host | effort only |
 | 7 | ADR 2137 | the records the WinUI window declines in the library's terms | WinUI host | effort only |

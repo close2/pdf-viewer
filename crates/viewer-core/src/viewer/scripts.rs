@@ -2,7 +2,7 @@
 
 use super::layout::damage;
 use super::{DocumentId, MAX_FOCUS_HOPS, MAX_PAGE_TURNS, Turn, Viewer};
-use crate::command::{Command, PageTarget, Zoom};
+use crate::command::{Command, PageTarget, Retrace, Zoom};
 use crate::event::Event;
 use crate::open::Open;
 
@@ -73,7 +73,7 @@ impl Viewer {
             if page == open.page_index {
                 return;
             }
-            self.go_to(PageTarget::Index(page), Turn::Requested, events);
+            self.turn_to(PageTarget::Index(page), events);
         }
     }
 
@@ -207,10 +207,26 @@ impl Viewer {
                 // `this.gotoNamedDest`: the destination's page and Table 149's view, shown as a
                 // link's are — the view left for `settle`, the page turned where it is not the one
                 // showing (ADR 1751).
+                // `app.goBack` and `app.goForward`: the steps a person takes along the window's
+                // history, as many as the script asked for and the history holds (ADR 2805).
+                ViewChange::History(steps) => {
+                    let way = if steps < 0 {
+                        Retrace::Back
+                    } else {
+                        Retrace::Forward
+                    };
+                    let steps = usize::try_from(steps.unsigned_abs()).unwrap_or(usize::MAX);
+                    for _ in 0..steps.min(crate::history::MAX_VIEWS) {
+                        if !self.retrace(way, events) {
+                            break;
+                        }
+                    }
+                }
                 ViewChange::Destination { page, view } => {
                     let (Ok(page), Some(open)) = (usize::try_from(page), self.focused_mut()) else {
                         continue;
                     };
+                    open.leave();
                     open.pending_views = vec![view];
                     if open.page_index != page {
                         self.go_to(PageTarget::Index(page), Turn::Requested, events);

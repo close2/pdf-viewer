@@ -6,8 +6,8 @@ use pdf_model::action::DataFormat;
 use pdf_model::view::WidgetAppearances;
 use viewer_core::{
     Answered, Command, Committing, Find, FindDirection, FocusMove, PointerAction, PresentationMode,
-    Purpose, RestrictionLevel, RestrictionOverride, RestrictionPolicy, RestrictionScope, Selection,
-    TrustPolicy,
+    Purpose, RestrictionLevel, RestrictionOverride, RestrictionPolicy, RestrictionScope, Retrace,
+    Selection, TrustPolicy,
 };
 
 use pdf_signature::verdict::Acceptance;
@@ -153,6 +153,9 @@ pub(super) mod command_kind {
     // 392; ADR 2791).
     pub(in crate::protocol) const OPENING_LIST: u8 = 50;
     pub(in crate::protocol) const OPENED_LIST: u8 = 51;
+    // A step along the window's history of views, which crosses because the confined worker
+    // holds the view the history is kept beside (ADR 2805).
+    pub(in crate::protocol) const HISTORY: u8 = 52;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -313,6 +316,12 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         Command::View(view) => {
             writer.u8(k::VIEW);
             encode_viewing(&mut writer, *view);
+        }
+        Command::History(way) => {
+            writer.u8(k::HISTORY).u8(match way {
+                Retrace::Back => 0,
+                Retrace::Forward => 1,
+            });
         }
         // A scope, then one byte per operation in `RestrictionPolicy::OPERATIONS`'s order, which
         // is the one order the wire, the C ABI and a command line all enumerate a policy in (ADR
@@ -784,6 +793,16 @@ pub(crate) fn decode_command_holding(
             dy: reader.f32("a scroll")?,
         },
         k::VIEW => Command::View(decode_viewing(&mut reader)?),
+        k::HISTORY => Command::History(match reader.u8("a step along the history")? {
+            0 => Retrace::Back,
+            1 => Retrace::Forward,
+            value => {
+                return Err(ProtocolError::Unrecognised {
+                    what: "a step along the history",
+                    value: u32::from(value),
+                });
+            }
+        }),
         k::LAYOUT => Command::Layout(panels::layout_of(reader.u8("a page layout")?)?),
         k::ANSWER => Command::Answer {
             document: reader.document(what)?,

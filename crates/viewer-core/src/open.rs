@@ -140,6 +140,8 @@ pub(crate) struct Open {
     /// what it says about the value the previous parameter left. Table 29's `/OpenAction` puts at
     /// most one here, so nothing that existed before this list can tell the difference.
     pub(crate) pending_views: Vec<pdf_model::destination::View>,
+    /// The views the reader's jumps left behind and their steps back left ahead (ADR 2805).
+    pub(crate) history: crate::history::History,
     /// How far the page is scrolled under the viewport, in device pixels.
     ///
     /// Positive means the content has moved up and left — the top-left of the raster is off the
@@ -993,6 +995,7 @@ impl Open {
             consent: crate::scripting::Consent::default(),
             scripts_said: 0,
             pending_views: open_view.into_iter().collect(),
+            history: crate::history::History::default(),
             scroll: (0.0, 0.0),
             pointed: None,
             on_screen: Vec::new(),

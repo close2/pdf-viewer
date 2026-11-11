@@ -326,23 +326,13 @@ pub const EXCLUDED: &[Excluded] = &[
 /// something this program keeps out of a document's realm, or that no reader's edit reaches, and
 /// the row says which. A member moves from here to the bridge only by an argument that the reason
 /// no longer holds.
-pub const REFUSED: &[Excluded] = &[
-    Excluded {
-        holder: Holder::Doc,
-        members: &["documentFileName"],
-        kind: Member::Property,
-        reason: "is the name of a file on the reader's machine, which the confined worker has no \
-                 business knowing; the document's own name for itself is this.info.Title",
-    },
-    Excluded {
-        holder: Holder::App,
-        members: &["goBack", "goForward"],
-        kind: Member::Method,
-        reason: "walks the window's history of views, and this viewer keeps none: a person has no \
-                 previous view to go back to either, so there is nothing a script's request could \
-                 reach",
-    },
-];
+pub const REFUSED: &[Excluded] = &[Excluded {
+    holder: Holder::Doc,
+    members: &["documentFileName"],
+    kind: Member::Property,
+    reason: "is the name of a file on the reader's machine, which the confined worker has no \
+             business knowing; the document's own name for itself is this.info.Title",
+}];
 
 /// What Adobe's reference has absent from an Acrobat form, which is the form this processor makes of
 /// every document: neither refused nor carried, so that `typeof` answers `undefined` (ADR 1989).

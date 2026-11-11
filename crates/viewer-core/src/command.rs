@@ -166,6 +166,15 @@ pub enum Command {
     /// host that starts another one has to put the reader back where they were. Nothing on this
     /// boundary could say where that was.
     View(Viewing),
+    /// Go back to the view the reader was at before their latest jump, or forward again after a
+    /// step back (ADR 2805).
+    ///
+    /// The window's history of views is this crate's and not a host's, so that every host offers
+    /// the same one and a script's `app.goBack` walks the history a person walks: a jump — a
+    /// destination followed, or a page named outright — leaves a view behind, and a step along
+    /// the history restores one exactly as [`Self::View`] does. A step with nowhere to go is said
+    /// out loud and moves nothing.
+    History(Retrace),
     /// How much of what a document asserts about its reader this viewer obeys.
     ///
     /// **The one policy value in this crate, and the host is the only place it can come from.**
@@ -2034,6 +2043,15 @@ pub struct Viewing {
     /// delta has, and the same units. **Already clamped**: this is where the viewer put the
     /// reader, not where a host asked for them to be.
     pub scroll: (f32, f32),
+}
+
+/// Which way along the window's history of views [`Command::History`] steps (ADR 2805).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Retrace {
+    /// To the view the latest jump left.
+    Back,
+    /// To the view the latest step back left.
+    Forward,
 }
 
 /// ISO 32000-2 §8.10.4's target documents as a host holds them: bytes, each under a name.

@@ -403,6 +403,7 @@ pub(crate) fn describe_command(command: &Command) -> String {
             "view page {} zoom {:?} scroll {} {}",
             view.page, view.zoom, view.scroll.0, view.scroll.1
         ),
+        Command::History(way) => format!("history {way:?}"),
         Command::SetGroup { group, on } => format!("layer {group:?} {on}"),
         Command::Activate(object) => format!("activate {object:?}"),
         Command::Extract { name } => format!("extract {name:?}"),

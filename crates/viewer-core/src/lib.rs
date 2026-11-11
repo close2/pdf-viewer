@@ -88,6 +88,7 @@
 mod accessibility;
 mod command;
 mod event;
+mod history;
 mod interact;
 mod layout;
 mod located;
@@ -111,7 +112,7 @@ pub use command::{
     Answered, Archiving, AttachHome, Command, Committing, Declined, Edit, Fidelity, Find,
     FindDirection, FocusMove, Oversize, PageTarget, PointerAction, PresentationMode, Printing,
     Purpose, ReferenceFiles, Rendered, RestrictionLevel, RestrictionOverride, RestrictionPolicy,
-    RestrictionScope, Selection, Sheet, TrustPolicy, Viewing, Zoom,
+    RestrictionScope, Retrace, Selection, Sheet, TrustPolicy, Viewing, Zoom,
 };
 pub use event::{Event, Extraction, Found, Media, RenderRequest};
 pub use interact::states_a_pdf_header;

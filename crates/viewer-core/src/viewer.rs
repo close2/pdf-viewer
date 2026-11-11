@@ -36,6 +36,7 @@ mod answers;
 mod anticipation;
 mod editing;
 mod geometry;
+mod history;
 mod layout;
 mod media;
 mod navigation;
@@ -430,13 +431,16 @@ impl Viewer {
                 self.scale = if scale > 0.0 { scale } else { 1.0 };
                 events.push(damage(self.viewport));
             }
-            Command::GoTo(target) => self.go_to(target, Turn::Requested, events),
+            Command::GoTo(target) => self.turn_to(target, events),
             Command::Present(mode) => self.present(mode),
             Command::Activate(object) => self.activate(object, events),
             Command::Tick { millis } => self.tick(millis, events),
             Command::Zoom { zoom, at } => self.set_zoom(zoom, at, events),
             Command::Scroll { dx, dy } => self.scroll(dx, dy, events),
             Command::View(view) => self.restore(view, events),
+            Command::History(way) => {
+                self.retrace(way, events);
+            }
             // Two scopes in one message (ADR 1145). The window's levels are what every document
             // inherits and what one opened afterwards gets; an override is what the focused
             // document departs from them in, for as long as it is open. A document-scoped policy
