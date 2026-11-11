@@ -350,6 +350,7 @@ pub(super) fn embed(
         losses: Losses::default().with(Loss::MachineFace),
         fitting: None,
         empty_glyphs: Vec::new(),
+        empty_cids: Vec::new(),
         twin_codes: Vec::new(),
         cut_program: None,
         font: super::selected(used),
@@ -618,7 +619,7 @@ fn capital_height(face: &skrifa::FontRef<'_>, collection: Collection) -> Option<
 
 /// The extent a pen was drawn over, in the program's units.
 #[derive(Debug, Default)]
-struct Bounds(Option<[f32; 4]>);
+pub(super) struct Bounds(Option<[f32; 4]>);
 
 impl Bounds {
     fn point(&mut self, x: f32, y: f32) {
@@ -628,7 +629,7 @@ impl Bounds {
         });
     }
 
-    fn include(&mut self, other: &Self) {
+    pub(super) fn include(&mut self, other: &Self) {
         if let Some([x0, y0, x1, y1]) = other.0 {
             self.point(x0, y0);
             self.point(x1, y1);
@@ -636,7 +637,7 @@ impl Bounds {
     }
 
     /// `[x_min, y_min, x_max, y_max]`, where anything was drawn.
-    fn rectangle(&self) -> Option<[f32; 4]> {
+    pub(super) fn rectangle(&self) -> Option<[f32; 4]> {
         self.0
     }
 }

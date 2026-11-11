@@ -233,6 +233,7 @@ pub(super) fn embed(
         losses: super::Losses::default(),
         fitting: None,
         empty_glyphs: Vec::new(),
+        empty_cids: Vec::new(),
         twin_codes: Vec::new(),
         cut_program: None,
         font: super::selected(used),

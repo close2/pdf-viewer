@@ -2128,6 +2128,13 @@ impl Conversion {
                         super::fonts::empty_glyphs_given(&font.empty_glyphs)
                     );
                 }
+                if !font.empty_cids.is_empty() {
+                    let _ = write!(
+                        out,
+                        "; {}",
+                        super::fonts::empty_cids_given(&font.empty_cids)
+                    );
+                }
                 if !font.twin_codes.is_empty() {
                     let _ = write!(
                         out,
@@ -2456,6 +2463,17 @@ fn substituted_to_json(font: &SubstitutedFont) -> Value {
                 font.empty_glyphs
                     .iter()
                     .map(|code| Value::text(format!("{code:#04x}")))
+                    .collect(),
+            ),
+        ));
+    }
+    if !font.empty_cids.is_empty() {
+        fields.push((
+            "empty_cids".to_owned(),
+            Value::Array(
+                font.empty_cids
+                    .iter()
+                    .map(|cid| Value::text(cid.to_string()))
                     .collect(),
             ),
         ));

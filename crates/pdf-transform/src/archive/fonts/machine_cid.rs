@@ -98,18 +98,12 @@ pub(super) fn embed(
     let program = drawn_face(document, descendant, &font)?;
     let descendant_at = super::rekeyed::descendant_object(document, &used.dict)
         .ok_or(Because::NotBuiltYet(NOT_THIS_ROUTES))?;
-    let descriptor = descendant
-        .get("FontDescriptor")
-        .and_then(Object::as_reference)
-        .ok_or(Because::NotBuiltYet(NOT_THIS_ROUTES))?;
-    if substitutes.at.contains_key(&descriptor)
-        || substitutes.described.contains_key(&descriptor)
-        || substitutes.described.contains_key(&descendant_at)
-    {
+    if substitutes.described.contains_key(&descendant_at) {
         return Err(Because::NotBuiltYet(NOT_THIS_ROUTES));
     }
     let shown = shown(document, used, &font)?;
     let written = written(program, &shown)?;
+    let home = home_of(document, descendant, substitutes, &written, program)?;
     let mut gains = Dictionary::new();
     if name_of(document, descendant, "Subtype").as_deref() != Some("CIDFontType2") {
         gains.insert(
@@ -121,7 +115,7 @@ pub(super) fn embed(
         Name::new(&b"BaseFont"[..]),
         Object::Name(Name::new(written.name.as_bytes())),
     );
-    proved(document, used, &font, descendant, &gains, &written)?;
+    proved(document, used, &font, descendant, &gains, &written, &home)?;
 
     let at = spare
         .take(document)
@@ -140,20 +134,34 @@ pub(super) fn embed(
         map_at,
         super::rekeyed::cid_to_gid_map(&written.cid_to_glyph)?,
     );
-    substitutes.at.insert(
-        descriptor,
-        Embedding {
-            key: TRUE_TYPE.key,
-            at,
-        },
-    );
+    let embedding = Embedding {
+        key: TRUE_TYPE.key,
+        at,
+    };
+    let font_name = Object::Name(Name::new(written.name.as_bytes()));
+    match home {
+        Home::Stated(descriptor) => {
+            substitutes.at.insert(descriptor, embedding);
+            let mut named = Dictionary::new();
+            named.insert(Name::new(&b"FontName"[..]), font_name);
+            substitutes.described.insert(descriptor, named);
+        }
+        Home::Own(mut own) => {
+            let descriptor = spare
+                .take(document)
+                .ok_or(Because::NotBuiltYet(super::NO_SPARE_OBJECT))?;
+            embedding.write_into(&mut own);
+            own.insert(Name::new(&b"FontName"[..]), font_name);
+            substitutes
+                .written
+                .insert(descriptor, Object::Dictionary(own));
+            gains.insert(
+                Name::new(&b"FontDescriptor"[..]),
+                Object::Reference(descriptor),
+            );
+        }
+    }
     gains.insert(Name::new(&b"CIDToGIDMap"[..]), Object::Reference(map_at));
-    let mut named = Dictionary::new();
-    named.insert(
-        Name::new(&b"FontName"[..]),
-        Object::Name(Name::new(written.name.as_bytes())),
-    );
-    substitutes.described.insert(descriptor, named);
     substitutes.described.insert(descendant_at, gains);
     substitutes.done.push(SubstitutedFont {
         resource: used.name.clone(),
@@ -165,11 +173,185 @@ pub(super) fn embed(
         losses: loss,
         fitting: None,
         empty_glyphs: Vec::new(),
+        empty_cids: written.empty_cids,
         twin_codes: Vec::new(),
         cut_program: None,
         font: super::selected(used),
     });
     Ok(())
+}
+
+/// Where the program's descriptor stands: the object the descendant names, or one of the
+/// descendant's own that this route writes (`doc/adr/2824`).
+#[derive(Debug)]
+enum Home {
+    /// The descriptor object the descendant names, which no other route wrote a program into:
+    /// the program goes into it, under Table 124's key.
+    Stated(pdf_syntax::object::ObjectId),
+    /// A descriptor object of the descendant's own, holding these entries and the program: the
+    /// producer's, where the descendant writes its descriptor inside itself or names one another
+    /// route already wrote a program into, and every entry Table 120 requires read off the
+    /// program written, where it states none.
+    Own(Dictionary),
+}
+
+impl Home {
+    /// The descriptor's entries as the written font will hold them, before the program's key.
+    fn entries(&self, document: &Document) -> Result<Dictionary, Because> {
+        let mut entries = match self {
+            Self::Stated(at) => document
+                .resolve(&Object::Reference(*at))
+                .as_dict()
+                .cloned()
+                .ok_or(Because::NotBuiltYet(NOT_THIS_ROUTES))?,
+            Self::Own(own) => own.clone(),
+        };
+        for key in ["FontFile", "FontFile2", "FontFile3", "CIDSet"] {
+            entries.remove(key);
+        }
+        Ok(entries)
+    }
+}
+
+/// The descriptor the program goes into (ADR 2461's rule, which the pack route keeps too).
+///
+/// ISO 32000-2 Table 117 requires a `CIDFont`'s `/FontDescriptor` and makes it an indirect
+/// reference, and §9.9 embeds a program by a key of that descriptor, which holds one program. So
+/// the program goes into the descriptor the descendant names where no other route wrote one into
+/// it; otherwise the descendant is given a descriptor object of its own — where it states none,
+/// where it writes one inside itself, and where the one it names already holds another program.
+/// Every entry the producer stated is carried but the program's own (`/CIDSet` describes a
+/// program this file did not carry); a descendant stating none is given the entries Table 120
+/// requires, read off the program written ([`built_descriptor`]).
+///
+/// # Errors
+///
+/// [`Because::NotBuiltYet`] where the descriptor is no dictionary, or one cannot be measured.
+fn home_of(
+    document: &Document,
+    descendant: &Dictionary,
+    substitutes: &Substitutes,
+    written: &Written,
+    program: &[u8],
+) -> Result<Home, Because> {
+    let copied = |stated: &Object| -> Result<Home, Because> {
+        let mut own = document
+            .resolve(stated)
+            .as_dict()
+            .cloned()
+            .ok_or(Because::NotBuiltYet(NOT_THIS_ROUTES))?;
+        for key in ["FontFile", "FontFile2", "FontFile3", "CIDSet"] {
+            own.remove(key);
+        }
+        Ok(Home::Own(own))
+    };
+    match descendant.get("FontDescriptor") {
+        None | Some(Object::Null) => Ok(Home::Own(built_descriptor(&written.program, program)?)),
+        Some(Object::Reference(stated))
+            if !substitutes.at.contains_key(stated)
+                && !substitutes.described.contains_key(stated)
+                && !substitutes.written.contains_key(stated) =>
+        {
+            Ok(Home::Stated(*stated))
+        }
+        Some(stated @ (Object::Reference(_) | Object::Dictionary(_))) => copied(stated),
+        Some(_) => Err(Because::NotBuiltYet(NOT_THIS_ROUTES)),
+    }
+}
+
+/// A descriptor for a descendant that states none, every entry ISO 32000-2 Table 120 requires
+/// measured on the program written (`subset`) or stated by the face drawn (`program`).
+///
+/// Table 120 requires `/Type`, `/FontName`, `/Flags`, `/FontBBox`, `/ItalicAngle`, `/Ascent`,
+/// `/Descent` and `/StemV`, and `/CapHeight` "for fonts that have Latin characters"; `/FontName`
+/// and the program's key are written by the caller. Each value is in glyph space, a thousandth of
+/// an em (§9.2.4), scaled from the program's own units:
+///
+/// - `/Flags` is Table 121's `Symbolic` alone: a collection's characters lie outside the Standard
+///   Latin character set, the condition that flag states, and the font is reached by CID, not by
+///   a standard encoding.
+/// - `/FontBBox` encloses every glyph of the program written, `.notdef` included, which is the
+///   definition's "all of the glyphs of the font … placed with their origins coincident".
+/// - `/Ascent` and `/Descent` are the highest and lowest points of the glyphs but `.notdef`, which
+///   no shown code reaches.
+/// - `/CapHeight` is the face's own `OS/2` `sCapHeight`, stated whether or not the page shows Latin
+///   text, since the face has Latin characters wherever it states one.
+/// - `/ItalicAngle` is the face's `post` table's, and `/StemV` is 0, Table 120's "unknown stem
+///   thickness": a `glyf` program states no stem width.
+///
+/// # Errors
+///
+/// [`Because::NotBuiltYet`] where a program does not draw, its glyphs reach no point below the
+/// baseline (Table 120's `/Descent` is negative), or the face states no capital height.
+fn built_descriptor(subset: &[u8], program: &[u8]) -> Result<Dictionary, Because> {
+    use skrifa::MetadataProvider as _;
+    use skrifa::instance::{LocationRef, Size};
+    use skrifa::outline::DrawSettings;
+    use skrifa::raw::TableProvider as _;
+
+    let unmeasured = || Because::NotBuiltYet(DESCRIPTOR_NOT_MEASURED);
+    let written = skrifa::FontRef::new(subset).map_err(|_| unmeasured())?;
+    let face = skrifa::FontRef::new(program).map_err(|_| unmeasured())?;
+    let units = written
+        .metrics(Size::unscaled(), LocationRef::default())
+        .units_per_em;
+    if units == 0 {
+        return Err(unmeasured());
+    }
+    let scale = 1000.0 / f32::from(units);
+    let outlines = written.outline_glyphs();
+    let mut all = super::pack::Bounds::default();
+    let mut shown = super::pack::Bounds::default();
+    for glyph in 0..written.maxp().map_err(|_| unmeasured())?.num_glyphs() {
+        let mut pen = super::pack::Bounds::default();
+        if let Some(outline) = outlines.get(skrifa::GlyphId::new(u32::from(glyph))) {
+            outline
+                .draw(
+                    DrawSettings::unhinted(Size::unscaled(), LocationRef::default()),
+                    &mut pen,
+                )
+                .map_err(|_| unmeasured())?;
+        }
+        all.include(&pen);
+        if glyph != pdf_font::NOTDEF_GLYPH {
+            shown.include(&pen);
+        }
+    }
+    let (Some(bbox), Some([_, descent, _, ascent])) = (all.rectangle(), shown.rectangle()) else {
+        return Err(unmeasured());
+    };
+    if descent >= 0.0 {
+        return Err(unmeasured());
+    }
+    let stated = face.metrics(Size::unscaled(), LocationRef::default());
+    let cap_height = stated.cap_height.ok_or_else(unmeasured)?;
+    let number = |value: f32| {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a glyph-space measurement in thousandths of an em, rounded to the whole \
+                      unit a descriptor states it in and clamped far inside i64"
+        )]
+        Object::Integer((value * scale).round().clamp(-1.0e6, 1.0e6) as i64)
+    };
+    let mut dict = Dictionary::new();
+    dict.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"FontDescriptor"[..])),
+    );
+    dict.insert(Name::new(&b"Flags"[..]), Object::Integer(1 << 2));
+    dict.insert(
+        Name::new(&b"FontBBox"[..]),
+        Object::Array(bbox.iter().map(|side| number(*side)).collect()),
+    );
+    dict.insert(
+        Name::new(&b"ItalicAngle"[..]),
+        Object::Real(f64::from(stated.italic_angle)),
+    );
+    dict.insert(Name::new(&b"Ascent"[..]), number(ascent));
+    dict.insert(Name::new(&b"Descent"[..]), number(descent));
+    dict.insert(Name::new(&b"CapHeight"[..]), number(cap_height));
+    dict.insert(Name::new(&b"StemV"[..]), Object::Integer(0));
+    Ok(dict)
 }
 
 /// The machine's face the window drew `font` from, where it drew from one this route can write.
@@ -223,11 +405,11 @@ fn is_shipped(program: &[u8], request: Request) -> bool {
     .any(|asked| pdf_font::standard::face(asked).0 == program)
 }
 
-/// One shown CID: the glyph of the drawn face the window drew for it, its horizontal advance and,
-/// in writing mode 1, its vertical displacement, both in ems.
+/// One shown CID: the glyph of the drawn face the window drew for it, or `None` where it drew
+/// none, its horizontal advance and, in writing mode 1, its vertical displacement, both in ems.
 #[derive(Debug, Clone, Copy)]
 struct Shown {
-    glyph: u16,
+    glyph: Option<u16>,
     width: f32,
     height: Option<f32>,
 }
@@ -235,8 +417,9 @@ struct Shown {
 /// Every CID the pages show through `used`, with what the window drew for it.
 ///
 /// The CID is the predefined `CMap`'s (§9.7.5.2); a code it maps to no CID, or to CID 0 — the
-/// `CIDFont`'s own `.notdef` under §9.7.4.2 — and a code the window drew no glyph for are not
-/// this route's.
+/// `CIDFont`'s own `.notdef` under §9.7.4.2 — is not this route's. A code the face has no glyph
+/// for is drawn as nothing, at its advance, and is kept as a CID that draws nothing; one the
+/// window drew a mark for without a glyph of the face's own is not this route's.
 fn shown(
     document: &Document,
     used: &SelectedFont,
@@ -255,8 +438,10 @@ fn shown(
                 .ok_or(Because::NotBuiltYet(NOT_THIS_ROUTES))?;
             let glyph = font
                 .glyph_index(code)
-                .filter(|glyph| *glyph != pdf_font::NOTDEF_GLYPH)
-                .ok_or(Because::NotBuiltYet(NOT_THIS_ROUTES))?;
+                .filter(|glyph| *glyph != pdf_font::NOTDEF_GLYPH);
+            if glyph.is_none() && font.outline(code).is_some() {
+                return Err(Because::NotBuiltYet(NOT_THIS_ROUTES));
+            }
             let height = font.is_vertical().then(|| font.vertical_metrics(code).0[1]);
             let this = Shown {
                 glyph,
@@ -281,30 +466,51 @@ fn shown(
 }
 
 /// The program as written: the subset, its name, the map from each shown CID to its glyph in the
-/// subset, and the metric route.
+/// subset, the metric route, and the CIDs sent to a glyph that draws nothing.
 struct Written {
     program: Vec<u8>,
     name: String,
     cid_to_glyph: BTreeMap<u16, u16>,
     route: MetricRoute,
+    empty_cids: Vec<u16>,
 }
 
 /// The §9.9.2 subset of the drawn face, its advances the dictionary's.
 ///
 /// Two CIDs the window drew from one glyph at two advances cannot share it, since a program
 /// states one advance per glyph (§9.2.4), and are not this route's.
+///
+/// A CID the window drew nothing for is sent to a glyph of the subset's that draws nothing, one
+/// for each advance such CIDs are drawn at (`doc/adr/2824`). ISO 19005-2 section 6.2.11.8 and ISO
+/// 19005-4 section 6.2.10.9 forbid a text-showing operator to reference `.notdef`, which glyph 0
+/// is (§9.9.2), so the `/CIDToGIDMap` may not send the CID there; an empty glyph draws what the
+/// window drew. It states no character: a `CIDFontType2`'s CID reaches a glyph by index alone
+/// (§9.7.4.2), and what the CID means is still its collection's and the `/ToUnicode`'s, which
+/// this route leaves untouched.
 fn written(program: &[u8], shown: &BTreeMap<u16, Shown>) -> Result<Written, Because> {
-    let glyphs: BTreeSet<u16> = shown.values().map(|held| held.glyph).collect();
-    let subset = pdf_font::embed::for_embedding(program, &glyphs)
+    let glyphs: BTreeSet<u16> = shown.values().filter_map(|held| held.glyph).collect();
+    let mut blanks: BTreeMap<(u32, Option<u32>), usize> = BTreeMap::new();
+    for held in shown.values().filter(|held| held.glyph.is_none()) {
+        let next = blanks.len();
+        blanks.entry(blank_key(*held)).or_insert(next);
+    }
+    let count = u16::try_from(blanks.len()).map_err(|_| Because::NotBuiltYet(NOT_THIS_ROUTES))?;
+    let (subset, empty) = pdf_font::embed::for_embedding_with_empty_glyphs(program, &glyphs, count)
         .map_err(|_| Because::NotBuiltYet(NOT_THIS_ROUTES))?;
     let mut cid_to_glyph = BTreeMap::new();
+    let mut empty_cids = Vec::new();
     let mut widths: BTreeMap<u16, f32> = BTreeMap::new();
     let mut heights: BTreeMap<u16, f32> = BTreeMap::new();
     for (cid, held) in shown {
-        let glyph = *subset
-            .glyphs
-            .get(&held.glyph)
-            .ok_or(Because::NotBuiltYet(NOT_THIS_ROUTES))?;
+        let glyph = if let Some(drawn) = held.glyph {
+            subset.glyphs.get(&drawn)
+        } else {
+            empty_cids.push(*cid);
+            blanks
+                .get(&blank_key(*held))
+                .and_then(|index| empty.get(*index))
+        };
+        let glyph = *glyph.ok_or(Because::NotBuiltYet(NOT_THIS_ROUTES))?;
         cid_to_glyph.insert(*cid, glyph);
         for (map, value) in [(&mut widths, Some(held.width)), (&mut heights, held.height)] {
             let Some(value) = value else { continue };
@@ -349,7 +555,13 @@ fn written(program: &[u8], shown: &BTreeMap<u16, Shown>) -> Result<Written, Beca
         name: subset.name,
         cid_to_glyph,
         route,
+        empty_cids,
     })
+}
+
+/// The metrics an empty glyph is written at: the advance and the vertical displacement, as bits.
+fn blank_key(held: Shown) -> (u32, Option<u32>) {
+    (held.width.to_bits(), held.height.map(f32::to_bits))
 }
 
 /// Writes the composite font as it will stand into a document of its own and holds it to the
@@ -367,6 +579,7 @@ fn proved(
     descendant: &Dictionary,
     gains: &Dictionary,
     written: &Written,
+    home: &Home,
 ) -> Result<(), Because> {
     let unproved = |_| Because::NotBuiltYet(NOT_PROVED);
     let mut assembly = Assembly::new(Vec::new());
@@ -379,14 +592,11 @@ fn proved(
     let program_at = assembly.add(program).map_err(unproved)?;
     let map = super::rekeyed::cid_to_gid_map(&written.cid_to_glyph)?;
     let map_at = assembly.add(map).map_err(unproved)?;
-    let stated = document.get_key(descendant, "FontDescriptor");
-    let Object::Dictionary(mut descriptor) = super::described::resolved(document, &stated, 4)
+    let Object::Dictionary(mut descriptor) =
+        super::described::resolved(document, &Object::Dictionary(home.entries(document)?), 4)
     else {
         return Err(Because::NotBuiltYet(NOT_PROVED));
     };
-    for key in ["FontFile", "FontFile2", "FontFile3", "CIDSet"] {
-        descriptor.remove(key);
-    }
     descriptor.insert(
         Name::new(TRUE_TYPE.key.as_bytes()),
         Object::Reference(program_at),
@@ -497,6 +707,11 @@ fn bits((displacement, position): ([f32; 2], [f32; 2])) -> [u32; 4] {
 /// route can write, or the font is shaped in a way the module documentation lists.
 const NOT_THIS_ROUTES: &str = "the composite font is not drawn from a machine's glyf face this \
      route can embed as the window drew it";
+
+/// Why a descendant stating no descriptor is not given one.
+const DESCRIPTOR_NOT_MEASURED: &str = "the composite font's descendant states no descriptor, and \
+     the machine's face the window drew it from does not state every entry ISO 32000-2 Table 120 \
+     requires of one: its glyphs reach no point below the baseline, or it states no capital height";
 
 /// Why a written font that did not draw what the window drew is not written.
 const NOT_PROVED: &str = "the composite font written with the machine's face the window drew \
