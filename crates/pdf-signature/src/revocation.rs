@@ -1850,7 +1850,7 @@ fn verify(
         || x509::dotted(algorithm).unwrap_or_else(|| "an unreadable object identifier".to_owned());
     match (crate::cms::SignatureAlgorithm::from_oid(algorithm), key) {
         (crate::cms::SignatureAlgorithm::RsaPkcs1V15, PublicKey::Rsa(key)) => {
-            let digest = x509::signature_digest(algorithm).ok_or_else(named)?;
+            let digest = crate::certificate_signature::digest(algorithm).ok_or_else(named)?;
             let computed = digest.compute(&[message]);
             pkcs1::verify(key, signature, digest, &computed).map_err(|_| named())
         }
@@ -1860,12 +1860,12 @@ fn verify(
             pss::verify(key, signature, parameters, &computed).map_err(|_| named())
         }
         (crate::cms::SignatureAlgorithm::Dsa, PublicKey::Dsa(key)) => {
-            let digest = x509::signature_digest(algorithm).ok_or_else(named)?;
+            let digest = crate::certificate_signature::digest(algorithm).ok_or_else(named)?;
             let computed = digest.compute(&[message]);
             dsa::verify(key, signature, &computed).map_err(|_| named())
         }
         (crate::cms::SignatureAlgorithm::Ecdsa, PublicKey::Ec(key)) => {
-            let digest = x509::signature_digest(algorithm).ok_or_else(named)?;
+            let digest = crate::certificate_signature::digest(algorithm).ok_or_else(named)?;
             let computed = digest.compute(&[message]);
             ecdsa::verify(key, signature, &computed).map_err(|_| named())
         }

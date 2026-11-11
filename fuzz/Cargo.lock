@@ -1802,6 +1802,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pdf-pki"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "cbc",
+ "const-oid",
+ "crypto-bigint",
+ "thiserror",
+]
+
+[[package]]
 name = "pdf-render"
 version = "0.1.0"
 dependencies = [
@@ -1859,6 +1870,7 @@ dependencies = [
  "p256",
  "p384",
  "p521",
+ "pdf-pki",
  "pdf-syntax",
  "primefield",
  "primeorder",
@@ -1884,7 +1896,9 @@ dependencies = [
  "flate2",
  "getrandom",
  "md-5",
+ "pdf-pki",
  "rc4",
+ "sha1",
  "sha2",
  "stringprep",
  "thiserror",
@@ -1937,6 +1951,7 @@ dependencies = [
  "pdf-formcalc",
  "pdf-jpx-write",
  "pdf-model",
+ "pdf-pki",
  "pdf-render",
  "pdf-sandbox",
  "pdf-script",

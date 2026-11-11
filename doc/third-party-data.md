@@ -134,10 +134,30 @@ read off the repository's own licence file rather than off GitHub's guess:
 | `doc/corpora/pdf-differences` | `LICENSE`: the Apache License 2.0 in full — **and the root `README.md` splits the repository in two**: "PDF files are copyright by the PDF Association and distributed under a [Creative Common Attribution 4.0 International (CC BY 4.0) license](https://creativecommons.org/licenses/by/4.0/). Any source code in this repository is licensed under [Apache License, Version 2.0]" | submodule and copy freely; a **PDF** copied out carries CC BY 4.0's attribution rather than Apache-2.0's notice, and the `README.md` beside each test case is where the attribution comes from |
 | `doc/corpora/pdfbox` | `LICENSE.txt` Apache-2.0, with `NOTICE.txt` beside it | as above, and `NOTICE.txt` is the file §4(d) obliges anyone redistributing to carry — which is why the sparse checkout keeps the repository root rather than the test directory alone |
 
-**Nothing is copied**, so none of those obligations is live: a witness is named by its path inside
-a pinned submodule, and the only `.pdf` files under `crates/` (`find crates -name '*.pdf'`) are
-fixtures this tree builds itself (ADR 1059). That is the cheapest answer to a licence question, and
-it is the rule rather than an accident.
+**Nothing is copied but one set of keys**, so all but one of those obligations is not live. A
+witness is named by its path inside a pinned submodule, and the only `.pdf` files under `crates/`
+(`find crates -name '*.pdf'`) are fixtures this tree builds itself (ADR 1059). That is the cheapest
+answer to a licence question, and it is the rule rather than an accident.
+
+**The one exception: `doc/corpora/pdfbox`'s two test keystores, as four DER files** (ADR 2802).
+
+- **What is copied.** `crates/pdf-syntax/tests/public_key_witnesses/testnutzer.certificate.der` and
+  `testnutzer.key.der` come from `PDFBOX-4421-keystore.pfx`, password `w!z%C*F-JaNdRgUk`.
+  `test.certificate.der` and `test.key.der` come from `PDFBOX-5249.p12`, with an empty password.
+  Both passwords are the ones PDFBox's `TestPublicKeyEncryption` passes. Both keystores sit in
+  `pdfbox/src/test/resources/org/apache/pdfbox/encryption/`.
+- **How.** `openssl pkcs12 -legacy -nocerts -nodes … | openssl pkcs8 -topk8 -nocrypt -outform DER`
+  converts a key, and `openssl pkcs12 -legacy -nokeys … | openssl x509 -outform DER` converts a
+  certificate.
+- **The licence.** Apache-2.0. Section 4(d) is live for these files, so `/NOTICE`'s third section
+  carries Apache PDFBox's `NOTICE.txt` verbatim.
+- **Why copy rather than name.** §7.6.5's witnesses decrypt only under a recipient's private key, and
+  no clause yields one. The keystores hold the key under RFC 7292's 40-bit RC2, and reading PKCS #12
+  is not this tree's code. So the end-to-end test needs the key itself, in the form a host hands
+  `RecipientKey::new`.
+- **What they are not.** These are published test keys and belong to no reader. They are not in the
+  binary.
+- **Scope.** Nothing else is copied. A further copy needs its own entry here.
 
 **`openpreserve/format-corpus`** carries no licence GitHub detects; its `README.md` says "[a]ll
 items are CC0 licenced **unless otherwise stated**", and per-file `.md` sidecars are where such a

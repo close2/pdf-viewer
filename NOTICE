@@ -196,6 +196,37 @@ the files, and doc/third-party-data.md is the full reading.
                                 Science to Digital Forensics with Standardized Forensic Corpora,
                                 DFRWS 2009, Montreal, Canada.
 
+One thing IS copied out of those corpora, and its notice is therefore an obligation rather than a
+courtesy. crates/pdf-syntax/tests/public_key_witnesses/ holds four DER files — test.certificate.der,
+test.key.der, testnutzer.certificate.der and testnutzer.key.der — that are the certificates and RSA
+private keys of Apache PDFBox's published test keystores PDFBOX-5249.p12 and
+PDFBOX-4421-keystore.pfx, converted with openssl. They are test fixtures and are not in the binary.
+They are Apache-2.0, and section 4(d) of that licence asks that Apache PDFBox's NOTICE travel with
+them. It reads, verbatim:
+
+    Apache PDFBox
+    Copyright 2014 The Apache Software Foundation
+
+    This product includes software developed at
+    The Apache Software Foundation (http://www.apache.org/).
+
+    Based on source code originally developed in the PDFBox and
+    FontBox projects.
+
+    Copyright (c) 2002-2007, www.pdfbox.org
+
+    Based on source code originally developed in the PaDaF project.
+    Copyright (c) 2010 Atos Worldline SAS
+
+    Includes the Adobe Glyph List
+    Copyright 1997, 1998, 2002, 2007, 2010 Adobe Systems Incorporated.
+
+    Includes the Zapf Dingbats Glyph List
+    Copyright 2002, 2010 Adobe Systems Incorporated.
+
+    Includes OSXAdapter
+    Copyright (C) 2003-2007 Apple, Inc., All Rights Reserved
+
 -------------------------------------------------------------------------------
 4. The ICC profiles
 -------------------------------------------------------------------------------

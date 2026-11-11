@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use super::{Document, write};
-use crate::crypt::{Encryption, Method, Permissions};
+use crate::crypt::{Encryption, Method, Permissions, RecipientKey};
 use crate::error::{SyntaxError, SyntaxResult};
 use crate::object::{Dictionary, Name, Object, ObjectId, Stream};
 
@@ -17,7 +17,14 @@ impl Document {
     /// exception — "Any strings in an Encrypt dictionary" — true of the dictionary this
     /// reads. Anything else loaded along the way is dropped from the cache afterwards,
     /// because it was read before there was a key.
-    pub(super) fn authenticate(&mut self, password: &str) -> SyntaxResult<()> {
+    ///
+    /// `password` opens a standard handler's document (§7.6.4) and `recipient` a public-key
+    /// handler's (§7.6.5); each handler reads the one that is its own.
+    pub(super) fn authenticate(
+        &mut self,
+        password: &str,
+        recipient: Option<&RecipientKey>,
+    ) -> SyntaxResult<()> {
         let Some(entry) = self.trailer().get("Encrypt").cloned() else {
             return Ok(());
         };
@@ -67,8 +74,9 @@ impl Document {
             .and_then(|item| item.as_string().map(<[u8]>::to_vec))
             .unwrap_or_default();
 
-        let encryption =
-            Encryption::new(&dict, &id_first, password, &|object| self.resolve(object))?;
+        let encryption = Encryption::new(&dict, &id_first, password, recipient, &|object| {
+            self.resolve(object)
+        })?;
         write(&self.cache).clear();
         write(&self.expanded_streams).clear();
         // Anything decoded on the way to the key was decoded from ciphertext, so what is held

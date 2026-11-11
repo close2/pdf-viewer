@@ -268,10 +268,42 @@ impl Document {
         limits: Limits,
         password: &str,
     ) -> SyntaxResult<Self> {
-        let bytes = bytes.into();
+        Self::open_with_credentials(bytes.into(), limits, password, None)
+    }
+
+    /// Opens a document encrypted by a public-key security handler, as the reader `recipient`
+    /// identifies.
+    ///
+    /// ISO 32000-2 §7.6.5.1: "the PDF reader shall scan the recipient list for which the content
+    /// is encrypted and shall attempt to find a match with a certificate that belongs to the
+    /// user." The certificate and its private key are the reader's own and are handed in by the
+    /// host that holds them; nothing here reads a key from a path or from the document. A
+    /// document that is not encrypted, or encrypted by the standard handler, opens as
+    /// [`Self::open_with_limits`] opens it.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::open`], plus [`crate::SyntaxError::RecipientRequired`] when no recipient list
+    /// names the certificate, and [`crate::SyntaxError::RecipientKey`] when the key does not open
+    /// the list that does.
+    pub fn open_with_recipient(
+        bytes: impl Into<FileBytes>,
+        limits: Limits,
+        recipient: &crate::RecipientKey,
+    ) -> SyntaxResult<Self> {
+        Self::open_with_credentials(bytes.into(), limits, "", Some(recipient))
+    }
+
+    /// The body of [`Self::open_with_password`] and [`Self::open_with_recipient`].
+    fn open_with_credentials(
+        bytes: FileBytes,
+        limits: Limits,
+        password: &str,
+        recipient: Option<&crate::RecipientKey>,
+    ) -> SyntaxResult<Self> {
         let xref = crate::xref::read(&bytes, limits)?;
         let mut document = Self::around(bytes.clone(), xref, limits);
-        document.authenticate(password)?;
+        document.authenticate(password, recipient)?;
         // Nothing for a document whose table the file supplied, and §7.5.7's other half of the
         // recovery for one whose table came from a scan. It runs *after* authentication because
         // an object stream in an encrypted file is ciphertext until there is a key, and before
@@ -293,7 +325,7 @@ impl Document {
         {
             rebuilt.keep_stated(&document.xref);
             let mut second = Self::around(bytes, rebuilt, limits);
-            if second.authenticate(password).is_ok() {
+            if second.authenticate(password, recipient).is_ok() {
                 second.recover_compressed_objects();
                 if second.catalog().is_ok() {
                     return Ok(second);

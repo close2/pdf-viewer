@@ -1,29 +1,25 @@
 //! ISO 32000-2 §7.6.5's witness set: the documents a public-key build is tested against.
 //!
-//! # Why this file exists before the build does
+//! # What the set proves
 //!
-//! §7.6.5 is refused by name (ADR 1134) and waits for the trigger `doc/questions/A66` names.
-//! `doc/questions/A168` rules that the documents below are **not** that trigger — a published
-//! test key is held by nobody in particular — and makes them the end-to-end witness set the
-//! build is tested against when a real trigger fires. This file is where that set is written
-//! down as something that fails: each document's `/Recipients` names the certificate of a
-//! keystore the `PDFBox` corpus ships beside it, and a later build extends each case from "the
-//! recipient is this keystore's certificate" to "and the plaintext `PDFBox`'s own test states
-//! comes out".
+//! `doc/questions/A168` makes the documents below the end-to-end witness set of §7.6.5's
+//! public-key security handler (`doc/questions/A800` ordered the handler built). Each document's
+//! `/Recipients` names the certificate of a keystore the `PDFBox` corpus ships beside it, and the
+//! handler opens each one with that keystore's certificate and private key and gives back the page
+//! text `PDFBox`'s own test states.
 //!
-//! §7.6.5.1 is the reader's one `shall` here, and it is the step these tests stop short of: "the
-//! PDF reader shall scan the recipient list for which the content is encrypted and shall attempt
-//! to find a match with a certificate that belongs to the user." Table 27 puts the list in the
-//! crypt filter dictionary for `/SubFilter /adbe.pkcs7.s5`, and each item is a CMS
-//! `EnvelopedData` (RFC 5652 section 6.1) whose recipient is named by issuer and serial number.
+//! §7.6.5.1 is the reader's one `shall` here: "the PDF reader shall scan the recipient list for
+//! which the content is encrypted and shall attempt to find a match with a certificate that
+//! belongs to the user." Table 27 puts the list in the crypt filter dictionary for `/SubFilter
+//! /adbe.pkcs7.s5`, and each item is a CMS `EnvelopedData` (RFC 5652 section 6.1) whose recipient
+//! is named by issuer and serial number.
 //!
 //! # Where each side of the comparison comes from
 //!
 //! **The recipients** are read by this crate's own parser — the cross-reference table, the
 //! encryption dictionary as an indirect object, its `/CF` — and walked as DER by the short
-//! reader below. It is a test-local reader rather than `pdf_signature::der` because that crate
-//! sits *above* this one, and a dev-dependency upward is the cycle `doc/crate-map.md` forbids;
-//! `A66`'s shared crate below both is where the build moves it.
+//! reader below — a reader of the test's own, so that the recipient the handler matches is
+//! checked by something other than the handler's `pdf_pki::enveloped`.
 //!
 //! **The certificates** are evidence, not this tree's reading. Both keystores keep their
 //! certificate bag under `pbeWithSHA1And40BitRC2-CBC` (RFC 7292 appendix C), a cipher nothing in
@@ -32,6 +28,16 @@
 //! -issuer -serial`, with the passwords `PDFBox`'s `TestPublicKeyEncryption` passes: for
 //! `PDFBOX-4421-keystore.pfx`, `CN=testnutzer`, serial `5F609C62`; for `PDFBOX-5249.p12` (empty
 //! password), `CN=test`, serial `60FFD550`. Each keystore holds one certificate, self-issued.
+//!
+//! **The keys** are the same keystores' private keys, converted to the form a host hands
+//! [`RecipientKey::new`] — the certificate's DER and RFC 5958's `OneAsymmetricKey` — with
+//! `openssl pkcs12 -legacy -nocerts -nodes … | openssl pkcs8 -topk8 -nocrypt -outform DER` and
+//! `openssl pkcs12 -legacy -nokeys … | openssl x509 -outform DER`, into
+//! `tests/public_key_witnesses/`. They are Apache-2.0 data of `PDFBox`'s (`doc/third-party-data.md`
+//! under `doc/corpora/pdfbox`), published test keys that belong to no reader. A format conversion
+//! is all `openssl` contributes: what each test expects back is the text `PDFBox`'s
+//! `TestPublicKeyEncryption` states for the page, and the clause's algorithm is what has to produce
+//! it.
 //!
 //! # The fifth document
 //!
@@ -43,13 +49,15 @@
 #![expect(
     clippy::panic,
     clippy::expect_used,
-    reason = "test code: a witness that cannot be read must fail loudly"
+    clippy::arithmetic_side_effects,
+    reason = "test code: a witness that cannot be read must fail loudly, and the test-local readers \
+              step through bytes of a known size"
 )]
 
 use std::path::{Path, PathBuf};
 
 use pdf_syntax::xref::{self, Location};
-use pdf_syntax::{FileBytes, Limits, Object, Parser};
+use pdf_syntax::{Document, FileBytes, Limits, Object, Parser, RecipientKey, SyntaxError};
 
 /// `id-envelopedData`, 1.2.840.113549.1.7.3 (RFC 5652 section 6.1), as DER content octets.
 const ENVELOPED_DATA: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x03];
@@ -341,5 +349,272 @@ fn the_fifth_document_matches_no_keystore_in_the_tree() {
     );
     for keystore in [TESTNUTZER, TEST] {
         assert_ne!(only.serial, keystore.serial, "not {}", keystore.file);
+    }
+}
+
+/// A keystore's certificate and private key, as a host would hand them over.
+fn recipient_key(name: &str) -> RecipientKey {
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/public_key_witnesses");
+    let read = |suffix: &str| {
+        std::fs::read(directory.join(format!("{name}.{suffix}.der"))).expect("a key fixture")
+    };
+    RecipientKey::new(read("certificate"), &read("key")).expect("the keystore's key reads")
+}
+
+/// Page one's content streams, decoded and joined.
+fn page_content(document: &Document) -> Vec<u8> {
+    let catalog = document.catalog().expect("a catalogue");
+    let pages = document.get_key(&catalog, "Pages");
+    let kids = document.get_key(pages.as_dict().expect("a page tree"), "Kids");
+    let page = document.resolve(kids.as_array().and_then(<[Object]>::first).expect("a kid"));
+    let contents = document.get_key(page.as_dict().expect("a page"), "Contents");
+    let streams: Vec<Object> = match &contents {
+        Object::Array(items) => items.iter().map(|item| document.resolve(item)).collect(),
+        other => vec![other.clone()],
+    };
+    streams
+        .iter()
+        .flat_map(|item| {
+            let stream = item.as_stream().expect("a content stream");
+            document
+                .decoded_stream_data(stream)
+                .expect("it decodes")
+                .to_vec()
+        })
+        .collect()
+}
+
+/// The text page one shows: every hexadecimal string in its content stream, read through the
+/// `/ToUnicode` `CMap` (§9.10.3) of the font `Tf` last selected, two-byte codes as the witnesses'
+/// `Identity-H` fonts use.
+///
+/// The witnesses draw their text as glyph identifiers, so the page's words are only reachable
+/// through the `CMap`s — which are themselves streams the handler had to decrypt. A test-local reader
+/// of `bfchar` and `bfrange`, because the `CMap` parser is `pdf-model`'s, above this crate.
+fn shown_text(document: &Document, content: &[u8]) -> String {
+    let catalog = document.catalog().expect("a catalogue");
+    let pages = document.get_key(&catalog, "Pages");
+    let kids = document.get_key(pages.as_dict().expect("a page tree"), "Kids");
+    let page = document.resolve(kids.as_array().and_then(<[Object]>::first).expect("a kid"));
+    let resources = document.get_key(page.as_dict().expect("a page"), "Resources");
+    let fonts = document.get_key(resources.as_dict().expect("resources"), "Font");
+    let maps: std::collections::BTreeMap<Vec<u8>, _> = fonts
+        .as_dict()
+        .expect("fonts")
+        .iter()
+        .map(|(name, font)| {
+            let font = document.resolve(font);
+            let cmap = document.get_key(font.as_dict().expect("a font"), "ToUnicode");
+            let cmap = document
+                .decoded_stream_data(cmap.as_stream().expect("a ToUnicode stream"))
+                .expect("it decodes");
+            (name.as_bytes().to_vec(), to_unicode(&cmap))
+        })
+        .collect();
+    let mut shown = String::new();
+    let mut font: &[u8] = &[];
+    let tokens: Vec<&[u8]> = content
+        .split(u8::is_ascii_whitespace)
+        .filter(|token| !token.is_empty())
+        .collect();
+    for (at, token) in tokens.iter().enumerate() {
+        if let Some(name) = token.strip_prefix(b"/")
+            && tokens.get(at + 2) == Some(&&b"Tf"[..])
+        {
+            font = name;
+        }
+        // A string's closing `>` may be followed by its operator with no space between.
+        if let Some(rest) = token.strip_prefix(b"<")
+            && let Some(inner) = rest.split(|&byte| byte == b'>').next()
+            && let Some(map) = maps.get(font)
+        {
+            for pair in inner.chunks(4) {
+                let code = u32::from_str_radix(std::str::from_utf8(pair).expect("ASCII"), 16)
+                    .expect("hexadecimal");
+                shown.extend(map.get(&code).copied().and_then(char::from_u32));
+            }
+        }
+    }
+    shown
+}
+
+/// A `ToUnicode` `CMap`'s `bfchar` and `bfrange` entries with single-code destinations.
+fn to_unicode(cmap: &[u8]) -> std::collections::BTreeMap<u32, u32> {
+    let mut map = std::collections::BTreeMap::new();
+    let tokens: Vec<&[u8]> = cmap
+        .split(u8::is_ascii_whitespace)
+        .filter(|token| !token.is_empty())
+        .collect();
+    let hex = |token: &[u8]| -> u32 {
+        let inner = token
+            .strip_prefix(b"<")
+            .and_then(|rest| rest.strip_suffix(b">"))
+            .expect("a hexadecimal string");
+        u32::from_str_radix(std::str::from_utf8(inner).expect("ASCII"), 16).expect("hexadecimal")
+    };
+    let mut at = 0;
+    while at < tokens.len() {
+        if tokens[at] == b"beginbfchar" {
+            at += 1;
+            while tokens[at] != b"endbfchar" {
+                map.insert(hex(tokens[at]), hex(tokens[at + 1]));
+                at += 2;
+            }
+        } else if tokens[at] == b"beginbfrange" {
+            at += 1;
+            while tokens[at] != b"endbfrange" {
+                let (low, high, first) =
+                    (hex(tokens[at]), hex(tokens[at + 1]), hex(tokens[at + 2]));
+                for code in low..=high {
+                    map.insert(code, first + (code - low));
+                }
+                at += 3;
+            }
+        }
+        at += 1;
+    }
+    map
+}
+
+/// The four documents, the keystore each is encrypted to, and the text `PDFBox`'s
+/// `TestPublicKeyEncryption` states for each, split into the strings the page shows.
+const OPENED: [(&str, &str, &[&str]); 4] = [
+    ("AESkeylength128.pdf", "testnutzer", &["Key length: 128"]),
+    ("AESkeylength256.pdf", "testnutzer", &["Key length: 256"]),
+    (
+        "AES128ExposedMeta.pdf",
+        "test",
+        &["AES key length: 128", "with exposed Metadata"],
+    ),
+    (
+        "AES256ExposedMeta.pdf",
+        "test",
+        &["AES key length: 256", "with exposed Metadata"],
+    ),
+];
+
+/// Whether `haystack` holds `needle` as consecutive bytes.
+fn holds(haystack: &[u8], needle: &str) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle.as_bytes())
+}
+
+/// §7.6.5.1 to §7.6.5.3 end to end: each document opens with its keystore's key, and page one's
+/// content stream — AES-128 at `/V` 4 and AES-256 at `/V` 5, under the key §7.6.5.3 digests from
+/// the seed — decrypts to the text the page shows.
+///
+/// The two `ExposedMeta` documents state `/EncryptMetadata false` in their crypt filter, which is
+/// §7.6.5.3 step c)'s case, "4 bytes with the value 0xFF if ... the document metadata is being
+/// left as plaintext": a key digested without them decrypts nothing, so these two are the step's
+/// witness.
+#[test]
+fn each_witness_opens_with_its_keystore_s_key_and_shows_its_text() {
+    for (name, keystore, text) in OPENED {
+        let bytes = std::fs::read(pdfbox_encryption().join(name)).expect("a witness");
+        let document =
+            Document::open_with_recipient(bytes, Limits::DEFAULT, &recipient_key(keystore))
+                .unwrap_or_else(|error| panic!("{name} opens with {keystore}'s key: {error}"));
+        let shown = shown_text(&document, &page_content(&document));
+        for line in text {
+            assert!(
+                shown.contains(line),
+                "{name}'s page shows {line:?}, not {shown:?}"
+            );
+        }
+        // §7.6.5.3: "For adbe.pkcs7.s5 ... the permissions shall be the same as adbe.pkcs7.s4",
+        // and s4's are "security handlers of revision 3 permissions".
+        let permissions = document.permissions().expect("an encrypted document");
+        assert_eq!(permissions.revision, 3, "{name}");
+    }
+}
+
+/// Without a key, and with a key whose certificate no list names, §7.6.5.1's scan finds no match
+/// and says so — the public-key handler's "password required" — rather than calling the document
+/// unsupported or drawing ciphertext.
+#[test]
+fn a_reader_the_recipient_list_does_not_name_is_asked_for_a_certificate() {
+    let bytes = std::fs::read(pdfbox_encryption().join("AESkeylength128.pdf")).expect("a witness");
+    assert!(matches!(
+        Document::open(bytes.clone()),
+        Err(SyntaxError::RecipientRequired)
+    ));
+    assert!(matches!(
+        Document::open_with_recipient(bytes, Limits::DEFAULT, &recipient_key("test")),
+        Err(SyntaxError::RecipientRequired)
+    ));
+}
+
+/// The plant: the right certificate with another keystore's private key. The scan matches, RFC
+/// 8017's decoding fails, and the refusal names the key rather than the document.
+#[test]
+fn a_certificate_with_the_wrong_private_key_is_refused_as_the_key() {
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/public_key_witnesses");
+    let certificate = std::fs::read(directory.join("testnutzer.certificate.der")).expect("a key");
+    let other_key = std::fs::read(directory.join("test.key.der")).expect("a key");
+    let mismatched = RecipientKey::new(certificate, &other_key).expect("both read");
+    let bytes = std::fs::read(pdfbox_encryption().join("AESkeylength256.pdf")).expect("a witness");
+    assert!(matches!(
+        Document::open_with_recipient(bytes, Limits::DEFAULT, &mismatched),
+        Err(SyntaxError::RecipientKey { .. })
+    ));
+    // And a key that is not a key at all is refused when it is handed over.
+    assert!(matches!(
+        RecipientKey::new(vec![0x30, 0x00], &[0x30, 0x00]),
+        Err(SyntaxError::RecipientKey { .. })
+    ));
+}
+
+/// The census's `PDFBOX-4421-2.pdf` and `-3.pdf`, the attachments of the same report that are
+/// not byte-identical to the corpus's two, open with the same key. Skips where the
+/// machine-local crawl is absent.
+#[test]
+fn the_census_s_other_two_open_with_the_same_key() {
+    let batch = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../corpus-cache/tika-issue-tracker/batch1/PDFBOX");
+    for index in 2..4 {
+        let Ok(bytes) = std::fs::read(batch.join(format!("PDFBOX-4421-{index}.pdf"))) else {
+            continue;
+        };
+        let document =
+            Document::open_with_recipient(bytes, Limits::DEFAULT, &recipient_key("testnutzer"));
+        assert!(
+            document.is_ok(),
+            "PDFBOX-4421-{index}.pdf: {:?}",
+            document.err()
+        );
+    }
+}
+
+/// Table 23's `/Recipients` without crypt filters, at `/SubFilter` `adbe.pkcs7.s3` and `s4`.
+///
+/// No document this tree holds uses either, so both are written for this test by a script that
+/// states its own algorithm (`gen_s34.py`, kept with the round that wrote it): a page and an
+/// information dictionary under §7.6.3.2's Algorithm 1 with RC4 and a 128-bit key, the key
+/// §7.6.5.3's SHA-1 over a 20-byte seed and the one recipient list, and the list a CMS
+/// `EnvelopedData` that `openssl cms -encrypt` made for `PDFBOX-4421-keystore.pfx`'s certificate
+/// over the seed and Table 24's word with bits 3 and 5 set. So what each must decrypt to is what
+/// the script wrote, and the permissions are read with the revision §7.6.5.3 assigns: "only those
+/// specified for revision 2" at s3, and "revision 3 permissions" at s4.
+#[test]
+fn a_recipient_list_in_the_encryption_dictionary_opens_at_s3_and_s4() {
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/public_key_witnesses");
+    for (sub_filter, revision) in [("s3", 2), ("s4", 3)] {
+        let bytes = std::fs::read(directory.join(format!("adbe-pkcs7-{sub_filter}.pdf")))
+            .expect("a fixture");
+        let document =
+            Document::open_with_recipient(bytes, Limits::DEFAULT, &recipient_key("testnutzer"))
+                .unwrap_or_else(|error| panic!("{sub_filter} opens: {error}"));
+        assert!(holds(
+            &page_content(&document),
+            &format!("(Public key {sub_filter}) Tj")
+        ));
+        let permissions = document.permissions().expect("encrypted");
+        assert_eq!(permissions.revision, revision);
+        assert!(
+            permissions.print && permissions.copy,
+            "bits 3 and 5 are set"
+        );
+        assert!(!permissions.modify && !permissions.annotate && !permissions.owner);
     }
 }

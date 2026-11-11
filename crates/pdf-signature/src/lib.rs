@@ -19,11 +19,13 @@
 //! 5280's certificate out of that, [`ess`] reads RFC 5035's signing-certificate attribute that
 //! §12.8.3.4.5 step a) compares against it, [`trust`] builds and validates a certification path
 //! from them (RFC 5280 section 6.1), [`revocation`] reads §12.8.4's CRLs and OCSP responses and
-//! applies them to that path, and [`der`] is the X.690 tag-length-value reader all of them are
-//! built on — the tree's only ASN.1. Then one module per family Table 260 names: [`pkcs1`] and
-//! [`pss`] for RFC 8017's two RSA paddings, [`dsa`], [`ecdsa`], and [`eddsa`] for the row ISO/TS
-//! 32002 section 5.1.2 adds. `bigint` is the seam over `crypto-bigint` that keeps the budgets
-//! and the refusal names this project's own while the multiplications are reviewed code.
+//! applies them to that path. [`der`], the X.690 tag-length-value reader all of them are built on
+//! and the tree's only ASN.1, and `bigint`, the seam over `crypto-bigint` that keeps the budgets
+//! and the refusal names this project's own while the multiplications are reviewed code, live in
+//! `pdf-pki` beside [`x509`], because the public-key security handler below this crate reads the
+//! same encodings. Then one module per family Table 260 names: [`pkcs1`] and [`pss`] for RFC
+//! 8017's two RSA paddings, [`dsa`], [`ecdsa`], and [`eddsa`] for the row ISO/TS 32002 section
+//! 5.1.2 adds.
 //! `brainpool_p512` and `ed448` are the two curves no reviewed package carries, private stopgaps
 //! behind [`ecdsa`]'s and [`eddsa`]'s named-curve seams until one does (the owner's answer A170,
 //! ADRs 1385 and 1386); nothing of either is re-exported.
@@ -80,10 +82,10 @@
 #![warn(missing_docs)]
 
 pub mod attribute_certificate;
-mod bigint;
+use pdf_pki::bigint;
 mod brainpool_p512;
+mod certificate_signature;
 pub mod cms;
-pub mod der;
 pub mod dsa;
 pub mod ecdsa;
 mod ed448;
@@ -99,4 +101,11 @@ pub mod signature;
 pub mod timestamp;
 pub mod trust;
 pub mod verdict;
-pub mod x509;
+/// The two encodings every module here is built on, DER and the certificate.
+///
+/// They live in `pdf-pki`, below `pdf-syntax`, because the public-key security handler reads
+/// them too; they are re-exported because their types appear in this crate's own API, so
+/// `pdf_signature::der` and `pdf_signature::x509` stay the paths the rest of the tree uses.
+pub use pdf_pki::{der, x509};
+#[cfg(test)]
+mod x509_fixtures;

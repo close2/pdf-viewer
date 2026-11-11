@@ -1,4 +1,5 @@
-//! ISO 32000-2 §7.6, encryption: the standard security handler.
+//! ISO 32000-2 §7.6, encryption: the standard security handler, and the public-key handler
+//! `public_key` holds.
 //!
 //! # What is encrypted
 //!
@@ -24,7 +25,10 @@
 //!
 //! Implemented: the standard security handler (`/Filter /Standard`) at revisions 2, 3, 4, 5
 //! and 6 — every revision Table 21 lists — over `/V` 1, 2, 4 and 5, with the `V2`, `AESV2`
-//! and `AESV3` crypt filter methods of Table 25 and the `Identity` filter of Table 26.
+//! and `AESV3` crypt filter methods of Table 25 and the `Identity` filter of Table 26. And
+//! §7.6.5's public-key security handler, `/SubFilter` `adbe.pkcs7.s3`, `s4` and `s5`, over the
+//! same ciphers, for a reader whose certificate and private key a host supplied
+//! ([`RecipientKey`]); `public_key` says what it reads and what it refuses.
 //!
 //! # Revision 5, and why reading it is not a departure from principle 5
 //!
@@ -58,8 +62,9 @@
 //!
 //! Refused, each with a named reason rather than a guess:
 //!
-//! - **Public-key security handlers** (§7.6.5), which need CMS enveloped data and X.509
-//!   certificates — a public-key infrastructure rather than a cipher.
+//! - **A public-key recipient list encrypted under one of §7.6.5.3's deprecated ciphers** — RC4,
+//!   DES, Triple DES or RC2 — or transported under a key algorithm other than RSA's: each is
+//!   named by `pdf_pki::enveloped`.
 //! - **`/CFM /None`**, which Table 25 defines as "The application shall not decrypt data
 //!   but shall direct the input stream to the security handler for decryption": there is
 //!   no such handler here.
@@ -80,6 +85,10 @@ use sha2::Digest;
 
 use crate::error::{SyntaxError, SyntaxResult};
 use crate::object::{Dictionary, Name, Object, ObjectId};
+
+mod public_key;
+
+pub use public_key::RecipientKey;
 
 /// The padding string of §7.6.4.3.2 step (a), reproduced from the clause.
 ///
@@ -311,31 +320,38 @@ impl Encryption {
     /// encryption key.
     ///
     /// `id_first` is the first element of the trailer's `/ID` array, which §7.6.4.3.2 step
-    /// (e) feeds to the hash, and which is empty when the file has no `/ID`.
+    /// (e) feeds to the hash, and which is empty when the file has no `/ID`. `recipient` is
+    /// what a public-key handler (§7.6.5) is opened with instead of `password`.
     ///
     /// # Errors
     ///
     /// [`SyntaxError::UnsupportedEncryption`] when the dictionary names a handler,
     /// revision or method this reader does not implement, and
     /// [`SyntaxError::PasswordRequired`] when it does but the password is neither the user
-    /// nor the owner password.
+    /// nor the owner password; [`SyntaxError::RecipientRequired`] and
+    /// [`SyntaxError::RecipientKey`] are the public-key handler's two.
     pub(crate) fn new(
         dict: &Dictionary,
         id_first: &[u8],
         password: &str,
+        recipient: Option<&RecipientKey>,
         resolve: &dyn Fn(&Object) -> Object,
     ) -> SyntaxResult<Self> {
         let get = |key: &str| dict.get(key).map_or(Object::Null, resolve);
         let unsupported = |detail: String| SyntaxError::UnsupportedEncryption { detail };
 
         // Table 20: "Standard shall be the name of the built-in password-based security
-        // handler." A handler we do not know cannot be guessed at, so anything but /Standard
-        // is refused by name; [`reject_non_standard_handler`] names §7.6.5 for a public-key
-        // handler and §7.6.4 for any other.
+        // handler." A public-key handler is known by its /SubFilter rather than its /Filter —
+        // §7.6.5.2's NOTE names three handlers and "[p]ermitted values of the SubFilter entry"
+        // are the three formats — and Table 20 makes /SubFilter the entry that "completely
+        // specifies the format". Any other handler cannot be guessed at and is refused by name.
         let filter = get("Filter");
         let handler = filter.as_name().map(Name::as_bytes).unwrap_or_default();
         if handler != b"Standard" {
-            return Err(reject_non_standard_handler(&filter, &get("SubFilter")));
+            return match public_key::SubFilter::of(&get("SubFilter")) {
+                Some(sub_filter) => Self::public_key(&get, sub_filter, recipient, resolve),
+                None => Err(reject_non_standard_handler(&filter)),
+            };
         }
 
         let version = get("V").as_integer().unwrap_or(0);
@@ -369,7 +385,7 @@ impl Encryption {
             embedded_file,
             named: filters,
             key_at_open,
-        } = crypt_filters(&get, version, revision, resolve)?;
+        } = crypt_filters(&get, version, Handler::Standard { revision }, resolve)?;
 
         let authenticated = match revision {
             2..=4 => {
@@ -1001,37 +1017,32 @@ fn hash_2b(password: &[u8], salt: &[u8], extra: &[u8]) -> Vec<u8> {
 /// produces a key that will not authenticate, which is reported as a wrong password.
 const MAX_2B_ROUNDS: usize = 256;
 
-/// The refusal for a `/Filter` that is not `/Standard`, named by the clause that owns it.
-///
-/// §7.6.5.1 names the three `/SubFilter` values a conforming public-key security handler uses —
-/// `adbe.pkcs7.s3` and `adbe.pkcs7.s4` without crypt filters, `adbe.pkcs7.s5` with them — and
-/// Table 20 makes `/SubFilter` the entry that completely specifies the format. So a document
-/// carrying one of them is a public-key handler whatever its handler-defined `/Filter` name, and
-/// it is refused by §7.6.5 rather than misattributed to §7.6.4: its file encryption key is wrapped
-/// in a per-recipient CMS envelope (RFC 5652) that only a reader holding the matching private key
-/// can unwrap, which this reader does not do (ADR 1134). Any other unknown handler is refused as
-/// not the standard security handler of §7.6.4.
-fn reject_non_standard_handler(filter: &Object, sub_filter: &Object) -> SyntaxError {
-    let name = |object: &Object| {
-        object
-            .as_name()
-            .map_or_else(|| "(absent)".to_owned(), ToString::to_string)
-    };
-    let sub = sub_filter.as_name().map(Name::as_bytes).unwrap_or_default();
-    let detail = if matches!(sub, b"adbe.pkcs7.s3" | b"adbe.pkcs7.s4" | b"adbe.pkcs7.s5") {
-        format!(
-            "/Filter {} with /SubFilter {} is a public-key security handler (§7.6.5), which this \
-             reader does not implement; only the standard security handler (§7.6.4) is implemented",
-            name(filter),
-            name(sub_filter),
-        )
-    } else {
-        format!(
-            "/Filter {} is not the standard security handler (§7.6.4)",
-            name(filter)
-        )
-    };
-    SyntaxError::UnsupportedEncryption { detail }
+/// The refusal for a `/Filter` that is not `/Standard` and a `/SubFilter` that is not one of
+/// §7.6.5.2's three public-key formats: a handler this reader does not know and cannot guess at.
+fn reject_non_standard_handler(filter: &Object) -> SyntaxError {
+    let name = filter
+        .as_name()
+        .map_or_else(|| "(absent)".to_owned(), ToString::to_string);
+    SyntaxError::UnsupportedEncryption {
+        detail: format!(
+            "/Filter {name} is neither the standard security handler (§7.6.4) nor a public-key \
+             security handler (§7.6.5)"
+        ),
+    }
+}
+
+/// Which handler's pairing of `/V` and crypt filter method [`crypt_filters`] holds a file to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Handler {
+    /// §7.6.4's, whose `/R` decides the method: AES-256 at revisions 5 and 6, and RC4 or
+    /// AES-128 below them.
+    Standard {
+        /// Table 21's `/R`.
+        revision: i64,
+    },
+    /// §7.6.5's, which states no `/R` of its own: `/V` 5 is Algorithm 1.A's 256-bit key and `/V`
+    /// 4 Algorithm 1's (Table 20), and Table 27 limits `/CFM` to `V2`, `AESV2` and `AESV3`.
+    PublicKey,
 }
 
 /// Table 20's `/StmF`, `/StrF` and `/EFF`, resolved against its `/CF`.
@@ -1068,7 +1079,7 @@ struct CryptFilters {
 fn crypt_filters(
     get: &dyn Fn(&str) -> Object,
     version: i64,
-    revision: i64,
+    handler: Handler,
     resolve: &dyn Fn(&Object) -> Object,
 ) -> SyntaxResult<CryptFilters> {
     if version < 4 {
@@ -1128,7 +1139,7 @@ fn crypt_filters(
         if let Some(method) = filters.get(&name) {
             return Ok(*method);
         }
-        if version == 5 {
+        if version == 5 && matches!(handler, Handler::Standard { .. }) {
             return Ok(Method::AesV3);
         }
         Err(SyntaxError::UnsupportedEncryption {
@@ -1163,7 +1174,13 @@ fn crypt_filters(
     // revision-5 file is held to the same pairing as a revision-6 one, and a revision-5 file
     // naming `V2` or `AESV2` is refused here rather than decrypted with a 32-byte key the
     // cipher cannot take.
-    let aes_256 = revision >= 5;
+    // The public-key handler has no `/R`, and its key width follows `/V`: Table 20 gives `/V` 5
+    // Algorithm 1.A's 256-bit key, and §7.6.5.3 derives that key with SHA-256 and every narrower
+    // one with SHA-1.
+    let aes_256 = match handler {
+        Handler::Standard { revision } => revision >= 5,
+        Handler::PublicKey => version == 5,
+    };
     for method in [stream, string, embedded_file]
         .into_iter()
         .chain(filters.values().copied())
@@ -1175,9 +1192,15 @@ fn crypt_filters(
         };
         if !ok {
             return Err(SyntaxError::UnsupportedEncryption {
-                detail: format!(
-                    "/R {revision} with a crypt filter method §7.6.4.1 does not pair with it"
-                ),
+                detail: match handler {
+                    Handler::Standard { revision } => format!(
+                        "/R {revision} with a crypt filter method §7.6.4.1 does not pair with it"
+                    ),
+                    Handler::PublicKey => format!(
+                        "/V {version} with a crypt filter method whose key Table 20 does not \
+                         give that version"
+                    ),
+                },
             });
         }
     }

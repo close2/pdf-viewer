@@ -144,7 +144,10 @@ before: the §12.8.3 family's remaining `partial` rows name trust or §12.8.3.4.
 
 ## Public-key handlers (§7.6.5) — 5 corpus documents, and none of them a reader's
 
-CMS enveloped data, X.509, the user's private keys — an infrastructure and a threat model, not a
+**Built in part** (ADRs 2801, 2802, on `doc/questions/A800`): `crates/pdf-pki` reads CMS enveloped
+data, X.509 and an RSA private key, and `pdf-syntax`'s `crypt/public_key.rs` opens a document with
+a certificate and key a host hands in. ADR 2801 lists what is left in order, and the host input is
+first. CMS enveloped data, X.509, the user's private keys — an infrastructure and a threat model, not a
 cipher. The standard security handler (§7.6.3, §7.6.4) is complete in both directions at every
 revision and method, so this is the *other* handler family.
 
@@ -168,7 +171,7 @@ xargs -a /tmp/enc -d '\n' cargo run --profile gates -p pdf-model --example encry
 All five are `/Filter /Adobe.PubSec` with `/SubFilter /adbe.pkcs7.s5`, a crypt filter named
 `DefaultCryptFilter` — which is what §7.6.4.1 requires of a public-key handler "when all document
 content is encrypted" — and a `/Recipients` array of exactly one CMS `EnvelopedData` carrying a
-single `KeyTransRecipientInfo` under RSA. All five are refused by name today.
+single `KeyTransRecipientInfo` under RSA. Without a key, all five answer `SyntaxError::RecipientRequired`.
 
 **Five documents is still not demand, and the reason is stronger than the number.** Four are one
 bug report's attachments — PDFBOX-4421 is Apache's own public-key issue — and the fifth,
@@ -184,9 +187,10 @@ publishes in `doc/corpora/pdfbox` beside `AESkeylength128.pdf` and `AESkeylength
 `AES256ExposedMeta.pdf` are encrypted to `CN=test`, serial `60FFD550`, of `PDFBOX-5249.p12`.
 `doc/questions/A168` rules those four `doc/corpora/pdfbox` documents the build's end-to-end witness
 set and not A66's trigger — a published test key is no reader's certificate — and
-`crates/pdf-syntax/tests/public_key_witnesses.rs` holds each one's recipient to its keystore, the
-test the build extends into decryption. No document is known to be encrypted to a key a real reader
-holds. **So this stays where it is, and the count is a fact rather than a guess.**
+`crates/pdf-syntax/tests/public_key_witnesses.rs` opens each one with its keystore's key and
+checks the page text `PDFBox`'s test states. No document is known to be encrypted to a key a real
+reader holds, so the count is a fact rather than a guess, and the handler waits for a host to supply a
+key.
 
 Two more documents state a `/Filter` that is neither `/Standard` nor a handler, and neither is
 this clause's — recorded here because this is where somebody will look for them:

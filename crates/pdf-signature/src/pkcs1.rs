@@ -60,7 +60,7 @@
 //! Both are stated as this program's budgets rather than as anything the standard says, and both
 //! are reported: [`Pkcs1Error`] names which one a file exceeded.
 
-use crate::bigint::{Integer, Modulus, modpow, significant_bits};
+use crate::bigint::{Integer, Modulus, modpow};
 use crate::cms::Digest;
 
 /// The widest modulus this module will exponentiate, in bits.
@@ -117,25 +117,8 @@ pub enum Pkcs1Error {
 
 /// The public half of an RSA key, as the two integers RFC 8017 section 3.1 defines it as.
 ///
-/// Both are big-endian, exactly as an X.509 `RSAPublicKey` writes them, and both are borrowed
-/// from the certificate: nothing here owns or copies a key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PublicKey<'a> {
-    /// `n`, the modulus.
-    pub modulus: &'a [u8],
-    /// `e`, the public exponent.
-    pub exponent: &'a [u8],
-}
-
-impl PublicKey<'_> {
-    /// The modulus's width in bits, which is the size a person means by "a 2048-bit key".
-    ///
-    /// Zero for a modulus of zero, which [`verify`] refuses anyway.
-    #[must_use]
-    pub fn bits(&self) -> usize {
-        significant_bits(self.modulus)
-    }
-}
+/// The type is `pdf-pki`'s, because a certificate's reader builds it; this module computes with it.
+pub use pdf_pki::x509::RsaPublicKey as PublicKey;
 
 /// Whether `signature` is an RSASSA-PKCS1-v1_5 signature over `message_digest` under `key`.
 ///

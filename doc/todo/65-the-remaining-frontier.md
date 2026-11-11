@@ -224,28 +224,24 @@ or Table 300 `/S` makes "the rendition" non-viable from either dictionary (ADRs 
   as a JPX file where the image has other than one or three colour components, refused where a raw codestream of two, five or more states no colour box (ADRs 2480, 2481); every other content class the clause reaches is removed, and
   Table 195's overlay is a choice its own `should` leaves (ADRs 1124, 1622).
 
-### 5. Answered, awaiting a real trigger — the public-key security handler
+### 5. Built in part — the public-key security handler
 
-**One cluster, decided by the owner (`doc/questions/A66`) and waiting for a trigger, not an answer.**
-§7.6.5's decryption stack lives in **a shared crypto crate below both `pdf-syntax` and
-`pdf-signature`** — the `der`/`cms`/`x509`/`bigint` seam extracted once, the second extraction of
-that seam after ADR 1020, with `EnvelopedData` and RSADP added there, its fuzz targets carried from
-the first commit, and the private key a host input (ADR 1134). **What starts the build:** a real
-trigger — a document whose recipient list could match a certificate the user holds, or a host asking
-to supply a private key — not the clause's own sake. **Four documents are the build's witness set,
-not its trigger** (`doc/questions/A168`): `doc/corpora/pdfbox`'s `AESkeylength128.pdf` and
-`AESkeylength256.pdf` decrypt with `PDFBOX-4421-keystore.pfx` (`CN=testnutzer`, serial `5F609C62`)
-and its `AES128ExposedMeta.pdf` and `AES256ExposedMeta.pdf` with `PDFBOX-5249.p12` (`CN=test`,
-serial `60FFD550`), both published beside them; the census's fifth, `3006236.pdf`, has no key
-anywhere. `crates/pdf-syntax/tests/public_key_witnesses.rs` holds each recipient to its keystore.
-No document is known to be encrypted to a key a real reader holds, so the calibrated refusal is the
-state and the build stays untriggered. **The trigger is lifted**: `doc/questions/A800` (2026-11-06)
-orders the build now, so this cluster is effort only and waits for a round to take it.
+**One cluster, ordered built by the owner (`doc/questions/A800`, which lifted `doc/questions/A66`'s
+trigger) and built in part (ADRs 2801, 2802).** `crates/pdf-pki` holds the one ASN.1 reader, the X.509
+reader, the big-integer seam, RFC 5652 `EnvelopedData` and RFC 8017's RSA decryption, below both
+`pdf-syntax` and `pdf-signature`, with fuzz targets beside it. `crates/pdf-syntax/src/crypt/public_key.rs`
+scans the recipient lists, opens the one naming the reader's certificate, and digests §7.6.5.3's key.
+`crates/pdf-syntax/tests/public_key_witnesses.rs` opens `doc/questions/A168`'s four `PDFBox` witnesses
+with their keystores' keys, and two documents a script writes test s3 and s4. **What is left, in ADR
+2801's order, is effort only.** The host input (ADR 1134) comes first, then §7.6.5.3's four deprecated
+envelope ciphers, then Table 27's per-stream recipient list. §7.6.5.2 left the map: Tables 23
+and 24 are read and the row is `implemented`.
 
-- §7.6.5.1, §7.6.5.2, §7.6.5.3 — all three `reported`: the handler, its dictionary and its
-  algorithms, refused by name before Table 23 is read; §7.6.5 above them is their aggregate.
-- §7.6.6 — Table 27 and nothing else: its entries are the public-key handler's and reach nothing
-  while §7.6.5 refuses the handler. Table 25's `/AuthEvent` is read and load-bearing.
+- §7.6.5.1 — `partial`: the scan runs, and no host supplies the user's certificate and key yet.
+- §7.6.5.3 — `partial`: AES envelopes and both digests run, and RC4, DES, Triple DES and RC2 are
+  refused by name.
+- §7.6.6 — Table 27's per-stream recipient list, refused by name. Table 25's `/AuthEvent` is read
+  and load-bearing.
 
 **`doc/questions/`, and what each answer holds in this map.** `tools/state.sh questions` prints
 the parity and names the open ones. The owner's answers of 2026-09-22 are built: A98's client sends

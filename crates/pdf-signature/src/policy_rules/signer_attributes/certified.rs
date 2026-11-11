@@ -438,7 +438,7 @@ fn issuer<'a>(
             continue;
         }
         named = true;
-        match x509::verify_signature(
+        match crate::certificate_signature::verify(
             read.info,
             read.signature_algorithm,
             read.signature_parameters,

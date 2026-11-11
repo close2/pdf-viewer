@@ -6,7 +6,7 @@
 //! outcome is known in advance, and none can furnish the negatives below at all: a certificate
 //! that is not a CA signing another, a `keyUsage` that forbids it, a path one certificate longer
 //! than a `pathLenConstraint` permits. Each of those has to be *issued* to exist. `openssl` issued
-//! them once and the DER is pasted in, the way [`crate::x509::fixtures`] already does.
+//! them once and the DER is pasted in, the way `crate::x509_fixtures` already does.
 //!
 //! **Every negative here is calibrated against the positive beside it** (trap 13): the first test
 //! validates the whole chain, and each test after it changes exactly one thing — one bit of a
@@ -42,7 +42,7 @@ fn certificate(bytes: &[u8]) -> Certificate<'_> {
 pub(crate) mod fixtures {
     /// The trust anchor of the fixture hierarchy: a self-signed CA, 2026 to 2036.
     ///
-    /// Built once with `openssl` and pasted in, on the footing [`crate::x509::fixtures`] states:
+    /// Built once with `openssl` and pasted in, on the footing `crate::x509_fixtures` states:
     /// these are **test vectors rather than oracles**. RFC 5280 defines the structure and section
     /// 6.1 the algorithm, and what a vector pins is that this tree walks and computes them. No
     /// corpus document can stand in — a positive path validation needs a hierarchy whose *private*

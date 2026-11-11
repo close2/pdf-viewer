@@ -19,7 +19,7 @@
 //! **For the third** — "is the signer anyone to believe" — the fields a certification path turns
 //! on: the version, the validity dates, the basic constraints, the key usage, the extended key
 //! usage, the authority key identifier, and `tbsCertificate` with the issuer's signature over it.
-//! Nothing here weighs them. [`crate::trust`] does, and only on a path that ends at an anchor a
+//! Nothing here weighs them. `pdf_signature::trust` does, and only on a path that ends at an anchor a
 //! host supplied, because a `notAfter` acted on without one would be the worst of both: an air of
 //! validation over a certificate that could have been made up five minutes ago by whoever wrote
 //! the file.
@@ -27,7 +27,7 @@
 //! **Carried for the policy tree and the name constraints**: `certificatePolicies`,
 //! `policyMappings`, `policyConstraints`, `inhibitAnyPolicy`, `nameConstraints` and
 //! `subjectAltName`, each as the encoding inside its `extnValue`. This module recognises them and
-//! [`crate::trust`]'s `policies` and `names` decode them, because a malformed one is a refusal of
+//! `pdf_signature::trust`'s `policies` and `names` decode them, because a malformed one is a refusal of
 //! the path rather than of the certificate's reading (ADR 2724).
 //!
 //! # A name is compared, never decoded
@@ -41,12 +41,18 @@
 //! using the word.
 
 use crate::der::{DerError, INTEGER, OBJECT_IDENTIFIER, OCTET_STRING, Reader, SEQUENCE, Value};
-use crate::{dsa, ecdsa, eddsa, pkcs1, pss};
+
+mod keys;
+
+pub use keys::{
+    DsaPublicKey, ED448_KEY_OCTETS, ED25519_KEY_OCTETS, EcCurve, EcPublicKey, EdCurve, EdPublicKey,
+    ID_DSA, ID_DSA_WITH_SHA1, ID_DSA_WITH_SHA2, ID_ED448, ID_ED25519, RsaPublicKey, is_dsa,
+};
 
 /// RFC 8017's `rsaEncryption`, `1.2.840.113549.1.1.1`.
 ///
 /// One of the two public-key algorithm identifiers this program acts on, the other being
-/// [`crate::dsa::ID_DSA`]. Everything else is carried to the report as the object identifier the
+/// [`ID_DSA`]. Everything else is carried to the report as the object identifier the
 /// file states — see [`PublicKey::Unverifiable`] and [`dotted`].
 pub const RSA_ENCRYPTION: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01];
 
@@ -55,7 +61,7 @@ pub const RSA_ENCRYPTION: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x
 /// Table 260 names this family by pointing at that RFC — "ECDSA Algorithm Support ( defined by
 /// Internet RFC 5480 )" — and the identifier itself is `const_oid`'s reading of the registry
 /// rather than digits typed here. Which curve, and whether this program computes on it, is
-/// [`crate::ecdsa::Curve`]'s question.
+/// [`EcCurve`]'s question.
 const ID_EC_PUBLIC_KEY: const_oid::ObjectIdentifier = const_oid::db::rfc5912::ID_EC_PUBLIC_KEY;
 
 /// RFC 5280's `id-ce-subjectKeyIdentifier`, `2.5.29.14`.
@@ -69,7 +75,7 @@ const EXTENDED_KEY_USAGE: const_oid::ObjectIdentifier = const_oid::db::rfc5280::
 
 /// The same identifier as octets, for a caller deciding whether it recognised this extension.
 ///
-/// [`crate::trust`] is that caller: whether a critical `extKeyUsage` is *unrecognised* depends on
+/// `pdf_signature::trust` is that caller: whether a critical `extKeyUsage` is *unrecognised* depends on
 /// whether the use was stated, which is a question this module cannot answer.
 pub const EXTENDED_KEY_USAGE_OID: &[u8] = EXTENDED_KEY_USAGE.as_bytes();
 
@@ -145,14 +151,14 @@ pub enum X509Error {
     /// The key is `id-ecPublicKey` but its `subjectPublicKey` is not there to read.
     ///
     /// The octets are not checked for being a point here — that is arithmetic and belongs to
-    /// [`crate::ecdsa::verify`], which refuses one by name. This is the encoding failing first: a
+    /// `pdf_signature::ecdsa::verify`, which refuses one by name. This is the encoding failing first: a
     /// `BIT STRING` with unused bits, which a SEC1 point never has.
     #[error("the certificate's elliptic-curve public key is malformed")]
     MalformedEcKey,
     /// The key is `id-Ed25519` or `id-Ed448` and its `subjectPublicKey` is not there to read.
     ///
     /// RFC 8410 section 4 puts the key in the `BIT STRING` raw, so this is the same failure as
-    /// above and for the same reason: whether the octets are a point is [`crate::eddsa::verify`]'s
+    /// above and for the same reason: whether the octets are a point is `pdf_signature::eddsa::verify`'s
     /// question.
     #[error("the certificate's Edwards-curve public key is malformed")]
     MalformedEdKey,
@@ -173,7 +179,7 @@ pub enum X509Error {
 ///
 /// RFC 5280 section 6.1.1 makes "the current date/time" input (b) to path validation rather
 /// than something the algorithm goes and finds, and this type is that input's shape. It is why
-/// [`crate::trust`] needs no clock: a caller that has one supplies the instant, and a caller
+/// `pdf_signature::trust` needs no clock: a caller that has one supplies the instant, and a caller
 /// that has none — a test, a batch run reproducing a verdict — supplies the instant it means.
 ///
 /// Seconds and not a richer calendar type because that is all the comparison in RFC 5280
@@ -283,9 +289,9 @@ impl KeyUsage {
 /// it does not recognize or a critical extension that contains information that it cannot
 /// process."
 ///
-/// [`Self::unrecognised_critical`] is how that rejection reaches [`crate::trust`]. The six
+/// [`Self::unrecognised_critical`] is how that rejection reaches `pdf_signature::trust`. The six
 /// extensions of the policy tree and the name constraints are carried undecoded, and
-/// [`crate::trust`] decodes each where section 6.1 processes it, refusing the path where one does
+/// `pdf_signature::trust` decodes each where section 6.1 processes it, refusing the path where one does
 /// not read (ADR 2724).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Extensions<'a> {
@@ -304,15 +310,15 @@ pub struct Extensions<'a> {
     ///
     /// Carried as its encoding rather than as a decoded list because each consumer asks it one
     /// question, [`indicates_purpose`]: RFC 6960 section 4.2.2.2 makes `id-kp-OCSPSigning` here
-    /// the whole of what designates an authorised responder, which [`crate::revocation`] reads,
+    /// the whole of what designates an authorised responder, which `pdf_signature::revocation` reads,
     /// and RFC 3161 section 2.3 requires `id-kp-timeStamping` of a timestamp authority, which
-    /// [`crate::trust`] reads for [`crate::trust::Purpose`].
+    /// `pdf_signature::trust` reads for `pdf_signature::trust::Purpose`.
     ///
     /// **Reading it does not make it recognised.** A critical `extKeyUsage` still lands in
     /// [`Self::unrecognised_critical`], because RFC 5280 section 4.2.1.12 says what a critical one
     /// means — "the certificate SHALL only be used for one of the purposes indicated" — and only a
-    /// caller with a use can check a purpose against it: [`crate::trust`] lifts the refusal where
-    /// the caller stated a [`crate::trust::Purpose`] and keeps it where the caller did not.
+    /// caller with a use can check a purpose against it: `pdf_signature::trust` lifts the refusal where
+    /// the caller stated a `pdf_signature::trust::Purpose` and keeps it where the caller did not.
     pub extended_key_usage: Option<&'a [u8]>,
     /// `certificatePolicies`' encoded `CertificatePolicies` — RFC 5280 section 4.2.1.4.
     pub certificate_policies: Option<&'a [u8]>,
@@ -331,21 +337,21 @@ pub struct Extensions<'a> {
     /// Whether the walk stopped at [`MAX_EXTENSIONS`] with extensions left unread.
     ///
     /// A certificate that reaches this has extensions nobody here looked at, which — since one
-    /// of them may be critical — is refused by [`crate::trust`] rather than read as an absence.
+    /// of them may be critical — is refused by `pdf_signature::trust` rather than read as an absence.
     pub truncated: bool,
 }
 
 /// A public key, as far as this program can act on one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PublicKey<'a> {
-    /// RFC 8017's `rsaEncryption`, with the two integers [`crate::pkcs1::verify`] needs.
-    Rsa(pkcs1::PublicKey<'a>),
-    /// RFC 3279's `id-dsa`, with the four integers [`crate::dsa::verify`] needs.
-    Dsa(dsa::PublicKey<'a>),
+    /// RFC 8017's `rsaEncryption`, with the two integers `pdf_signature::pkcs1::verify` needs.
+    Rsa(RsaPublicKey<'a>),
+    /// RFC 3279's `id-dsa`, with the four integers `pdf_signature::dsa::verify` needs.
+    Dsa(DsaPublicKey<'a>),
     /// RFC 5480's `id-ecPublicKey` on one of ISO/TS 32002 Table 3's six curves.
-    Ec(ecdsa::PublicKey<'a>),
+    Ec(EcPublicKey<'a>),
     /// RFC 8410's `id-Ed25519` or `id-Ed448`, ISO/TS 32002 Table 4's two.
-    EdDsa(eddsa::PublicKey<'a>),
+    EdDsa(EdPublicKey<'a>),
     /// `id-ecPublicKey` on a curve this program does not compute on, or on none it can name.
     ///
     /// Two cases, and the difference between them is whose fault it is. `Some` is one of
@@ -406,7 +412,7 @@ pub struct Certificate<'a> {
     /// `tbsCertificate`'s own encoding, which is what the issuer's signature covers.
     ///
     /// RFC 5280 section 4.1.1.3: the `signatureValue` is "generated upon the ASN.1 DER encoded
-    /// tbsCertificate", so these are the octets [`crate::trust`] verifies over — the file's own
+    /// tbsCertificate", so these are the octets `pdf_signature::trust` verifies over — the file's own
     /// bytes, never a re-encoding.
     pub tbs: &'a [u8],
     /// Whether the certificate, its `tbsCertificate` or its `subjectPublicKeyInfo` stated X.690
@@ -420,7 +426,7 @@ pub struct Certificate<'a> {
     /// indefinite length at this level wrote a certificate nothing here should place in a path;
     /// a value *nested* inside `tbsCertificate` is not asked about, and does not need to be —
     /// whatever it holds is inside the octets the issuer signed either way.
-    /// [`crate::trust`] refuses such a certificate by name.
+    /// `pdf_signature::trust` refuses such a certificate by name.
     pub indefinite_lengths: bool,
     /// The outer `signatureAlgorithm`'s object identifier — how the issuer signed this.
     pub signature_algorithm: &'a [u8],
@@ -428,7 +434,7 @@ pub struct Certificate<'a> {
     ///
     /// RFC 8017 Appendix A.2.3's `RSASSA-PSS-params` arrive here, which is why the member is
     /// carried rather than skipped: the padding is not decided by the identifier alone. Carried
-    /// as the value rather than as its bytes because that is what [`crate::pss::parameters`]
+    /// as the value rather than as its bytes because that is what `pdf_signature::pss::parameters`
     /// reads, which is the one consumer there is.
     pub signature_parameters: Option<Value<'a>>,
     /// `signatureValue`'s octets — the issuer's signature over [`Self::tbs`].
@@ -437,7 +443,7 @@ pub struct Certificate<'a> {
     ///
     /// `None` rather than an error: a certificate whose dates this reader cannot make sense of
     /// still yields its public key, so question 2 is unaffected, and it is question 3 —
-    /// [`crate::trust`] — that refuses to place such a certificate in a path.
+    /// `pdf_signature::trust` — that refuses to place such a certificate in a path.
     pub validity: Option<Validity>,
     /// What the extensions say, as far as a certification path reads them.
     pub extensions: Extensions<'a>,
@@ -526,7 +532,7 @@ pub fn parse(bytes: &[u8]) -> Result<Certificate<'_>, X509Error> {
 /// The same, for a certificate already read as one value of an enclosing structure.
 ///
 /// This is the shape CMS hands over: `SignedData`'s `certificates [0] IMPLICIT` holds the
-/// certificates as members, so [`crate::cms::SignedData::certificates`] carries them as values
+/// certificates as members, so `pdf_signature::cms::SignedData::certificates` carries them as values
 /// rather than as byte strings and nothing re-parses an outer header.
 ///
 /// # Errors
@@ -538,7 +544,7 @@ pub fn read(certificate: Value<'_>) -> Result<Certificate<'_>, X509Error> {
     }
     // `Certificate ::= SEQUENCE { tbsCertificate, signatureAlgorithm, signatureValue }`. All
     // three are read: the second and third are this certificate's *issuer's* signature over the
-    // first, which is RFC 5280 section 6.1.3 (a)(1) and is what [`crate::trust`] checks.
+    // first, which is RFC 5280 section 6.1.3 (a)(1) and is what `pdf_signature::trust` checks.
     let mut outer = certificate.children()?;
     let Some(tbs) = outer.next_value()? else {
         return Err(X509Error::MalformedTbs);
@@ -672,7 +678,8 @@ fn read_validity(validity: Value<'_>) -> Result<Option<Validity>, X509Error> {
 /// fractional seconds" — so anything else is `None` rather than guessed at. A reader that
 /// accepted a local-time offset would be placing a certificate's expiry at an instant its issuer
 /// did not write.
-pub(crate) fn read_time(value: &Value<'_>) -> Option<Instant> {
+#[must_use]
+pub fn read_time(value: &Value<'_>) -> Option<Instant> {
     let (four_digit_year, digits) = match value.identifier {
         UTC_TIME => (false, value.contents),
         GENERALIZED_TIME => (true, value.contents),
@@ -685,9 +692,10 @@ pub(crate) fn read_time(value: &Value<'_>) -> Option<Instant> {
 ///
 /// Separate from [`read_time`] because RFC 3161 section 2.4.2's `genTime` is the same
 /// `GeneralizedTime` with a fraction of a second permitted after the seconds, which RFC 5280
-/// section 4.1.2.5.2 forbids: [`crate::timestamp`] strips the fraction and hands the whole seconds
+/// section 4.1.2.5.2 forbids: `pdf_signature::timestamp` strips the fraction and hands the whole seconds
 /// here rather than keeping a second copy of the calendar.
-pub(crate) fn read_time_digits(digits: &[u8], four_digit_year: bool) -> Option<Instant> {
+#[must_use]
+pub fn read_time_digits(digits: &[u8], four_digit_year: bool) -> Option<Instant> {
     // "YYMMDDHHMMSSZ" is thirteen and "YYYYMMDDHHMMSSZ" fifteen; both forms are fixed by the
     // clauses above, so a length that is neither is a `Time` this reader will not place.
     let expected = if four_digit_year { 15 } else { 13 };
@@ -743,7 +751,8 @@ pub(crate) fn read_time_digits(digits: &[u8], four_digit_year: bool) -> Option<I
 /// and needs no table: the calendar is shifted so that it starts in March, which puts the leap
 /// day at the end of a year and makes the day-of-era a closed form. `None` only on an overflow,
 /// which the field widths above already exclude.
-pub(crate) fn days_from_civil(year: i64, month: i64, day: i64) -> Option<i64> {
+#[must_use]
+pub fn days_from_civil(year: i64, month: i64, day: i64) -> Option<i64> {
     let year = if month <= 2 {
         year.checked_sub(1)?
     } else {
@@ -799,7 +808,7 @@ fn read_public_key(spki: Value<'_>) -> Result<PublicKey<'_>, X509Error> {
     if oid == RSA_ENCRYPTION {
         return read_rsa_key(bits);
     }
-    if dsa::is_dsa(oid) {
+    if is_dsa(oid) {
         // `AlgorithmIdentifier ::= SEQUENCE { algorithm, parameters ANY OPTIONAL }`, and for
         // `id-dsa` the parameters are `Dss-Parms`. The member after the identifier is therefore
         // read out of the *algorithm* value rather than out of the key.
@@ -814,11 +823,11 @@ fn read_public_key(spki: Value<'_>) -> Result<PublicKey<'_>, X509Error> {
         let _identifier = members.next_value()?;
         return read_ec_key(members.next_value()?, bits);
     }
-    if let Some(curve) = eddsa::Curve::of(oid) {
+    if let Some(curve) = EdCurve::of(oid) {
         // RFC 8410 section 3: "the parameters field MUST be absent", and section 4 puts the key in
         // the `BIT STRING` with no structure around it at all.
         let key = key_octets(&bits).ok_or(X509Error::MalformedEdKey)?;
-        return Ok(PublicKey::EdDsa(eddsa::PublicKey { curve, key }));
+        return Ok(PublicKey::EdDsa(EdPublicKey { curve, key }));
     }
     Ok(PublicKey::Unverifiable { algorithm: oid })
 }
@@ -841,11 +850,11 @@ fn read_ec_key<'a>(
     let Some(curve) = curve else {
         return Ok(PublicKey::EcCurveNotVerifiable { curve: None });
     };
-    let Some(supported) = ecdsa::Curve::of(curve) else {
+    let Some(supported) = EcCurve::of(curve) else {
         return Ok(PublicKey::EcCurveNotVerifiable { curve: Some(curve) });
     };
     let point = key_octets(&bits).ok_or(X509Error::MalformedEcKey)?;
-    Ok(PublicKey::Ec(ecdsa::PublicKey {
+    Ok(PublicKey::Ec(EcPublicKey {
         curve: supported,
         point,
     }))
@@ -888,7 +897,7 @@ fn read_rsa_key(bits: Value<'_>) -> Result<PublicKey<'_>, X509Error> {
     if modulus.identifier != INTEGER || exponent.identifier != INTEGER {
         return Err(X509Error::MalformedRsaKey);
     }
-    Ok(PublicKey::Rsa(pkcs1::PublicKey {
+    Ok(PublicKey::Rsa(RsaPublicKey {
         modulus: modulus.contents,
         exponent: exponent.contents,
     }))
@@ -927,7 +936,7 @@ fn read_dsa_key<'a>(
     {
         return Err(X509Error::MalformedDsaKey);
     }
-    Ok(PublicKey::Dsa(dsa::PublicKey {
+    Ok(PublicKey::Dsa(DsaPublicKey {
         p: p.contents,
         q: q.contents,
         g: g.contents,
@@ -1008,7 +1017,7 @@ fn read_extensions(extensions: Value<'_>) -> Result<Extensions<'_>, X509Error> {
             _ => None,
         } {
             // Carried as written; an absent `extnValue` is carried as empty, which no decoder in
-            // `crate::trust` reads, so it is refused there rather than taken as an absence.
+            // `pdf_signature::trust` reads, so it is refused there rather than taken as an absence.
             *slot = Some(value.unwrap_or(&[]));
         } else if critical && read.unrecognised_critical.is_none() {
             // RFC 5280 section 4.2: "A certificate-using system MUST reject the certificate if it
@@ -1097,7 +1106,7 @@ fn basic_constraints(value: &Value<'_>) -> Option<BasicConstraints> {
             // Section 4.2.1.9: "Where it appears, the pathLenConstraint field MUST be greater
             // than or equal to zero." A negative or oversized one is read as absent, which
             // imposes no limit here but cannot widen one: section 6.1.4 (m) only ever *lowers*
-            // `max_path_length`, and [`crate::trust`] starts it at its own bound regardless.
+            // `max_path_length`, and `pdf_signature::trust` starts it at its own bound regardless.
             INTEGER => {
                 constraints.path_len = member
                     .contents
@@ -1143,15 +1152,8 @@ fn key_usage(value: &Value<'_>) -> Option<KeyUsage> {
     Some(KeyUsage { bits })
 }
 
-/// Certificates built once with `openssl` and pasted in, shared with `signature.rs`'s tests.
-///
-/// **Test vectors rather than oracles**, on the footing `pkcs1`'s constants are on: RFC 5280
-/// defines the structure and RFC 8017 the arithmetic, and what a vector pins is that this tree
-/// walks and computes them. No corpus document can stand in for the first: the certificates in
-/// the corpus's signatures are real ones whose *private* keys nobody here holds, so a positive
-/// verification over bytes this tree chose needs a key this tree made.
 #[cfg(test)]
-pub(crate) mod fixtures {
+mod fixtures {
     /// A self-signed 2048-bit certificate over the key `pkcs1`'s tests verify a signature with.
     ///
     /// **A test vector rather than an oracle**, on the same footing as `pkcs1`'s: RFC 5280 defines
@@ -1186,38 +1188,6 @@ pub(crate) mod fixtures {
         0573cd49e8d892d706e10a8d1ff54dec1f258d676c4363d028839b8f6b5040bd\
         5168122013babed7b4b558679467ed2e7ca42a41e3deda7d01";
 
-    /// A self-signed P-256 certificate, for the one `/SubFilter` that may not carry such a key.
-    ///
-    /// RFC 5480's `id-ecPublicKey`. This program verifies that family through CMS
-    /// ([`crate::ecdsa`], ADR 0532), and Table 260's `adbe.x509.rsa_sha1`
-    /// column still says **No** to it — so this fixture is what carries that "No" into a test.
-    /// [`crate::ecdsa::fixtures`] holds the certificates that are meant to verify.
-    pub(crate) const EC_CERTIFICATE: &str = "\
-        3082019030820135a003020102021402b9a053ffb599e1d104c767b0ac9516e1\
-        6a2827300a06082a8648ce3d040302301d311b301906035504030c127064662d\
-        7669657765722065632074657374301e170d3236303830383033343930365a17\
-        0d3336303830353033343930365a301d311b301906035504030c127064662d76\
-        696577657220656320746573743059301306072a8648ce3d020106082a8648ce\
-        3d03010703420004008481356aeb1a6299f333e9e81ebdf2616a4a0618f4ff28\
-        6b314b3f849e086b96fd50fcf8b02568b9cb67b003b732130449f0ad0c4542e0\
-        ecd6831ab775bc70a3533051301d0603551d0e0416041449a6344e98d3f2463c\
-        150455fe60ddd0c08642b5301f0603551d2304183016801449a6344e98d3f246\
-        3c150455fe60ddd0c08642b5300f0603551d130101ff040530030101ff300a06\
-        082a8648ce3d04030203490030460221008976ebbd9a912abfad19d1f907ce18\
-        0c7ff17039ff46c70e836f1c8dc9b073c0022100c2865a409279b22cf83ce663\
-        acf64f6a0f1f8b52d1ccbcdb198d60ad5941bd31";
-
-    /// The PKCS #1 v1.5 signature of `SHA-256(b"the signed bytes")` under the RSA key above.
-    pub(crate) const PKCS1_SIGNATURE: &str = "\
-        a8051d60075059a973c9845268a3c7848a60e36a1904180dd95d4226dad15bea\
-        4050dd59907bbb865d915611e55ae1fa1017a71fe084b90695f6ed5ca75fdc91\
-        7caf751663b994ed3f6f7cac36729a87b237668eec74aeb6040a682ff5c87e75\
-        1763e17a5d010383187a73af9ee5e8e4f890802882baba7dbb0873847dfa55a1\
-        db7bd5998ddd9456b79eb269184ac578e1451d29ea8748f6b8d2bfe4c9ec834f\
-        9c9f917089d8210aec49c8538e72f05ed93fe4d4b9145acd94db022a4d16b93e\
-        7ca648f59a45bcc30786e72cec2ce3147700cd6cebf2e48ff8eb1c777802003b\
-        7869fdaa3f4f11773f78f2002bf1a66c019e62946c3c7aed327940e7e0121204";
-
     /// Hexadecimal to bytes.
     pub(crate) fn hex(text: &str) -> Vec<u8> {
         text.as_bytes()
@@ -1229,9 +1199,8 @@ pub(crate) mod fixtures {
 
 #[cfg(test)]
 mod tests {
-    use super::fixtures::{CERTIFICATE, PKCS1_SIGNATURE, hex};
+    use super::fixtures::{CERTIFICATE, hex};
     use super::{PublicKey, X509Error, dotted, parse};
-    use crate::pkcs1;
 
     /// Everything this module claims to read, read.
     #[test]
@@ -1268,25 +1237,6 @@ mod tests {
         );
         assert!(!certificate.is_named_by(certificate.issuer, &[0x01]));
         assert!(!certificate.is_named_by(&[], certificate.serial_number));
-    }
-
-    /// The key this certificate carries is the key that verifies the signature `pkcs1` tests.
-    ///
-    /// The two modules are only joined here, and this is the join that matters: a certificate
-    /// reader that produced a *plausible* modulus would pass every assertion above.
-    #[test]
-    fn the_key_read_out_of_a_certificate_verifies_a_signature_made_with_it() {
-        let bytes = hex(CERTIFICATE);
-        let certificate = parse(&bytes).expect("a certificate");
-        let PublicKey::Rsa(key) = certificate.public_key else {
-            panic!("rsaEncryption");
-        };
-        let signature = hex(PKCS1_SIGNATURE);
-        let digest = crate::cms::Digest::Sha256.compute(&[b"the signed bytes"]);
-        assert_eq!(
-            pkcs1::verify(key, &signature, crate::cms::Digest::Sha256, &digest),
-            Ok(true)
-        );
     }
 
     /// X.690 clause 8.19's encoding, decoded — including the two components in one octet.
@@ -1327,95 +1277,5 @@ mod tests {
             parse(&[0x30, 0x05, 0x30, 0x03, 0x02, 0x01, 0x01]),
             Err(X509Error::MalformedTbs)
         );
-    }
-}
-
-/// Which digest a combined signature algorithm identifier names.
-///
-/// A certificate, a CRL and an OCSP response all differ from a CMS `SignerInfo` here, and the
-/// difference is the whole reason this exists: RFC 5652 puts the digest in its own
-/// `digestAlgorithm` member, which [`crate::cms`] reads, while RFC 5280 section 4.1.1.2 carries
-/// one identifier for the pair — so `sha256WithRSAEncryption` is the only place such a structure
-/// says SHA-256.
-///
-/// The identifiers come from `const_oid`'s database, which is a second party's reading of the
-/// registries that assign them rather than digits typed here; `id-RSASSA-PSS` is deliberately
-/// absent, because its hash is in its parameters and [`crate::pss::parameters`] is what reads it.
-pub(crate) fn signature_digest(oid: &[u8]) -> Option<crate::cms::Digest> {
-    use crate::cms::Digest;
-    use const_oid::db::{rfc5912, rfc9688};
-    let table: [(const_oid::ObjectIdentifier, Digest); 13] = [
-        (rfc5912::MD_5_WITH_RSA_ENCRYPTION, Digest::Md5),
-        (rfc5912::SHA_1_WITH_RSA_ENCRYPTION, Digest::Sha1),
-        (rfc5912::SHA_256_WITH_RSA_ENCRYPTION, Digest::Sha256),
-        (rfc5912::SHA_384_WITH_RSA_ENCRYPTION, Digest::Sha384),
-        (rfc5912::SHA_512_WITH_RSA_ENCRYPTION, Digest::Sha512),
-        (rfc5912::DSA_WITH_SHA_1, Digest::Sha1),
-        (rfc5912::DSA_WITH_SHA_256, Digest::Sha256),
-        (rfc5912::ECDSA_WITH_SHA_256, Digest::Sha256),
-        (rfc5912::ECDSA_WITH_SHA_384, Digest::Sha384),
-        (rfc5912::ECDSA_WITH_SHA_512, Digest::Sha512),
-        (rfc9688::ID_ECDSA_WITH_SHA_3_256, Digest::Sha3_256),
-        (rfc9688::ID_ECDSA_WITH_SHA_3_384, Digest::Sha3_384),
-        (rfc9688::ID_ECDSA_WITH_SHA_3_512, Digest::Sha3_512),
-    ];
-    table
-        .iter()
-        .find(|(identifier, _)| identifier.as_bytes() == oid)
-        .map(|&(_, digest)| digest)
-}
-
-/// One signature over one message under one key, as RFC 5280 section 4.1.1.3 shapes the triple.
-///
-/// Three structures in this crate are signed the same way — a `tbsCertificate` (section 4.1.1.3),
-/// a `tbsCertList` (section 5.1.1.3) and an OCSP `ResponseData` (RFC 6960 section 4.2.1) — so the
-/// arithmetic is written once here and reached from [`crate::trust`] and [`crate::revocation`].
-///
-/// The algorithm and the key are matched as a *pair* rather than either alone, for the reason
-/// [`crate::signature::Authenticity`] states: an identifier naming one family over a key of
-/// another is two contradictory claims by one producer, and choosing between them would be this
-/// program inventing a fact.
-///
-/// # Errors
-///
-/// The algorithm identifier, as the dotted decimal a report can print, where this program does not
-/// compute that pair. `Ok(false)` is the arithmetic saying no.
-pub(crate) fn verify_signature(
-    message: &[u8],
-    algorithm: &[u8],
-    parameters: Option<Value<'_>>,
-    signature: &[u8],
-    key: PublicKey<'_>,
-) -> Result<bool, String> {
-    use crate::cms::SignatureAlgorithm;
-    let named =
-        || dotted(algorithm).unwrap_or_else(|| "an unreadable object identifier".to_owned());
-    match (SignatureAlgorithm::from_oid(algorithm), key) {
-        (SignatureAlgorithm::RsaPkcs1V15, PublicKey::Rsa(key)) => {
-            let digest = signature_digest(algorithm).ok_or_else(named)?;
-            let computed = digest.compute(&[message]);
-            pkcs1::verify(key, signature, digest, &computed).map_err(|_| named())
-        }
-        (SignatureAlgorithm::RsaPss, PublicKey::Rsa(key)) => {
-            let parameters = pss::parameters(parameters).map_err(|_| named())?;
-            let computed = parameters.hash.compute(&[message]);
-            pss::verify(key, signature, parameters, &computed).map_err(|_| named())
-        }
-        (SignatureAlgorithm::Dsa, PublicKey::Dsa(key)) => {
-            let digest = signature_digest(algorithm).ok_or_else(named)?;
-            let computed = digest.compute(&[message]);
-            dsa::verify(key, signature, &computed).map_err(|_| named())
-        }
-        (SignatureAlgorithm::Ecdsa, PublicKey::Ec(key)) => {
-            let digest = signature_digest(algorithm).ok_or_else(named)?;
-            let computed = digest.compute(&[message]);
-            ecdsa::verify(key, signature, &computed).map_err(|_| named())
-        }
-        (SignatureAlgorithm::EdDsa(stated), PublicKey::EdDsa(key)) if stated == key.curve => {
-            // RFC 8032 signs the message rather than a digest of it, which is why this arm has no
-            // `signature_digest` call and why a structure signed with EdDSA states no hash.
-            eddsa::verify(key, signature, &[message]).map_err(|_| named())
-        }
-        _ => Err(named()),
     }
 }

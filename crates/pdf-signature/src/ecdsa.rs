@@ -83,8 +83,7 @@
               quotation (the same reasoning `pdf_syntax::filter::Delimiting` records)"
 )]
 
-use const_oid::ObjectIdentifier;
-use const_oid::db::{rfc5639, rfc5912};
+use const_oid::db::rfc5912;
 use ecdsa::signature::hazmat::PrehashVerifier;
 use ecdsa::{EcdsaCurve, Signature, VerifyingKey};
 use elliptic_curve::sec1::{FromSec1Point, ModulusSize, ToSec1Point};
@@ -100,106 +99,10 @@ use crate::der::{INTEGER, Reader, SEQUENCE};
 use ecdsa::elliptic_curve;
 
 /// One of ISO/TS 32002 Table 3's six curves, every one of which this program computes on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Curve {
-    /// ISO/TS 32002 Table 3's "P-256", RFC 5912's `secp256r1` — `1.2.840.10045.3.1.7`.
-    P256,
-    /// ISO/TS 32002 Table 3's "P-384", RFC 5912's `secp384r1` — `1.3.132.0.34`.
-    P384,
-    /// ISO/TS 32002 Table 3's "P-521", RFC 5912's `secp521r1` — `1.3.132.0.35`.
-    P521,
-    /// ISO/TS 32002 Table 3's "brainpoolP256r1", RFC 5639 section 3.4's curve —
-    /// `1.3.36.3.3.2.8.1.1.7`, assigned by its section 4.1.
-    BrainpoolP256r1,
-    /// ISO/TS 32002 Table 3's "brainpoolP384r1", RFC 5639 section 3.6's curve —
-    /// `1.3.36.3.3.2.8.1.1.11`, assigned by its section 4.1.
-    BrainpoolP384r1,
-    /// ISO/TS 32002 Table 3's "brainpoolP512r1", RFC 5639 section 3.7's curve —
-    /// `1.3.36.3.3.2.8.1.1.13`, assigned by its section 4.1.
-    BrainpoolP512r1,
-}
-
-impl Curve {
-    /// ISO/TS 32002 Table 3's six, in the table's order.
-    pub const ALL: [Self; 6] = [
-        Self::P256,
-        Self::P384,
-        Self::P521,
-        Self::BrainpoolP256r1,
-        Self::BrainpoolP384r1,
-        Self::BrainpoolP512r1,
-    ];
-
-    /// The `namedCurve` object identifier this curve is stated by.
-    ///
-    /// RFC 5480 section 2.1.1 is what puts one of these in a certificate's `ECParameters`, and
-    /// ISO/TS 32002 section 5.1.3 requires that form: "Certificates for ECDSA keys used in PDF
-    /// signatures shall specify curve parameters (`ECParameters`) for the subject's public key
-    /// using the namedCurve option".
-    #[must_use]
-    pub fn oid(self) -> ObjectIdentifier {
-        match self {
-            Self::P256 => rfc5912::SECP_256_R_1,
-            Self::P384 => rfc5912::SECP_384_R_1,
-            Self::P521 => rfc5912::SECP_521_R_1,
-            Self::BrainpoolP256r1 => rfc5639::BRAINPOOL_P_256_R_1,
-            Self::BrainpoolP384r1 => rfc5639::BRAINPOOL_P_384_R_1,
-            Self::BrainpoolP512r1 => rfc5639::BRAINPOOL_P_512_R_1,
-        }
-    }
-
-    /// The name ISO/TS 32002 Table 3 spells this curve with.
-    #[must_use]
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::P256 => "P-256",
-            Self::P384 => "P-384",
-            Self::P521 => "P-521",
-            Self::BrainpoolP256r1 => "brainpoolP256r1",
-            Self::BrainpoolP384r1 => "brainpoolP384r1",
-            Self::BrainpoolP512r1 => "brainpoolP512r1",
-        }
-    }
-
-    /// Whether an encoded `namedCurve` identifier is one of ISO/TS 32002 Table 3's six.
-    #[must_use]
-    pub fn of(oid: &[u8]) -> Option<Self> {
-        Self::ALL
-            .into_iter()
-            .find(|curve| curve.oid().as_bytes() == oid)
-    }
-
-    /// The field element width in octets, which is also `r`'s and `s`'s.
-    ///
-    /// P-521's field is 521 bits, so this is 66 rather than 65: SEC1 pads to whole octets. The
-    /// Brainpool primes are exactly 256, 384 and 512 bits (RFC 5639 sections 3.4, 3.6 and 3.7).
-    #[must_use]
-    pub fn field_octets(self) -> usize {
-        match self {
-            Self::P256 | Self::BrainpoolP256r1 => 32,
-            Self::P384 | Self::BrainpoolP384r1 => 48,
-            Self::BrainpoolP512r1 => 64,
-            Self::P521 => 66,
-        }
-    }
-
-    /// The field width in bits, which is what a report calls the key's size.
-    ///
-    /// Table 260 states a ceiling in bits for RSA and DSA and states none for this family —
-    /// ISO/TS 32002 Table 3 names curves instead — so this is the curve's own width and not a
-    /// limit. The document's name is kept on the table's own line because the conformance
-    /// checker reads a line at a time, so a reference broken between the two resolves against
-    /// ISO 32000-2's Table 3 — the escape sequences in literal strings — in silence (ADR 0760).
-    #[must_use]
-    pub fn bits(self) -> usize {
-        match self {
-            Self::P256 | Self::BrainpoolP256r1 => 256,
-            Self::P384 | Self::BrainpoolP384r1 => 384,
-            Self::BrainpoolP512r1 => 512,
-            Self::P521 => 521,
-        }
-    }
-}
+///
+/// The type is `pdf-pki`'s, because a certificate's reader names the curve; this module computes
+/// on it.
+pub use pdf_pki::x509::EcCurve as Curve;
 
 /// The `ecdsa-with-SHA*` and `id-ecdsa-with-sha3-*` identifiers a `SignerInfo` may state.
 ///
@@ -232,16 +135,9 @@ pub fn is_ecdsa(oid: &[u8]) -> bool {
 
 /// An ECDSA public key, as far as verifying one needs.
 ///
-/// The curve came out of the certificate's `ECParameters` and the point out of its
-/// `subjectPublicKey`, still SEC1-encoded: whether those octets are a point on that curve is
-/// [`verify`]'s question rather than [`crate::x509`]'s, because answering it is arithmetic.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PublicKey<'a> {
-    /// Which of the six curves the certificate's `namedCurve` stated.
-    pub curve: Curve,
-    /// `subjectPublicKey`'s octets, SEC1 section 2.3.3's encoding of a point.
-    pub point: &'a [u8],
-}
+/// The type is `pdf-pki`'s, because a certificate's reader builds it; whether its point lies on
+/// its curve is [`verify`]'s question, because answering it is arithmetic.
+pub use pdf_pki::x509::EcPublicKey as PublicKey;
 
 /// What stopped an ECDSA signature from being verified — a statement about the file, in every case.
 ///

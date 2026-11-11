@@ -87,7 +87,7 @@ flowchart TD
     ASK["the window presents its first frame<br/>viewer-host/src/report.rs::owed sends Command::Report"]
     ONCE["Open::about: a OnceLock, worded once per trust policy<br/>viewer-core/src/open/deferred.rs<br/>ADR 1044"]
     FIND["stage 1: the field, the range, the digest<br/>pdf-signature/src/signature.rs<br/>ADR 0215, ADR 0812"]
-    CMS["stage 2: the CMS container and the signer's key<br/>pdf-signature/src/der.rs, pdf-signature/src/cms.rs, pdf-signature/src/x509.rs<br/>ADR 0229, ADR 0532"]
+    CMS["stage 2: the CMS container and the signer's key<br/>pdf-pki/src/der.rs, pdf-signature/src/cms.rs, pdf-pki/src/x509.rs<br/>ADR 0229, ADR 0532"]
     PATH["stage 3: the path, revocation, the instant<br/>pdf-signature/src/trust.rs, pdf-signature/src/revocation.rs, pdf-signature/src/timestamp.rs<br/>ADR 1039, ADR 1067, ADR 1071"]
     POLICY["stage 4: the signer's policy<br/>pdf-signature/src/policy.rs, pdf-signature/src/policy_rules.rs<br/>ADR 1219, ADR 2560"]
     VERDICT["stage 5: the verdict and the sentences<br/>pdf-signature/src/verdict.rs, viewer-core/src/notes.rs<br/>ADR 1076"]
@@ -194,7 +194,7 @@ signature verify under that certificate's key?
 DER-encoded CMS binary data object containing the signature." Reading one is reading a stranger's
 ASN.1, so this stage is mostly about bounds.
 
-1. **One ASN.1 reader, in the tree, bounded.** `crates/pdf-signature/src/der.rs` is X.690's
+1. **One ASN.1 reader, in the tree, bounded.** `crates/pdf-pki/src/der.rs` is X.690's
    tag-length-value reader and the tree's only ASN.1. It allocates nothing — every accessor hands
    back a sub-slice of the caller's buffer — and every loop is bounded by something that is not the
    file's own arithmetic: `MAX_DEPTH` for nesting, `MAX_VALUE` for the whole input, four octets for
@@ -203,7 +203,7 @@ ASN.1, so this stage is mostly about bounds.
 2. **BER where RFC 5652 writes BER, DER where it writes DER.** Producers write indefinite lengths,
    which DER forbids — Adobe's own handler opens its `ContentInfo` with `30 80` — so the reader
    accepts them. But RFC 5652 section 2 names the one region that must be DER, the signed
-   attributes, and `crates/pdf-signature/src/der.rs::is_canonical` is what a caller about to digest
+   attributes, and `crates/pdf-pki/src/der.rs::is_canonical` is what a caller about to digest
    that region asks first. The tolerance has the RFC's boundary, not the reader's.
 3. **The container, read for what the questions need.** `crates/pdf-signature/src/cms.rs::signed_data`
    makes a `SignedData` of slices: the encapsulated content and its type, the certificates (at most
@@ -222,7 +222,7 @@ ASN.1, so this stage is mostly about bounds.
      certificate it meant (RFC 5035's signing-certificate attribute, read by
      `crates/pdf-signature/src/ess.rs`), `signing_certificate_bindings` compares it — so a
      `Verified` never exists, even for a moment, over a certificate the signer did not name;
-   - the certificate is read by `crates/pdf-signature/src/x509.rs::read` for its key, and a key or
+   - the certificate is read by `crates/pdf-pki/src/x509.rs::read` for its key, and a key or
      curve this program does not compute is named by its identifier;
    - the signed attributes, if any, are held to DER;
    - **what is signed** is settled by RFC 5652 section 5.4: the signed attributes if there are any,
@@ -240,7 +240,7 @@ The answer is `Authenticity`, and its strongest variant is `Authenticity::Verifi
 exactly this: the signature was made with the key in a certificate **that arrived in the same file**.
 A forger who edits the document cannot produce that, so it is a real check, but it is not a
 statement that the signer is anybody (ADR 0229). The arithmetic is reviewed code behind
-`crates/pdf-signature/src/bigint.rs`, a seam that keeps the budgets and the refusal names this
+`crates/pdf-pki/src/bigint.rs`, a seam that keeps the budgets and the refusal names this
 project's own; the two curves no reviewed package carries are private stopgaps behind the ECDSA
 and `EdDSA` modules' named-curve seams (ADRs 1385 and 1386).
 
@@ -268,9 +268,9 @@ flowchart TD
     VALUE -->|"/SubFilter adbe.x509.rsa_sha1"| RSA1 --> ANSWER
 ```
 
-**Maintenance note.** Depends on: `crates/pdf-signature/src/der.rs`,
+**Maintenance note.** Depends on: `crates/pdf-pki/src/der.rs`,
 `crates/pdf-signature/src/cms.rs`, `crates/pdf-signature/src/ess.rs`,
-`crates/pdf-signature/src/x509.rs`, `crates/pdf-signature/src/signature.rs` (`authenticity`,
+`crates/pdf-pki/src/x509.rs`, `crates/pdf-signature/src/signature.rs` (`authenticity`,
 `authenticity_of`, `signing_certificate_bindings`), the five family modules, ADR 0215, ADR 0229 and
 ADR 0532. Redraw it when the order of `authenticity_of`'s steps changes, when a family or a curve
 is added, or when `der.rs` starts allocating.

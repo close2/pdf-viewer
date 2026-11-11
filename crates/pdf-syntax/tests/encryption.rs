@@ -57,7 +57,7 @@
 
 use std::path::{Path, PathBuf};
 
-use pdf_syntax::{Document, Limits, Object, SyntaxError};
+use pdf_syntax::{Document, Limits, Object, RecipientKey, SyntaxError};
 
 #[path = "../../pdf-model/tests/support/corpus_passwords.rs"]
 #[expect(
@@ -1229,64 +1229,64 @@ fn an_undefined_crypt_filter_is_refused_where_the_version_names_no_method() {
     }
 }
 
-/// A public-key security handler is refused by its own clause (§7.6.5), not §7.6.4's.
+/// A public-key security handler asks for a certificate (§7.6.5.1), and only its own
+/// `/SubFilter` values make one.
 ///
-/// §7.6.5.1 lists the three `/SubFilter` values a conforming public-key security handler uses;
-/// `adbe.pkcs7.s5` is the one "which shall be used when using crypt filters", and it is what
-/// every public-key document in the corpus states (ADR 1134). Such a document's file encryption
-/// key is not derived from a password but wrapped in a per-recipient CMS envelope (RFC 5652)
-/// that only the holder of a matching private key can unwrap; this reader has no such path, so
-/// the file is refused — and the refusal names §7.6.5 and the handler, rather than the generic
-/// "not the standard security handler" that would blame §7.6.4 for a clause it does not own.
+/// §7.6.5.2 lists the three `/SubFilter` values a conforming public-key security handler uses;
+/// `adbe.pkcs7.s5` is the one "which shall be used when using crypt filters". Such a document's
+/// file encryption key is wrapped in a per-recipient CMS envelope (RFC 5652), and a reader that
+/// supplied no certificate is told so — `SyntaxError::RecipientRequired`, the handler's "password
+/// required" — before its recipient list is opened (ADR 2802). Given a certificate, a list that is
+/// not an `EnvelopedData` at all is refused by name: here it is 48 bytes of `0x30`.
 ///
 /// **The control is what makes this a measurement rather than a tautology** (trap 13): the same
-/// dictionary with its `/SubFilter` changed to a name §7.6.5.1 does not list falls through to
-/// the other branch, whose message cites §7.6.4 and never §7.6.5. A detector that always
-/// produced the same text would fail the control while passing the assertion.
+/// dictionary with its `/SubFilter` changed to a name §7.6.5.2 does not list is no public-key
+/// handler and no standard one, and is refused as neither, never asked for a certificate.
 #[test]
-fn a_public_key_security_handler_is_refused_by_name() {
-    let public_key = format!(
-        "<< /Filter /Adobe.PubSec /SubFilter /adbe.pkcs7.s5 /V 5 /R 6 /Length 256 \
-         /StmF /DefaultCryptFilter /StrF /DefaultCryptFilter \
-         /CF << /DefaultCryptFilter << /CFM /AESV3 /Recipients [{}] >> >> >>",
-        hex_string(&[0x30; 48]),
-    );
-    let objects = vec![
-        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
-        b"<< /Type /Pages /Kids [3 0 R] /Count 0 >>".to_vec(),
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>".to_vec(),
-        public_key.into_bytes(),
-    ];
-    let bytes = assemble(&objects, "/Root 1 0 R /Encrypt 4 0 R");
+fn a_public_key_security_handler_asks_for_a_certificate_and_another_subfilter_is_refused() {
+    let dictionary = |sub_filter: &str| {
+        format!(
+            "<< /Filter /Adobe.PubSec /SubFilter /{sub_filter} /V 5 /Length 256 \
+             /StmF /DefaultCryptFilter /StrF /DefaultCryptFilter \
+             /CF << /DefaultCryptFilter << /CFM /AESV3 /Recipients [{}] >> >> >>",
+            hex_string(&[0x30; 48]),
+        )
+    };
+    let document = |sub_filter: &str| {
+        let objects = vec![
+            b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+            b"<< /Type /Pages /Kids [3 0 R] /Count 0 >>".to_vec(),
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>".to_vec(),
+            dictionary(sub_filter).into_bytes(),
+        ];
+        assemble(&objects, "/Root 1 0 R /Encrypt 4 0 R")
+    };
 
-    match Document::open_with_password(bytes, Limits::DEFAULT, "") {
-        Err(SyntaxError::UnsupportedEncryption { detail }) => assert!(
-            detail.contains("§7.6.5")
-                && detail.contains("/Adobe.PubSec")
-                && detail.contains("/adbe.pkcs7.s5"),
-            "a public-key handler should be named by its own clause, got {detail:?}"
-        ),
-        other => panic!("a public-key security handler should be refused by name, got {other:?}"),
+    let public_key = document("adbe.pkcs7.s5");
+    match Document::open_with_password(public_key.clone(), Limits::DEFAULT, "") {
+        Err(SyntaxError::RecipientRequired) => {}
+        other => panic!("a public-key handler should ask for a certificate, got {other:?}"),
     }
 
-    // The control: a /SubFilter §7.6.5.1 does not list is not a public-key handler here, so the
-    // refusal is the generic one that cites §7.6.4 and never §7.6.5.
-    let other_filter = format!(
-        "<< /Filter /Adobe.PubSec /SubFilter /adbe.other /V 5 /R 6 /Length 256 \
-         /StmF /DefaultCryptFilter /StrF /DefaultCryptFilter \
-         /CF << /DefaultCryptFilter << /CFM /AESV3 /Recipients [{}] >> >> >>",
-        hex_string(&[0x30; 48]),
-    );
-    let control = vec![
-        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
-        b"<< /Type /Pages /Kids [3 0 R] /Count 0 >>".to_vec(),
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>".to_vec(),
-        other_filter.into_bytes(),
-    ];
-    let control_bytes = assemble(&control, "/Root 1 0 R /Encrypt 4 0 R");
-    match Document::open_with_password(control_bytes, Limits::DEFAULT, "") {
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/public_key_witnesses");
+    let read = |name: &str| std::fs::read(directory.join(name)).expect("a key fixture");
+    let recipient = RecipientKey::new(
+        read("testnutzer.certificate.der"),
+        &read("testnutzer.key.der"),
+    )
+    .expect("the fixture reads");
+    match Document::open_with_recipient(public_key, Limits::DEFAULT, &recipient) {
         Err(SyntaxError::UnsupportedEncryption { detail }) => assert!(
-            detail.contains("§7.6.4") && !detail.contains("§7.6.5"),
+            detail.contains("EnvelopedData") && detail.contains("§7.6.5.1"),
+            "a recipient list that is not CMS should be refused by name, got {detail:?}"
+        ),
+        other => panic!("expected an unsupported-encryption error, got {other:?}"),
+    }
+
+    // The control: a /SubFilter §7.6.5.2 does not list is refused as no handler this reader knows.
+    match Document::open_with_password(document("adbe.other"), Limits::DEFAULT, "") {
+        Err(SyntaxError::UnsupportedEncryption { detail }) => assert!(
+            detail.contains("§7.6.4") && detail.contains("/Adobe.PubSec"),
             "a non-public-key handler should take the generic branch, got {detail:?}"
         ),
         other => panic!("expected an unsupported-encryption error, got {other:?}"),

@@ -1,0 +1,24 @@
+[package]
+name = "pdf-pki"
+description = "The public-key encodings below pdf-syntax and pdf-signature: X.690 DER, RFC 5280 certificates, RFC 5652 enveloped data and RFC 8017 RSA."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The object identifiers a certificate's key is named by, as a second party's reading of the
+# registries that assign them rather than as digits typed from memory; see ADR 0532.
+const-oid.workspace = true
+# The big-integer arithmetic `bigint.rs` is a seam over: RSA's `c^d mod n` (RFC 8017 section
+# 5.1.2) here and `s^e mod n` (section 5.2.2) in `pdf-signature`. ADR 0331.
+crypto-bigint.workspace = true
+# RFC 5652 section 6.3's content-encryption step for the one cipher family §7.6.5.3 keeps
+# current, AES in CBC mode (RFC 3565): the same two packages `pdf-syntax`'s §7.6.3 uses.
+aes.workspace = true
+cbc.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -16,6 +16,12 @@ cbc.workspace = true
 rc4.workspace = true
 md-5.workspace = true
 sha2.workspace = true
+# §7.6.5.3 derives a public-key handler's key of 128 bits or fewer with SHA-1, the one digest
+# `sha2` and `md-5` do not carry.
+sha1.workspace = true
+# §7.6.5's recipient lists are RFC 5652 enveloped data and the reader's key an RSA key, read by
+# the crate below this one and `pdf-signature` (ADR 2801).
+pdf-pki.workspace = true
 stringprep.workspace = true
 getrandom.workspace = true
 

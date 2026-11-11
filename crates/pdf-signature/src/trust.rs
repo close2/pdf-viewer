@@ -1028,13 +1028,13 @@ fn prepare_for_next(
 ///
 /// Section 4.1.1.3 says what is signed — the `signatureValue` is "generated upon the ASN.1 DER
 /// encoded tbsCertificate" — so [`Certificate::tbs`] is the message and no re-encoding happens
-/// anywhere on this path. The arithmetic is [`x509::verify_signature`], which a CRL and an OCSP
+/// anywhere on this path. The arithmetic is `certificate_signature::verify`, which a CRL and an OCSP
 /// response reach for the same three fields.
 fn verify_certificate(
     certificate: &Certificate<'_>,
     key: PublicKey<'_>,
 ) -> Result<bool, PathRefusal> {
-    x509::verify_signature(
+    crate::certificate_signature::verify(
         certificate.tbs,
         certificate.signature_algorithm,
         certificate.signature_parameters,

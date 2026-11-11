@@ -74,7 +74,7 @@ pub const MAX_VALUE: usize = 2 * 1024 * 1024;
 /// What stopped a value from being read.
 ///
 /// Every one of these is a statement about the *file*, which is why the type is public and why
-/// [`crate::signature::Integrity`] carries one rather than flattening them all into "unreadable".
+/// `pdf_signature::signature::Integrity` carries one rather than flattening them all into "unreadable".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum DerError {

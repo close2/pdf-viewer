@@ -72,6 +72,24 @@ pub enum SyntaxError {
         /// What was named, and the clause that defines it.
         detail: String,
     },
+    /// The document is encrypted by a public-key security handler and no recipient list names a
+    /// certificate the reader supplied — or the reader supplied none.
+    ///
+    /// The public-key handler's [`Self::PasswordRequired`]: ISO 32000-2 §7.6.5.1 has the reader
+    /// "scan the recipient list ... and ... attempt to find a match with a certificate that
+    /// belongs to the user", and this is the scan finding none, which a host answers by offering
+    /// another certificate rather than by calling the file broken.
+    #[error(
+        "the document is encrypted to recipients and no certificate supplied is one (ISO 32000-2 §7.6.5.1)"
+    )]
+    RecipientRequired,
+    /// A certificate and private key a host supplied for §7.6.5 that cannot be used: one that
+    /// does not read, or a key that does not open the recipient list naming its certificate.
+    #[error("the recipient key cannot be used: {detail}")]
+    RecipientKey {
+        /// What is wrong with it.
+        detail: String,
+    },
 }
 
 /// Shorthand for a parsing result.

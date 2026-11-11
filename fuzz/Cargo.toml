@@ -49,6 +49,7 @@ pdf-model = { path = "../crates/pdf-model" }
 # §12.8.4's revocation material, which left `pdf-model` for their own crate in the thousandth
 # session (ADR 1020).
 pdf-signature = { path = "../crates/pdf-signature" }
+pdf-pki = { path = "../crates/pdf-pki" }
 # ADR 0607's payload is a `pdf_render::DisplayList`, so the target that fuzzes its decoder needs
 # the vocabulary to state what a decoded list must satisfy — see `display_list.rs`.
 pdf-render = { path = "../crates/pdf-render" }
@@ -346,6 +347,20 @@ bench = false
 [[bin]]
 name = "policy_document"
 path = "fuzz_targets/policy_document.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "enveloped"
+path = "fuzz_targets/enveloped.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rsa_private_key"
+path = "fuzz_targets/rsa_private_key.rs"
 test = false
 doc = false
 bench = false

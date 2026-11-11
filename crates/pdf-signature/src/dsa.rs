@@ -54,7 +54,7 @@
 //! contrast is still worth stating, because it is why *this* module needs
 //! no dependency at all.
 
-use crate::bigint::{Integer, MAX_BITS, Modulus, modpow, significant_bits};
+use crate::bigint::{Integer, MAX_BITS, Modulus, modpow};
 use crate::der::{INTEGER, Reader, SEQUENCE};
 
 /// The widest `p` this module will exponentiate, in bits.
@@ -80,42 +80,10 @@ pub const MAX_MODULUS_BITS: usize = MAX_BITS;
 /// milliseconds, once, on the document's own thread and never on the launch path.
 pub const MAX_SUBGROUP_BITS: usize = 512;
 
-/// RFC 3279 section 2.3.2's `id-dsa`, `1.2.840.10040.4.1`.
+/// The identifiers a DSA key or signature is named by, and the question of whether one does.
 ///
-/// ```text
-/// id-dsa OBJECT IDENTIFIER ::= { iso(1) member-body(2) us(840) x9-57(10040) x9cm(4) 1 }
-/// ```
-///
-/// This is what a certificate's `subjectPublicKeyInfo` states for a DSA key, and what some
-/// producers state as a `SignerInfo`'s `signatureAlgorithm` as well.
-pub const ID_DSA: &[u8] = &[0x2A, 0x86, 0x48, 0xCE, 0x38, 0x04, 0x01];
-
-/// RFC 3279 section 2.2.2's `id-dsa-with-sha1`, `1.2.840.10040.4.3`.
-pub const ID_DSA_WITH_SHA1: &[u8] = &[0x2A, 0x86, 0x48, 0xCE, 0x38, 0x04, 0x03];
-
-/// The `id-dsa-with-sha2` arc, `2.16.840.1.101.3.4.3` — one identifier per digest.
-///
-/// RFC 5758 section 3.1 assigns `1` to SHA-224 and `2` to SHA-256. The NIST Computer Security
-/// Objects Register, which is the authority that assigns this arc, carries `3` and `4` for SHA-384
-/// and SHA-512 and `5` to `8` for the SHA-3 family — and Table 260 permits SHA-384 and SHA-512 for
-/// this `/SubFilter`, so a conforming file can state either.
-///
-/// **Recognising an identifier is not computing its digest**: which function was used is
-/// `SignerInfo`'s own `digestAlgorithm`, read by [`crate::cms::Digest`], and a signature naming one
-/// this program cannot compute is reported by that number instead of this one.
-const ID_DSA_WITH_SHA2: &[u8] = &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03];
-
-/// Whether an object identifier names a DSA signature or a DSA key.
-#[must_use]
-pub fn is_dsa(oid: &[u8]) -> bool {
-    if oid == ID_DSA || oid == ID_DSA_WITH_SHA1 {
-        return true;
-    }
-    // The arc plus exactly one more component, which is the digest. A prefix test over a longer
-    // tail would accept identifiers nobody has assigned.
-    matches!(oid.split_at_checked(ID_DSA_WITH_SHA2.len()),
-        Some((arc, [_])) if arc == ID_DSA_WITH_SHA2)
-}
+/// `pdf-pki` owns them because a certificate's reader recognises a DSA key by them.
+pub use pdf_pki::x509::{ID_DSA, ID_DSA_WITH_SHA1, is_dsa};
 
 /// What stopped a DSA signature from being verified — a statement about the file, in every case.
 ///
@@ -166,34 +134,8 @@ pub enum DsaError {
 
 /// The public half of a DSA key: RFC 3279's `Dss-Parms` and the `y` beside it.
 ///
-/// All four are big-endian, exactly as the certificate writes them, and all four are borrowed:
-/// nothing here owns or copies a key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PublicKey<'a> {
-    /// `p`, the prime modulus.
-    pub p: &'a [u8],
-    /// `q`, the prime divisor of `p - 1`.
-    pub q: &'a [u8],
-    /// `g`, the generator of the order-`q` subgroup.
-    pub g: &'a [u8],
-    /// `y`, the public key itself — RFC 3279 section 2.3.2's `DSAPublicKey ::= INTEGER`.
-    pub y: &'a [u8],
-}
-
-impl PublicKey<'_> {
-    /// The key's width in bits, which is `p`'s — the number Table 260 puts its ceiling on.
-    #[must_use]
-    pub fn bits(&self) -> usize {
-        significant_bits(self.p)
-    }
-
-    /// `N` in FIPS 186-4's notation: the bit length of `q`, which decides how much of a digest is
-    /// used.
-    #[must_use]
-    pub fn subgroup_bits(&self) -> usize {
-        significant_bits(self.q)
-    }
-}
+/// The type is `pdf-pki`'s, because a certificate's reader builds it; this module computes with it.
+pub use pdf_pki::x509::DsaPublicKey as PublicKey;
 
 /// RFC 3279 section 2.2.2's `Dss-Sig-Value ::= SEQUENCE { r INTEGER, s INTEGER }`, as two slices.
 ///
@@ -399,6 +341,7 @@ mod tests {
     use super::{DsaError, ID_DSA, ID_DSA_WITH_SHA1, MAX_SUBGROUP_BITS, PublicKey, is_dsa, verify};
     use crate::cms::Digest;
     use crate::x509::{self, dotted};
+    use pdf_pki::x509::ID_DSA_WITH_SHA2;
 
     /// The key out of the fixture certificate, which is the only place a test gets one.
     fn key(bytes: &[u8]) -> x509::Certificate<'_> {
@@ -408,7 +351,7 @@ mod tests {
     /// The whole of [`verify`], on a real 2048-bit key and a real signature.
     #[test]
     fn a_signature_verifies_under_the_key_that_made_it_and_under_no_other() {
-        let certificate = x509::fixtures::hex(super::fixtures::CERTIFICATE);
+        let certificate = crate::x509_fixtures::hex(super::fixtures::CERTIFICATE);
         let certificate = key(&certificate);
         let x509::PublicKey::Dsa(key) = certificate.public_key else {
             panic!("this certificate states id-dsa");
@@ -419,7 +362,7 @@ mod tests {
         // whole digest. A verifier that skipped step 2's `min(N, outlen)` passes on (2048, 256)
         // and fails here.
         assert_eq!(key.subgroup_bits(), 224, "FIPS 186-4 section 4.2's N");
-        let signature = x509::fixtures::hex(super::fixtures::SIGNATURE);
+        let signature = crate::x509_fixtures::hex(super::fixtures::SIGNATURE);
         let digest = Digest::Sha256.compute(&[b"the signed bytes"]);
         assert_eq!(verify(key, &signature, &digest), Ok(true));
 
@@ -457,13 +400,13 @@ mod tests {
     /// value replaced.
     #[test]
     fn a_signature_outside_the_subgroup_is_rejected_by_step_one() {
-        let certificate = x509::fixtures::hex(super::fixtures::CERTIFICATE);
+        let certificate = crate::x509_fixtures::hex(super::fixtures::CERTIFICATE);
         let certificate = key(&certificate);
         let x509::PublicKey::Dsa(key) = certificate.public_key else {
             panic!("id-dsa");
         };
         let digest = Digest::Sha256.compute(&[b"the signed bytes"]);
-        let signature = x509::fixtures::hex(super::fixtures::SIGNATURE);
+        let signature = crate::x509_fixtures::hex(super::fixtures::SIGNATURE);
         let (r, s) = super::signature_values(&signature).expect("two integers");
         let q = key.q.to_vec();
         for (r, s, why) in [
@@ -505,12 +448,12 @@ mod tests {
     /// Every budget and every malformed shape, refused by name rather than by running out.
     #[test]
     fn the_budgets_are_reported_rather_than_reached() {
-        let certificate = x509::fixtures::hex(super::fixtures::CERTIFICATE);
+        let certificate = crate::x509_fixtures::hex(super::fixtures::CERTIFICATE);
         let certificate = key(&certificate);
         let x509::PublicKey::Dsa(key) = certificate.public_key else {
             panic!("id-dsa");
         };
-        let signature = x509::fixtures::hex(super::fixtures::SIGNATURE);
+        let signature = crate::x509_fixtures::hex(super::fixtures::SIGNATURE);
         let digest = Digest::Sha256.compute(&[b"the signed bytes"]);
 
         let huge = vec![0xFFu8; (MAX_SUBGROUP_BITS / 8) + 1];
@@ -573,13 +516,13 @@ mod tests {
             (3, "2.16.840.1.101.3.4.3.3"),
             (4, "2.16.840.1.101.3.4.3.4"),
         ] {
-            let oid = [super::ID_DSA_WITH_SHA2, &[last]].concat();
+            let oid = [ID_DSA_WITH_SHA2, &[last]].concat();
             assert_eq!(dotted(&oid).as_deref(), Some(expected));
             assert!(is_dsa(&oid));
         }
         // The arc itself is not a signature algorithm, and neither is one component further on.
-        assert!(!is_dsa(super::ID_DSA_WITH_SHA2));
-        assert!(!is_dsa(&[super::ID_DSA_WITH_SHA2, &[1, 1]].concat()));
+        assert!(!is_dsa(ID_DSA_WITH_SHA2));
+        assert!(!is_dsa(&[ID_DSA_WITH_SHA2, &[1, 1]].concat()));
         // RSA and ECDSA are not DSA, which a prefix test over `1.2.840` would have said they were.
         assert!(!is_dsa(&[
             0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01

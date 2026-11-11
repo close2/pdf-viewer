@@ -95,7 +95,7 @@ const BASE_Y: U448 = U448::from_be_hex(
 );
 
 /// Section 5.2's `b / 8`: a key, and each half of a signature, is 57 octets.
-pub(crate) const KEY_OCTETS: usize = 57;
+pub(crate) const KEY_OCTETS: usize = pdf_pki::x509::ED448_KEY_OCTETS;
 
 /// Section 5.2.6's signature, `R ‖ S`: two of those.
 pub(crate) const SIGNATURE_OCTETS: usize = 2 * KEY_OCTETS;

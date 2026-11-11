@@ -56,17 +56,23 @@ run against that RFC's streams again before it is taken.
 
 ## The public-key *constructions* are in the tree; the arithmetic under them no longer is
 
-**Where they live: `crates/pdf-signature`, and nowhere else.** The modules left `pdf-model` with their cryptographic
-packages, so a crate that names `pdf-signature` is a crate that verifies a signature, and every other consumer of
-this tree's dependency table can be read against that one line (ADR 1020,
-`doc/reviews/984-direction-and-boundaries.md` finding 1). `pdf-model` still depends on the crate,
-for §12.8.2.2's `/DocMDP` level and §12.8.6's usage rights alone, which is why the packages are
-still reachable from the page tree; ADR 1020 names the two call sites and prices removing them.
+**Where they live: `crates/pdf-signature`, and the encodings in `crates/pdf-pki` below it.** The
+modules left `pdf-model` with their cryptographic packages, so a crate that names `pdf-signature` is
+a crate that verifies a signature, and every other consumer of this tree's dependency table can be
+read against that one line (ADR 1020, `doc/reviews/984-direction-and-boundaries.md` finding 1).
+`pdf-model` still depends on the crate, for §12.8.2.2's `/DocMDP` level and §12.8.6's usage rights
+alone, which is why the packages are still reachable from the page tree; ADR 1020 names the two call
+sites and prices removing them. **The one ASN.1 reader, the X.509 reader and the big-integer seam
+are `pdf-pki`'s**, under both `pdf-signature` and `pdf-syntax`, because §7.6.5's public-key
+security handler opens RFC 5652 `EnvelopedData` and decrypts with RSA while a document is being
+opened, below the signature crate (the owner's answers A66 and A800, ADR 2801). `pdf-pki` adds
+`aes` and `cbc`, which `pdf-syntax` already had, and no other package; it is still one reader,
+fuzzed once (`fuzz/`'s `enveloped` and `rsa_private_key` beside `cms` and `x509`).
 
-§12.8's signature verification keeps `crates/pdf-signature`'s `pkcs1`, `pss`, `dsa`, `x509`, `cms`
-and `der` — the schemes, the budgets, the refusal names and the BER-tolerant reader — and runs
-their modular arithmetic on **`crypto-bigint`**, RustCrypto's big-integer package, behind the seam
-`bigint.rs` keeps (an owner decision, 2026-08-14; ADR 0331 supersedes ADR 0314's in-tree choice
+§12.8's signature verification keeps `crates/pdf-signature`'s `pkcs1`, `pss`, `dsa` and `cms`, and
+`pdf-pki`'s `x509` and `der` — the schemes, the budgets, the refusal names and the BER-tolerant
+reader — and runs their modular arithmetic on **`crypto-bigint`**, RustCrypto's big-integer
+package, behind the seam `pdf-pki`'s `bigint.rs` keeps (an owner decision, 2026-08-14; ADR 0331 supersedes ADR 0314's in-tree choice
 and re-measures ADR 0229's table). The whole-scheme packages stay declined. What a round choosing
 a dependency needs from those three ADRs:
 

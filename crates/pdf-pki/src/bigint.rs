@@ -1,9 +1,11 @@
 //! Modular arithmetic over numbers a stranger wrote into a file — `crypto-bigint`, behind
 //! this crate's own budgets.
 //!
-//! **This module knows nothing about signatures.** It is the integer arithmetic two of them need:
-//! [`crate::pkcs1`]'s `s^e mod n` (RFC 8017 section 5.2.2) and [`crate::dsa`]'s `g^u1 y^u2 mod p mod q`
-//! (FIPS 186-4 section 4.7). It is a module of its own because it has two callers (ADR 0314).
+//! **This module knows nothing about signatures or envelopes.** It is the integer arithmetic three
+//! callers need: `pdf_signature::pkcs1`'s `s^e mod n` (RFC 8017 section 5.2.2),
+//! `pdf_signature::dsa`'s `g^u1 y^u2 mod p mod q` (FIPS 186-4 section 4.7), and [`crate::rsa`]'s
+//! `c^d mod n` (RFC 8017 section 5.1.2). It is a module of its own because it has more than one
+//! caller (ADR 0314).
 //!
 //! # The arithmetic is a dependency's, and that is a decision
 //!
@@ -20,13 +22,14 @@
 //! a number too wide to hold). Every multiplication, exponentiation, reduction and inversion below
 //! is one call into `crypto-bigint`.
 //!
-//! # There is no secret here
+//! # One secret, and it is the exponent
 //!
-//! Nothing in this module needs to run in constant time: every number it touches is public — a
-//! modulus, a public key, a signature value, a digest — and all of them came out of a file anyone
-//! can read (ADR 0229's argument, which survives the port). The `_vartime` spellings below say so
-//! deliberately: `crypto-bigint` offers both, and taking the constant-time form would claim a
-//! property nothing here relies on.
+//! Every number a verifier touches is public — a modulus, a public key, a signature value, a
+//! digest — and all of them came out of a file anyone can read (ADR 0229's argument, which survives
+//! the port), so the `_vartime` spellings below say so deliberately: the modulus's parameters, the
+//! reductions and the inversion take them. [`crate::rsa`]'s private exponent is the one secret that
+//! reaches this module, and it reaches it only as [`modpow`]'s exponent, which is why that one call
+//! is `crypto-bigint`'s constant-time `pow` and not its `pow_vartime` (ADR 2801).
 
 use crypto_bigint::modular::{BoxedMontyForm, BoxedMontyParams};
 use crypto_bigint::{BoxedUint, Odd, Resize};
@@ -35,19 +38,20 @@ use crypto_bigint::{BoxedUint, Odd, Resize};
 ///
 /// Twice Table 260's largest key ("Up to 4096-bit (PDF 1.5)"), so that a key beyond the standard
 /// is reported by name rather than refused by running out of room, and one beyond this is refused
-/// by name too. Both callers restate it as their own budget: [`crate::pkcs1::MAX_MODULUS_BITS`]
-/// and [`crate::dsa::MAX_MODULUS_BITS`]. The budget is this program's, not the dependency's:
+/// by name too. Both callers restate it as their own budget: `pdf_signature::pkcs1::MAX_MODULUS_BITS`
+/// and `pdf_signature::dsa::MAX_MODULUS_BITS`. The budget is this program's, not the dependency's:
 /// `crypto-bigint`'s heap-allocated integers would hold whatever a hostile file wrote, and the
 /// point of the bound is that work stays a constant of this module rather than a number out of
 /// the document.
-pub(crate) const MAX_BITS: usize = 8192;
+pub const MAX_BITS: usize = 8192;
 
 /// The significant bits of a big-endian byte string, ignoring leading zero octets.
 ///
 /// This is what a person means by "a 2048-bit key": the modulus's own width, not the length of the
 /// string an encoder wrote it in — an X.509 `INTEGER` carries a leading `0x00` whenever the high
 /// bit is set, and that octet is spelling rather than value.
-pub(crate) fn significant_bits(bytes: &[u8]) -> usize {
+#[must_use]
+pub fn significant_bits(bytes: &[u8]) -> usize {
     let leading = bytes
         .iter()
         .take_while(|&&byte| byte == 0)
@@ -72,7 +76,7 @@ pub(crate) fn significant_bits(bytes: &[u8]) -> usize {
 /// public fact about a public number; see the module documentation for why nothing here is
 /// constant-time.
 #[derive(Clone)]
-pub(crate) struct Integer {
+pub struct Integer {
     value: BoxedUint,
 }
 
@@ -85,7 +89,8 @@ impl std::fmt::Debug for Integer {
 impl Integer {
     /// Zero.
     #[cfg(test)]
-    pub(crate) fn zero() -> Self {
+    #[must_use]
+    pub fn zero() -> Self {
         Self {
             value: BoxedUint::zero_with_precision(64),
         }
@@ -96,7 +101,8 @@ impl Integer {
     /// Leading zero octets are ignored, which is what makes an X.509 `INTEGER`'s sign octet
     /// harmless here: RFC 5280's serial numbers and moduli are written with a leading `0x00` when
     /// the high bit is set, and the value is the same number either way.
-    pub(crate) fn from_be_bytes(bytes: &[u8]) -> Option<Self> {
+    #[must_use]
+    pub fn from_be_bytes(bytes: &[u8]) -> Option<Self> {
         let leading = bytes
             .iter()
             .take_while(|&&byte| byte == 0)
@@ -122,7 +128,8 @@ impl Integer {
     /// Truncating on the left where the value needs more, which cannot happen for a value reduced
     /// modulo an `n` of that many octets — and which would produce a block that fails the
     /// comparison rather than one that passes it.
-    pub(crate) fn be_bytes(&self, length: usize) -> Vec<u8> {
+    #[must_use]
+    pub fn be_bytes(&self, length: usize) -> Vec<u8> {
         let raw = self.value.to_be_bytes();
         let mut out = vec![0u8; length];
         let take = raw.len().min(length);
@@ -134,12 +141,14 @@ impl Integer {
     }
 
     /// Whether the value is zero.
-    pub(crate) fn is_zero(&self) -> bool {
+    #[must_use]
+    pub fn is_zero(&self) -> bool {
         self.value.is_zero().into()
     }
 
     /// The number of significant bits.
-    pub(crate) fn bits(&self) -> usize {
+    #[must_use]
+    pub fn bits(&self) -> usize {
         usize::try_from(self.value.bits()).unwrap_or(usize::MAX)
     }
 
@@ -147,12 +156,14 @@ impl Integer {
     ///
     /// `crypto-bigint` compares across differing precisions, so neither value's width needs
     /// normalising first.
-    pub(crate) fn less_than(&self, other: &Self) -> bool {
+    #[must_use]
+    pub fn less_than(&self, other: &Self) -> bool {
         self.value < other.value
     }
 
     /// Whether the two are the same number, whatever their precisions.
-    pub(crate) fn equals(&self, other: &Self) -> bool {
+    #[must_use]
+    pub fn equals(&self, other: &Self) -> bool {
         self.value.cmp_vartime(&other.value) == std::cmp::Ordering::Equal
     }
 
@@ -160,7 +171,8 @@ impl Integer {
     ///
     /// The unbounded form, so a shift as wide as the value produces zero rather than wrapping the
     /// shift amount the way `wrapping_shr` would.
-    pub(crate) fn shifted_right(&self, bits: usize) -> Self {
+    #[must_use]
+    pub fn shifted_right(&self, bits: usize) -> Self {
         Self {
             value: self
                 .value
@@ -171,11 +183,17 @@ impl Integer {
 
 /// An odd modulus greater than one, holding the Montgomery parameters `crypto-bigint` computes
 /// once per modulus.
-pub(crate) struct Modulus {
+pub struct Modulus {
     /// The modulus itself, which callers compare signature values against.
-    pub(crate) value: Integer,
+    pub value: Integer,
     /// The precomputed Montgomery form parameters, shared by every operation below.
     params: BoxedMontyParams,
+}
+
+impl std::fmt::Debug for Modulus {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "Modulus({} bits)", self.value.bits())
+    }
 }
 
 impl Modulus {
@@ -185,7 +203,8 @@ impl Modulus {
     /// no inverse. RFC 8017 section 3.1 makes an RSA modulus a product of odd primes and FIPS
     /// 186-4 section 4.1 makes DSA's `p` and `q` prime, so this refuses nothing a real key could
     /// be; both callers report the refusal by name rather than working around it.
-    pub(crate) fn new(value: &Integer) -> Option<Self> {
+    #[must_use]
+    pub fn new(value: &Integer) -> Option<Self> {
         if value.bits() < 2 {
             return None;
         }
@@ -218,7 +237,8 @@ impl Modulus {
     /// FIPS 186-4 section 4.7 needs exactly this once — `v = ((g^u1 y^u2) mod p) mod q` reduces a
     /// `p`-sized number by a much smaller `q` — and both callers use it to bring a file's numbers
     /// below their modulus before exponentiating.
-    pub(crate) fn reduce(&self, value: &Integer) -> Integer {
+    #[must_use]
+    pub fn reduce(&self, value: &Integer) -> Integer {
         let divisor = self.params.modulus().as_nz_ref();
         Integer {
             value: value.value.rem_vartime(divisor),
@@ -226,7 +246,8 @@ impl Modulus {
     }
 
     /// `a * b mod n` for two values already below `n`.
-    pub(crate) fn multiply_reduced(&self, a: &Integer, b: &Integer) -> Integer {
+    #[must_use]
+    pub fn multiply_reduced(&self, a: &Integer, b: &Integer) -> Integer {
         // Montgomery-form multiplication cannot overflow — the product is reduced modulo `n` by
         // construction — so the operator the lint sees is not integer arithmetic at all.
         #[expect(
@@ -245,7 +266,8 @@ impl Modulus {
     /// in-tree arithmetic answered a non-invertible value with a number that was simply not the
     /// inverse — safe, because `v` then fails to equal `r'` — this answers `None`, and the one
     /// caller treats that as "does not verify", which is the same verdict said sooner.
-    pub(crate) fn invert(&self, value: &Integer) -> Option<Integer> {
+    #[must_use]
+    pub fn invert(&self, value: &Integer) -> Option<Integer> {
         self.form(value)
             .invert_vartime()
             .into_option()
@@ -259,8 +281,9 @@ impl Modulus {
 ///
 /// One `crypto-bigint` exponentiation. The trip count is the exponent's bit length, which every
 /// caller bounds before arriving here — an unbounded exponent is unbounded work over a number a
-/// stranger chose. `base` need not be below `n`; [`Modulus::form`] reduces one that is not.
-pub(crate) fn modpow(base: &Integer, exponent: &Integer, modulus: &Modulus) -> Integer {
+/// stranger chose. `base` need not be below `n`; `Modulus::form` reduces one that is not.
+#[must_use]
+pub fn modpow(base: &Integer, exponent: &Integer, modulus: &Modulus) -> Integer {
     Integer {
         value: modulus.form(base).pow(&exponent.value).retrieve(),
     }
@@ -270,10 +293,20 @@ pub(crate) fn modpow(base: &Integer, exponent: &Integer, modulus: &Modulus) -> I
 mod tests {
     use super::{Integer, MAX_BITS, Modulus, modpow, significant_bits};
 
-    /// A 2048-bit modulus, borrowed from `pkcs1`'s test vector so that the wide cases below run on
-    /// a number a real key uses rather than on one this test invented.
+    /// A 2048-bit modulus, `pdf_signature::pkcs1`'s test key's, so that the wide cases below run
+    /// on a number a real key uses rather than on one this test invented.
+    const MODULUS: &str = "\
+        c56a39fbe4fd00ac43c8080e81b5b2a314c57647dd5317854109d621e44713ca\
+        fabd7fbe5275f933f5956fd158c8fe6dab374475949366675f4feff22689459f\
+        d676925b9b55a1dec6274debe37905a3f843d322bf4495164ec6e626f8c0f198\
+        f538d93e9ab8be31250ce1af107a53415c663ddcefd8cef220613c58e1a9870e\
+        a2f67576e85d6457019c9b86422b3df59a664089e0d5a9f97f921940eab4d951\
+        32a1b19870635d6372e4275c06d39f8943d6a971c46fa86199e5acbc24ed0a9f\
+        7c8aa50a5e57ef9df109c0bac20be6022abede06cc603b1bed0e4d08e7c836af\
+        378d310edb7a752f2a9541f6da47b06291daaa0e25ff4b29f6e2fc926f4789b7";
+
     fn wide_modulus() -> Vec<u8> {
-        crate::pkcs1::tests::hex(crate::pkcs1::tests::MODULUS)
+        crate::rsa::tests::hex(MODULUS)
     }
 
     /// `a^b mod m` on numbers small enough to check by hand or with a calculator.

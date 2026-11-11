@@ -41,7 +41,7 @@ pub mod version;
 pub mod write;
 pub mod xref;
 
-pub use crypt::Permissions;
+pub use crypt::{Permissions, RecipientKey};
 pub use date::Date;
 pub use document::{
     CompressedRecovery, DecodedStreamCache, Decoding, Document, ImageStream, ObjectsLost,

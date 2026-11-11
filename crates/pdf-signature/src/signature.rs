@@ -3853,7 +3853,7 @@ mod tests {
         signing_certificate_bindings,
     };
     use crate::cms::{Digest, fixtures};
-    use crate::x509::fixtures::{CERTIFICATE, EC_CERTIFICATE, PKCS1_SIGNATURE, hex};
+    use crate::x509_fixtures::{CERTIFICATE, EC_CERTIFICATE, PKCS1_SIGNATURE, hex};
     use pdf_syntax::{Document, FileBytes};
 
     /// Builds a document from object bodies numbered from 1.

@@ -1497,7 +1497,9 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
         Ok(document) => document,
         // A file that refuses both is *locked*, not unreadable, and the distinction is the
         // point: the first is a document waiting for a person and the second is work owed.
-        Err(SyntaxError::PasswordRequired) => {
+        // §7.6.5's public-key handler asks for a certificate the way §7.6.4's asks for a password,
+        // and a corpus document encrypted to a recipient waits for one the same way.
+        Err(SyntaxError::PasswordRequired | SyntaxError::RecipientRequired) => {
             record(tally, |t| t.locked.push(name));
             return;
         }

@@ -37,8 +37,11 @@ bp384.workspace = true
 # answer A170, ADR 1385).
 primefield.workspace = true
 primeorder.workspace = true
+# DER and the certificate reader, which the public-key security handler below `pdf-syntax` reads
+# too: one implementation of each, and the `crypto-bigint` seam they share with `pkcs1.rs`.
+pdf-pki.workspace = true
 # §12.8.1's `/ByteRange` is a range of the file's bytes and Table 255 is a dictionary, so the
-# object reader is what this crate is built over. It is the only internal dependency, and
+# object reader is what this crate is built over. Together with `pdf-pki` it is the only internal dependency, and
 # `pdf-model` is deliberately not among them: a signature is read from the object graph, never
 # from the page tree (ADR 1020).
 pdf-syntax.workspace = true

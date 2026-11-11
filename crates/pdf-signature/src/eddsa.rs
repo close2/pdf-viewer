@@ -71,92 +71,32 @@
               quotation (the same reasoning `pdf_syntax::filter::Delimiting` records)"
 )]
 
-use const_oid::ObjectIdentifier;
-use const_oid::db::rfc8410;
-
 use crate::ed448;
 use ed25519_dalek::VerifyingKey;
 use ed25519_dalek::ed25519::Signature;
 use ed25519_dalek::ed25519::signature::MultipartVerifier as _;
 
-/// RFC 8410 section 3's `id-Ed25519`, `1.3.101.112`.
-///
-/// The identifier a certificate's `subjectPublicKeyInfo` states for one of ISO/TS 32002 Table 4's
-/// keys, and the
-/// one a `SignerInfo` states as its `signatureAlgorithm` for one of its signatures — RFC 8419
-/// makes them the same number, which is why one constant serves both.
-pub const ID_ED25519: ObjectIdentifier = rfc8410::ID_ED_25519;
-
-/// RFC 8410 section 3's `id-Ed448`, `1.3.101.113` — ISO/TS 32002 Table 4's other curve, and the
-/// same double duty as [`ID_ED25519`].
-pub const ID_ED448: ObjectIdentifier = rfc8410::ID_ED_448;
+/// The identifiers a certificate's key and a `SignerInfo`'s `signatureAlgorithm` both state for
+/// the two curves, which `pdf-pki` owns because a certificate's reader recognises a key by them.
+pub use pdf_pki::x509::{ID_ED448, ID_ED25519};
 
 /// RFC 8032 section 5.1's `b / 8`: an Ed25519 public key is 32 octets.
-const ED25519_KEY_OCTETS: usize = 32;
+const ED25519_KEY_OCTETS: usize = pdf_pki::x509::ED25519_KEY_OCTETS;
 
 /// RFC 8032 section 5.1.6's signature, `R ‖ S`: two of those, so 64 octets.
 const ED25519_SIGNATURE_OCTETS: usize = 2 * ED25519_KEY_OCTETS;
 
 /// One of ISO/TS 32002 Table 4's two Edwards curves.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Curve {
-    /// RFC 8032 section 5.1's Ed25519, `id-Ed25519`.
-    Ed25519,
-    /// RFC 8032 section 5.2's Ed448, `id-Ed448`.
-    Ed448,
-}
-
-impl Curve {
-    /// The identifier a certificate's key and a `SignerInfo`'s `signatureAlgorithm` both state
-    /// for this curve (RFC 8419 section 2.4 makes them one number).
-    #[must_use]
-    pub fn oid(self) -> ObjectIdentifier {
-        match self {
-            Self::Ed25519 => ID_ED25519,
-            Self::Ed448 => ID_ED448,
-        }
-    }
-
-    /// Which curve an encoded identifier names, if either.
-    #[must_use]
-    pub fn of(oid: &[u8]) -> Option<Self> {
-        [Self::Ed25519, Self::Ed448]
-            .into_iter()
-            .find(|curve| curve.oid().as_bytes() == oid)
-    }
-
-    /// The name RFC 8032 and ISO/TS 32002 Table 4 spell the curve with.
-    #[must_use]
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Ed25519 => "Ed25519",
-            Self::Ed448 => "Ed448",
-        }
-    }
-
-    /// RFC 8032's `b`, the encoding's width in bits — 256 (section 5.1) or 456 (section 5.2) —
-    /// which is what a report calls the key's size.
-    #[must_use]
-    pub fn bits(self) -> usize {
-        match self {
-            Self::Ed25519 => 8 * ED25519_KEY_OCTETS,
-            Self::Ed448 => 8 * ed448::KEY_OCTETS,
-        }
-    }
-}
+///
+/// The type is `pdf-pki`'s, because a certificate's reader names the curve; this module computes
+/// on it.
+pub use pdf_pki::x509::EdCurve as Curve;
 
 /// An `EdDSA` public key, as far as verifying one needs.
 ///
-/// `subjectPublicKey`'s octets, which RFC 8410 section 4 puts there raw rather than wrapped in a
-/// structure, and the curve the certificate's algorithm identifier named. Whether the octets
+/// The type is `pdf-pki`'s, because a certificate's reader builds it; whether the octets
 /// decompress to a point is [`verify`]'s question, because it is arithmetic.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PublicKey<'a> {
-    /// Which of the two curves the certificate's `algorithm` stated.
-    pub curve: Curve,
-    /// The octets of the compressed Edwards point: `b / 8` of them.
-    pub key: &'a [u8],
-}
+pub use pdf_pki::x509::EdPublicKey as PublicKey;
 
 /// What stopped an `EdDSA` signature from being verified — a statement about the file, in every case.
 ///
@@ -488,7 +428,7 @@ mod tests {
         let certificate = hex(ED448_CERTIFICATE);
         let parsed = x509::parse(&certificate).expect("a certificate");
         assert_eq!(
-            x509::verify_signature(
+            crate::certificate_signature::verify(
                 parsed.tbs,
                 parsed.signature_algorithm,
                 None,

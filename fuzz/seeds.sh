@@ -184,6 +184,17 @@ seed() {
         { documents; find -L "$tree/crates" -name '*.rs' -print0; } \
             | python3 "$here/seed_x509.py" "$root/$t" -
         ;;
+    # §7.6.5's recipient lists: the one `EnvelopedData` each script-written public-key fixture
+    # states as a hexadecimal string, and the reader's keys the witness tests hand over.
+    enveloped)
+        for pdf in "$tree"/crates/pdf-syntax/tests/public_key_witnesses/*.pdf; do
+            python3 -I -c 'import re, sys
+data = open(sys.argv[1], "rb").read()
+for found in re.findall(rb"/Recipients \[<([0-9a-f]+)>", data):
+    sys.stdout.buffer.write(bytes.fromhex(found.decode()))' "$pdf" > "$root/$t/$(basename "$pdf" .pdf)"
+        done
+        ;;
+    rsa_private_key) cp --update=none "$tree"/crates/pdf-syntax/tests/public_key_witnesses/*.key.der "$root/$t/" ;;
     # Annex O's fragments arrive with a request, never in a file, so the seeds are the fragments
     # this tree's own reader and its tests state.
     fragment)
