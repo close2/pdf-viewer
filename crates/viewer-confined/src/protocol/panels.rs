@@ -36,7 +36,7 @@
 //! being the one `#[non_exhaustive]` type in this vocabulary.
 
 use pdf_model::article::{Bead, Thread};
-use pdf_model::attachment::{Attachment as FileAttachment, Relationship};
+use pdf_model::attachment::{Attachment as FileAttachment, ExternalAssociatedFile, Relationship};
 use pdf_model::collection::{
     Collection, Colours, Field, FieldKind, Folder, Initial, Item as CollectionItem, Layout,
     NameDefect, NameRestriction, Named, Navigator, Sort, Split, SplitDirection,
@@ -379,6 +379,31 @@ pub(super) fn decode_attachments(
             created: reader.option_string("an attachment's creation date")?,
             modified: reader.option_string("an attachment's modification date")?,
             checksum: reader.option_bytes("an attachment's checksum")?,
+            relationship: decode_relationship(reader)?,
+        })
+    })
+}
+
+/// §14.13.2's associated files outside the document.
+///
+/// Both fields cross whole: unlike [`encode_attachments`]'s, the type holds no stream, because
+/// the form it is for has none — a name and Table 43's `/AFRelationship` are everything the
+/// producer stated (ADR 2799).
+pub(super) fn encode_external_files(writer: &mut Writer, files: &[ExternalAssociatedFile]) {
+    writer.usize(files.len());
+    for ExternalAssociatedFile { name, relationship } in files {
+        writer.str(name);
+        encode_relationship(writer, relationship);
+    }
+}
+
+/// Reads §14.13.2's associated files outside the document.
+pub(super) fn decode_external_files(
+    reader: &mut Reader<'_>,
+) -> Result<Vec<ExternalAssociatedFile>, ProtocolError> {
+    reader.list("an external file list", |reader| {
+        Ok(ExternalAssociatedFile {
+            name: reader.string("an external file's name")?,
             relationship: decode_relationship(reader)?,
         })
     })

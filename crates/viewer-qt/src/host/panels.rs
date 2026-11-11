@@ -232,7 +232,8 @@ impl Host {
     /// is `viewer_host::Key`'s mechanism applied to the other thing a window shows (ADR 0526).
     pub(super) fn panel_of(&mut self, tab: Tab) -> Vec<PanelRow> {
         use viewer_host::panel::{
-            article_rows, attachment_rows, collection_rows, layer_rows, outline_rows, property_rows,
+            article_rows, collection_rows, external_rows, file_rows, layer_rows, outline_rows,
+            property_rows,
         };
         match tab {
             // Not while the launch document's outline is being read off this thread: asking here
@@ -266,16 +267,23 @@ impl Host {
                     Answer::Attachments(files) => files,
                     _ => Vec::new(),
                 };
+                // §14.13.2's files outside the document follow either arrangement, as rows with
+                // no save action (ADR 2799).
+                let external = match self.state.viewer.query(Query::ExternalFiles) {
+                    Answer::ExternalFiles(external) => external,
+                    _ => Vec::new(),
+                };
                 match self.state.viewer.query(Query::Collection) {
                     Answer::Collection {
                         collection,
                         initial,
                         order,
-                    } => collection_rows(&collection, &initial, &order, &files),
-                    _ if files.is_empty() => {
-                        vec![PanelRow::saying("This document embeds no files.")]
+                    } => {
+                        let mut rows = collection_rows(&collection, &initial, &order, &files);
+                        rows.extend(external_rows(&external));
+                        rows
                     }
-                    _ => attachment_rows(&files),
+                    _ => file_rows(&files, &external),
                 }
             }
             Tab::Articles => match self.state.viewer.query(Query::Articles) {

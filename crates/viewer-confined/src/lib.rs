@@ -635,6 +635,11 @@ pub enum Reply {
     /// [`Attachment`] rather than [`pdf_model::attachment::Attachment`], and the difference is the
     /// stream: see that type.
     Attachments(Vec<Attachment>),
+    /// §14.13.2's associated files outside the document, each a name and a relationship.
+    ///
+    /// [`pdf_model::attachment::ExternalAssociatedFile`] itself, because it has no stream to leave
+    /// behind: the form it is for has none.
+    ExternalFiles(Vec<pdf_model::attachment::ExternalAssociatedFile>),
     /// §12.3.5's portable collection, read, and the document it opens on.
     ///
     /// Boxed because it is Table 153, Table 155's columns, Table 156's sort, Table 158's split,

@@ -67,6 +67,24 @@ pub enum Query<'a> {
     /// Such a file is reached by activating its annotation instead, which is what §12.5.6.15
     /// says activation does; ADR 0295 has the argument and what a lazily-filled panel would need.
     Attachments,
+    /// §14.13.2's other form: the associated files the document names and does not carry.
+    ///
+    /// ISO 32000-2 §14.13.2 gives an associated file two forms, and the attachments panel lists
+    /// the second of them, the embedded one:
+    ///
+    /// > The file specification for an associated file represents either a file external to the
+    /// > PDF file or an embedded file stream (see 7.11.4, "Embedded file streams") within the PDF
+    /// > file.
+    ///
+    /// The first form has no stream, so it has no bytes, no size and no media type, and an
+    /// [`pdf_model::attachment::Attachment`] cannot hold it. What the producer stated of it is a
+    /// name and Table 43's `/AFRelationship`, and those are what this answers with, for the panel
+    /// to list beside the files it can save — a row with no save action, because this program
+    /// follows no path a document names (`doc/questions/A45`, ADR 2799).
+    ///
+    /// The population is the one [`Query::Attachments`] lists from: §14.13.3's catalog `/AF` and
+    /// §14.13.4's `/AF` on the page the reader is on, for the cost that query's own answer gives.
+    ExternalFiles,
     /// §12.3.5's portable collection, where the catalog states one.
     ///
     /// The clause is a `shall` on a *viewer*: "\[i]f this dictionary is present in a PDF document,
@@ -523,6 +541,9 @@ pub enum Answer<'a> {
     Layers(Vec<Layer>),
     /// §7.11.4's embedded files.
     Attachments(Vec<pdf_model::attachment::Attachment>),
+    /// §14.13.2's associated files outside the document, each a name and a relationship, in the
+    /// order [`Query::ExternalFiles`] gives.
+    ExternalFiles(Vec<pdf_model::attachment::ExternalAssociatedFile>),
     /// §12.4.3's article threads, in the `/Threads` array's own order.
     Articles(Vec<pdf_model::article::Thread>),
     /// §12.3.5's collection dictionary, read, and the document it opens on.

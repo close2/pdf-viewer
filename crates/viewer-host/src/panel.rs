@@ -33,7 +33,7 @@
 //! eager work rather than removed it.
 
 use pdf_model::article::Thread;
-use pdf_model::attachment::Attachment;
+use pdf_model::attachment::{Attachment, ExternalAssociatedFile};
 use pdf_model::collection::{Collection, Field, FieldKind, Initial, Layout, SplitDirection, View};
 use pdf_model::metadata::{Information, Trapped};
 use pdf_model::outline::{Item, Outline};
@@ -420,6 +420,59 @@ pub fn attachment_rows(attachments: &[Attachment]) -> Vec<PanelRow> {
             cells: Vec::new(),
             picture: None,
             children: Vec::new(),
+        })
+        .collect()
+}
+
+/// The files panel of a document that states no §12.3.5 collection: §7.11.4's embedded files,
+/// then §14.13.2's associated files outside the document.
+///
+/// **One rule for the whole panel**, which is how the owner asked for it to be decided
+/// (`doc/questions/A45`): every file the panel can name is listed, whichever of §14.13.2's two
+/// forms it takes —
+///
+/// > The file specification for an associated file represents either a file external to the PDF
+/// > file or an embedded file stream (see 7.11.4, "Embedded file streams") within the PDF file.
+///
+/// — and the form decides only what acting on the row does. The sentence about an empty panel is
+/// said only where the document names no file of either form. ADR 2799.
+#[must_use]
+pub fn file_rows(attachments: &[Attachment], external: &[ExternalAssociatedFile]) -> Vec<PanelRow> {
+    if attachments.is_empty() && external.is_empty() {
+        return vec![PanelRow::saying("This document embeds no files.")];
+    }
+    let mut rows = attachment_rows(attachments);
+    rows.extend(external_rows(external));
+    rows
+}
+
+/// §14.13.2's associated files outside the document, as rows that say so and do nothing.
+///
+/// The row's shape is the owner's (`doc/questions/A45`): it "states plainly that the file is
+/// outside the document, carries no save action at all, and shows the relationship in place of
+/// the size". So the label is the file's own name, the second line says where the file is not and
+/// names Table 43's `/AFRelationship`, and the action is [`RowAction::Inert`] — an
+/// [`RowAction::Extract`] would name a file the document does not hold, and nothing here suggests
+/// the file could be fetched, because this program follows no path a document names (principle
+/// 3). A specification that states no name is listed under a sentence saying so rather than
+/// dropped, since its relationship is still a fact about the document. ADR 2799.
+#[must_use]
+pub fn external_rows(files: &[ExternalAssociatedFile]) -> Vec<PanelRow> {
+    files
+        .iter()
+        .map(|file| {
+            let label = if file.name.is_empty() {
+                "A file the document does not name".to_owned()
+            } else {
+                file.name.clone()
+            };
+            PanelRow {
+                detail: Some(format!(
+                    "Outside this document — {}",
+                    file.relationship.as_str()
+                )),
+                ..PanelRow::item(label)
+            }
         })
         .collect()
 }
@@ -1984,5 +2037,70 @@ mod tests {
         assert_eq!(rows[0].label, "Title:");
         assert_eq!(rows[0].detail.as_deref(), Some("A paper"));
         assert!(!rows[0].note);
+    }
+
+    /// §14.13.2's external form as the owner shaped its row (`doc/questions/A45`): the file's
+    /// name, a line saying it is outside the document with Table 43's relationship where the size
+    /// would be, and no save action — [`super::RowAction::Inert`], never an `Extract` naming bytes
+    /// the document does not hold.
+    #[test]
+    fn a_file_outside_the_document_is_a_row_that_says_so_and_saves_nothing() {
+        use pdf_model::attachment::{ExternalAssociatedFile, Relationship};
+
+        let rows = super::external_rows(&[
+            ExternalAssociatedFile {
+                name: "survey.csv".to_owned(),
+                relationship: Relationship::Data,
+            },
+            ExternalAssociatedFile {
+                name: String::new(),
+                relationship: Relationship::Other("Annex".to_owned()),
+            },
+        ]);
+        assert_eq!(rows.len(), 2, "every specification is a row");
+        assert_eq!(rows[0].label, "survey.csv");
+        assert_eq!(
+            rows[0].detail.as_deref(),
+            Some("Outside this document — Data"),
+            "where the file is not, and the relationship in place of the size"
+        );
+        assert_eq!(
+            rows[0].action,
+            super::RowAction::Inert,
+            "no save action at all"
+        );
+        assert!(!rows[0].note, "a file the document names is a thing in it");
+        assert_eq!(rows[1].label, "A file the document does not name");
+        assert_eq!(
+            rows[1].detail.as_deref(),
+            Some("Outside this document — Annex")
+        );
+        assert_eq!(rows[1].action, super::RowAction::Inert);
+    }
+
+    /// The panel's sentence about holding nothing is said only where the document names no file
+    /// of either of §14.13.2's forms: a panel whose only rows are external files holds rows.
+    #[test]
+    fn the_empty_panel_sentence_counts_files_of_both_forms() {
+        use pdf_model::attachment::{ExternalAssociatedFile, Relationship};
+
+        let none = super::file_rows(&[], &[]);
+        assert_eq!(none.len(), 1);
+        assert!(none[0].note, "nothing named, so the panel says so");
+
+        let external = super::file_rows(
+            &[],
+            &[ExternalAssociatedFile {
+                name: "survey.csv".to_owned(),
+                relationship: Relationship::Data,
+            }],
+        );
+        assert_eq!(
+            external.len(),
+            1,
+            "the external file, and no sentence that there are none"
+        );
+        assert_eq!(external[0].label, "survey.csv");
+        assert!(!external[0].note);
     }
 }

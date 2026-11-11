@@ -1111,6 +1111,9 @@ pub struct Content<'a> {
     pub layers: &'a [Layer],
     /// [`viewer_core::Query::Attachments`].
     pub attachments: &'a [pdf_model::attachment::Attachment],
+    /// [`viewer_core::Query::ExternalFiles`]: §14.13.2's associated files outside the document,
+    /// listed after the files it holds as rows that offer no save (ADR 2799).
+    pub external_files: &'a [pdf_model::attachment::ExternalAssociatedFile],
     /// [`viewer_core::Query::Articles`]: §12.4.3's threads, in the `/Threads` array's order.
     pub articles: &'a [pdf_model::article::Thread],
     /// [`viewer_core::Query::Collection`]: §12.3.5's collection, where the document states one.
@@ -1620,6 +1623,15 @@ impl Sidebar {
                             out.push(row);
                         }
                     }
+                }
+                // §14.13.2's other form follows either arrangement, the owner's row shape
+                // (`doc/questions/A45`): the name, "outside this document" and the relationship
+                // where the size would be, and no action, since there are no bytes to take out.
+                // `viewer_host::panel::external_rows` is the one wording every window shares.
+                for external in viewer_host::panel::external_rows(content.external_files) {
+                    let mut row = Row::plain(0, external.label);
+                    row.detail = external.detail;
+                    out.push(row);
                 }
                 if out.is_empty() {
                     out.push(nothing("This document embeds no files."));

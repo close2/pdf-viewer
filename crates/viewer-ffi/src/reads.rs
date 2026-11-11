@@ -119,14 +119,21 @@ impl<'a> Reads<'a> {
         }
     }
 
-    /// §7.11.4's embedded files, listed rather than extracted.
+    /// §7.11.4's embedded files, listed rather than extracted, and after them §14.13.2's
+    /// associated files outside the document, as rows with no save action (ADR 2799).
     ///
     /// # Errors
     ///
     /// [`Status::NoAnswer`] where no document is focused or it states no `/EmbeddedFiles` tree.
     pub fn attachments(&self) -> Result<Panel, Status> {
         match self.viewer.query(Query::Attachments) {
-            Answer::Attachments(attachments) => Ok(Panel::of_attachments(&attachments)),
+            Answer::Attachments(attachments) => {
+                let external = match self.viewer.query(Query::ExternalFiles) {
+                    Answer::ExternalFiles(external) => external,
+                    _ => Vec::new(),
+                };
+                Ok(Panel::of_files(&attachments, &external))
+            }
             _ => Err(Status::NoAnswer),
         }
     }

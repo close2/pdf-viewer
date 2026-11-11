@@ -18,7 +18,7 @@
 //! and the outline keeps the functions a caller already compiled against. Both are
 //! `viewer_host::PanelRow` underneath, flattened the same way.
 
-use viewer_host::{PanelRow, RowAction, attachment_rows, layer_rows, outline_rows};
+use viewer_host::{PanelRow, RowAction, attachment_rows, external_rows, layer_rows, outline_rows};
 
 use crate::kinds::RowKind;
 use crate::status::Status;
@@ -165,6 +165,20 @@ impl Panel {
     #[must_use]
     pub fn of_attachments(attachments: &[pdf_model::attachment::Attachment]) -> Self {
         Self::of_rows(&attachment_rows(attachments))
+    }
+
+    /// §7.11.4's embedded files, then §14.13.2's associated files outside the document, each an
+    /// [`RowKind::Inert`] row that names the file and its relationship and offers no save
+    /// (`viewer_host::external_rows`, ADR 2799). No sentence for an empty list: an empty panel is
+    /// what [`Self::of_attachments`] has always handed a C caller.
+    #[must_use]
+    pub fn of_files(
+        attachments: &[pdf_model::attachment::Attachment],
+        external: &[pdf_model::attachment::ExternalAssociatedFile],
+    ) -> Self {
+        let mut rows = attachment_rows(attachments);
+        rows.extend(external_rows(external));
+        Self::of_rows(&rows)
     }
 
     /// Flattens rows `viewer_host::panel` built.

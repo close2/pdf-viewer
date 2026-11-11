@@ -79,9 +79,17 @@ impl Host {
     /// document stating one gets §12.3.5.2's folder tree and Table 155's columns, and every other
     /// document gets the `/EmbeddedFiles` tree's own order. Both mappings are
     /// `viewer_host::panel`'s, so this window and `viewer-qt` present a collection identically.
+    ///
+    /// §14.13.2's associated files outside the document follow either arrangement, as rows with
+    /// no save action (`viewer_host::panel::external_rows`, ADR 2799): a collection arranges the
+    /// files the document holds, and these it does not.
     fn file_rows(&self) -> Vec<panel::PanelRow> {
         let files = match self.state.viewer.query(Query::Attachments) {
             Answer::Attachments(files) => files,
+            _ => Vec::new(),
+        };
+        let external = match self.state.viewer.query(Query::ExternalFiles) {
+            Answer::ExternalFiles(external) => external,
             _ => Vec::new(),
         };
         if let Answer::Collection {
@@ -90,12 +98,11 @@ impl Host {
             order,
         } = self.state.viewer.query(Query::Collection)
         {
-            return panel::collection_rows(&collection, &initial, &order, &files);
+            let mut rows = panel::collection_rows(&collection, &initial, &order, &files);
+            rows.extend(panel::external_rows(&external));
+            return rows;
         }
-        if files.is_empty() {
-            return vec![panel::PanelRow::saying("This document embeds no files.")];
-        }
-        panel::attachment_rows(&files)
+        panel::file_rows(&files, &external)
     }
 
     /// Builds every panel from its own answer.

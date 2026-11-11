@@ -60,7 +60,9 @@ fn entry_points(query: &Query<'_>) -> &'static [&'static str] {
         Query::PageGeometry(_) => &["quorra_page_geometry"],
         Query::Outline => &["quorra_outline_read"],
         Query::Layers => &["quorra_layers_read"],
-        Query::Attachments => &["quorra_attachments_read"],
+        // One panel answers both: §14.13.2's files outside the document are its last rows, each
+        // with no save action (ADR 2799).
+        Query::Attachments | Query::ExternalFiles => &["quorra_attachments_read"],
         // §12.3.5.2's key grammar is the fifth piece and is a function of its own, because a
         // caller holding a folder tree and a file list cannot put one inside the other without it.
         Query::Collection => &[
@@ -162,6 +164,7 @@ fn every_query() -> Vec<Query<'static>> {
         Query::Outline,
         Query::Layers,
         Query::Attachments,
+        Query::ExternalFiles,
         Query::Collection,
         Query::Articles,
         Query::PageLabel(0),

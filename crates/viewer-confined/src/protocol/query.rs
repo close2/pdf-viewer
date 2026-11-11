@@ -66,6 +66,10 @@ mod query_kind {
     // When a script's timer is next owed. It crosses because the worker holds the view the timers
     // are in and the window holds the clock (ADR 1702).
     pub(in crate::protocol) const TIMER_DUE: u8 = 36;
+    // §14.13.2's associated files outside the document, which the attachments panel lists as rows
+    // with no save action. It crosses because the worker holds the catalog and the page in view
+    // (ADR 2799).
+    pub(in crate::protocol) const EXTERNAL_FILES: u8 = 37;
 }
 
 /// Encodes one question.
@@ -165,6 +169,9 @@ pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
         }
         Query::Attachments => {
             writer.u8(k::ATTACHMENTS);
+        }
+        Query::ExternalFiles => {
+            writer.u8(k::EXTERNAL_FILES);
         }
         Query::Collection => {
             writer.u8(k::COLLECTION);
@@ -269,6 +276,7 @@ pub(crate) enum PlainQuery {
     Outline,
     Layers,
     Attachments,
+    ExternalFiles,
     Collection,
     Articles,
     Thumbnail(usize),
@@ -313,6 +321,7 @@ impl OwnedQuery {
                 PlainQuery::Outline => Query::Outline,
                 PlainQuery::Layers => Query::Layers,
                 PlainQuery::Attachments => Query::Attachments,
+                PlainQuery::ExternalFiles => Query::ExternalFiles,
                 PlainQuery::Collection => Query::Collection,
                 PlainQuery::Articles => Query::Articles,
                 PlainQuery::Thumbnail(index) => Query::Thumbnail(index),
@@ -382,6 +391,7 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<OwnedQuery, ProtocolError> {
         k::OUTLINE => OwnedQuery::Plain(PlainQuery::Outline),
         k::LAYERS => OwnedQuery::Plain(PlainQuery::Layers),
         k::ATTACHMENTS => OwnedQuery::Plain(PlainQuery::Attachments),
+        k::EXTERNAL_FILES => OwnedQuery::Plain(PlainQuery::ExternalFiles),
         k::COLLECTION => OwnedQuery::Plain(PlainQuery::Collection),
         k::ARTICLES => OwnedQuery::Plain(PlainQuery::Articles),
         k::THUMBNAIL => OwnedQuery::Plain(PlainQuery::Thumbnail(reader.usize("a page index")?)),

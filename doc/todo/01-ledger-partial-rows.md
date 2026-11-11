@@ -29,9 +29,9 @@ reading in one line per row, and the note is where it is argued. The membership 
   and the owner declines to buy it (A348), and only the owner's word moves it. e-sRGB and e-sYCC
   are drawn from the held PIMA 7667 (ADRs 2292, 2293), and CIE Lab's named illuminants are
   implemented. The irreversible path's one-level differences are not debt.
-- **§7.6.5.1, §7.6.5.2, §7.6.5.3** (`reported`) — the handler is refused by name; the build
-  waits on `doc/questions/A66`'s trigger, which `doc/questions/A168` reads as unlit.
-- **§7.6.6** — Table 27, which is the handler's; moves on the same trigger.
+- **§7.6.5.1, §7.6.5.2, §7.6.5.3** (`reported`) — the handler is refused by name; the build is
+  owed now, `doc/questions/A800` having lifted `doc/questions/A66`'s trigger (`doc/todo/76` row 2).
+- **§7.6.6** — Table 27, which is the handler's; moves with the same build.
 - **§12.2** — owed by CI's first green run of the `window` job's Table 147 step: the WinUI
   window's native full screen and its exit's `/NonFullScreenPageMode`, and `/FitWindow` and
   `/CenterWindow` answered through `quorra_window_place`, read back under the window's `--probe`

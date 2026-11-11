@@ -105,6 +105,7 @@ impl App {
             outline: &self.outline,
             layers,
             attachments: &self.attachments,
+            external_files: &self.external_files,
             articles: &self.articles,
             collection: self
                 .collection
@@ -256,6 +257,7 @@ impl App {
                 outline: &self.outline,
                 layers: &layers,
                 attachments: &self.attachments,
+                external_files: &self.external_files,
                 articles: &self.articles,
                 collection: self
                     .collection
@@ -343,6 +345,7 @@ impl App {
                 outline: &self.outline,
                 layers: &layers,
                 attachments: &self.attachments,
+                external_files: &self.external_files,
                 articles: &self.articles,
                 collection: self
                     .collection
@@ -423,6 +426,7 @@ impl App {
                     outline: &self.outline,
                     layers: &layers,
                     attachments: &self.attachments,
+                    external_files: &self.external_files,
                     articles: &self.articles,
                     collection: self
                         .collection

@@ -34,3 +34,5 @@ witness set the build is tested against when a real trigger fires
 (`crates/pdf-syntax/tests/public_key_witnesses.rs`). They are not the trigger: no document is known
 to be encrypted to a key a real reader holds, both arms above stand as written, and the build stays
 untriggered (A168).
+
+**2026-11-10 — a line the audit of `doc/questions/A800` item 2 adds.** The trigger above is lifted: the owner's Option 1 on Q800 (2026-11-06) orders the handler built now in the shape this answer settled, against `A168`'s four witnesses. `doc/todo/76` row 2 lists it; the build is A800 item 1's.

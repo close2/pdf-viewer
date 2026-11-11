@@ -61,7 +61,8 @@ The size, so that whoever takes it is not guessing: one `Query` variant and its 
 `match` arms in `viewer-confined/src/protocol.rs` (both exhaustive, so the compiler names them), and
 one number in `viewer-ffi`'s `QUORRA_*_COUNT`. It is left undone deliberately: `viewer-core`'s
 vocabulary is a *person at a window's*, and adding to it is a decision about that boundary rather
-than about this tool. Take it when a host wants a page's text, not because the list looks short.
+than about this tool. Its gate was "when a host wants a page's text"; `doc/questions/A800` lifted every
+such gate, and it is `doc/todo/76` row 5, owed in that file's order.
 
 ## The substitution: measured, and deliberately not done here
 

@@ -55,6 +55,7 @@ fn only(outline: &Outline) -> Content<'_> {
         outline,
         layers: &[],
         attachments: &[],
+        external_files: &[],
         articles: &[],
         collection: None,
         information: &NOTHING,
@@ -397,6 +398,7 @@ fn a_layer_switch_throws_unless_the_document_locked_it() {
         outline: &outline,
         layers: &layers,
         attachments: &[],
+        external_files: &[],
         articles: &[],
         collection: None,
         information: &NOTHING,
@@ -452,6 +454,7 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
         outline: &outline,
         layers: &[],
         attachments: &[],
+        external_files: &[],
         articles: &[],
         collection: None,
         information: &NOTHING,
@@ -484,6 +487,7 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
         outline: &outline,
         layers: &[],
         attachments: &files,
+        external_files: &[],
         articles: &[],
         collection: None,
         information: &NOTHING,
@@ -497,6 +501,60 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
     assert_eq!(
         panel.click((80.0, 36.0), listed, 1.0),
         Some(Hit::Extract(files[0].name.clone()))
+    );
+}
+
+/// §14.13.2's external form is a row of the same tab, drawn, and a click on it takes nothing out.
+///
+/// > The file specification for an associated file represents either a file external to the PDF
+/// > file or an embedded file stream (see 7.11.4, "Embedded file streams") within the PDF file.
+///
+/// The owner's row (`doc/questions/A45`) "carries no save action at all": the document holds no
+/// bytes to extract, so the row is drawn and the click is [`Hit::Nothing`] (ADR 2799). And a tab
+/// whose only file is outside the document is not empty, so the row is where the empty sentence
+/// would have been and a click there is still not an extraction.
+#[test]
+fn a_file_outside_the_document_is_drawn_in_the_file_tab_and_takes_nothing_out() {
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    let outline = Outline::default();
+    let external = [pdf_model::attachment::ExternalAssociatedFile {
+        name: "survey.csv".to_owned(),
+        relationship: pdf_model::attachment::Relationship::Data,
+    }];
+    let content = Content {
+        outline: &outline,
+        layers: &[],
+        attachments: &[],
+        external_files: &external,
+        articles: &[],
+        collection: None,
+        information: &NOTHING,
+        metadata: None,
+        page_count: 0,
+        pages: None,
+    };
+    let mut panel = Sidebar::default();
+    panel.toggle();
+    assert_eq!(
+        panel.click((tab(3), 8.0), content, 1.0),
+        Some(Hit::Redraw),
+        "the Files tab"
+    );
+    let listed = ink(&panel.draw(&chrome, content, HEIGHT, 1.0), 26..46);
+    assert!(listed > 40, "the file outside the document is a row");
+    let empty = Content {
+        external_files: &[],
+        ..content
+    };
+    assert_ne!(
+        listed,
+        ink(&panel.draw(&chrome, empty, HEIGHT, 1.0), 26..46),
+        "the row is the file's, not the sentence an empty tab says"
+    );
+    assert_eq!(
+        panel.click((80.0, 36.0), content, 1.0),
+        Some(Hit::Nothing),
+        "no save action at all: the document holds no bytes of it"
     );
 }
 
@@ -575,6 +633,7 @@ fn a_collection_puts_its_files_in_folders_with_the_schemas_columns() {
         outline: &outline,
         layers: &[],
         attachments: &files,
+        external_files: &[],
         articles: &[],
         collection: Some(viewer_ui::chrome::Presentation {
             collection: &collection,
@@ -651,6 +710,7 @@ fn no_embedded_file_is_lost_because_its_key_names_a_folder_that_is_not_there() {
             outline: &outline,
             layers: &[],
             attachments: &files,
+            external_files: &[],
             articles: &[],
             collection: Some(viewer_ui::chrome::Presentation {
                 collection,
@@ -723,6 +783,7 @@ fn a_collections_initial_document_is_the_row_set_in_bold() {
             outline: &outline,
             layers: &[],
             attachments: &files,
+            external_files: &[],
             articles: &[],
             collection: Some(viewer_ui::chrome::Presentation {
                 collection: &collection,
@@ -783,6 +844,7 @@ fn a_collections_initial_document_is_the_row_set_in_bold() {
         outline: &outline,
         layers: &[],
         attachments: &[],
+        external_files: &[],
         articles: &[],
         collection: Some(viewer_ui::chrome::Presentation {
             collection: &collection,
@@ -842,6 +904,7 @@ fn the_read_tab_lists_a_thread_and_a_click_follows_it() {
         outline: &outline,
         layers: &[],
         attachments: &[],
+        external_files: &[],
         articles: &[],
         collection: None,
         information: &NOTHING,
@@ -879,6 +942,7 @@ fn the_read_tab_lists_a_thread_and_a_click_follows_it() {
         outline: &outline,
         layers: &[],
         attachments: &[],
+        external_files: &[],
         articles: &threads,
         collection: None,
         information: &NOTHING,
@@ -990,6 +1054,7 @@ fn the_document_tab_shows_table_349_and_the_xmp_beside_it() {
         outline: &outline,
         layers: &[],
         attachments: &[],
+        external_files: &[],
         articles: &[],
         collection: None,
         information: &information,
@@ -1106,6 +1171,7 @@ fn the_pages_tab_draws_a_thumbnail_and_a_click_goes_to_its_page() {
         outline: &outline,
         layers: &[],
         attachments: &[],
+        external_files: &[],
         articles: &[],
         collection: None,
         information: &NOTHING,
@@ -1885,6 +1951,7 @@ fn a_free_form_thumbnail_is_where_the_click_finds_it() {
         outline: &outline,
         layers: &[],
         attachments: &files,
+        external_files: &[],
         articles: &[],
         collection: Some(viewer_ui::chrome::Presentation {
             collection: &collection,

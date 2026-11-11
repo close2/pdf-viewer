@@ -492,6 +492,7 @@ fn main() {
         searched_at: None,
         outline: pdf_model::outline::Outline::default(),
         attachments: Vec::new(),
+        external_files: Vec::new(),
         articles: Vec::new(),
         collection: None,
         typing: None,

@@ -116,6 +116,7 @@ fn what_each_panel_costs_to_cross() {
             ("outline", Query::Outline),
             ("layers", Query::Layers),
             ("attachments", Query::Attachments),
+            ("external files", Query::ExternalFiles),
             ("collection", Query::Collection),
             ("articles", Query::Articles),
             ("thumbnail", Query::Thumbnail(0)),

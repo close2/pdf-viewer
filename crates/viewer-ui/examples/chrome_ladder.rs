@@ -116,6 +116,7 @@ fn main() {
         outline: &outline,
         layers: &layers,
         attachments: &attachments,
+        external_files: &[],
         articles: &[],
         collection: None,
         information: &information,

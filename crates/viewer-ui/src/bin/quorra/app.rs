@@ -542,6 +542,9 @@ pub(crate) struct App {
     pub(crate) outline: pdf_model::outline::Outline,
     /// §7.11.4's embedded files, likewise.
     pub(crate) attachments: Vec<pdf_model::attachment::Attachment>,
+    /// §14.13.2's associated files outside the document, from `Query::ExternalFiles`, taken
+    /// with [`Self::attachments`] and listed after them (ADR 2799).
+    pub(crate) external_files: Vec<pdf_model::attachment::ExternalAssociatedFile>,
     /// §12.4.3's article threads, likewise: `Query::Articles` reads them on demand and the list
     /// belongs to a document that no edit reaches.
     pub(crate) articles: Vec<pdf_model::article::Thread>,
@@ -1307,6 +1310,9 @@ impl App {
         }
         if let Answer::Attachments(files) = self.viewer.query(Query::Attachments) {
             self.attachments = files;
+        }
+        if let Answer::ExternalFiles(files) = self.viewer.query(Query::ExternalFiles) {
+            self.external_files = files;
         }
         if let Answer::Articles(threads) = self.viewer.query(Query::Articles) {
             self.articles = threads;

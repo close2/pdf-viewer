@@ -247,8 +247,10 @@ pub(crate) fn about(
 /// needs no filesystem, and §7.11's own reading is that refusing a file and being unable to
 /// name it are different things. A document that associates a file nobody here can reach is
 /// exactly the kind of fact this module exists for: what you are looking at is not the whole of
-/// what the producer assembled. **The catalog is the scope, which is the scope the embedded
-/// list already has** — §14.13.4 to §14.13.9's other carriers are read by
+/// what the producer assembled. **The catalog is the scope**, because this is said once, when
+/// the document opens; the attachments panel lists the same files again, as rows with no save
+/// action, together with §14.13.4's of the page in view (`Query::ExternalFiles`, the owner's
+/// `doc/questions/A45`, ADR 2799). §14.13.5 to §14.13.9's other carriers are read by
 /// `attachment::external_associated` and reach no caller. No corpus document states one, so the
 /// witness is hand-built (trap 8); ADR 0918 has the counts.
 fn external_associated_files(document: &Document, notes: &mut Vec<String>) {

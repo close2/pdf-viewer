@@ -88,6 +88,7 @@ impl Viewer {
             // in the list before anything is saved, and
             // one detached is out of it. `ViewState::attachments` says which home the list is.
             Query::Attachments => Answer::Attachments(attachments_in_view(open)),
+            Query::ExternalFiles => Answer::ExternalFiles(external_files_in_view(open)),
             // Read here rather than held on `Open`: see `Query::Articles`. Two of the 974 corpus
             // documents state a `/Threads` entry at all, one of them an empty array and one a
             // null, so a list built at launch would be empty 999 times in a thousand.
@@ -436,6 +437,39 @@ pub(super) fn attachments_in_view(open: &Open) -> Vec<pdf_model::attachment::Att
             continue;
         }
         out.push(file);
+    }
+    out
+}
+
+/// §14.13.2's associated files outside the document, from the two places [`attachments_in_view`]
+/// lists embedded ones from: §14.13.3's catalog `/AF`, then §14.13.4's `/AF` of the page in view.
+/// ISO 32000-2 §14.13.2 states both forms:
+///
+/// > The file specification for an associated file represents either a file external to the PDF
+/// > file or an embedded file stream (see 7.11.4, "Embedded file streams") within the PDF file.
+///
+/// The same two dictionaries for the same reason: a panel that lists a page's embedded files and
+/// not its external ones would be telling a reader the page carries everything it names. The cost
+/// is the one `attachments_in_view` already pays — the catalog and a page the core has built, one
+/// `/AF` lookup each.
+///
+/// **A file named in both places is listed once.** An external file carries no stream whose
+/// identity could say two specifications are one, so two entries stating the same name and the
+/// same relationship are one row: a reader shown both could not tell them apart, and the panel
+/// would be listing the document's syntax rather than its files. ADR 2799.
+pub(super) fn external_files_in_view(
+    open: &Open,
+) -> Vec<pdf_model::attachment::ExternalAssociatedFile> {
+    let mut out = Vec::new();
+    let catalog = open.document.catalog().ok();
+    let page = open.page(open.page_index);
+    let homes = catalog.iter().chain(page.iter().map(|page| &page.dict));
+    for home in homes {
+        for file in pdf_model::attachment::external_associated(&open.document, home) {
+            if !out.contains(&file) {
+                out.push(file);
+            }
+        }
     }
     out
 }

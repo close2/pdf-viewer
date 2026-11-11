@@ -67,6 +67,8 @@ pub(super) mod answer_kind {
     pub(in crate::protocol) const MEASURED: u8 = 35;
     // `query_kind::TIMER_DUE`'s answer: a flag, and the milliseconds where it is set (ADR 1702).
     pub(in crate::protocol) const TIMER_DUE: u8 = 36;
+    // §14.13.2's associated files outside the document: a name and a relationship each (ADR 2799).
+    pub(in crate::protocol) const EXTERNAL_FILES: u8 = 37;
 }
 
 /// Encodes one answer.
@@ -352,6 +354,10 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
             writer.u8(k::ATTACHMENTS);
             panels::encode_attachments(&mut writer, attachments);
         }
+        Answer::ExternalFiles(files) => {
+            writer.u8(k::EXTERNAL_FILES);
+            panels::encode_external_files(&mut writer, files);
+        }
         Answer::Articles(threads) => {
             writer.u8(k::ARTICLES);
             panels::encode_articles(&mut writer, threads);
@@ -586,6 +592,7 @@ pub(crate) fn decode_answer_reusing(
         k::OUTLINE => Reply::Outline(panels::decode_outline(&mut reader)?),
         k::LAYERS => Reply::Layers(panels::decode_layers(&mut reader)?),
         k::ATTACHMENTS => Reply::Attachments(panels::decode_attachments(&mut reader)?),
+        k::EXTERNAL_FILES => Reply::ExternalFiles(panels::decode_external_files(&mut reader)?),
         k::COLLECTION => Reply::Collection {
             collection: Box::new(panels::decode_collection(&mut reader)?),
             initial: panels::decode_initial(&mut reader)?,

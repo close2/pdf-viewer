@@ -311,6 +311,26 @@ fn every_panel_answer_round_trips() {
         "an attachment changed on the way through"
     );
 
+    // §14.13.2's external form: a name and Table 43's relationship, both of which cross whole,
+    // including an Annex E second-class name and a specification that names nothing.
+    let external = vec![
+        pdf_model::attachment::ExternalAssociatedFile {
+            name: "survey.csv".to_owned(),
+            relationship: Relationship::Data,
+        },
+        pdf_model::attachment::ExternalAssociatedFile {
+            name: String::new(),
+            relationship: Relationship::Other("Annex".to_owned()),
+        },
+    ];
+    let Reply::ExternalFiles(read) = round_trip(&Answer::ExternalFiles(external.clone())) else {
+        panic!("an external file list comes back as one");
+    };
+    assert_eq!(
+        read, external,
+        "an external file changed on the way through"
+    );
+
     // §12.3.5.
     let collection = a_populated_collection();
     // §12.3.5.1's resolved `/D` crosses beside the dictionary: `Initial::Embedded` is the
