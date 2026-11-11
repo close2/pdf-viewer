@@ -216,6 +216,9 @@ pub struct Viewer {
     /// when a document is asked what it says about itself. Defaults to no anchors at all, which is
     /// what every host in this tree supplied before the command existed.
     trust: crate::TrustPolicy,
+    /// §7.6.5.1's certificate and key, as [`Command::Recipient`] last supplied them, and none until
+    /// a host does (ADR 2822). Read by an open only after the file has said it needs one.
+    recipient: Option<crate::RecipientSecret>,
     /// Whether a document's scripts run — RFC 0008 section 6.3's level, as [`Command::Scripts`]
     /// last supplied it, and [`crate::Scripting::Off`] until a host says otherwise (ADR 1616).
     scripting: crate::Scripting,
@@ -345,6 +348,7 @@ impl Viewer {
             locked: None,
             references: Arc::new(pdf_model::reference::Supply::none()),
             reference_refusals: Vec::new(),
+            recipient: None,
         }
     }
 
@@ -467,6 +471,9 @@ impl Viewer {
                     open.forget_about();
                 }
             }
+            // The reader's identity, held for the next open: a document already open was opened
+            // with the key it needed and does not need it again (ADR 2822).
+            Command::Recipient(key) => self.recipient = key,
             Command::References(files) => self.supply_references(&files),
             // A script reads the keys at its event, in whichever document raises it (ADR 1771).
             Command::Keys(keys) => {

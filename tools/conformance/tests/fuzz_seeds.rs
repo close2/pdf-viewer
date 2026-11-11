@@ -38,8 +38,8 @@ fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// The distinct certificates the tree's sources state as a `&str` constant whose name holds
-/// `CERTIFICATE`, each as its lowercase hexadecimal digits, with the file that states it.
+/// The distinct certificates the tree's sources state as a `&str` constant of hexadecimal whose
+/// name holds `CERTIFICATE`, each as its lowercase hexadecimal digits, with the file that states it.
 fn fixture_certificates(root: &Path) -> BTreeSet<(String, String)> {
     let mut sources = Vec::new();
     rust_sources(&root.join("crates"), &mut sources);
@@ -62,6 +62,16 @@ fn fixture_certificates(root: &Path) -> BTreeSet<(String, String)> {
             let Some((value, after)) = body.split_once('"') else {
                 break;
             };
+            // A certificate is stated in hexadecimal, split across lines by `\` continuations; a
+            // value with any other character is a constant about certificates and not one, such as
+            // the command-line word `--recipient-certificate` (ADR 2822).
+            if !value
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() || c.is_ascii_whitespace() || c == '\\')
+            {
+                rest = after;
+                continue;
+            }
             let digits: String = value
                 .chars()
                 .filter(char::is_ascii_hexdigit)

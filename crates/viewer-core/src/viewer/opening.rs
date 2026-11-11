@@ -77,7 +77,7 @@ impl Viewer {
         let limits = hold
             .as_ref()
             .map_or(pdf_syntax::Limits::DEFAULT, |hold| hold.locked.limits);
-        match Open::new(bytes, password, limits) {
+        match Open::new(bytes, password, self.recipient.as_ref(), limits) {
             Ok(mut open) => {
                 let mut placed = None;
                 if let Some(hold) = &hold {
@@ -160,6 +160,13 @@ impl Viewer {
                 // Held again for the next attempt, which a wrong password is owed.
                 self.locked = hold;
                 events.push(Event::PasswordRequired { document: id });
+            }
+            // §7.6.5.1's prompt, for `PasswordRequired`'s reason: no recipient list names the
+            // certificate this reader holds, which another certificate may answer. A key that
+            // matched and did not open is `SyntaxError::RecipientKey` and falls to `OpenFailed`
+            // below, said in its own words (ADR 2822).
+            Err(SyntaxError::RecipientRequired) => {
+                events.push(Event::RecipientRequired { document: id });
             }
             Err(error) => events.push(Event::OpenFailed {
                 document: id,

@@ -97,6 +97,7 @@ mod open;
 mod presentation;
 mod query;
 mod readback;
+mod recipient;
 mod report;
 mod script_question;
 mod scripting;
@@ -130,6 +131,7 @@ pub use query::{
     PageStructure, PopupWindow, PrintPage, Query, Selected, Tagging,
 };
 pub use readback::ReadbackCache;
+pub use recipient::RecipientSecret;
 pub use script_question::{AlertButton, AlertButtons, AlertIcon, ScriptAnswer, ScriptQuestion};
 pub use scripting::{ScriptAsks, ScriptRunners, Scripting};
 pub use secret::Secret;

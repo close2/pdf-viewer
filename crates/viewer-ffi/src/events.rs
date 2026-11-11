@@ -117,6 +117,13 @@ impl Events {
                     document.0
                 )
             }
+            Event::RecipientRequired { document } => {
+                format!(
+                    "document {} is encrypted to recipients and needs a certificate and key that \
+                     is one (ISO 32000-2 §7.6.5.1)",
+                    document.0
+                )
+            }
             Event::Closed(document) => format!("document {} closed", document.0),
             Event::PageChanged {
                 index, label, of, ..
@@ -360,6 +367,7 @@ impl Events {
             Event::Opened { document, .. }
             | Event::OpenFailed { document, .. }
             | Event::PasswordRequired { document }
+            | Event::RecipientRequired { document }
             | Event::Closed(document)
             | Event::PageChanged { document, .. }
             | Event::OpenUri { document, .. }

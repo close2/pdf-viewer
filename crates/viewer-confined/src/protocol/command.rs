@@ -156,6 +156,10 @@ pub(super) mod command_kind {
     // A step along the window's history of views, which crosses because the confined worker
     // holds the view the history is kept beside (ADR 2805).
     pub(in crate::protocol) const HISTORY: u8 = 52;
+    // §7.6.5.1's certificate and key, which cross because the confined worker is where the
+    // document's bytes are and so where the envelope is opened, and the host is the one that read
+    // the two files (ADR 1134 decision 2, ADR 2822).
+    pub(in crate::protocol) const RECIPIENT: u8 = 53;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -381,6 +385,15 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         }
         // §8.10.4's target documents. Named as well as carried, because a refusal the worker
         // raises has to say *which* file it was about in the words the host used for it.
+        // §7.6.5.1's reader identity crosses whole, for `TRUST`'s reason: the worker opens the
+        // envelope where the document is, and the bytes were read on the host's side of the
+        // confinement. The frame's buffer is not cleared afterwards, as a password's is not.
+        Command::Recipient(key) => {
+            writer.u8(k::RECIPIENT).bool(key.is_some());
+            if let Some(key) = key {
+                writer.bytes(key.certificate()).bytes(key.reveal_key());
+            }
+        }
         Command::References(files) => {
             writer
                 .u8(k::REFERENCE_FILES)
@@ -832,6 +845,15 @@ pub(crate) fn decode_command_holding(
                 acceptance,
             })
         }
+        k::RECIPIENT => Command::Recipient(if reader.bool("whether a recipient key is held")? {
+            let certificate = reader.owned_bytes("a recipient's certificate")?;
+            Some(viewer_core::RecipientSecret::new(
+                certificate,
+                reader.owned_bytes("a recipient's private key")?,
+            ))
+        } else {
+            None
+        }),
         k::REFERENCE_FILES => {
             let source = reader.string("the reference files' source")?;
             let count = reader.u32("a reference file count")?;

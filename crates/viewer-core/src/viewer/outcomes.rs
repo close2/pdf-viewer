@@ -179,7 +179,7 @@ impl Viewer {
             return;
         };
         let file = file.clone();
-        let read = Open::read(bytes, password, hold.locked.limits);
+        let read = Open::read(bytes, password, self.recipient.as_ref(), hold.locked.limits);
         if matches!(read, Err(SyntaxError::PasswordRequired)) {
             let asked = hold.asked;
             self.locked = Some(hold);

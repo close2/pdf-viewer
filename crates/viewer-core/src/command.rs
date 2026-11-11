@@ -8,6 +8,7 @@
 use pdf_render::Raster;
 use pdf_syntax::{FileBytes, ObjectId};
 
+use crate::recipient::RecipientSecret;
 use crate::secret::Secret;
 use crate::viewer::{DocumentId, RenderToken};
 
@@ -293,6 +294,22 @@ pub enum Command {
     /// the *reader* rather than about any one file. What a document already said about itself is
     /// worded again when it arrives, because the answer to the third question has changed.
     Trust(TrustPolicy),
+    /// §7.6.5.1's reader identity: the certificate and private key that open a document encrypted
+    /// by a public-key security handler, or `None` for no key.
+    ///
+    /// ISO 32000-2 §7.6.5.1: "the PDF reader shall scan the recipient list for which the content
+    /// is encrypted and shall attempt to find a match with a certificate that belongs to the
+    /// user." Which certificate belongs to the user is a question no file can answer, so it is
+    /// [`Self::Trust`]'s shape for [`Self::Trust`]'s reason: the host reads the two files, in the
+    /// unconfined process, and hands their bytes in (ADR 1134 decision 2, ADR 2822).
+    ///
+    /// **`None` is the default and nothing changes for a host that never sends this**: a document
+    /// encrypted to recipients answers [`crate::Event::RecipientRequired`], which is what it
+    /// answered before the command existed, said as a prompt rather than as a failure.
+    ///
+    /// Applies to every document opened afterwards, until it is sent again: it is a fact about
+    /// the *reader*. A document already open was opened with the key it needed and keeps it.
+    Recipient(Option<RecipientSecret>),
     /// ISO 32000-2 §8.10.4's target documents: the files a reference `XObject` may import from.
     ///
     /// **The seventh host-supplied policy value, and it is the same shape as [`Self::Trust`] for

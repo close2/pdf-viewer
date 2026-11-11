@@ -3,9 +3,10 @@
 //! [`crate::policy`] states the words — [`TRUST_ANCHORS`] and [`ACCEPT_UNKNOWN_REVOCATION`] for
 //! §12.8.1's third question, [`REFERENCE_FILES`] for §8.10.4's target documents,
 //! [`READER_NAME`], [`READER_TITLE`], [`READER_ORGANISATION`] and [`INTERFACE_LANGUAGE`] for
-//! §8.11.4.4's two categories about the reader, and [`SCRIPTS`] for RFC 0008 section 6.3's level —
-//! and what each value becomes. This is the other half: which words a command line holds, refused
-//! where one is mistyped, and the four commands they become, in the order a window sends them
+//! §8.11.4.4's two categories about the reader, [`SCRIPTS`] for RFC 0008 section 6.3's level, and
+//! [`RECIPIENT_CERTIFICATE`] and [`RECIPIENT_KEY`] for §7.6.5.1's match — and what each value
+//! becomes. This is the other half: which words a command line holds, refused
+//! where one is mistyped, and the five commands they become, in the order a window sends them
 //! before its first document.
 //!
 //! **One reading rather than one per window**, because the levelness rule `doc/todo/30` keeps is
@@ -21,15 +22,15 @@ use viewer_core::Command;
 
 use crate::policy::{
     ACCEPT_UNKNOWN_REVOCATION, INTERFACE_LANGUAGE, READER_NAME, READER_ORGANISATION, READER_TITLE,
-    REFERENCE_FILES, SCRIPTS, Scripts, TRUST_ANCHORS, audience, reference_files, scripting,
-    scripts, trust_anchors,
+    RECIPIENT_CERTIFICATE, RECIPIENT_KEY, REFERENCE_FILES, SCRIPTS, Scripts, TRUST_ANCHORS,
+    audience, recipient_key, reference_files, scripting, scripts, trust_anchors,
 };
 
 /// What a person typed of the reader's policy words.
 ///
-/// Every field defaults to the word not having been typed, under which the four commands
+/// Every field defaults to the word not having been typed, under which the five commands
 /// [`ReaderWords::commands`] makes are the ones a host that never sent them would have meant: no
-/// anchor, no target document, nobody reading, no script run.
+/// anchor, no target document, nobody reading, no script run, no recipient key.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReaderWords {
     /// The directory [`TRUST_ANCHORS`] named: RFC 5280 section 6.1.1's input (d).
@@ -53,14 +54,18 @@ pub struct ReaderWords {
     /// twice: what the archive key asks for (ADR 1954). Not a command sent at launch — a
     /// conversion is something a person asks for later, by the key.
     pub archive: Option<viewer_core::Archiving>,
+    /// The file [`RECIPIENT_CERTIFICATE`] named: the certificate §7.6.5.1's match looks for.
+    pub recipient_certificate: Option<PathBuf>,
+    /// The file [`RECIPIENT_KEY`] named: the private key that belongs to it.
+    pub recipient_key: Option<PathBuf>,
 }
 
-/// The four commands the words became, and every file a person named that did not take.
+/// The five commands the words became, and every file a person named that did not take.
 #[derive(Debug)]
 pub struct ReaderSupply {
-    /// `Command::Trust`, `Command::References`, `Command::Audience` and `Command::Scripts`, in
-    /// that order, each sent before the window's first `Command::Open`.
-    pub commands: [Command; 4],
+    /// `Command::Trust`, `Command::References`, `Command::Audience`, `Command::Scripts` and
+    /// `Command::Recipient`, in that order, each sent before the window's first `Command::Open`.
+    pub commands: [Command; 5],
     /// One sentence per file in a named directory that is not an anchor or not a target document.
     ///
     /// Said rather than dropped: a person who named six files and got four would otherwise read
@@ -74,9 +79,10 @@ impl ReaderWords {
          [--reference-files <dir>] [--reader-name <name>] [--reader-title <title>] \
          [--reader-organisation <organisation>] [--interface-language <tag>] \
          [--scripts off|ask|warn|on] [--archive <target>:<profile>] \
-         [--archive-profiles <dir>]";
+         [--archive-profiles <dir>] [--recipient-certificate <file>] \
+         [--recipient-key <file>]";
 
-    /// Takes `word` if it is one of the ten, reading the value after it from `rest`.
+    /// Takes `word` if it is one of the twelve, reading the value after it from `rest`.
     ///
     /// `Ok(false)` where `word` is none of them, which leaves it to the window's own parser.
     ///
@@ -98,6 +104,18 @@ impl ReaderWords {
             self.trust_anchors = Some(directory(
                 TRUST_ANCHORS,
                 "a directory of PEM or DER certificates",
+                rest.next(),
+            )?);
+        } else if word == RECIPIENT_CERTIFICATE {
+            self.recipient_certificate = Some(file(
+                RECIPIENT_CERTIFICATE,
+                "a DER or PEM certificate",
+                rest.next(),
+            )?);
+        } else if word == RECIPIENT_KEY {
+            self.recipient_key = Some(file(
+                RECIPIENT_KEY,
+                "a DER or PEM private key",
                 rest.next(),
             )?);
         } else if word == REFERENCE_FILES {
@@ -153,7 +171,8 @@ impl ReaderWords {
         Ok(true)
     }
 
-    /// What the words become: reads the two directories and builds the four commands.
+    /// What the words become: reads the two directories and the two recipient files, and builds
+    /// the five commands.
     ///
     /// Called on a window's document thread rather than before its window, because nothing in it
     /// is needed to show page one (`CLAUDE.md` principle 2), and with no directory named it reads
@@ -167,10 +186,17 @@ impl ReaderWords {
             self.accept_unknown_revocation,
         );
         let (files, files_refused) = reference_files(self.reference_files.as_deref());
+        // §7.6.5.1's two files, read on this side of the confinement and carried as bytes (ADR
+        // 2822); nothing is read where neither word was typed.
+        let (recipient, recipient_refused) = recipient_key(
+            self.recipient_certificate.as_deref(),
+            self.recipient_key.as_deref(),
+        );
         let refused = anchors_refused
             .iter()
             .map(ToString::to_string)
             .chain(files_refused.iter().map(ToString::to_string))
+            .chain(recipient_refused.iter().map(ToString::to_string))
             .collect();
         ReaderSupply {
             commands: [
@@ -183,9 +209,20 @@ impl ReaderWords {
                     self.language.as_deref(),
                 )),
                 Command::Scripts(scripting(self.scripts)),
+                Command::Recipient(recipient),
             ],
             refused,
         }
+    }
+}
+
+/// The file after a file word, or the sentence that refuses it.
+fn file<W: Into<OsString>>(word: &str, wants: &str, value: Option<W>) -> Result<PathBuf, String> {
+    let file = PathBuf::from(value.ok_or_else(|| format!("{word} wants {wants}"))?.into());
+    if file.is_file() {
+        Ok(file)
+    } else {
+        Err(format!("{word} {}: not a file", file.display()))
     }
 }
 
@@ -285,12 +322,15 @@ mod tests {
                 viewer_core::Command::References(files),
                 viewer_core::Command::Audience(audience),
                 viewer_core::Command::Scripts(viewer_core::Scripting::Off),
+                viewer_core::Command::Recipient(None),
             ] => {
                 assert!(trust.anchors.is_empty(), "no anchor");
                 assert!(files.files.is_empty(), "no target document");
                 assert!(audience.is_empty(), "nobody reading");
             }
-            other => panic!("Trust, References, Audience, Scripts off in that order: {other:?}"),
+            other => panic!(
+                "Trust, References, Audience, Scripts off, no Recipient in that order: {other:?}"
+            ),
         }
     }
 

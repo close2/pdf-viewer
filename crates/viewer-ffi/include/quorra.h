@@ -51,7 +51,7 @@ extern "C" {
  * This is what stands in for the Rust rule that a new message fails to compile in every consumer.
  * It cannot fail a build, so it fails a startup instead, once, naming the number that moved.
  */
-#define QUORRA_EVENT_KIND_COUNT 31u
+#define QUORRA_EVENT_KIND_COUNT 32u
 
 /* What an entry point returns. `QUORRA_OK` is zero; everything else is a refusal. */
 #define QUORRA_OK                 0
@@ -149,6 +149,11 @@ extern "C" {
  * fully qualified name. An XFA form's preOpen script may have declined the opening, and the
  * reader's level for fill decided (XFA 3.3 pages 392 and 399; ADR 2791). */
 #define QUORRA_EVENT_LIST_OPENS 30u
+
+/* §7.6.5.1: the document is encrypted to recipients and no recipient list names the certificate
+ * quorra_recipient_key supplied, or none was supplied. Supply another and open again; a key that
+ * matches and does not open the envelope is a QUORRA_EVENT_OPEN_FAILED instead (ADR 2822). */
+#define QUORRA_EVENT_RECIPIENT_REQUIRED 31u
 
 /* §12.5.5's three situations, of which a press is two. What `quorra_pointer` takes. */
 #define QUORRA_POINTER_MOVED     0u
@@ -1127,6 +1132,16 @@ int32_t quorra_event_copied(const quorra_events *events, size_t index, bool *log
                        size_t cap, size_t *needed);
 /* §6.3.2.2's "unless otherwise instructed". QUORRA_DELEGATE_*. Re-interprets the page. */
 int32_t quorra_delegate(quorra_viewer *viewer, uint32_t appearances, quorra_events **events);
+/* §7.6.5.1's reader identity: "the PDF reader shall scan the recipient list for which the
+ * content is encrypted and shall attempt to find a match with a certificate that belongs to the
+ * user." certificate is X.509's DER and key the private key's DER (PKCS #8, PKCS #1 or RFC 5915's
+ * ECPrivateKey); this library reads no file for them. A NULL certificate withdraws the key held.
+ * A document opened afterwards that no recipient list names raises QUORRA_EVENT_RECIPIENT_REQUIRED,
+ * and one whose envelope the key does not open a QUORRA_EVENT_OPEN_FAILED saying so. The bytes are
+ * copied before this returns (ADR 2822). */
+int32_t quorra_recipient_key(quorra_viewer *viewer, const uint8_t *certificate,
+                       size_t certificate_length, const uint8_t *key, size_t key_length,
+                       quorra_events **events);
 /* §12.8.1's third question: which certification authorities this reader will end a path at.
  *
  * This library ships no root list and reads no platform certificate store. RFC 5280 section 6.1.1
@@ -2099,6 +2114,8 @@ int32_t quorra_settings_refusal(const quorra_settings *settings, char *out, size
 #define QUORRA_READER_TITLE           3u  /* one more of Table 100's Ttl */
 #define QUORRA_READER_ORGANISATION    4u  /* one more of Table 100's Org */
 #define QUORRA_READER_LANGUAGE        5u  /* §8.11.4.4's Language, replacing the last stated */
+#define QUORRA_READER_RECIPIENT_CERTIFICATE 6u  /* a DER or PEM certificate: §7.6.5.1's match */
+#define QUORRA_READER_RECIPIENT_KEY         7u  /* the DER or PEM private key belonging to it */
 /* A QUORRA_READER_* with its value. QUORRA_WRONG_KIND for a number that names none, and for a
  * directory that is not one, with quorra_settings_refusal's sentence; nothing changes. */
 int32_t quorra_settings_reader(quorra_settings *settings, uint32_t word, const char *value);

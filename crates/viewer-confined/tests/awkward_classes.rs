@@ -131,6 +131,9 @@ fn refusal_in(events: &[Event]) -> Option<String> {
         Event::PasswordRequired { .. } => {
             Some("§7.6.4.1: the document wants a password".to_owned())
         }
+        Event::RecipientRequired { .. } => {
+            Some("§7.6.5.1: the document wants a recipient's certificate and key".to_owned())
+        }
         _ => None,
     })
 }

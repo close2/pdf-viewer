@@ -87,12 +87,16 @@ use pdf_signature::x509::Instant;
 use viewer_core::{Extraction, Purpose, ReferenceFiles, TrustPolicy};
 
 mod launched;
+mod recipient;
 mod settings;
 mod words;
 
 pub use launched::{
     LAUNCHED_DOCUMENTS, Launched, LaunchedDocuments, RUN_BY_HANDLERS, asked_to_hand_over,
     hand_over, handed, launched, launched_documents,
+};
+pub use recipient::{
+    RECIPIENT_CERTIFICATE, RECIPIENT_KEY, RecipientRefusal, recipient_key, recipient_required,
 };
 pub use settings::{Level, Policy};
 pub use words::{ReaderWord, Taken, Words};

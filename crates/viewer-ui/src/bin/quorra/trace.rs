@@ -353,6 +353,8 @@ pub(crate) fn describe_command(command: &Command) -> String {
             policy.anchors.source(),
             policy.acceptance
         ),
+        // Whether a key is held, and its `Debug`'s two lengths: never a byte of the key (ADR 2822).
+        Command::Recipient(key) => format!("recipient key {key:?}"),
         // The files' count and where they came from, never their bytes, for the line above's
         // reason: what a reader needs beside an imported page is whose files it came out of.
         Command::References(files) => {
@@ -472,6 +474,7 @@ pub(crate) fn describe_event(event: &Event) -> String {
         Event::Opened { pages, .. } => format!("opened, {pages} page(s)"),
         Event::OpenFailed { reason, .. } => format!("open failed: {reason}"),
         Event::PasswordRequired { .. } => "a password is required".to_owned(),
+        Event::RecipientRequired { .. } => "a recipient certificate is required".to_owned(),
         Event::Closed(_) => "closed".to_owned(),
         Event::Printing { pages, .. } => format!("printing, {pages} page(s)"),
         Event::ListOpens { field, .. } => format!("the list of field {field:?} may drop down"),

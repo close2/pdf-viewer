@@ -31,7 +31,7 @@ a test's timing are not work held back and are not here.
 | # | where | holds back | row or feature | kind |
 |---|---|---|---|---|
 | 1 | `doc/questions/A45`; `viewer-core/src/notes.rs` | the attachments panel's row for a file outside the document | §14.13.2, §14.13.4 | **built** (ADR 2799) |
-| 2 | `doc/questions/A66`, `A168`; ADRs 1485, 1202; `doc/todo/01`; `doc/todo/65` section 5 | §7.6.5's public-key handler | §7.6.5, §7.6.5.1–3, §7.6.6 | **built in part** (ADRs 2801, 2802, 2809, 2810, 2821): the handler, all seven envelope ciphers, Table 27's per-stream list and RFC 5652 key agreement for an elliptic-curve certificate run; the host input (ADR 1134) is left, effort only |
+| 2 | `doc/questions/A66`, `A168`; ADRs 1485, 1202; `doc/todo/01`; `doc/todo/65` section 5 | §7.6.5's public-key handler | §7.6.5, §7.6.5.1–3, §7.6.6 | **built in part** (ADRs 2801, 2802, 2809, 2810, 2821, 2822): the handler, all seven envelope ciphers, Table 27's per-stream list, RFC 5652 key agreement for an elliptic-curve certificate and the host input (ADR 1134) run; RSAES-OAEP, ECMQV, the Triple DES key wrap and brainpoolP512r1 are left, effort only |
 | 3 | ADR 2529 (status deferred to Q713) | §12.8.3.4.4's policy enforcement | §12.8.3.4.4 | another lane's — `doc/questions/A713` placed the documents |
 | 4 | ADR 1736 section 1 | `app.goBack`/`goForward`, held in `surface::REFUSED` until a window keeps a history of views | JavaScript `app` members | **built** (ADR 2805) |
 | 5 | `doc/todo/63` "what is left" | one `Query` for a page's text on the confined pipe | `viewer-core` vocabulary | effort only |

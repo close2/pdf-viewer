@@ -227,18 +227,18 @@ or Table 300 `/S` makes "the rendition" non-viable from either dictionary (ADRs 
 ### 5. Built in part — the public-key security handler
 
 **One cluster, ordered built by the owner (`doc/questions/A800`, which lifted `doc/questions/A66`'s
-trigger) and built in part (ADRs 2801, 2802, 2809, 2810, 2821).** `crates/pdf-pki` holds the one ASN.1 reader, the X.509
+trigger) and built in part (ADRs 2801, 2802, 2809, 2810, 2821, 2822).** `crates/pdf-pki` holds the one ASN.1 reader, the X.509
 reader, the big-integer seam, RFC 5652 `EnvelopedData` under all seven of §7.6.5.3's ciphers, RFC
 8017's RSA decryption and RFC 5753's elliptic-curve key agreement, below both `pdf-syntax` and `pdf-signature`, with fuzz targets beside it.
 `crates/pdf-syntax/src/crypt/public_key.rs` scans the recipient lists, opens the one naming the reader's
 certificate, digests §7.6.5.3's key, and derives a key of its own for a crypt filter with Table 27's
 per-stream recipient list. `crates/pdf-syntax/tests/public_key_witnesses.rs` opens `doc/questions/A168`'s
 four `PDFBox` witnesses with their keystores' keys, and documents a script writes test s3, s4 and the
-per-stream list. **What is left, in ADR 2801's order, is effort only.** The host input (ADR 1134) is the
-last item of that order; RSAES-OAEP, ECMQV and the Triple DES key wrap are refused by name. §7.6.5.2 and §7.6.6
-left the map: both rows are `implemented`.
+per-stream list. A host supplies the reader's certificate and key (`--recipient-certificate`,
+`--recipient-key`, `quorra_recipient_key`; ADR 2822), so ADR 2801's order is built. **What is left is
+effort only**: RSAES-OAEP, ECMQV and the Triple DES key wrap are refused by name. §7.6.5.1, §7.6.5.2 and
+§7.6.6 left the map: the three rows are `implemented`.
 
-- §7.6.5.1 — `partial`: the scan runs, and no host supplies the user's certificate and key yet.
 - §7.6.5.3 — `partial`: all seven envelope ciphers and both digests run, the stream-level seed
   included, and both certificate-bound recipient kinds open (RSA key transport, elliptic-curve key
   agreement); RSAES-OAEP, ECMQV, the Triple DES key wrap and brainpoolP512r1 are refused by name.

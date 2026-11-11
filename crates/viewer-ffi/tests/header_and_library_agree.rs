@@ -151,7 +151,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        371,
+        372,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -288,6 +288,11 @@ fn the_event_kinds(expected: &mut BTreeMap<String, i64>) {
         ("QUORRA_EVENT_ARCHIVING", EventKind::Archiving),
         // `quorra_opening_list` granted: a drop-down list displayed (ADR 2791).
         ("QUORRA_EVENT_LIST_OPENS", EventKind::ListOpens),
+        // §7.6.5.1's prompt: no recipient list names the certificate supplied (ADR 2822).
+        (
+            "QUORRA_EVENT_RECIPIENT_REQUIRED",
+            EventKind::RecipientRequired,
+        ),
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }
@@ -861,6 +866,11 @@ fn the_window(expected: &mut BTreeMap<String, i64>) {
         ("TITLE", viewer_ffi::ReaderKind::Title),
         ("ORGANISATION", viewer_ffi::ReaderKind::Organisation),
         ("LANGUAGE", viewer_ffi::ReaderKind::Language),
+        (
+            "RECIPIENT_CERTIFICATE",
+            viewer_ffi::ReaderKind::RecipientCertificate,
+        ),
+        ("RECIPIENT_KEY", viewer_ffi::ReaderKind::RecipientKey),
     ] {
         expected.insert(format!("QUORRA_READER_{name}"), word as i64);
     }
