@@ -12858,7 +12858,7 @@
       "crates/pdf-model/tests/fdf_template_fields_audit.rs::default_and_explicit_rename_true_report_the_departure_without_overwriting_fields"
     ],
     "verdict": "documented-departure",
-    "evidence": "The implementation refuses by name when fields are present and Rename is true. The current refusal test uses direct /Fields dictionaries, so it is not valid evidence for the required reference route; a valid indirect-reference default/explicit-true control is pending parent execution. The note’s candidate prefix algorithm is “might,” so no particular spelling is required. Save still omits appended pages (ADR 2154); any conforming implementation would need unique names, but the specification leaves the algorithm open. ParentaddedvalidreferencedFieldscontrol: defaultandexplicitRename truebothreportandpreservebothoriginalfieldvalues. No unique-nameimplementationclaimed.",
+    "evidence": "The implementation refuses by name when fields are present and Rename is true. The current refusal test uses direct /Fields dictionaries, so it is not valid evidence for the required reference route; the added valid indirect-reference default/explicit-true control now passes. The note’s candidate prefix algorithm is “might,” so no particular spelling is required. Save still omits appended pages (ADR 2154); any conforming implementation would need unique names, but the specification leaves the algorithm open. ParentaddedvalidreferencedFieldscontrol: defaultandexplicitRename truebothreportandpreservebothoriginalfieldvalues. No unique-nameimplementationclaimed.",
     "test_command": "cargo test -p pdf-model --test forms_data a_template_asking_for_renaming_is_refused_rather_than_imported_over_the_document",
     "test_result": "Parent validindirectreference testPASS bothomitteddefaultandexplicittruein fdf-template-fields-final.log. FalsecontrolalsoPASS. Truebranch remainsdocumenteddeparture.",
     "parent_review": "Accepted partial: sourceTables251–253/43 andapplicableEC3, codeandassertionbodies reviewed. FDFcountactual2vs1; remainingnewconsumersPASS; clippy-fdf-spot-final-v2.logPASS.",
@@ -36993,7 +36993,7 @@
     "test_command": null,
     "test_result": "Existing selected pdf-model tests PASS broad20. New soft-mask-dictionary-target.log1PASS1expectedFAIL; ClippyPASS. pdf-render unit assertions inspected, not newly executed.",
     "parent_review": "Accepted partial after effective source433–434/430, code and assertion-body review. New Matrix1PASS, knockout1expectedFAIL, ClippyPASS.",
-    "remaining": "ExplicitIdentity and out-of-range function output pipeline lack selected independent PDF assertions. Removing explicitclamp alone is nondiscriminating because Rustbytecast also saturates; that does not make endpoint behavior inherently untestable.",
+    "remaining": "SelectedexplicitIdentity Alpha/Luminosityandout-of-rangeLuminosityconstantoutputs nowPASS fullPDFconsumersinsoft_mask_transfer_limits_audit. Broaderfunctiontypes/numericalresolutionremainoutsidebounds. Explicitclamp-removal alone nondiscriminatingduesaturatingbytecast.",
     "reviewer": "soft_mask_dictionary_audit",
     "parent_review_state": "parent-reviewed-partial-with-defect",
     "reviewer_ledger_status": "implemented",
@@ -37172,6 +37172,61 @@
     "parent_review_state": "parent-reviewed-partial",
     "reviewer_ledger_status": "implemented",
     "reviewer_verdict": "bounded-exception-not-exercised",
+    "superseded": false
+  },
+  {
+    "clause": "11.6.5.1",
+    "feature_id": "TR-explicit-Identity-and-omitted-default",
+    "requirement": "Optional /TR may be /Identity, which denotes the identity transfer function; its default when omitted is Identity. Its single input is the computed group alpha or luminosity according to /S.",
+    "source_location": "ISO 32000-2:2020 Table 142, printed p.419 / physical p.434",
+    "errata": "No substantive EC3 change found. Physical-page annotation records near Table 142 are links to the clause/table, not amendments to /TR.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/soft_mask.rs::transfer",
+      "crates/pdf-render/src/soft_mask.rs::Transfer::is_identity",
+      "crates/pdf-render/src/soft_mask.rs::SoftMask::value"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/soft_masks.rs::a_transfer_function_maps_every_mask_value_including_the_one_outside_the_box",
+      "crates/pdf-render/src/soft_mask.rs::an_identity_table_is_identified",
+      "crates/pdf-model/tests/soft_mask_transfer_limits_audit.rs::explicit_identity_matches_omitted_transfer_for_alpha_and_luminosity"
+    ],
+    "verdict": "confirmed-selected-PDF-consumers",
+    "evidence": "Existing PDF integration covers a non-identity in-range type-2 curve and an omitted /TR default, but no reviewed complete-PDF assertion compares explicit /TR /Identity with omission. The inspected renderer unit checks identity-table detection only, and does not exercise dictionary parsing. The promoted test compares both forms for Alpha (alpha .25 inside, zero outside) and Luminosity (grey .25 inside, BC .5 outside), asserting independently expected pixels and pairwise equality. Parent target2PASS.",
+    "test_command": "cargo test -p pdf-model --test soft_mask_transfer_limits_audit",
+    "test_result": "2PASSsoft-mask-transfer-limits-target.log; ClippyPASSclippy-transfer-limits-final.log.",
+    "parent_review": "Acceptedpartial afterTable142source/code/assertionsreview;2PASS;clippy-transfer-limits-final.logPASS.",
+    "reviewer": "soft_mask_transfer_limits_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-PDF-consumers",
+    "superseded": false
+  },
+  {
+    "clause": "11.6.5.1",
+    "feature_id": "TR-output-is-forced-into-unit-interval",
+    "requirement": "The transfer function returns one mask value; computed outputs outside [0,1] shall be forced to the nearest valid value.",
+    "source_location": "ISO 32000-2:2020 Table 142, printed p.419 / physical p.434",
+    "errata": "No substantive EC3 change found.",
+    "ledger_status": "implemented",
+    "code_locations": [
+      "crates/pdf-model/src/soft_mask.rs::transfer",
+      "crates/pdf-render/src/soft_mask.rs::Transfer::apply"
+    ],
+    "test_refs": [
+      "crates/pdf-model/tests/soft_masks.rs::a_transfer_function_maps_every_mask_value_including_the_one_outside_the_box",
+      "crates/pdf-model/tests/soft_mask_transfer_limits_audit.rs::transfer_outputs_below_zero_and_above_one_use_nearest_unit_value"
+    ],
+    "verdict": "confirmed-selected-PDF-consumers",
+    "evidence": "The existing PDF transfer test uses an in-range inversion and does not exercise values outside [0,1]. The model samples /TR and explicitly clamps before byte conversion. The promoted test uses valid Type 2 functions whose declared Range permits constant -0.5 and 1.5 outputs, then observes the actual luminosity mask through page rendering; expected outputs at both painted interior and outside-BC inputs are mask 0 and mask 1. Since integer casts can also saturate, this checks pipeline behavior but does not prove that the explicit source clamp is independently necessary or claim a clamp-removal mutation must fail.",
+    "test_command": "cargo test -p pdf-model --test soft_mask_transfer_limits_audit",
+    "test_result": "2PASSsoft-mask-transfer-limits-target.log; ClippyPASSclippy-transfer-limits-final.log.",
+    "parent_review": "Acceptedpartial afterTable142source/code/assertionsreview;2PASS;clippy-transfer-limits-final.logPASS.",
+    "remaining": "Selectedluminosityconstantendpointcasesonly; no proof that explicitclamp is necessaryindependentlyof saturatingbytecast. No newpdf-renderunitexecution.",
+    "reviewer": "soft_mask_transfer_limits_audit",
+    "parent_review_state": "parent-reviewed-partial",
+    "reviewer_ledger_status": "implemented",
+    "reviewer_verdict": "confirmed-selected-PDF-consumers",
     "superseded": false
   },
   {

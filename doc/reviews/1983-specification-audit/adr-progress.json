@@ -297,7 +297,7 @@
   },
   {
     "path": "doc/adr/0024-soft-masks-and-the-one-object-rule.md",
-    "review_state": "review-in-progress",
+    "review_state": "cross-reference-only",
     "whole_document_complete": false,
     "review_records": [
       {
@@ -1259,7 +1259,7 @@
   },
   {
     "path": "doc/adr/0114-a-missing-operand-makes-the-map-the-identity.md",
-    "review_state": "review-in-progress",
+    "review_state": "cross-reference-only",
     "whole_document_complete": false,
     "review_records": [
       {
@@ -1818,7 +1818,7 @@
   },
   {
     "path": "doc/adr/0173-a-mask-is-not-a-coloured-figure.md",
-    "review_state": "review-in-progress",
+    "review_state": "cross-reference-only",
     "whole_document_complete": false,
     "review_records": [
       {
@@ -2236,7 +2236,7 @@
   },
   {
     "path": "doc/adr/0210-two-rasters-and-the-grid-only-a-device-knows.md",
-    "review_state": "review-in-progress",
+    "review_state": "cross-reference-only",
     "whole_document_complete": false,
     "review_records": [
       {
@@ -3328,7 +3328,7 @@
   },
   {
     "path": "doc/adr/0325-the-page-that-answered-with-silence.md",
-    "review_state": "review-in-progress",
+    "review_state": "cross-reference-only",
     "whole_document_complete": false,
     "review_records": [
       {
@@ -5564,7 +5564,7 @@
   },
   {
     "path": "doc/adr/0719-the-stream-a-reference-could-name-and-the-appearance-that-dropped-its-name.md",
-    "review_state": "review-in-progress",
+    "review_state": "cross-reference-only",
     "whole_document_complete": false,
     "review_records": [
       {
@@ -10455,7 +10455,7 @@
   },
   {
     "path": "doc/adr/1480-an-axis-preserving-image-meets-its-residue-as-a-set.md",
-    "review_state": "review-in-progress",
+    "review_state": "cross-reference-only",
     "whole_document_complete": false,
     "review_records": [
       {
@@ -10518,7 +10518,7 @@
   },
   {
     "path": "doc/adr/1492-an-oblique-images-edge-is-its-area-in-the-pixel.md",
-    "review_state": "review-in-progress",
+    "review_state": "cross-reference-only",
     "whole_document_complete": false,
     "review_records": [
       {
@@ -13881,7 +13881,7 @@
   },
   {
     "path": "doc/adr/2146-a-standard-font-stated-by-name-alone-is-given-the-face-it-is-drawn-from-with-its-descriptor-and-widths.md",
-    "review_state": "review-in-progress",
+    "review_state": "cross-reference-only",
     "whole_document_complete": false,
     "review_records": [
       {
@@ -14847,7 +14847,7 @@
   },
   {
     "path": "doc/adr/2319-a-push-buttons-single-appearance-stream-is-the-one-entry-of-a-subdictionary-its-state-selects.md",
-    "review_state": "review-in-progress",
+    "review_state": "cross-reference-only",
     "whole_document_complete": false,
     "review_records": [
       {
@@ -15702,7 +15702,7 @@
   },
   {
     "path": "doc/adr/2476-a-font-that-names-a-renamed-descriptor-keeps-a-copy-of-the-producers-own.md",
-    "review_state": "review-in-progress",
+    "review_state": "cross-reference-only",
     "whole_document_complete": false,
     "review_records": [
       {
@@ -15774,7 +15774,7 @@
   },
   {
     "path": "doc/adr/2486-two-shown-descendants-of-one-rekeyed-descriptor-all-state-the-name-the-widened-program-ends-with.md",
-    "review_state": "review-in-progress",
+    "review_state": "cross-reference-only",
     "whole_document_complete": false,
     "review_records": [
       {
@@ -15834,7 +15834,7 @@
   },
   {
     "path": "doc/adr/2499-the-census-of-image-smoothing-discarded-and-of-the-two-target-request.md",
-    "review_state": "review-in-progress",
+    "review_state": "cross-reference-only",
     "whole_document_complete": false,
     "review_records": [
       {
@@ -15890,7 +15890,7 @@
   },
   {
     "path": "doc/adr/2505-the-name-supplied-for-a-font-that-names-none-is-its-embedded-programs-own-and-two-of-the-ten-stay-refused.md",
-    "review_state": "review-in-progress",
+    "review_state": "cross-reference-only",
     "whole_document_complete": false,
     "review_records": [
       {
@@ -16779,7 +16779,7 @@
   },
   {
     "path": "doc/adr/2686-a-simple-font-states-its-widths-and-the-checker-fails-one-that-does-not.md",
-    "review_state": "review-in-progress",
+    "review_state": "cross-reference-only",
     "whole_document_complete": false,
     "review_records": [
       {
@@ -17192,7 +17192,7 @@
   },
   {
     "path": "doc/adr/2752-an-appearance-dictionary-stating-no-entry-is-taken-away-as-a-restatement-of-the-file.md",
-    "review_state": "review-in-progress",
+    "review_state": "cross-reference-only",
     "whole_document_complete": false,
     "review_records": [
       {

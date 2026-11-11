@@ -1,32 +1,39 @@
 {
   "baseline": "e85f8545eae1c95a5ff7f92b7535c3a7a535dabc",
-  "checkpoint_utc": "2026-11-11T07:39:56.679059+00:00",
+  "checkpoint_utc": "2026-11-11T07:44:49.827044+00:00",
   "authorization": "Audit effective PDF spec/EC3, meaningful assertions, missing tests, and selected ADR decisions. Luna high subagents explicitly authorized. User authorized an audit branch with regular commits and pushes. No production fixes, ledger-status edits, or historical ADR edits.",
   "budget": {
     "start_weekly_used_percent": 52,
-    "last_weekly_used_percent": 86,
+    "last_weekly_used_percent": 87,
     "target_approx_percent": 92,
     "stop_new_work_near_percent": 87,
     "probe": "python scratchpad/r1983/spec-audit/usage.py",
-    "warning": "Percent is account allowance, not convertible fixed tokens; counters may lag. Continue extending while useful work and room remain."
+    "warning": "Percent is account allowance, not convertible fixed tokens; counters may lag. Continue extending while useful work and room remain.",
+    "last_probe_utc": "2026-11-11T07:40:29Z",
+    "used_percentage_points_since_start": 35
   },
-  "agents": {
-    "inapplicable_conditions_audit": "finaltransferlimitsdraftready; nootheractivework"
-  },
+  "agents": {},
   "next_candidates": [
-    "Continue these bounded shards until stop-new87percent; preserve remainingwork ratherthan weaken review."
+    "Continue semantic feature extraction for the 559 pending ledger clauses. Table and annex mapping establishes structural coverage, not coverage of every condition, default, note or erratum.",
+    "Review the 1,940 untouched ADR documents and 16 documents with cross-references only. The 277 documents with selected decisions reviewed still need their remaining decisions examined; no whole ADR is certified.",
+    "Resolve FDF absent-V semantics before promoting assertions for either interpretation. The current behavior and the normative reading remain separate questions.",
+    "Audit DeviceN and All/None content inside soft-mask groups, with available colourants and discriminating consumer assertions. Selected Separation cases for Gray and RGB groups are closed.",
+    "Read the primary ISO 10918-1 DNL clauses before claiming full DCT codec conformance. The held progressive-image corpus gate was inspected but not newly run.",
+    "For future implementation fixes, start from expected-failures.json. Its 72 assertions share causes and are not 72 distinct defects. This audit leaves production behavior, ledger statuses and historical ADRs unchanged.",
+    "FDF page grouping needs a representation for one page composed from multiple templates without inventing layout semantics. Rename true and page persistence remain documented departures.",
+    "Qualify ADR0359’s recovery rationale: missing mask content can add visible page ink. Reported recovery can remain an explicit robustness policy, but does not guarantee a subset of the intended marks."
   ],
   "latest_broad": {
-    "log": "nextest-nine-crates-wave21.log",
-    "run": 5809,
-    "passed": 5740,
+    "log": "nextest-nine-crates-wave22.log",
+    "run": 5813,
+    "passed": 5744,
     "expected_failed": 69,
     "unexpected_failed": 0,
     "skipped": 53,
     "exit": 100,
-    "comparison": "Exact manifest match excluding3GTK supplemental assertions."
+    "comparison": "Exact manifest match, excluding the 3 GTK supplemental assertions tested separately."
   },
-  "latest_clippy": "clippy-fdf-spot-final-v2.log",
+  "latest_clippy": "clippy-transfer-limits-final.log",
   "new_failures_since_wave8": [
     "catalog Named OpenAction consumer missing",
     "page-visible neighbor omitted",
@@ -55,9 +62,7 @@
     "CLAUDE.md requires unsigned commits; use git -c commit.gpgsign=false commit because inherited global setting enables GPG."
   ],
   "branch": "audit/specification-evidence-2026-11-10",
-  "pending_parent_review": [
-    "soft_mask_transfer_limits_audit"
-  ],
+  "pending_parent_review": [],
   "pushed_commits": [
     "a299121c",
     "f413d15f",
@@ -100,12 +105,21 @@
     "a9e9d399",
     "b0dcb662",
     "9fdc12c1",
-    "d0cbd29f"
+    "d0cbd29f",
+    "7c4efd18"
   ],
   "expected_failures_manifest_count": 72,
-  "broad_run_predates": "Broad21predatesRGBspot1PASS, validRename true1PASS, andtransferlimits2targetPASSawaitingparentmetadata.",
+  "broad_run_predates": "No promoted tests: broad run 22 includes all final additions.",
   "expected_failures_by_scope": {
     "broad_nine_crates": 69,
     "gtk_supplemental": 3
-  }
+  },
+  "resume_sequence": [
+    "Check the branch, revision, user working tree and fresh weekly account meter; account for a reset before comparing the old allowance.",
+    "Read the report’s latest checkpoint and committed continuation and expected-failure records. Local scratch data holds primary extracts, full matrices, logs and mutation drivers.",
+    "Choose bounded unreviewed clauses or ADR decisions from the progress inventory. Use authorized Luna high delegation, parent review and serialized Cargo runs.",
+    "Validate fixtures and assertions against the effective primary source and EC3. Keep malformed-input recovery policy separate from valid-input conformance.",
+    "Run new target tests, appropriate Clippy checks and a broad manifest comparison; commit reviewed results and push the branch regularly."
+  ],
+  "status": "Budgeted audit checkpoint ready; all delegated drafts reviewed, remaining scope recorded for continuation."
 }

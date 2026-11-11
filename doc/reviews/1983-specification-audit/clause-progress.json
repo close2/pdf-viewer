@@ -5231,17 +5231,20 @@
     "artifact_directories": [
       "damaged_mask_consumer_audit",
       "soft_mask_dictionary_audit",
-      "soft_mask_spot_audit"
+      "soft_mask_spot_audit",
+      "soft_mask_transfer_limits_audit"
     ],
     "parent_reviewed_artifacts": [
       "damaged_mask_consumer_audit",
       "soft_mask_dictionary_audit",
-      "soft_mask_spot_audit"
+      "soft_mask_spot_audit",
+      "soft_mask_transfer_limits_audit"
     ],
     "feature_record_verdicts": {
       "bounded-exception-not-exercised": 1,
       "code-supported-not-executed": 2,
       "confirmed": 2,
+      "confirmed-selected-PDF-consumers": 2,
       "confirmed-selected-Separation-consumers": 2,
       "confirmed-with-discriminating-consumer": 1,
       "no-independent-requirement": 1,

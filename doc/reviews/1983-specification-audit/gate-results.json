@@ -1165,5 +1165,31 @@
     ],
     "clippy": "clippy-fdf-spot-final-v2.log",
     "note": "Default/explicitRename truetest addedafterbroad21; otherFDFtestsincludedbroad21. Initialcountdraftbadcontrolsuperseded, notproductfailure."
+  },
+  "soft_mask_transfer_limits": {
+    "log": "soft-mask-transfer-limits-target.log",
+    "exit": 0,
+    "passed": 2,
+    "clippy": "clippy-transfer-limits-final.log",
+    "scope": "Afterbroad21; explicit/omittedIdentityAlpha/LuminosityandLuminosityout-of-unitTRoutputs."
+  },
+  "nextest_nine_crates_wave22": {
+    "log": "nextest-nine-crates-wave22.log",
+    "run": 5813,
+    "passed": 5744,
+    "failed": 69,
+    "skipped": 53,
+    "unexpected_failures": 0,
+    "exit": 100,
+    "scope": "All promoted tests through final transfer limits, RGB spot mask, and valid default/explicit Rename control. Exact expected-failure manifest match excluding GTK supplemental tests."
+  },
+  "final_changed_targets_format": {
+    "exit": 0,
+    "scope": "Eight recently changed integration-test targets; rustfmt --check."
+  },
+  "final_changed_crates_clippy": {
+    "exit": 0,
+    "log": "clippy-transfer-limits-final.log",
+    "scope": "pdf-model and viewer-core all targets; all final additions included."
   }
 }

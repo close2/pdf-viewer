@@ -1162,7 +1162,7 @@
       "clauses": [
         "11.6.5.1"
       ],
-      "state": "running"
+      "state": "parent-reviewed-partial"
     }
   ]
 }

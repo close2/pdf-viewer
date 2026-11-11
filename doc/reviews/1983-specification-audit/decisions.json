@@ -2859,7 +2859,7 @@
       "ISO 32000-2 §12.7.4.2 field-name consistency, physical p.547/printed p.532"
     ],
     "changed_premise": "ADR 1070 established that Table 252 Fields are imported and Rename false updates the target fields. ADR 2154 established appended pages are not written by save.",
-    "remaining_work": "The false branch has a passing valid-input assertion. Rename=true remains a documented departure; implementing it would require page/field persistence and some strategy guaranteeing uniqueness, while the specification does not prescribe a particular algorithm. A valid indirect-reference Rename=true/default-true refusal control is pending parent execution because the existing direct-dictionary fixture does not exercise the required /Fields reference form.",
+    "remaining_work": "The false branch has a passing valid-input assertion. Rename=true remains a documented departure; implementing it would require page/field persistence and some strategy guaranteeing uniqueness, while the specification does not prescribe a particular algorithm. The added valid indirect-reference Rename=true/default-true refusal control now passes and closes the older fixture's reference-shape gap.",
     "parent_review": "Accepted partial: sourceTables251–253/43 andapplicableEC3, codeandassertionbodies reviewed. FDFcountactual2vs1; remainingnewconsumersPASS; clippy-fdf-spot-final-v2.logPASS.",
     "reviewer": "fdf_pages_import_audit",
     "source": "fdf_pages_import_audit/decisions.json",
@@ -2887,7 +2887,7 @@
       "ISO 32000-2 §12.7.4.2, physical p.547/printed p.532: fields with same fully qualified name shall share FT, V and DV"
     ],
     "changed_premise": "The valid-reference update-all behavior is now directly asserted. The Rename=true refusal remains the recorded departure; the false branch has passed its strengthened test.",
-    "remaining_work": "No remaining test gap for the bounded Rename=false multi-match behavior. Rename=true remains a deliberate departure rather than an algorithm-specific requirement. A valid indirect-reference Rename=true/default-true refusal control is pending parent execution because the existing direct-dictionary fixture does not exercise the required /Fields reference form.",
+    "remaining_work": "No remaining test gap for the bounded Rename=false multi-match behavior. Rename=true remains a deliberate departure rather than an algorithm-specific requirement. The added valid indirect-reference Rename=true/default-true refusal control now passes and closes the older fixture's reference-shape gap.",
     "parent_review": "Accepted partial: sourceTables251–253/43 andapplicableEC3, codeandassertionbodies reviewed. FDFcountactual2vs1; remainingnewconsumersPASS; clippy-fdf-spot-final-v2.logPASS.",
     "reviewer": "fdf_pages_import_audit",
     "source": "fdf_pages_import_audit/decisions.json",
@@ -3722,7 +3722,7 @@
     "original_decision": "Separately read Adobe's APP14 marker so that its transform ranks above DecodeParms; the decoder's inferred input color space cannot distinguish explicit marker value from default behavior.",
     "current_conclusion": "retain",
     "reason": "This regression tests the marker discriminator that ADR 1183 relies on: an APP14-looking segment is authoritative only when it is the Adobe-defined marker. Foreign identifiers are skipped per TN #5116, after which Table 13's parameter/default path remains active.",
-    "test_evidence": "Existing tests prove canonical Adobe precedence; this draft adds the absent foreign-identifier ignore case with a full PDF/pixel oracle. Promoted assertion PASS and rejects removing Adobe identifier check while old precedence assertion still passes.",
+    "test_evidence": "Existing tests prove canonical Adobe precedence; the promoted test adds the absent foreign-identifier ignore case with a full PDF/pixel oracle. Promoted assertion PASS and rejects removing Adobe identifier check while old precedence assertion still passes.",
     "spec_or_external_sources": [
       "ISO 32000-2 §7.4.8 Table 13, physical p.64",
       "Adobe Technical Note #5116 §18: https://pdfa.org/norm-refs/5116.DCT_Filter.pdf"
