@@ -74,6 +74,7 @@ mod described;
 pub(in crate::archive) mod embedded_cmap;
 mod empty;
 mod fresh_cid;
+mod machine_cid;
 mod notdef_format;
 mod notdef_glyph;
 mod notices;
@@ -1152,7 +1153,14 @@ fn embed_pass(
         }
         if subtype == "Type0" {
             let before = substitutes.done.len();
-            composite::embed(document, used, spare, supplied, pack, &mut substitutes)?;
+            composite::embed(
+                document,
+                used,
+                spare,
+                supplied,
+                (pack, embed_machine_face),
+                &mut substitutes,
+            )?;
             for entry in substitutes.done.iter_mut().skip(before) {
                 entry.cut_program = cut;
             }

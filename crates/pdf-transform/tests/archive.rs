@@ -16713,6 +16713,8 @@ mod configured_press;
 mod drawn_through_the_intent;
 #[path = "archive/kept_modification_date.rs"]
 mod kept_modification_date;
+#[path = "archive/machine_cid.rs"]
+mod machine_cid;
 #[path = "archive/machine_face.rs"]
 mod machine_face;
 #[path = "archive/twin_codes.rs"]

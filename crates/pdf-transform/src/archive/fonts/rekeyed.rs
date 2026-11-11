@@ -585,7 +585,7 @@ fn whole_true_type(
 
 /// Table 115's `/CIDToGIDMap` stream: the glyph index for CID *c* is the two-byte value in bytes
 /// 2*c* and 2*c* + 1, high-order byte first, and every CID nothing names is left at glyph 0.
-fn cid_to_gid_map(map: &BTreeMap<u16, u16>) -> Result<Object, Because> {
+pub(super) fn cid_to_gid_map(map: &BTreeMap<u16, u16>) -> Result<Object, Because> {
     let highest = map.keys().next_back().copied().unwrap_or(0);
     let bytes: Vec<u8> = (0..=highest)
         .flat_map(|cid| map.get(&cid).copied().unwrap_or(0).to_be_bytes())
@@ -747,7 +747,7 @@ fn draws_or_spaces(program: &[u8], format: Format, glyph: u16, character: char) 
 }
 
 /// The object the `/DescendantFonts` array names, where it names one rather than holding it.
-fn descendant_object(document: &Document, dict: &Dictionary) -> Option<ObjectId> {
+pub(super) fn descendant_object(document: &Document, dict: &Dictionary) -> Option<ObjectId> {
     let array = document.get_key(dict, "DescendantFonts");
     document.resolve(&array).as_array()?.first()?.as_reference()
 }
