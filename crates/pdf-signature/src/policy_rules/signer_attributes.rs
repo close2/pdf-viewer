@@ -16,19 +16,21 @@
 //!
 //! # What is decided, and what is named
 //!
-//! Decided without reading an attribute certificate: whether an attribute of a kind the policy
-//! accepts is present (TR 102 272 clause 6.9's `attributeMandated`), whether each attribute type
-//! a TS 119 172 set of constraints mandates is carried, and whether every signer attribute the set
-//! applies to is of a kind it accepts. A claimed attribute is a plain `Attribute`, so its type is
-//! read and compared; an attribute certificate or a signed assertion is counted, never opened.
-//! Named as not evaluated: whether a certified attribute or a signed assertion is valid (RFC 5755
-//! section 5's conditions under the trust trees and the revocation requirement the policy states),
-//! and which types it carries where only that would decide a rule; and every constraint on an
-//! attribute's *value*, because two values of one attribute type are equal by that type's own
-//! matching rule (ITU-T X.501), which this program does not hold per type.
+//! Decided: whether an attribute of a kind the policy accepts is present (TR 102 272 clause 6.9's
+//! `attributeMandated`), whether each attribute type a TS 119 172 set of constraints mandates is
+//! carried, and whether every signer attribute the set applies to is of a kind it accepts. A
+//! claimed attribute is a plain `Attribute`, so its type is read and compared. An attribute
+//! certificate is read by [`crate::attribute_certificate`] for the types it carries, and judged
+//! by [`certified`] under RFC 5755 section 5 and the trust trees the policy states (ADR 2797); it
+//! certifies an attribute only where it is valid. Named as not evaluated: a signed assertion,
+//! which is counted and never opened; an attribute certificate's own revocation where the policy
+//! requires it; and every constraint on an attribute's *value*, because two values of one
+//! attribute type are equal by that type's own matching rule (ITU-T X.501), which this program
+//! does not hold per type.
 
+use super::certification_path::{Search, TrustTrees};
 use super::ts_119_172_3::Identifier;
-use super::{Constraint, Finding, Verdict};
+use super::{Constraint, Finding, SignerFacts, Verdict};
 use crate::cms::{self, SignedData};
 use crate::der::{SEQUENCE, Value};
 use crate::signature::name;
@@ -103,30 +105,11 @@ impl Accepted {
 pub struct Carried<'a> {
     /// The type of each claimed attribute, as the contents octets of its object identifier.
     pub claimed: Vec<&'a [u8]>,
-    /// How many attribute certificates, of either `CertifiedAttributesV2` alternative.
-    pub certified: usize,
+    /// Each attribute certificate, of either `CertifiedAttributesV2` alternative, as the
+    /// `AttributeCertificate` its tag wraps.
+    pub certified: Vec<Value<'a>>,
     /// How many signed assertions.
     pub assertions: usize,
-}
-
-impl Carried<'_> {
-    /// Whether a certified attribute or a signed assertion of an accepted kind is carried: one
-    /// whose validity, and whose types, only a reader of it could answer.
-    const fn opaque_accepted(&self, accepted: Accepted) -> bool {
-        (self.certified > 0 && accepted.admits(Kind::Certified))
-            || (self.assertions > 0 && accepted.admits(Kind::SignedAssertion))
-    }
-
-    /// The first of the opaque kinds carried that `accepted` refuses.
-    const fn opaque_refused(&self, accepted: Accepted) -> Option<Kind> {
-        if self.certified > 0 && !accepted.admits(Kind::Certified) {
-            Some(Kind::Certified)
-        } else if self.assertions > 0 && !accepted.admits(Kind::SignedAssertion) {
-            Some(Kind::SignedAssertion)
-        } else {
-            None
-        }
-    }
 }
 
 /// Why a signature's signer attributes were not read.
@@ -190,7 +173,7 @@ fn charge(out: &Carried<'_>) -> Result<(), Unreadable> {
     let read = out
         .claimed
         .len()
-        .saturating_add(out.certified)
+        .saturating_add(out.certified.len())
         .saturating_add(out.assertions);
     if read < MAX_SIGNER_ATTRIBUTES {
         Ok(())
@@ -260,8 +243,8 @@ fn read_v2<'a>(value: &Value<'a>, out: &mut Carried<'a>) -> Result<(), Unreadabl
                     if certificate.identifier != 0xA0 && certificate.identifier != 0xA1 {
                         return Err(Unreadable::Malformed);
                     }
-                    wrapped(&certificate, SEQUENCE)?;
-                    out.certified = out.certified.saturating_add(1);
+                    let certificate = wrapped(&certificate, SEQUENCE)?;
+                    out.certified.push(certificate);
                 }
             }
             _ => {
@@ -286,8 +269,8 @@ fn read_v1<'a>(value: &Value<'a>, out: &mut Carried<'a>) -> Result<(), Unreadabl
             0xA0 => read_claimed(&wrapped(&member, SEQUENCE)?, out)?,
             0xA1 => {
                 charge(out)?;
-                wrapped(&member, SEQUENCE)?;
-                out.certified = out.certified.saturating_add(1);
+                let certificate = wrapped(&member, SEQUENCE)?;
+                out.certified.push(certificate);
             }
             _ => return Err(Unreadable::Malformed),
         }
@@ -310,8 +293,8 @@ pub struct Mandated<'a> {
 pub struct SetConstraints<'a> {
     /// The level of assurance: item 1.
     pub accepted: Accepted,
-    /// Whether item 2's trust trees are stated.
-    pub trust_trees: bool,
+    /// Item 2's trust trees, where stated.
+    pub trust_trees: Option<TrustTrees<'a>>,
     /// Whether item 3's revocation trust is stated.
     pub revocation: bool,
     /// Item 4's signer attribute identifiers.
@@ -325,8 +308,8 @@ pub struct AttributeTrust<'a> {
     pub mandated: bool,
     /// `howCertAttribute`.
     pub accepted: Accepted,
-    /// Whether `attrCertificateTrustTrees` is stated.
-    pub trust_trees: bool,
+    /// `attrCertificateTrustTrees`, where stated.
+    pub trust_trees: Option<TrustTrees<'a>>,
     /// Whether `attrRevReq` is stated.
     pub revocation: bool,
     /// `attributeTypeConstraints`, where stated.
@@ -363,12 +346,17 @@ pub enum Check {
         /// Whether the set applies only to the attribute types it identifies.
         identified: bool,
     },
-    /// Certified attributes or signed assertions of an accepted kind, whose validity is not
-    /// evaluated.
-    Certified {
-        /// How many attribute certificates.
-        certified: usize,
-        /// How many signed assertions.
+    /// One attribute certificate of an accepted kind, under RFC 5755 section 5 and the policy's
+    /// trust trees.
+    Certificate {
+        /// Its place among the signature's attribute certificates, from one.
+        ordinal: usize,
+        /// What section 5 found.
+        outcome: certified::Outcome,
+    },
+    /// Signed assertions of an accepted kind, whose validity is not evaluated.
+    Assertions {
+        /// How many.
         assertions: usize,
     },
     /// Constraints on an identified attribute's value, not evaluated.
@@ -431,12 +419,16 @@ impl Check {
                     ),
                 }
             }
-            Self::Certified {
-                certified,
-                assertions,
-            } => write!(
+            Self::Certificate { ordinal, outcome } => {
+                write!(
+                    f,
+                    "the policy's conditions on the signature's attribute certificate {ordinal} are {verdict}: "
+                )?;
+                outcome.words(f)
+            }
+            Self::Assertions { assertions } => write!(
                 f,
-                "the policy's conditions on the signature's {certified} attribute certificate(s) and {assertions} signed assertion(s) are {verdict}: this program does not read them, so neither their validity nor the attributes they carry is known"
+                "the policy's conditions on the signature's {assertions} signed assertion(s) are {verdict}: this program does not read them, so neither their validity nor the attributes they carry is known"
             ),
             Self::Values { identifier } => write!(
                 f,
@@ -465,17 +457,72 @@ const fn finding(verdict: Verdict, check: Check) -> Finding {
     }
 }
 
-/// TR 102 272 clause 6.9's attribute trust condition, as presence and kind decide it.
+/// What the attribute judgements read beyond the policy and the `SignedData`.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Context<'c> {
+    /// The signer's facts, for the instant evaluated at.
+    pub facts: &'c SignerFacts<'c>,
+    /// The search of the signer's path under the signing-certificate condition, where made.
+    pub signer_path: Option<&'c Search>,
+    /// The signing-certificate condition's trust trees, where stated.
+    pub signer_trees: Option<&'c TrustTrees<'c>>,
+}
+
+/// Each attribute certificate, judged under `trees` and `revocation`.
+fn judge_certificates<'a>(
+    carried: &Carried<'a>,
+    cms: &SignedData<'a>,
+    context: Context<'_>,
+    trees: Option<&TrustTrees<'_>>,
+    revocation: bool,
+) -> Vec<certified::Judged<'a>> {
+    let conditions = certified::Conditions {
+        trees,
+        signer_path: context.signer_path,
+        at: super::certification_path::instant(context.facts),
+        revocation,
+    };
+    carried
+        .certified
+        .iter()
+        .map(|certificate| certified::judge(*certificate, cms, conditions))
+        .collect()
+}
+
+/// One finding per attribute certificate in `judged` that `verdict` gives a verdict.
+fn certificate_findings(
+    judged: &[certified::Judged<'_>],
+    verdict: impl Fn(&certified::Judged<'_>) -> Option<Verdict>,
+    out: &mut Vec<Finding>,
+) {
+    for (index, certificate) in judged.iter().enumerate() {
+        if let Some(verdict) = verdict(certificate) {
+            out.push(finding(
+                verdict,
+                Check::Certificate {
+                    ordinal: index.saturating_add(1),
+                    outcome: certificate.outcome.clone(),
+                },
+            ));
+        }
+    }
+}
+
+/// TR 102 272 clause 6.9's attribute trust condition.
 ///
 /// Where `attributeMandated` is true an attribute within the condition's constraints must be
-/// present: a claimed one is within them where the kind admits claimed attributes and its type
-/// is among `attributeTypeConstraints`, or no constraint is stated; one whose type only
-/// `attributeValueConstraints` names is undecided. Clause 6.9 makes `howCertAttribute` say which
-/// attributes are considered, not that any other one breaks the signature, so a carried attribute
-/// of another kind is passed over rather than judged.
+/// present: a claimed one, where the kind admits claimed attributes, or one a valid attribute
+/// certificate certifies, where it admits certified ones; within them where its type is among
+/// `attributeTypeConstraints` or no constraint is stated, and undecided where only
+/// `attributeValueConstraints` names its type. Clause 6.9 makes `howCertAttribute` say which
+/// attributes are considered, so a carried attribute of another kind is passed over. It makes
+/// `attrCertificateTrustTrees` the path conditions for any attribute certificate, the signing
+/// certificate's where it states none, so each attribute certificate of an admitted kind is judged
+/// under them, and one that fails them breaks the condition (ADR 2797).
 pub(super) fn judge_condition(
     condition: &AttributeTrust<'_>,
     cms: &SignedData<'_>,
+    context: Context<'_>,
     out: &mut Vec<Finding>,
 ) {
     let carried = match carried(cms) {
@@ -491,38 +538,47 @@ pub(super) fn judge_condition(
     } else {
         &[]
     };
+    let judged = if accepted.admits(Kind::Certified) {
+        judge_certificates(
+            &carried,
+            cms,
+            context,
+            condition.trust_trees.as_ref().or(context.signer_trees),
+            condition.revocation,
+        )
+    } else {
+        Vec::new()
+    };
     let stated = |list: &Option<Vec<&[u8]>>, kind: &[u8]| {
         list.as_ref().is_some_and(|list| list.contains(&kind))
     };
     let unconstrained = condition.types.is_none() && condition.value_types.is_none();
-    let within = claimed
-        .iter()
-        .any(|kind| unconstrained || stated(&condition.types, kind));
-    let by_value = claimed
-        .iter()
-        .any(|kind| !stated(&condition.types, kind) && stated(&condition.value_types, kind));
+    let within = |kind: &[u8]| unconstrained || stated(&condition.types, kind);
+    let by_value =
+        |kind: &[u8]| !stated(&condition.types, kind) && stated(&condition.value_types, kind);
+    let claimed_by_value = claimed.iter().any(|kind| by_value(kind));
+    let certified_by_value = judged.iter().any(|judged| judged.certifies(by_value));
     if condition.mandated {
-        let verdict = if within {
+        let verdict = if claimed.iter().any(|kind| within(kind))
+            || judged.iter().any(|judged| judged.certifies(within))
+        {
             Verdict::Met
-        } else if by_value || carried.opaque_accepted(accepted) {
+        } else if claimed_by_value
+            || certified_by_value
+            || judged
+                .iter()
+                .any(|judged| judged.might_certify(|kind| within(kind) || by_value(kind)))
+        {
             Verdict::NotEvaluated
         } else {
             Verdict::Broken
         };
         out.push(finding(verdict, Check::Mandated { accepted }));
     }
-    if by_value {
+    if claimed_by_value || certified_by_value {
         out.push(finding(Verdict::NotEvaluated, Check::ConditionValues));
     }
-    if carried.certified > 0 && accepted.admits(Kind::Certified) {
-        out.push(finding(
-            Verdict::NotEvaluated,
-            Check::Certified {
-                certified: carried.certified,
-                assertions: 0,
-            },
-        ));
-    }
+    certificate_findings(&judged, |judged| Some(judged.outcome.verdict()), out);
 }
 
 /// TS 119 172-2 and TS 119 172-3 clause 4.26's constraints on one set of signer attributes.
@@ -530,8 +586,15 @@ pub(super) fn judge_condition(
 /// The clause makes a signature carry every attribute a set identifies, and every signer
 /// attribute meet the set's requirements; a set that identifies none applies them to every signer
 /// attribute, so one that identifies some applies them to those. Every set of a rule applies, so
-/// each is judged on its own and any one broken breaks the rule (ADR 2787).
-pub(super) fn judge_set(set: &SetConstraints<'_>, cms: &SignedData<'_>, out: &mut Vec<Finding>) {
+/// each is judged on its own and any one broken breaks the rule (ADR 2787). An attribute
+/// certificate is read for the types it carries whatever its kind, and one of an accepted kind
+/// the set applies to is judged under the set's trust trees and revocation trust (ADR 2797).
+pub(super) fn judge_set(
+    set: &SetConstraints<'_>,
+    cms: &SignedData<'_>,
+    context: Context<'_>,
+    out: &mut Vec<Finding>,
+) {
     let carried = match carried(cms) {
         Ok(carried) => carried,
         Err(why) => {
@@ -541,27 +604,14 @@ pub(super) fn judge_set(set: &SetConstraints<'_>, cms: &SignedData<'_>, out: &mu
     };
     let accepted = set.accepted;
     let names_types = !set.mandated.is_empty();
-    let in_scope = |kind: &&[u8]| {
+    let in_scope = |kind: &[u8]| {
         !names_types
             || set
                 .mandated
                 .iter()
                 .any(|mandated| mandated.identifier.is(kind))
     };
-    let claimed_refused = !accepted.admits(Kind::Claimed) && carried.claimed.iter().any(in_scope);
-    let opaque_refused = carried.opaque_refused(accepted);
-    // An attribute certificate or a signed assertion of a refused kind breaks a set that applies
-    // to every signer attribute; under a set that identifies types, it breaks the set only where
-    // it carries one of them, which only a reader of it could say.
-    let (verdict, refused) = if claimed_refused {
-        (Verdict::Broken, Some(Kind::Claimed))
-    } else {
-        match opaque_refused {
-            Some(kind) if !names_types => (Verdict::Broken, Some(kind)),
-            Some(kind) => (Verdict::NotEvaluated, Some(kind)),
-            None => (Verdict::Met, None),
-        }
-    };
+    let (verdict, refused) = level(&carried, accepted, names_types, &in_scope);
     out.push(finding(
         verdict,
         Check::Level {
@@ -570,15 +620,28 @@ pub(super) fn judge_set(set: &SetConstraints<'_>, cms: &SignedData<'_>, out: &mu
             identified: names_types,
         },
     ));
+    let judged = if accepted.admits(Kind::Certified) {
+        judge_certificates(
+            &carried,
+            cms,
+            context,
+            set.trust_trees.as_ref(),
+            set.revocation,
+        )
+    } else {
+        Vec::new()
+    };
+    let assertions = if accepted.admits(Kind::SignedAssertion) {
+        carried.assertions
+    } else {
+        0
+    };
     for mandated in &set.mandated {
-        let claimed = accepted.admits(Kind::Claimed)
-            && carried
-                .claimed
-                .iter()
-                .any(|kind| mandated.identifier.is(kind));
-        let verdict = if claimed {
+        let is = |kind: &[u8]| mandated.identifier.is(kind);
+        let claimed = accepted.admits(Kind::Claimed) && carried.claimed.iter().any(|kind| is(kind));
+        let verdict = if claimed || judged.iter().any(|judged| judged.certifies(is)) {
             Verdict::Met
-        } else if carried.opaque_accepted(accepted) {
+        } else if assertions > 0 || judged.iter().any(|judged| judged.might_certify(is)) {
             Verdict::NotEvaluated
         } else {
             Verdict::Broken
@@ -600,24 +663,71 @@ pub(super) fn judge_set(set: &SetConstraints<'_>, cms: &SignedData<'_>, out: &mu
             },
         ));
     }
-    if carried.opaque_accepted(accepted) {
+    // A set that identifies types applies to a certificate that carries one; one that does not
+    // read might, so its conditions are undecided rather than broken.
+    certificate_findings(
+        &judged,
+        |judged| match &judged.types {
+            Some(types) if names_types && !types.iter().any(|kind| in_scope(kind)) => None,
+            None if names_types => Some(Verdict::NotEvaluated),
+            _ => Some(judged.outcome.verdict()),
+        },
+        out,
+    );
+    if assertions > 0 {
         out.push(finding(
             Verdict::NotEvaluated,
-            Check::Certified {
-                certified: if accepted.admits(Kind::Certified) {
-                    carried.certified
-                } else {
-                    0
-                },
-                assertions: if accepted.admits(Kind::SignedAssertion) {
-                    carried.assertions
-                } else {
-                    0
-                },
-            },
+            Check::Assertions { assertions },
         ));
     }
 }
+
+/// Clause 4.26.1 item 1's level over the signer attributes a set applies to: the verdict, and the
+/// kind of a carried attribute below it.
+fn level(
+    carried: &Carried<'_>,
+    accepted: Accepted,
+    names_types: bool,
+    in_scope: &impl Fn(&[u8]) -> bool,
+) -> (Verdict, Option<Kind>) {
+    let claimed_refused =
+        !accepted.admits(Kind::Claimed) && carried.claimed.iter().any(|kind| in_scope(kind));
+    // An attribute certificate of a refused kind breaks the set where it carries a type the set
+    // applies to; one that does not read might, so it is undecided. A signed assertion is not
+    // read, so under a set that identifies types it is undecided too.
+    let certified_refused = !carried.certified.is_empty() && !accepted.admits(Kind::Certified);
+    let refused_types: Vec<Option<Vec<&[u8]>>> = if certified_refused {
+        carried
+            .certified
+            .iter()
+            .map(|certificate| certified::types_of(*certificate))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let refused_carries = refused_types.iter().any(|types| {
+        types
+            .as_ref()
+            .is_some_and(|types| types.iter().any(|kind| in_scope(kind)))
+    });
+    let refused_unread = refused_types.iter().any(Option::is_none);
+    let assertions_refused = carried.assertions > 0 && !accepted.admits(Kind::SignedAssertion);
+    if claimed_refused {
+        (Verdict::Broken, Some(Kind::Claimed))
+    } else if refused_carries {
+        (Verdict::Broken, Some(Kind::Certified))
+    } else if assertions_refused && !names_types {
+        (Verdict::Broken, Some(Kind::SignedAssertion))
+    } else if refused_unread {
+        (Verdict::NotEvaluated, Some(Kind::Certified))
+    } else if assertions_refused {
+        (Verdict::NotEvaluated, Some(Kind::SignedAssertion))
+    } else {
+        (Verdict::Met, None)
+    }
+}
+
+pub mod certified;
 
 #[cfg(test)]
 pub(super) mod tests;

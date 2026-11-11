@@ -672,7 +672,7 @@ impl<'t> Reader<'t> {
     /// `AttributeSetConstraints`; a signer attribute identifier that is an RFC 3061 URN is the
     /// object identifier it spells, as clause 4.26.2 requires of an attribute type an object
     /// identifier names.
-    fn attribute_set(&self, set: usize) -> Result<SetConstraints<'t>, PolicyDocumentError> {
+    fn attribute_set(&mut self, set: usize) -> Result<SetConstraints<'t>, PolicyDocumentError> {
         let accepted = match self.text_of(set, "HowCertAttribute", "HowCertAttribute")? {
             "ClaimedAttribute" => Accepted::Claimed,
             "CertifiedAttribute" => Accepted::Certified,
@@ -694,9 +694,13 @@ impl<'t> Reader<'t> {
                     .len(),
             });
         }
+        let trust_trees = match self.optional(set, "AttrCertTrustTrees")? {
+            Some(trees) => Some(self.trust_trees(trees)?),
+            None => None,
+        };
         Ok(SetConstraints {
             accepted,
-            trust_trees: self.optional(set, "AttrCertTrustTrees")?.is_some(),
+            trust_trees,
             revocation: self.optional(set, "AttributeRevocationTrust")?.is_some(),
             mandated,
         })

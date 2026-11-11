@@ -812,10 +812,11 @@ fn a_trust_points_policy_and_name_constraints_are_section_6_1_inputs() {
     // policy, so section 6.1.3 (f) finds explicit_policy zero and the tree NULL.
     let explicit = tagged(3, &seq(&[tagged(0, &int(0))]));
     assert_eq!(judge(vec![explicit.clone()]), [Verdict::Broken]);
-    // An acceptable policy set [1] alone is section 6.1.1 (c)'s initial set, which section 6.1.5
-    // does not require the path to meet unless an explicit policy is required.
+    // An acceptable policy set [1] alone is section 6.1.1 (c)'s initial set, and A796 reads it as
+    // requiring the path to be valid for one of its policies (ADR 2798): no certificate here
+    // asserts one, so the path is refused as it is with an explicit policy required.
     let acceptable = tagged(1, &seq(&[oid(&[0x2A, 0x03, 0x04])]));
-    assert_eq!(judge(vec![acceptable.clone()]), [Verdict::Met]);
+    assert_eq!(judge(vec![acceptable.clone()]), [Verdict::Broken]);
     assert_eq!(judge(vec![acceptable, explicit]), [Verdict::Broken]);
 }
 

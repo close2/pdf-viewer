@@ -3,8 +3,14 @@
 //! judgement through its parser.
 
 use super::*;
+use crate::attribute_certificate::tests::fixtures::{AA, AA_ROOT, AC, AC_OTHER_HOLDER};
+use crate::attribute_certificate::tests::hex;
 use crate::der::{self, SET};
-use crate::policy_rules::tests::{oid, seq, signed_data, tagged, tlv};
+use crate::policy_rules::certification_path::search;
+use crate::policy_rules::certification_path::tests::{WITHIN, hierarchy, value as read_value};
+use crate::policy_rules::tests::{facts, oid, seq, signed_data, tagged, tlv};
+use crate::x509;
+use certified::tests::trees;
 
 /// `id-at-role`, `2.5.4.72` (ITU-T X.520), the attribute EN 319 122-1 clause 5.2.6.1's NOTE 1
 /// names for a claimed role.
@@ -17,10 +23,9 @@ fn attribute(kind: &[u8]) -> Vec<u8> {
     seq(&[oid(kind), tlv(SET, &tlv(0x0C, b"x"))])
 }
 
-/// An attribute certificate's place: this reader counts it and never opens it, so its contents
-/// are an empty `SEQUENCE`.
+/// An attribute certificate: the fixture whose holder is the fixture signer, carrying a role.
 fn certificate() -> Vec<u8> {
-    seq(&[])
+    hex(AC)
 }
 
 /// EN 319 122-1 clause 5.2.6.1's `SignerAttributeV2`, `EXPLICIT TAGS`: each member's context tag
@@ -30,13 +35,26 @@ pub(in crate::policy_rules) fn v2(
     certified: usize,
     assertions: usize,
 ) -> Vec<u8> {
+    v2_carrying(claimed, &vec![certificate(); certified], assertions)
+}
+
+/// [`v2`] with these attribute certificates.
+pub(in crate::policy_rules) fn v2_carrying(
+    claimed: &[&[u8]],
+    certificates: &[Vec<u8>],
+    assertions: usize,
+) -> Vec<u8> {
+    let certified = certificates.len();
     let mut members = Vec::new();
     if !claimed.is_empty() {
         let list: Vec<_> = claimed.iter().map(|kind| attribute(kind)).collect();
         members.push(tagged(0, &seq(&list)));
     }
     if certified > 0 {
-        let list: Vec<_> = (0..certified).map(|_| tagged(0, &certificate())).collect();
+        let list: Vec<_> = certificates
+            .iter()
+            .map(|certificate| tagged(0, certificate))
+            .collect();
         members.push(tagged(1, &seq(&list)));
     }
     if assertions > 0 {
@@ -69,14 +87,13 @@ pub(in crate::policy_rules) fn carrying<'a>(kind: &'a [u8], value: &'a [u8]) -> 
 fn every_member_of_signer_attributes_v2_is_counted_by_its_kind() {
     // EN 319 122-1 clause 5.2.6.1: claimed attributes, attribute certificates, signed assertions.
     let value = v2(&[ROLE, TITLE], 2, 1);
-    assert_eq!(
-        carried(&carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, &value)),
-        Ok(Carried {
-            claimed: vec![ROLE, TITLE],
-            certified: 2,
-            assertions: 1,
-        })
-    );
+    let read = carried(&carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, &value)).expect("readable");
+    assert_eq!(read.claimed, vec![ROLE, TITLE]);
+    assert_eq!(read.assertions, 1);
+    // Each certificate is the `AttributeCertificate` its `[0]` wraps, under `EXPLICIT TAGS`.
+    let certificate = certificate();
+    let wrapped: Vec<&[u8]> = read.certified.iter().map(Value::encoding).collect();
+    assert_eq!(wrapped, vec![certificate.as_slice(); 2]);
 }
 
 #[test]
@@ -88,14 +105,10 @@ fn the_first_signer_attributes_is_read_as_a_list_of_claimed_and_certified() {
         tagged(1, &certificate()),
         tagged(0, &seq(&[attribute(TITLE)])),
     ]);
-    assert_eq!(
-        carried(&carrying(cms::ID_AA_ETS_SIGNER_ATTR, &value)),
-        Ok(Carried {
-            claimed: vec![ROLE, TITLE],
-            certified: 1,
-            assertions: 0,
-        })
-    );
+    let read = carried(&carrying(cms::ID_AA_ETS_SIGNER_ATTR, &value)).expect("readable");
+    assert_eq!(read.claimed, vec![ROLE, TITLE]);
+    assert_eq!(read.certified.len(), 1);
+    assert_eq!(read.assertions, 0);
 }
 
 #[test]
@@ -144,7 +157,7 @@ fn an_unsigned_copy_is_not_read_and_the_bound_holds_at_its_edge() {
 fn set(accepted: Accepted, mandated: &[(&'static [u8], usize)]) -> SetConstraints<'static> {
     SetConstraints {
         accepted,
-        trust_trees: false,
+        trust_trees: None,
         revocation: false,
         mandated: mandated
             .iter()
@@ -156,14 +169,27 @@ fn set(accepted: Accepted, mandated: &[(&'static [u8], usize)]) -> SetConstraint
     }
 }
 
-/// The verdicts of each kind of check, in the order the findings came.
+/// The verdicts of each kind of check, in the order the findings came, for a signature that
+/// carries no certificate.
 fn judged(set: &SetConstraints<'_>, value: &[u8]) -> Vec<(Verdict, &'static str)> {
+    let facts = facts(None);
+    let context = Context {
+        facts: &facts,
+        signer_path: None,
+        signer_trees: None,
+    };
     let mut out = Vec::new();
     judge_set(
         set,
         &carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, value),
+        context,
         &mut out,
     );
+    kinds(&out)
+}
+
+/// Each finding's verdict and kind.
+fn kinds(out: &[Finding]) -> Vec<(Verdict, &'static str)> {
     out.iter()
         .map(|finding| {
             let Constraint::SignerAttribute(check) = &finding.constraint else {
@@ -174,7 +200,8 @@ fn judged(set: &SetConstraints<'_>, value: &[u8]) -> Vec<(Verdict, &'static str)
                 Check::Mandated { .. } => "mandated",
                 Check::MustBePresent { .. } => "present",
                 Check::Level { .. } => "level",
-                Check::Certified { .. } => "certified",
+                Check::Certificate { .. } => "certificate",
+                Check::Assertions { .. } => "assertions",
                 Check::Values { .. } | Check::ConditionValues => "values",
             };
             (finding.verdict, kind)
@@ -195,12 +222,14 @@ fn a_set_that_identifies_nothing_holds_every_signer_attribute_to_its_level() {
         judged(&claimed, &v2(&[ROLE], 1, 0)),
         [(Verdict::Broken, "level")]
     );
-    // Under `any`, the certificate is accepted and its validity is what is left.
+    // Under `any`, the certificate is accepted and its validity is what is left; this signature
+    // carries neither the signer's certificate nor the authority's, so it is undecided.
     assert_eq!(
         judged(&set(Accepted::Any, &[]), &v2(&[], 1, 1)),
         [
             (Verdict::Met, "level"),
-            (Verdict::NotEvaluated, "certified")
+            (Verdict::NotEvaluated, "certificate"),
+            (Verdict::NotEvaluated, "assertions"),
         ]
     );
 }
@@ -214,14 +243,20 @@ fn an_identified_attribute_must_be_carried_at_the_level_the_set_accepts() {
         judged(&certified, &v2(&[ROLE], 0, 0)),
         [(Verdict::Broken, "level"), (Verdict::Broken, "present")]
     );
-    // A certificate might carry it; only a reader of it could say.
+    // A certificate carries a role, and whether it is valid is undecided here.
     assert_eq!(
         judged(&certified, &v2(&[], 1, 0)),
         [
             (Verdict::Met, "level"),
             (Verdict::NotEvaluated, "present"),
-            (Verdict::NotEvaluated, "certified"),
+            (Verdict::NotEvaluated, "certificate"),
         ]
+    );
+    // A certificate that carries no title cannot supply the one mandated, whatever its validity,
+    // and the set does not apply to it.
+    assert_eq!(
+        judged(&set(Accepted::Certified, &[(TITLE, 0)]), &v2(&[], 1, 0)),
+        [(Verdict::Met, "level"), (Verdict::Broken, "present")]
     );
     // Nothing carried: the requirement is broken.
     assert_eq!(
@@ -239,10 +274,16 @@ fn a_set_that_identifies_types_constrains_only_those() {
         judged(&claimed, &v2(&[TITLE], 0, 0)),
         [(Verdict::Met, "level"), (Verdict::Broken, "present")]
     );
-    // A certificate beside the claimed role may certify a role too, at a level the set refuses.
+    // A certificate beside the claimed role certifies a role too, at a level the set refuses:
+    // clause 4.26.1 holds every identified signer attribute to the level, so the set is broken.
     assert_eq!(
         judged(&claimed, &v2(&[ROLE], 1, 0)),
-        [(Verdict::NotEvaluated, "level"), (Verdict::Met, "present")]
+        [(Verdict::Broken, "level"), (Verdict::Met, "present")]
+    );
+    // The same certificate under a set naming the title is outside it.
+    assert_eq!(
+        judged(&set(Accepted::Claimed, &[(TITLE, 0)]), &v2(&[TITLE], 1, 0)),
+        [(Verdict::Met, "level"), (Verdict::Met, "present")]
     );
     // A value constraint on a carried attribute is named, never met.
     assert_eq!(
@@ -261,5 +302,110 @@ fn unreadable_signer_attributes_are_named_and_never_judged() {
     assert_eq!(
         judged(&set(Accepted::Claimed, &[(ROLE, 0)]), &implicit),
         [(Verdict::NotEvaluated, "unreadable")]
+    );
+}
+
+/// A signature carrying `value` as its signed `signer-attributes-v2`, the signer's certificate,
+/// its intermediate and the attribute authority's certificate, with the signer's path searched to
+/// the signer's root; `judge` runs over it.
+fn with_hierarchy(
+    value: &[u8],
+    judge: impl FnOnce(&SignedData<'_>, Context<'_>, &mut Vec<Finding>),
+) -> Vec<(Verdict, &'static str)> {
+    let held = hierarchy();
+    let authority = hex(AA);
+    let mut signature = carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, value);
+    let signer = x509::parse(&held.signer).expect("the fixture signer");
+    signature.certificates = vec![
+        read_value(&held.signer),
+        read_value(&held.intermediate),
+        read_value(&authority),
+    ];
+    signature.signer_issuer_and_serial = Some((signer.issuer, signer.serial_number));
+    let facts = facts(None).validated_at(WITHIN);
+    let signer_trees = trees(&[&held.root]);
+    let signer_path = search(&signer_trees, &signature, &facts);
+    let context = Context {
+        facts: &facts,
+        signer_path: Some(&signer_path),
+        signer_trees: Some(&signer_trees),
+    };
+    let mut out = Vec::new();
+    judge(&signature, context, &mut out);
+    kinds(&out)
+}
+
+#[test]
+fn a_valid_certificate_certifies_the_attribute_a_set_mandates() {
+    // TS 119 172-2 clause 4.26.1 items 2 and 4: the role certified at the level the set accepts,
+    // by a certificate valid under RFC 5755 section 5 whose authority reaches the set's trust tree.
+    let mut certified = set(Accepted::Certified, &[(ROLE, 0)]);
+    certified.trust_trees = Some(trees(&[&hex(AA_ROOT)]));
+    let judge = |value: &[u8]| {
+        with_hierarchy(value, |signature, context, out| {
+            judge_set(&certified, signature, context, out);
+        })
+    };
+    assert_eq!(
+        judge(&v2(&[], 1, 0)),
+        [
+            (Verdict::Met, "level"),
+            (Verdict::Met, "present"),
+            (Verdict::Met, "certificate"),
+        ]
+    );
+    // Its holder is somebody else: it certifies nothing of the signer's, and every signer
+    // attribute must meet the set's requirements, so both are broken.
+    assert_eq!(
+        judge(&v2_carrying(&[], &[hex(AC_OTHER_HOLDER)], 0)),
+        [
+            (Verdict::Met, "level"),
+            (Verdict::Broken, "present"),
+            (Verdict::Broken, "certificate"),
+        ]
+    );
+}
+
+#[test]
+fn a_condition_without_trees_of_its_own_takes_the_signing_certificates() {
+    // TR 102 272 clause 6.9: where `attrCertificateTrustTrees` is absent, the rules of the
+    // signing-certificate condition apply, so the authority's path is searched to its trees.
+    let condition = |types: Option<Vec<&'static [u8]>>| AttributeTrust {
+        mandated: true,
+        accepted: Accepted::Certified,
+        trust_trees: None,
+        revocation: false,
+        types,
+        value_types: None,
+    };
+    let judge = |condition: &AttributeTrust<'_>, roots: &[&[u8]]| {
+        with_hierarchy(&v2(&[], 1, 0), |signature, context, out| {
+            let signer_trees = trees(roots);
+            let context = Context {
+                signer_trees: Some(&signer_trees),
+                ..context
+            };
+            judge_condition(condition, signature, context, out);
+        })
+    };
+    let held = hierarchy();
+    let authority_root = hex(AA_ROOT);
+    let both: &[&[u8]] = &[&held.root, &authority_root];
+    assert_eq!(
+        judge(&condition(None), both),
+        [(Verdict::Met, "mandated"), (Verdict::Met, "certificate")]
+    );
+    // The signer's trees alone do not reach the authority: indeterminate, so neither is decided.
+    assert_eq!(
+        judge(&condition(None), &[&held.root]),
+        [
+            (Verdict::NotEvaluated, "mandated"),
+            (Verdict::NotEvaluated, "certificate"),
+        ]
+    );
+    // Valid, but certifying a role where the condition considers only titles valid.
+    assert_eq!(
+        judge(&condition(Some(vec![TITLE])), both),
+        [(Verdict::Broken, "mandated"), (Verdict::Met, "certificate")]
     );
 }

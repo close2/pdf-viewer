@@ -429,10 +429,40 @@ fn a_mandated_path_has_preference_over_the_components_it_contradicts() {
             &found.found,
             Found::Reached { evaluated, mandated: Some(yielded), .. }
                 if evaluated.is_empty()
-                    && *yielded == ["acceptable policy set", "policy constraints"]
+                    && *yielded == [super::ACCEPTABLE_POLICY_SET, "policy constraints"]
         ),
         "{:?}",
         found.found
     );
+    assert_eq!(found.verdict(), Verdict::Met);
+}
+
+#[test]
+fn a_stated_acceptable_policy_set_requires_the_path_to_be_valid_for_one_of_its_policies() {
+    // A796 (ADR 2798): RFC 3125 section 6.6.1 and TS 119 172-2 clause 4.22.5.1 make the set the
+    // policies acceptable under the signature policy, read as requiring one of them, which is RFC
+    // 5280 section 6.1.1 (f)'s `initial-explicit-policy`. The fixture certificates assert no
+    // policy, so section 6.1.5 (g) finds the `valid_policy_tree` NULL with `explicit_policy` zero.
+    let held = hierarchy();
+    let stated = |policy_set| TrustPoint {
+        inputs: crate::trust::PathInputs {
+            policy_set,
+            ..crate::trust::PathInputs::default()
+        },
+        ..point(&held.root)
+    };
+    let found = searched(
+        &trees(vec![stated(Some(vec![vec![0x2A, 0x03, 0x04]]))]),
+        &held,
+        &at(WITHIN),
+    );
+    assert!(
+        matches!(&found.found, Found::Refused(_, named) if *named == [super::ACCEPTABLE_POLICY_SET]),
+        "{:?}",
+        found.found
+    );
+    assert_eq!(found.verdict(), Verdict::Broken);
+    // The control: no set stated, so section 6.1.1 (c)'s `any-policy` and no explicit policy.
+    let found = searched(&trees(vec![stated(None)]), &held, &at(WITHIN));
     assert_eq!(found.verdict(), Verdict::Met);
 }

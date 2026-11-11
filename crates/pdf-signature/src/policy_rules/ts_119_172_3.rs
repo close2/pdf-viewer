@@ -1107,8 +1107,8 @@ fn read_signer_attributes<'a>(
     })
 }
 
-/// Clause 4.26.2's `AttributeSetConstraints`: its `howCertAttribute`, whether its trust trees and
-/// revocation trust are stated, and its `AttributeConstraints`, whose value constraints TS 119
+/// Clause 4.26.2's `AttributeSetConstraints`: its `howCertAttribute`, its trust trees, whether its
+/// revocation trust is stated, and its `AttributeConstraints`, whose value constraints TS 119
 /// 172-2 clause 4.26.1 forbids without an identifier.
 fn read_attribute_set<'a>(
     set: &Value<'a>,
@@ -1127,7 +1127,7 @@ fn read_attribute_set<'a>(
     };
     let mut out = SetConstraints {
         accepted,
-        trust_trees: false,
+        trust_trees: None,
         revocation: false,
         mandated: Vec::new(),
     };
@@ -1138,7 +1138,16 @@ fn read_attribute_set<'a>(
             .ok_or(malformed("AttributeSetConstraints"))?;
         previous = Some(number);
         match number {
-            0 => out.trust_trees = true,
+            0 => {
+                out.trust_trees = Some(read_trust_trees(
+                    &need(
+                        Some(explicit(&member, "attrCertificateTrustTrees")?),
+                        SEQUENCE,
+                        "attrCertificateTrustTrees",
+                    )?,
+                    budget,
+                )?);
+            }
             1 => out.revocation = true,
             _ => {
                 let constraints = need(
@@ -1762,8 +1771,13 @@ fn judge(
                     .any(|oid| cms.has_signed_attribute(oid));
                 out.push(component(verdict(!carried), Constraint::NoSignerAttributes));
             }
+            let context = signer_attributes::Context {
+                facts,
+                signer_path: paths.signer,
+                signer_trees: None,
+            };
             for set in sets {
-                signer_attributes::judge_set(set, cms, out);
+                signer_attributes::judge_set(set, cms, context, out);
             }
         }
         BasicRule::QualifyingAttributes(levels) => {

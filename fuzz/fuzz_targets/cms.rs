@@ -33,8 +33,10 @@
 )]
 
 use libfuzzer_sys::fuzz_target;
+use pdf_signature::attribute_certificate;
 use pdf_signature::cms::signed_data;
 use pdf_signature::der::{MAX_VALUE, Reader};
+use pdf_signature::policy_rules::signer_attributes;
 
 /// `cms`'s own ceiling on a signer's attribute lists, which is private to that module and is
 /// restated here so this target checks the bound rather than trusting it — and so that
@@ -112,6 +114,29 @@ fuzz_target!(|data: &[u8]| {
         inside(imprint);
     }
     let _ = cms.has_signed_attribute(&[0x2A]);
+
+    // The signer attributes the signature carries, and RFC 5755's reader over each attribute
+    // certificate among them (ADR 2797): both bounded, both total, and every type read is a slice
+    // of the input.
+    if let Ok(carried) = signer_attributes::carried(&cms) {
+        assert!(
+            carried
+                .claimed
+                .len()
+                .saturating_add(carried.certified.len())
+                .saturating_add(carried.assertions)
+                <= signer_attributes::MAX_SIGNER_ATTRIBUTES
+        );
+        for certificate in &carried.certified {
+            if let Ok(read) = attribute_certificate::read(*certificate) {
+                assert!(read.types.len() <= attribute_certificate::MAX_ATTRIBUTES);
+                assert!(read.holder.entity.len() <= attribute_certificate::MAX_ENTRIES);
+                inside(read.info);
+                inside(read.issuer);
+                read.types.iter().for_each(|kind| inside(kind));
+            }
+        }
+    }
 
     let again = signed_data(data).expect("the same bytes parsed once already");
     assert!(

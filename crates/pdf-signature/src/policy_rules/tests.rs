@@ -873,7 +873,7 @@ fn a_mandated_attribute_within_the_attribute_trust_condition_is_met_and_its_abse
     let mandated =
         |c: &Constraint| matches!(c, Constraint::SignerAttribute(Check::Mandated { .. }));
     let certified =
-        |c: &Constraint| matches!(c, Constraint::SignerAttribute(Check::Certified { .. }));
+        |c: &Constraint| matches!(c, Constraint::SignerAttribute(Check::Certificate { .. }));
     let verdicts = |value: &[u8], wanted: &dyn Fn(&Constraint) -> bool| {
         verdict_of(
             &findings(
@@ -911,7 +911,7 @@ fn a_certified_or_value_constrained_attribute_leaves_the_condition_not_evaluated
     let named = |c: &Constraint| {
         matches!(
             c,
-            Constraint::SignerAttribute(Check::Certified { .. } | Check::ConditionValues)
+            Constraint::SignerAttribute(Check::Certificate { .. } | Check::ConditionValues)
         )
     };
     // `either` (2) accepts a certified attribute, whose validity needs RFC 5755 section 5.

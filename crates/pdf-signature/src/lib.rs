@@ -79,6 +79,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod attribute_certificate;
 mod bigint;
 mod brainpool_p512;
 pub mod cms;

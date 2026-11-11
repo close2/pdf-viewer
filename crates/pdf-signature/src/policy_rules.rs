@@ -1086,8 +1086,8 @@ fn read_signer_rules<'a>(
 }
 
 /// Clause 6.9's `AttributeTrustCondition`: the two members presence and kind are decided from, the
-/// types and value types `attributeConstraints` lists, and whether the members only an attribute
-/// certificate's validation would read are stated.
+/// types and value types `attributeConstraints` lists, the trust trees an attribute certificate's
+/// issuer is searched to, and whether `attrRevReq` is stated.
 fn read_attribute_trust<'a>(
     tagged: &Value<'a>,
     budget: &mut Budget,
@@ -1118,7 +1118,7 @@ fn read_attribute_trust<'a>(
     let mut out = signer_attributes::AttributeTrust {
         mandated,
         accepted,
-        trust_trees: false,
+        trust_trees: None,
         revocation: false,
         types: None,
         value_types: None,
@@ -1131,7 +1131,14 @@ fn read_attribute_trust<'a>(
             .ok_or(PolicyDocumentError::Malformed("attributeTrustCondition"))?;
         previous = Some(number);
         match number {
-            0 => out.trust_trees = true,
+            0 => {
+                let trees = expect(
+                    Some(explicit(&member, "attrCertificateTrustTrees")?),
+                    SEQUENCE,
+                    "attrCertificateTrustTrees",
+                )?;
+                out.trust_trees = Some(read_trust_trees(&trees, budget)?);
+            }
             1 => out.revocation = true,
             _ => {
                 let constraints = expect(
@@ -1866,6 +1873,7 @@ pub fn findings(
         .map(|trees| certification_path::search_authority(trees, cms, facts));
     let paths = Paths {
         signer: search.as_ref(),
+        signer_trees: signer_trust.map(|trust| &trust.trees),
         authority: authority.as_ref(),
     };
     judge(&document.common, cms, facts, paths, &mut out);
@@ -1886,6 +1894,9 @@ pub fn findings(
 #[derive(Debug, Clone, Copy)]
 struct Paths<'s> {
     signer: Option<&'s certification_path::Search>,
+    /// The signing-certificate condition's trust trees, which TR 102 272 clause 6.9 applies to
+    /// attribute certificates where the attribute condition states none.
+    signer_trees: Option<&'s certification_path::TrustTrees<'s>>,
     authority: Option<&'s certification_path::Search>,
 }
 
@@ -2054,7 +2065,12 @@ fn judge_trust_conditions(
                 }
             }
             (ATTRIBUTE_TRUST, _, _, Some(trust)) => {
-                signer_attributes::judge_condition(trust, cms, out);
+                let context = signer_attributes::Context {
+                    facts,
+                    signer_path: paths.signer,
+                    signer_trees: paths.signer_trees,
+                };
+                signer_attributes::judge_condition(trust, cms, context, out);
             }
             _ => out.push(Finding {
                 verdict: Verdict::NotEvaluated,

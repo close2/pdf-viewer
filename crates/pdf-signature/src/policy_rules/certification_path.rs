@@ -54,7 +54,7 @@
 
 use std::borrow::Cow;
 
-use super::{SignerFacts, Stated, TIMESTAMP_TRUST, TimeSource, Verdict, key_bits};
+use super::{ATTRIBUTE_TRUST, SignerFacts, Stated, TIMESTAMP_TRUST, TimeSource, Verdict, key_bits};
 use crate::cms::SignedData;
 use crate::ess::{self, CertificateHash, Version};
 use crate::revocation::Material;
@@ -343,11 +343,33 @@ const fn is_limit(refusal: &PathRefusal) -> bool {
     )
 }
 
+/// The name a sentence gives a stated acceptable policy set, with the reading [`implied`] makes of it.
+pub(super) const ACCEPTABLE_POLICY_SET: &str = "acceptable policy set, which this program reads as requiring the path to be valid for one of its policies";
+
+/// The inputs a trust point's path is validated under: the ones it states, and where it states an
+/// acceptable policy set, section 6.1.1 (f)'s `initial-explicit-policy` set as well.
+///
+/// RFC 3125 section 6.6.1 and ETSI TS 119 172-2 clause 4.22.5.1 make the set the initial set of
+/// certificate policies that are each acceptable under the signature policy, and RFC 5280 section
+/// 6.1.5 lets a path whose certificates assert no policy succeed under it unless an explicit policy
+/// is required. The owner's answer A796 reads a stated set as meaning no other path is acceptable,
+/// so the set requires the path to be valid for one of its policies: `requireExplicitPolicy` 0,
+/// the strictest count, for that trust point (ADR 2798).
+fn implied(inputs: &PathInputs) -> Cow<'_, PathInputs> {
+    if inputs.policy_set.is_none() || inputs.require_explicit_policy == Some(0) {
+        return Cow::Borrowed(inputs);
+    }
+    Cow::Owned(PathInputs {
+        require_explicit_policy: Some(0),
+        ..inputs.clone()
+    })
+}
+
 /// The members of a trust point that are section 6.1.1's inputs, by name, where stated.
 fn evaluated(inputs: &PathInputs) -> Vec<&'static str> {
     let mut named = Vec::new();
     if inputs.policy_set.is_some() {
-        named.push("acceptable policy set");
+        named.push(ACCEPTABLE_POLICY_SET);
     }
     if inputs.name_constraints.is_some() {
         named.push("name constraints");
@@ -422,6 +444,36 @@ fn search_from(
     at: Option<Instant>,
     purpose: Purpose,
 ) -> Search {
+    search_target(
+        trees,
+        cms,
+        crate::signature::signer_certificate(cms),
+        at,
+        purpose,
+    )
+}
+
+/// Searches for a path from `certificate`, one of those `cms` carries, to one of `trees`' trust
+/// points at `at`: RFC 5755 section 5 item 2's path of an attribute authority's certificate,
+/// which no extended key usage restricts.
+#[must_use]
+pub fn search_certificate(
+    trees: &TrustTrees<'_>,
+    cms: &SignedData<'_>,
+    certificate: crate::der::Value<'_>,
+    at: Option<Instant>,
+) -> Search {
+    search_target(trees, cms, Some(certificate), at, Purpose::Unstated)
+}
+
+/// The search from `signer` over the certificates `cms` carries.
+fn search_target(
+    trees: &TrustTrees<'_>,
+    cms: &SignedData<'_>,
+    signer: Option<crate::der::Value<'_>>,
+    at: Option<Instant>,
+    purpose: Purpose,
+) -> Search {
     let mut unexamined = unsearched(trees);
     let outcome = |found, unexamined| Search {
         found,
@@ -431,7 +483,7 @@ fn search_from(
     let Some(at) = at else {
         return outcome(Found::NoInstant, unexamined);
     };
-    let Some(signer) = crate::signature::signer_certificate(cms) else {
+    let Some(signer) = signer else {
         return outcome(Found::NoSignerCertificate, unexamined);
     };
     let Ok(target) = x509::read(signer) else {
@@ -552,7 +604,7 @@ fn reached(
     }
 }
 
-/// One trust point's validation, as [`search_from`] judges it.
+/// One trust point's validation, as [`search_target`] judges it.
 struct Attempt {
     trust: Trust,
     /// The path that validated, owned; read only where `trust` is anchored.
@@ -587,7 +639,7 @@ fn attempt(
     let validate = |inputs: &PathInputs| {
         trust::validate_constrained(target, &others, &anchors, &material, at, purpose, inputs)
     };
-    let mut validation = validate(&point.inputs);
+    let mut validation = validate(&implied(&point.inputs));
     let mut evaluated = evaluated(&point.inputs);
     let mut yielded = Vec::new();
     if point.mandated_path.is_some()
@@ -794,11 +846,24 @@ pub(super) fn sentence(
     verdict: &str,
 ) -> std::fmt::Result {
     write!(f, "the policy's {condition} is {verdict}: ")?;
+    path_words(f, condition, found, unexamined)
+}
+
+/// What a search found, as the part of a sentence after its verdict; `condition` decides whose
+/// certificate the path is from.
+pub(super) fn path_words(
+    f: &mut std::fmt::Formatter<'_>,
+    condition: &str,
+    found: &Found,
+    unexamined: usize,
+) -> std::fmt::Result {
     let (whose, holder) = if condition == TIMESTAMP_TRUST {
         (
             "the time-stamping authority's",
             "the signature's time-stamp token",
         )
+    } else if condition == ATTRIBUTE_TRUST {
+        ("the attribute authority's", "the signature")
     } else {
         ("the signer's", "the signature")
     };
@@ -919,9 +984,7 @@ fn reached_words(
         )?;
     }
     match policies {
-        Some([]) => f.write_str(
-            ", for none of the policies of its acceptable set — no certificate on the path asserts one, and RFC 5280 section 6.1.5 asks for one only where an explicit policy is required",
-        )?,
+        Some([]) => f.write_str(", for none of the policies of its acceptable set")?,
         Some(policies) => {
             let dotted: Vec<String> = policies
                 .iter()
@@ -929,7 +992,11 @@ fn reached_words(
                     x509::dotted(oid).unwrap_or_else(|| "an unreadable identifier".to_owned())
                 })
                 .collect();
-            write!(f, ", for the policies {} of its acceptable set", dotted.join(", "))?;
+            write!(
+                f,
+                ", for the policies {} of its acceptable set",
+                dotted.join(", ")
+            )?;
         }
         None => {}
     }
