@@ -18,9 +18,10 @@ use super::{Answer, Authorisations, Because, Conditional, Decision, Loss, Losses
 /// section 4.9's: a file that names a font and does not carry it **has no appearance of its
 /// own** — every reader picks a face at display time and they pick different ones — so writing
 /// one down settles a question the file left open rather than overriding an answer it gave.
-const SUBSTITUTION_REINTERPRETS: &str = "a face this program ships is now embedded for a font \
-     this file names and never carried, so the shapes every reader draws for it are this \
-     program's choice rather than each reader's. That is a change, and it is the one an archival \
+const SUBSTITUTION_REINTERPRETS: &str = "a face this program ships, or the face of this \
+     machine's the viewer drew it from, is now embedded for a font this file names and never \
+     carried, so the shapes every reader draws for it are this program's choice rather than each \
+     reader's. That is a change, and it is the one an archival \
      format asks for: the file had no appearance of its own before, because a non-embedded font \
      is drawn from whatever the machine opening it happens to have. Nothing moves — the glyph \
      widths the font dictionary states are untouched, and where one of the standard 14 stated \

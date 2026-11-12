@@ -814,9 +814,9 @@ impl Loss {
             }
             Self::GlyphsFromToUnicode => {
                 "an Adobe-Identity composite font the file does not embed, whose codes index a \
-                 program nobody supplied, is embedded with the glyphs a shipped face draws for the \
+                 program nobody supplied, is embedded with the glyphs a face draws for the \
                  characters its ToUnicode CMap states - the selection this viewer's window already \
-                 makes. Every code keeps its position, and shows the character the map states for \
+                 makes, in a shipped face or in the machine's face the window drew. Every code keeps its position, and shows the character the map states for \
                  it; where the producer wrote the map for searching rather than to describe the \
                  glyphs, the page shows what the map says rather than what was drawn. Name the \
                  producer's program with --font to keep its own glyphs instead"

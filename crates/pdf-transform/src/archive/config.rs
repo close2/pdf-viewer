@@ -1509,6 +1509,10 @@ struct Row {
     /// text no reader can extract, whatever the row's remedy says of the site's other losses
     /// (`doc/adr/2394`).
     text_as_image: Kind,
+    /// `glyphs-from-to-unicode` — whether `fonts/font-programs-embedded` may embed an
+    /// `Adobe-Identity` font with the glyphs its `/ToUnicode` chose, whatever the row's remedy says
+    /// of the site's other losses (owner answer A832, `doc/adr/2829`).
+    glyphs_from_to_unicode: Kind,
     /// `source = "shipped-cmaps"` — a `CMap` is embedded from the published set (`doc/adr/1286`).
     shipped_cmaps: bool,
     /// The 1-based line its header sits on, for an error a person can find.
@@ -1755,6 +1759,17 @@ impl Configuration {
                 && requirement_binds(&row.site, target)
             {
                 authorised.authorise(Loss::TextAsImage);
+            }
+            // **And a second**, by A832: `as-shown` admits `glyphs-from-to-unicode` while it stops
+            // on `machine-face`. Only the route that embeds the machine's face the window drew,
+            // proved code by code to draw what the window drew, names the first without the
+            // second (`doc/adr/2807`), so admitting the one loss frees that route's fonts and no
+            // other (`doc/adr/2829`).
+            if row.site == "fonts/font-programs-embedded"
+                && row.glyphs_from_to_unicode == Kind::Discard
+                && requirement_binds(&row.site, target)
+            {
+                authorised.authorise(Loss::GlyphsFromToUnicode);
             }
         }
         // The two losses that belong to no site: the refusals they lift are the source's, not a
@@ -2372,7 +2387,6 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         .and_then(Value::as_bool)
         .unwrap_or(true);
     let dynamic = kind_or_stop(tbl, "dynamic");
-    let text_as_image = kind_or_stop(tbl, "text-as-image");
     let undeterminable = kind_or_stop(tbl, "undeterminable");
     let unreadable = kind_or_stop(tbl, "unreadable");
     let disagreeing = kind_or_stop(tbl, "disagreeing");
@@ -2411,7 +2425,8 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         original,
         construct,
         dynamic,
-        text_as_image,
+        text_as_image: kind_or_stop(tbl, "text-as-image"),
+        glyphs_from_to_unicode: kind_or_stop(tbl, "glyphs-from-to-unicode"),
         fresh_packet,
         undeterminable,
         media_types,
