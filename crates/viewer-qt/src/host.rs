@@ -563,8 +563,8 @@ impl NativeWindow for Host {
         self.list_opens(field);
     }
 
-    fn print(&mut self, pages: usize, fidelity: viewer_core::Fidelity) {
-        self.showing_what_would_print(pages, fidelity);
+    fn print(&mut self, pages: usize, fidelity: viewer_core::Fidelity, scaling_held: bool) {
+        self.showing_what_would_print(pages, fidelity, scaling_held);
     }
 
     /// A flag for the C++ side, which owns the clipboard, because Rust never calls a Qt object.

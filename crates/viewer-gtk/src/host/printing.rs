@@ -48,6 +48,7 @@ impl Host {
         &mut self,
         pages: usize,
         fidelity: viewer_core::Fidelity,
+        scaling_held: bool,
     ) {
         let Ok(pages) = i32::try_from(pages) else {
             self.say("this document has more pages than a print job can name");
@@ -62,7 +63,10 @@ impl Host {
                 &pdf_model::viewer_preferences::ViewerPreferences::default(),
             ),
         };
-        if let Some(note) = defaults.enforcement_note() {
+        // §12.2's `/Enforce` where the reader's level obeys it: GTK's dialogue has no way to
+        // lock its scale, so the hold is this sentence and the dialogue opening on the
+        // document's scaling (ADR 2840).
+        if let Some(note) = defaults.held_note(scaling_held) {
             self.say(note);
         }
         // §7.6.4.2's Table 22 bit 12, said before the dialogue rather than after a destination

@@ -313,6 +313,9 @@ fn reason(restriction: Restriction) -> String {
         Restriction::OpeningCancelled => {
             "a preOpen script's cancelAction (XFA 3.3 page 392)".to_owned()
         }
+        Restriction::PrintScalingEnforced => {
+            "/Enforce names /PrintScaling (§12.2, Table 147)".to_owned()
+        }
     }
 }
 

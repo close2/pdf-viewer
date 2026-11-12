@@ -476,6 +476,10 @@ fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
         ("QUORRA_RESTRICTED_MEDIA", viewer_ffi::RestrictedKind::Media),
         // XFA 3.3 page 402's `cancelAction` under `preSave` (ADR 2763).
         ("QUORRA_RESTRICTED_SAVE", viewer_ffi::RestrictedKind::Save),
+        (
+            "QUORRA_RESTRICTED_ENFORCE",
+            viewer_ffi::RestrictedKind::Enforce,
+        ),
     ] {
         expected.insert(name.to_owned(), kind as i64);
     }

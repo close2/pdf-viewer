@@ -325,7 +325,10 @@ impl Viewer {
         // Table 22 makes bit 3 the permission to print and bit 12 only the permission to print
         // faithfully, so declining there asks for the degraded job the cell describes rather than
         // for no job at all (ADR 1203). Every other `no` forgets what was held.
-        let answered_either_way = matches!(held, crate::open::Held::PrintFaithfully(_));
+        let answered_either_way = matches!(
+            held,
+            crate::open::Held::PrintFaithfully(_) | crate::open::Held::PrintScaling { .. }
+        );
         if !proceed && matches!(held, crate::open::Held::Save) {
             // A save declined fires the `postSave` its `preSave` pushed (XFA 3.3 page 400).
             not_written(open);
@@ -387,7 +390,13 @@ impl Viewer {
             // The print whose `prePrint` script declined it, the scripts before it having run:
             // what the `yes` releases is the intent (ADR 2777).
             crate::open::Held::PrintCancelled { sheet, fidelity } => {
-                Self::print_intent(document, open, sheet, fidelity, events);
+                let policy = self.restrictions.under(open.restrictions);
+                Self::print_intent(document, open, policy, (sheet, fidelity), events);
+            }
+            // §12.2's `/Enforce`, asked: a `yes` lets the reader choose the scaling, a `no` holds
+            // it to the document's, and the print goes ahead either way (ADR 2840).
+            crate::open::Held::PrintScaling { sheet, fidelity } => {
+                Self::grant_print(document, open, (sheet, fidelity), !proceed, events);
             }
             // The list whose `preOpen` script declined it, the scripts before it having run: what
             // the `yes` releases is the display (ADR 2791).

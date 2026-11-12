@@ -271,16 +271,27 @@ impl ViewState {
             .iter()
             .any(|widget| self.text_of(document, *widget).as_deref() != Some(text));
         if differs {
-            self.write_text(widgets, text);
+            self.write_text(document, widgets, text);
         }
     }
 
     /// Writes a text value into widgets as an edit, the latest of the four statements about it.
-    pub(in crate::view::scripts) fn write_text(&mut self, widgets: &[ObjectId], text: &str) {
+    ///
+    /// A script's value is held to Table 232's `/MaxLen` like any other (A834, ADR 2840).
+    pub(in crate::view::scripts) fn write_text(
+        &mut self,
+        document: &Document,
+        widgets: &[ObjectId],
+        text: &str,
+    ) {
+        let written = Some(Object::String(
+            pdf_syntax::text_string::encode_text_string(text).into(),
+        ));
         let entry = Entry {
-            value: Some(Object::String(
-                pdf_syntax::text_string::encode_text_string(text).into(),
-            )),
+            value: match widgets.first() {
+                Some(widget) => crate::view::fields::held_to_max_len(document, *widget, written),
+                None => written,
+            },
             indices: None,
         };
         for widget in widgets {

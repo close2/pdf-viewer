@@ -284,7 +284,7 @@ impl ViewState {
             }
             (Trigger::Keystroke, Some(_)) => match &result.value {
                 Some(rewritten) if !typing => {
-                    self.write_text(&widgets, rewritten);
+                    self.write_text(document, &widgets, rewritten);
                     true
                 }
                 _ => false,

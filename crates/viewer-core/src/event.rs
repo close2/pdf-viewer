@@ -442,6 +442,14 @@ pub enum Event {
         /// `pdf_model::restriction::Operation::PrintFaithfully` beside it — the printing is
         /// granted and the fidelity is not, which is the pair Table 22 states. ADR 1203.
         fidelity: crate::Fidelity,
+        /// Whether the dialogue's print scaling is held to the document's `/PrintScaling`.
+        ///
+        /// §12.2, Table 147's `/Enforce` asks that the preference "shall not be overridden by
+        /// subsequent selections in the application user interface", and `true` is the reader's
+        /// level for `pdf_model::restriction::Operation::OverridePreference` obeying it — `on`, or
+        /// a `no` at `ask` — so a host offers the document's scaling only, or says it cannot hold
+        /// its toolkit's control to it. `false` leaves the choice the reader's (ADR 2840).
+        scaling_held: bool,
     },
     /// [`crate::Command::Archive`] went ahead: here is the file, and the host runs the converter.
     ///

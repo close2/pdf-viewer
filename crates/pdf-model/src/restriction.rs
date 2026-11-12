@@ -334,6 +334,20 @@ pub enum Operation {
     ///
     /// Table 22 states no position for it, so [`Operation::bit`] answers `None`.
     Save,
+    /// Choosing, in this program's interface, a viewer preference other than the one the
+    /// document states — today the print scaling a print dialogue offers.
+    ///
+    /// ISO 32000-2 §12.2, Table 147's `/Enforce`:
+    ///
+    /// > An array of names of Viewer preference settings that shall be enforced by PDF processors
+    /// > and that shall not be overridden by subsequent selections in the application user
+    /// > interface.
+    ///
+    /// A document telling its reader what they may not choose is a restriction on the reader, so
+    /// `CLAUDE.md` makes obeying it the reader's to set at four levels; the owner set this one's
+    /// default at `warn` (`doc/questions/A834`, item 2; ADR 2840). Table 22 states no position for
+    /// it, so [`Operation::bit`] answers `None`.
+    OverridePreference,
 }
 
 impl Operation {
@@ -355,6 +369,7 @@ impl Operation {
             Self::Process => "continuing to process this document",
             Self::HandOverMedia => "handing a media clip to a player",
             Self::Save => "saving the document",
+            Self::OverridePreference => "changing a viewer preference the document enforces",
         }
     }
 
@@ -390,7 +405,9 @@ impl Operation {
             Self::Extract => Bit::Extract,
             Self::Assemble if revision >= 3 => Bit::Assemble,
             Self::Modify | Self::Assemble => Bit::Modify,
-            Self::Process | Self::HandOverMedia | Self::Save => return None,
+            Self::Process | Self::HandOverMedia | Self::Save | Self::OverridePreference => {
+                return None;
+            }
         })
     }
 }
@@ -540,6 +557,16 @@ pub enum Restriction {
     /// Asserted only against [`Operation::FillInForm`], by the caller that ran the `preOpen`
     /// events of the opening being asked about, for [`Self::SaveCancelled`]'s reason (ADR 2791).
     OpeningCancelled,
+    /// §12.2's Table 147 `/Enforce` names `/PrintScaling`, the one name Table 148 defines:
+    ///
+    /// > This name may appear in the Enforce array only if the corresponding entry in the viewer
+    /// > preferences dictionary ("Table 147 - Entries in a viewer preferences dictionary")
+    /// > specifies a valid value other than AppDefault .
+    ///
+    /// Asserted against [`Operation::OverridePreference`] only, and only where
+    /// [`crate::viewer_preferences::ViewerPreferences::enforce_print_scaling`] holds, which
+    /// applies that condition (ADR 2840).
+    PrintScalingEnforced,
 }
 
 /// What §13.2.4.2's Table 286 `/TF` asserts against [`Operation::HandOverMedia`] in this document.
@@ -668,6 +695,14 @@ pub fn asserted(
             out.push(Restriction::RequirementsUnmet { penalty });
         }
     }
+    // §12.2's `/Enforce`, asked only of the operation it is about: Table 147 forbids overriding
+    // a preference "by subsequent selections in the application user interface", which is a
+    // reader choosing in a dialogue and nothing else a reader does (ADR 2840).
+    if operation == Operation::OverridePreference
+        && crate::viewer_preferences::ViewerPreferences::read(document).enforce_print_scaling
+    {
+        out.push(Restriction::PrintScalingEnforced);
+    }
     out
 }
 
@@ -690,7 +725,8 @@ const fn certification_binds(operation: Operation) -> bool {
         | Operation::Assemble
         | Operation::Process
         | Operation::HandOverMedia
-        | Operation::Save => false,
+        | Operation::Save
+        | Operation::OverridePreference => false,
         Operation::Modify | Operation::FillInForm | Operation::Annotate => true,
     }
 }
@@ -730,14 +766,16 @@ fn certification_permits(level: Modification, operation: Operation) -> bool {
         // And neither is *processing* one: §12.11.6 decides whether the document is opened at
         // all, which is not a change to it, so no level of Table 257 speaks to it. Nor does
         // a save: what it writes are the edits each of which was asked about as its own
-        // operation, and writing them is no further change (ADR 2763).
+        // operation, and writing them is no further change (ADR 2763). Nor is choosing a viewer
+        // preference, which changes how this program shows the document and not the document.
         Operation::Print
         | Operation::PrintFaithfully
         | Operation::Extract
         | Operation::Assemble
         | Operation::Process
         | Operation::HandOverMedia
-        | Operation::Save => true,
+        | Operation::Save
+        | Operation::OverridePreference => true,
         Operation::Modify => matches!(level, Modification::Unknown(_)),
         Operation::FillInForm | Operation::Annotate => match level {
             Modification::None => false,

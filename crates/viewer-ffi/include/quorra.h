@@ -210,6 +210,10 @@ extern "C" {
 /* XFA 3.3 page 402's $event.cancelAction under a hybrid form's preSave event: the document's script
  * declining its reader's save. Asked where the save is (ADR 2763). */
 #define QUORRA_RESTRICTED_SAVE  9u
+/* ISO 32000-2 §12.2's Table 147 /Enforce: changing, in the host's interface, a viewer preference
+ * the document enforces — today the print scaling quorra_print's dialogue offers. Its default level
+ * is QUORRA_RESTRICT_WARN, the owner's (doc/questions/A834, ADR 2840). */
+#define QUORRA_RESTRICTED_ENFORCE 10u
 
 /* §12.8.1's third question: what a reader does where the document's own §12.8.4 material settles
  * nothing about revocation. Nothing computes a clean answer out of an absent one either way — RFC

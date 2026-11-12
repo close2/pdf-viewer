@@ -65,7 +65,9 @@ fn saving_xfa_text_fields_keeps_each_dataset_value_consistent_with_pdf_v() {
         (
             positive_control,
             Entered::Text("Fish & <chips>".to_owned()),
-            "Fish & <chips>",
+            // Table 232: Tekstveld2 states `/MaxLen 10`, so the model keeps ten characters
+            // (doc/questions/A834).
+            "Fish & <ch",
         ),
         (target, Entered::Text("one\rtwo".to_owned()), "one\rtwo"),
     ];

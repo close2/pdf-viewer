@@ -714,6 +714,11 @@ pub(crate) fn restricted(
                 "this document's XFA form has a preOpen script that set $event.cancelAction, \
                  which XFA 3.3 page 399 says cancels the opening of the field's list — {tail}"
             ),
+            // §12.2's `/Enforce` over Table 148's one name (ADR 2840).
+            Restriction::PrintScalingEnforced => format!(
+                "this document asks that its print scaling not be changed (ISO 32000-2 §12.2, \
+                 Table 147's /Enforce names /PrintScaling) — {tail}"
+            ),
         })
         .collect()
 }

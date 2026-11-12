@@ -123,7 +123,9 @@ fn annotation_text_widget_keeps_its_text_values() {
             (
                 "formulier1[0].#subform[0].Tekstveld2[0]",
                 Entered::Text("Fish & <chips>".to_owned()),
-                "Fish & <chips>",
+                // Table 232: Tekstveld2 states `/MaxLen 10`, so the model keeps ten characters
+                // (doc/questions/A834).
+                "Fish & <ch",
             ),
             (
                 "formulier1[0].#subform[0].Tekstveld7[0]",

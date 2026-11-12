@@ -91,7 +91,7 @@ impl ViewState {
                     Ok(Keyed::Accepted {
                         value: Some(rewritten),
                     }) => {
-                        self.write_text(&widgets, &rewritten);
+                        self.write_text(document, &widgets, &rewritten);
                         text = rewritten;
                     }
                     Ok(Keyed::Accepted { value: None }) => {}
@@ -137,7 +137,7 @@ impl ViewState {
                             );
                         }
                         if let Some(rewritten) = result.value {
-                            self.write_text(&widgets, &rewritten);
+                            self.write_text(document, &widgets, &rewritten);
                             text = rewritten;
                         }
                     }

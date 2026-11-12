@@ -1308,9 +1308,12 @@ impl RestrictionLevel {
 /// apart, and a person forced to choose the stricter of the two would have had a restriction
 /// imposed on them by the shape of this type (ADR 1144).
 ///
-/// **Every entry is [`RestrictionLevel::Off`] by default.** See that variant for the owner's
-/// sentence; the short form is that a restriction the reader did not ask for is somebody else's
-/// file deciding what the reader may do with it.
+/// **Every entry but one is [`RestrictionLevel::Off`] by default.** See that variant for the
+/// owner's sentence; the short form is that a restriction the reader did not ask for is somebody
+/// else's file deciding what the reader may do with it. **The one is `OverridePreference`**,
+/// §12.2's `/Enforce`, whose default the owner set at [`RestrictionLevel::Warn`]
+/// (`doc/questions/A834`, item 2): the dialogue opens on the document's preference, the reader may
+/// change it, and the document's request is said (ADR 2840).
 ///
 /// **Total over `pdf_model::restriction::Operation`**, including the two operations this crate
 /// does not perform — `Print` and `Assemble` are `pdf_transform`'s verbs, and they are entries
@@ -1327,7 +1330,7 @@ impl RestrictionLevel {
 /// **One entry is not about a verb a person presses**: `Process` is §12.11.6's, and what its level
 /// decides is whether a document whose unmet requirements pass §12.11.3's threshold is processed
 /// at all. It is asked once, where the document opens, and never again (ADR 1167).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RestrictionPolicy {
     copy: RestrictionLevel,
     annotate: RestrictionLevel,
@@ -1339,6 +1342,18 @@ pub struct RestrictionPolicy {
     process: RestrictionLevel,
     hand_over_media: RestrictionLevel,
     save: RestrictionLevel,
+    override_preference: RestrictionLevel,
+}
+
+impl Default for RestrictionPolicy {
+    /// [`RestrictionLevel::Off`] for every operation, and [`RestrictionLevel::Warn`] for §12.2's
+    /// `/Enforce` — the owner's default for it (`doc/questions/A834`, ADR 2840).
+    fn default() -> Self {
+        Self::uniform(RestrictionLevel::Off).with(
+            pdf_model::restriction::Operation::OverridePreference,
+            RestrictionLevel::Warn,
+        )
+    }
 }
 
 impl RestrictionPolicy {
@@ -1347,7 +1362,7 @@ impl RestrictionPolicy {
     /// The order is this type's own and is what the wire, the C ABI and a command line all
     /// enumerate in, so that the three cannot drift: a policy is six levels and this says which
     /// six and in what sequence.
-    pub const OPERATIONS: [pdf_model::restriction::Operation; 10] = {
+    pub const OPERATIONS: [pdf_model::restriction::Operation; 11] = {
         use pdf_model::restriction::Operation as O;
         [
             O::Extract,
@@ -1360,6 +1375,7 @@ impl RestrictionPolicy {
             O::Process,
             O::HandOverMedia,
             O::Save,
+            O::OverridePreference,
         ]
     };
 
@@ -1377,6 +1393,7 @@ impl RestrictionPolicy {
             process: level,
             hand_over_media: level,
             save: level,
+            override_preference: level,
         }
     }
 
@@ -1395,6 +1412,7 @@ impl RestrictionPolicy {
             O::Process => self.process,
             O::HandOverMedia => self.hand_over_media,
             O::Save => self.save,
+            O::OverridePreference => self.override_preference,
         }
     }
 
@@ -1417,6 +1435,7 @@ impl RestrictionPolicy {
             O::Process => self.process = level,
             O::HandOverMedia => self.hand_over_media = level,
             O::Save => self.save = level,
+            O::OverridePreference => self.override_preference = level,
         }
         self
     }
@@ -1451,6 +1470,8 @@ impl RestrictionPolicy {
             // The reader's own verb: what this level decides is whether a document's script may
             // stop the person saving (ADR 2763).
             O::Save => "save",
+            // Table 147's own word for what the entry restricts.
+            O::OverridePreference => "enforce",
         }
     }
 
@@ -1531,6 +1552,7 @@ pub struct RestrictionOverride {
     process: Option<RestrictionLevel>,
     hand_over_media: Option<RestrictionLevel>,
     save: Option<RestrictionLevel>,
+    override_preference: Option<RestrictionLevel>,
 }
 
 impl RestrictionOverride {
@@ -1549,6 +1571,7 @@ impl RestrictionOverride {
         process: None,
         hand_over_media: None,
         save: None,
+        override_preference: None,
     };
 
     /// The level this document departs to for one operation, if it departs at all.
@@ -1569,6 +1592,7 @@ impl RestrictionOverride {
             O::Process => self.process,
             O::HandOverMedia => self.hand_over_media,
             O::Save => self.save,
+            O::OverridePreference => self.override_preference,
         }
     }
 
@@ -1592,6 +1616,7 @@ impl RestrictionOverride {
             O::Process => self.process = level,
             O::HandOverMedia => self.hand_over_media = level,
             O::Save => self.save = level,
+            O::OverridePreference => self.override_preference = level,
         }
         self
     }

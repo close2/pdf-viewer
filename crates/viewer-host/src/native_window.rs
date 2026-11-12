@@ -608,8 +608,8 @@ pub trait NativeWindow {
     }
 
     /// §7.6.4.2's bit 3 granted: the print this toolkit offers, with the fidelity the core
-    /// decided (ADR 1180).
-    fn print(&mut self, pages: usize, fidelity: viewer_core::Fidelity);
+    /// decided (ADR 1180) and whether §12.2's `/Enforce` holds its scaling (ADR 2840).
+    fn print(&mut self, pages: usize, fidelity: viewer_core::Fidelity, scaling_held: bool);
 
     /// The grant of `Command::OpeningList`: display the drop-down list of the choice field
     /// `field` now, its form's `preOpen` having run, and send `Command::OpenedList` once it is
@@ -819,8 +819,11 @@ pub trait NativeWindow {
             Event::Refused { notes, .. } => self.refused(&notes),
             Event::Warned { notes, .. } => self.warned(&notes),
             Event::Printing {
-                pages, fidelity, ..
-            } => self.print(pages, fidelity),
+                pages,
+                fidelity,
+                scaling_held,
+                ..
+            } => self.print(pages, fidelity, scaling_held),
             Event::ListOpens { field, .. } => self.open_list(&field),
             // Table 22's bit 11 granted: the conversion runs on a thread of its own (ADR 1954).
             granted @ Event::Archiving { .. } => self.convert(granted),

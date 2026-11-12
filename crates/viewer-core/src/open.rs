@@ -836,6 +836,16 @@ pub(crate) enum Held {
         /// Table 22 bit 12's answer.
         fidelity: crate::Fidelity,
     },
+    /// A print every other question has let through, waiting on whether the reader may change the
+    /// print scaling §12.2's `/Enforce` names — `pdf_model::restriction::Operation::
+    /// OverridePreference` at the *ask* level (ADR 2840). Answered either way: a `yes` grants the
+    /// print with the scaling the reader's to choose, a `no` with it held to the document's.
+    PrintScaling {
+        /// The sheet the print was asked about.
+        sheet: crate::Sheet,
+        /// Table 22 bit 12's answer.
+        fidelity: crate::Fidelity,
+    },
     /// The opening of a drop-down list an XFA form's `preOpen` script declined —
     /// `crate::Command::OpeningList`, asked as `pdf_model::restriction::Operation::FillInForm`
     /// (ADR 2791). The scripts before the opening have run, so a `yes` grants the list with

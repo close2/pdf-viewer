@@ -622,6 +622,10 @@ pub enum RestrictedKind {
     /// XFA 3.3 page 402's `$event.cancelAction` under a hybrid form's `preSave` event: the
     /// document's script declining its reader's save. Asked where the save is (ADR 2763).
     Save = 9,
+    /// §12.2's Table 147 `/Enforce`: changing, in the host's interface, a viewer preference the
+    /// document enforces — today the print scaling `quorra_print`'s dialogue offers. The owner's
+    /// default for it is `warn` (`doc/questions/A834`, ADR 2840).
+    Enforce = 10,
 }
 
 impl RestrictedKind {
@@ -639,6 +643,7 @@ impl RestrictedKind {
             7 => Self::PrintFaithfully,
             8 => Self::Media,
             9 => Self::Save,
+            10 => Self::Enforce,
             _ => return None,
         })
     }
@@ -658,6 +663,7 @@ impl RestrictedKind {
             Self::PrintFaithfully => O::PrintFaithfully,
             Self::Media => O::HandOverMedia,
             Self::Save => O::Save,
+            Self::Enforce => O::OverridePreference,
         }
     }
 }

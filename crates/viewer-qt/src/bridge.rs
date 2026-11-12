@@ -648,8 +648,11 @@ pub mod ffi {
         degraded: bool,
         /// Why a destination that writes a document may not be offered, or empty where one may.
         refusal: String,
-        /// Table 148's `/Enforce`, worded, or empty where the document asked nothing.
+        /// Table 148's `/Enforce`, worded, where the reader's level holds the scaling to the
+        /// document's; empty otherwise (ADR 2840).
         enforcement: String,
+        /// Whether that level holds it, so the dialogue's scaling control is locked (ADR 2840).
+        scaling_held: bool,
         /// `/NumCopies`, or `0` where the document states none.
         copies: i32,
         /// `/Duplex`: `-1` none stated, `0` simplex, `1` the long edge, `2` the short one.

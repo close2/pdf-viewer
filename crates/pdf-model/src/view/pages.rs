@@ -111,6 +111,8 @@ impl ViewState {
                 let mut awaiting = Vec::new();
                 for (widget, import) in &matched {
                     let mut import = import.clone();
+                    import.value =
+                        super::fields::held_to_max_len(document, *widget, import.value.take());
                     appearances.resolve(document, *widget, &mut import, outcome, &mut awaiting);
                     self.reset.remove(widget);
                     self.imported.insert(*widget, import);
@@ -318,6 +320,7 @@ impl ViewState {
         let mut awaiting = Vec::new();
         for (widget, import) in &matched {
             let mut import = import.clone();
+            import.value = super::fields::held_to_max_len(document, *widget, import.value.take());
             appearances.resolve(document, *widget, &mut import, outcome, &mut awaiting);
             self.reset.remove(widget);
             self.imported.insert(*widget, import);

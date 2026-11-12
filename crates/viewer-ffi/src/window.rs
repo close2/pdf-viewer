@@ -1085,14 +1085,16 @@ impl NativeWindow for Window {
     /// screen are what would print meanwhile, §8.11.4.5's `Print` event in force, as `viewer-qt`
     /// shows them (ADRs 1180, 2121). The notes the toolkit windows say before their dialogue are
     /// said before the record.
-    fn print(&mut self, pages: usize, fidelity: viewer_core::Fidelity) {
+    fn print(&mut self, pages: usize, fidelity: viewer_core::Fidelity, scaling_held: bool) {
         let defaults = match self.state.viewer.query(Query::Preferences) {
             Answer::Preferences(preferences) => viewer_host::PrintDefaults::of(&preferences),
             _ => viewer_host::PrintDefaults::of(
                 &pdf_model::viewer_preferences::ViewerPreferences::default(),
             ),
         };
-        if let Some(note) = defaults.enforcement_note() {
+        // §12.2's `/Enforce` where the reader's level obeys it: a C caller's own dialogue is the
+        // one to hold, and this sentence is what it is told (ADR 2840).
+        if let Some(note) = defaults.held_note(scaling_held) {
             self.say(note);
         }
         if let Some(note) = viewer_host::printing::destination_refused(fidelity) {

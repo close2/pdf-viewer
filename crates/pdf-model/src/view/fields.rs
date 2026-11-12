@@ -96,6 +96,7 @@ impl ViewState {
         self.forget_statements(&table, &replaced);
         for (widget, import) in &matched {
             let mut import = import.clone();
+            import.value = held_to_max_len(document, *widget, import.value.take());
             named.resolve(document, *widget, &mut import, &mut outcome, &mut awaiting);
             self.import_options(document, *widget, import.options.as_deref());
             self.imported.insert(*widget, import);
@@ -301,11 +302,20 @@ impl ViewState {
             Entered::Text(text) => Entry {
                 // §7.9.2.2's text string, which is what Table 226 makes `/V` for a text field and
                 // so what §12.7.4.3 lays out. Encoded once, here, rather than again at the save:
-                // the appearance and the file then carry the same bytes by construction.
-                value: Some(Object::String(
-                    pdf_syntax::text_string::encode_text_string(taken.as_deref().unwrap_or(text))
+                // the appearance and the file then carry the same bytes by construction. Table
+                // 232's `/MaxLen` cuts it like the room does (A834).
+                value: {
+                    let typed = Some(Object::String(
+                        pdf_syntax::text_string::encode_text_string(
+                            taken.as_deref().unwrap_or(text),
+                        )
                         .into(),
-                )),
+                    ));
+                    match taking.first() {
+                        Some(widget) => held_to_max_len(document, *widget, typed),
+                        None => typed,
+                    }
+                },
                 indices: None,
             },
             Entered::Chosen(indices) => {
@@ -771,6 +781,53 @@ pub(super) fn state_name(value: &Object) -> Object {
         )),
         other => other.clone(),
     }
+}
+
+/// A text field's value held to Table 232's `/MaxLen`, whoever states it (`doc/questions/A834`).
+///
+/// ISO 32000-2 §12.7.5.3, Table 232:
+///
+/// > The maximum length of the field's text, in characters.
+///
+/// The entry states the *field's* text, not what a keyboard may add to it, so a value set through
+/// the model — [`ViewState::set_field`], a script's assignment, an FDF or XFDF import, a template
+/// page's fields — is cut to its first `/MaxLen` characters before any widget takes it, exactly as
+/// the native controls cut what a person types (ADR 2816 section 1, ADR 2840). `/MaxLen` is
+/// inheritable (Table 226's "Additional entries common to all fields" are read up `/Parent`), and
+/// it binds only Table 226's `/FT /Tx`: a choice field's `/V` names an option, which a cut would
+/// turn into a value no option states. A value that is no text string — a rich-text stream, a
+/// name — is left whole, since only a text string is counted in characters.
+pub(super) fn held_to_max_len(
+    document: &Document,
+    widget: ObjectId,
+    value: Option<Object>,
+) -> Option<Object> {
+    let Some(Object::String(bytes)) = &value else {
+        return value;
+    };
+    let object = document.get(widget);
+    let Some(dict) = object.as_dict() else {
+        return value;
+    };
+    let inherited = Inherited::of(document, dict);
+    let is_text = inherited
+        .name(document, "FT")
+        .is_some_and(|kind| kind.as_bytes() == b"Tx");
+    let Some(limit) = inherited
+        .integer(document, "MaxLen")
+        .filter(|_| is_text)
+        .and_then(|limit| usize::try_from(limit).ok())
+    else {
+        return value;
+    };
+    let text = pdf_syntax::text_string::text_string(bytes);
+    if text.chars().count() <= limit {
+        return value;
+    }
+    let cut: String = text.chars().take(limit).collect();
+    Some(Object::String(
+        pdf_syntax::text_string::encode_text_string(&cut).into(),
+    ))
 }
 
 fn is_read_only(document: &Document, widget: ObjectId) -> bool {

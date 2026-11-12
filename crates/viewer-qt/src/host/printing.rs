@@ -19,6 +19,8 @@ pub(super) struct PrintJob {
     fidelity: viewer_core::Fidelity,
     /// §12.2's Table 147, as the dialogue's opening state.
     defaults: viewer_host::PrintDefaults,
+    /// Whether §12.2's `/Enforce` holds the dialogue's scaling to the document's (ADR 2840).
+    scaling_held: bool,
 }
 
 /// One printed page, rasterised and waiting for the C++ side to paint it.
@@ -39,6 +41,7 @@ impl Host {
         &mut self,
         pages: usize,
         fidelity: viewer_core::Fidelity,
+        scaling_held: bool,
     ) {
         self.printing = true;
         let page = match self.state.viewer.query(Query::PageGeometry(0)) {
@@ -51,7 +54,7 @@ impl Host {
                 &pdf_model::viewer_preferences::ViewerPreferences::default(),
             ),
         };
-        if let Some(note) = defaults.enforcement_note() {
+        if let Some(note) = defaults.held_note(scaling_held) {
             self.say(note);
         }
         // §7.6.4.2's Table 22 bit 12, said before the dialogue rather than after a destination was
@@ -64,6 +67,7 @@ impl Host {
             page,
             fidelity,
             defaults,
+            scaling_held,
         });
         self.update.print_dialogue = true;
         self.say(&format!(
@@ -89,9 +93,10 @@ impl Host {
                 .to_owned(),
             enforcement: job
                 .defaults
-                .enforcement_note()
+                .held_note(job.scaling_held)
                 .unwrap_or_default()
                 .to_owned(),
+            scaling_held: job.scaling_held && job.defaults.scaling_enforced,
             copies: narrow(job.defaults.copies.unwrap_or_default()),
             duplex: match job.defaults.duplex {
                 None => -1,
@@ -248,6 +253,7 @@ fn empty_print_job() -> QtPrintJob {
         degraded: false,
         refusal: String::new(),
         enforcement: String::new(),
+        scaling_held: false,
         copies: 0,
         duplex: -1,
         page_ranges: Vec::new(),

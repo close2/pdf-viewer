@@ -2337,6 +2337,10 @@ void MainWindow::runThePrintDialogue()
     scaling->addItem(QStringLiteral("Fit to page"), 2);
     // `/PrintScaling` of `None` is "no page scaling", which is the first of the three.
     scaling->setCurrentIndex(job.no_scaling ? 0 : 1);
+    // ISO 32000-2 §12.2's /Enforce, where the reader's level obeys it: the document's scaling
+    // "shall not be overridden by subsequent selections in the application user interface", so
+    // the control stays on it (ADR 2840).
+    scaling->setEnabled(!job.scaling_held);
     auto* perSheet = new QComboBox(options);
     perSheet->addItem(QStringLiteral("1"), 1);
     perSheet->addItem(QStringLiteral("2"), 2);

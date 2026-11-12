@@ -372,6 +372,7 @@ Merged from every group's "left" section; results-LEAD2 governs.
   pages leave the judged set and should be counted in the next corpus walk.
 - The four owner questions are doc/questions/Q834: (1) a model-side /MaxLen cut, which contradicts two passing audit
   tests; (2) §12.2 /Enforce level; (3) Redact /RO against the overlay exclusion; (4) Annex I first-error suppression.
+  Round 2011: A834 built (ADRs 2840, 2841): MaxLen cut, /Enforce warn, removal proven, Annex I pinned; /RO is Q842.
 
 ## 5. Files touched
 

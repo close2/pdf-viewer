@@ -1741,6 +1741,12 @@ fn describe_restriction(operation: Operation, restriction: Restriction) -> Strin
         Restriction::OpeningCancelled => {
             "its XFA form's preOpen script set $event.cancelAction (XFA 3.3 page 392)".to_owned()
         }
+        // §12.2's `/Enforce`, asked by the window whose print dialogue offers a scaling; no verb
+        // of this suite has such a dialogue (ADR 2840).
+        Restriction::PrintScalingEnforced => {
+            "its viewer preferences' /Enforce names /PrintScaling (ISO 32000-2 §12.2, Table 147)"
+                .to_owned()
+        }
     }
 }
 

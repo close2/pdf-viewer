@@ -792,7 +792,8 @@ pub const fn inert(operation: Operation) -> &'static str {
         | Operation::PrintFaithfully
         | Operation::Process
         | Operation::HandOverMedia
-        | Operation::Save => "",
+        | Operation::Save
+        | Operation::OverridePreference => "",
         Operation::Assemble => INERT,
     }
 }

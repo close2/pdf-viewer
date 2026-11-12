@@ -32,11 +32,16 @@ use viewer_core::{Answer, Command, DocumentId, Event, Query, Rendered, Viewer};
 /// A one-page document: `page_extra` in the page dictionary, `content` its stream, `objects`
 /// after it, numbered on from 6.
 fn document(page_extra: &str, content: &str, objects: &str) -> Vec<u8> {
+    document_naming("/Im0 6 0 R", page_extra, content, objects)
+}
+
+/// [`document`] with the page's `/XObject` resources stated as `xobjects`.
+fn document_naming(xobjects: &str, page_extra: &str, content: &str, objects: &str) -> Vec<u8> {
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 20] \
-         /Resources << /XObject << /Im0 6 0 R >> >> /Contents 4 0 R {page_extra} >>\nendobj\n\
+         /Resources << /XObject << {xobjects} >> >> /Contents 4 0 R {page_extra} >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
          5 0 obj\n<< >>\nendobj\n\
          {objects}",
@@ -158,4 +163,39 @@ fn an_entry_not_understood_is_passed_over_in_silence() {
         notes.is_empty(),
         "an unknown entry is ignored, not reported: {notes:?}"
     );
+}
+
+/// Annex I.2's recommendation for the first error is declined, and the owner confirmed it
+/// (`doc/questions/A834`, item 4; ADR 2815 section 2):
+///
+/// > Upon the first error that is caused by encountering an unrecognised feature, the PDF
+/// > processor should notify the user that an error has occurred but that no further errors will
+/// > be reported.
+///
+/// This program reports **every** unrecognised feature it meets, louder than the `should` and
+/// never quieter (trap 5: an error not reported is drawn as though it were the producer's
+/// intent). Two images under two filters no clause of §7.4 defines are both named — the second
+/// is not swallowed by the first.
+#[test]
+fn every_object_not_understood_is_said_not_only_the_first() {
+    let second = "7 0 obj\n<< /Type /XObject /Subtype /Image /Width 1 /Height 1 \
+                  /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /AnotherUndefinedFilter \
+                  /Length 1 >>\nstream\n\x00\nendstream\nendobj\n";
+    let (notes, _) = open_and_draw(document_naming(
+        "/Im0 6 0 R /Im1 7 0 R",
+        "",
+        "0 g 0 0 20 20 re f q 10 0 0 20 20 0 cm /Im0 Do Q q 10 0 0 20 30 0 cm /Im1 Do Q",
+        &format!(
+            "{}{second}",
+            image("/Filter /FilterThisStandardDoesNotDefine")
+        ),
+    ));
+    for name in ["Im0", "Im1"] {
+        assert!(
+            notes
+                .iter()
+                .any(|note| note.contains(name) && note.contains("not drawn")),
+            "{name} is named to the user, not only the first error: {notes:?}"
+        );
+    }
 }

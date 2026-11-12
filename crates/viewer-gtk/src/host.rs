@@ -664,8 +664,8 @@ impl NativeWindow for Host {
         glib::idle_add_local_once(move || gtk4::prelude::PopoverExt::popup(&popover));
     }
 
-    fn print(&mut self, pages: usize, fidelity: viewer_core::Fidelity) {
-        self.open_the_print_dialogue(pages, fidelity);
+    fn print(&mut self, pages: usize, fidelity: viewer_core::Fidelity, scaling_held: bool) {
+        self.open_the_print_dialogue(pages, fidelity, scaling_held);
     }
 
     fn to_clipboard(&mut self, text: String) {

@@ -400,8 +400,10 @@ pub struct Defaults {
     /// `AppDefault`, which is Table 148's own wording.
     ///
     /// **A document telling a reader what they may not change is a restriction, and
-    /// `CLAUDE.md` makes those the reader's**: this is reported rather than obeyed, so a host
-    /// shows the dialogue with the scaling the document asked for and says that it asked.
+    /// `CLAUDE.md` makes those the reader's**: whether it is obeyed is the reader's level for
+    /// `pdf_model::restriction::Operation::OverridePreference`, answered once by `viewer_core` as
+    /// `Event::Printing`'s `scaling_held` (ADR 2840), and [`Self::held_note`] is what a host says
+    /// where it holds.
     pub scaling_enforced: bool,
     /// `/Duplex`: the paper handling option the dialogue opens with.
     ///
@@ -470,15 +472,20 @@ impl Defaults {
                 .any(|&(first, last)| page >= first && page <= last)
     }
 
-    /// What to say about a document that asked for its scaling not to be changed.
+    /// What a host says where the reader's level holds the print scaling to the document's.
     ///
-    /// `None` where it asked for nothing. A sentence rather than a refusal, because Table 148's
-    /// `/Enforce` is a document asserting something over the person reading it and `CLAUDE.md`
-    /// makes every one of those the reader's to set.
+    /// `held` is `Event::Printing`'s `scaling_held`, the reader's level for
+    /// `pdf_model::restriction::Operation::OverridePreference` answered by `viewer_core` (ADR
+    /// 2840). `None` where it does not hold, because at `warn` the core's `Event::Warned` has said
+    /// what the document asked and at `off` nothing is owed. A toolkit whose dialogue can lock its
+    /// scaling control locks it as well; one that cannot is held by this sentence, said before the
+    /// dialogue opens on the document's scaling.
     #[must_use]
-    pub fn enforcement_note(&self) -> Option<&'static str> {
-        self.scaling_enforced.then_some(
-            "this document asks that its print scaling not be changed (§12.2, Table 148's /Enforce)",
+    pub fn held_note(&self, held: bool) -> Option<&'static str> {
+        (held && self.scaling_enforced).then_some(
+            "this document enforces its print scaling (ISO 32000-2 §12.2, Table 147's /Enforce) \
+             and your level obeys it: the dialogue opens on the scaling it states, and the print \
+             keeps it",
         )
     }
 }
@@ -676,7 +683,7 @@ mod tests {
         assert_eq!(silent.copies, None);
         // A document stating no range has not stated a range of nothing, so every page is in it.
         assert!(silent.in_page_range(1) && silent.in_page_range(9999));
-        assert_eq!(silent.enforcement_note(), None);
+        assert_eq!(silent.held_note(true), None);
 
         let stated = Defaults::of(&ViewerPreferences {
             print_scaling: PrintScaling::NoScaling,
@@ -692,7 +699,12 @@ mod tests {
         assert_eq!(stated.duplex, Some(Duplex::FlipLongEdge));
         assert_eq!(stated.pick_tray_by_page_size, Some(true));
         assert_eq!(stated.copies, Some(3));
-        assert!(stated.enforcement_note().is_some());
+        assert!(stated.held_note(true).is_some());
+        assert_eq!(
+            stated.held_note(false),
+            None,
+            "a level that does not hold says nothing here; the core's events say the rest"
+        );
         // One-based, inclusive at both ends, and the gap between the pairs is a gap.
         for (page, inside) in [(1, false), (2, true), (4, true), (5, false), (9, true)] {
             assert_eq!(

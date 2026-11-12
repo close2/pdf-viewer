@@ -37,7 +37,7 @@ impl ViewState {
                         .iter()
                         .any(|widget| self.text_of(document, *widget).as_deref() != Some(value));
                     if differs {
-                        self.write_text(widgets, value);
+                        self.write_text(document, widgets, value);
                         applied.values = true;
                     }
                 }

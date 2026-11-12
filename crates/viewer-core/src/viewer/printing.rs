@@ -235,9 +235,9 @@ impl Viewer {
             Vec::new()
         };
         match policy.level(operation).level().verdict(asserted) {
-            Verdict::Proceed => Self::print_intent(id, open, sheet, fidelity, events),
+            Verdict::Proceed => Self::print_intent(id, open, policy, (sheet, fidelity), events),
             Verdict::Warn(restrictions) => {
-                Self::print_intent(id, open, sheet, fidelity, events);
+                Self::print_intent(id, open, policy, (sheet, fidelity), events);
                 events.push(Event::Warned {
                     document: id,
                     operation,
@@ -283,11 +283,64 @@ impl Viewer {
     ///
     /// `fidelity` is Table 22 bit 12's answer, decided by [`Self::faithfulness`] before this is
     /// reached and carried on the grant so that a host knows what its dialogue may offer.
+    ///
+    /// **And §12.2's `/Enforce` is asked here, last**, because what it restricts is a choice made
+    /// in the dialogue the grant opens: Table 147's "shall not be overridden by subsequent
+    /// selections in the application user interface". It never stops a print — the operation is
+    /// the reader changing the scaling, not printing — so `off` and `warn` grant a scaling the
+    /// reader chooses (`warn` saying what the document asked), `on` grants one held to the
+    /// document's and says why, and `ask` waits on [`Command::Answer`] whose `no` holds it. The
+    /// owner's default for it is `warn` (`doc/questions/A834`, ADR 2840).
     pub(super) fn print_intent(
         id: DocumentId,
         open: &mut Open,
-        sheet: crate::Sheet,
-        fidelity: crate::Fidelity,
+        policy: crate::RestrictionPolicy,
+        (sheet, fidelity): (crate::Sheet, crate::Fidelity),
+        events: &mut Vec<Event>,
+    ) {
+        use pdf_model::restriction::Operation;
+
+        let operation = Operation::OverridePreference;
+        match Self::verdict_of(
+            id,
+            policy.level(operation).level(),
+            &open.document,
+            operation,
+            None,
+            None,
+        ) {
+            Standing::Proceed => Self::grant_print(id, open, (sheet, fidelity), false, events),
+            Standing::Warn(notes) => {
+                Self::grant_print(id, open, (sheet, fidelity), false, events);
+                events.push(Event::Warned {
+                    document: id,
+                    operation,
+                    notes,
+                });
+            }
+            Standing::Refuse(refused) => {
+                events.push(refused);
+                Self::grant_print(id, open, (sheet, fidelity), true, events);
+            }
+            Standing::Ask(notes) => {
+                open.asking = Some(crate::open::Held::PrintScaling { sheet, fidelity });
+                events.push(Event::Asking {
+                    document: id,
+                    operation,
+                    notes,
+                });
+            }
+        }
+    }
+
+    /// The grant itself: the document in print intent, and [`Event::Printing`] carrying what the
+    /// questions before it decided — Table 22 bit 12's `fidelity` and whether §12.2's `/Enforce`
+    /// holds the print scaling to the document's (`scaling_held`).
+    pub(super) fn grant_print(
+        id: DocumentId,
+        open: &mut Open,
+        (sheet, fidelity): (crate::Sheet, crate::Fidelity),
+        scaling_held: bool,
         events: &mut Vec<Event>,
     ) {
         open.printing = Some(sheet);
@@ -309,6 +362,7 @@ impl Viewer {
             document: id,
             pages: open.page_count,
             fidelity,
+            scaling_held,
         });
     }
 

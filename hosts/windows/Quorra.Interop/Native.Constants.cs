@@ -102,6 +102,8 @@ internal static partial class Native
 
     internal const uint QUORRA_RESTRICTED_SAVE = 9;
 
+    internal const uint QUORRA_RESTRICTED_ENFORCE = 10;
+
     internal const uint QUORRA_ACCEPT_REVOCATION_MUST_BE_GOOD = 0;
     internal const uint QUORRA_ACCEPT_UNKNOWN_REVOCATION = 1;
 

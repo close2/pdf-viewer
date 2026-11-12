@@ -254,6 +254,7 @@ pub(super) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
             document,
             pages,
             fidelity,
+            scaling_held,
         } => {
             // §7.6.4.2's bit 12 as a byte: 0 faithful, 1 degraded. A grant the window process
             // needs before it opens a dialogue, because one of the two things it decides is
@@ -265,7 +266,9 @@ pub(super) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                 .u8(match fidelity {
                     viewer_core::Fidelity::Faithful => 0,
                     viewer_core::Fidelity::Degraded => 1,
-                });
+                })
+                // §12.2's `/Enforce` as the reader's level answered it (ADR 2840).
+                .bool(*scaling_held);
         }
         Event::Refused {
             document,
@@ -575,6 +578,7 @@ pub(super) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
                     });
                 }
             },
+            scaling_held: reader.bool("whether a print's scaling is held to the document's")?,
         },
         k::REFUSED => Event::Refused {
             document: reader.document(what)?,
