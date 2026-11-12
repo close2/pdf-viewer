@@ -82,6 +82,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use pdf_model::optional_content::{Audience, Reader};
 use pdf_model::submission::{Method, Submission};
 use pdf_signature::trust::Supply;
+use pdf_signature::trusted_list::Lists;
 use pdf_signature::verdict::Acceptance;
 use pdf_signature::x509::Instant;
 use viewer_core::{Extraction, Purpose, ReferenceFiles, TrustPolicy};
@@ -2658,6 +2659,16 @@ pub fn may_write_extracted(asked: Extraction) -> Result<(), String> {
 /// this host supplies the sandbox, the backend and the page to open at.
 pub const TRUST_ANCHORS: &str = "--trust-anchors";
 
+/// The word a person types to name a directory of ETSI TS 119 612 trusted lists — the files a
+/// Member State's supervisory body publishes, kept by the person or their organisation.
+///
+/// **Beside [`TRUST_ANCHORS`], and the two say different things** (`doc/questions/A800` item 3, ADR
+/// 2834): a path that ends at an anchor the person named is *locally valid*, and one that ends at a
+/// service a list publishes is reported with that list. Read from disk, never fetched: fetching
+/// the European Commission's list of trusted lists is a transmission, and a host's to make under
+/// its own rule (`doc/questions/A130`), which this word does not. Off where nobody typed it.
+pub const TRUSTED_LISTS: &str = "--trusted-lists";
+
 /// The word a person types to act on a signature whose revocation status could not be determined.
 ///
 /// **ADR 1067's rule is what this does not touch.** A [`pdf_signature::revocation::Revocation::
@@ -2782,6 +2793,7 @@ pub fn trust_anchors(
             TrustPolicy {
                 anchors: Supply::none(),
                 acceptance,
+                lists: Lists::none(),
             },
             Vec::new(),
         );
@@ -2798,6 +2810,7 @@ pub fn trust_anchors(
                 TrustPolicy {
                     anchors: Supply::none(),
                     acceptance,
+                    lists: Lists::none(),
                 },
                 refused,
             );
@@ -2852,7 +2865,54 @@ pub fn trust_anchors(
                 at,
             ),
             acceptance,
+            lists: Lists::none(),
         },
+        refused,
+    )
+}
+
+/// **The trusted lists a person named, read from the directory [`TRUSTED_LISTS`] named**, and
+/// none where nobody typed it.
+///
+/// Every file in the directory is offered, sorted by name, as [`trust_anchors`] offers its files;
+/// whether a file *is* a list is `pdf_signature::trusted_list::Lists::read`'s to say, and the core
+/// says it beside the verdicts. Only a directory or a file that cannot be read is refused here.
+#[must_use]
+pub fn trusted_lists(directory: Option<&Path>) -> (Lists, Vec<AnchorRefusal>) {
+    let Some(directory) = directory else {
+        return (Lists::none(), Vec::new());
+    };
+    let mut refused = Vec::new();
+    let mut names: Vec<PathBuf> = match std::fs::read_dir(directory) {
+        Ok(entries) => entries.flatten().map(|entry| entry.path()).collect(),
+        Err(error) => {
+            refused.push(AnchorRefusal::DirectoryUnreadable {
+                directory: directory.display().to_string(),
+                error: error.to_string(),
+            });
+            return (Lists::none(), refused);
+        }
+    };
+    names.sort();
+    let mut lists = Vec::new();
+    for path in names {
+        if path.is_dir() {
+            continue;
+        }
+        let name = path.file_name().map_or_else(
+            || path.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        match std::fs::read(&path) {
+            Ok(bytes) => lists.push((name, bytes)),
+            Err(error) => refused.push(AnchorRefusal::FileUnreadable {
+                name,
+                error: error.to_string(),
+            }),
+        }
+    }
+    (
+        Lists::of(lists, format!("{} (--trusted-lists)", directory.display())),
         refused,
     )
 }

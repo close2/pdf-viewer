@@ -1014,6 +1014,11 @@ cd fuzz && cargo +nightly fuzz run policy_document -- -max_total_time=600 -rss_l
   # canonicalised by Canonical XML 1.0 in both forms (ADR 2644) give one form each time, and that
   # form canonicalised again is itself. Seeded by `fuzz/seeds.sh` through
   # `fuzz/seed_policy_document.py`, one document per rule kind, per syntax and per inclusive method.
+cd fuzz && cargo +nightly fuzz run trusted_list -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
+  # ETSI TS 119 612's trusted list and TS 119 615 clause 4.3's search over it (ADR 2834): the reading
+  # a function of the bytes, and every tuple the search returns a service of the list searched with
+  # its status at the instant one of that service's own. Seeded by `fuzz/seeds.sh` with one list per
+  # territory class naming `x509_fixtures.rs`'s certificate.
 cd fuzz && cargo +nightly fuzz run jpeg_bands   -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
   # §7.4.8's frames cut into bands at their restart intervals (ADR 1433) and at an entropy pass's
   # rows (ADR 1481), each against the whole frame's decoder through `pdf_model::image::

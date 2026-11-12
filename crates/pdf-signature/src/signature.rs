@@ -1500,6 +1500,35 @@ impl Signature {
         cms_trust(&cms, anchors, material, at, purpose)
     }
 
+    /// The signer's certificate as DER: `/Cert`'s first entry for §12.8.3.2's value, and for a CMS
+    /// value the certificate its `SignerIdentifier` names — the certificate [`Self::trust`] builds
+    /// a path from. `None` where neither is there to read.
+    #[must_use]
+    pub fn signer_certificate(&self) -> Option<Vec<u8>> {
+        if self.sub_filter.as_deref() == Some("adbe.x509.rsa_sha1") {
+            return self.chain.first().cloned();
+        }
+        let cms = self.signed_data().ok()?;
+        signer_certificate(&cms).map(|value| value.encoding().to_vec())
+    }
+
+    /// Every certificate the signature carries, as DER: `/Cert`'s entries for §12.8.3.2's value,
+    /// and the CMS object's `certificates` otherwise — the pool [`Self::trust`] builds paths over.
+    #[must_use]
+    pub fn carried_certificates(&self) -> Vec<Vec<u8>> {
+        if self.sub_filter.as_deref() == Some("adbe.x509.rsa_sha1") {
+            return self.chain.clone();
+        }
+        self.signed_data()
+            .map(|cms| {
+                cms.certificates
+                    .iter()
+                    .map(|value| value.encoding().to_vec())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// §12.8.3.2's path: the target is `/Cert`'s first entry and the rest of the entry is the pool.
     ///
     /// §12.8.3.2: "The certificate chain of the signer shall be stored in the Cert entry", and

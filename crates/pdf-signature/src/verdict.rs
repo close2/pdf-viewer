@@ -63,6 +63,53 @@ use crate::x509::Instant;
 pub struct Anchored {
     length: usize,
     revocation: Revocation,
+    standing: Standing,
+}
+
+/// Whose anchor ended the path — the reader's own setting, or a trusted list.
+///
+/// **The distinction is the owner's** (`doc/questions/A800` item 3): a company's own certificate,
+/// which its people sign with every day, is valid *locally* — to whoever has chosen to trust that
+/// company's authority — and a report that called it invalid, or that called it valid in the same
+/// words as a signature a Member State's supervisory body stands behind, would tell the reader
+/// something false either way. So a [`Valid`] always carries one of the two, and a report says
+/// which (ADR 2834).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Standing {
+    /// **Locally valid**: the path ended at an anchor the reader's own trust setting names —
+    /// certificates a host, a person or an organisation chose (RFC 5280 section 6.1.1 input (d),
+    /// [`crate::trust::Supply`]) — and at no service a trusted list publishes.
+    Local,
+    /// The path ended at a service digital identity a trusted list publishes, which is the set of
+    /// anchors ETSI TS 119 172-4 REQ-4.2-03 a) prescribes for an EU qualified signature.
+    Listed(Listing),
+}
+
+/// The listed service whose digital identity ended a path, as ETSI TS 119 615 clause 4.3 returned
+/// it.
+///
+/// **Not an eIDAS qualification level.** Whether a signature is a qualified one is TS 119 615
+/// clauses 4.4 and 4.5's determination, over the certificate's QC statements and the service's
+/// qualifications extension at the best signature time, and ETSI TS 119 172-4 REQ-4.4.2-06 joins
+/// them; this records what that determination starts from (ADR 2835).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Listing {
+    /// TS 119 612 clause 5.3.10's scheme territory of the list.
+    pub territory: String,
+    /// Clause 5.3.2's sequence number of the list.
+    pub sequence_number: u64,
+    /// Clause 5.4.1's TSP name.
+    pub provider: String,
+    /// Clause 5.5.2's service name.
+    pub service: String,
+    /// Clause 5.5.1's service type identifier.
+    pub service_type: String,
+    /// The service's status at the signing certificate's `notBefore` (TS 119 615 clause 4.3's
+    /// `SI-at-Date-time`), a TS 119 612 clause 5.5.4 URI; `None` where it had none yet.
+    pub status_at_issue: Option<String>,
+    /// How far the list's own authenticity was established.
+    pub authentication: crate::trusted_list::Authentication,
 }
 
 impl Anchored {
@@ -73,9 +120,26 @@ impl Anchored {
             Trust::Anchored { length, revocation } => Some(Self {
                 length: *length,
                 revocation: revocation.clone(),
+                standing: Standing::Local,
             }),
             _ => None,
         }
+    }
+
+    /// The proof a [`Trust::Anchored`] is, where the anchors were the digital identity of the
+    /// service `listing` names, and `None` for every other answer.
+    #[must_use]
+    pub fn listed(trust: &Trust, listing: Listing) -> Option<Self> {
+        Self::of(trust).map(|anchored| Self {
+            standing: Standing::Listed(listing),
+            ..anchored
+        })
+    }
+
+    /// Whose anchor ended the path.
+    #[must_use]
+    pub const fn standing(&self) -> &Standing {
+        &self.standing
     }
 
     /// RFC 5280 section 6.1's `n`: how many certificates the path holds, the anchor excluded.
@@ -329,6 +393,7 @@ pub struct Valid {
     revocation: Revocation,
     when: BestSignatureTime,
     timestamps: Timestamps,
+    standing: Standing,
 }
 
 impl Valid {
@@ -362,6 +427,13 @@ impl Valid {
     #[must_use]
     pub const fn timestamps(&self) -> Timestamps {
         self.timestamps
+    }
+
+    /// Whose anchor the path ended at: [`Standing::Local`] is *locally valid*, and a report says
+    /// so in those words.
+    #[must_use]
+    pub const fn standing(&self) -> &Standing {
+        &self.standing
     }
 }
 
@@ -500,6 +572,7 @@ impl Verdict {
             revocation: anchored.revocation().clone(),
             when,
             timestamps,
+            standing: anchored.standing().clone(),
         })
     }
 

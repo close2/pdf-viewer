@@ -178,6 +178,31 @@ seed() {
     # §12.8.3.4.4's stored policy document under its three syntaxes; no corpus document stores one.
     policy_document) python3 "$here/seed_policy_document.py" "$root/$t" > /dev/null ;;
     revocation) documents | python3 "$here/seed_revocation.py" "$root/$t" - ;;
+    # ETSI TS 119 612's trusted list: eight octets of instant, then one list per territory class
+    # (a Member State, `GB`, one outside the union) naming `x509_fixtures.rs`'s self-signed
+    # certificate as a `CA/QC` service with a history instance, so the search's identity branch runs.
+    trusted_list)
+        python3 -I -c 'import base64, re, struct, sys
+source = open(sys.argv[2]).read()
+hexa = "".join(re.search(r"const CERTIFICATE: &str = \"(.*?)\";", source, re.S).group(1).split()).replace("\\", "")
+identity = base64.b64encode(bytes.fromhex(hexa)).decode()
+for territory in ("AT", "GB", "US"):
+    service = ("<tsl:TSPService><tsl:ServiceInformation><tsl:ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/CA/QC</tsl:ServiceTypeIdentifier>"
+        "<tsl:ServiceName><tsl:Name>S</tsl:Name></tsl:ServiceName><tsl:ServiceDigitalIdentity><tsl:DigitalId><tsl:X509Certificate>" + identity +
+        "</tsl:X509Certificate></tsl:DigitalId></tsl:ServiceDigitalIdentity><tsl:ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted</tsl:ServiceStatus>"
+        "<tsl:StatusStartingTime>2024-01-01T00:00:00Z</tsl:StatusStartingTime></tsl:ServiceInformation><tsl:ServiceHistory><tsl:ServiceHistoryInstance>"
+        "<tsl:ServiceTypeIdentifier>http://uri.etsi.org/TrstSvc/Svctype/CA/QC</tsl:ServiceTypeIdentifier><tsl:ServiceName><tsl:Name>S</tsl:Name></tsl:ServiceName>"
+        "<tsl:ServiceDigitalIdentity><tsl:DigitalId><tsl:X509SKI>AAAA</tsl:X509SKI></tsl:DigitalId></tsl:ServiceDigitalIdentity>"
+        "<tsl:ServiceStatus>http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/undersupervision</tsl:ServiceStatus>"
+        "<tsl:StatusStartingTime>2020-01-01T00:00:00Z</tsl:StatusStartingTime></tsl:ServiceHistoryInstance></tsl:ServiceHistory></tsl:TSPService>")
+    xml = ("<tsl:TrustServiceStatusList xmlns:tsl=\"http://uri.etsi.org/02231/v2#\"><tsl:SchemeInformation><tsl:TSLSequenceNumber>1</tsl:TSLSequenceNumber>"
+        "<tsl:SchemeTerritory>" + territory + "</tsl:SchemeTerritory><tsl:ListIssueDateTime>2026-11-01T00:00:00Z</tsl:ListIssueDateTime>"
+        "<tsl:NextUpdate><tsl:dateTime>2026-12-01T00:00:00Z</tsl:dateTime></tsl:NextUpdate></tsl:SchemeInformation><tsl:TrustServiceProviderList>"
+        "<tsl:TrustServiceProvider><tsl:TSPInformation><tsl:TSPName><tsl:Name>P</tsl:Name></tsl:TSPName></tsl:TSPInformation><tsl:TSPServices>" + service +
+        "</tsl:TSPServices></tsl:TrustServiceProvider></tsl:TrustServiceProviderList></tsl:TrustServiceStatusList>")
+    open(sys.argv[1] + "/" + territory, "wb").write(struct.pack("<q", 1735689600) + xml.encode())' \
+            "$root/$t" "$tree/crates/pdf-signature/src/x509_fixtures.rs"
+        ;;
     # Every Rust source under `crates/` beside the documents, so that the fixture certificates are
     # found in whichever crate holds them; `tools/conformance/tests/fuzz_seeds.rs` counts them.
     x509)

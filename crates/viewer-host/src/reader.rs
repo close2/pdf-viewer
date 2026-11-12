@@ -23,7 +23,8 @@ use viewer_core::Command;
 use crate::policy::{
     ACCEPT_UNKNOWN_REVOCATION, INTERFACE_LANGUAGE, READER_NAME, READER_ORGANISATION, READER_TITLE,
     RECIPIENT_CERTIFICATE, RECIPIENT_KEY, REFERENCE_FILES, SCRIPTS, Scripts, TRUST_ANCHORS,
-    audience, recipient_key, reference_files, scripting, scripts, trust_anchors,
+    TRUSTED_LISTS, audience, recipient_key, reference_files, scripting, scripts, trust_anchors,
+    trusted_lists,
 };
 
 /// What a person typed of the reader's policy words.
@@ -35,6 +36,8 @@ use crate::policy::{
 pub struct ReaderWords {
     /// The directory [`TRUST_ANCHORS`] named: RFC 5280 section 6.1.1's input (d).
     pub trust_anchors: Option<PathBuf>,
+    /// The directory [`TRUSTED_LISTS`] named: ETSI TS 119 612 lists beside the anchors.
+    pub trusted_lists: Option<PathBuf>,
     /// Whether [`ACCEPT_UNKNOWN_REVOCATION`] was typed.
     pub accept_unknown_revocation: bool,
     /// The directory [`REFERENCE_FILES`] named: §8.10.4's target documents.
@@ -75,14 +78,14 @@ pub struct ReaderSupply {
 
 impl ReaderWords {
     /// The words as a usage line spells them, for a window's own usage message.
-    pub const USAGE: &'static str = "[--trust-anchors <dir>] [--accept-unknown-revocation] \
+    pub const USAGE: &'static str = "[--trust-anchors <dir>] [--trusted-lists <dir>] [--accept-unknown-revocation] \
          [--reference-files <dir>] [--reader-name <name>] [--reader-title <title>] \
          [--reader-organisation <organisation>] [--interface-language <tag>] \
          [--scripts off|ask|warn|on] [--archive <target>:<profile>] \
          [--archive-profiles <dir>] [--recipient-certificate <file>] \
          [--recipient-key <file>]";
 
-    /// Takes `word` if it is one of the twelve, reading the value after it from `rest`.
+    /// Takes `word` if it is one of the thirteen, reading the value after it from `rest`.
     ///
     /// `Ok(false)` where `word` is none of them, which leaves it to the window's own parser.
     ///
@@ -104,6 +107,12 @@ impl ReaderWords {
             self.trust_anchors = Some(directory(
                 TRUST_ANCHORS,
                 "a directory of PEM or DER certificates",
+                rest.next(),
+            )?);
+        } else if word == TRUSTED_LISTS {
+            self.trusted_lists = Some(directory(
+                TRUSTED_LISTS,
+                "a directory of ETSI TS 119 612 trusted lists",
                 rest.next(),
             )?);
         } else if word == RECIPIENT_CERTIFICATE {
@@ -181,10 +190,12 @@ impl ReaderWords {
     /// each applies to every document opened afterwards.
     #[must_use]
     pub fn commands(&self) -> ReaderSupply {
-        let (trust, anchors_refused) = trust_anchors(
+        let (mut trust, anchors_refused) = trust_anchors(
             self.trust_anchors.as_deref(),
             self.accept_unknown_revocation,
         );
+        let (lists, lists_refused) = trusted_lists(self.trusted_lists.as_deref());
+        trust.lists = lists;
         let (files, files_refused) = reference_files(self.reference_files.as_deref());
         // §7.6.5.1's two files, read on this side of the confinement and carried as bytes (ADR
         // 2822); nothing is read where neither word was typed.
@@ -195,6 +206,7 @@ impl ReaderWords {
         let refused = anchors_refused
             .iter()
             .map(ToString::to_string)
+            .chain(lists_refused.iter().map(ToString::to_string))
             .chain(files_refused.iter().map(ToString::to_string))
             .chain(recipient_refused.iter().map(ToString::to_string))
             .collect();

@@ -16,7 +16,8 @@
 use pdf_syntax::Document;
 
 use super::{
-    Acceptance, Anchored, BestSignatureTime, Proof, Reservation, Timestamps, Valid, Verdict,
+    Acceptance, Anchored, BestSignatureTime, Proof, Reservation, Standing, Timestamps, Valid,
+    Verdict,
 };
 use crate::revocation::{Material, Revocation, Undetermined};
 use crate::signature::{Integrity, Signature, signatures};
@@ -82,6 +83,78 @@ fn a_signature_whose_path_reaches_a_supplied_anchor_is_valid() {
     assert_eq!(*valid.revocation(), Revocation::NotChecked);
     assert_eq!(valid.at(), AT);
     assert_eq!(valid.timestamps(), Timestamps::None);
+}
+
+/// **A path to the reader's own anchor is locally valid, and says so** (`doc/questions/A800`
+/// item 3, ADR 2834): [`Verdict::of`] is the route for a host's own setting, and its [`Valid`]
+/// carries [`Standing::Local`] rather than standing silent about whose anchor it was.
+#[test]
+fn a_path_to_the_readers_own_anchor_is_locally_valid() {
+    let verdict = verdict_under(&[fixtures::ROOT], Acceptance::UnknownRevocationAccepted);
+    let Verdict::Valid(valid) = &verdict else {
+        panic!("the fixture's signature should be valid, not {verdict:?}");
+    };
+    assert_eq!(*valid.standing(), Standing::Local);
+}
+
+/// **A path to a listed service's identity carries the listing** — ETSI TS 119 172-4
+/// REQ-4.2-03 a)'s anchors, found by TS 119 615 clause 4.3 at the signing certificate's
+/// `notBefore`.
+///
+/// The list is written here with [`fixtures::ROOT`], the root that issued the fixture's signer, as
+/// a `CA/QC` service's digital identity: PRO-4.3.4-03 ii)'s path branch, one certificate long. The
+/// service was granted from 2024 and the signer's certificate is later, so `SI-at-Date-time` is
+/// the granted status (PRO-4.3.4-03 b)). A list naming another identity finds nothing, and the
+/// verdict is then the local one or none.
+#[test]
+fn a_path_to_a_listed_service_carries_the_listing() {
+    use crate::trusted_list::tests::{GRANTED_AT_LATER, Written, list_xml};
+    use crate::trusted_list::{Authentication, CA_QC, GRANTED, TrustedList, listed_anchors};
+    let (document, signature) = opened(fixtures::signed());
+    let root = hex(fixtures::ROOT);
+    let service = Written {
+        identity: Some(&root),
+        ..GRANTED_AT_LATER
+    };
+    let list = TrustedList::read(list_xml("AT", &[("A provider", &[service])]).as_bytes())
+        .expect("the written list reads");
+    let lists = [list];
+    let found = listed_anchors(&lists, &signature);
+    let [(listing, identities)] = found.as_slice() else {
+        panic!("one service issued the signer: {found:?}");
+    };
+    assert_eq!(listing.territory, "AT");
+    assert_eq!(listing.provider, "A provider");
+    assert_eq!(listing.service_type, CA_QC);
+    assert_eq!(listing.status_at_issue.as_deref(), Some(GRANTED));
+    assert_eq!(listing.authentication, Authentication::VouchedForByTheHost);
+
+    let parsed: Vec<_> = identities
+        .iter()
+        .map(|der| parse(der).expect("the identity parses"))
+        .collect();
+    let trust = signature.trust(&TrustAnchors::of(&parsed), &Material::none(), AT);
+    let anchored = Anchored::listed(&trust, listing.clone()).expect("the path reaches the root");
+    let verdict = Verdict::reached(
+        &signature.integrity(document.bytes()),
+        &signature.authenticity(document.bytes()),
+        &anchored,
+        Acceptance::UnknownRevocationAccepted,
+        Timestamps::None,
+        BestSignatureTime::now(AT),
+    );
+    let Verdict::Valid(valid) = &verdict else {
+        panic!("the listed path is valid: {verdict:?}");
+    };
+    assert_eq!(*valid.standing(), Standing::Listed(listing.clone()));
+
+    let elsewhere =
+        TrustedList::read(list_xml("AT", &[("A provider", &[GRANTED_AT_LATER])]).as_bytes())
+            .expect("the written list reads");
+    assert!(
+        listed_anchors(&[elsewhere], &signature).is_empty(),
+        "a service whose identity issued nothing here is not the signer's"
+    );
 }
 
 /// **A broken policy constraint withholds the word; a met one does not grant anything.**

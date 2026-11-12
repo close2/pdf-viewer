@@ -2119,4 +2119,9 @@ pub struct TrustPolicy {
     /// What to do where revocation is undetermined. [`pdf_signature::verdict::Acceptance::
     /// RevocationMustBeGood`] by default, which is the conservative answer.
     pub acceptance: pdf_signature::verdict::Acceptance,
+    /// ETSI TS 119 612 trusted lists the host holds, beside [`Self::anchors`]: a path that ends at
+    /// a service one of them lists is reported as such, and a path that ends at one of
+    /// [`Self::anchors`] only is reported as *locally valid* (`doc/questions/A800` item 3, ADR
+    /// 2834). Empty by default, and a host's to fill — never a document's.
+    pub lists: pdf_signature::trusted_list::Lists,
 }

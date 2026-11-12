@@ -378,3 +378,10 @@ path = "fuzz_targets/key_unwrap.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "trusted_list"
+path = "fuzz_targets/trusted_list.rs"
+test = false
+doc = false
+bench = false

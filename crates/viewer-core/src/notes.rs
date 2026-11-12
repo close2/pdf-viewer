@@ -752,6 +752,7 @@ fn signatures(
         return;
     }
     let reading = trust.anchors.read();
+    let (lists, refused_lists) = trust.lists.read();
     // §12.8.4's store and §12.8.5's chain are read once here and lent to the three functions that
     // word them: `Signature::trust` needs the material, the chain needs it too, and a verdict on a
     // signature needs to know whether the document states a time this program could establish.
@@ -786,6 +787,7 @@ fn signatures(
             acceptance: trust.acceptance,
             timestamps,
             copies,
+            lists: &lists,
         };
         about_one(signature, document, length, &asked, notes, published);
         modifications(signature, document, &permissions, notes);
@@ -794,6 +796,7 @@ fn signatures(
     security_store(&store, &material, notes);
     document_timestamps(&chain, notes);
     anchors_note(trust, &reading, notes);
+    lists_note(trust, &lists, &refused_lists, notes);
     // The three questions, named, in the order §12.8.1 states them. This paragraph is what stops
     // the sentences above it being read as "the signature is good": where nobody named an anchor
     // two of them are answered, and the third is the one that decides whether a signature means
@@ -803,7 +806,7 @@ fn signatures(
     // **Keyed on what *read*, not on what was handed over.** A host that named a directory of six
     // files none of which is a certificate has supplied no anchor, and the paragraph below would
     // otherwise tell a reader that the third question was asked when nothing could ask it.
-    notes.push(if reading.anchors.is_empty() {
+    notes.push(if reading.anchors.is_empty() && lists.is_empty() {
         "of the three questions a signature asks, this program answers two: whether the document \
          changed since it was signed (§12.8.1's digest, recomputed above) and whether the \
          signature verifies under the public key in the certificate the file itself carries \
@@ -819,8 +822,9 @@ fn signatures(
         "all three of the questions a signature asks were asked of this document: whether it \
          changed since it was signed (§12.8.1's digest, recomputed above), whether the signature \
          verifies under the public key in the certificate the file carries (§12.8.3.3.1), and \
-         whether a certification path from that certificate reaches an authority you named (RFC \
-         5280 section 6.1). The third was asked because you named one; it is your answer this \
+         whether a certification path from that certificate reaches an authority you named or a \
+         service a trusted list you supplied publishes (RFC 5280 section 6.1). The third was asked \
+         because you named one; it is your answer this \
          program is applying and not one of its own, it still makes no network request, and \
          whether a certificate was revoked is answered from the material this file itself carries \
          and from nothing else"
@@ -851,6 +855,8 @@ struct Asked<'a> {
     /// The policy documents a host fetched, which §12.8.3.4.4's constraints are enforced from
     /// where the file carries no bound copy of its own.
     copies: &'a [FetchedCopy],
+    /// The trusted lists the host supplied that read (ETSI TS 119 612).
+    lists: &'a [pdf_signature::trusted_list::TrustedList],
 }
 
 /// What §12.8.5's chain contributes to a verdict on any signature in this document.
@@ -2402,18 +2408,10 @@ fn verdicts(
     // `Verdict::of` is the one function in this tree that can produce the word *valid*, and an
     // empty anchor set reaches `Reservation::NoAnchorSupplied` rather than any other answer — so
     // with no host input this adds nothing at all, which is what it added before anchors existed.
-    if asked.anchors.is_empty() {
+    if asked.anchors.is_empty() && asked.lists.is_empty() {
         return;
     }
-    let trust = signature.trust(asked.anchors, asked.material, asked.when.at());
-    let verdict = pdf_signature::verdict::Verdict::of(
-        &integrity,
-        &authenticity,
-        &trust,
-        asked.acceptance,
-        asked.timestamps,
-        asked.when,
-    );
+    let verdict = listed_or_local(signature, integrity, &authenticity, asked);
     let verdict = verdict.under_policy(&policy_findings(
         signature,
         asked.copies,
@@ -2438,19 +2436,147 @@ fn verdicts(
         }
     );
     notes.push(match &verdict {
-        pdf_signature::verdict::Verdict::Valid(valid) => format!(
-            "that signature is valid: the document has not changed since it was signed, the \
-             signature verifies under the signer's key, and a certification path {} certificate(s) \
-             long reaches an authority you supplied (RFC 5280 section 6.1){asked_at}. This is the \
-             one sentence this program says the word in, and it is your anchors that make it \
-             sayable",
-            valid.path_length()
-        ),
+        pdf_signature::verdict::Verdict::Valid(valid) => valid_sentence(valid, &asked_at),
         pdf_signature::verdict::Verdict::Reserved(reservation) => format!(
             "that signature is not called valid here{asked_at}, and this is the first thing that \
              stopped it: {reservation}"
         ),
     });
+}
+
+/// The verdict on one signature, through a trusted list's service where one issued the signer and
+/// through the reader's own anchors otherwise.
+///
+/// **A listed path is asked first**, because it is the stronger statement and a reader's own anchor
+/// may well be the same authority: ETSI TS 119 172-4 REQ-4.2-03 a) makes the services TS 119 615
+/// clause 4.3 returns the anchors for an EU qualified signature, and a path to one of them is
+/// reported as that. Where none reaches the word, the reader's own anchors are asked, and a path to
+/// one of those is *locally valid* (`doc/questions/A800` item 3, ADR 2834). Where neither reaches
+/// it, the reservation said is the listed one if a list named a service for this signer — that is
+/// the answer the reader most needs to hear — and the local one otherwise.
+fn listed_or_local(
+    signature: &pdf_signature::signature::Signature,
+    integrity: pdf_signature::signature::Integrity,
+    authenticity: &pdf_signature::signature::Authenticity,
+    asked: &Asked<'_>,
+) -> pdf_signature::verdict::Verdict {
+    use pdf_signature::verdict::{Anchored, Verdict};
+    let mut listed = None;
+    for (listing, identities) in pdf_signature::trusted_list::listed_anchors(asked.lists, signature)
+    {
+        let parsed: Vec<_> = identities
+            .iter()
+            .filter_map(|der| pdf_signature::x509::parse(der).ok())
+            .collect();
+        let anchors = pdf_signature::trust::TrustAnchors::of(&parsed);
+        let trust = signature.trust(&anchors, asked.material, asked.when.at());
+        let verdict = match Anchored::listed(&trust, listing) {
+            Some(anchored) => Verdict::reached(
+                &integrity,
+                authenticity,
+                &anchored,
+                asked.acceptance,
+                asked.timestamps,
+                asked.when,
+            ),
+            None => Verdict::of(
+                &integrity,
+                authenticity,
+                &trust,
+                asked.acceptance,
+                asked.timestamps,
+                asked.when,
+            ),
+        };
+        if verdict.valid().is_some() {
+            return verdict;
+        }
+        listed.get_or_insert(verdict);
+    }
+    let trust = signature.trust(asked.anchors, asked.material, asked.when.at());
+    let local = Verdict::of(
+        &integrity,
+        authenticity,
+        &trust,
+        asked.acceptance,
+        asked.timestamps,
+        asked.when,
+    );
+    match listed {
+        Some(listed) if local.valid().is_none() => listed,
+        _ => local,
+    }
+}
+
+/// The sentence for a [`pdf_signature::verdict::Valid`], which says whose anchor made it sayable.
+///
+/// **Locally valid is said in those words** (`doc/questions/A800` item 3): a company's own
+/// certificate is neither invalid nor the same thing as a service a Member State lists, and the
+/// reader is owed which of the two it is. A listed service is named with its list, and two things
+/// are said that this build does not do: the list's own signature (TS 119 615 clauses 4.1 and 4.2)
+/// and the eIDAS level (clauses 4.4 and 4.5, joined by TS 119 172-4 clause 4.4.2), so that a
+/// listing is never read as a qualified signature (ADR 2835).
+fn valid_sentence(valid: &pdf_signature::verdict::Valid, asked_at: &str) -> String {
+    use pdf_signature::verdict::Standing;
+    let reached = format!(
+        "the document has not changed since it was signed, the signature verifies under the \
+         signer's key, and a certification path {} certificate(s) long",
+        valid.path_length()
+    );
+    match valid.standing() {
+        Standing::Listed(listing) => format!(
+            "that signature is valid under the trusted list of {} (sequence number {}): {reached} \
+             reaches the service \"{}\" of {}, which the list publishes as {} with the status {} \
+             when the signer's certificate was issued (ETSI TS 119 615 clause 4.3){asked_at}. That \
+             list's own signature was not checked — it is believed because it came from the \
+             trusted lists you supplied — and whether this is a qualified electronic signature or \
+             seal (QES, AdES/QC, AdES) is not determined by this build",
+            listing.territory,
+            listing.sequence_number,
+            listing.service,
+            listing.provider,
+            listing.service_type,
+            listing.status_at_issue.as_deref().unwrap_or("none yet")
+        ),
+        // Every other standing — the reader's own anchors, and any a later build adds — is said
+        // in the local words, which never claim more than the reader's own setting granted.
+        _ => format!(
+            "that signature is locally valid: {reached} reaches an authority your own trust \
+             setting names, and none a trusted list publishes (RFC 5280 section 6.1){asked_at}. It \
+             is valid to whoever trusts that authority — a company's own, for instance — and it is \
+             your anchors that make the word sayable"
+        ),
+    }
+}
+
+/// The trusted lists a host supplied: how many read, which did not, and on whose word they are
+/// believed — the list-side sentence to [`anchors_note`]'s.
+fn lists_note(
+    trust: &crate::TrustPolicy,
+    lists: &[pdf_signature::trusted_list::TrustedList],
+    refused: &[(String, pdf_signature::trusted_list::TrustedListError)],
+    notes: &mut Vec<String>,
+) {
+    if trust.lists.is_empty() {
+        return;
+    }
+    let territories: Vec<&str> = lists.iter().map(|list| list.territory.as_str()).collect();
+    notes.push(format!(
+        "the trusted lists this reader searched for the signers' certification authorities were \
+         supplied by whoever started it, from {}: {} of {} read as ETSI TS 119 612 lists ({}). \
+         Their own signatures were not checked against the European Commission's list of trusted \
+         lists (ETSI TS 119 615 clauses 4.1 and 4.2), so they are believed for where they came \
+         from, as an anchor is",
+        trust.lists.source(),
+        lists.len(),
+        trust.lists.lists().len(),
+        territories.join(", "),
+    ));
+    for (name, error) in refused {
+        notes.push(format!(
+            "{name} is not a trusted list this reader can use: {error}"
+        ));
+    }
 }
 
 /// §12.8.1's first question in words: did the bytes under this signature move?
@@ -2884,7 +3010,7 @@ mod tests {
         // **The word no sentence of this report may reach**, at either level: the ranking is a
         // statement about objects and §12.8.1's third question has no trust store behind it.
         assert!(
-            !said.contains("the signature is valid") && !said.contains("signature is valid"),
+            !said.contains("signature is valid") && !said.contains("signature is locally valid"),
             "{said}"
         );
     }
@@ -3599,6 +3725,7 @@ mod tests {
                 pdf_signature::x509::Instant::from_unix_seconds(1_790_812_800),
             ),
             acceptance: pdf_signature::verdict::Acceptance::RevocationMustBeGood,
+            lists: pdf_signature::trusted_list::Lists::none(),
         };
         let said = about(&document, &trust).notes.join("\n");
 
@@ -3638,7 +3765,8 @@ mod tests {
             "a verdict is asserted as of an instant and says which: {said}"
         );
         assert!(
-            !said.contains("that signature is valid"),
+            !said.contains("that signature is valid")
+                && !said.contains("that signature is locally valid"),
             "nothing in the crawl reaches the word: {said}"
         );
 

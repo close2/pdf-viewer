@@ -6,6 +6,7 @@ use crate::cms::{self, Digest};
 use crate::policy_rules::tests::{SHA256, facts, oid, policy, seq, signed_data, tlv, verdict_of};
 use crate::policy_rules::ts_119_172_3::{Constraint, SIGNATURE_USAGE};
 use crate::policy_rules::{self, Enforcement, NotEnforced, enforce};
+use crate::{der, x509};
 
 /// The base64 of thirty-two zero octets, the stated digest of every fixture.
 const ZERO_DIGEST: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";

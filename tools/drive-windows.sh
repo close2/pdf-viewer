@@ -2218,10 +2218,10 @@ reader_words() {
     launch "$FIXTURES/drive-signed.pdf" --trust-anchors "$FIXTURES/anchors" --accept-unknown-revocation
     # The window's report on the signature is the witness, and it is waited for (ADR 1605).
     wait_for 10 said_since 0 "$VERIFIED"; shot 34-trust-anchors
-    seen=$(grep -o 'that signature is valid: .* reaches an authority you supplied' "$LOG" | head -1)
+    seen=$(grep -o 'that signature is locally valid: .* reaches an authority your own trust setting names' "$LOG" | head -1)
     if [ -n "$seen" ] && [ "$(said '1 of 1 read as RFC 5280 certificates')" -gt 0 ]; then
         launch "$FIXTURES/drive-signed.pdf"; wait_for 10 said_since 0 "$VERIFIED"
-        if [ "$(said 'It does not answer the third')" -gt 0 ] && [ "$(said 'that signature is valid')" -eq 0 ]; then
+        if [ "$(said 'It does not answer the third')" -gt 0 ] && [ "$(said 'that signature is locally valid')" -eq 0 ]; then
             verdict 34-trust-anchors works "$seen; and without the word, the third question unasked"
         else
             verdict 34-trust-anchors wrong "valid without the word too, or no report: $LOG"

@@ -1629,6 +1629,53 @@ fn a_host_supplies_the_anchors_or_nobody_does() {
     let _ = std::fs::remove_dir_all(&directory);
 }
 
+/// **`--trusted-lists` is read as the anchors are, and nobody typing it is no list** (ADR 2834).
+///
+/// The files are handed over whatever they hold, sorted by name, because whether one is an ETSI TS
+/// 119 612 list is `pdf_signature::trusted_list`'s to say beside the verdicts; a directory that
+/// cannot be listed is the one refusal here, named.
+#[test]
+fn trusted_lists_are_read_from_the_directory_a_person_named() {
+    let (none, refused) = viewer_host::trusted_lists(None);
+    assert!(none.is_empty(), "nobody named a list");
+    assert!(refused.is_empty());
+
+    let directory = std::env::temp_dir().join(format!(
+        "quorra-trusted-lists-{}-{}",
+        std::process::id(),
+        line!()
+    ));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir_all(directory.join("a-subdirectory")).expect("a scratch directory");
+    std::fs::write(directory.join("2-DE.xml"), "<b/>").expect("a list");
+    std::fs::write(directory.join("1-AT.xml"), "<a/>").expect("a list");
+    let (lists, refused) = viewer_host::trusted_lists(Some(&directory));
+    assert!(refused.is_empty(), "{refused:?}");
+    let names: Vec<&str> = lists
+        .lists()
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        ["1-AT.xml", "2-DE.xml"],
+        "sorted by name, the subdirectory skipped"
+    );
+    assert!(
+        lists.source().contains("--trusted-lists"),
+        "{}",
+        lists.source()
+    );
+
+    let (_, refused) = viewer_host::trusted_lists(Some(&directory.join("absent")));
+    assert_eq!(
+        refused.len(),
+        1,
+        "an unreadable directory is named, not dropped"
+    );
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
 /// Table 153's `/Sort`, as the order the panel's rows stand in.
 ///
 /// §12.3.5.1's Table 153, on the entry:

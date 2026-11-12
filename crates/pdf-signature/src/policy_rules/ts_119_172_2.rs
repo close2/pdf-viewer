@@ -35,7 +35,7 @@
 //! # Budgets, before the work
 //!
 //! The document is hostile until bound, and it is read under the first syntax's three bounds:
-//! [`MAX_POLICY_OCTETS`] before a byte is tokenized, [`der::MAX_DEPTH`] on element nesting —
+//! [`MAX_POLICY_OCTETS`] before a byte is tokenized, [`crate::der::MAX_DEPTH`] on element nesting —
 //! every structure clause 4 defines nests within it, and only `AnyType` content could go
 //! deeper — and the one [`MAX_ENTRIES`] count, charged for every element, every namespace
 //! declaration and every token of an `xs:list` before it is kept. The tokenizer is `xmlparser`,
@@ -61,8 +61,7 @@ use super::{
     signing_period,
 };
 use crate::cms::SignedData;
-use crate::der;
-use crate::x509;
+use crate::xml::{self, Element, Tree, XmlError, base64, date_time};
 
 /// Clause 4.1.2's namespace, as the schema prints it and as the clause's own list prints it —
 /// without the final `#` — since a producer may follow either.
@@ -167,26 +166,25 @@ enum Space {
     Other,
 }
 
-/// One element of the document.
-#[derive(Debug)]
-struct Element {
-    /// The prefix its tag was written with, until the start tag's declarations are read.
-    prefix: String,
-    space: Space,
-    /// `{namespace}local`, the name an extension is reported by.
-    expanded: String,
-    local: String,
-    /// The unprefixed attributes, by local name, references expanded.
-    attributes: Vec<(String, String)>,
-    children: Vec<usize>,
-    /// Direct character data, references expanded.
-    text: String,
+/// Which of the namespaces this reader tells apart an element is in.
+fn space(element: &Element) -> Space {
+    if NAMESPACE.contains(&element.namespace.as_str()) {
+        Space::Policy
+    } else if element.namespace == XMLDSIG_NAMESPACE {
+        Space::Signature
+    } else {
+        Space::Other
+    }
 }
 
-/// The document's elements in document order; the root is the first.
-#[derive(Debug)]
-struct Tree {
-    elements: Vec<Element>,
+impl From<XmlError> for PolicyDocumentError {
+    fn from(error: XmlError) -> Self {
+        match error {
+            XmlError::Unreadable(reason) => Self::Xml(reason),
+            XmlError::NestedTooDeep => Self::NestedTooDeep,
+            XmlError::TooManyEntries => Self::TooManyEntries,
+        }
+    }
 }
 
 /// The XML of a policy document, read and bounded, before its rules are.
@@ -272,10 +270,10 @@ impl Reading {
         if !is_xml(octets) {
             return Err(PolicyDocumentError::OtherSyntax(Syntax::Ts1191722));
         }
-        let mut budget = Budget(MAX_ENTRIES);
-        let tree = read_tree(octets, &mut budget)?;
+        let mut remaining = MAX_ENTRIES;
+        let tree = xml::read_tree(octets, &mut remaining)?;
         let root = tree.elements.first();
-        if !root.is_some_and(|root| root.space == Space::Policy && root.local == "SignaturePolicy")
+        if !root.is_some_and(|root| space(root) == Space::Policy && root.local == "SignaturePolicy")
         {
             return Err(PolicyDocumentError::OtherSyntax(Syntax::Ts1191722));
         }
@@ -292,7 +290,7 @@ impl Reading {
         Ok(Self {
             tree,
             oids,
-            remaining: budget.0,
+            remaining,
         })
     }
 
@@ -310,224 +308,6 @@ impl Reading {
         };
         reader.document()
     }
-}
-
-/// The tokenizer's events folded into a [`Tree`], every budget charged before the work.
-fn read_tree(octets: &[u8], budget: &mut Budget) -> Result<Tree, PolicyDocumentError> {
-    let body = octets.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(octets);
-    // TS 119 172-2 names no character encoding; XML 1.0 section 4.3.3 makes UTF-8 one every
-    // processor reads, and a document in another is refused by name rather than misread.
-    let text = std::str::from_utf8(body)
-        .map_err(|_| PolicyDocumentError::Xml("the document is not UTF-8".to_owned()))?;
-    let mut elements: Vec<Element> = Vec::new();
-    let mut open: Vec<usize> = Vec::new();
-    let mut scope = Declarations::default();
-    let unbalanced =
-        || PolicyDocumentError::Xml("an element is closed without being opened".to_owned());
-    for token in xmlparser::Tokenizer::from(text) {
-        let token = token.map_err(|error| PolicyDocumentError::Xml(error.to_string()))?;
-        match token {
-            xmlparser::Token::DtdStart { .. } | xmlparser::Token::EmptyDtd { .. } => {
-                return Err(PolicyDocumentError::Xml(
-                    "the document declares a document type, which this reader does not process"
-                        .to_owned(),
-                ));
-            }
-            xmlparser::Token::ElementStart { prefix, local, .. } => {
-                budget.take()?;
-                if open.len() >= usize::from(der::MAX_DEPTH) {
-                    return Err(PolicyDocumentError::NestedTooDeep);
-                }
-                let index = elements.len();
-                if let Some(parent) = open.last().and_then(|&parent| elements.get_mut(parent)) {
-                    parent.children.push(index);
-                }
-                elements.push(Element {
-                    prefix: prefix.as_str().to_owned(),
-                    space: Space::Other,
-                    expanded: String::new(),
-                    local: local.as_str().to_owned(),
-                    attributes: Vec::new(),
-                    children: Vec::new(),
-                    text: String::new(),
-                });
-                open.push(index);
-                scope.declared.push(0);
-            }
-            xmlparser::Token::Attribute {
-                prefix,
-                local,
-                value,
-                ..
-            } => {
-                let mut expanded = String::with_capacity(value.len());
-                unescape(value.as_str(), &mut expanded);
-                let (prefix, local) = (prefix.as_str(), local.as_str());
-                if prefix == "xmlns" || (prefix.is_empty() && local == "xmlns") {
-                    budget.take()?;
-                    scope
-                        .declare(if prefix.is_empty() { "" } else { local }, expanded)
-                        .ok_or_else(unbalanced)?;
-                } else if prefix.is_empty() {
-                    open.last()
-                        .and_then(|&index| elements.get_mut(index))
-                        .ok_or_else(unbalanced)?
-                        .attributes
-                        .push((local.to_owned(), expanded));
-                }
-            }
-            xmlparser::Token::ElementEnd { end, .. } => {
-                end_tag(end, &mut elements, &mut open, &mut scope)?;
-            }
-            xmlparser::Token::Text { text } => {
-                if let Some(element) = open.last().and_then(|&index| elements.get_mut(index)) {
-                    unescape(text.as_str(), &mut element.text);
-                }
-            }
-            xmlparser::Token::Cdata { text, .. } => {
-                if let Some(element) = open.last().and_then(|&index| elements.get_mut(index)) {
-                    element.text.push_str(text.as_str());
-                }
-            }
-            _ => {}
-        }
-    }
-    // The tokenizer hands back the tokens of a truncated document without complaint.
-    if !open.is_empty() || elements.is_empty() {
-        return Err(PolicyDocumentError::Xml(
-            "the document's root element is not closed".to_owned(),
-        ));
-    }
-    Ok(Tree { elements })
-}
-
-/// The end of a start tag, where its namespace is resolved, or an element's close.
-fn end_tag(
-    end: xmlparser::ElementEnd<'_>,
-    elements: &mut [Element],
-    open: &mut Vec<usize>,
-    scope: &mut Declarations,
-) -> Result<(), PolicyDocumentError> {
-    let unbalanced =
-        || PolicyDocumentError::Xml("an element is closed without being opened".to_owned());
-    if matches!(
-        end,
-        xmlparser::ElementEnd::Open | xmlparser::ElementEnd::Empty
-    ) {
-        let element = open
-            .last()
-            .and_then(|&index| elements.get_mut(index))
-            .ok_or_else(unbalanced)?;
-        resolve(element, &scope.bindings)?;
-    }
-    if let xmlparser::ElementEnd::Close(prefix, local) = end {
-        let element = open
-            .last()
-            .and_then(|&index| elements.get(index))
-            .ok_or_else(unbalanced)?;
-        if element.prefix != prefix.as_str() || element.local != local.as_str() {
-            return Err(PolicyDocumentError::Xml(format!(
-                "<{}> is closed by another element's end tag",
-                element.local
-            )));
-        }
-    }
-    if !matches!(end, xmlparser::ElementEnd::Open) {
-        open.pop().ok_or_else(unbalanced)?;
-        scope.close().ok_or_else(unbalanced)?;
-    }
-    Ok(())
-}
-
-/// The namespace declarations in scope, innermost last, and how many each open element added.
-#[derive(Default)]
-struct Declarations {
-    bindings: Vec<(String, String)>,
-    declared: Vec<usize>,
-}
-
-impl Declarations {
-    /// Binds `prefix` (empty for the default namespace) on the innermost open element; `None`
-    /// where no element is open.
-    fn declare(&mut self, prefix: &str, uri: String) -> Option<()> {
-        let count = self.declared.last_mut()?;
-        *count = count.saturating_add(1);
-        self.bindings.push((prefix.to_owned(), uri));
-        Some(())
-    }
-
-    /// Drops the innermost element's declarations as it closes.
-    fn close(&mut self) -> Option<()> {
-        let added = self.declared.pop()?;
-        self.bindings
-            .truncate(self.bindings.len().saturating_sub(added));
-        Some(())
-    }
-}
-
-/// An element's namespace, from the declarations in scope at the end of its start tag (XML
-/// Namespaces 1.0 section 6.2).
-fn resolve(
-    element: &mut Element,
-    bindings: &[(String, String)],
-) -> Result<(), PolicyDocumentError> {
-    let uri = bindings
-        .iter()
-        .rev()
-        .find(|(prefix, _)| *prefix == element.prefix)
-        .map(|(_, uri)| uri.as_str());
-    let uri = match (uri, element.prefix.as_str()) {
-        (Some(uri), _) => uri,
-        (None, "") => "",
-        (None, prefix) => {
-            return Err(PolicyDocumentError::Xml(format!(
-                "the prefix {prefix} is not declared"
-            )));
-        }
-    };
-    element.space = if NAMESPACE.contains(&uri) {
-        Space::Policy
-    } else if uri == XMLDSIG_NAMESPACE {
-        Space::Signature
-    } else {
-        Space::Other
-    };
-    element.expanded = format!("{{{uri}}}{}", element.local);
-    Ok(())
-}
-
-/// Expands the five entities XML 1.0 section 4.6 predefines and section 4.1's character
-/// references, appending to `out`; any other reference is kept as written.
-fn unescape(text: &str, out: &mut String) {
-    let mut rest = text;
-    while let Some(at) = rest.find('&') {
-        out.push_str(&rest[..at]);
-        rest = &rest[at..];
-        let Some(end) = rest.find(';') else {
-            out.push_str(rest);
-            return;
-        };
-        let reference = &rest[1..end];
-        let character = match reference {
-            "amp" => Some('&'),
-            "lt" => Some('<'),
-            "gt" => Some('>'),
-            "quot" => Some('"'),
-            "apos" => Some('\''),
-            _ => reference
-                .strip_prefix("#x")
-                .map(|hex| u32::from_str_radix(hex, 16))
-                .or_else(|| reference.strip_prefix('#').map(str::parse::<u32>))
-                .and_then(Result::ok)
-                .and_then(char::from_u32),
-        };
-        match character {
-            Some(character) => out.push(character),
-            None => out.push_str(&rest[..=end]),
-        }
-        rest = &rest[end.saturating_add(1)..];
-    }
-    out.push_str(rest);
 }
 
 /// The second step: the tree's elements read as clause 4's types.
@@ -561,7 +341,7 @@ impl<'t> Reader<'t> {
             .filter(|&child| {
                 tree.elements
                     .get(child)
-                    .is_some_and(|element| element.space == space && element.local == local)
+                    .is_some_and(|element| self::space(element) == space && element.local == local)
             })
             .collect())
     }
@@ -1106,7 +886,7 @@ impl<'t> Reader<'t> {
 
     fn is(&self, index: usize, local: &str) -> Result<bool, PolicyDocumentError> {
         let element = self.element(index)?;
-        Ok(element.space == Space::Policy && element.local == local)
+        Ok(space(element) == Space::Policy && element.local == local)
     }
 
     /// Clause 4.15.2's `CommitmentRules`, whose components the schema spells
@@ -1161,7 +941,7 @@ impl<'t> Reader<'t> {
     /// One element of clause 4.14.2's `BasicRule` group.
     fn basic_rule(&mut self, index: usize) -> Result<BasicRule<'t>, PolicyDocumentError> {
         let element = self.element(index)?;
-        if element.space != Space::Policy {
+        if space(element) != Space::Policy {
             return Err(malformed("BasicRule"));
         }
         Ok(match element.local.as_str() {
@@ -1474,98 +1254,6 @@ impl<'t> Reader<'t> {
         }
         Ok(out)
     }
-}
-
-/// An `xs:dateTime` (XML Schema 1.1 Part 2 section 3.3.7) as an instant: a four-digit year,
-/// fractional seconds dropped, and a time zone required — an instant without one is not an
-/// instant — `Z` or an offset of at most fourteen hours.
-fn date_time(spelled: &str) -> Option<x509::Instant> {
-    let bytes = spelled.as_bytes();
-    let fixed = bytes.get(..19)?;
-    let shape = |at: usize, separator: u8| fixed.get(at) == Some(&separator);
-    if !(shape(4, b'-') && shape(7, b'-') && shape(10, b'T') && shape(13, b':') && shape(16, b':'))
-    {
-        return None;
-    }
-    let mut rest = bytes.get(19..)?;
-    if let Some(fraction) = rest.strip_prefix(b".") {
-        let digits = fraction
-            .iter()
-            .take_while(|octet| octet.is_ascii_digit())
-            .count();
-        if digits == 0 {
-            return None;
-        }
-        rest = fraction.get(digits..)?;
-    }
-    let offset_seconds: i64 = match rest {
-        b"Z" => 0,
-        [sign @ (b'+' | b'-'), h1, h0, b':', m1, m0] => {
-            let number = |pair: [u8; 2]| std::str::from_utf8(&pair).ok()?.parse::<i64>().ok();
-            let hours = number([*h1, *h0])?;
-            let minutes = number([*m1, *m0])?;
-            let total = hours.checked_mul(60)?.checked_add(minutes)?;
-            if minutes > 59 || total > 14 * 60 {
-                return None;
-            }
-            let seconds = total.checked_mul(60)?;
-            if *sign == b'+' {
-                seconds
-            } else {
-                seconds.checked_neg()?
-            }
-        }
-        _ => return None,
-    };
-    let mut digits = Vec::with_capacity(15);
-    for (index, octet) in fixed.iter().enumerate() {
-        if ![4, 7, 10, 13, 16].contains(&index) {
-            digits.push(*octet);
-        }
-    }
-    digits.push(b'Z');
-    let local = x509::read_time_digits(&digits, true)?;
-    // The instant is the local time less its offset from UTC.
-    Some(x509::Instant::from_unix_seconds(
-        local.unix_seconds().checked_sub(offset_seconds)?,
-    ))
-}
-
-/// An `xs:base64Binary` value (RFC 4648 section 4), white space ignored as XML Schema's lexical
-/// space allows; `None` where it is not one.
-fn base64(text: &str) -> Option<Vec<u8>> {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let symbols: Vec<u8> = text
-        .bytes()
-        .filter(|octet| !octet.is_ascii_whitespace())
-        .collect();
-    if !symbols.len().is_multiple_of(4) {
-        return None;
-    }
-    let last = (symbols.len() / 4).checked_sub(1);
-    let mut out = Vec::with_capacity(symbols.len());
-    for (index, group) in symbols.chunks_exact(4).enumerate() {
-        // `=` pads only the last group, and at most two of its symbols.
-        let padding = group
-            .iter()
-            .rev()
-            .take_while(|octet| **octet == b'=')
-            .count();
-        if padding > 2 || (padding > 0 && Some(index) != last) {
-            return None;
-        }
-        let mut word = 0_u32;
-        for (at, symbol) in group.iter().enumerate() {
-            let sextet = if at < 4_usize.saturating_sub(padding) {
-                u32::try_from(ALPHABET.iter().position(|letter| letter == symbol)?).ok()?
-            } else {
-                0
-            };
-            word = (word << 6) | sextet;
-        }
-        out.extend_from_slice(word.to_be_bytes().get(1..4_usize.saturating_sub(padding))?);
-    }
-    Some(out)
 }
 
 /// §12.8.3.4.4's enforcement over a parsed TS 119 172-2 document: every constraint judged against

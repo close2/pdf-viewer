@@ -382,6 +382,14 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
             for (name, der) in policy.anchors.certificates() {
                 writer.str(name).bytes(der);
             }
+            // The trusted lists cross as the anchors do, for the anchors' reason: read off a disk
+            // outside the confinement, and never named by a document (ADR 2834).
+            writer
+                .str(policy.lists.source())
+                .u32(u32::try_from(policy.lists.lists().len()).unwrap_or(u32::MAX));
+            for (name, octets) in policy.lists.lists() {
+                writer.str(name).bytes(octets);
+            }
         }
         // §8.10.4's target documents. Named as well as carried, because a refusal the worker
         // raises has to say *which* file it was about in the words the host used for it.
@@ -840,9 +848,17 @@ pub(crate) fn decode_command_holding(
                 let name = reader.string("a trust anchor's name")?;
                 certificates.push((name, reader.bytes("a trust anchor")?.to_vec()));
             }
+            let lists_source = reader.string("the trusted lists' source")?;
+            let count = reader.u32("a trusted list count")?;
+            let mut lists = Vec::new();
+            for _ in 0..count {
+                let name = reader.string("a trusted list's name")?;
+                lists.push((name, reader.bytes("a trusted list")?.to_vec()));
+            }
             Command::Trust(TrustPolicy {
                 anchors: pdf_signature::trust::Supply::of(certificates, source, at),
                 acceptance,
+                lists: pdf_signature::trusted_list::Lists::of(lists, lists_source),
             })
         }
         k::RECIPIENT => Command::Recipient(if reader.bool("whether a recipient key is held")? {

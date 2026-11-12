@@ -162,6 +162,13 @@ fn every_carried_command_round_trips() {
                 pdf_signature::x509::Instant::from_unix_seconds(1_790_812_800),
             ),
             acceptance: Acceptance::UnknownRevocationAccepted,
+            lists: pdf_signature::trusted_list::Lists::of(
+                vec![(
+                    "AT.xml".to_owned(),
+                    b"<tsl:TrustServiceStatusList/>".to_vec(),
+                )],
+                "/etc/quorra/lists (--trusted-lists)".to_owned(),
+            ),
         }),
         Command::Restrict(RestrictionScope::Window(RestrictionPolicy::uniform(
             RestrictionLevel::Warn,

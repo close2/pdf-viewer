@@ -58,6 +58,7 @@ a test's timing are not work held back and are not here.
 | 26 | ADR 2784 | a drop-down's `preOpen` and `postOpen` | JavaScript events | already built (ADR 2791) |
 | 27 | ADR 0207 | fragment identifiers "for a host with a URI" | Annex O | already built |
 | 28 | ADRs 2378, 2445, 2519, 2630, 2677, 2682; `doc/todo/72` | the archive conversion's font and press gates | `archive` | the PDF/A lane's |
+| 29 | `doc/questions/A800` item 3; ADRs 2725, 2782 | European signatures' eIDAS levels against EU trusted lists, and a *locally valid* standing for a reader's own anchors | §12.8.1, §12.8.3.4.4, §12.8.3.4.5 | the signatures lane's, **built in part** (ADRs 2834, 2835): locally valid, a TS 119 612 reader and TS 119 615 clause 4.3 run; the lists' authentication and the level are `doc/todo/77`'s order |
 
 ## 3. The order
 
@@ -66,7 +67,7 @@ and whose only gate was "when the attachments panel is designed" — and the pan
 `Query::Attachments` in four windows. Then rows 4 and 5, each one `Query` or one host history and
 a test; row 21's ramp in the oracle; row 6's host reads by `doc/todo/30`–`38`; row 8 by `doc/todo/_scan-conversion.md`; row 10's
 measurement as its own measure round, whose result goes to the owner with the near-side
-construction RFC 0011 section 7 asks for. Rows 2, 3 and 28 are the other lanes' and are listed so
+construction RFC 0011 section 7 asks for. Rows 2, 3, 28 and 29 are the other lanes' and are listed so
 that this file is the whole population.
 
 ## 4. What the lift changed in the text

@@ -508,6 +508,9 @@ pub unsafe extern "C" fn quorra_trust_anchors(
             pdf_signature::x509::Instant::from_unix_seconds(at),
         ),
         acceptance: acceptance.acceptance(),
+        // A C host supplies no trusted list yet: the ABI's entry for one is named as left in
+        // `doc/todo/77` (ADR 2834), and none is the default every host starts from.
+        lists: pdf_signature::trusted_list::Lists::none(),
     };
     *events = Box::into_raw(Box::new(viewer.trust(policy)));
     Status::Ok.code()
