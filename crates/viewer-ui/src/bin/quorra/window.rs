@@ -307,6 +307,20 @@ impl ApplicationHandler for App {
         // waits for it and nothing fails without it: a display that states no refresh rate takes
         // the floor, and the trace says which of the two this run got.
         self.cadence = crate::cadence::Cadence::of(&window);
+        // The display's own refresh as the clock, where the platform says when one is (ADR
+        // 2849). The link wakes the loop the way every other thread's news does.
+        if let Some(waker) = self.waker.clone() {
+            match viewer_display_link::DisplayLink::on(&*window, move || {
+                // A loop that has already exited has no frame left to start.
+                let _ = waker.send_event(());
+            }) {
+                Ok(link) => self.cadence.pace_by(link),
+                Err(why) => self.trace.say(
+                    Topic::Launch,
+                    format_args!("frames start on this program's own clock: {why}"),
+                ),
+            }
+        }
         self.trace.say(
             Topic::Launch,
             format_args!("presenting on a cadence of {}", self.cadence.described()),

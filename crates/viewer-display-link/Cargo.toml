@@ -1,0 +1,24 @@
+[package]
+name = "viewer-display-link"
+description = "The display's own refresh as a window's clock: one tick a refresh, from the platform's display link."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The window a link is attached to is named by its handle, which is what `winit` hands out and
+# what keeps this crate free of any one windowing library.
+raw-window-handle.workspace = true
+
+# macOS 14's `NSView` display link (ADR 2849). Every feature is named, because the defaults of
+# these three crates are the whole of AppKit, Foundation and Core Animation.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { workspace = true }
+objc2-foundation = { workspace = true, features = ["std", "NSObject", "NSRunLoop", "NSString", "NSObjCRuntime"] }
+objc2-app-kit = { workspace = true, features = ["std", "NSResponder", "NSView", "objc2-quartz-core"] }
+objc2-quartz-core = { workspace = true, features = ["std", "CADisplayLink", "CAFrameRateRange", "objc2-core-foundation"] }
+
+[lints]
+workspace = true
