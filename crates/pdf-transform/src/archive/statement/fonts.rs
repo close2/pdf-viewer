@@ -78,8 +78,9 @@ const fn line(loss: Loss) -> Option<&'static str> {
              viewer narrowed it to the widths the file states"
         }
         Loss::GlyphsFromToUnicode => {
-            "the font's codes are drawn with the glyphs a face this program ships holds for the \
-             characters its ToUnicode map states"
+            "the font's codes are drawn with the glyphs a face holds for the characters its \
+             ToUnicode map states, the face this program ships or the face of this machine's \
+             the viewer drew it from"
         }
         Loss::LayoutFromThisViewer => {
             "the file states no widths for the font, and the widths written are the layout this \

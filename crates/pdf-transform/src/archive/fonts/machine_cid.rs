@@ -26,6 +26,13 @@
 //!   embedded program, and ISO 19005-2 section 6.2.11.3.2 requires one for every Type 2 `CIDFont`
 //!   used for rendering. The glyph is the window's own answer ([`LoadedFont::glyph_index`]), so a
 //!   vertical form the window chose (§9.7.5.1's NOTE) is the glyph written.
+//! - **A `CFF ` face as a bare CID-keyed subset under `/FontFile3` `/CIDFontType0C`, the
+//!   descendant a `CIDFontType0`** (Table 124, Table 117; `doc/adr/2828`). A Type 0 `CIDFont` has
+//!   no `/CIDToGIDMap`: §9.7.4.2 has its CIDs reach glyphs through the program's own charset, so
+//!   [`pdf_font::embed::renumbered`] writes the glyph the window drew for each shown CID under that
+//!   CID, once for each CID that shows it. A CID the window drew nothing for has no glyph such a
+//!   charset could name but `.notdef`, which ISO 19005-2 section 6.2.11.8 forbids a shown code to
+//!   reach, so a `CFF ` face takes no font that shows one.
 //! - **Advances restated to the dictionary's `/W` and `/DW`** (§9.7.4.3), and the vertical ones to
 //!   `/W2` and `/DW2` where the program states vertical metrics at all, which ISO 19005-2 section
 //!   6.2.11.5 and ISO 19005-4 section 6.2.10.5 require to agree with the program.
@@ -46,10 +53,11 @@
 //!
 //! A font of an Adobe character collection is drawn through the collection's own published map
 //! from CIDs to characters, so nothing is left to name. An `Adobe-Identity` font is drawn through
-//! its `/ToUnicode`, an extraction aid (§9.10.2), so `glyphs-from-to-unicode` stays named. An
-//! embedded `CMap` stream, a face that is not `glyf`, a collection file, a face the window fitted
-//! to the widths, and a descriptor another route wrote into are not this route's: each keeps the
-//! route it took before.
+//! its `/ToUnicode`, an extraction aid (§9.10.2), so `glyphs-from-to-unicode` stays named, and
+//! `as-shown` admits it here and nowhere else: the proof has shown the output draws what the
+//! window drew (owner answer A832, `doc/adr/2829`). An embedded `CMap` stream, a collection file,
+//! a face the window fitted to the widths, and a descriptor another route wrote into are not this
+//! route's: each keeps the route it took before.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -71,6 +79,12 @@ use super::{
 const TRUE_TYPE: Table124 = Table124 {
     key: "FontFile2",
     subtype: None,
+};
+
+/// Table 124's row for a bare CID-keyed `CFF ` program under a `CIDFontType0`.
+const COMPACT: Table124 = Table124 {
+    key: "FontFile3",
+    subtype: Some("CIDFontType0C"),
 };
 
 /// Embeds the machine's face the window drew `used` from into its descendant `CIDFont`.
@@ -104,11 +118,17 @@ pub(super) fn embed(
     let shown = shown(document, used, &font)?;
     let written = written(program, &shown)?;
     let home = home_of(document, descendant, substitutes, &written, program)?;
+    let subtype = written.subtype();
+    if written.cid_to_glyph.is_none() && descendant.get("CIDToGIDMap").is_some() {
+        // Table 117 gives `/CIDToGIDMap` to a Type 2 `CIDFont` alone, and a gain can add a key
+        // but not take one away, so a descendant stating one keeps the route it took before.
+        return Err(Because::NotBuiltYet(NOT_THIS_ROUTES));
+    }
     let mut gains = Dictionary::new();
-    if name_of(document, descendant, "Subtype").as_deref() != Some("CIDFontType2") {
+    if name_of(document, descendant, "Subtype").as_deref() != Some(subtype) {
         gains.insert(
             Name::new(&b"Subtype"[..]),
-            Object::Name(Name::new(&b"CIDFontType2"[..])),
+            Object::Name(Name::new(subtype.as_bytes())),
         );
     }
     gains.insert(
@@ -120,22 +140,21 @@ pub(super) fn embed(
     let at = spare
         .take(document)
         .ok_or(Because::NotBuiltYet(super::NO_SPARE_OBJECT))?;
-    let map_at = spare
-        .take(document)
-        .ok_or(Because::NotBuiltYet(super::NO_SPARE_OBJECT))?;
-    let stream = program_stream(
-        subtype_dictionary(TRUE_TYPE).as_ref(),
-        &written.program,
-        true,
-    )
-    .ok_or(Because::NotBuiltYet(PROGRAM_NOT_ENCODED))?;
-    substitutes.written.insert(at, stream);
-    substitutes.written.insert(
-        map_at,
-        super::rekeyed::cid_to_gid_map(&written.cid_to_glyph)?,
-    );
+    let map_at = match &written.cid_to_glyph {
+        Some(map) => {
+            let map_at = spare
+                .take(document)
+                .ok_or(Because::NotBuiltYet(super::NO_SPARE_OBJECT))?;
+            substitutes
+                .written
+                .insert(map_at, super::rekeyed::cid_to_gid_map(map)?);
+            Some(map_at)
+        }
+        None => None,
+    };
+    substitutes.written.insert(at, written.stream()?);
     let embedding = Embedding {
-        key: TRUE_TYPE.key,
+        key: written.table.key,
         at,
     };
     let font_name = Object::Name(Name::new(written.name.as_bytes()));
@@ -161,7 +180,9 @@ pub(super) fn embed(
             );
         }
     }
-    gains.insert(Name::new(&b"CIDToGIDMap"[..]), Object::Reference(map_at));
+    if let Some(map_at) = map_at {
+        gains.insert(Name::new(&b"CIDToGIDMap"[..]), Object::Reference(map_at));
+    }
     substitutes.described.insert(descendant_at, gains);
     substitutes.done.push(SubstitutedFont {
         resource: used.name.clone(),
@@ -358,10 +379,9 @@ fn built_descriptor(subset: &[u8], program: &[u8]) -> Result<Dictionary, Because
 ///
 /// The same conditions as a simple font's (`super::machine_face`): a substitute that is not a
 /// face this program ships, not a collection, and whose own `fsType` permits embedding — §9.9.1
-/// makes preview-and-print the permission every embedded program carries. And two of this
-/// route's own: `glyf` outlines, which the `/CIDToGIDMap` reaches (a `CFF ` face would need its
-/// charset renumbered instead), and the face drawn at its own width, since a program states the
-/// outline it holds and not a fitting.
+/// makes preview-and-print the permission every embedded program carries. And one of this
+/// route's own: the face drawn at its own width, since a program states the outline it holds and
+/// not a fitting. A `glyf` face and a `CFF ` one are both this route's ([`written`]).
 fn drawn_face<'a>(
     document: &Document,
     descendant: &Dictionary,
@@ -376,7 +396,6 @@ fn drawn_face<'a>(
     if is_shipped(program, request)
         || program.starts_with(b"ttcf")
         || !pdf_font::embed::may_be_embedded(program)
-        || pdf_font::embed::has_cff_outlines(program)
         || font.stretch().to_bits() != 1.0_f32.to_bits()
     {
         return Err(Because::NotBuiltYet(NOT_THIS_ROUTES));
@@ -426,8 +445,13 @@ fn shown(
     font: &LoadedFont,
 ) -> Result<BTreeMap<u16, Shown>, Because> {
     let encoding = name_of(document, &used.dict, "Encoding").unwrap_or_default();
-    let cmap =
-        pdf_font::predefined::cmap(&encoding).ok_or(Because::NotBuiltYet(NOT_THIS_ROUTES))?;
+    // Table 116 states `Identity-H` and `Identity-V` by a rule, each two-byte code its own CID,
+    // rather than as a file of mappings, so no predefined file carries them (`doc/adr/2828`).
+    let cmap = match encoding.as_str() {
+        "Identity-H" => pdf_font::cmap::CMap::identity(),
+        "Identity-V" => pdf_font::cmap::CMap::identity_vertical(),
+        name => pdf_font::predefined::cmap(name).ok_or(Because::NotBuiltYet(NOT_THIS_ROUTES))?,
+    };
     let mut shown: BTreeMap<u16, Shown> = BTreeMap::new();
     for text in used.shown.keys() {
         for code in font.decode(text) {
@@ -470,9 +494,35 @@ fn shown(
 struct Written {
     program: Vec<u8>,
     name: String,
-    cid_to_glyph: BTreeMap<u16, u16>,
+    /// The Table 124 row the program is filed under: [`TRUE_TYPE`] or [`COMPACT`].
+    table: Table124,
+    /// The `/CIDToGIDMap` a `glyf` program is reached through; `None` for a `CFF ` one, whose
+    /// charset numbers its glyphs by CID.
+    cid_to_glyph: Option<BTreeMap<u16, u16>>,
     route: MetricRoute,
     empty_cids: Vec<u16>,
+}
+
+impl Written {
+    /// Table 117's `CIDFont` subtype for the program: a Type 2 for `glyf`, a Type 0 for `CFF `.
+    fn subtype(&self) -> &'static str {
+        if self.cid_to_glyph.is_some() {
+            "CIDFontType2"
+        } else {
+            "CIDFontType0"
+        }
+    }
+
+    /// The program as a font file stream, with Table 125's `/Length1` for a `/FontFile2` and
+    /// `/Subtype` for a `/FontFile3`.
+    fn stream(&self) -> Result<Object, Because> {
+        program_stream(
+            subtype_dictionary(self.table).as_ref(),
+            &self.program,
+            self.table.key == TRUE_TYPE.key,
+        )
+        .ok_or(Because::NotBuiltYet(PROGRAM_NOT_ENCODED))
+    }
 }
 
 /// The §9.9.2 subset of the drawn face, its advances the dictionary's.
@@ -488,6 +538,9 @@ struct Written {
 /// (§9.7.4.2), and what the CID means is still its collection's and the `/ToUnicode`'s, which
 /// this route leaves untouched.
 fn written(program: &[u8], shown: &BTreeMap<u16, Shown>) -> Result<Written, Because> {
+    if pdf_font::embed::has_cff_outlines(program) {
+        return compact(program, shown);
+    }
     let glyphs: BTreeSet<u16> = shown.values().filter_map(|held| held.glyph).collect();
     let mut blanks: BTreeMap<(u32, Option<u32>), usize> = BTreeMap::new();
     for held in shown.values().filter(|held| held.glyph.is_none()) {
@@ -553,9 +606,55 @@ fn written(program: &[u8], shown: &BTreeMap<u16, Shown>) -> Result<Written, Beca
     Ok(Written {
         program: bytes,
         name: subset.name,
-        cid_to_glyph,
+        table: TRUE_TYPE,
+        cid_to_glyph: Some(cid_to_glyph),
         route,
         empty_cids,
+    })
+}
+
+/// The §9.9.2 subset of a drawn `CFF ` face, bare and CID-keyed, each shown CID's glyph written
+/// under that CID by the charset (§9.7.4.2, Table 124's `CIDFontType0C` row), its advances the
+/// dictionary's (`doc/adr/2828`).
+///
+/// A CID the window drew nothing for is not this route's: a charset reaches a glyph only by the
+/// CID it names, so the CID would reach `.notdef`, which ISO 19005-2 section 6.2.11.8 and ISO
+/// 19005-4 section 6.2.10.9 forbid. A bare `CFF ` program states no vertical metrics, so section
+/// 6.2.11.5's agreement holds the horizontal advances alone.
+fn compact(program: &[u8], shown: &BTreeMap<u16, Shown>) -> Result<Written, Because> {
+    let by_cid = shown
+        .iter()
+        .map(|(cid, held)| held.glyph.map(|glyph| (*cid, glyph)))
+        .collect::<Option<BTreeMap<u16, u16>>>()
+        .ok_or(Because::NotBuiltYet(NOT_THIS_ROUTES))?;
+    let subset = pdf_font::embed::renumbered(program, Format::Sfnt, &by_cid)
+        .map_err(|_| Because::NotBuiltYet(NOT_THIS_ROUTES))?;
+    let mut widths: BTreeMap<u16, f32> = BTreeMap::new();
+    for (cid, held) in shown {
+        let glyph = *subset
+            .glyphs
+            .get(cid)
+            .ok_or(Because::NotBuiltYet(NOT_THIS_ROUTES))?;
+        widths.insert(glyph, held.width);
+    }
+    let mut bytes = subset.program;
+    let mut route = MetricRoute::FaceMetrics;
+    if widths.iter().any(|(glyph, width)| {
+        pdf_font::restate::advance(&bytes, Format::BareCff, *glyph)
+            .is_none_or(|own| disagrees(*width, own))
+    }) {
+        bytes = pdf_font::restate::with_widths(&bytes, Format::BareCff, &widths)
+            .map_err(|_| Because::NotBuiltYet(super::FACE_NOT_RESTATABLE))?;
+        route = MetricRoute::RestatedProgram;
+    }
+    super::proves(&bytes, Format::BareCff, &widths, &BTreeMap::new())?;
+    Ok(Written {
+        program: bytes,
+        name: subset.name,
+        table: COMPACT,
+        cid_to_glyph: None,
+        route,
+        empty_cids: Vec::new(),
     })
 }
 
@@ -583,22 +682,22 @@ fn proved(
 ) -> Result<(), Because> {
     let unproved = |_| Because::NotBuiltYet(NOT_PROVED);
     let mut assembly = Assembly::new(Vec::new());
-    let program = program_stream(
-        subtype_dictionary(TRUE_TYPE).as_ref(),
-        &written.program,
-        true,
-    )
-    .ok_or(Because::NotBuiltYet(PROGRAM_NOT_ENCODED))?;
-    let program_at = assembly.add(program).map_err(unproved)?;
-    let map = super::rekeyed::cid_to_gid_map(&written.cid_to_glyph)?;
-    let map_at = assembly.add(map).map_err(unproved)?;
+    let program_at = assembly.add(written.stream()?).map_err(unproved)?;
+    let map_at = match &written.cid_to_glyph {
+        Some(map) => Some(
+            assembly
+                .add(super::rekeyed::cid_to_gid_map(map)?)
+                .map_err(unproved)?,
+        ),
+        None => None,
+    };
     let Object::Dictionary(mut descriptor) =
         super::described::resolved(document, &Object::Dictionary(home.entries(document)?), 4)
     else {
         return Err(Because::NotBuiltYet(NOT_PROVED));
     };
     descriptor.insert(
-        Name::new(TRUE_TYPE.key.as_bytes()),
+        Name::new(written.table.key.as_bytes()),
         Object::Reference(program_at),
     );
     let descriptor_at = assembly
@@ -611,7 +710,9 @@ fn proved(
     for (key, value) in gains.iter() {
         cid_font.insert(key.clone(), value.clone());
     }
-    cid_font.insert(Name::new(&b"CIDToGIDMap"[..]), Object::Reference(map_at));
+    if let Some(map_at) = map_at {
+        cid_font.insert(Name::new(&b"CIDToGIDMap"[..]), Object::Reference(map_at));
+    }
     cid_font.insert(
         Name::new(&b"FontDescriptor"[..]),
         Object::Reference(descriptor_at),
@@ -705,8 +806,8 @@ fn bits((displacement, position): ([f32; 2], [f32; 2])) -> [u32; 4] {
 
 /// Why a composite font is not this route's: the window drew it from no machine's face this
 /// route can write, or the font is shaped in a way the module documentation lists.
-const NOT_THIS_ROUTES: &str = "the composite font is not drawn from a machine's glyf face this \
-     route can embed as the window drew it";
+const NOT_THIS_ROUTES: &str = "the composite font is not drawn from a machine's face this route \
+     can embed as the window drew it";
 
 /// Why a descendant stating no descriptor is not given one.
 const DESCRIPTOR_NOT_MEASURED: &str = "the composite font's descendant states no descriptor, and \

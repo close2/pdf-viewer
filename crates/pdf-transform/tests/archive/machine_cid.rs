@@ -457,3 +457,243 @@ fn where_the_profile_authorises_the_loss_a_composite_font_keeps_its_route() {
         "as-if-printed keeps the face every machine would write (doc/adr/2774)"
     );
 }
+
+/// An `Identity-H` font over an `Adobe-Identity` descendant named `Arial` with no program,
+/// showing CIDs 36, 37 and 48, whose `/ToUnicode` names `A`, `B` and `A` again, at `/W`'s 667
+/// each; the descendant states `extra` as well.
+fn an_arial_identity_font(extra: &str) -> Vec<u8> {
+    let cmap = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+                /CMapName /Test def\n/CMapType 2 def\n\
+                1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n\
+                3 beginbfchar\n<0024> <0041>\n<0025> <0042>\n<0030> <0041>\nendbfchar\n\
+                endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n";
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td <002400250030> Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type0 /BaseFont /Arial /Encoding /Identity-H \
+             /DescendantFonts [7 0 R] /ToUnicode 9 0 R >>"
+                .to_owned(),
+            format!(
+                "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Arial /CIDSystemInfo \
+                 << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor \
+                 8 0 R /DW 1000 /W [36 [667 667] 48 [667]]{extra} >>"
+            ),
+            "<< /Type /FontDescriptor /FontName /Arial /Flags 32 \
+             /FontBBox [-665 -325 2000 1006] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+             /CapHeight 716 /StemV 80 >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![stream(&format!("/Length {}", cmap.len()), cmap.as_bytes())],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// The codes [`an_arial_identity_font`] shows.
+const ARIAL_SHOWN: [u8; 6] = [0x00, 0x24, 0x00, 0x25, 0x00, 0x30];
+
+/// What the window draws for each code of [`ARIAL_SHOWN`] from `bytes`, and whether the font is a
+/// substitute.
+fn drawn_arial(bytes: &[u8]) -> (Vec<Drawn>, bool) {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let (font, codes) = loaded_showing(&document, &ARIAL_SHOWN);
+    (
+        codes
+            .iter()
+            .map(|code| (wound(font.outline(*code)), font.advance(*code).to_bits()))
+            .collect(),
+        font.is_substituted(),
+    )
+}
+
+/// [`an_arial_identity_font`] stating nothing more, where this machine draws it from a `CFF `
+/// face of its own; `None`, said out loud, where it does not.
+fn where_arial_is_drawn_from_a_machines_cff_face() -> Option<Vec<u8>> {
+    let source = an_arial_identity_font("");
+    let document = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("it opens");
+    let (font, _) = loaded(&document);
+    let cff = font
+        .substitute_program()
+        .is_some_and(pdf_font::embed::has_cff_outlines);
+    if !drawn_from_a_machine_face(&source) || !cff {
+        eprintln!("this machine draws the fixture's Arial from no CFF face of its own");
+        return None;
+    }
+    Some(source)
+}
+
+/// The losses the conversion names for the fixture's one font.
+fn losses_of(report: &Report) -> Losses {
+    conversion(report)
+        .substituted
+        .first()
+        .expect("one font")
+        .losses
+}
+
+/// A shipped profile's plan at `target`, its authorisations read from the profile.
+fn under(profile: &str, target: Target) -> ArchivePlan {
+    let text = pdf_transform::profiles::named(profile)
+        .expect("a shipped profile")
+        .text;
+    let config = pdf_transform::archive::Configuration::read(text, target).expect("it reads");
+    ArchivePlan {
+        authorised: config.authorisations(target),
+        ..plan_from(text, target)
+    }
+}
+
+/// ADR 2828: an `Adobe-Identity` font the window drew from a `CFF ` face of this machine's goes in
+/// with that face, a bare CID-keyed subset under `/FontFile3` `/Subtype /CIDFontType0C` beneath a
+/// `CIDFontType0` (Table 124, Table 117), with no `/CIDToGIDMap` (Table 117 gives it to a Type 2
+/// `CIDFont` alone, §9.7.4.2 having a Type 0's CIDs reach glyphs through the charset). It loses
+/// `glyphs-from-to-unicode` alone, is written by the first pass, conforms, and draws each shown
+/// code's outline at its advance as the window drew it. The plants: writing each CID's glyph one
+/// index on in the charset draws other outlines, the proof refuses the route, the font takes the
+/// shipped face's route, which names `machine-face`, and the document does not convert; and
+/// reading `Identity-H` as a predefined file rather than by Table 116's rule finds no `CMap`, with
+/// the same end.
+#[test]
+fn an_identity_font_drawn_from_a_machines_cff_face_is_embedded_with_that_face() {
+    let Some(source) = where_arial_is_drawn_from_a_machines_cff_face() else {
+        return;
+    };
+    let (before, _) = drawn_arial(&source);
+    assert!(
+        before.iter().all(|(outline, _)| outline.is_some()),
+        "the window drew a glyph for each code"
+    );
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::GlyphsFromToUnicode);
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (report, output) = convert(&source, target, authorised);
+        let output = written(&report, output);
+        assert!(
+            conversion(&report).settled.is_empty(),
+            "{target}: the first pass embeds it"
+        );
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
+            "{target}: what was written is held to the target again"
+        );
+        let font = conversion(&report).substituted.first().expect("one font");
+        assert_eq!(
+            (font.authority, font.losses),
+            (
+                pdf_transform::archive::FaceAuthority::Machine,
+                Losses::one(Loss::GlyphsFromToUnicode)
+            ),
+            "{target}: the machine's face, and the glyph choice named"
+        );
+        let held = Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("it opens");
+        let descendant = descendant_of(&held);
+        assert_eq!(
+            held.get_key(&descendant, "Subtype")
+                .as_name()
+                .map(|name| name.as_bytes().to_vec()),
+            Some(b"CIDFontType0".to_vec()),
+            "{target}: Table 117's subtype for a CFF program"
+        );
+        assert!(
+            held.get_key(&descendant, "CIDToGIDMap").is_null(),
+            "{target}: a Type 0 CIDFont states no /CIDToGIDMap"
+        );
+        let descriptor = held
+            .get_key(&descendant, "FontDescriptor")
+            .as_dict()
+            .cloned()
+            .expect("its descriptor");
+        let pdf_syntax::Object::Stream(program) = held.get_key(&descriptor, "FontFile3") else {
+            panic!("{target}: the program is under /FontFile3");
+        };
+        assert_eq!(
+            program
+                .dict
+                .get("Subtype")
+                .and_then(pdf_syntax::Object::as_name)
+                .map(|name| name.as_bytes().to_vec()),
+            Some(b"CIDFontType0C".to_vec()),
+            "{target}: Table 124's row for a bare CID-keyed CFF"
+        );
+        let (after, substituted_after) = drawn_arial(&output);
+        assert!(!substituted_after, "{target}: drawn from its own program");
+        assert_eq!(
+            before, after,
+            "{target}: the output draws what the window drew, code by code"
+        );
+    }
+}
+
+/// A832, ADR 2829: `as-shown` admits `glyphs-from-to-unicode` and still stops on `machine-face`,
+/// so the font converts where the machine's face went in proved, and the loss stays named in the
+/// file's own history (ISO 19005-2 section 6.7.2's `xmpMM:History`, ADR 2693). Where the machine's
+/// route cannot take the font — a descendant stating a `/CIDToGIDMap`, which Table 117 gives no
+/// Type 0 `CIDFont` — the shipped face's route names `machine-face` and `as-shown` stops on it;
+/// `refuse-any-loss` stops on the glyph choice itself. The plant: deleting the profile's
+/// `glyphs-from-to-unicode` line refuses the first case.
+#[test]
+fn as_shown_admits_the_glyph_choice_only_where_the_machines_face_went_in() {
+    let Some(source) = where_arial_is_drawn_from_a_machines_cff_face() else {
+        return;
+    };
+    let mapped = an_arial_identity_font(" /CIDToGIDMap /Identity");
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (report, output) = convert_with_plan(&source, &under("as-shown", target));
+        assert!(output.is_some(), "{target}: as-shown converts it");
+        assert!(
+            conversion(&report).settled.is_empty(),
+            "{target}: by the first pass"
+        );
+        assert_eq!(losses_of(&report), Losses::one(Loss::GlyphsFromToUnicode));
+        let recorded = conversion(&report).recorded.as_deref().expect("a history");
+        assert!(
+            recorded.contains("glyphs-from-to-unicode"),
+            "{target}: {recorded}"
+        );
+
+        let (report, output) = convert_with_plan(&mapped, &under("as-shown", target));
+        assert!(output.is_none(), "{target}: the shipped face's route stops");
+        let Decision::Unauthorised { losses, .. } =
+            decision(&report, "fonts/font-programs-embedded")
+        else {
+            panic!("{target}: a loss to authorise, not a refusal");
+        };
+        assert!(
+            losses.iter().any(|loss| loss == Loss::MachineFace),
+            "{target}: machine-face"
+        );
+
+        let (_, output) = convert_with_plan(&source, &under("refuse-any-loss", target));
+        assert!(output.is_none(), "{target}: refuse-any-loss stops");
+    }
+}
+
+/// A832: of the profiles this program ships, `as-shown` now authorises `glyphs-from-to-unicode`
+/// beside the two that already did, `as-if-printed` and `state-every-loss`; every other withholds
+/// it, at both parts. The plant: the line deleted from `as-shown.toml` fails its row.
+#[test]
+fn which_shipped_profiles_admit_the_glyph_choice() {
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        for shipped in pdf_transform::profiles::SHIPPED {
+            let admits = matches!(
+                shipped.name,
+                "as-shown" | "as-if-printed" | "state-every-loss"
+            );
+            assert_eq!(
+                under(shipped.name, target)
+                    .authorised
+                    .grants(Loss::GlyphsFromToUnicode),
+                admits,
+                "{} at {target}",
+                shipped.name
+            );
+        }
+    }
+}

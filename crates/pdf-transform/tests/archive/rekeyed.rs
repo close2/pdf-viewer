@@ -133,8 +133,11 @@ fn an_identity_font_beside(
     .build()
 }
 
+/// With nothing authorised the font is a loss to authorise: `glyphs-from-to-unicode` whichever face
+/// goes in, and `machine-face` as well where the machine's face the window drew cannot
+/// (`doc/adr/2807`, `doc/adr/2828`), which is a fact of the machine and not asserted here.
 #[test]
-fn an_identity_font_is_two_losses_as_shown_refuses() {
+fn an_identity_font_is_a_loss_nobody_authorised() {
     let plan = a_supplied_font(Target::Two(Level::B), "NotThisFont", &[]);
     let (report, output) = convert_with_plan(&an_identity_font_not_embedded(true), &plan);
     assert!(output.is_none(), "the losses nobody authorised stop it");
@@ -142,7 +145,6 @@ fn an_identity_font_is_two_losses_as_shown_refuses() {
     else {
         panic!("a re-keyed font is a loss to authorise, not a refusal");
     };
-    assert!(losses.iter().any(|loss| loss == Loss::MachineFace));
     assert!(losses.iter().any(|loss| loss == Loss::GlyphsFromToUnicode));
 }
 

@@ -351,11 +351,20 @@ remedy = "discard"
 # 9.7.4.2). A page showing one is photographed as the window draws it - the window's own pixels -
 # and only where no text on it is extractable, so nothing the window offered is lost (A570,
 # doc/adr/2394). The site's other losses stay at stop: below.
+#
+# Glyphs from ToUnicode. An Adobe-Identity font the file does not embed and whose ToUnicode does
+# name its codes is drawn by the window from a face of this machine's, each code's glyph chosen
+# through the character the map states. Where the converter embeds that very face and has proved,
+# code by code, that the output draws the outline and the metrics the window drew (doc/adr/2807,
+# doc/adr/2828), the page shows what the window showed, and the glyph choice is admitted as the
+# window's own (A832, doc/adr/2829). It is still named in the report and in xmpMM:History. Every
+# other route to such a font embeds a shipped face as well, which is machine-face, and stops.
 # ---------------------------------------------------------------------------------------------
 
 [site."fonts/font-programs-embedded"]
 remedy = "stop"
 text-as-image = "discard"
+glyphs-from-to-unicode = "discard"
 
 [site."graphics/no-overprint-mode-one-under-icc-cmyk"]
 remedy = "discard"
@@ -401,7 +410,9 @@ remedy = "preserve"
 #                                  its name resembles, the widths written are the viewer's, the loss
 #                                  layout-from-this-viewer (A687, doc/adr/2504);
 #                                  a page photographed for text no reader can name is answered
-#                                  above, by text-as-image alone (doc/adr/2394)
+#                                  above, by text-as-image alone (doc/adr/2394), and an
+#                                  Adobe-Identity font proved to draw as the window drew it by
+#                                  glyphs-from-to-unicode alone (A832, doc/adr/2829)
 #   fonts/*                        the window drew glyphs; every font refusal stays. A TrueType
 #                                  code reached only by a mapping of the reader's choosing needs no
 #                                  answer here: the converter names its glyph in the encoding where
