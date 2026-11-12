@@ -176,7 +176,13 @@ jobs:
       # virtual display does not help, which is how we learned that a display was not what
       # was missing. `render-raster` honours the variable on the one path every headless
       # caller takes, which is where a fact about *this machine* belongs.
-      - run: cargo test --workspace
+      # `viewer-gtk` runs on its own, under the virtual display installed above: its control
+      # tests (`#[gtk4::test]`) build real GTK widgets, and GTK will not initialise without a
+      # display. The rest of the workspace keeps running without one, for the `wgpu` reason above.
+      - run: cargo test --workspace --exclude viewer-gtk
+        env:
+          WGPU_BACKEND: vulkan
+      - run: xvfb-run -a cargo test -p viewer-gtk
         env:
           WGPU_BACKEND: vulkan
 
@@ -1012,6 +1018,14 @@ jobs:
           "$python" -I -B tools/cjk-pack.py --fetch "$RUNNER_TEMP/source"
           "$python" -I -B tools/cjk-pack.py --source "$RUNNER_TEMP/source" --cmaps data/cmaps \
             --out "$RUNNER_TEMP/cjk-pack" --zip cjk-pack-release
+
+      # `cjk_pack` also names the test of a collections font whose machine face the pack answers
+      # (ADR 2807), and that test loads the font the way the window does: from a face this machine
+      # offers. These are the `test` job's faces, for the same reason.
+      - name: Machine faces a composite font can be substituted from
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-dejavu-core fonts-droid-fallback
 
       # Both of the pack's tests: the digests `pack.rs` carries against the built files, and the
       # conversion that embeds from the pack, which nothing else runs.
