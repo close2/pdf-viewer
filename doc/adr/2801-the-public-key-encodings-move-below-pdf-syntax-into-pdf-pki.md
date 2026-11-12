@@ -53,4 +53,7 @@ fuzz surface, one audit point. A800 (2026-11-06) lifted A66's trigger and ordere
 Items 2 and 3 were built by session 1999: ADR 2809 decrypts the four deprecated ciphers rather than
 refusing them, and ADR 2810 derives a per-stream filter's own key. Item 4 was built by session 2001:
 ADR 2821 opens a key-agreement recipient with an elliptic-curve key. Item 1 was built by session
-2002: ADR 2822 holds the reader's certificate and key for the window, supplied by a host.
+2002: ADR 2822 holds the reader's certificate and key for the window, supplied by a host. Of the
+four effort-only refusals ADR 2821 left on §7.6.5.3, session 2004 built RSAES-OAEP key transport
+(ADR 2826) and the Triple-DES key wrap (ADR 2827); 1-Pass ECMQV and brainpoolP512r1 remain, and ADR
+2827 says why each waits.

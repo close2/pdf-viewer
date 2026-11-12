@@ -19,13 +19,13 @@
 //! [`der`] is the X.690 tag-length-value reader everything else is built on — the tree's only
 //! ASN.1. [`bigint`] is the seam over `crypto-bigint` that keeps the budgets and the refusal names
 //! this project's own while the multiplications are reviewed code. [`x509`] reads RFC 5280's
-//! certificate for what matching a recipient and verifying a signature need from it.
-//! [`enveloped`] reads RFC 5652 section 6's `EnvelopedData` and opens it for a recipient, with
-//! what opening needs beside it: [`key`], the recipient's private key of either family; [`rsa`],
-//! RFC 8017's private key, RSADP, and the `RSAES-PKCS1-v1_5` decoding a key-transport recipient
+//! certificate for what matching a recipient and verifying a signature need from it. [`enveloped`]
+//! reads RFC 5652 section 6's `EnvelopedData` and opens it for a recipient, with what opening needs
+//! beside it: [`key`], the recipient's private key of either family; [`rsa`], RFC 8017's private
+//! key, RSADP, and the `RSAES-PKCS1-v1_5` and `RSAES-OAEP` decodings a key-transport recipient
 //! uses; [`ec`], RFC 5915's elliptic-curve private key and SEC 1's Diffie–Hellman primitive a
-//! key-agreement recipient uses; and [`key_wrap`], RFC 3394's AES key unwrap, which carries a
-//! key-agreement recipient's content-encryption key.
+//! key-agreement recipient uses; and [`key_wrap`], RFC 3394's AES key unwrap and RFC 3217's
+//! Triple-DES one, which carry a key-agreement recipient's content-encryption key.
 //!
 //! Everything here reads bytes somebody else handed it, under `#![forbid(unsafe_code)]`,
 //! allocating nothing a length in the input sizes beyond the input itself.

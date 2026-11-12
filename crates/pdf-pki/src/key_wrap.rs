@@ -1,4 +1,5 @@
-//! RFC 3394's AES key unwrap: how a key-agreement recipient's content-encryption key arrives.
+//! RFC 3394's AES key unwrap and RFC 3217's Triple-DES one: how a key-agreement recipient's
+//! content-encryption key arrives.
 //!
 //! RFC 5652 section 6.2.2's `encryptedKey` "is the result of encrypting the content-encryption key
 //! in the pairwise key-encryption key", and RFC 5753 section 7.1.5 names the algorithms that do it
@@ -10,11 +11,16 @@
 //! to read against the text.
 //!
 //! The algorithm is a dozen lines over the block cipher `aes` already supplies, so it is written
-//! here rather than taken as a package (ADR 2821): the RFC's own section 4 vectors pin it.
+//! here rather than taken as a package (ADR 2821): the RFC's own section 4 vectors pin it. The
+//! fourth algorithm, Triple DES, is RFC 3370 section 4.3.1's `id-alg-CMS3DESwrap`, which is RFC
+//! 3217 section 3's wrap — two CBC passes under `des` and a SHA-1 checksum — and
+//! [`unwrap_triple_des`] is its section 3.2, pinned by the section 3.4 example (ADR 2827).
 
 use aes::cipher::consts::U16;
 use aes::cipher::{BlockCipherDecrypt, KeyInit};
 use aes::{Aes128, Aes192, Aes256, Block};
+use des::TdesEde3;
+use sha1::{Digest, Sha1};
 
 /// RFC 3394 section 2.2.3.1: "A\[0] = IV = A6A6A6A6A6A6A6A6".
 const DEFAULT_IV: [u8; 8] = [0xA6; 8];
@@ -26,16 +32,19 @@ const SEMIBLOCK: usize = 8;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum KeyWrapError {
-    /// The key-encryption key is not 16, 24 or 32 octets, the three AES widths.
-    #[error("an AES key-encryption key is 16, 24 or 32 octets")]
+    /// The key-encryption key is not one the algorithm takes: 16, 24 or 32 octets for AES, 24
+    /// for Triple DES.
+    #[error("the key-encryption key is not a length the key wrap takes")]
     KeyLength,
-    /// The ciphertext is not a whole number of 64-bit blocks, or holds fewer than three: section
-    /// 2's "\[t]he only restriction the key wrap algorithm places on n is that n be at least two",
-    /// and the ciphertext is n + 1 blocks.
-    #[error("a wrapped key is three or more 64-bit blocks")]
+    /// The ciphertext is not a length the algorithm unwraps. For AES, not a whole number of
+    /// 64-bit blocks, or fewer than three: RFC 3394 section 2's "\[t]he only restriction the key
+    /// wrap algorithm places on n is that n be at least two", and the ciphertext is n + 1 blocks.
+    /// For Triple DES, not RFC 3217 section 3.2's 40 octets.
+    #[error("the wrapped key is not a length the key wrap unwraps")]
     Length,
-    /// Section 2.2.3.1: the recovered `A[0]` is not the default initial value, so "the unwrap
-    /// must return an error and not return any key data".
+    /// RFC 3394 section 2.2.3.1: the recovered `A[0]` is not the default initial value, so "the
+    /// unwrap must return an error and not return any key data"; or RFC 3217 section 3.2's
+    /// checksum or parity check fails.
     #[error("the wrapped key fails RFC 3394's integrity check")]
     Integrity,
 }
@@ -128,6 +137,92 @@ fn unwrap_with<C: BlockCipherDecrypt<BlockSize = U16>>(
     Ok(registers.concat())
 }
 
+/// RFC 3217 section 3.2's "IV of 0x4adda22c79e82105", the outer CBC pass's.
+const TRIPLE_DES_IV: [u8; 8] = [0x4A, 0xDD, 0xA2, 0x2C, 0x79, 0xE8, 0x21, 0x05];
+
+/// RFC 3217 section 3.2's one length: "If the wrapped key is not 40 octets, then error."
+pub const TRIPLE_DES_WRAPPED: usize = 40;
+
+/// RFC 3217 section 3.2's Triple-DES key unwrap of `ciphertext` under the Triple-DES key
+/// `kek`: what `id-alg-CMS3DESwrap` (RFC 3370 section 4.3.1) names, and the fourth key-wrap
+/// algorithm RFC 5753 section 7.1.5 lists for an elliptic-curve recipient.
+///
+/// It unwraps a Triple-DES key and nothing else: the section's wrapped key is always 40 octets,
+/// a 24-octet key, its 8-octet checksum and an 8-octet initialisation vector. The steps are
+/// written out against the block cipher `des` already supplies, as [`unwrap`] is against `aes`
+/// (ADR 2827).
+///
+/// # Errors
+///
+/// [`KeyWrapError::KeyLength`] for a key-encryption key that is not 24 octets,
+/// [`KeyWrapError::Length`] for a wrapped key that is not 40 octets, and
+/// [`KeyWrapError::Integrity`] where step 7's checksum or step 8's parity fails — a wrong
+/// key-encryption key or a damaged ciphertext, which the RFC does not tell apart.
+pub fn unwrap_triple_des(kek: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, KeyWrapError> {
+    let cipher = TdesEde3::new_from_slice(kek).map_err(|_| KeyWrapError::KeyLength)?;
+    // Step 1.
+    if ciphertext.len() != TRIPLE_DES_WRAPPED {
+        return Err(KeyWrapError::Length);
+    }
+    // Step 2: "Decrypt the wrapped key in CBC mode using the key-encryption key. Use an
+    // initialization vector (IV) of 0x4adda22c79e82105. Call the output TEMP3."
+    let temp3 = cbc_decrypt_des(&cipher, &TRIPLE_DES_IV, ciphertext);
+    // Step 3: "Reverse the order of the octets in TEMP3".
+    let temp2: Vec<u8> = temp3.into_iter().rev().collect();
+    // Step 4: "IV is the most significant (first) 8 octets, and TEMP1 is the least significant
+    // (last) 32 octets."
+    let (iv, temp1) = temp2.split_at(DES_BLOCK);
+    // Step 5: "Decrypt TEMP1 in CBC mode using the key-encryption key. Use the IV value from the
+    // previous step".
+    let cekicv = cbc_decrypt_des(&cipher, iv, temp1);
+    // Step 6: "CEK is the most significant (first) 24 octets, and ICV is the least significant
+    // (last) 8 octets."
+    let (cek, icv) = cekicv.split_at(TRIPLE_DES_KEY);
+    // Step 7, with section 2's checksum: "the most significant (first) eight octets" of the
+    // key's SHA-1 digest. Every octet is compared, whichever differs first.
+    let digest = Sha1::digest(cek);
+    let mut difference = digest
+        .iter()
+        .zip(icv)
+        .fold(0u8, |acc, (computed, stated)| acc | (computed ^ stated));
+    // Step 8: "Check for odd parity each of the DES key octets comprising CEK."
+    for octet in cek {
+        difference |= u8::from(octet.count_ones() % 2 == 0);
+    }
+    if difference != 0 {
+        return Err(KeyWrapError::Integrity);
+    }
+    // Step 9: "Use CEK as a Triple-DES key."
+    Ok(cek.to_vec())
+}
+
+/// The DES block, and the length of RFC 3217's checksum and initialisation vector.
+const DES_BLOCK: usize = 8;
+
+/// A three-key Triple-DES key: three DES keys of eight octets.
+const TRIPLE_DES_KEY: usize = 24;
+
+/// CBC decryption of whole blocks under `cipher` from `iv`, no padding removed: `P[i] =
+/// D(C[i]) ^ C[i-1]`, `C[0]` the vector. `body` is a whole number of blocks, which both callers'
+/// lengths are by construction.
+fn cbc_decrypt_des(cipher: &TdesEde3, iv: &[u8], body: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(body.len());
+    let mut previous = iv;
+    for chunk in body.chunks_exact(DES_BLOCK) {
+        let mut block = des::cipher::Block::<TdesEde3>::default();
+        block.copy_from_slice(chunk);
+        cipher.decrypt_block(&mut block);
+        out.extend(
+            block
+                .iter()
+                .zip(previous)
+                .map(|(plain, chain)| plain ^ chain),
+        );
+        previous = chunk;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     #![expect(
@@ -135,7 +230,7 @@ mod tests {
         reason = "test code: offsets into the RFC's own vectors, of a known size"
     )]
 
-    use super::{KeyWrapError, unwrap};
+    use super::{KeyWrapError, unwrap, unwrap_triple_des};
 
     fn hex(text: &str) -> Vec<u8> {
         (0..text.len())
@@ -201,5 +296,89 @@ mod tests {
         assert_eq!(unwrap(&kek[..16], &good[..16]), Err(KeyWrapError::Length));
         assert_eq!(unwrap(&kek[..16], &good[..23]), Err(KeyWrapError::Length));
         assert_eq!(unwrap(&kek[..15], &good), Err(KeyWrapError::KeyLength));
+    }
+
+    /// RFC 3217 section 3.4's example, every value as the RFC prints it.
+    const EXAMPLE_CEK: &str = "2923bf85e06dd6ae529149f1f1bae9eab3a7da3d860d3e98";
+    const EXAMPLE_KEK: &str = "255e0d1c07b646dfb3134cc843ba8aa71f025b7c0838251f";
+    const EXAMPLE_IV: &str = "5dd4cbfc96f5453b";
+    const EXAMPLE_RESULT: &str = "690107618ef092b3b48ca1796b234ae9fa33ebb415960403\
+         7db5d6a84eb3aac2768c632775a467d4";
+
+    /// RFC 3217 section 3.1, steps 2 to 8, over `cek` as given (step 1's parity left to the
+    /// caller, so that a test can wrap a key that breaks it), with `iv` as step 4's random octets.
+    fn wrap_triple_des(kek: &[u8], cek: &[u8], iv: &[u8]) -> Vec<u8> {
+        use des::TdesEde3;
+        use des::cipher::{BlockCipherEncrypt, KeyInit};
+        use sha1::{Digest, Sha1};
+        let cipher = TdesEde3::new_from_slice(kek).unwrap();
+        let cbc = |iv: &[u8], data: &[u8]| {
+            let mut out = Vec::new();
+            let mut previous = iv.to_vec();
+            for chunk in data.chunks(8) {
+                let mut block = des::cipher::Block::<TdesEde3>::default();
+                for (slot, (a, b)) in block.iter_mut().zip(chunk.iter().zip(&previous)) {
+                    *slot = a ^ b;
+                }
+                cipher.encrypt_block(&mut block);
+                previous = block.to_vec();
+                out.extend_from_slice(&block);
+            }
+            out
+        };
+        let icv = &Sha1::digest(cek)[..8];
+        let cekicv = [cek, icv].concat();
+        let temp1 = cbc(iv, &cekicv);
+        let temp2 = [iv, &temp1].concat();
+        let temp3: Vec<u8> = temp2.into_iter().rev().collect();
+        cbc(&hex("4adda22c79e82105"), &temp3)
+    }
+
+    #[test]
+    fn rfc_3217_section_3_4_s_example_unwraps_to_its_cek() {
+        // Section 3.2 is section 3.1 run backwards: the example's RESULT under its KEK is its CEK.
+        let kek = hex(EXAMPLE_KEK);
+        let result = hex(EXAMPLE_RESULT);
+        assert_eq!(result.len(), 40);
+        assert_eq!(unwrap_triple_des(&kek, &result).unwrap(), hex(EXAMPLE_CEK));
+        // The test's own wrap reproduces the RFC's RESULT, so the parity plant below is wrapped by
+        // the algorithm the RFC states.
+        assert_eq!(
+            wrap_triple_des(&kek, &hex(EXAMPLE_CEK), &hex(EXAMPLE_IV)),
+            result
+        );
+    }
+
+    #[test]
+    fn a_wrong_checksum_parity_length_or_kek_is_refused() {
+        // The plant: one bit of the RESULT flipped fails step 7's checksum; a CEK whose last octet
+        // has even parity, wrapped with a checksum that matches it, fails step 8; step 1's 40
+        // octets; and a key-encryption key that is not three DES keys.
+        let kek = hex(EXAMPLE_KEK);
+        let result = hex(EXAMPLE_RESULT);
+        for at in [0, 20, 39] {
+            let mut damaged = result.clone();
+            damaged[at] ^= 0x10;
+            assert_eq!(
+                unwrap_triple_des(&kek, &damaged),
+                Err(KeyWrapError::Integrity)
+            );
+        }
+        let mut even = hex(EXAMPLE_CEK);
+        even[23] ^= 0x01;
+        assert_eq!(even[23].count_ones() % 2, 0);
+        let wrapped = wrap_triple_des(&kek, &even, &hex(EXAMPLE_IV));
+        assert_eq!(
+            unwrap_triple_des(&kek, &wrapped),
+            Err(KeyWrapError::Integrity)
+        );
+        assert_eq!(
+            unwrap_triple_des(&kek, &result[..32]),
+            Err(KeyWrapError::Length)
+        );
+        assert_eq!(
+            unwrap_triple_des(&kek[..16], &result),
+            Err(KeyWrapError::KeyLength)
+        );
     }
 }

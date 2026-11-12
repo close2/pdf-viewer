@@ -18,7 +18,8 @@
 //! 5753 section 3.1's ephemeral-static Diffie–Hellman ([`agreement`]). The other three are read as
 //! what they are and are never a match, because none of them names a certificate (6.2.3 a
 //! previously distributed symmetric key, 6.2.4 a password, 6.2.5 another scheme). Of key
-//! transport's algorithms, RFC 8017's `rsaEncryption` is opened ([`crate::rsa`]); of key
+//! transport's algorithms, RFC 8017's `rsaEncryption` and RFC 3560's `id-RSAES-OAEP` are opened
+//! ([`crate::rsa`], [`crate::rsa::oaep`]); of key
 //! agreement's, RFC 5753's `dhSinglePass` schemes under its AES key wraps; anything else is
 //! refused with its object identifier.
 //!
@@ -40,6 +41,7 @@ use rc4::Rc4;
 
 use crate::der::{DerError, OCTET_STRING, Reader, SEQUENCE, SET, Value};
 use crate::key::PrivateKey;
+use crate::rsa::{ID_RSAES_OAEP, OaepParameterError, OaepParameters};
 use crate::x509::{Certificate, RSA_ENCRYPTION};
 
 /// RFC 5652 section 6.1's `id-envelopedData`, 1.2.840.113549.1.7.3.
@@ -107,8 +109,10 @@ pub enum EnvelopeError {
     /// number or by subject key identifier (RFC 5652 sections 6.2.1 and 6.2.2's `rid`).
     #[error("no recipient of the CMS object is this certificate")]
     NotARecipient,
-    /// The recipient's key is transported under an algorithm other than `rsaEncryption`; the
-    /// string is the object identifier in dotted form.
+    /// The recipient's key is transported under an algorithm other than `rsaEncryption` and
+    /// `id-RSAES-OAEP`, or under `id-RSAES-OAEP` with a hash, mask generation function or label
+    /// source this reader does not run; the string names it, by its object identifier in dotted
+    /// form.
     #[error("the recipient's key is encrypted under {0}, which this reader does not decrypt")]
     KeyTransport(String),
     /// The recipient is a key-agreement one under a scheme this reader does not run — 1-Pass
@@ -180,6 +184,9 @@ pub enum RecipientInfo<'a> {
         recipient: RecipientIdentifier<'a>,
         /// `keyEncryptionAlgorithm`'s object identifier.
         algorithm: &'a [u8],
+        /// The same algorithm identifier's parameters, where it states any: `NULL` for
+        /// `rsaEncryption`, RFC 3560 section 3's `RSAES-OAEP-params` for `id-RSAES-OAEP`.
+        parameters: Option<Value<'a>>,
         /// `encryptedKey`: the content-encryption key under the recipient's public key.
         encrypted_key: &'a [u8],
     },
@@ -338,7 +345,8 @@ impl<'a> EnvelopedData<'a> {
     }
 
     /// Opens the envelope for `certificate`'s holder, whose private key is `key`: RFC 5652
-    /// section 6.2.1's key transport undone with RFC 8017's `RSAES-PKCS1-v1_5`, or section
+    /// section 6.2.1's key transport undone with RFC 8017's `RSAES-PKCS1-v1_5` or, under RFC
+    /// 3560's `id-RSAES-OAEP`, its `RSAES-OAEP` with the parameters the recipient states, or section
     /// 6.2.2's key agreement undone as RFC 5753 section 3.1.3's receiving agent, then section
     /// 6.3's content decryption.
     ///
@@ -362,13 +370,32 @@ impl<'a> EnvelopedData<'a> {
             return Err(EnvelopeError::NotARecipient);
         };
         let content_key = match (info, key) {
-            (RecipientInfo::KeyTransport { algorithm, .. }, PrivateKey::Rsa(key)) => {
-                if *algorithm != RSA_ENCRYPTION {
-                    return Err(EnvelopeError::KeyTransport(dotted(algorithm)));
+            (
+                RecipientInfo::KeyTransport {
+                    algorithm,
+                    parameters,
+                    ..
+                },
+                PrivateKey::Rsa(key),
+            ) => match *algorithm {
+                RSA_ENCRYPTION => key.decrypt(encrypted_key),
+                // RFC 3560 section 3: "The AlgorithmIdentifier parameters field MUST be present,
+                // and the parameters field MUST contain RSAES-OAEP-params" (ADR 2826).
+                ID_RSAES_OAEP => {
+                    let parameters =
+                        OaepParameters::read(*parameters).map_err(|error| match error {
+                            OaepParameterError::Unsupported { member, algorithm } => {
+                                EnvelopeError::KeyTransport(format!(
+                                    "id-RSAES-OAEP with the {member} {algorithm}"
+                                ))
+                            }
+                            OaepParameterError::Malformed(what) => EnvelopeError::Malformed(what),
+                        })?;
+                    key.decrypt_oaep(encrypted_key, &parameters)
                 }
-                key.decrypt(encrypted_key)
-                    .map_err(|_| EnvelopeError::Decryption)?
+                other => return Err(EnvelopeError::KeyTransport(dotted(other))),
             }
+            .map_err(|_| EnvelopeError::Decryption)?,
             (RecipientInfo::KeyAgreement(agreement), PrivateKey::Ec(key)) => {
                 agreement.content_key(encrypted_key, key, &self.originator_certificates)?
             }
@@ -663,15 +690,17 @@ fn recipient_info(info: Value<'_>) -> Result<RecipientInfo<'_>, EnvelopeError> {
         .next_value()?
         .ok_or(EnvelopeError::Malformed("KeyTransRecipientInfo.rid"))?;
     let recipient = recipient_identifier(rid, "KeyTransRecipientInfo.rid")?;
-    let algorithm = expect(&mut members, SEQUENCE, "keyEncryptionAlgorithm")?
-        .children()?
+    let mut identifier = expect(&mut members, SEQUENCE, "keyEncryptionAlgorithm")?.children()?;
+    let algorithm = identifier
         .next_value()?
         .and_then(|value| value.object_identifier())
         .ok_or(EnvelopeError::Malformed("keyEncryptionAlgorithm"))?;
+    let parameters = identifier.next_value()?;
     let encrypted_key = expect(&mut members, OCTET_STRING, "encryptedKey")?;
     Ok(RecipientInfo::KeyTransport {
         recipient,
         algorithm,
+        parameters,
         encrypted_key: encrypted_key.contents,
     })
 }
@@ -736,7 +765,7 @@ fn octets(value: Value<'_>) -> Result<Vec<u8>, EnvelopeError> {
 
 /// An object identifier as the dotted decimal a person reads, or its bytes in hexadecimal where
 /// it is not a well-formed one.
-fn dotted(oid: &[u8]) -> String {
+pub(crate) fn dotted(oid: &[u8]) -> String {
     crate::x509::dotted(oid).unwrap_or_else(|| {
         oid.iter().fold(String::from("0x"), |mut out, byte| {
             use std::fmt::Write as _;

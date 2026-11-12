@@ -1,5 +1,5 @@
-//! RSA decryption: RFC 8017's private key, its RSADP primitive, and the `RSAES-PKCS1-v1_5`
-//! decoding a CMS key-transport recipient is written in.
+//! RSA decryption: RFC 8017's private key, its RSADP primitive, and the two decodings a CMS
+//! key-transport recipient is written in — `RSAES-PKCS1-v1_5` here and `RSAES-OAEP` in [`oaep`].
 //!
 //! ISO 32000-2 §7.6.5.3 puts the step in one sentence — the key that encrypts the enveloped data
 //! "shall be encrypted for each recipient, using that recipient's public key", and "\[t]o decrypt
@@ -7,7 +7,9 @@
 //! section 6.2.1 names the recipient structure that carries it, `KeyTransRecipientInfo`, whose
 //! algorithm the documents this tree holds all state as RFC 8017's `rsaEncryption`. That
 //! identifier is RFC 8017 section 7.2's scheme, `RSAES-PKCS1-v1_5`, and this module is its
-//! decryption operation (section 7.2.2) over the primitive RSADP (section 5.1.2).
+//! decryption operation (section 7.2.2) over the primitive RSADP (section 5.1.2). RFC 3560's
+//! `id-RSAES-OAEP` is the section 7.1 scheme over the same primitive, with the parameters the
+//! recipient states ([`oaep`], ADR 2826).
 //!
 //! # The private key is an input, and it is the one secret in this crate
 //!
@@ -231,6 +233,10 @@ fn decode_eme_pkcs1_v1_5(encoded: &[u8]) -> Option<Vec<u8>> {
             .to_vec()
     })
 }
+
+pub mod oaep;
+
+pub use oaep::{ID_RSAES_OAEP, OaepHash, OaepParameterError, OaepParameters};
 
 /// The one value `bytes` encodes, with nothing after it.
 fn single(bytes: &[u8]) -> Result<Value<'_>, RsaError> {

@@ -215,8 +215,8 @@ fn a_subject_key_identifier_names_the_certificate_that_carries_it() {
 #[test]
 fn an_algorithm_this_reader_does_not_decrypt_is_named() {
     // AES-128 in GCM mode (RFC 5084's `id-aes128-GCM`, 2.16.840.1.101.3.4.1.6), which is none of
-    // the seven ciphers §7.6.5.3 lists, and RSAES-OAEP (RFC 8017's 1.2.840.113549.1.1.7) as the
-    // key transport.
+    // the seven ciphers §7.6.5.3 lists, and a key transport other than the two this reader
+    // opens with.
     let certificate_bytes = hex(CERTIFICATE);
     let certificate = x509::parse(&certificate_bytes).unwrap();
     let key = PrivateKey::from_der(&hex(PKCS8)).unwrap();
@@ -233,16 +233,102 @@ fn an_algorithm_this_reader_does_not_decrypt_is_named() {
         parse(&bytes).unwrap().open(&certificate, &key),
         Err(EnvelopeError::Cipher("2.16.840.1.101.3.4.1.6".into()))
     );
-    let oaep = [0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x07];
+    // PKCS #1's `rsaOAEPEncryptionSET`, 1.2.840.113549.1.1.6, which is not RFC 3560's
+    // `id-RSAES-OAEP` and which no CMS specification assigns to key transport.
+    let set_oaep = [0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x06];
     let bytes = envelope(
-        &[key_transport(rid(), &content_key, &oaep)],
+        &[key_transport(rid(), &content_key, &set_oaep)],
         ID_AES128_CBC,
         &content_key,
         b"x",
     );
     assert_eq!(
         parse(&bytes).unwrap().open(&certificate, &key),
-        Err(EnvelopeError::KeyTransport("1.2.840.113549.1.1.7".into()))
+        Err(EnvelopeError::KeyTransport("1.2.840.113549.1.1.6".into()))
+    );
+}
+
+/// The envelopes `openssl cms -encrypt -keyopt rsa_padding_mode:oaep` wrote for [`CERTIFICATE`]
+/// over [`SEED_AND_PERMISSIONS`] (`gen_envelopes.sh`, kept with the round that wrote them), each
+/// under the `rsa_oaep_md`, `rsa_mgf1_md` and `rsa_oaep_label` its name gives, and the hash and
+/// MGF1 hash RFC 3560 section 3's parameters must read back. OpenSSL states its choice in the
+/// envelope's own `RSAES-OAEP-params`, writing SHA-1 as the absent default RFC 3560 asks a writer
+/// for, so the reading is asserted before the opening, and what the opening must give back is the
+/// plaintext the script put in.
+#[test]
+fn rsaes_oaep_envelopes_another_tool_wrote_open_under_their_stated_parameters() {
+    use crate::rsa::{OaepHash, OaepParameters};
+    let certificate_bytes = hex(CERTIFICATE);
+    let certificate = x509::parse(&certificate_bytes).unwrap();
+    let key = PrivateKey::from_der(&hex(PKCS8)).unwrap();
+    let cases: [(&[u8], OaepHash, OaepHash, &[u8]); 5] = [
+        (
+            include_bytes!("../../tests/envelopes/oaep-default.der"),
+            OaepHash::Sha1,
+            OaepHash::Sha1,
+            b"",
+        ),
+        (
+            include_bytes!("../../tests/envelopes/oaep-sha256.der"),
+            OaepHash::Sha256,
+            OaepHash::Sha256,
+            b"",
+        ),
+        (
+            include_bytes!("../../tests/envelopes/oaep-sha384-label.der"),
+            OaepHash::Sha384,
+            OaepHash::Sha1,
+            &[0x0A, 0x0B, 0x0C],
+        ),
+        (
+            include_bytes!("../../tests/envelopes/oaep-sha224-mgf1-sha512.der"),
+            OaepHash::Sha224,
+            OaepHash::Sha512,
+            b"",
+        ),
+        (
+            include_bytes!("../../tests/envelopes/oaep-sha512-224.der"),
+            OaepHash::Sha512_224,
+            OaepHash::Sha512_256,
+            b"",
+        ),
+    ];
+    for (bytes, hash, mask_hash, label) in cases {
+        let parsed = parse(bytes).unwrap();
+        let RecipientInfo::KeyTransport {
+            algorithm,
+            parameters,
+            ..
+        } = &parsed.recipients[0]
+        else {
+            panic!("a ktri");
+        };
+        assert_eq!(*algorithm, crate::rsa::ID_RSAES_OAEP);
+        assert_eq!(
+            OaepParameters::read(*parameters),
+            Ok(OaepParameters {
+                hash,
+                mask_hash,
+                label,
+            })
+        );
+        assert_eq!(
+            parsed.open(&certificate, &key).unwrap(),
+            SEED_AND_PERMISSIONS,
+            "{hash:?} {mask_hash:?}"
+        );
+    }
+    // RFC 3560 section 3's parameters are what the scheme runs with: the same envelope with its
+    // label's last octet changed no longer opens, and is the one decryption error.
+    let mut relabelled = cases[2].0.to_vec();
+    let at = relabelled
+        .windows(5)
+        .position(|window| window == [0x04, 0x03, 0x0A, 0x0B, 0x0C])
+        .unwrap();
+    relabelled[at + 4] = 0x0D;
+    assert_eq!(
+        parse(&relabelled).unwrap().open(&certificate, &key),
+        Err(EnvelopeError::Decryption)
     );
 }
 

@@ -15,9 +15,9 @@
 //! SHA-256 instead of SHA-1"); the cofactor form is the standard form on every curve
 //! [`crate::ec`] computes on. The five `mqvSinglePass-*` are 1-Pass ECMQV, which section 8 makes
 //! "OPTIONAL" and which needs the sender's static key and arithmetic no reviewed package here
-//! offers; they are refused with their identifier, as is any other. Of section 7.1.5's four
-//! key-wrap algorithms the three AES ones are run; `id-alg-CMS3DESwrap` (RFC 3217), a "MAY" in
-//! section 8, is refused with its identifier (ADR 2821).
+//! offers; they are refused with their identifier, as is any other. All four of section 7.1.5's
+//! key-wrap algorithms are run: the three AES ones (ADR 2821) and `id-alg-CMS3DESwrap`, RFC 3217
+//! section 3's Triple-DES wrap, a "MAY" in section 8 (ADR 2827).
 
 use sha1::Sha1;
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
@@ -25,6 +25,7 @@ use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use super::{EnvelopeError, RecipientIdentifier, dotted, expect, octets, recipient_identifier};
 use crate::der::{OCTET_STRING, SEQUENCE, Value};
 use crate::ec;
+use crate::key_wrap;
 use crate::x509::{self, EcCurve, PublicKey};
 
 /// RFC 5753 section 7.1.4's `dhSinglePass-stdDH-sha1kdf-scheme`, `{ x9-63-scheme 2 }`.
@@ -59,6 +60,8 @@ const COFACTOR_SHA512: &[u8] =
 
 /// RFC 3565 section 2.3.2's `id-aes128-wrap`, `{ aes 5 }`.
 pub const ID_AES128_WRAP: &[u8] = const_oid::db::rfc5911::ID_AES_128_WRAP.as_bytes();
+/// RFC 3370 section 4.3.1's `id-alg-CMS3DESwrap`, `{ ... smime(16) alg(3) 6 }`.
+pub const ID_ALG_CMS3DES_WRAP: &[u8] = const_oid::db::rfc5911::ID_ALG_CMS_3_DE_SWRAP.as_bytes();
 /// `id-aes192-wrap`, `{ aes 25 }`.
 pub const ID_AES192_WRAP: &[u8] = const_oid::db::rfc5911::ID_AES_192_WRAP.as_bytes();
 /// `id-aes256-wrap`, `{ aes 45 }`.
@@ -285,6 +288,38 @@ impl KdfHash {
     }
 }
 
+/// One of RFC 5753 section 7.1.5's four key-wrap algorithms: "Triple-DES, AES-128, AES-192, and
+/// AES-256".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeyWrap {
+    /// RFC 3565 section 2.3.2's AES wraps, by the key-encryption key's octets.
+    Aes(usize),
+    /// RFC 3370 section 4.3.1's `id-alg-CMS3DESwrap`, RFC 3217 section 3.
+    TripleDes,
+}
+
+impl KeyWrap {
+    /// The wrap a `KeyWrapAlgorithm` identifier names, or `None` for any other.
+    fn of(algorithm: &[u8]) -> Option<Self> {
+        Some(match algorithm {
+            ID_AES128_WRAP => Self::Aes(16),
+            ID_AES192_WRAP => Self::Aes(24),
+            ID_AES256_WRAP => Self::Aes(32),
+            ID_ALG_CMS3DES_WRAP => Self::TripleDes,
+            _ => return None,
+        })
+    }
+
+    /// The key-encryption key's length in octets, which the KDF derives and section 7.2's
+    /// `suppPubInfo` states: a three-key Triple-DES key is three DES keys of eight octets.
+    fn kek_octets(self) -> usize {
+        match self {
+            Self::Aes(octets) => octets,
+            Self::TripleDes => 24,
+        }
+    }
+}
+
 impl KeyAgreement<'_> {
     /// RFC 5753 section 3.1.3's receiving agent: the content-encryption key `encrypted_key` holds,
     /// for the holder of `key`, the private key of the certificate `rid` named.
@@ -299,25 +334,53 @@ impl KeyAgreement<'_> {
     ) -> Result<Vec<u8>, EnvelopeError> {
         let hash = KdfHash::of(self.algorithm)
             .ok_or_else(|| EnvelopeError::KeyAgreement(dotted(self.algorithm)))?;
-        let kek_octets = match self.wrap_algorithm {
-            ID_AES128_WRAP => 16,
-            ID_AES192_WRAP => 24,
-            ID_AES256_WRAP => 32,
-            other => return Err(EnvelopeError::KeyWrap(dotted(other))),
-        };
-        // RFC 3565 section 2.3.2: "In all cases the parameters field MUST be absent." The
-        // sender's `ECC-CMS-SharedInfo` carries the same identifier, so a wrap stated with
-        // parameters leaves what the sender derived its key from unknown.
-        if self.wrap_parameters.is_some() {
-            return Err(EnvelopeError::Malformed(
-                "an AES key wrap with parameters, which RFC 3565 section 2.3.2 says MUST be absent",
-            ));
+        let wrap = KeyWrap::of(self.wrap_algorithm)
+            .ok_or_else(|| EnvelopeError::KeyWrap(dotted(self.wrap_algorithm)))?;
+        match wrap {
+            // RFC 3565 section 2.3.2: "In all cases the parameters field MUST be absent." The
+            // sender's `ECC-CMS-SharedInfo` carries the same identifier, so a wrap stated with
+            // parameters leaves what the sender derived its key from unknown.
+            KeyWrap::Aes(_) if self.wrap_parameters.is_some() => {
+                return Err(EnvelopeError::Malformed(
+                    "an AES key wrap with parameters, which RFC 3565 section 2.3.2 says MUST be absent",
+                ));
+            }
+            // RFC 3370 section 4.3.1: "The AlgorithmIdentifier parameter field MUST be NULL." RFC
+            // 5753 section 7.2 says the same of the copy in `keyInfo`.
+            KeyWrap::TripleDes
+                if self
+                    .wrap_parameters
+                    .is_none_or(|value| value.identifier != crate::der::NULL) =>
+            {
+                return Err(EnvelopeError::Malformed(
+                    "id-alg-CMS3DESwrap without the NULL parameters RFC 3370 section 4.3.1 says it MUST carry",
+                ));
+            }
+            // RFC 3217 section 3.2 step 1: "If the wrapped key is not 40 octets, then error." The
+            // section unwraps a Triple-DES key and no other, so a key of another length under
+            // this identifier — RFC 3370 section 4.3's "mixed" case, which no section defines an
+            // algorithm for — is named rather than tried (ADR 2827).
+            KeyWrap::TripleDes if encrypted_key.len() != key_wrap::TRIPLE_DES_WRAPPED => {
+                return Err(EnvelopeError::KeyWrap(format!(
+                    "{} over a {}-octet wrapped key, where RFC 3217 section 3.2 unwraps {} octets",
+                    dotted(self.wrap_algorithm),
+                    encrypted_key.len(),
+                    key_wrap::TRIPLE_DES_WRAPPED
+                )));
+            }
+            _ => {}
         }
+        let kek_octets = wrap.kek_octets();
         let point = self.originator_point(key.curve(), originator_certificates)?;
         // SEC 1 section 3.3.1; a point that is not on the key's curve is a key that does not
         // open this recipient, the one error every such failure is.
         let z = key.agree(point).map_err(|_| EnvelopeError::Decryption)?;
-        let info = shared_info(self.wrap_algorithm, self.ukm.as_deref(), kek_octets);
+        let info = shared_info(
+            self.wrap_algorithm,
+            wrap == KeyWrap::TripleDes,
+            self.ukm.as_deref(),
+            kek_octets,
+        );
         let kek = match hash {
             KdfHash::Sha1 => x963_kdf::<Sha1>(&z, &info, kek_octets),
             KdfHash::Sha224 => x963_kdf::<Sha224>(&z, &info, kek_octets),
@@ -325,7 +388,11 @@ impl KeyAgreement<'_> {
             KdfHash::Sha384 => x963_kdf::<Sha384>(&z, &info, kek_octets),
             KdfHash::Sha512 => x963_kdf::<Sha512>(&z, &info, kek_octets),
         };
-        crate::key_wrap::unwrap(&kek, encrypted_key).map_err(|_| EnvelopeError::Decryption)
+        match wrap {
+            KeyWrap::Aes(_) => key_wrap::unwrap(&kek, encrypted_key),
+            KeyWrap::TripleDes => key_wrap::unwrap_triple_des(&kek, encrypted_key),
+        }
+        .map_err(|_| EnvelopeError::Decryption)
     }
 
     /// The sender's public point: carried in `originatorKey`, or read from the certificate the
@@ -399,11 +466,21 @@ impl KeyAgreement<'_> {
 ///   suppPubInfo [2] EXPLICIT OCTET STRING  }
 /// ```
 ///
-/// `keyInfo` is the wrap's identifier, and "the AES wraps have absent parameters"; `entityUInfo`
+/// `keyInfo` is the wrap's identifier, and "3DES wrap has NULL parameters while the AES wraps
+/// have absent parameters" — `null_parameters` is which; `entityUInfo`
 /// "contains the octet string ukm"; `suppPubInfo` "contains the length of the generated KEK, in
 /// bits, represented as a 32-bit number".
-pub(crate) fn shared_info(wrap_algorithm: &[u8], ukm: Option<&[u8]>, kek_octets: usize) -> Vec<u8> {
-    let key_info = tlv(SEQUENCE, &tlv(OBJECT_IDENTIFIER, wrap_algorithm));
+pub(crate) fn shared_info(
+    wrap_algorithm: &[u8],
+    null_parameters: bool,
+    ukm: Option<&[u8]>,
+    kek_octets: usize,
+) -> Vec<u8> {
+    let mut identifier = tlv(OBJECT_IDENTIFIER, wrap_algorithm);
+    if null_parameters {
+        identifier.extend_from_slice(&[crate::der::NULL, 0x00]);
+    }
+    let key_info = tlv(SEQUENCE, &identifier);
     let bits = u32::try_from(kek_octets.saturating_mul(8)).unwrap_or(u32::MAX);
     let mut contents = key_info;
     if let Some(ukm) = ukm {

@@ -236,12 +236,14 @@ per-stream recipient list. `crates/pdf-syntax/tests/public_key_witnesses.rs` ope
 four `PDFBox` witnesses with their keystores' keys, and documents a script writes test s3, s4 and the
 per-stream list. A host supplies the reader's certificate and key (`--recipient-certificate`,
 `--recipient-key`, `quorra_recipient_key`; ADR 2822), so ADR 2801's order is built. **What is left is
-effort only**: RSAES-OAEP, ECMQV and the Triple DES key wrap are refused by name. §7.6.5.1, §7.6.5.2 and
+effort only**: 1-Pass ECMQV and keys on brainpoolP512r1 are refused by name; RSAES-OAEP and the
+Triple DES key wrap run (ADRs 2826, 2827). §7.6.5.1, §7.6.5.2 and
 §7.6.6 left the map: the three rows are `implemented`.
 
 - §7.6.5.3 — `partial`: all seven envelope ciphers and both digests run, the stream-level seed
   included, and both certificate-bound recipient kinds open (RSA key transport, elliptic-curve key
-  agreement); RSAES-OAEP, ECMQV, the Triple DES key wrap and brainpoolP512r1 are refused by name.
+  agreement, under RSAES-PKCS1-v1_5 or RSAES-OAEP and any of the four key wraps); 1-Pass ECMQV and
+  brainpoolP512r1 are refused by name.
 
 **`doc/questions/`, and what each answer holds in this map.** `tools/state.sh questions` prints
 the parity and names the open ones. The owner's answers of 2026-09-22 are built: A98's client sends

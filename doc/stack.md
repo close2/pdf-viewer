@@ -71,7 +71,8 @@ envelope ciphers §7.6.5.3 lists as deprecated, read and never written (ADR 2809
 packages `p256`, `p384`, `p521`, `bp256` and `bp384` with `sha1` and `sha2`, for RFC 5753's key
 agreement with an elliptic-curve recipient — the packages `pdf-signature` already pins, so the lock
 gains edges and no package, and RFC 3394's key unwrap is written in-tree over `aes` rather than
-taken as `aes-kw` (ADR 2821); it is still one reader, fuzzed once (`fuzz/`'s `enveloped`,
+taken as `aes-kw` (ADR 2821), as RFC 3217's Triple-DES unwrap is over `des` and RFC 8017's
+RSAES-OAEP over `sha1` and `sha2` (ADRs 2826, 2827); it is still one reader, fuzzed once (`fuzz/`'s `enveloped`,
 `rsa_private_key`, `ec_private_key` and `key_unwrap` beside `cms` and `x509`).
 
 §12.8's signature verification keeps `crates/pdf-signature`'s `pkcs1`, `pss`, `dsa` and `cms`, and

@@ -119,6 +119,41 @@ fn envelopes_another_tool_wrote_open_too() {
     );
 }
 
+/// RFC 5753 section 7.1.5's fourth key wrap, `id-alg-CMS3DESwrap`, in envelopes `openssl cms
+/// -encrypt -des3 -wrap des3-wrap` wrote to the P-256 certificate, under the default KDF hash and
+/// `ecdh_kdf_md:sha256`. Each states the wrap with RFC 3370 section 4.3.1's NULL parameters, its
+/// KEK is 24 octets and `suppPubInfo` 192 bits, and what RFC 3217 section 3.2 unwraps is the
+/// Triple-DES content key `des-ede3-cbc` decrypts with. Then the same tool's `-aes128 -wrap
+/// des3-wrap`: a 16-octet key under the Triple-DES wrap is 32 octets wrapped, which section 3.2's
+/// first step makes an error, and the reader names it rather than opening it (ADR 2827).
+#[test]
+fn a_triple_des_wrapped_key_opens_and_a_wrapped_key_of_another_length_is_named() {
+    for name in ["sha1", "sha256"] {
+        let envelope = if name == "sha1" {
+            fixture!("openssl-p256-des3-wrap.der")
+        } else {
+            fixture!("openssl-p256-sha256-des3-wrap.der")
+        };
+        let RecipientInfo::KeyAgreement(agreement) = &parse(envelope).unwrap().recipients[0] else {
+            panic!("a kari");
+        };
+        assert_eq!(
+            agreement.wrap_algorithm,
+            super::ID_ALG_CMS3DES_WRAP,
+            "{name}"
+        );
+        assert_eq!(open(envelope, "p256").unwrap(), PLAIN, "{name}");
+    }
+    assert_eq!(
+        open(fixture!("openssl-p256-aes128-des3-wrap.der"), "p256"),
+        Err(EnvelopeError::KeyWrap(
+            "1.2.840.113549.1.9.16.3.6 over a 32-octet wrapped key, where RFC 3217 section 3.2 \
+             unwraps 40 octets"
+                .to_owned()
+        ))
+    );
+}
+
 /// RFC 5652 section 6.2.2: the `KeyAgreeRecipientIdentifier` names "the recipient's certificate
 /// by the issuer's distinguished name and the certificate serial number" or by `rKeyId`'s
 /// `subjectKeyIdentifier`, which "matches the X.509 subjectKeyIdentifier extension value". In
@@ -234,7 +269,7 @@ fn shared_info_is_rfc_5753_s_structure_in_der() {
         0x2D, // keyInfo
         0xA2, 0x06, 0x04, 0x04, 0x00, 0x00, 0x01, 0x00, // suppPubInfo [2] EXPLICIT
     ];
-    assert_eq!(shared_info(ID_AES256_WRAP, None, 32), without);
+    assert_eq!(shared_info(ID_AES256_WRAP, false, None, 32), without);
     let with = [
         0x30, 0x1B, // ECC-CMS-SharedInfo
         0x30, 0x0B, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x01,
@@ -242,7 +277,7 @@ fn shared_info_is_rfc_5753_s_structure_in_der() {
         0xA0, 0x04, 0x04, 0x02, b'a', b'b', // entityUInfo [0] EXPLICIT
         0xA2, 0x06, 0x04, 0x04, 0x00, 0x00, 0x01, 0x00, // suppPubInfo [2] EXPLICIT
     ];
-    assert_eq!(shared_info(ID_AES256_WRAP, Some(b"ab"), 32), with);
+    assert_eq!(shared_info(ID_AES256_WRAP, false, Some(b"ab"), 32), with);
 }
 
 /// SEC 1 section 3.6.1, restated with the hash itself: `K1 || K2 || ...` with `Ki = Hash(Z ||
