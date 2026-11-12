@@ -507,6 +507,17 @@ pub enum Query<'a> {
     /// page means interpreting it, and a question is answered at pointer speed from what is
     /// already held — a host turns to the page and asks. [`Answer::None`] where nothing is open,
     /// and an **empty list** where no page on the screen has been interpreted yet.
+    ///
+    /// **A reading, answered at every restriction level, and not a copy** (ADR 2844). ISO 32000-2
+    /// Table 22's bit 5 withholds "\[c]opy or otherwise extract text and graphics from the
+    /// document", and the reader's level over it is asked where text leaves the document — at
+    /// [`crate::Command::Copy`], which raises the events an `ask` or a `warn` needs. A question
+    /// raises none, so a restriction asked here could only ever be a refusal, the shape
+    /// `CLAUDE.md`'s restrictions section names as the one to avoid; and the characters are the
+    /// ones [`Query::Find`] and [`Query::AccessibilityTree`] already read, the second under the
+    /// bit's own words, "for the limited purpose of providing this content to assistive
+    /// technology, a PDF reader should behave as if this bit was set to 1". Bit 10, which ISO
+    /// 32000-1 used for that purpose, "PDF readers shall ignore".
     Text,
 }
 

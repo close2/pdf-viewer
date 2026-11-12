@@ -34,7 +34,7 @@ a test's timing are not work held back and are not here.
 | 2 | `doc/questions/A66`, `A168`; ADRs 1485, 1202; `doc/todo/01`; `doc/todo/65` section 5 | §7.6.5's public-key handler | §7.6.5, §7.6.5.1–3, §7.6.6 | **built in part** (ADRs 2801, 2802, 2809, 2810, 2821, 2822, 2826, 2827): the handler, all seven envelope ciphers, Table 27's per-stream list, RSAES-PKCS1-v1_5 and RSAES-OAEP key transport, RFC 5652 key agreement for an elliptic-curve certificate under all four key wraps, and the host input (ADR 1134) run; 1-Pass ECMQV and brainpoolP512r1 are left, effort only (ADR 2827 says why each waits) |
 | 3 | ADR 2529 (status deferred to Q713) | §12.8.3.4.4's policy enforcement | §12.8.3.4.4 | another lane's — `doc/questions/A713` placed the documents |
 | 4 | ADR 1736 section 1 | `app.goBack`/`goForward`, held in `surface::REFUSED` until a window keeps a history of views | JavaScript `app` members | **built** (ADR 2805) |
-| 5 | `doc/todo/63` "what is left" | one `Query` for a page's text on the confined pipe | `viewer-core` vocabulary | **built** (ADR 2836): `Query::Text`, the pages on the screen; the C ABI's accessor is left, effort only |
+| 5 | `doc/todo/63` "what is left" | one `Query` for a page's text on the confined pipe | `viewer-core` vocabulary | **built** (ADRs 2836, 2844): `Query::Text`, the pages on the screen, a reading at every restriction level, and the C ABI's `quorra_page_text` |
 | 6 | `doc/todo/65` section 1's host rows | per-host reads of print and collection entries | rows needing a host | effort only |
 | 7 | ADR 2137 | the records the WinUI window declines in the library's terms | WinUI host | effort only |
 | 8 | ADR 0705 | the dot-pattern splits | §10.7.4 | effort only |

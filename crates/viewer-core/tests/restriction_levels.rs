@@ -659,3 +659,43 @@ fn answering_the_processing_question_opens_the_document_or_forgets_it() {
         "and the viewer holds no document the person cannot see"
     );
 }
+
+/// `Query::Text` is a reading, and answers at the level that refuses the copy (ADR 2844).
+///
+/// The fixture's `/P` clears Table 22's bit 5, "[c]opy or otherwise extract text and graphics from
+/// the document", and the reader set copying to `on`: `Command::Copy` is refused by name, as the
+/// test above pins. The same page's text still answers the question, because the level is asked at
+/// the gesture that takes text out of the document and a question raises no event an `ask` could
+/// wait on — and what answers is the page's own characters, the ones the copy at `Off` released.
+#[test]
+fn the_pages_text_is_a_reading_the_copy_level_does_not_withhold() {
+    let policy = RestrictionPolicy::default().with(Operation::Extract, RestrictionLevel::On);
+    let Some(mut viewer) = restricted(policy) else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let events = sent(&mut viewer, Command::Copy);
+    assert!(
+        holds(&events, |event| matches!(
+            event,
+            Event::Refused {
+                operation: Operation::Extract,
+                ..
+            }
+        )),
+        "the copy is the level set to on: {events:?}"
+    );
+
+    let Answer::Text(pages) = viewer.query(Query::Text) else {
+        panic!("an open document answers with its pages' text");
+    };
+    let [page] = pages.as_slice() else {
+        panic!("page one is on the screen and read: {pages:?}");
+    };
+    assert_eq!(page.page, 0);
+    assert!(
+        page.text.contains("ANEXO") || page.text.contains("A N E X O"),
+        "the page's own characters: {:?}",
+        &page.text[..40.min(page.text.len())]
+    );
+}

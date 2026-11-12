@@ -146,6 +146,10 @@ fn entry_points(query: &Query<'_>) -> &'static [&'static str] {
             "quorra_readback_page",
             "quorra_readback_count",
         ],
+        // Three, `Readback`'s shape for `Readback`'s population: how many pages, which page an
+        // entry is, and the entry's text in C's two-call idiom. A reading at every level, not a
+        // second copy accessor (ADR 2844).
+        Query::Text => &["quorra_text_pages", "quorra_text_page", "quorra_page_text"],
     }
 }
 
@@ -193,6 +197,7 @@ fn every_query() -> Vec<Query<'static>> {
         Query::AccessibilityTree,
         Query::Reports,
         Query::Readback,
+        Query::Text,
         Query::Measure(&[]),
     ]
 }

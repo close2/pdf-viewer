@@ -1398,6 +1398,28 @@ int main(int argc, char **argv)
     (void)quorra_current_page(viewer, &page, &of);
     printf("after the search: page %zu of %zu\n", page + 1, of);
 
+    /* §9.10.1's text of each page on the screen, one entry per page: the readback the search above
+     * read, so the bytes it named are, in the found page's own text, the term it was asked for. A
+     * reading, answered at every level (ADR 2844); a copy is quorra_copy's. */
+    size_t texts = quorra_text_pages(viewer);
+    printf("§9.10.1: %zu page(s) answer with their text\n", texts);
+    for (size_t entry = 0; entry < texts; ++entry) {
+        size_t text_page = 0;
+        size_t needed = 0;
+        if (quorra_text_page(viewer, entry, &text_page) != QUORRA_OK || !hit
+            || text_page != at_page
+            || quorra_page_text(viewer, entry, NULL, 0, &needed) != QUORRA_BUFFER_TOO_SMALL) {
+            continue;
+        }
+        char *text = malloc(needed);
+        if (text != NULL && quorra_page_text(viewer, entry, text, needed, &needed) == QUORRA_OK
+            && to <= needed - 1 && from <= to) {
+            printf("  page %zu's text, bytes %zu..%zu: \"%.*s\"\n", text_page + 1, from, to,
+                   (int)(to - from), text + from);
+        }
+        free(text);
+    }
+
     /* A page turn, and the page that comes back must be the one turned to. */
     quorra_events *turned = NULL;
     if (!check("quorra_go_to_page", quorra_go_to_page(viewer, QUORRA_PAGE_NEXT, 0, &turned))) {

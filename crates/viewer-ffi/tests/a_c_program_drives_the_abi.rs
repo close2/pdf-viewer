@@ -333,6 +333,10 @@ fn what_it_printed(said: &str) {
         // is "Black Point" at bytes 57..68 after "Application Note\n2018-09\nPDF 2.0 Application
         // Note 001: \n\n" (ADR 1490). One step, for the one page searched.
         "search: found on page 1, bytes 57..68, after 1 step(s)",
+        // `quorra_page_text` hands over the readback the search reads, at every level (ADR
+        // 2844), so the eleven bytes the search names are, in page one's own text, the title's
+        // "Black Point" by the §9.4.4 reading above.
+        "page 1's text, bytes 57..68: \"Black Point\"",
         "after the search: page 1 of 5",
         "after the turn: page 2 of 5, drawn in ",
         "frame: page 2, 708x1000, format 0, 2832000 byte(s)",

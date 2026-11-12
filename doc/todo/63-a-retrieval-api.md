@@ -55,8 +55,9 @@ carets including the `BM, ` that ADR 0253 found this tree implementing from reti
 is fuzzed, so **no second transport was built and none should be**. What was missing was a
 *vocabulary* entry rather than a channel, and it is `Query::Text` (ADR 2836): the text of the pages
 on the screen, one entry per page, the same characters `Query::Find` searches, on the pipe as
-query and answer kind 38. The C ABI has no accessor for it yet — `viewer-ffi`'s entry points are
-one per question — and that accessor is effort only.
+query and answer kind 38, and to a C caller as `quorra_text_pages`, `quorra_text_page` and
+`quorra_page_text`. It is a reading, answered at every restriction level; a copy of it is still
+`Command::Copy`'s, at the reader's level for Table 22's bit 5 (ADR 2844).
 
 ## The substitution: measured, and deliberately not done here
 

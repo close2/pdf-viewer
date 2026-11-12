@@ -318,6 +318,70 @@ pub unsafe extern "C" fn quorra_readback_count(
     }
 }
 
+/// How many pages on the screen have their text to answer with. Zero for a null pointer.
+///
+/// `quorra_readback_pages`'s population: one entry per page the arrangement shows and has read,
+/// and `quorra_text_page` says which page an entry is.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_text_pages(viewer: *const Session) -> usize {
+    viewer.as_ref().map_or(0, Session::text_pages)
+}
+
+/// Which page one of those entries is the text of, zero-based.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_text_page(
+    viewer: *const Session,
+    entry: usize,
+    page: *mut usize,
+) -> c_int {
+    let (Some(viewer), Some(page)) = (viewer.as_ref(), page.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match viewer.text_page(entry) {
+        Ok(index) => {
+            *page = index;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// One page's text, ISO 32000-2 §9.10.1's "information content of text", in the two-call idiom
+/// `quorra_selection_text` uses.
+///
+/// **The readback, at every restriction level** (ADR 2844): the characters the library's own
+/// search reads, in the order the content stream showed them. What a caller puts on a clipboard
+/// or into a file is Table 22 bit 5's copy, which `quorra_copy` asks at the reader's level and
+/// `quorra_selection_copy_text` reads back (ADR 2087).
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_page_text(
+    viewer: *const Session,
+    entry: usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(viewer) = viewer.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match viewer.page_text(entry) {
+        Ok(text) => copy_out(text, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
 /// How many of §9.10.2's counts this library distinguishes.
 #[unsafe(no_mangle)]
 pub extern "C" fn quorra_shortfall_kind_count() -> u32 {

@@ -1165,4 +1165,45 @@ mod tests {
             "a declined copy releases nothing, and the last one's text is not handed out for it"
         );
     }
+
+    /// `quorra_page_text` is §9.10.1's readback and answers at every level, where the copy beside
+    /// it is refused (ADR 2844).
+    ///
+    /// The document withholds Table 22's bit 5, "[c]opy or otherwise extract text and graphics
+    /// from the document", and the reader set copying to `on`, so `quorra_copy` is refused and
+    /// releases nothing. The page's text is still the reading the library's own search does: the
+    /// characters of `Seiten`, the code 173 the font's `/Differences` names `softhyphen` (U+00AD by
+    /// §9.10.2's glyph-name method), the line the `'` operator starts, and `zahl.` — the soft
+    /// hyphen and the line kept, because §14.8.2.3's undoing of a division is the copy's and this
+    /// is not a copy.
+    #[test]
+    fn a_pages_text_is_a_reading_and_answers_where_the_copy_is_refused() {
+        use viewer_core::RestrictionLevel;
+        let objects = divided();
+        let objects: Vec<&str> = objects.iter().map(String::as_str).collect();
+        let withheld = pdf_syntax::serialize::Access {
+            copy: false,
+            ..pdf_syntax::serialize::Access::ALL
+        };
+        let mut session = selected(encrypted(&objects, "", withheld), RestrictionLevel::On);
+        let refused = session.copy();
+        assert!(
+            found(&refused, EventKind::Refused).is_some(),
+            "bit 5 is clear and the reader's level is on"
+        );
+        assert_eq!(session.copy_text(), Err(Status::NoAnswer));
+
+        assert_eq!(
+            session.text_pages(),
+            1,
+            "one page is on the screen and read"
+        );
+        assert_eq!(session.text_page(0), Ok(0));
+        assert_eq!(session.page_text(0), Ok("Seiten\u{ad}\nzahl."));
+        assert_eq!(session.page_text(1), Err(Status::OutOfRange));
+        assert_eq!(
+            Session::new(800, 1000, 1.0).page_text(0),
+            Err(Status::NoAnswer)
+        );
+    }
 }

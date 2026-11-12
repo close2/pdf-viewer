@@ -1748,6 +1748,16 @@ int32_t quorra_readback_count(const quorra_viewer *viewer, size_t entry, uint32_
 uint32_t    quorra_shortfall_kind_count(void);
 const char *quorra_shortfall_kind_name(uint32_t which);
 
+/* §9.10.1's text of each page on the screen, ONE ENTRY PER PAGE as the counts above are, in the
+ * order the content stream showed it: the characters quorra_find_matches searches. A READING, so it
+ * answers at every restriction level (ADR 2844); text bound for a clipboard or a file is Table 22
+ * bit 5's copy, asked by quorra_copy and read back by quorra_selection_copy_text. quorra_page_text
+ * is the two-call idiom: size with out = NULL, then copy. */
+size_t  quorra_text_pages(const quorra_viewer *viewer);
+int32_t quorra_text_page(const quorra_viewer *viewer, size_t entry, size_t *page);
+int32_t quorra_page_text(const quorra_viewer *viewer, size_t entry, char *out, size_t cap,
+                         size_t *needed);
+
 /* §12.5.6.14's open popup windows on the page being shown, in /Annots order. Only the OPEN ones:
  * Table 186's /Open says which start that way, and quorra_activate on the parent annotation changes
  * it — §12.5.1's "[w]hen the user activates the annotation by clicking it, it exhibits its

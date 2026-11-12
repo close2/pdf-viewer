@@ -282,6 +282,60 @@ impl Session {
             .ok_or(Status::OutOfRange)
     }
 
+    /// How many pages on the screen have their text to answer with.
+    ///
+    /// [`viewer_core::Query::Text`]'s population, which is [`Self::readback_pages`]'s: one entry
+    /// per page the arrangement shows and has interpreted, so a column of four pages is four
+    /// entries and a page not yet read is none.
+    #[must_use]
+    pub fn text_pages(&self) -> usize {
+        match self.viewer.query(Query::Text) {
+            Answer::Text(pages) => pages.len(),
+            _ => 0,
+        }
+    }
+
+    /// Which page one of those entries is the text of, zero-based.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused, [`Status::OutOfRange`] for an entry past
+    /// [`Self::text_pages`].
+    pub fn text_page(&self, entry: usize) -> Result<usize, Status> {
+        let Answer::Text(pages) = self.viewer.query(Query::Text) else {
+            return Err(Status::NoAnswer);
+        };
+        pages
+            .get(entry)
+            .map(|page| page.page)
+            .ok_or(Status::OutOfRange)
+    }
+
+    /// One page's text, ISO 32000-2 §9.10.1's "information content of text", in the order the
+    /// content stream showed it.
+    ///
+    /// **A reading, not a copy, and so asked of no level** (ADR 2844). Table 22's bit 5 is the
+    /// reader's to set over [`viewer_core::Command::Copy`], the gesture that puts text where the
+    /// document no longer reaches it, and [`Self::copy_text`] answers only with what that gesture
+    /// released (ADR 2087). This is the readback the library's own search and §14.9's spoken
+    /// nodes already read — the characters [`viewer_core::Query::Find`] searches — and the bit
+    /// itself says a reader "should behave as if this bit was set to 1" where the text is for
+    /// assistive technology.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused, [`Status::OutOfRange`] for an entry past
+    /// [`Self::text_pages`].
+    pub fn page_text(&self, entry: usize) -> Result<&str, Status> {
+        let Answer::Text(pages) = self.viewer.query(Query::Text) else {
+            return Err(Status::NoAnswer);
+        };
+        pages
+            .get(entry)
+            .map(|page| page.text)
+            .ok_or(Status::OutOfRange)
+    }
+
     /// §14.7's logical structure for every page the arrangement is showing.
     ///
     /// # Errors
