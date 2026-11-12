@@ -296,6 +296,66 @@ pub fn for_embedding_with_empty_glyphs(
     written(program, used, empty)
 }
 
+/// `program` with each glyph of `glyphs` drawing nothing, at the advance it had, and every other
+/// byte of it the program's own.
+///
+/// **What a font this reader drew as nothing is embedded with** (`doc/adr/2830`). ISO 32000-2
+/// §9.9 counts a program whose data does not decode whole as no program, this reader draws none
+/// of its glyphs and advances by the font dictionary's widths alone (`doc/adr/1094`), and a
+/// conversion that must embed a program for the font (ISO 19005-2 section 6.2.11.4.1) keeps the
+/// page as it was drawn by writing one whose every glyph the page shows draws nothing. A `glyf`
+/// glyph is emptied as ISO/IEC 14496-22 empties one — its `loca` entry given no bytes — with its
+/// `hmtx` advance left as it was, and every glyph keeps its index; a `CFF ` glyph, in a bare
+/// program or an OpenType one, becomes a width and `endchar` ([`crate::cff::with_glyphs_emptied`]).
+///
+/// # Errors
+///
+/// [`Refusal::NoOutlines`] for an sfnt with neither `glyf` nor `CFF `, and
+/// [`Refusal::Malformed`] where a table this reads is absent or inconsistent, a glyph named is
+/// past the program's last, or a `CFF ` width cannot be written again.
+pub fn with_glyphs_emptied(program: &[u8], glyphs: &BTreeSet<u16>) -> Result<Vec<u8>, Refusal> {
+    let cff_refused = |_| Refusal::Malformed("CFF ");
+    // By the signature, as every reader here tells the two apart: a bare program's header is no
+    // table directory, though its bytes may parse as one.
+    if crate::standard::program_format(program) == Some(crate::substitute::Format::BareCff) {
+        return crate::cff::with_glyphs_emptied(program, glyphs).map_err(cff_refused);
+    }
+    let tables = sfnt_tables(program).ok_or(Refusal::Malformed("table directory"))?;
+    if !tables.contains_key(b"glyf".as_slice()) {
+        let &(at, length) = tables.get(b"CFF ".as_slice()).ok_or(Refusal::NoOutlines)?;
+        let table = program
+            .get(at..at.saturating_add(length))
+            .ok_or(Refusal::Malformed("CFF "))?;
+        let emptied = crate::cff::with_glyphs_emptied(table, glyphs).map_err(cff_refused)?;
+        return crate::sfnt::with_tables(program, &[(b"CFF ", emptied)])
+            .ok_or(Refusal::Malformed("table directory"));
+    }
+    let face = Face::read(program)?;
+    if glyphs.iter().any(|glyph| *glyph >= face.count) {
+        return Err(Refusal::Malformed("glyf"));
+    }
+    let mut glyf = Vec::new();
+    let mut loca = Vec::with_capacity(usize::from(face.count).saturating_add(1).saturating_mul(4));
+    for glyph in 0..face.count {
+        loca.extend_from_slice(&offset_of(&glyf)?.to_be_bytes());
+        if !glyphs.contains(&glyph) {
+            glyf.extend_from_slice(face.outline(glyph)?);
+            while !glyf.len().is_multiple_of(4) {
+                glyf.push(0);
+            }
+        }
+    }
+    loca.extend_from_slice(&offset_of(&glyf)?.to_be_bytes());
+    // Long offsets, as every subset here is written (`Face::rebuilt`).
+    let mut head = face.head.to_vec();
+    patch(&mut head, INDEX_TO_LOC_FORMAT, 1, "head")?;
+    crate::sfnt::with_tables(
+        program,
+        &[(b"head", head), (b"loca", loca), (b"glyf", glyf)],
+    )
+    .ok_or(Refusal::Malformed("table directory"))
+}
+
 /// [`for_embedding`] with `empty` empty glyphs appended to a `glyf` program, and their indices.
 fn written(
     program: &[u8],
@@ -686,7 +746,8 @@ pub(crate) fn assembled(tables: &BTreeMap<[u8; 4], Vec<u8>>, version: [u8; 4]) -
 ///
 /// Only the printable ASCII a PostScript name is made of is kept, without the characters §7.2.3
 /// makes delimiters. A face stating none is named for what it is.
-fn postscript_name(program: &[u8]) -> String {
+#[must_use]
+pub fn postscript_name(program: &[u8]) -> String {
     use skrifa::MetadataProvider as _;
     let stated = skrifa::FontRef::new(program)
         .ok()
@@ -747,7 +808,7 @@ fn tag(program: &[u8], kept: &BTreeSet<u16>) -> String {
 mod tests {
     use super::{
         Licence, Refusal, for_embedding, for_embedding_with_empty_glyphs, may_be_embedded,
-        permission, tag,
+        permission, tag, with_glyphs_emptied,
     };
     use crate::sfnt::{be16, be32, sfnt_tables};
     use std::collections::{BTreeMap, BTreeSet};
@@ -958,6 +1019,74 @@ mod tests {
     }
 
     /// A pen that counts what it is asked to draw.
+    /// The number of pen commands `glyph` of a shipped face's `program` draws.
+    fn commands(program: &[u8], format: crate::substitute::Format, glyph: u16) -> usize {
+        use skrifa::MetadataProvider as _;
+        let mut commands = 0usize;
+        let mut pen = Counted(&mut commands);
+        match format {
+            crate::substitute::Format::BareCff => {
+                crate::cff::draw(program, glyph, &mut pen).expect("the glyph draws");
+            }
+            crate::substitute::Format::Sfnt => {
+                skrifa::FontRef::new(program)
+                    .expect("a reader opens the program")
+                    .outline_glyphs()
+                    .get(skrifa::GlyphId::new(u32::from(glyph)))
+                    .expect("the glyph is there")
+                    .draw(
+                        skrifa::outline::DrawSettings::unhinted(
+                            skrifa::instance::Size::unscaled(),
+                            skrifa::instance::LocationRef::default(),
+                        ),
+                        &mut pen,
+                    )
+                    .expect("the glyph draws");
+            }
+        }
+        commands
+    }
+
+    /// ADR 2830: a font this reader drew as nothing is embedded with a program whose shown glyphs
+    /// draw nothing. In a `glyf` face (Liberation Sans) and a bare `CFF ` one (Foxit Serif), the
+    /// glyphs named stop drawing and keep their advances, and a glyph not named draws as before.
+    #[test]
+    fn emptied_glyphs_draw_nothing_at_the_advance_they_had() {
+        for family in [
+            crate::substitute::Family::SansSerif,
+            crate::substitute::Family::Serif,
+        ] {
+            let (program, format) = crate::standard::face(crate::substitute::Request {
+                family,
+                bold: false,
+                italic: false,
+                standard: true,
+            });
+            let drawn: Vec<u16> = (1..200)
+                .filter(|glyph| commands(program, format, *glyph) > 0)
+                .take(3)
+                .collect();
+            let [first, second, kept] = drawn[..] else {
+                panic!("the face draws three glyphs among its first two hundred");
+            };
+            let emptied = with_glyphs_emptied(program, &BTreeSet::from([first, second]))
+                .expect("the face is emptied");
+            for glyph in [first, second] {
+                assert_eq!(commands(&emptied, format, glyph), 0, "{family:?} {glyph}");
+                assert_eq!(
+                    crate::restate::advance(&emptied, format, glyph),
+                    crate::restate::advance(program, format, glyph),
+                    "{family:?} {glyph}"
+                );
+            }
+            assert_eq!(
+                commands(&emptied, format, kept),
+                commands(program, format, kept),
+                "{family:?}"
+            );
+        }
+    }
+
     struct Counted<'a>(&'a mut usize);
 
     impl skrifa::outline::OutlinePen for Counted<'_> {

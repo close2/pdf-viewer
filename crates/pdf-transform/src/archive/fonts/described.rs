@@ -42,7 +42,7 @@
 //! dictionary whose `/Differences` give every code the glyph name the original gave it, so the
 //! code-to-name table — which is what an encoding *is* (§9.6.5.1) — does not change.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_archive::survey::SelectedFont;
 use pdf_font::encoding::BaseEncoding;
@@ -372,6 +372,67 @@ pub(super) fn restatement_proved(
         program,
     )
 }
+
+/// `program` with every glyph the page shows through `source` drawing nothing, proved to draw
+/// what the window drew: no mark, at the advance the window drew each code at (`doc/adr/2830`).
+///
+/// `source` is the font as the file states it, whose program this reader could not read, so the
+/// window drew it from the dictionary's metrics alone (`doc/adr/1094`); `reading` is the same
+/// font with that program dropped, which the route that wrote `program` read it as, and
+/// `entries` and `gains` are what that route writes into its dictionary and its descriptor. The
+/// glyphs emptied are the ones the font as written reaches for the codes the page shows, found by
+/// loading it, so a restated encoding or `cmap` sends each code where the proof then looks.
+///
+/// # Errors
+///
+/// [`Because::NotBuiltYet`] where the window's reading of the font has no metrics to hold to, a
+/// glyph cannot be emptied, or the font as written draws a mark, reaches a glyph of a substitute,
+/// or advances a code otherwise than the window did.
+pub(super) fn drawn_as_nothing(
+    document: &Document,
+    (source, reading): (&SelectedFont, &SelectedFont),
+    (entries, gains): (&Dictionary, &Dictionary),
+    row: Table124,
+    program: &[u8],
+) -> Result<Vec<u8>, Because> {
+    let window = LoadedFont::metrics_only(document, &source.dict, &source.name)
+        .ok_or(Because::NotBuiltYet(NOT_DRAWN_AS_NOTHING))?;
+    let descriptor = held_descriptor(document, reading, gains)?;
+    let written = loaded_as_written(document, reading, entries, &descriptor, row, program)?;
+    let codes: Vec<Code> = source
+        .shown
+        .keys()
+        .flat_map(|text| window.decode(text))
+        .collect();
+    let reached: BTreeSet<u16> = codes
+        .iter()
+        .filter_map(|code| written.glyph_index(*code))
+        .filter(|glyph| *glyph != pdf_font::NOTDEF_GLYPH)
+        .collect();
+    let emptied = pdf_font::embed::with_glyphs_emptied(program, &reached)
+        .map_err(|_| Because::NotBuiltYet(NOT_DRAWN_AS_NOTHING))?;
+    let converted = loaded_as_written(document, reading, entries, &descriptor, row, &emptied)?;
+    // Bit for bit, as [`proved`] holds a drawn font: each advance is one reader's reading of one
+    // statement, and an outline with a single command in it would be a mark the window never made.
+    let as_drawn = !converted.is_substituted()
+        && codes.iter().all(|code| {
+            converted
+                .outline(*code)
+                .is_none_or(|outline| outline.is_empty())
+                && converted.advance(*code).to_bits() == window.advance(*code).to_bits()
+        });
+    if as_drawn {
+        Ok(emptied)
+    } else {
+        Err(Because::NotBuiltYet(NOT_DRAWN_AS_NOTHING))
+    }
+}
+
+/// Why a font the window drew as nothing is not embedded with a program drawing that nothing.
+const NOT_DRAWN_AS_NOTHING: &str = "this viewer drew the font as nothing, its program unreadable, \
+     and a program whose every shown glyph draws nothing at the file's widths could not be written \
+     and proved to draw that nothing: a glyph could not be emptied, or a shown code still draws a \
+     mark or advances otherwise";
 
 /// The scale written into `program`, where one was, with the distance [`proved`] holds a point
 /// of it to (`doc/adr/2769`).
@@ -1121,21 +1182,17 @@ fn laid_out_widths(source: &LoadedFont) -> (u8, u8, Vec<Object>) {
     (first, last.max(first), widths)
 }
 
-/// Writes the converted font into a document of its own and holds it to the source, code by code.
-///
-/// Three equalities, each of which a reader would see if it failed: the outline of every glyph the
-/// page shows, the advance of every one of the 256 codes, and the horizontal scale outlines are
-/// drawn at. And one inequality: the converted font is drawn from its own program, not a
-/// substitute, which is the thing ISO 19005 asks for.
-fn proved(
+/// The font as it will stand once `program` is embedded under `row`'s key into `descriptor` and
+/// `entries` are written into its dictionary, assembled into a document of its own and loaded by
+/// the reader the window uses.
+fn loaded_as_written(
     document: &Document,
     used: &SelectedFont,
-    held_to: HeldTo<'_>,
     entries: &Dictionary,
     descriptor: &Dictionary,
     row: Table124,
     program: &[u8],
-) -> Result<(), Because> {
+) -> Result<LoadedFont, Because> {
     let mut assembly = Assembly::new(Vec::new());
     let unproved = |_| Because::NotBuiltYet(NOT_PROVED);
     let program = program_stream(
@@ -1197,8 +1254,25 @@ fn proved(
         .as_dict()
         .cloned()
         .ok_or(Because::NotBuiltYet(NOT_PROVED))?;
-    let converted = LoadedFont::load(&written, &dict, &used.name)
-        .map_err(|_| Because::NotBuiltYet(NOT_PROVED))?;
+    LoadedFont::load(&written, &dict, &used.name).map_err(|_| Because::NotBuiltYet(NOT_PROVED))
+}
+
+/// Writes the converted font into a document of its own and holds it to the source, code by code.
+///
+/// Three equalities, each of which a reader would see if it failed: the outline of every glyph the
+/// page shows, the advance of every one of the 256 codes, and the horizontal scale outlines are
+/// drawn at. And one inequality: the converted font is drawn from its own program, not a
+/// substitute, which is the thing ISO 19005 asks for.
+fn proved(
+    document: &Document,
+    used: &SelectedFont,
+    held_to: HeldTo<'_>,
+    entries: &Dictionary,
+    descriptor: &Dictionary,
+    row: Table124,
+    program: &[u8],
+) -> Result<(), Because> {
+    let converted = loaded_as_written(document, used, entries, descriptor, row, program)?;
     // Bit for bit, deliberately: each number is one reader's reading of one statement, so any
     // difference at all is a difference in what is drawn.
     // The converted font is held to no stretch on both routes: an embedded program is drawn as

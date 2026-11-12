@@ -359,12 +359,20 @@ remedy = "discard"
 # doc/adr/2828), the page shows what the window showed, and the glyph choice is admitted as the
 # window's own (A832, doc/adr/2829). It is still named in the report and in xmpMM:History. Every
 # other route to such a font embeds a shipped face as well, which is machine-face, and stops.
+#
+# Unreadable programs. A font whose program does not decode whole, or decodes to bytes that are
+# not a program in its format, is no program (ISO 32000-2 9.9), and the window draws its text as
+# nothing at the dictionary's widths (doc/adr/1094). The converter embeds a program whose every
+# glyph the page shows draws that nothing, proved code by code, so the page shows what the window
+# showed: the loss `unreadable-program`, admitted here, named in the report and in xmpMM:History
+# (doc/adr/2830).
 # ---------------------------------------------------------------------------------------------
 
 [site."fonts/font-programs-embedded"]
 remedy = "stop"
 text-as-image = "discard"
 glyphs-from-to-unicode = "discard"
+unreadable-program = "discard"
 
 [site."graphics/no-overprint-mode-one-under-icc-cmyk"]
 remedy = "discard"

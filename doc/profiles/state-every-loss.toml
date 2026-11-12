@@ -340,8 +340,8 @@ winner = "first"
 # shows, the groups it fixed named with the state drawn (doc/questions/A717, doc/adr/2576). The
 # one `discard` this row resolves to carries every loss the font site's bundle holds, as it does
 # in as-if-printed: `machine-face`, `substitute-stretch`, `glyphs-from-to-unicode`,
-# `layout-from-this-viewer`, `text-as-image`, `page-as-image`, `tagging-of-photographed-pages`
-# and `optional-content-of-photographed-pages` (decision.rs's bundle), each named with its page or
+# `layout-from-this-viewer`, `text-as-image`, `page-as-image`, `tagging-of-photographed-pages`,
+# `optional-content-of-photographed-pages` and `unreadable-program` (decision.rs's bundle), each named with its page or
 # font in the report and in xmpMM:History. `append-statement` is first, so the statement page lists
 # each photographed page and each face embedded with a loss, with its loss words (doc/adr/2600);
 # a page that cannot be composed hands them to `discard`, and the report says why.

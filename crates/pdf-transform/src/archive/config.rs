@@ -1512,6 +1512,10 @@ struct Row {
     /// `Adobe-Identity` font with the glyphs its `/ToUnicode` chose, whatever the row's remedy says
     /// of the site's other losses (owner answer A832, `doc/adr/2829`).
     glyphs_from_to_unicode: Kind,
+    /// `unreadable-program` — whether `fonts/font-programs-embedded` may embed a font this viewer
+    /// drew as nothing, its program unreadable, with a program that draws that nothing, whatever
+    /// the row's remedy says of the site's other losses (`doc/adr/2830`).
+    unreadable_program: Kind,
     /// `source = "shipped-cmaps"` — a `CMap` is embedded from the published set (`doc/adr/1286`).
     shipped_cmaps: bool,
     /// The 1-based line its header sits on, for an error a person can find.
@@ -1769,6 +1773,15 @@ impl Configuration {
                 && requirement_binds(&row.site, target)
             {
                 authorised.authorise(Loss::GlyphsFromToUnicode);
+            }
+            // **And a third**: `as-shown` admits `unreadable-program`, whose program draws the
+            // nothing the window drew for a font it could not read, while it stops on the shapes
+            // a substitute would have drawn instead (`doc/adr/2830`).
+            if row.site == "fonts/font-programs-embedded"
+                && row.unreadable_program == Kind::Discard
+                && requirement_binds(&row.site, target)
+            {
+                authorised.authorise(Loss::UnreadableProgram);
             }
         }
         // The two losses that belong to no site: the refusals they lift are the source's, not a
@@ -2385,11 +2398,10 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         .get("construct")
         .and_then(Value::as_bool)
         .unwrap_or(true);
-    let dynamic = kind_or_stop(tbl, "dynamic");
+    let (dynamic, unlisted) = (kind_or_stop(tbl, "dynamic"), kind_or_stop(tbl, "unlisted"));
     let undeterminable = kind_or_stop(tbl, "undeterminable");
     let unreadable = kind_or_stop(tbl, "unreadable");
     let disagreeing = kind_or_stop(tbl, "disagreeing");
-    let unlisted = kind_or_stop(tbl, "unlisted");
     let keep_xfa = keeps_the_xfa(tbl, &site)?;
     let keep_media = keeps_the_media(tbl, &site)?;
     let write_mode = write_mode_key(tbl, &site)?;
@@ -2426,6 +2438,7 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         dynamic,
         text_as_image: kind_or_stop(tbl, "text-as-image"),
         glyphs_from_to_unicode: kind_or_stop(tbl, "glyphs-from-to-unicode"),
+        unreadable_program: kind_or_stop(tbl, "unreadable-program"),
         fresh_packet,
         undeterminable,
         media_types,

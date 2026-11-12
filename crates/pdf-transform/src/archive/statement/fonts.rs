@@ -86,6 +86,10 @@ const fn line(loss: Loss) -> Option<&'static str> {
             "the file states no widths for the font, and the widths written are the layout this \
              viewer drew it with"
         }
+        Loss::UnreadableProgram => {
+            "the file's program for the font could not be read, so this viewer drew its text as \
+             nothing, and the program written draws that nothing at the widths the file states"
+        }
         _ => return None,
     })
 }

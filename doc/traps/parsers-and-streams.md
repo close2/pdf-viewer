@@ -530,3 +530,15 @@ Font Format section 6.4's vector (`wx`, 0) reaches text space through the whole 
 before comparing or writing a program's advance against `/Widths`, carry it through the
 `/FontMatrix`'s horizontal component and never through a units-per-em read off the other axis
 (ADR 2685 decision 4).
+
+### 334. A lookup by name misses what the standard states by a rule
+
+Round 2005 found that ADR 2807's route for a composite font's machine face had never reached one of
+the four `Adobe-Identity` documents the blocking-issues file recorded as waiting on the owner's
+answer to Q832: `shown` asked `pdf_font::predefined::cmap` for the font's `CMap`, a table of
+Adobe's published files, and ISO 32000-2 Table 116 states `Identity-H` and `Identity-V` by a rule
+("maps 2-byte character codes ranging from 0 to 65,535 to the same 2-byte CID value") rather than
+as a file, so the lookup answered nothing and every `Identity` font left the route. The rule: before
+recording that a route waits on the owner, probe it on the documents it names, and where a lookup
+by name stands between the route and its input, check that the standard does not state the thing
+looked up by a rule (ADR 2828).

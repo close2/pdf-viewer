@@ -800,7 +800,14 @@ impl Rewriter<'_> {
             return false;
         };
         if sites.at.contains(&id) {
-            if !self.document.get_key(out, "CIDToGIDMap").is_null() {
+            // A map the substitution writes for this `CIDFont` is the one its new program is
+            // reached through (ADRs 2807, 2830), and it names an object only the output holds, so
+            // reading it through the source would find nothing there and write over it.
+            let mapped_by_the_substitution = self
+                .substitutes
+                .and_then(|substitutes| substitutes.described.get(&id))
+                .is_some_and(|gains| gains.get("CIDToGIDMap").is_some());
+            if mapped_by_the_substitution || !self.document.get_key(out, "CIDToGIDMap").is_null() {
                 return false;
             }
             out.insert(Name::new(&b"CIDToGIDMap"[..]), identity());

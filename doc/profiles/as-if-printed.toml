@@ -376,6 +376,9 @@ remedy = "discard"
 # a document that states optional content it carries `optional-content-of-photographed-pages`: the
 # page is photographed in the configuration this viewer shows, never the Print usage, and the
 # groups it fixed are named with the state drawn; the other pages keep their layers (A717).
+# A font whose program this viewer could not read was printed as nothing, and is embedded with a
+# program that draws that nothing at the file's widths, never with a face that would print text
+# the print did not carry: the loss `unreadable-program` (doc/adr/2830).
 # ---------------------------------------------------------------------------------------------
 
 [site."fonts/font-programs-embedded"]

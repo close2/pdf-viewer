@@ -546,11 +546,24 @@ pub enum Loss {
     /// statement page name each stream with its role, its filters and its length
     /// (`doc/adr/2689`).
     UndecodableStream,
+    /// ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1: a font whose program this
+    /// reader could not read — its data does not decode whole, or decodes to bytes that are not a
+    /// program in the format they are filed under — is embedded with a program whose every glyph
+    /// the page shows draws nothing, at the widths the font dictionary states.
+    ///
+    /// ISO 32000-2 §9.9 counts such bytes as no program, and this viewer draws the font from the
+    /// dictionary's metrics alone, marking nothing (`doc/adr/1094`); the program written keeps
+    /// that page. What is lost is the front of the producer's program, which the conversion
+    /// removes, and the substitute another reader may have drawn in its place from the font's
+    /// descriptor, which §9.1 and §9.8.1 describe as what a font dictionary's information is for
+    /// when the program is unavailable: the output states that the text draws nothing, where the
+    /// source left that to the reader (`doc/adr/2830`).
+    UnreadableProgram,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 35] = [
+    pub const ALL: [Self; 36] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -586,6 +599,7 @@ impl Loss {
         Self::PageNotHeld,
         Self::ContentAsDrawn,
         Self::UndecodableStream,
+        Self::UnreadableProgram,
     ];
 
     /// The word a caller authorises it by.
@@ -627,6 +641,7 @@ impl Loss {
             Self::PageNotHeld => "page-not-held",
             Self::ContentAsDrawn => "content-as-drawn",
             Self::UndecodableStream => "undecodable-stream",
+            Self::UnreadableProgram => "unreadable-program",
         }
     }
 
@@ -901,6 +916,14 @@ impl Loss {
                  no program; the stream's bytes are gone, and the report names each stream with \
                  its role, the filters it states and its length"
             }
+            Self::UnreadableProgram => {
+                "a font whose program this viewer could not read, its data not decoding whole or \
+                 not being a program in its format, is embedded with a program whose every glyph \
+                 the page shows draws nothing, at the widths the file states: the page shows \
+                 what this viewer's window showed, which is no mark for that text. The front of \
+                 the producer's program is gone, and so is the substitute face another reader \
+                 may have drawn the text in; the text stays text, and the report names each font"
+            }
         }
     }
 
@@ -1068,6 +1091,8 @@ pub struct Authorisations {
     pub content_as_drawn: bool,
     /// Whether [`Loss::UndecodableStream`] was authorised.
     pub undecodable_stream: bool,
+    /// Whether [`Loss::UnreadableProgram`] was authorised.
+    pub unreadable_program: bool,
 }
 
 impl Authorisations {
@@ -1110,6 +1135,7 @@ impl Authorisations {
             Loss::PageNotHeld => self.page_not_held,
             Loss::ContentAsDrawn => self.content_as_drawn,
             Loss::UndecodableStream => self.undecodable_stream,
+            Loss::UnreadableProgram => self.unreadable_program,
         }
     }
 
@@ -1159,6 +1185,7 @@ impl Authorisations {
             Loss::PageNotHeld => self.page_not_held = true,
             Loss::ContentAsDrawn => self.content_as_drawn = true,
             Loss::UndecodableStream => self.undecodable_stream = true,
+            Loss::UnreadableProgram => self.unreadable_program = true,
         }
     }
 }

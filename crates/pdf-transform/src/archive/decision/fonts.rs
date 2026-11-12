@@ -313,7 +313,8 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[(
             .with(Loss::TextAsImage)
             .with(Loss::PageAsImage)
             .with(Loss::TaggingOfPhotographedPages)
-            .with(Loss::OptionalContentOfPhotographedPages),
+            .with(Loss::OptionalContentOfPhotographedPages)
+            .with(Loss::UnreadableProgram),
     ),
 )];
 

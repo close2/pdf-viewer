@@ -110,12 +110,80 @@ pub(super) fn embed(
     let font = LoadedFont::load(document, &used.dict, &used.name)
         .map_err(|_| Because::NotBuiltYet(NOT_THIS_ROUTES))?;
     let program = drawn_face(document, descendant, &font)?;
+    let face = (super::machine_face_named(program), FaceAuthority::Machine);
+    written_in(
+        document,
+        (used, descendant),
+        (&font, program),
+        (loss, face),
+        spare,
+        substitutes,
+    )
+}
+
+/// A composite font the window drew as nothing, its program unreadable, embedded with a program
+/// whose every shown CID draws that nothing at the dictionary's widths (`doc/adr/2830`).
+///
+/// ISO 32000-2 §9.9 counts a program whose data does not decode whole, or that is no program in
+/// its format, as no program, and this reader drew the font from its `CMap` and its `/W` alone,
+/// marking nothing (`doc/adr/1094`). So every shown CID goes to an empty glyph at its advance, as
+/// [`written`] sends a CID the window drew nothing for (`doc/adr/2824`), appended to the
+/// `.notdef` of the face this program ships for the descendant: a `glyf` program under a
+/// `CIDFontType2`, reached by a `/CIDToGIDMap` stream (§9.7.4.2), proved by [`proved`] to draw no
+/// outline and the window's metrics for every code the pages show. The `CMap`, `/CIDSystemInfo`
+/// and `/ToUnicode` are the producer's, untouched. The loss is `unreadable-program`.
+///
+/// # Errors
+///
+/// [`Because::NotBuiltYet`] where the font has no `CMap` this reader reads, its descendant is no
+/// dictionary, the shipped face is not a `glyf` one, or the proof does not hold.
+pub(super) fn drawn_as_nothing(
+    document: &Document,
+    used: &SelectedFont,
+    spare: &mut Spare,
+    substitutes: &mut Substitutes,
+) -> Result<(), Because> {
+    let refused = || Because::NotBuiltYet(NOT_DRAWN_AS_NOTHING);
+    let descendant = super::descendant(document, &used.dict).ok_or_else(refused)?;
+    let font = LoadedFont::metrics_only(document, &used.dict, &used.name).ok_or_else(refused)?;
+    let descriptor = document.get_key(&descendant, "FontDescriptor");
+    let descriptor = document.resolve(&descriptor).as_dict().cloned();
+    let (program, _) =
+        pdf_font::standard::face(Request::derive(document, &descendant, descriptor.as_ref()));
+    if pdf_font::embed::has_cff_outlines(program) {
+        return Err(refused());
+    }
+    let face = (
+        pdf_font::embed::postscript_name(program),
+        FaceAuthority::Shipped,
+    );
+    written_in(
+        document,
+        (used, &descendant),
+        (&font, program),
+        (Losses::one(Loss::UnreadableProgram), face),
+        spare,
+        substitutes,
+    )
+    .map_err(|_| refused())
+}
+
+/// Writes `program`, the face `font` was drawn from, as the composite font's program: the subset
+/// and its map, the descriptor it goes into, and the report's entry naming `face` and `loss`.
+fn written_in(
+    document: &Document,
+    (used, descendant): (&SelectedFont, &Dictionary),
+    (font, program): (&LoadedFont, &[u8]),
+    (loss, (face, authority)): (Losses, (String, FaceAuthority)),
+    spare: &mut Spare,
+    substitutes: &mut Substitutes,
+) -> Result<(), Because> {
     let descendant_at = super::rekeyed::descendant_object(document, &used.dict)
         .ok_or(Because::NotBuiltYet(NOT_THIS_ROUTES))?;
     if substitutes.described.contains_key(&descendant_at) {
         return Err(Because::NotBuiltYet(NOT_THIS_ROUTES));
     }
-    let shown = shown(document, used, &font)?;
+    let shown = shown(document, used, font)?;
     let written = written(program, &shown)?;
     let home = home_of(document, descendant, substitutes, &written, program)?;
     let subtype = written.subtype();
@@ -135,7 +203,7 @@ pub(super) fn embed(
         Name::new(&b"BaseFont"[..]),
         Object::Name(Name::new(written.name.as_bytes())),
     );
-    proved(document, used, &font, descendant, &gains, &written, &home)?;
+    proved(document, used, font, descendant, &gains, &written, &home)?;
 
     let at = spare
         .take(document)
@@ -187,8 +255,8 @@ pub(super) fn embed(
     substitutes.done.push(SubstitutedFont {
         resource: used.name.clone(),
         requested: base_font(document, &used.dict),
-        face: super::machine_face_named(program),
-        authority: FaceAuthority::Machine,
+        face,
+        authority,
         route: written.route,
         described: None,
         losses: loss,
@@ -813,6 +881,11 @@ const NOT_THIS_ROUTES: &str = "the composite font is not drawn from a machine's 
 const DESCRIPTOR_NOT_MEASURED: &str = "the composite font's descendant states no descriptor, and \
      the machine's face the window drew it from does not state every entry ISO 32000-2 Table 120 \
      requires of one: its glyphs reach no point below the baseline, or it states no capital height";
+
+/// Why a composite font the window drew as nothing is not written drawing that nothing.
+const NOT_DRAWN_AS_NOTHING: &str = "this viewer drew the composite font as nothing, its program \
+     unreadable, and a program sending every shown CID to an empty glyph at the file's widths \
+     could not be written and proved to draw that nothing";
 
 /// Why a written font that did not draw what the window drew is not written.
 const NOT_PROVED: &str = "the composite font written with the machine's face the window drew \

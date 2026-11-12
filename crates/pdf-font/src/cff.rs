@@ -2618,6 +2618,102 @@ pub fn with_advances(data: &[u8], advances: &BTreeMap<u16, i64>) -> Result<Vec<u
     Ok(layout.with_charstrings(data, &charstrings))
 }
 
+/// The program with each named glyph's outline taken away and its advance kept.
+///
+/// **What a font this reader drew as nothing is embedded with** (`doc/adr/2830`): a program whose
+/// data does not decode whole is no program (ISO 32000-2 §9.9), this reader draws none of its
+/// glyphs and advances by the font dictionary's widths alone (`doc/adr/1094`), and the program a
+/// conversion writes in its place has every glyph the page shows draw that same nothing. Each
+/// named glyph's charstring becomes one width operand and `endchar` (Adobe Technical Note #5177,
+/// sections 3.1 and 4.1), the width the charstring stated before, read the way the outline reader
+/// reads it; every other charstring, the charset, the encoding and every DICT are copied.
+///
+/// # Errors
+///
+/// [`CffError::Malformed`] where the program does not open or its `CharStrings` INDEX does not
+/// read, and [`CffError::AdvanceNotRestatable`] where a named glyph's width is not read, is not a
+/// whole number of units, or is not one a width operand can state.
+pub fn with_glyphs_emptied(
+    data: &[u8],
+    glyphs: &std::collections::BTreeSet<u16>,
+) -> Result<Vec<u8>, CffError> {
+    let named: Vec<u16> = glyphs.iter().copied().collect();
+    let widths = charstring_widths(data, &named)?;
+    let font = open(data)?;
+    let layout = Layout::read(data).ok_or_else(|| CffError::Malformed {
+        detail: "the Top DICT INDEX could not be located".to_owned(),
+    })?;
+    if let Some(misstated) = layout.misstated {
+        return Err(misstated.refusal());
+    }
+    let charstrings_at = layout
+        .entries
+        .iter()
+        .find(|(_, op)| *op == OP_CHARSTRINGS)
+        .and_then(|(operands, _)| dict_int(operands))
+        .and_then(|at| usize::try_from(at).ok())
+        .ok_or_else(|| CffError::Malformed {
+            detail: "the Top DICT states no CharStrings offset".to_owned(),
+        })?;
+    let mut charstrings: Vec<Vec<u8>> = index_items(data, charstrings_at)
+        .ok_or_else(|| CffError::Malformed {
+            detail: "the CharStrings INDEX could not be read".to_owned(),
+        })?
+        .into_iter()
+        .map(<[u8]>::to_vec)
+        .collect();
+    let cid_keyed = font.is_cid();
+    let nominal = nominal_widths(data, &layout, cid_keyed);
+    let no_subroutines = Subroutines {
+        global: &[],
+        local: &[],
+    };
+    for (glyph, width) in named.iter().zip(widths) {
+        let not_restated = |detail: &str| CffError::AdvanceNotRestatable {
+            glyph: *glyph,
+            detail: detail.to_owned(),
+        };
+        let advance = width
+            .and_then(whole_units)
+            .ok_or_else(|| not_restated(EMPTIED_WIDTH_NOT_WHOLE))?;
+        let subfont = if cid_keyed {
+            font.subfont_index(GlyphId::from(*glyph)).unwrap_or(0)
+        } else {
+            0
+        };
+        let against = nominal.get(usize::from(subfont)).copied().unwrap_or(0);
+        let slot = charstrings
+            .get_mut(usize::from(*glyph))
+            .ok_or_else(|| not_restated("the program's CharStrings INDEX has no entry for it"))?;
+        *slot = charstring_with_advance(
+            &[stack_clearing::ENDCHAR],
+            advance,
+            against,
+            &no_subroutines,
+        )
+        .map_err(|why| why.refusal(*glyph, EMPTIED_WIDTH_NOT_WHOLE))?;
+    }
+    Ok(layout.with_charstrings(data, &charstrings))
+}
+
+/// Why a glyph [`with_glyphs_emptied`] was asked to empty keeps its outline.
+const EMPTIED_WIDTH_NOT_WHOLE: &str = "its width is not read from its charstring, or is not a \
+     whole number of the program's units, which a width operand written before endchar states";
+
+/// `width` as a whole number of units, where it is one a charstring's width operand can state.
+fn whole_units(width: f32) -> Option<i64> {
+    // Within ±2^15, every whole `f32` converts exactly, and a Type 2 width operand is a number of
+    // that range (Adobe Technical Note #5177, section 3.2).
+    if width.fract() != 0.0 || width.abs() > 32767.0 {
+        return None;
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a whole number within ±32767, checked above, converts without loss"
+    )]
+    Some(i64::from(width as i32))
+}
+
 /// One glyph [`with_empty_glyphs`] added, by index and name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AddedGlyph {
