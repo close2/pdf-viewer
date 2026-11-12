@@ -70,6 +70,9 @@ mod query_kind {
     // with no save action. It crosses because the worker holds the catalog and the page in view
     // (ADR 2799).
     pub(in crate::protocol) const EXTERNAL_FILES: u8 = 37;
+    // §9.10.1's text of the pages on the screen. It crosses because the worker holds the fonts
+    // every code is mapped through (`doc/todo/63`, ADR 2836).
+    pub(in crate::protocol) const TEXT: u8 = 38;
 }
 
 /// Encodes one question.
@@ -160,6 +163,9 @@ pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
         }
         Query::Readback => {
             writer.u8(k::READBACK);
+        }
+        Query::Text => {
+            writer.u8(k::TEXT);
         }
         Query::Outline => {
             writer.u8(k::OUTLINE);
@@ -273,6 +279,7 @@ pub(crate) enum PlainQuery {
     Frame,
     Reports,
     Readback,
+    Text,
     Outline,
     Layers,
     Attachments,
@@ -318,6 +325,7 @@ impl OwnedQuery {
                 PlainQuery::Frame => Query::Frame,
                 PlainQuery::Reports => Query::Reports,
                 PlainQuery::Readback => Query::Readback,
+                PlainQuery::Text => Query::Text,
                 PlainQuery::Outline => Query::Outline,
                 PlainQuery::Layers => Query::Layers,
                 PlainQuery::Attachments => Query::Attachments,
@@ -388,6 +396,7 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<OwnedQuery, ProtocolError> {
         k::FRAME => OwnedQuery::Plain(PlainQuery::Frame),
         k::REPORTS => OwnedQuery::Plain(PlainQuery::Reports),
         k::READBACK => OwnedQuery::Plain(PlainQuery::Readback),
+        k::TEXT => OwnedQuery::Plain(PlainQuery::Text),
         k::OUTLINE => OwnedQuery::Plain(PlainQuery::Outline),
         k::LAYERS => OwnedQuery::Plain(PlainQuery::Layers),
         k::ATTACHMENTS => OwnedQuery::Plain(PlainQuery::Attachments),

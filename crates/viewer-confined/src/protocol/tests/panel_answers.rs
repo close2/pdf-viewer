@@ -1237,6 +1237,34 @@ fn every_panel_answer_round_trips() {
     assert_eq!(read.shortfall, shortfall);
     assert_eq!(read.shortfall.unnamed.total(), 21);
 
+    // §9.10.1's text, per page, with the page named and every character intact — a host
+    // exporting a page's text across the confinement reads the worker's readback, not a copy
+    // that dropped what is past ASCII.
+    let shown = vec![
+        viewer_core::PageText {
+            page: 3,
+            text: "Caf\u{e9}\nna\u{ef}ve",
+        },
+        viewer_core::PageText { page: 4, text: "" },
+    ];
+    let Reply::Text(read) = round_trip(&Answer::Text(shown)) else {
+        panic!("a page's text comes back as one");
+    };
+    assert_eq!(
+        read,
+        vec![
+            crate::PageText {
+                page: 3,
+                text: "Caf\u{e9}\nna\u{ef}ve".to_owned(),
+            },
+            crate::PageText {
+                page: 4,
+                text: String::new(),
+            },
+        ],
+        "both pages, in order, each naming its page"
+    );
+
     // And the sentences, per page, with the pages named: a status bar under a column that
     // took the first entry for all of them would say one page's refusals about four.
     let first: Vec<String> = vec!["a shading this reader could not draw".to_owned()];

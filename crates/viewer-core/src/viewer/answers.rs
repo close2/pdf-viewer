@@ -13,7 +13,7 @@ use super::pointer::attached_files;
 use super::{DocumentId, MAX_PIXELS, Viewer};
 use crate::interact;
 use crate::open::Open;
-use crate::query::{Answer, FrameView, Layer, PageReadback, PageReports, Query};
+use crate::query::{Answer, FrameView, Layer, PageReadback, PageReports, PageText, Query};
 use crate::readback::ReadbackCache;
 
 impl Viewer {
@@ -233,6 +233,18 @@ impl Viewer {
                         Some(PageReadback {
                             page: on_screen.page,
                             shortfall: on_screen.interpreted.as_ref()?.shortfall,
+                        })
+                    })
+                    .collect(),
+            ),
+            // The same population and the same empty list as `Readback`, for its reason.
+            Query::Text => Answer::Text(
+                open.on_screen
+                    .iter()
+                    .filter_map(|on_screen| {
+                        Some(PageText {
+                            page: on_screen.page,
+                            text: &on_screen.interpreted.as_ref()?.text,
                         })
                     })
                     .collect(),

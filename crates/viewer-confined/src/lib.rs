@@ -499,6 +499,18 @@ pub struct ReadShort {
     pub shortfall: pdf_model::content::Shortfall,
 }
 
+/// One page's text, as it crossed the confinement.
+///
+/// [`viewer_core::PageText`], owned: the worker's interpretation it borrowed from stays on the
+/// far side.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PageText {
+    /// Which page this is the text of, zero-based.
+    pub page: usize,
+    /// Its characters, in the order the content stream showed them.
+    pub text: String,
+}
+
 /// One page's §14.7 structure, as it crossed the confinement.
 ///
 /// [`viewer_core::PageStructure`], with that type's rule about the indices: a node's parent and
@@ -626,6 +638,9 @@ pub enum Reply {
     /// See [`viewer_core::Query::Readback`] for why counting is the answer here and reporting is
     /// not.
     Readback(Vec<ReadShort>),
+    /// §9.10.1's text of the pages on the screen, one entry per page. See
+    /// [`viewer_core::Query::Text`].
+    Text(Vec<PageText>),
     /// §12.3.3's outline, whole.
     Outline(pdf_model::outline::Outline),
     /// §8.11.4.3's layers, in `/Order`.

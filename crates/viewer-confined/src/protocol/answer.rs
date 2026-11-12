@@ -69,6 +69,8 @@ pub(super) mod answer_kind {
     pub(in crate::protocol) const TIMER_DUE: u8 = 36;
     // §14.13.2's associated files outside the document: a name and a relationship each (ADR 2799).
     pub(in crate::protocol) const EXTERNAL_FILES: u8 = 37;
+    // `query_kind::TEXT`'s answer: a page and its text, per page on the screen (ADR 2836).
+    pub(in crate::protocol) const TEXT: u8 = 38;
 }
 
 /// Encodes one answer.
@@ -333,6 +335,12 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
                     .usize(without_a_vertical_form);
             }
         }
+        Answer::Text(pages) => {
+            writer.u8(k::TEXT).usize(pages.len());
+            for page in pages {
+                writer.usize(page.page).str(page.text);
+            }
+        }
         Answer::Accessibility(pages) => {
             writer.u8(k::ACCESSIBILITY).usize(pages.len());
             for page in pages {
@@ -587,6 +595,12 @@ pub(crate) fn decode_answer_reusing(
                     reaching_a_blank_glyph: reader.usize("a blank-glyph count")?,
                     without_a_vertical_form: reader.usize("an upright vertical-form count")?,
                 },
+            })
+        })?),
+        k::TEXT => Reply::Text(reader.list("a page's text", |reader| {
+            Ok(crate::PageText {
+                page: reader.usize("a text's page")?,
+                text: reader.string("a page's text")?,
             })
         })?),
         k::OUTLINE => Reply::Outline(panels::decode_outline(&mut reader)?),

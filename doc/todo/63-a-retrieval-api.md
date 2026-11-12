@@ -2,8 +2,8 @@
 
 Note from the human after this file had been created: ignore the rest-api!
 
-Status: **the CLI is built and the three joins are closed** — ADR 0257. What is left is
-one message on the pipe and the substitution itself, both below with their measured sizes.
+Status: **the CLI is built and the three joins are closed** — ADR 0257 — and the pipe's one
+message is built (ADR 2836). What is left is the substitution itself, below with its measured size.
 Priority: 30-band — capability. It was the last consumer `viewer-core` was built for and had never
 had: not a person, not a toolkit, but a program asking a document questions. **This file was
 `doc/todo/36`, as `36-a-retrieval-api.md`,** until ADR 0983, which resolved a live duplicate: `36`
@@ -49,20 +49,14 @@ Demonstration, on the release binary, 66 ms: §9.6.5.4 comes back as pages 339�
 headings, 1077 words, and **no erratum touches it**; §12.5.2 comes back with 23 strikeouts and
 carets including the `BM, ` that ADR 0253 found this tree implementing from retired text.
 
-## The pipe: one message, not a transport
+## The pipe: one message, not a transport — built
 
-`viewer-confined`'s length-prefixed stdio transport carries all twenty-nine questions and is fuzzed
-at 13 M executions, so **no second transport was built and none should be**. What is missing is a
-*vocabulary* entry rather than a channel: `viewer_core::Query` has no "this page's text". The
-readback crosses that boundary only as a `Selection` — which needs a drag — or as §14.9's spoken
-accessibility nodes.
-
-The size, so that whoever takes it is not guessing: one `Query` variant and its `Answer`, its two
-`match` arms in `viewer-confined/src/protocol.rs` (both exhaustive, so the compiler names them), and
-one number in `viewer-ffi`'s `QUORRA_*_COUNT`. It is left undone deliberately: `viewer-core`'s
-vocabulary is a *person at a window's*, and adding to it is a decision about that boundary rather
-than about this tool. Its gate was "when a host wants a page's text"; `doc/questions/A800` lifted every
-such gate, and it is `doc/todo/76` row 5, owed in that file's order.
+`viewer-confined`'s length-prefixed stdio transport carries every question `viewer-core` states and
+is fuzzed, so **no second transport was built and none should be**. What was missing was a
+*vocabulary* entry rather than a channel, and it is `Query::Text` (ADR 2836): the text of the pages
+on the screen, one entry per page, the same characters `Query::Find` searches, on the pipe as
+query and answer kind 38. The C ABI has no accessor for it yet — `viewer-ffi`'s entry points are
+one per question — and that accessor is effort only.
 
 ## The substitution: measured, and deliberately not done here
 
@@ -105,5 +99,5 @@ round did not touch and the next must not either:
 
 ## What would make this item done
 
-The pipe's one message, and the substitution with its 29 readings. Neither is blocked and both have
-a size. When both land, this file goes.
+The substitution with its 29 readings; the pipe's message is built (ADR 2836). It is not blocked
+and it has a size. When it lands, this file goes.

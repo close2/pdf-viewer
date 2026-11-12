@@ -486,6 +486,28 @@ pub enum Query<'a> {
     /// has been interpreted yet — the two are different answers and the second is the one a host
     /// waiting for its first page has.
     Readback,
+    /// The text of the pages on the screen, one entry per page: ISO 32000-2 §9.10.1's
+    /// "information content of text", which the clause says a processor needs "during operations
+    /// such as searching, indexing, and exporting of text to other file formats".
+    ///
+    /// **A question no host can answer for itself**, which is `doc/ui-boundary.md`'s test: the
+    /// characters come from §9.10.2's mapping of each code through the font, during
+    /// interpretation, and a host holds neither. Until this question, the readback crossed the
+    /// boundary only as a [`Query::Selection`], which needs a drag, or as §14.9's spoken nodes
+    /// (`doc/todo/63`).
+    ///
+    /// **The same characters [`Query::Find`] searches and [`Query::Selection`] copies**, in the
+    /// order the content stream showed them — one readback, so that what a program reads of a
+    /// page and what a person finds on it never differ. §14.8.2.5's logical order is
+    /// [`Query::LogicalSelection`]'s answer, because it needs the structure tree to reach the
+    /// range, which the content order does not. What a code §9.10.2 cannot name costs the text is
+    /// [`Query::Readback`]'s count, asked beside this one.
+    ///
+    /// The pages on the screen rather than any page, for [`Query::Readback`]'s reason: reading a
+    /// page means interpreting it, and a question is answered at pointer speed from what is
+    /// already held — a host turns to the page and asks. [`Answer::None`] where nothing is open,
+    /// and an **empty list** where no page on the screen has been interpreted yet.
+    Text,
 }
 
 /// The answer to a [`Query`].
@@ -744,6 +766,9 @@ pub enum Answer<'a> {
     /// See [`Query::Readback`] for why this is not a report, and
     /// [`pdf_model::content::Shortfall`] for why the four counts travel together.
     Readback(Vec<PageReadback>),
+    /// The text of the pages on the screen, one entry per page, in page order. See
+    /// [`Query::Text`].
+    Text(Vec<PageText<'a>>),
 }
 
 /// One page's worth of [`Answer::Reports`].
@@ -770,6 +795,18 @@ pub struct PageReadback {
     pub page: usize,
     /// What that page's text cost the reader.
     pub shortfall: pdf_model::content::Shortfall,
+}
+
+/// One page's worth of [`Answer::Text`].
+///
+/// **Borrowed**, for [`PageReports`]'s reason: the text was mapped once during interpretation and
+/// is kept, so answering for four pages is four slices.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageText<'a> {
+    /// Which page this is the text of, zero-based.
+    pub page: usize,
+    /// Its characters, in the order the content stream showed them.
+    pub text: &'a str,
 }
 
 /// One page's worth of [`Answer::Accessibility`].

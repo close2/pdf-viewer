@@ -128,7 +128,7 @@ pub use open::{Preparation, Prepared, ZOOM_STEP};
 pub use pdf_model::view::Entered;
 pub use query::{
     Answer, FormField, FormWidget, FrameView, Layer, PageGeometry, PageReadback, PageReports,
-    PageStructure, PopupWindow, PrintPage, Query, Selected, Tagging,
+    PageStructure, PageText, PopupWindow, PrintPage, Query, Selected, Tagging,
 };
 pub use readback::ReadbackCache;
 pub use recipient::RecipientSecret;

@@ -409,8 +409,9 @@ fn every_query_is_carried() {
         Query::AccessibilityTree,
         Query::Readback,
         Query::View,
+        Query::Text,
     ];
-    assert_eq!(carried.len(), 37, "every question `viewer-core` states");
+    assert_eq!(carried.len(), 38, "every question `viewer-core` states");
     for query in carried {
         let encoded = encode_query(query).unwrap();
         let read = decode_query(&encoded).unwrap();
