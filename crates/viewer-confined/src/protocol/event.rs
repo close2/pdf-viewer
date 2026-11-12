@@ -67,6 +67,8 @@ mod event_kind {
     // The grant of a drop-down list's opening, which the worker gives once the list's `preOpen`
     // has run there (XFA 3.3 page 392; ADR 2791).
     pub(in crate::protocol) const LIST_OPENS: u8 = 29;
+    // §7.6.5.1's prompt, for `PASSWORD_REQUIRED`'s reason (ADR 2822).
+    pub(in crate::protocol) const RECIPIENT_REQUIRED: u8 = 30;
 }
 
 /// Encodes one event.
@@ -91,6 +93,9 @@ pub(super) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
         }
         Event::PasswordRequired { document } => {
             writer.u8(k::PASSWORD_REQUIRED).document(*document);
+        }
+        Event::RecipientRequired { document } => {
+            writer.u8(k::RECIPIENT_REQUIRED).document(*document);
         }
         Event::Closed(document) => {
             writer.u8(k::CLOSED).document(*document);
@@ -425,6 +430,9 @@ pub(super) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
             reason: reader.string("a reason")?,
         },
         k::PASSWORD_REQUIRED => Event::PasswordRequired {
+            document: reader.document(what)?,
+        },
+        k::RECIPIENT_REQUIRED => Event::RecipientRequired {
             document: reader.document(what)?,
         },
         k::CLOSED => Event::Closed(reader.document(what)?),

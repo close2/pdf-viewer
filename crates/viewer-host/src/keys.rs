@@ -84,6 +84,9 @@
 //!     ([`crate::drawing`]).
 //! - **`f` opens the find bar**, which two of the three hosts already meant by it, and §12.5.6.6's
 //!   free-text drag moves to `t`, which nothing bound.
+//! - **Shift with the left or the right arrow steps back or forward along the window's history of
+//!   views** ([`viewer_core::Command::History`]), the arrows a page is turned on with the one
+//!   modifier this table reads; the standard names no key for it and keeps no history (ADR 2805).
 //! - **While a presentation is running, the three keys that ask for chrome mean nothing.** §7.7.2's
 //!   Table 29 states `FullScreen` as
 //!
@@ -120,7 +123,9 @@
 
 use pdf_model::view::{FieldName, Markup};
 use pdf_syntax::ObjectId;
-use viewer_core::{Answer, Command, Edit, FocusMove, PageTarget, Query, Selection, Viewer, Zoom};
+use viewer_core::{
+    Answer, Command, Edit, FocusMove, PageTarget, Query, Retrace, Selection, Viewer, Zoom,
+};
 
 /// A key this program has a meaning for.
 ///
@@ -522,6 +527,11 @@ pub fn meaning(key: Key, held: Modifiers, mode: Mode, waiting: Waiting) -> Optio
         } else {
             FocusMove::Next
         })),
+        // The window's history of views, on the arrows that turn pages and on Shift, the one
+        // modifier this table reads: no clause names a key for it, or keeps a history at all, and
+        // a turn and a step along the history both move the reader back or on (ADR 2805).
+        Key::Left if shift => Meaning::Send(Command::History(Retrace::Back)),
+        Key::Right if shift => Meaning::Send(Command::History(Retrace::Forward)),
         Key::Right | Key::PageDown | Key::Space => Meaning::Send(Command::GoTo(PageTarget::Next)),
         // Enter presses a push-button §12.5.1's focus is on, which a host asks
         // `crate::pressed` about before this table; with none focused there is nothing on the
@@ -848,7 +858,7 @@ mod tests {
         SELECT_FIRST, Waiting, WindowAct, decide, meaning, print_key,
     };
     use pdf_model::view::Markup;
-    use viewer_core::{Command, Edit, PageTarget, Selection, Viewer};
+    use viewer_core::{Command, Edit, PageTarget, Retrace, Selection, Viewer};
 
     /// The table's two markup rows, §12.5.6.10's, which the check in [`decide`] is for.
     const MARKUP_KEYS: [(Key, Markup); 2] =
@@ -1242,7 +1252,8 @@ mod tests {
     /// for both, so the modifier is the only thing separating them. The second is `P`, where the
     /// letter a print job is named after was already §12.4.4's presentation — the argument is at
     /// the binding and in ADR 1180. The third is `S`, where §10.8.3's simulation meets
-    /// `Command::Save` on the same letter (ADR 1228). Every other key means one thing, and the
+    /// `Command::Save` on the same letter (ADR 1228). The arrows that turn pages step along the
+    /// window's history of views when shifted (ADR 2805). Every other key means one thing, and the
     /// loop below is what keeps that true: a row that started reading Shift without saying so
     /// fails here.
     #[test]
@@ -1290,8 +1301,23 @@ mod tests {
             meaning(Key::A, Modifiers::SHIFT, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Window(WindowAct::Archive))
         ));
+        // The window's history of views on the shifted arrows that turn pages, in both modes
+        // (ADR 2805).
+        for mode in [Mode::Reading, Mode::Presenting] {
+            assert!(matches!(
+                meaning(Key::Left, Modifiers::SHIFT, mode, Waiting::Nothing),
+                Some(Meaning::Send(Command::History(Retrace::Back)))
+            ));
+            assert!(matches!(
+                meaning(Key::Right, Modifiers::SHIFT, mode, Waiting::Nothing),
+                Some(Meaning::Send(Command::History(Retrace::Forward)))
+            ));
+        }
         for key in Key::ALL {
-            if matches!(key, Key::Tab | Key::P | Key::S | Key::A) {
+            if matches!(
+                key,
+                Key::Tab | Key::P | Key::S | Key::A | Key::Left | Key::Right
+            ) {
                 continue;
             }
             for mode in [Mode::Reading, Mode::Presenting] {

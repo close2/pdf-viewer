@@ -88,6 +88,7 @@
 mod accessibility;
 mod command;
 mod event;
+mod history;
 mod interact;
 mod layout;
 mod located;
@@ -96,6 +97,7 @@ mod open;
 mod presentation;
 mod query;
 mod readback;
+mod recipient;
 mod report;
 mod script_question;
 mod scripting;
@@ -111,7 +113,7 @@ pub use command::{
     Answered, Archiving, AttachHome, Command, Committing, Declined, Edit, Fidelity, Find,
     FindDirection, FocusMove, Oversize, PageTarget, PointerAction, PresentationMode, Printing,
     Purpose, ReferenceFiles, Rendered, RestrictionLevel, RestrictionOverride, RestrictionPolicy,
-    RestrictionScope, Selection, Sheet, TrustPolicy, Viewing, Zoom,
+    RestrictionScope, Retrace, Selection, Sheet, TrustPolicy, Viewing, Zoom,
 };
 pub use event::{Event, Extraction, Found, Media, RenderRequest};
 pub use interact::states_a_pdf_header;
@@ -129,6 +131,7 @@ pub use query::{
     PageStructure, PopupWindow, PrintPage, Query, Selected, Tagging,
 };
 pub use readback::ReadbackCache;
+pub use recipient::RecipientSecret;
 pub use script_question::{AlertButton, AlertButtons, AlertIcon, ScriptAnswer, ScriptQuestion};
 pub use scripting::{ScriptAsks, ScriptRunners, Scripting};
 pub use secret::Secret;

@@ -8,10 +8,12 @@
 //!
 //! Three properties are under test.
 //!
-//! **Parsing and opening terminate and never panic**, over any byte sequence, opened with a fixed
-//! test certificate and key, so that the RSA decryption, the padding check and the AES-CBC step
-//! all see hostile input whenever the recipient matches — which a fuzzer reaches by copying the
-//! certificate's issuer and serial out of the dictionary below.
+//! **Parsing and opening terminate and never panic**, over any byte sequence, opened with two
+//! fixed test certificates and their keys — an RSA one for key transport and a P-256 one for key
+//! agreement (ADR 2821) — so that the RSA decryption, the padding check, the Diffie–Hellman
+//! primitive, the KDF, the key unwrap and the content cipher all see hostile input whenever a
+//! recipient matches, which a fuzzer reaches by copying a certificate's issuer and serial or its
+//! key identifier out of the dictionary below.
 //!
 //! **Nothing that comes back outgrows its input.** An opened envelope is the decryption of the
 //! input's own octets, so it is never longer than the input.
@@ -28,7 +30,7 @@ use std::sync::OnceLock;
 
 use libfuzzer_sys::fuzz_target;
 use pdf_pki::enveloped::parse;
-use pdf_pki::rsa::PrivateKey;
+use pdf_pki::key::PrivateKey;
 use pdf_pki::x509;
 
 /// A 1024-bit test key, RFC 5958's `OneAsymmetricKey`, and a self-signed certificate for it
@@ -72,26 +74,33 @@ fn hex(text: &str) -> Vec<u8> {
         .collect()
 }
 
-fn fixtures() -> &'static (Vec<u8>, PrivateKey) {
-    static FIXTURES: OnceLock<(Vec<u8>, PrivateKey)> = OnceLock::new();
+/// `pdf-pki`'s generated P-256 recipient: the certificate and its key as `OneAsymmetricKey`.
+const EC_CERTIFICATE: &[u8] =
+    include_bytes!("../../crates/pdf-pki/tests/envelopes/kari/p256.cert.der");
+const EC_KEY: &[u8] = include_bytes!("../../crates/pdf-pki/tests/envelopes/kari/p256.p8.der");
+
+fn fixtures() -> &'static [(Vec<u8>, PrivateKey); 2] {
+    static FIXTURES: OnceLock<[(Vec<u8>, PrivateKey); 2]> = OnceLock::new();
     FIXTURES.get_or_init(|| {
-        let key = PrivateKey::from_der(&hex(PKCS8)).expect("the test key reads");
-        (hex(CERTIFICATE), key)
+        let rsa = PrivateKey::from_der(&hex(PKCS8)).expect("the RSA test key reads");
+        let ec = PrivateKey::from_der(EC_KEY).expect("the EC test key reads");
+        [(hex(CERTIFICATE), rsa), (EC_CERTIFICATE.to_vec(), ec)]
     })
 }
 
 fuzz_target!(|data: &[u8]| {
-    let (certificate_bytes, key) = fixtures();
-    let certificate = x509::parse(certificate_bytes).expect("the test certificate reads");
     let first = parse(data);
     assert_eq!(first, parse(data), "a parse is idempotent");
     if let Ok(envelope) = first {
-        let _ = envelope.recipient(&certificate);
-        if let Ok(opened) = envelope.open(&certificate, key) {
-            assert!(
-                opened.len() <= data.len(),
-                "an opened envelope is not longer than its input"
-            );
+        for (certificate_bytes, key) in fixtures() {
+            let certificate = x509::parse(certificate_bytes).expect("the test certificate reads");
+            let _ = envelope.recipient(&certificate);
+            if let Ok(opened) = envelope.open(&certificate, key) {
+                assert!(
+                    opened.len() <= data.len(),
+                    "an opened envelope is not longer than its input"
+                );
+            }
         }
     }
 });

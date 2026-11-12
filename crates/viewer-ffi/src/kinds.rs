@@ -124,6 +124,9 @@ pub enum EventKind {
     /// choice field's drop-down list now, and call `quorra_opened_list` once it is shown.
     /// `quorra_events_describe` gives the field's fully qualified name (ADR 2791).
     ListOpens = 30,
+    /// [`viewer_core::Event::RecipientRequired`] — §7.6.5.1: no recipient list names the
+    /// certificate `quorra_recipient_key` supplied, or none was supplied (ADR 2822).
+    RecipientRequired = 31,
 }
 
 impl EventKind {
@@ -132,7 +135,7 @@ impl EventKind {
     /// **The number a C caller checks its header against**, which is the whole of what this ABI
     /// can offer in place of a build failure. It is written out rather than counted by a macro so
     /// that adding a variant is a line a person writes beside the variant, in the same commit.
-    pub const COUNT: u32 = 31;
+    pub const COUNT: u32 = 32;
 
     /// Which kind an event is.
     ///
@@ -173,6 +176,7 @@ impl EventKind {
             Event::Media { .. } => Self::Media,
             Event::Archiving { .. } => Self::Archiving,
             Event::ListOpens { .. } => Self::ListOpens,
+            Event::RecipientRequired { .. } => Self::RecipientRequired,
         }
     }
 
@@ -215,6 +219,7 @@ impl EventKind {
             Self::Media => "Media\0",
             Self::Archiving => "Archiving\0",
             Self::ListOpens => "ListOpens\0",
+            Self::RecipientRequired => "RecipientRequired\0",
         }
     }
 
@@ -257,6 +262,7 @@ impl EventKind {
             28 => Self::Media,
             29 => Self::Archiving,
             30 => Self::ListOpens,
+            31 => Self::RecipientRequired,
             _ => return None,
         })
     }
@@ -2494,7 +2500,7 @@ impl LevelKind {
 }
 
 /// Which of the reader's words with a value `quorra_settings_reader` states:
-/// `viewer_host::policy::ReaderWord`'s six (ADR 2156).
+/// `viewer_host::policy::ReaderWord`'s eight (ADR 2156).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
 pub enum ReaderKind {
@@ -2510,6 +2516,10 @@ pub enum ReaderKind {
     Organisation = 4,
     /// `--interface-language`: §8.11.4.4's `Language` category, replacing one stated before.
     Language = 5,
+    /// `--recipient-certificate`: the certificate §7.6.5.1's match looks for (ADR 2822).
+    RecipientCertificate = 6,
+    /// `--recipient-key`: the private key that belongs to it.
+    RecipientKey = 7,
 }
 
 impl ReaderKind {
@@ -2523,6 +2533,8 @@ impl ReaderKind {
             3 => Self::Title,
             4 => Self::Organisation,
             5 => Self::Language,
+            6 => Self::RecipientCertificate,
+            7 => Self::RecipientKey,
             _ => return None,
         })
     }
@@ -2538,6 +2550,8 @@ impl ReaderKind {
             Self::Title => ReaderWord::Title,
             Self::Organisation => ReaderWord::Organisation,
             Self::Language => ReaderWord::Language,
+            Self::RecipientCertificate => ReaderWord::RecipientCertificate,
+            Self::RecipientKey => ReaderWord::RecipientKey,
         }
     }
 }

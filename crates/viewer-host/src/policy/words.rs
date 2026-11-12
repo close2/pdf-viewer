@@ -3,7 +3,7 @@
 //! command line (ADR 2156).
 //!
 //! **One value rather than a pair every window keeps in step.** [`Settings::take`] reads the seven
-//! settings words and [`ReaderWords::take`] the reader's nine, and both hold RFC 0008 section
+//! settings words and [`ReaderWords::take`] the reader's twelve, and both hold RFC 0008 section
 //! 6.3's scripts level: each binary called the two parsers in turn and then copied the level from one
 //! into the other, and the C ABI's window copied it back the other way. [`Words::take`] is the
 //! two readings in the order every window asked them, and the level is written in both halves in
@@ -12,8 +12,8 @@
 use std::ffi::{OsStr, OsString};
 
 use super::{
-    INTERFACE_LANGUAGE, READER_NAME, READER_ORGANISATION, READER_TITLE, REFERENCE_FILES, Scripts,
-    Settings, TRUST_ANCHORS,
+    INTERFACE_LANGUAGE, READER_NAME, READER_ORGANISATION, READER_TITLE, RECIPIENT_CERTIFICATE,
+    RECIPIENT_KEY, REFERENCE_FILES, Scripts, Settings, TRUST_ANCHORS,
 };
 use super::{Level, Policy};
 use crate::{ReaderSupply, ReaderWords};
@@ -48,6 +48,10 @@ pub enum ReaderWord {
     Organisation,
     /// [`INTERFACE_LANGUAGE`]: §8.11.4.4's `Language` category, replacing one stated before.
     Language,
+    /// [`RECIPIENT_CERTIFICATE`]: the certificate §7.6.5.1's match looks for, one DER or PEM file.
+    RecipientCertificate,
+    /// [`RECIPIENT_KEY`]: the private key that belongs to it, one DER or PEM file.
+    RecipientKey,
 }
 
 impl ReaderWord {
@@ -61,6 +65,8 @@ impl ReaderWord {
             Self::Title => READER_TITLE,
             Self::Organisation => READER_ORGANISATION,
             Self::Language => INTERFACE_LANGUAGE,
+            Self::RecipientCertificate => RECIPIENT_CERTIFICATE,
+            Self::RecipientKey => RECIPIENT_KEY,
         }
     }
 }

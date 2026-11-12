@@ -44,8 +44,9 @@ use crate::{
 /// named destination's page and view as one change to the window's view (ADR 1751); 13 the keys
 /// held at the event, the field's rich value, a widget's line width and its `/DA` font and size, a
 /// group's intent, the pages' words, and a request to the host's console (ADR 1762); 14 the
-/// outline, the item an outline item's script runs at, and an item executed (ADR 1934).
-pub const VERSION: u8 = 14;
+/// outline, the item an outline item's script runs at, and an item executed (ADR 1934); 15 a step
+/// along the window's history of views (ADR 2805).
+pub const VERSION: u8 = 15;
 
 /// The console's three requests, in the order their tag counts them (ADR 1762).
 const CONSOLE_COMMANDS: [ConsoleCommand; 3] = [
@@ -683,6 +684,10 @@ fn put_view_change(out: &mut Vec<u8>, change: &ViewChange) {
             put_u32(out, *page);
             put_destination_view(out, view);
         }
+        ViewChange::History(steps) => {
+            put_u8(out, 5);
+            put_i32(out, *steps);
+        }
     }
 }
 
@@ -1038,6 +1043,11 @@ fn put_u8(out: &mut Vec<u8>, value: u8) {
     out.push(value);
 }
 
+/// Writes an `i32`.
+fn put_i32(out: &mut Vec<u8>, value: i32) {
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
 /// Writes a `u32`.
 fn put_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
@@ -1139,6 +1149,11 @@ impl<'a> Reader<'a> {
     /// One byte.
     fn u8(&mut self) -> Result<u8, WireError> {
         Ok(self.array::<1>()?[0])
+    }
+
+    /// An `i32`.
+    fn i32(&mut self) -> Result<i32, WireError> {
+        Ok(i32::from_le_bytes(self.array()?))
     }
 
     /// A `u32`.
@@ -1553,6 +1568,7 @@ impl<'a> Reader<'a> {
                 page: self.u32()?,
                 view: self.destination_view()?,
             },
+            5 => ViewChange::History(self.i32()?),
             _ => return Err(WireError::Invalid("view change")),
         })
     }

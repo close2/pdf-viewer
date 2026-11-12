@@ -756,6 +756,10 @@ pub trait NativeWindow {
         match event {
             Event::Opened { document, pages } => self.opened(document, pages, queue),
             Event::OpenFailed { document, reason } => self.open_failed(document, &reason),
+            // §7.6.5.1's failed match, said with the words that supply a key (ADR 2822).
+            Event::RecipientRequired { document } => {
+                self.open_failed(document, &crate::policy::recipient_required());
+            }
             // A dialogue a document raises waits while the window presents (ADR 2309).
             Event::PasswordRequired { document } => crate::PresentationPump::put_up(
                 self,

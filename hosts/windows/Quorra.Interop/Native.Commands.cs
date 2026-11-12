@@ -420,6 +420,16 @@ internal static unsafe partial class Native
 
     [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static partial int quorra_recipient_key(
+        nint viewer,
+        byte* certificate,
+        nuint certificate_length,
+        byte* key,
+        nuint key_length,
+        nint* events);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static partial int quorra_trust_anchors(
         nint viewer,
         byte** certificates,

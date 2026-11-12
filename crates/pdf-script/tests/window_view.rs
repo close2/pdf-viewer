@@ -165,3 +165,26 @@ fn a_scroll_hands_the_host_a_point_of_default_user_space() {
         }]
     );
 }
+
+/// `app.goBack()` and `app.goForward()` are Adobe's "app methods" steps along the view stack (ADR
+/// 2805): they answer nothing, and a run's steps cross as one count — two back and one forward is
+/// one step back, a person's step each.
+#[test]
+fn go_back_and_go_forward_cross_as_steps_along_the_history() {
+    let document = document(
+        "getField\\('Out'\\).value = [typeof app.goBack, app.goBack\\(\\), app.goBack\\(\\), \
+         app.goForward\\(\\)].join\\('|'\\);",
+        "",
+    );
+    let mut view = opened(&document, None);
+    assert_eq!(out(&view, &document), "function|||");
+    assert_eq!(view.take_view_requests(), vec![ViewChange::History(-1)]);
+}
+
+/// A run that only goes forward asks for forward steps.
+#[test]
+fn go_forward_alone_asks_for_a_step_forward() {
+    let document = document("app.goForward\\(\\);", "");
+    let mut view = opened(&document, None);
+    assert_eq!(view.take_view_requests(), vec![ViewChange::History(1)]);
+}

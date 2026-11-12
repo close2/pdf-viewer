@@ -89,6 +89,14 @@ impl Host {
                 // The worker survives an open it refused; only this document is over.
                 self.stop(format!("cannot open {}: {reason}", self.path.display()));
             }
+            // §7.6.5.1's failed match, said with the words that supply a key (ADR 2822).
+            Event::RecipientRequired { .. } => {
+                self.stop(format!(
+                    "cannot open {}: {}",
+                    self.path.display(),
+                    viewer_host::policy::recipient_required()
+                ));
+            }
             Event::PasswordRequired { .. } => {
                 // The file a document named, where it is the one that asks (ADR 1332).
                 self.locked_an_offer();

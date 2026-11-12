@@ -581,6 +581,22 @@ answers in two places"
                     self.arrival_due = true;
                 }
             }
+            // §7.6.5.1's failed match is said as a document that could not be opened, with the
+            // words that supply a key: a chooser for two files is not built (ADR 2822).
+            Event::RecipientRequired { document } => {
+                let reason = viewer_host::policy::recipient_required();
+                let said = match self.arrivals.settle(document) {
+                    Some(arriving) => viewer_host::cannot_open(
+                        &viewer_host::documents::label(&arriving.named.path),
+                        &reason,
+                    ),
+                    None => viewer_host::cannot_open(&self.title, &reason),
+                };
+                eprintln!("{said}");
+                self.refused.say(said);
+                self.redraw();
+                self.arrival_due = true;
+            }
             Event::OpenFailed { document, reason } => {
                 let said = match self.arrivals.settle(document) {
                     Some(arriving) => viewer_host::cannot_open(

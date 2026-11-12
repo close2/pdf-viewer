@@ -269,6 +269,7 @@ fn document(context: &mut Context) -> JsResult<()> {
     identity(&app, context)?;
     members::app(&app, context)?;
     super::pages::app(&app, context)?;
+    super::window::app(&app, context)?;
     refusers(&app, Holder::App, context)?;
     data(&global, "app", JsValue::from(app), false, context)?;
     let util = ObjectInitializer::new(context).build();

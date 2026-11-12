@@ -237,9 +237,7 @@ pub(super) fn embed(
         .insert(descriptor, Embedding { key: row.key, at });
     let held = earlier.as_ref().and_then(|earlier| earlier.map_at);
     let map_at = placed_map(document, map, held, &mut gains, spare, substitutes)?;
-    if let Some(name) = gains.get("BaseFont").cloned() {
-        let mut named = Dictionary::new();
-        named.insert(Name::new(&b"FontName"[..]), name);
+    if let Some(named) = font_name_of(&gains) {
         substitutes.described.insert(descriptor, named);
     }
     let mut descendants = earlier
@@ -268,11 +266,21 @@ pub(super) fn embed(
         losses: Losses::one(Loss::MachineFace).with(Loss::GlyphsFromToUnicode),
         fitting: None,
         empty_glyphs: Vec::new(),
+        empty_cids: Vec::new(),
         twin_codes: Vec::new(),
         cut_program: None,
         font: super::selected(used),
     });
     Ok(())
+}
+
+/// The descriptor's `/FontName` where the descendant gains a `/BaseFont`, which Table 120 makes the
+/// same name.
+fn font_name_of(gains: &Dictionary) -> Option<Dictionary> {
+    let name = gains.get("BaseFont").cloned()?;
+    let mut named = Dictionary::new();
+    named.insert(Name::new(&b"FontName"[..]), name);
+    Some(named)
 }
 
 /// Gives every `CIDFont` that shows the descriptor's program the gains the face brings, so that
@@ -585,7 +593,7 @@ fn whole_true_type(
 
 /// Table 115's `/CIDToGIDMap` stream: the glyph index for CID *c* is the two-byte value in bytes
 /// 2*c* and 2*c* + 1, high-order byte first, and every CID nothing names is left at glyph 0.
-fn cid_to_gid_map(map: &BTreeMap<u16, u16>) -> Result<Object, Because> {
+pub(super) fn cid_to_gid_map(map: &BTreeMap<u16, u16>) -> Result<Object, Because> {
     let highest = map.keys().next_back().copied().unwrap_or(0);
     let bytes: Vec<u8> = (0..=highest)
         .flat_map(|cid| map.get(&cid).copied().unwrap_or(0).to_be_bytes())
@@ -747,7 +755,7 @@ fn draws_or_spaces(program: &[u8], format: Format, glyph: u16, character: char) 
 }
 
 /// The object the `/DescendantFonts` array names, where it names one rather than holding it.
-fn descendant_object(document: &Document, dict: &Dictionary) -> Option<ObjectId> {
+pub(super) fn descendant_object(document: &Document, dict: &Dictionary) -> Option<ObjectId> {
     let array = document.get_key(dict, "DescendantFonts");
     document.resolve(&array).as_array()?.first()?.as_reference()
 }

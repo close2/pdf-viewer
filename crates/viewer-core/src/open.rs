@@ -150,6 +150,8 @@ pub(crate) struct Open {
     /// The pages Table 197's `/PV` has been raised for and `/PI` not since, in page order: the
     /// pages the window's arrangement shows, as of the last time it was settled.
     pub(crate) visible: Vec<usize>,
+    /// The views the reader's jumps left behind and their steps back left ahead (ADR 2805).
+    pub(crate) history: crate::history::History,
     /// How far the page is scrolled under the viewport, in device pixels.
     ///
     /// Positive means the content has moved up and left — the top-left of the raster is off the
@@ -931,12 +933,16 @@ impl Open {
     pub(crate) fn new(
         bytes: impl Into<pdf_syntax::FileBytes>,
         password: Option<&crate::Secret>,
+        recipient: Option<&crate::RecipientSecret>,
         limits: pdf_syntax::Limits,
     ) -> Result<Self, pdf_syntax::SyntaxError> {
-        Ok(Self::around(Self::read(bytes, password, limits)?))
+        Ok(Self::around(Self::read(
+            bytes, password, recipient, limits,
+        )?))
     }
 
-    /// Reads a file under a password, without deriving anything a page turn needs.
+    /// Reads a file under a password or §7.6.5.1's recipient key, without deriving anything a page
+    /// turn needs.
     ///
     /// Apart from [`Self::new`] for §12.7.8's named page, whose file is read after §7.6.4.1's
     /// prompt and drawn into another document rather than shown (ADR 1335).
@@ -947,16 +953,32 @@ impl Open {
     pub(crate) fn read(
         bytes: impl Into<pdf_syntax::FileBytes>,
         password: Option<&crate::Secret>,
+        recipient: Option<&crate::RecipientSecret>,
         limits: pdf_syntax::Limits,
     ) -> Result<Document, pdf_syntax::SyntaxError> {
-        Document::open_with_password(
-            bytes,
+        let bytes = bytes.into();
+        let read = Document::open_with_password(
+            bytes.clone(),
             limits,
             // The one call in this crate that reads a password, which is what
             // `Secret::reveal` is named to make visible at its call site. §7.6.4.1's default
             // user password is the empty string, so a document opened without one asks with it.
             password.map_or("", crate::Secret::reveal),
-        )
+        );
+        // §7.6.5.1's match, tried only once the file has said that its handler is a public-key
+        // one and that no key was offered: a document that is not encrypted to recipients never
+        // reads the key, and costs nothing for one being held (ADR 2822). The second read
+        // re-reads the cross-reference table, which a public-key document pays once.
+        match (read, recipient) {
+            (Err(pdf_syntax::SyntaxError::RecipientRequired), Some(recipient)) => {
+                let key = pdf_syntax::RecipientKey::new(
+                    recipient.certificate().to_vec(),
+                    recipient.reveal_key(),
+                )?;
+                Document::open_with_recipient(bytes, limits, &key)
+            }
+            (read, _) => read,
+        }
     }
 
     /// Everything the viewer derives from a document, read once.
@@ -1005,6 +1027,7 @@ impl Open {
             pending_views: open_view.into_iter().collect(),
             retained_corner: None,
             visible: Vec::new(),
+            history: crate::history::History::default(),
             scroll: (0.0, 0.0),
             pointed: None,
             on_screen: Vec::new(),

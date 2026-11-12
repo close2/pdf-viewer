@@ -265,6 +265,43 @@ pub fn glyph_indices_reach(program: &[u8], glyphs: &BTreeSet<u16>) -> bool {
 /// A `CFF ` program is subset by `cff` under the same three answers of the licence: where
 /// `fsType` forbids subsetting it is written whole, as a `glyf` one keeps every glyph.
 pub fn for_embedding(program: &[u8], used: &BTreeSet<u16>) -> Result<Embedded, Refusal> {
+    Ok(written(program, used, 0)?.0)
+}
+
+/// [`for_embedding`]'s program for a `glyf` face, with `empty` glyphs appended that draw nothing,
+/// and the index in the written program of each.
+///
+/// A `CIDFontType2` reaches its glyphs by `/CIDToGIDMap` (§9.7.4.2), so a CID the content stream
+/// shows may be sent to one of these where the page is to show nothing for it: ISO 19005-2
+/// section 6.2.11.8 forbids a text-showing operator to reference `.notdef`, which glyph 0 is
+/// (§9.9.2), so drawing nothing is a glyph of its own. Each is an empty `glyf` entry — `loca`
+/// gives it no bytes, which ISO/IEC 14496-22 makes a glyph with no outline — at an advance of
+/// zero, which a caller restates to the width the font dictionary gives (`restate::with_widths`).
+/// They follow every kept glyph, so no kept glyph's index moves for them; the subset's tag counts
+/// them, so two subsets keeping the same glyphs but not the same number of empty ones are named
+/// differently, as §9.9.2 asks of two subsets in one file.
+///
+/// # Errors
+///
+/// [`for_embedding`]'s, and [`Refusal::NoOutlines`] for a `CFF ` face, whose glyphs a
+/// `CIDFontType0` reaches by its charset rather than by a map this could send to them.
+pub fn for_embedding_with_empty_glyphs(
+    program: &[u8],
+    used: &BTreeSet<u16>,
+    empty: u16,
+) -> Result<(Embedded, Vec<u16>), Refusal> {
+    if has_cff_outlines(program) {
+        return Err(Refusal::NoOutlines);
+    }
+    written(program, used, empty)
+}
+
+/// [`for_embedding`] with `empty` empty glyphs appended to a `glyf` program, and their indices.
+fn written(
+    program: &[u8],
+    used: &BTreeSet<u16>,
+    empty: u16,
+) -> Result<(Embedded, Vec<u16>), Refusal> {
     let permitted = permission(program);
     if permitted.licence == Licence::Restricted {
         return Err(Refusal::Restricted);
@@ -275,7 +312,10 @@ pub fn for_embedding(program: &[u8], used: &BTreeSet<u16>) -> Result<Embedded, R
     let tables = sfnt_tables(program).ok_or(Refusal::Malformed("table directory"))?;
     if !tables.contains_key(b"glyf".as_slice()) {
         return if tables.contains_key(b"CFF ".as_slice()) {
-            cff::for_embedding(program, used, permitted.subsetting)
+            Ok((
+                cff::for_embedding(program, used, permitted.subsetting)?,
+                Vec::new(),
+            ))
         } else {
             Err(Refusal::NoOutlines)
         };
@@ -296,20 +336,32 @@ pub fn for_embedding(program: &[u8], used: &BTreeSet<u16>) -> Result<Embedded, R
         .zip(0u16..)
         .map(|(old, new)| (*old, new))
         .collect();
-    let program_out = assembled(&face.rebuilt(&glyphs)?, TRUE_TYPE)
+    let first_empty = u16::try_from(glyphs.len()).map_err(|_| Refusal::Malformed("maxp"))?;
+    let empties: Vec<u16> = (0..empty)
+        .map(|index| first_empty.checked_add(index))
+        .collect::<Option<_>>()
+        .ok_or(Refusal::Malformed("maxp"))?;
+    let program_out = assembled(&face.rebuilt(&glyphs, empty)?, TRUE_TYPE)
         .ok_or(Refusal::Malformed("table directory"))?;
     let postscript = postscript_name(program);
     let name = if permitted.subsetting {
-        format!("{}+{postscript}", tag(program, &kept))
+        // The empty glyphs stand in the tag's digest as indices past the face's last, which no
+        // glyph of the face can be.
+        let mut named = kept.clone();
+        named.extend((0..empty).map_while(|index| face.count.checked_add(index)));
+        format!("{}+{postscript}", tag(program, &named))
     } else {
         postscript
     };
-    Ok(Embedded {
-        program: program_out,
-        glyphs,
-        name,
-        outlines: Outlines::TrueType,
-    })
+    Ok((
+        Embedded {
+            program: program_out,
+            glyphs,
+            name,
+            outlines: Outlines::TrueType,
+        },
+        empties,
+    ))
 }
 
 /// A §9.9.2 subset of a `CFF ` face, written bare under Table 124's `CIDFontType0C` row, whose
@@ -469,7 +521,12 @@ impl<'a> Face<'a> {
     }
 
     /// The tables of the program that keeps `glyphs`, each at its new index.
-    fn rebuilt(&self, glyphs: &BTreeMap<u16, u16>) -> Result<BTreeMap<[u8; 4], Vec<u8>>, Refusal> {
+    /// `empty` glyphs with no outline and no advance follow the last kept one.
+    fn rebuilt(
+        &self,
+        glyphs: &BTreeMap<u16, u16>,
+        empty: u16,
+    ) -> Result<BTreeMap<[u8; 4], Vec<u8>>, Refusal> {
         let mut glyf = Vec::new();
         let mut loca = Vec::with_capacity(glyphs.len().saturating_add(1).saturating_mul(4));
         let mut hmtx = Vec::with_capacity(glyphs.len().saturating_mul(4));
@@ -493,8 +550,16 @@ impl<'a> Face<'a> {
             hmtx.extend_from_slice(&advance.to_be_bytes());
             hmtx.extend_from_slice(&bearing.to_be_bytes());
         }
+        // An empty glyph's `loca` entry is the next one's offset, so it holds no bytes.
+        for _ in 0..empty {
+            loca.extend_from_slice(&offset_of(&glyf)?.to_be_bytes());
+            hmtx.extend_from_slice(&[0; 4]);
+        }
         loca.extend_from_slice(&offset_of(&glyf)?.to_be_bytes());
-        let kept = u16::try_from(glyphs.len()).map_err(|_| Refusal::Malformed("maxp"))?;
+        let kept = u16::try_from(glyphs.len())
+            .ok()
+            .and_then(|kept| kept.checked_add(empty))
+            .ok_or(Refusal::Malformed("maxp"))?;
 
         // Long offsets, whatever the face used: a four-byte-aligned `glyf` needs them past 128
         // KiB, and one format for every subset is one fewer case to be wrong in.
@@ -680,7 +745,10 @@ fn tag(program: &[u8], kept: &BTreeSet<u16>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Licence, Refusal, for_embedding, may_be_embedded, permission, tag};
+    use super::{
+        Licence, Refusal, for_embedding, for_embedding_with_empty_glyphs, may_be_embedded,
+        permission, tag,
+    };
     use crate::sfnt::{be16, be32, sfnt_tables};
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -814,6 +882,100 @@ mod tests {
         assert_eq!(embedded.name.len(), "ABCDEF+MachineFace".len());
         assert_eq!(embedded.name.as_bytes()[6], b'+');
         assert!(embedded.name[..6].bytes().all(|b| b.is_ascii_uppercase()));
+    }
+
+    /// The empty glyphs follow every kept glyph, each a `loca` entry of no bytes at an advance of
+    /// zero, and the reader this tree draws with finds no outline in one: ISO/IEC 14496-22 makes
+    /// an empty `glyf` entry a glyph with no outline, which is what the page is to show for a
+    /// CID sent to it (ISO 19005-2 section 6.2.11.8 forbids sending it to `.notdef`). The kept
+    /// glyphs keep the indices [`for_embedding`] gives them, and the subset is named apart from
+    /// the one without them (§9.9.2's tag).
+    #[test]
+    fn empty_glyphs_follow_the_kept_ones_and_draw_nothing() {
+        use skrifa::MetadataProvider as _;
+        let program = face(&(1..4).map(simple).collect::<Vec<_>>(), 0);
+        let plain = for_embedding(&program, &BTreeSet::from([2])).expect("installable");
+        let (embedded, empty) = for_embedding_with_empty_glyphs(&program, &BTreeSet::from([2]), 2)
+            .expect("installable");
+        assert_eq!(embedded.glyphs, plain.glyphs, "no kept glyph moves");
+        assert_eq!(
+            empty,
+            vec![2, 3],
+            "after .notdef and glyph 2, renumbered 0 and 1"
+        );
+        assert_ne!(embedded.name, plain.name);
+        let out = &embedded.program;
+        let tables = sfnt_tables(out).expect("a directory");
+        let (maxp, _) = tables[b"maxp".as_slice()];
+        assert_eq!(be16(out, maxp + 4), Some(4), "numGlyphs");
+        let (hhea, _) = tables[b"hhea".as_slice()];
+        assert_eq!(be16(out, hhea + 34), Some(4), "numberOfHMetrics");
+        let (hmtx, _) = tables[b"hmtx".as_slice()];
+        for glyph in &empty {
+            assert!(
+                glyf_entry(out, usize::from(*glyph)).is_empty(),
+                "glyph {glyph}"
+            );
+            assert_eq!(
+                be16(out, hmtx + usize::from(*glyph) * 4),
+                Some(0),
+                "advance"
+            );
+        }
+        assert!(
+            glyf_entry(out, 1).starts_with(&simple(3)),
+            "glyph 2 of the face, renumbered 1"
+        );
+        let reader = skrifa::FontRef::new(out).expect("a reader opens the program");
+        let outlines = reader.outline_glyphs();
+        for glyph in [1u32, 2, 3] {
+            let mut commands = 0usize;
+            let mut pen = Counted(&mut commands);
+            outlines
+                .get(skrifa::GlyphId::new(glyph))
+                .expect("the glyph is there")
+                .draw(
+                    skrifa::outline::DrawSettings::unhinted(
+                        skrifa::instance::Size::unscaled(),
+                        skrifa::instance::LocationRef::default(),
+                    ),
+                    &mut pen,
+                )
+                .expect("drawn");
+            assert_eq!(
+                commands == 0,
+                glyph >= 2,
+                "glyph {glyph} draws nothing only if empty"
+            );
+        }
+        assert_eq!(
+            for_embedding_with_empty_glyphs(&program, &BTreeSet::from([2]), 0)
+                .expect("installable")
+                .0,
+            plain,
+            "none asked, none written"
+        );
+    }
+
+    /// A pen that counts what it is asked to draw.
+    struct Counted<'a>(&'a mut usize);
+
+    impl skrifa::outline::OutlinePen for Counted<'_> {
+        fn move_to(&mut self, _: f32, _: f32) {
+            *self.0 = self.0.saturating_add(1);
+        }
+        fn line_to(&mut self, _: f32, _: f32) {
+            *self.0 = self.0.saturating_add(1);
+        }
+        fn quad_to(&mut self, _: f32, _: f32, _: f32, _: f32) {
+            *self.0 = self.0.saturating_add(1);
+        }
+        fn curve_to(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: f32) {
+            *self.0 = self.0.saturating_add(1);
+        }
+        fn close(&mut self) {
+            *self.0 = self.0.saturating_add(1);
+        }
     }
 
     /// Different subsets of one face get different tags (§9.9.2), and one subset the same tag.

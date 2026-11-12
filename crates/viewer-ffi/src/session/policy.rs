@@ -72,6 +72,14 @@ impl Session {
         self.handle(Command::Trust(policy))
     }
 
+    /// §7.6.5.1's reader identity: the certificate and key a document encrypted to recipients is
+    /// opened with, or `None` for none — the default, and what a caller that never calls this
+    /// gets (ADR 2822).
+    #[must_use]
+    pub fn recipient(&mut self, key: Option<viewer_core::RecipientSecret>) -> Events {
+        self.handle(Command::Recipient(key))
+    }
+
     /// ISO 32000-2 §8.10.4's target documents: which files a reference `XObject` may import from.
     ///
     /// The clause's second processor class, made reachable. Empty is the default and is what a

@@ -40,6 +40,20 @@ pub enum Event {
         /// The identity the host gave it.
         document: DocumentId,
     },
+    /// §7.6.5.1: the document is encrypted by a public-key security handler and no recipient list
+    /// names the certificate the host supplied — or the host supplied none.
+    ///
+    /// [`Self::PasswordRequired`]'s public-key counterpart, and for the same reason not an
+    /// [`Self::OpenFailed`]: the clause has the reader "attempt to find a match with a certificate
+    /// that belongs to the user", and finding none is a file this reader has not been given the
+    /// key to. The host answers by supplying another certificate with [`crate::Command::Recipient`]
+    /// and sending [`crate::Command::Open`] again. A certificate that matches and a key that does
+    /// not open the envelope is not this event: it is an [`Self::OpenFailed`] whose reason is
+    /// [`pdf_syntax::SyntaxError::RecipientKey`]'s, because another prompt would not help it.
+    RecipientRequired {
+        /// The identity the host gave it.
+        document: DocumentId,
+    },
     /// A document closed and everything derived from it was dropped.
     Closed(DocumentId),
     /// The focused document is showing a different page.

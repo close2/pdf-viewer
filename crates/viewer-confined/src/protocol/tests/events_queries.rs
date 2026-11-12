@@ -21,6 +21,7 @@ fn every_carried_event_round_trips() {
             reason: "unsupported encryption".to_owned(),
         },
         Event::PasswordRequired { document },
+        Event::RecipientRequired { document },
         Event::Closed(document),
         Event::ListOpens {
             document,

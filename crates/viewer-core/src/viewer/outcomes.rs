@@ -179,7 +179,7 @@ impl Viewer {
             return;
         };
         let file = file.clone();
-        let read = Open::read(bytes, password, hold.locked.limits);
+        let read = Open::read(bytes, password, self.recipient.as_ref(), hold.locked.limits);
         if matches!(read, Err(SyntaxError::PasswordRequired)) {
             let asked = hold.asked;
             self.locked = Some(hold);
@@ -320,11 +320,22 @@ impl Viewer {
         }
 
         let (viewport, scale) = (self.viewport, self.scale);
+        let presenting = self.presenting == crate::PresentationMode::On;
         let Some(open) = self.focused_mut() else {
             return;
         };
         if outcome.redraw {
             open.stale();
+        }
+        // A destination followed is a jump, and the view it leaves goes into the window's history
+        // (ADR 2805) — except in §12.4.4's presentation, where every turn is a navigation node's
+        // action and the turns are steps through the slides rather than jumps away from them.
+        let jumps = outcome.view.is_some()
+            || outcome
+                .target
+                .is_some_and(|target| target != open.page_index);
+        if jumps && !presenting {
+            open.leave();
         }
         // Even a destination naming the page already showing states where to look at it, which
         // is what an outline item pointing at a heading half way down a page is for.

@@ -633,6 +633,7 @@ pub(super) fn describe(
         losses,
         fitting,
         empty_glyphs: empty.keys().copied().collect(),
+        empty_cids: Vec::new(),
         twin_codes: Vec::new(),
         cut_program: None,
         font: super::selected(used),
@@ -1283,7 +1284,7 @@ fn same_metrics(source: &LoadedFont, converted: &LoadedFont) -> Result<(), Becau
 /// its producer drew it (ADR 0396). Reversing every subpath negates every winding number, and both
 /// of §8.5.3.3's rules test a winding number's magnitude, so the glyph alone paints the same either
 /// way — which is why the comparison undoes exactly that and nothing else.
-fn same_once_wound(substituted: &pdf_render::Path, embedded: &pdf_render::Path) -> bool {
+pub(super) fn same_once_wound(substituted: &pdf_render::Path, embedded: &pdf_render::Path) -> bool {
     if embedded.signed_area() < 0.0 {
         substituted.commands() == embedded.reversed().commands()
     } else {
@@ -1400,7 +1401,7 @@ const ELEVATION_ROUNDING: f32 = 1.0 / 1_048_576.0;
 /// cycle is a malformed file and not a reason to recurse forever. A stream is left out: the only
 /// one a simple font dictionary names that selects a glyph is the program, which [`proved`] writes
 /// itself.
-fn resolved(document: &Document, value: &Object, depth: u8) -> Object {
+pub(super) fn resolved(document: &Document, value: &Object, depth: u8) -> Object {
     let Some(deeper) = depth.checked_sub(1) else {
         return Object::Null;
     };

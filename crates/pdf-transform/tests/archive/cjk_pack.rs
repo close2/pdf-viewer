@@ -18,7 +18,7 @@ use pdf_transform::archive::{Authorisations, CjkPack, Loss, PackFiles};
 
 /// The fixture's one font: `UniJIS-UCS2-H` over an `Adobe-Japan1` descendant with no program,
 /// showing U+3042 (CID 843) and U+3044 (CID 845).
-fn a_japanese_font_not_embedded() -> Vec<u8> {
+pub(super) fn a_japanese_font_not_embedded() -> Vec<u8> {
     Conforming {
         resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
                     [0.9505 1.0 1.089] >>] >>"
@@ -65,9 +65,13 @@ impl PackFiles for NotThePack {
     }
 }
 
+/// The refusal of the fixture where the pack route is the one taken: with `machine-face`
+/// authorised, as `as-if-printed` authorises it, so that the machine's face the window drew is not
+/// embedded ahead of the pack (`doc/adr/2774`, `doc/adr/2807`).
 fn refusal_of(pack: Option<CjkPack>) -> String {
     let mut plan = a_supplied_font(Target::Two(Level::B), "NotThisFont", &[]);
     plan.cjk_pack = pack;
+    plan.authorised.authorise(Loss::MachineFace);
     let (report, output) = convert_with_plan(&a_japanese_font_not_embedded(), &plan);
     assert!(output.is_none(), "no file is written");
     let Decision::Refused(because) = decision(&report, "fonts/font-programs-embedded") else {
@@ -104,19 +108,24 @@ fn the_pack_answers_a_collections_font_as_the_named_loss_machine_face() {
     let pack = CjkPack::new(Arc::new(Directory(Some(directory.into()))));
     let source = a_japanese_font_not_embedded();
 
-    // `as-shown`'s yardstick: the window drew another face, so the loss is not admitted.
+    // `as-shown`'s yardstick: the window drew another face, so the loss is not admitted. Where
+    // the window drew a face of this machine's, that face goes in ahead of the pack instead
+    // (`doc/adr/2807`, `machine_cid.rs`), so the stop is asked only of a machine without one.
     let mut plan = a_supplied_font(Target::Two(Level::B), "NotThisFont", &[]);
     plan.cjk_pack = Some(pack.clone());
-    let (report, output) = convert_with_plan(&source, &plan);
-    assert!(
-        output.is_none(),
-        "the loss nobody authorised stops the conversion"
-    );
-    let Decision::Unauthorised { losses, .. } = decision(&report, "fonts/font-programs-embedded")
-    else {
-        panic!("the pack's face is a loss to authorise, not a refusal");
-    };
-    assert!(losses.iter().any(|loss| loss == Loss::MachineFace));
+    if !super::machine_cid::drawn_from_a_machine_face(&source) {
+        let (report, output) = convert_with_plan(&source, &plan);
+        assert!(
+            output.is_none(),
+            "the loss nobody authorised stops the conversion"
+        );
+        let Decision::Unauthorised { losses, .. } =
+            decision(&report, "fonts/font-programs-embedded")
+        else {
+            panic!("the pack's face is a loss to authorise, not a refusal");
+        };
+        assert!(losses.iter().any(|loss| loss == Loss::MachineFace));
+    }
 
     // `as-if-printed`'s: the loss is discarded, and the font is given the pack's program.
     let mut authorised = Authorisations::default();

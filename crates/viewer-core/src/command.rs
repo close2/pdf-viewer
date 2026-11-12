@@ -8,6 +8,7 @@
 use pdf_render::Raster;
 use pdf_syntax::{FileBytes, ObjectId};
 
+use crate::recipient::RecipientSecret;
 use crate::secret::Secret;
 use crate::viewer::{DocumentId, RenderToken};
 
@@ -166,6 +167,15 @@ pub enum Command {
     /// host that starts another one has to put the reader back where they were. Nothing on this
     /// boundary could say where that was.
     View(Viewing),
+    /// Go back to the view the reader was at before their latest jump, or forward again after a
+    /// step back (ADR 2805).
+    ///
+    /// The window's history of views is this crate's and not a host's, so that every host offers
+    /// the same one and a script's `app.goBack` walks the history a person walks: a jump — a
+    /// destination followed, or a page named outright — leaves a view behind, and a step along
+    /// the history restores one exactly as [`Self::View`] does. A step with nowhere to go is said
+    /// out loud and moves nothing.
+    History(Retrace),
     /// How much of what a document asserts about its reader this viewer obeys.
     ///
     /// **The one policy value in this crate, and the host is the only place it can come from.**
@@ -284,6 +294,22 @@ pub enum Command {
     /// the *reader* rather than about any one file. What a document already said about itself is
     /// worded again when it arrives, because the answer to the third question has changed.
     Trust(TrustPolicy),
+    /// §7.6.5.1's reader identity: the certificate and private key that open a document encrypted
+    /// by a public-key security handler, or `None` for no key.
+    ///
+    /// ISO 32000-2 §7.6.5.1: "the PDF reader shall scan the recipient list for which the content
+    /// is encrypted and shall attempt to find a match with a certificate that belongs to the
+    /// user." Which certificate belongs to the user is a question no file can answer, so it is
+    /// [`Self::Trust`]'s shape for [`Self::Trust`]'s reason: the host reads the two files, in the
+    /// unconfined process, and hands their bytes in (ADR 1134 decision 2, ADR 2822).
+    ///
+    /// **`None` is the default and nothing changes for a host that never sends this**: a document
+    /// encrypted to recipients answers [`crate::Event::RecipientRequired`], which is what it
+    /// answered before the command existed, said as a prompt rather than as a failure.
+    ///
+    /// Applies to every document opened afterwards, until it is sent again: it is a fact about
+    /// the *reader*. A document already open was opened with the key it needed and keeps it.
+    Recipient(Option<RecipientSecret>),
     /// ISO 32000-2 §8.10.4's target documents: the files a reference `XObject` may import from.
     ///
     /// **The seventh host-supplied policy value, and it is the same shape as [`Self::Trust`] for
@@ -2034,6 +2060,15 @@ pub struct Viewing {
     /// delta has, and the same units. **Already clamped**: this is where the viewer put the
     /// reader, not where a host asked for them to be.
     pub scroll: (f32, f32),
+}
+
+/// Which way along the window's history of views [`Command::History`] steps (ADR 2805).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Retrace {
+    /// To the view the latest jump left.
+    Back,
+    /// To the view the latest step back left.
+    Forward,
 }
 
 /// ISO 32000-2 §8.10.4's target documents as a host holds them: bytes, each under a name.

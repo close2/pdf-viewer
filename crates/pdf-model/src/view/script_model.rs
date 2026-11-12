@@ -1291,6 +1291,10 @@ pub enum ViewChange {
         /// Where on it, and how large.
         view: crate::destination::View,
     },
+    /// `app.goBack()` and `app.goForward()`: steps along the window's history of views, which
+    /// Adobe's "app methods" calls the view stack — a negative count back and a positive one
+    /// forward, each step the one a person takes (ADR 2805).
+    History(i32),
 }
 
 /// Adobe's zoom types, the values "Doc properties" lists for `zoomType` (ADR 1736).

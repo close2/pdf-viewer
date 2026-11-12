@@ -57,14 +57,24 @@ use super::{
 /// The routes for a composite font nobody named a program for, in the owner's order (A570): the
 /// CJK pack for a collection's font, re-keying for an `Adobe-Identity` font whose `/ToUnicode` the
 /// glyphs can be chosen by, and the photographed page for one no face can be keyed to.
+///
+/// Ahead of all three, where the profile withholds the loss `machine-face`, the machine's face the
+/// window drew the font from (`doc/adr/2807`, `doc/adr/2774`). Where that route does not answer the
+/// font, why is not carried: the route taken instead names `machine-face`, which the same profile
+/// stops on, so nothing the window drew is lost in silence.
 fn unnamed(
     document: &Document,
     used: &SelectedFont,
     descendant: &Dictionary,
-    pack: Option<&super::CjkPack>,
+    (pack, embed_machine_face): (Option<&super::CjkPack>, bool),
     spare: &mut Spare,
     substitutes: &mut Substitutes,
 ) -> Result<(), Because> {
+    if embed_machine_face
+        && super::machine_cid::embed(document, used, descendant, spare, substitutes).is_ok()
+    {
+        return Ok(());
+    }
     if let Some(collection) = super::pack::collection_of(document, &used.dict, descendant) {
         return super::pack::embed(
             document,
@@ -102,7 +112,7 @@ pub(super) fn embed(
     used: &SelectedFont,
     spare: &mut Spare,
     supplied: &BTreeMap<String, Arc<[u8]>>,
-    pack: Option<&super::CjkPack>,
+    (pack, embed_machine_face): (Option<&super::CjkPack>, bool),
     substitutes: &mut Substitutes,
 ) -> Result<(), Because> {
     let requested = base_font(document, &used.dict);
@@ -120,7 +130,14 @@ pub(super) fn embed(
         // select, numbered by its own CIDs, where it states a map to read them by (ADR 2378);
         // where it states none, or one no face can be keyed from, its pages are photographed if
         // the owner's gate admits them, and the font keeps its refusal otherwise (ADR 2394).
-        return unnamed(document, used, &descendant_dict, pack, spare, substitutes);
+        return unnamed(
+            document,
+            used,
+            &descendant_dict,
+            (pack, embed_machine_face),
+            spare,
+            substitutes,
+        );
     };
     let encoding = name_of(document, &used.dict, "Encoding").unwrap_or_default();
     if encoding != "Identity-H" && encoding != "Identity-V" {
@@ -216,6 +233,7 @@ pub(super) fn embed(
         losses: super::Losses::default(),
         fitting: None,
         empty_glyphs: Vec::new(),
+        empty_cids: Vec::new(),
         twin_codes: Vec::new(),
         cut_program: None,
         font: super::selected(used),

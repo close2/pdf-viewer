@@ -74,6 +74,7 @@ mod described;
 pub(in crate::archive) mod embedded_cmap;
 mod empty;
 mod fresh_cid;
+mod machine_cid;
 mod notdef_format;
 mod notdef_glyph;
 mod notices;
@@ -193,6 +194,10 @@ pub struct SubstitutedFont {
     /// embedded program, which `doc/questions/A48` allows on condition that each is reported and
     /// recorded (`doc/adr/2458`).
     pub empty_glyphs: Vec<u8>,
+    /// The CIDs a composite font's pages show that the window drew no glyph for, each sent by the
+    /// `/CIDToGIDMap` to a glyph that draws nothing rather than to `.notdef` (`doc/adr/2824`),
+    /// reported and recorded on `doc/questions/A48`'s condition.
+    pub empty_cids: Vec<u16>,
     /// The codes Annex D encodes twice that the font's encoding now names for the character ISO
     /// 32000-1 says each means, so that each reaches a glyph of its own (`doc/adr/2723`).
     pub twin_codes: Vec<u8>,
@@ -251,6 +256,24 @@ pub(super) fn empty_glyphs_given(codes: &[u8]) -> String {
          and were each given a glyph that draws nothing at the width the font dictionary states, \
          named outside the Adobe Glyph List so that no character is stated for them",
         empty::listed(codes)
+    )
+}
+
+/// What an empty glyph given to a CID the window drew nothing for is, in one clause naming the
+/// CIDs and the clause, for the report and for the file's own `xmpMM:History` alike
+/// (`doc/adr/2824`, on `doc/questions/A48`'s condition).
+#[must_use]
+pub(super) fn empty_cids_given(cids: &[u16]) -> String {
+    format!(
+        "the CIDs {} were drawn by this viewer as nothing, the face it drew the font from having no \
+         glyph for them, and are each sent by the CIDToGIDMap to a glyph that draws nothing at the \
+         width the CIDFont states, rather than to .notdef, which ISO 19005-2 section 6.2.11.8 and \
+         ISO 19005-4 section 6.2.10.9 forbid a text-showing operator to reference; what each CID \
+         means is still its character collection's and the font's ToUnicode",
+        cids.iter()
+            .map(u16::to_string)
+            .collect::<Vec<_>>()
+            .join(", ")
     )
 }
 
@@ -1152,7 +1175,14 @@ fn embed_pass(
         }
         if subtype == "Type0" {
             let before = substitutes.done.len();
-            composite::embed(document, used, spare, supplied, pack, &mut substitutes)?;
+            composite::embed(
+                document,
+                used,
+                spare,
+                supplied,
+                (pack, embed_machine_face),
+                &mut substitutes,
+            )?;
             for entry in substitutes.done.iter_mut().skip(before) {
                 entry.cut_program = cut;
             }
@@ -1367,6 +1397,7 @@ fn embed_pass(
             losses,
             fitting,
             empty_glyphs: Vec::new(),
+            empty_cids: Vec::new(),
             twin_codes: twins.map(|twins| twins.codes).unwrap_or_default(),
             cut_program: cut,
             font: selected(used),

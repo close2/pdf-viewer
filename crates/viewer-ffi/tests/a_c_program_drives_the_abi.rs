@@ -309,7 +309,7 @@ fn a_c_program_opens_a_document_turns_a_page_asks_a_query_and_gets_pixels() {
 /// for "black point" lands, and the page after it draws.
 fn what_it_printed(said: &str) {
     for expected in [
-        "abi 2 (header 2), 31 event kind(s) (header 31)",
+        "abi 2 (header 2), 32 event kind(s) (header 32)",
         // ISO 19005's conversion asked for at the reader's default level, granted once, and its
         // report's first line naming the profile the library listed second (ADR 1954), and that
         // profile's own sentence as the windows offer it (ADR 1966).

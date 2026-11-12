@@ -215,11 +215,15 @@ pub(in crate::archive) fn substituted_fonts_recorded(fonts: &[fonts::Substituted
             };
             // `doc/questions/A48`'s condition: each empty glyph is in the file's own history,
             // naming the clause it answers (`doc/adr/2458`).
-            let empty = if font.empty_glyphs.is_empty() {
+            let mut empty = if font.empty_glyphs.is_empty() {
                 String::new()
             } else {
                 format!("; {}", fonts::empty_glyphs_given(&font.empty_glyphs))
             };
+            if !font.empty_cids.is_empty() {
+                empty.push_str("; ");
+                empty.push_str(&fonts::empty_cids_given(&font.empty_cids));
+            }
             // A code named for the character it means is a restated encoding, and the file's
             // history says which (`doc/adr/2723`).
             let twins = if font.twin_codes.is_empty() {

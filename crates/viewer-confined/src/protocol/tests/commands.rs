@@ -102,6 +102,9 @@ fn every_carried_command_round_trips() {
             zoom: Zoom::FitWidth,
             scroll: (0.0, 0.0),
         }),
+        // Both steps along the window's history of views (ADR 2805).
+        Command::History(viewer_core::Retrace::Back),
+        Command::History(viewer_core::Retrace::Forward),
         Command::Restrict(RestrictionScope::Window(RestrictionPolicy::uniform(
             RestrictionLevel::Off,
         ))),
@@ -482,6 +485,7 @@ fn every_carried_command_round_trips() {
             offset: None,
         })),
         Command::Clock(None),
+        Command::Recipient(None),
     ];
     for command in &commands {
         let encoded = encode_command(command).unwrap();
@@ -603,4 +607,24 @@ fn a_password_crosses_the_transport_unchanged() {
         Some("m\u{fc}hsam gew\u{e4}hlt"),
         "the password changed on the way through"
     );
+}
+
+/// §7.6.5.1's certificate and key cross whole, both halves, and none crosses as none (ADR 2822).
+///
+/// For [`a_password_crosses_the_transport_unchanged`]'s reason: a `RecipientSecret` prints two
+/// lengths and no byte, so the general comparison could not see a key altered on the wire.
+#[test]
+fn a_recipient_key_crosses_the_transport_unchanged() {
+    let command = Command::Recipient(Some(viewer_core::RecipientSecret::new(
+        vec![0x30, 0x03, 0x02, 0x01, 0x05],
+        vec![0x30, 0x02, 0x04, 0x00, 0xA5],
+    )));
+    let read = decode_command(&encode_command(&command).unwrap()).unwrap();
+    let Command::Recipient(Some(key)) = read else {
+        panic!("a Recipient decoded as something else, or lost its key");
+    };
+    assert_eq!(key.certificate(), [0x30, 0x03, 0x02, 0x01, 0x05]);
+    assert_eq!(key.reveal_key(), [0x30, 0x02, 0x04, 0x00, 0xA5]);
+    let none = decode_command(&encode_command(&Command::Recipient(None)).unwrap()).unwrap();
+    assert!(matches!(none, Command::Recipient(None)), "{none:?}");
 }

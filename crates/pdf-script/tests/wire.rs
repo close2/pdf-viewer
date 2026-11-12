@@ -204,8 +204,8 @@ const WINDOW: pdf_model::view::WindowView = pdf_model::view::WindowView {
     layout: pdf_model::viewer_preferences::PageLayout::TwoPageLeft,
 };
 
-/// One change of each kind to the window's view (ADR 1736), and a field's `/Opt` rewritten (ADR
-/// 1737).
+/// One change of each kind to the window's view (ADR 1736), steps along its history (ADR 2805),
+/// and a field's `/Opt` rewritten (ADR 1737).
 fn view_and_option_edits() -> Vec<ScriptEdit> {
     use pdf_model::destination::View;
     use pdf_model::view::{ViewChange, ZoomType};
@@ -236,6 +236,13 @@ fn view_and_option_edits() -> Vec<ScriptEdit> {
                     zoom: Some(1.5),
                 },
             },
+        },
+        // A run's steps along the history of views, back and forward (ADR 2805).
+        ScriptEdit::View {
+            change: ViewChange::History(-3),
+        },
+        ScriptEdit::View {
+            change: ViewChange::History(i32::MAX),
         },
         ScriptEdit::View {
             change: ViewChange::Destination {

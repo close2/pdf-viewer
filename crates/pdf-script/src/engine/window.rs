@@ -1,5 +1,6 @@
 //! The window's view of the document: `this.zoom`, `this.zoomType`, `this.layout`, `this.scroll`
-//! and the `zoomtype` constants (ADR 1736).
+//! and the `zoomtype` constants (ADR 1736), and `app.goBack` and `app.goForward` along the window's
+//! history of views (ADR 2805).
 //!
 //! Each member's meaning is Adobe's *JavaScript for Acrobat API Reference* — "Doc properties",
 //! "Doc methods" — cited and never quoted, a documented choice each under principle 5. **A read
@@ -247,6 +248,69 @@ fn scroll(_this: &JsValue, arguments: &[JsValue], context: &mut Context) -> JsRe
     };
     State::with(context, |record| record.note(&sentence));
     Ok(JsValue::undefined())
+}
+
+/// Installs `app.goBack` and `app.goForward` (ADR 2805).
+///
+/// Adobe's *JavaScript for Acrobat API Reference*, "app methods", has each go to the previous or
+/// the next view on the view stack, the same as the toolbar's buttons — cited and never quoted, a
+/// documented choice under principle 5, since ISO 32000-2 keeps no history of views. Each is the
+/// step a person takes along the viewer's own history, carried out where the window carries a
+/// script's other changes to its view; neither takes a parameter or answers a value.
+///
+/// # Errors
+///
+/// The engine's, where a property cannot be defined.
+pub(super) fn app(app: &JsObject, context: &mut Context) -> JsResult<()> {
+    let methods: [(&str, NativeFunction); 2] = [
+        ("goBack", NativeFunction::from_fn_ptr(go_back)),
+        ("goForward", NativeFunction::from_fn_ptr(go_forward)),
+    ];
+    for (name, native) in methods {
+        let method = function(context, name, native);
+        data(app, name, JsValue::from(method), false, context)?;
+    }
+    Ok(())
+}
+
+/// `app.goBack()`: one step back along the window's history of views.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the engine's native function signature answers a JsResult"
+)]
+fn go_back(_this: &JsValue, _arguments: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    retrace(context, -1);
+    Ok(JsValue::undefined())
+}
+
+/// `app.goForward()`: one step forward along the window's history of views.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the engine's native function signature answers a JsResult"
+)]
+fn go_forward(_this: &JsValue, _arguments: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    retrace(context, 1);
+    Ok(JsValue::undefined())
+}
+
+/// Adds `step` to the run's steps along the history, so that two calls of `goBack` are two steps
+/// back and a `goForward` after a `goBack` returns to where the run began. One request carries
+/// them all, at the place in the run's edits where the first was asked for.
+fn retrace(context: &Context, step: i32) {
+    State::with(context, |record| {
+        if let Some(steps) = record.edits.iter_mut().find_map(|edit| match edit {
+            ScriptEdit::View {
+                change: ViewChange::History(steps),
+            } => Some(steps),
+            _ => None,
+        }) {
+            *steps = steps.saturating_add(step);
+        } else if record.edits.len() < super::MAX_EDITS {
+            record.edits.push(ScriptEdit::View {
+                change: ViewChange::History(step),
+            });
+        }
+    });
 }
 
 /// Records `change` as the run's request of its kind, replacing an earlier one of the same kind:

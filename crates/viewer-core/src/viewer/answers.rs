@@ -11,7 +11,6 @@ use pdf_syntax::ObjectId;
 #[cfg(doc)]
 use super::pointer::attached_files;
 use super::{DocumentId, MAX_PIXELS, Viewer};
-use crate::command::Viewing;
 use crate::interact;
 use crate::open::Open;
 use crate::query::{Answer, FrameView, Layer, PageReadback, PageReports, Query};
@@ -71,11 +70,7 @@ impl Viewer {
             // The three as this crate holds them, settled: `Viewer::handle` clamps the scroll at
             // the end of every command, so what a host reads here is where the reader is rather
             // than where the last message asked for them to be.
-            Query::View => Answer::View(Viewing {
-                page: open.page_index,
-                zoom: open.zoom,
-                scroll: open.scroll,
-            }),
+            Query::View => Answer::View(open.viewing()),
             // Cloned rather than lent, since ADR 0247: every consumer cloned it anyway, because a
             // panel outlives the query that filled it. Measured by
             // `viewer-host --example outline_census`, median of five: ISO 32000-2's own outline

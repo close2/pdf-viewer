@@ -382,6 +382,51 @@ pub unsafe extern "C" fn quorra_print_finish(
     Status::Ok.code()
 }
 
+/// §7.6.5.1's reader identity: the certificate that belongs to the person reading, and its key.
+///
+/// ISO 32000-2 §7.6.5.1: "the PDF reader shall scan the recipient list for which the content is
+/// encrypted and shall attempt to find a match with a certificate that belongs to the user." Which
+/// certificate belongs to the user is the caller's to say, and this library reads no file for it:
+/// `certificate` is X.509's DER and `key` the private key's DER, RFC 5958's `OneAsymmetricKey`,
+/// RFC 8017's `RSAPrivateKey` or RFC 5915's `ECPrivateKey`. A null `certificate` withdraws the key
+/// held, which is also what a caller that never calls this has. A document opened afterwards that
+/// no recipient list names raises `QUORRA_EVENT_RECIPIENT_REQUIRED`, and one whose envelope the key
+/// does not open a `QUORRA_EVENT_OPEN_FAILED` saying so (ADR 2822).
+///
+/// The bytes are copied before this returns; the library's copy of the key is cleared when it is
+/// replaced or the viewer is freed, and the caller clears its own.
+///
+/// # Safety
+///
+/// See the module documentation. `certificate`, where not null, is readable for
+/// `certificate_length` bytes and `key` for `key_length`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_recipient_key(
+    viewer: *mut Session,
+    certificate: *const u8,
+    certificate_length: usize,
+    key: *const u8,
+    key_length: usize,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    let held = if certificate.is_null() {
+        None
+    } else {
+        if key.is_null() {
+            return Status::NullArgument.code();
+        }
+        Some(viewer_core::RecipientSecret::new(
+            core::slice::from_raw_parts(certificate, certificate_length).to_vec(),
+            core::slice::from_raw_parts(key, key_length).to_vec(),
+        ))
+    };
+    *events = Box::into_raw(Box::new(viewer.recipient(held)));
+    Status::Ok.code()
+}
+
 /// §12.8.1's third question: the certification authorities this reader will end a path at.
 ///
 /// **A library that ships no root list, because ADR 1039 priced two defaults and refused both.** RFC
