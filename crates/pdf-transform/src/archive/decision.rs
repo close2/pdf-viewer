@@ -2020,6 +2020,22 @@ pub(super) fn decide(
             authorised,
         );
     }
+    // **A font name goes with the program this conversion embeds** (ADR 2846): where every place
+    // ISO 19005-2 section 6.1.8 (ISO 19005-4 section 6.1.7) failed at is a font whose embedded
+    // program's own name the routes wrote, a Type 0 font named from its descendant as ISO 32000-2
+    // §9.7.6.1's Table 119 composes it, or an object the output no longer reaches (a descriptor a
+    // route replaced, a font only a photographed page named), the row is answered by the
+    // substitution, at its losses. Anywhere else it keeps `REFUSED_BY_NAME`'s sentence.
+    if judgement.id == super::fonts::UTF8_NAMES_ROW
+        && let Ok(substitutes) = prepared.substitutes.as_ref()
+        && substitutes.font_names_restated
+    {
+        return losing(
+            substitutes.losses(),
+            Rewrite::SubstituteFontProgram,
+            authorised,
+        );
+    }
     if WRITER_EMITS.contains(&judgement.id) {
         // **Not unconditionally.** Some of these rules reach inside a content stream — ISO
         // 19005's hexadecimal string rule is stated of the file's syntax and a content stream

@@ -641,7 +641,7 @@ fn photographed_page(
 
 /// The keys a photographed page's dictionary loses, whose values the output therefore does not
 /// reach through it: what [`Photograph`] replaces, and the group `rewrite` removes with them.
-const PHOTOGRAPHED_AWAY: [&str; 3] = ["Contents", "Resources", "Group"];
+pub(super) const PHOTOGRAPHED_AWAY: [&str; 3] = ["Contents", "Resources", "Group"];
 
 /// Which of the substituted fonts an object the output holds still names, once every
 /// photographed page has lost its content and its resources.

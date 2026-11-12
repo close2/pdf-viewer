@@ -1347,3 +1347,72 @@ fn a_page_group_the_photograph_takes_off_its_page_is_given_no_default() {
         conversion(&report).render()
     );
 }
+
+const TYPE3_WIDTHS: &str = "fonts/type3-glyph-procedures-state-their-width";
+
+/// A page showing `A` in a Type 3 font whose `/Widths` states 1000 and whose glyph procedure's `d0`
+/// states 500.
+fn a_type3_glyph_whose_procedure_contradicts_its_width() -> Vec<u8> {
+    let glyph = b"500 0 d0 0 0 500 500 re f";
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (A) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] \
+             /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs 7 0 R /Encoding 8 0 R /FirstChar 65 \
+             /LastChar 65 /Widths [1000] /Resources << >> >>"
+                .to_owned(),
+            "<< /A 9 0 R >>".to_owned(),
+            "<< /Type /Encoding /Differences [65 /A] >>".to_owned(),
+        ],
+        binary_objects: vec![super::stream(&format!("/Length {}", glyph.len()), glyph)],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+#[test]
+fn a_type3_font_whose_procedure_contradicts_its_width_is_photographed_with_the_pages_it_is_on() {
+    // ISO 19005-4 section 6.2.10.5: "the operands of the d0 and d1 operators of each CharProc
+    // shall be consistent with the glyph's width"; here d0 says 500 and /Widths 1000. The fault
+    // is reported at the font, which no page holds, so the pages are the ones whose resources
+    // reach it, and under `as-if-printed` they are photographed as the window draws them, the
+    // font leaving the output with their resources (ADR 2847).
+    let source = a_type3_glyph_whose_procedure_contradicts_its_width();
+    let target = Target::Four(pdf_archive::Flavour::Plain);
+    let (report, output) = convert_with_plan(&source, &printing("as-if-printed", target));
+    assert!(
+        conversion(&report).settled.is_empty(),
+        "the first pass answers it, not ADR 2534's second"
+    );
+    let Decision::Authorised { losses, .. } = decision(&report, TYPE3_WIDTHS) else {
+        panic!("{:?}", decision(&report, TYPE3_WIDTHS));
+    };
+    assert!(
+        losses.iter().eq([Loss::TextAsImage, Loss::PageAsImage]),
+        "{}",
+        losses.words()
+    );
+    let output = output.expect("a file is written");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let pages = &conversion(&report).photographed;
+    assert_eq!(pages.len(), 1, "{pages:?}");
+    assert_eq!(pages[0].page, 1);
+    assert_eq!(pages[0].requirements, [TYPE3_WIDTHS]);
+    // `as-shown` keeps the fence's refusal (A694 item 1).
+    let (report, output) = convert_with_plan(&source, &printing("as-shown", target));
+    assert!(output.is_none());
+    assert!(
+        matches!(
+            decision(&report, TYPE3_WIDTHS),
+            Decision::Refused(pdf_transform::archive::Because::TheFence(_))
+        ),
+        "{:?}",
+        decision(&report, TYPE3_WIDTHS)
+    );
+}

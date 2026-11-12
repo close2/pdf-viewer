@@ -853,7 +853,7 @@ surprised by them:
 | `/Requirements` removed | -2 §6.11, -4 §6.12 | |
 | `/AlternatePresentations`, `/PresSteps` removed | -2 §6.10, -4 §6.11 | slide-show behaviour stops |
 | linearisation lost | -2 §6.1.11, -4 §6.1.10 | both parts permit a linearised file and neither requires one; the serializer writes an ordinary one, so a source optimised for first-page-over-a-network stops being so. Nothing renders differently |
-| names checked as UTF-8 | -2 §6.1.8, -4 §6.1.7 | a font or colourant name that is not valid UTF-8 is a **Refuse**: renaming it would break the references that use it |
+| names checked as UTF-8 | -2 §6.1.8, -4 §6.1.7 | a colourant or structure type name that is not valid UTF-8, and the name of a font whose program the file embeds, is a **Refuse**: renaming it would break the references that use it. A font whose program the conversion embeds takes the program's name, and its Type 0 font the name ISO 32000-2 Table 119 composes from it (ADR 2846) |
 
 ### 4.8 Halftones and transfer functions
 

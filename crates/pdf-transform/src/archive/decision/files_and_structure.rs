@@ -427,7 +427,14 @@ const CONFIGURATION_NAME_NOT_WRITTEN: &str = "an optional content configuration 
      keeps it would be renaming the producer's text";
 
 /// The document does not conform and cannot be made to without editing what it says.
+///
+/// The font names this conversion writes anew answer the row before this sentence is reached:
+/// a font whose program it embeds takes the program's own name, and a Type 0 font above it the
+/// name ISO 32000-2 Table 119 composes from that one (`super::super::fonts::names`, ADR 2846).
 const UTF8_NAMES: &str = "ISO 19005 binds these names to valid UTF-8, and renaming one would \
-     break every reference that uses it — doc/pdf-a-conversion-limits.md section 4.7 records this \
-     row \
-     as a refusal rather than a rewrite";
+     break every reference that uses it: a colourant name is what a press and every other colour \
+     space naming the ink find it by, a structure type name is what the role map and the elements \
+     are keyed by, and a font whose program the file embeds is named by that program. A font name \
+     is written anew only where this conversion embeds the program it names — \
+     doc/pdf-a-conversion-limits.md section 4.7 records the rest of this row as a refusal rather \
+     than a rewrite";

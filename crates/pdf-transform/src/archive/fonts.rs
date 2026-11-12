@@ -75,6 +75,7 @@ pub(in crate::archive) mod embedded_cmap;
 mod empty;
 mod fresh_cid;
 mod machine_cid;
+mod names;
 mod notdef_format;
 mod notdef_glyph;
 mod notices;
@@ -89,6 +90,7 @@ pub use pack::{CjkPack, Collection, PackFiles, PackGap};
 
 pub use described::Described;
 pub(super) use described::{state_laid_out_widths, undrawn};
+pub(super) use names::{ROW as UTF8_NAMES_ROW, restate as restate_font_names};
 pub(super) use notdef_format::notdef_not_given;
 pub use photographed::{
     DOTS_PER_INCH, FixedGroup, FixedGroups, MAX_GROUP_NAME_CHARS, MAX_GROUPS_NAMED,
@@ -484,6 +486,10 @@ pub(super) struct Substitutes {
     /// converted file: the embedding's subsets here, and the appearances constructed after it
     /// name theirs through the same record (ADR 2838).
     pub(super) names: pdf_model::appearance::SubsetNames,
+    /// Whether every place ISO 19005-2 section 6.1.8 (ISO 19005-4 section 6.1.7) failed at is a
+    /// font or a descriptor whose font names the output writes as valid UTF-8, the Type 0 fonts'
+    /// restated by Table 119 from their descendants' (`names`, `doc/adr/2846`).
+    pub(super) font_names_restated: bool,
 }
 
 impl Substitutes {

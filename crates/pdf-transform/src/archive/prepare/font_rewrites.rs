@@ -150,6 +150,12 @@ pub(super) fn prepare_fonts(
         ),
         _ => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
     };
+    // Once every font is in, the names the routes gave the descendants are known, and the Type 0
+    // fonts above them can be named from them (`doc/adr/2846`).
+    let substitutes = substitutes.map(|mut substitutes| {
+        fonts::restate_font_names(document, input, &mut substitutes);
+        substitutes
+    });
     let metrics = match (wants_metrics.widths || wants_metrics.vertical, survey) {
         (true, Some(survey)) => fonts::restate_metrics(document, survey, wants_metrics, spare),
         _ => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),

@@ -24,7 +24,7 @@ use pdf_archive::report::Outcome;
 use pdf_archive::survey::Survey;
 use pdf_model::Pages;
 use pdf_syntax::Document;
-use pdf_syntax::object::{Object, ObjectId};
+use pdf_syntax::object::{Dictionary, Object, ObjectId};
 
 /// The operator row, whose pages the survey names exactly.
 pub(super) const OPERATORS: &str = "graphics/only-operators-the-base-standard-defines";
@@ -108,11 +108,20 @@ pub(super) fn pages(
             let Outcome::Failed { places, total } = &judgement.outcome else {
                 continue;
             };
-            let named: Option<BTreeSet<usize>> =
-                places.iter().map(|finding| finding.place.page).collect();
-            match named {
-                Some(named) if places.len() == *total => named,
-                _ => continue,
+            if row == TYPE3_WIDTHS {
+                let reached =
+                    annotations_reach.get_or_insert_with(|| reached_from_annotations(document));
+                match type3_pages(document, judgement, reached) {
+                    Some(pages) => pages,
+                    None => continue,
+                }
+            } else {
+                let named: Option<BTreeSet<usize>> =
+                    places.iter().map(|finding| finding.place.page).collect();
+                match named {
+                    Some(named) if places.len() == *total => named,
+                    _ => continue,
+                }
             }
         };
         for page in pages {
@@ -120,6 +129,63 @@ pub(super) fn pages(
         }
     }
     found
+}
+
+/// The row whose places name a Type 3 font rather than a page (ISO 19005-4 section 6.2.10.5).
+const TYPE3_WIDTHS: &str = "fonts/type3-glyph-procedures-state-their-width";
+
+/// The pages a Type 3 width row's faults are on, or `None` where they are not all known.
+///
+/// ISO 19005-4 section 6.2.10.5's glyph procedure width is reported at its font, which no page
+/// holds, so the pages are the ones whose resources reach the font; the validator keeps every
+/// object it named past the places it lists (`pdf_archive::Named`), and a font written directly
+/// in a resource dictionary is reported at its page. A font an annotation's appearance reaches
+/// keeps the refusal, as an operator there does, because a photograph leaves `/Annots` (ADR
+/// 2803, ADR 2847).
+fn type3_pages(
+    document: &Document,
+    judgement: &pdf_archive::Judgement,
+    annotations_reach: &BTreeSet<ObjectId>,
+) -> Option<BTreeSet<usize>> {
+    let Outcome::Failed { places, total } = &judgement.outcome else {
+        return None;
+    };
+    let named = &judgement.named;
+    if named.cut_short() || (named.elsewhere() && places.len() != *total) {
+        return None;
+    }
+    let mut pages: BTreeSet<usize> = places
+        .iter()
+        .filter(|finding| finding.place.object.is_none())
+        .map(|finding| finding.place.page)
+        .collect::<Option<_>>()?;
+    for &font in named.objects() {
+        let reaching = pages_reaching(document, font);
+        if annotations_reach.contains(&font) || reaching.is_empty() {
+            return None;
+        }
+        pages.extend(reaching);
+    }
+    Some(pages)
+}
+
+/// The pages (zero-based) whose resources reach `object`, through every form `XObject`, pattern,
+/// font and soft mask group below them: the pages a photograph has to take for the object to
+/// leave the output with their resources.
+fn pages_reaching(document: &Document, object: ObjectId) -> BTreeSet<usize> {
+    Pages::new(document)
+        .every()
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, page)| {
+            let page = page?;
+            let mut queue = Vec::new();
+            resource_entries(document, &page.resources, &mut queue);
+            reached_from(document, queue)
+                .contains(&object)
+                .then_some(index)
+        })
+        .collect()
 }
 
 /// How many objects [`reached_from_annotations`] visits before it stops; past it the walk keeps
@@ -131,11 +197,17 @@ const MOST_REACHED: usize = 1 << 16;
 /// Table 168) and, through each one's `/Resources`, every form `XObject`, pattern, Type 3 glyph
 /// procedure and soft mask group below them.
 fn reached_from_annotations(document: &Document) -> BTreeSet<ObjectId> {
-    let mut reached = BTreeSet::new();
     let mut queue: Vec<Object> = Vec::new();
     for page in Pages::new(document).every().into_iter().flatten() {
         queue.extend(super::rewrite::appearance_streams(document, &page.dict));
     }
+    reached_from(document, queue)
+}
+
+/// Every object `queue`'s references reach through `/Resources`, glyph procedures and soft mask
+/// groups, bounded at [`MOST_REACHED`].
+fn reached_from(document: &Document, mut queue: Vec<Object>) -> BTreeSet<ObjectId> {
+    let mut reached = BTreeSet::new();
     while let Some(next) = queue.pop() {
         if reached.len() >= MOST_REACHED {
             break;
@@ -157,24 +229,29 @@ fn reached_from_annotations(document: &Document) -> BTreeSet<ObjectId> {
             queue.extend(procedures.iter().map(|(_, procedure)| procedure.clone()));
         }
         let resources = document.get_key(dict, "Resources");
-        let Some(resources) = resources.as_dict() else {
-            continue;
-        };
-        for category in ["XObject", "Pattern", "Font"] {
-            if let Some(entries) = document.get_key(resources, category).as_dict() {
-                queue.extend(entries.iter().map(|(_, entry)| entry.clone()));
-            }
-        }
-        if let Some(states) = document.get_key(resources, "ExtGState").as_dict() {
-            for (_, state) in states.iter() {
-                let state = document.resolve(state);
-                let group = state
-                    .as_dict()
-                    .map(|state| document.get_key(state, "SMask"))
-                    .and_then(|mask| mask.as_dict().and_then(|mask| mask.get("G").cloned()));
-                queue.extend(group);
-            }
+        if let Some(resources) = resources.as_dict() {
+            resource_entries(document, resources, &mut queue);
         }
     }
     reached
+}
+
+/// The entries of one resource dictionary the walk follows: its forms, patterns and fonts, and the
+/// soft mask groups its graphics states name.
+fn resource_entries(document: &Document, resources: &Dictionary, queue: &mut Vec<Object>) {
+    for category in ["XObject", "Pattern", "Font"] {
+        if let Some(entries) = document.get_key(resources, category).as_dict() {
+            queue.extend(entries.iter().map(|(_, entry)| entry.clone()));
+        }
+    }
+    if let Some(states) = document.get_key(resources, "ExtGState").as_dict() {
+        for (_, state) in states.iter() {
+            let state = document.resolve(state);
+            let group = state
+                .as_dict()
+                .map(|state| document.get_key(state, "SMask"))
+                .and_then(|mask| mask.as_dict().and_then(|mask| mask.get("G").cloned()));
+            queue.extend(group);
+        }
+    }
 }
