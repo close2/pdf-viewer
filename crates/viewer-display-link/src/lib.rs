@@ -34,6 +34,52 @@ use std::fmt;
 
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "macos")]
+use macos as platform;
+
+/// Every platform this crate has no display link for: a link that cannot be made, so that the
+/// type and its methods are the same everywhere and only [`DisplayLink::on`]'s answer differs.
+#[cfg(not(target_os = "macos"))]
+mod platform {
+    use crate::Unavailable;
+
+    /// No value of this type exists, so every method below is unreachable by construction.
+    pub(crate) enum Link {}
+
+    impl Link {
+        pub(crate) fn on(
+            window: &impl raw_window_handle::HasWindowHandle,
+            wake: Box<dyn Fn() + Send>,
+        ) -> Result<Self, Unavailable> {
+            let _ = (window, wake);
+            Err(Unavailable::Platform)
+        }
+
+        pub(crate) fn beats(&self) -> u64 {
+            match *self {}
+        }
+
+        pub(crate) fn answered(&self) -> u64 {
+            match *self {}
+        }
+
+        pub(crate) fn running(&self) -> bool {
+            match *self {}
+        }
+
+        pub(crate) fn want(&self, _wanted: bool) {
+            match *self {}
+        }
+
+        pub(crate) fn listen(&self) {
+            match *self {}
+        }
+
+        pub(crate) fn period(&self) -> Option<std::time::Duration> {
+            match *self {}
+        }
+    }
+}
 
 /// How many refreshes in a row nobody wanted a frame for before the link pauses itself.
 ///
@@ -73,17 +119,15 @@ impl std::error::Error for Unavailable {}
 ///
 /// Main-thread only, like the window it is attached to. Dropping it stops the link.
 pub struct DisplayLink {
-    #[cfg(target_os = "macos")]
-    inner: macos::Link,
+    inner: platform::Link,
 }
 
 impl fmt::Debug for DisplayLink {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut out = f.debug_struct("DisplayLink");
-        #[cfg(target_os = "macos")]
-        out.field("beats", &self.beats())
-            .field("running", &self.running());
-        out.finish_non_exhaustive()
+        f.debug_struct("DisplayLink")
+            .field("beats", &self.beats())
+            .field("running", &self.running())
+            .finish_non_exhaustive()
     }
 }
 
@@ -102,74 +146,35 @@ impl DisplayLink {
     ///
     /// [`Unavailable`] where this platform, this system or this handle has no link this crate
     /// speaks; the window then keeps its own clock.
-    #[cfg_attr(
-        not(target_os = "macos"),
-        expect(
-            clippy::needless_pass_by_value,
-            reason = "the signature is the macOS one, where `wake` is kept"
-        )
-    )]
     pub fn on(
         window: &impl raw_window_handle::HasWindowHandle,
         wake: impl Fn() + Send + 'static,
     ) -> Result<Self, Unavailable> {
-        #[cfg(target_os = "macos")]
-        {
-            macos::Link::on(window, Box::new(wake)).map(|inner| Self { inner })
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = (window, wake);
-            Err(Unavailable::Platform)
-        }
+        platform::Link::on(window, Box::new(wake)).map(|inner| Self { inner })
     }
 
     /// How many refreshes the link has seen since it was made. Paused refreshes are not seen.
     #[must_use]
     pub fn beats(&self) -> u64 {
-        #[cfg(target_os = "macos")]
-        {
-            self.inner.shared.beats.get()
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            0
-        }
+        self.inner.beats()
     }
 
     /// The last refresh that a frame was wanted for when it came, counted as [`Self::beats`]
     /// counts: the refresh the window was woken for.
     #[must_use]
     pub fn answered(&self) -> u64 {
-        #[cfg(target_os = "macos")]
-        {
-            self.inner.shared.woken.get()
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            0
-        }
+        self.inner.answered()
     }
 
     /// Whether the link is counting refreshes now rather than paused.
     #[must_use]
     pub fn running(&self) -> bool {
-        #[cfg(target_os = "macos")]
-        {
-            self.inner.running()
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            false
-        }
+        self.inner.running()
     }
 
     /// Says whether a frame is wanted at the next refresh. Wanting one starts a paused link.
     pub fn want(&self, wanted: bool) {
-        #[cfg(target_os = "macos")]
         self.inner.want(wanted);
-        #[cfg(not(target_os = "macos"))]
-        let _ = wanted;
     }
 
     /// Says the window is active: starts a paused link counting refreshes, and restarts its
@@ -179,22 +184,12 @@ impl DisplayLink {
     /// display's pace, and it can only be told which refresh it landed in by a link that is
     /// counting. Unwanted, the link pauses itself again after [`IDLE_BEATS`].
     pub fn listen(&self) {
-        #[cfg(target_os = "macos")]
         self.inner.listen();
     }
 
     /// One refresh of the display the window is on now, as the link last stated it.
     #[must_use]
     pub fn period(&self) -> Option<std::time::Duration> {
-        #[cfg(target_os = "macos")]
-        {
-            let seconds = self.inner.shared.period.get();
-            (seconds.is_finite() && seconds > 0.0)
-                .then(|| std::time::Duration::from_secs_f64(seconds))
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            None
-        }
+        self.inner.period()
     }
 }

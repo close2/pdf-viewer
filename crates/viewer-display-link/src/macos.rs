@@ -21,15 +21,15 @@ use crate::{IDLE_BEATS, Unavailable};
 /// What the link's callback and the window share. Main thread only, so cells suffice.
 pub(crate) struct Shared {
     /// Refreshes seen.
-    pub(crate) beats: Cell<u64>,
+    beats: Cell<u64>,
     /// The last refresh the window was woken for.
-    pub(crate) woken: Cell<u64>,
+    woken: Cell<u64>,
     /// Whether a frame is wanted at the next refresh.
     wanted: Cell<bool>,
     /// Refreshes in a row nobody wanted a frame for.
     idle: Cell<u32>,
     /// One refresh, in seconds, as the link last stated it.
-    pub(crate) period: Cell<f64>,
+    period: Cell<f64>,
     /// What makes the window's event loop come round.
     wake: Box<dyn Fn() + Send>,
 }
@@ -79,7 +79,7 @@ impl Target {
 /// A running or paused link, and what it shares with its callback.
 pub(crate) struct Link {
     link: Retained<CADisplayLink>,
-    pub(crate) shared: Rc<Shared>,
+    shared: Rc<Shared>,
 }
 
 impl Link {
@@ -126,6 +126,19 @@ impl Link {
             link.addToRunLoop_forMode(&NSRunLoop::mainRunLoop(), NSRunLoopCommonModes);
         }
         Ok(Self { link, shared })
+    }
+
+    pub(crate) fn beats(&self) -> u64 {
+        self.shared.beats.get()
+    }
+
+    pub(crate) fn answered(&self) -> u64 {
+        self.shared.woken.get()
+    }
+
+    pub(crate) fn period(&self) -> Option<std::time::Duration> {
+        let seconds = self.shared.period.get();
+        (seconds.is_finite() && seconds > 0.0).then(|| std::time::Duration::from_secs_f64(seconds))
     }
 
     pub(crate) fn running(&self) -> bool {

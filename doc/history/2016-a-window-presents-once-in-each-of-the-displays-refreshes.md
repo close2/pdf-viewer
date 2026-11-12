@@ -32,7 +32,8 @@ finding on a changed line (117 warnings, 1.99-only lints in unchanged code). `ca
 --no-fail-fast`: `viewer-core` and `-device` exit 101, the same 67 failures as `main`, 579 passed
 against 578; `viewer-ffi`, `-host`, `-confined`, `-ui`, `-display-link` exit 101, the same 54, 602
 passed against 594 (fixtures and worker binaries this machine lacks). `conformance`: exit 101, the
-same 33 (no `doc/md` here). GTK, Qt, .NET, and Wayland and Windows: not built.
+same 33 (no `doc/md` here). GTK, Qt, .NET, and Wayland and Windows: not built. CI's `check` then failed the
+non-macOS stub on an unfulfilled `expect`; that half is now an uninhabited type, linted here as Linux.
 
 **Left.** Wayland (`pre_present_notify` and the frame callback) and Windows (`DwmFlush` on a
 thread) as second implementations of the same interface; macOS before 14; a gate that drives
