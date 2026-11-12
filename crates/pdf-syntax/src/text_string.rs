@@ -37,10 +37,7 @@ pub fn text_string(bytes: &[u8]) -> String {
     if let Some(rest) = bytes.strip_prefix(&UTF8_PREFIX) {
         return without_language_escapes(&String::from_utf8_lossy(rest));
     }
-    bytes
-        .iter()
-        .map(|byte| PDF_DOC_ENCODING[usize::from(*byte)].unwrap_or(char::REPLACEMENT_CHARACTER))
-        .collect()
+    pdf_doc_encoded_string(bytes)
 }
 
 /// Whether `bytes` *are* ISO 32000-2 §7.9.2.2's text string type, or contradict it.
@@ -166,9 +163,53 @@ fn utf16be(bytes: &[u8]) -> String {
 /// the whole five-or-seven-character run, and discarding the tail of a string on one stray
 /// byte would lose text the file does state.
 fn without_language_escapes(text: &str) -> String {
-    if !text.contains(ESCAPE) {
-        return text.to_owned();
+    split_language_escapes(text).0
+}
+
+/// The languages §7.9.2.2.2's escape sequences give a text string, each with the byte offset in
+/// [`text_string`]'s output from which it governs.
+///
+/// > Escape sequences may appear anywhere in a Unicode text string to indicate the language in
+/// > which subsequent text shall be written.
+///
+/// So a sequence governs the text after it up to the next one, and the text before the first
+/// is in whatever language prevails around the string. Each tag is the clause's 2-byte language
+/// code, joined by a hyphen to its optional 2-byte country code, which is how BCP 47 writes the
+/// pair. A `PDFDocEncoding` string has none: the clause speaks of "a Unicode text string".
+#[must_use]
+pub fn text_string_languages(bytes: &[u8]) -> Vec<(usize, String)> {
+    if let Some(rest) = bytes.strip_prefix(&UTF16BE_PREFIX) {
+        return split_language_escapes(&utf16be(rest)).1;
     }
+    if let Some(rest) = bytes.strip_prefix(&UTF8_PREFIX) {
+        return split_language_escapes(&String::from_utf8_lossy(rest)).1;
+    }
+    Vec::new()
+}
+
+/// Decodes a string ISO 32000-2 types as a `PDFDocEncoded` string, §7.9.2.3.
+///
+/// > A PDFDocEncoded string is a character string in which the characters shall be represented
+/// > in a single byte using PDFDocEncoding .
+///
+/// Unlike [`text_string`], no prefix selects a Unicode form: bytes 254 and 255 are `þ` and `ÿ`
+/// here, because the type names one encoding and only one. Table 246's FDF `/Status` is such a
+/// string. A byte Table D.3 leaves undefined becomes U+FFFD, as in [`text_string`].
+#[must_use]
+pub fn pdf_doc_encoded_string(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| PDF_DOC_ENCODING[usize::from(*byte)].unwrap_or(char::REPLACEMENT_CHARACTER))
+        .collect()
+}
+
+/// The text with §7.9.2.2.2's escape sequences removed, and the language each one states with
+/// the offset in that text where it begins to govern.
+fn split_language_escapes(text: &str) -> (String, Vec<(usize, String)>) {
+    if !text.contains(ESCAPE) {
+        return (text.to_owned(), Vec::new());
+    }
+    let mut languages = Vec::new();
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(start) = rest.find(ESCAPE) {
@@ -180,6 +221,7 @@ fn without_language_escapes(text: &str) -> String {
         // else is not one of its sequences and is left where it stands.
         let mut after = None;
         let mut unread = body;
+        let mut tag = String::new();
         for _ in 0..2 {
             let Some((letters, tail)) = unread.split_at_checked(2) else {
                 break;
@@ -187,6 +229,10 @@ fn without_language_escapes(text: &str) -> String {
             if !letters.chars().all(|letter| letter.is_ascii_alphabetic()) {
                 break;
             }
+            if !tag.is_empty() {
+                tag.push('-');
+            }
+            tag.push_str(letters);
             unread = tail;
             if let Some(beyond) = tail.strip_prefix(ESCAPE) {
                 after = Some(beyond);
@@ -195,6 +241,7 @@ fn without_language_escapes(text: &str) -> String {
         }
 
         if let Some(beyond) = after {
+            languages.push((out.len(), tag));
             rest = beyond;
         } else {
             out.push(ESCAPE);
@@ -202,7 +249,7 @@ fn without_language_escapes(text: &str) -> String {
         }
     }
     out.push_str(rest);
-    out
+    (out, languages)
 }
 
 /// §7.9.2.2.2 element a): "The Unicode value ESCAPE (U+001B)".
@@ -302,7 +349,10 @@ const PDF_DOC_ENCODING: [Option<char>; 256] = [
 
 #[cfg(test)]
 mod tests {
-    use super::{encode_text_string, is_text_string, text_string};
+    use super::{
+        encode_text_string, is_text_string, pdf_doc_encoded_string, text_string,
+        text_string_languages,
+    };
 
     /// §7.9.2.2's three encodings, each held and each contradicted.
     ///
@@ -449,5 +499,35 @@ mod tests {
             encode_text_string("тест"),
             b"\xfe\xff\x04\x42\x04\x35\x04\x41\x04\x42"
         );
+    }
+
+    /// §7.9.2.2.2: each escape governs "subsequent text", so each language is reported from the
+    /// offset in the decoded text where its sequence stood, and a country code joins its language
+    /// with a hyphen as BCP 47 writes the pair.
+    #[test]
+    fn each_language_escape_is_kept_with_the_offset_it_governs_from() {
+        // UTF-16BE: "a", ESC "en" "US" ESC, "b", ESC "ja" ESC, "c".
+        let mut bytes = vec![0xFE, 0xFF];
+        for unit in "a\u{1b}enUS\u{1b}b\u{1b}ja\u{1b}c".encode_utf16() {
+            bytes.extend_from_slice(&unit.to_be_bytes());
+        }
+        assert_eq!(text_string(&bytes), "abc");
+        assert_eq!(
+            text_string_languages(&bytes),
+            [(1, "en-US".to_owned()), (2, "ja".to_owned())]
+        );
+        let utf8 = b"\xEF\xBB\xBF\x1bes\x1bhola";
+        assert_eq!(text_string_languages(utf8), [(0, "es".to_owned())]);
+        assert!(
+            text_string_languages(b"\x1bes\x1bhola").is_empty(),
+            "a PDFDocEncoded string has no escape sequences"
+        );
+    }
+
+    /// §7.9.2.3's type names one encoding, so 254 255 at its start are two characters.
+    #[test]
+    fn a_pdfdocencoded_string_has_no_unicode_prefix() {
+        assert_eq!(pdf_doc_encoded_string(b"\xFE\xFFok"), "\u{fe}\u{ff}ok");
+        assert_eq!(text_string(b"\xFE\xFF\x00o\x00k"), "ok");
     }
 }

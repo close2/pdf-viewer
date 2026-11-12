@@ -178,9 +178,22 @@ fn eight_bit_samples_are_one_to_a_byte() {
 }
 
 /// Sixteen bits: two bytes per sample, most significant first.
+///
+/// ISO 32000-2 §8.9.3: "units of 16 bits shall be given with the most significant byte first".
+/// The ramp's samples read the same in either byte order, so the order itself is asserted on
+/// four whose two bytes differ: `0123`, `4567`, `89AB` and `CDEF` are 1, 69, 137 and 205 of 255
+/// by §8.9.5.2's map, where the reversed reading would give 35, 103, 171 and 239.
 #[test]
 fn sixteen_bit_samples_are_two_bytes_most_significant_first() {
     ramp(16, &[0x00, 0x00, 0x55, 0x55, 0xAA, 0xAA, 0xFF, 0xFF]);
+    let raster = render(page_with_image(
+        "/Width 4 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 16",
+        &[0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
+    ));
+    about(cell(&raster, 4, 0, 1, 0), 1, "16 bits, sample 0x0123");
+    about(cell(&raster, 4, 1, 1, 0), 69, "16 bits, sample 0x4567");
+    about(cell(&raster, 4, 2, 1, 0), 137, "16 bits, sample 0x89AB");
+    about(cell(&raster, 4, 3, 1, 0), 205, "16 bits, sample 0xCDEF");
 }
 
 /// Each row starts on a byte boundary, whatever the previous one left over.

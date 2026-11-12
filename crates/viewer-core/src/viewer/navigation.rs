@@ -197,6 +197,7 @@ impl Viewer {
             }
         }
 
+        let (viewport, scale) = (self.viewport, self.scale);
         let Some(open) = self.focused_mut() else {
             return;
         };
@@ -207,6 +208,7 @@ impl Viewer {
             return;
         }
         let left = open.page_index;
+        open.retain_corner(viewport, scale);
         open.page_index = index;
         // A new page starts at its top: carrying a scroll position across a page turn
         // would land a reader in the middle of a page they have not seen.
@@ -469,12 +471,14 @@ impl Viewer {
                 closed = pages.get(index).map(|page| page.dict.clone());
                 for annotation in annotations_on(open, &pages, index) {
                     raised.push((annotation, Trigger::PageClose));
-                    raised.push((annotation, Trigger::PageInvisible));
                 }
             }
             opened = pages.get(open.page_index).map(|page| page.dict.clone());
         }
         self.raise(id, raised, None, None, events);
+        // Table 197's `/PI` for what the turn takes off the screen, before the page's `/C`, as
+        // `/PC` is (ADR 2814).
+        self.visibility_of(id, Change::Leaving, events);
         let runner = !matches!(self.scripting, crate::Scripting::Off);
         let turned =
             left.filter(|index| Some(*index) != self.focused().map(|open| open.page_index));
@@ -501,10 +505,11 @@ impl Viewer {
             let pages = pdf_model::Pages::new(&open.document);
             for annotation in annotations_on(open, &pages, open.page_index) {
                 raised.push((annotation, Trigger::PageOpen));
-                raised.push((annotation, Trigger::PageVisible));
             }
         }
         self.raise(id, raised, None, None, events);
+        // And `/PV` for what it brings on, after `/PO`.
+        self.visibility_of(id, Change::Arriving, events);
         // The open's own page is the open sequence's, run once page one is presented; a turn's is
         // run here, `/O` and then each annotation's `/PO` and `/PV`, in Table 197's order.
         if turned.is_some()
@@ -513,6 +518,93 @@ impl Viewer {
             self.page_scripts(page, pdf_model::action::PageTrigger::Open);
         }
         self.raising = false;
+    }
+
+    /// Table 197's `/PV` and `/PI`, raised for the pages the arrangement gained and lost since it
+    /// was last settled.
+    ///
+    /// ISO 32000-2 §12.6.3 Table 197:
+    ///
+    /// > (Optional; PDF 1.5) An action that shall be performed when the page containing the
+    /// > annotation becomes visible.
+    ///
+    /// and `/PI` "when the page containing the annotation is no longer visible in the interactive
+    /// PDF processor's user interface". Visibility is the window's, not the current page's: a
+    /// two-page spread or a continuous column shows pages beside the current one, and a page that
+    /// stays on the screen while another becomes current has neither become visible nor stopped
+    /// being so. So these two are raised against what the arrangement places, apart from `/PO`
+    /// and `/PC`, which are the current page's (ADR 2814). Their scripts still ride with the
+    /// current page's open and close (`ViewState::run_page_scripts`).
+    pub(super) fn visibility(&mut self, id: DocumentId, events: &mut Vec<Event>) {
+        if self.raising {
+            return;
+        }
+        self.raising = true;
+        self.visibility_of(id, Change::Both, events);
+        self.raising = false;
+    }
+
+    /// [`Self::visibility`]'s work, for the pages leaving the screen, arriving on it, or both.
+    ///
+    /// "The screen" is what the arrangement places now, worked out rather than read from
+    /// `Open::on_screen`, because a page turn raises its events before the frame that arranges
+    /// the new page: Table 197 puts `/PC` before the page's `/C` and `/PO` after its `/O`, and
+    /// `/PI` and `/PV` are raised beside them.
+    fn visibility_of(&mut self, id: DocumentId, change: Change, events: &mut Vec<Event>) {
+        let (viewport, scale) = (self.viewport, self.scale);
+        if self.focused != Some(id) || viewport.0 == 0 || viewport.1 == 0 {
+            return;
+        }
+        let Some(open) = self.documents.get_mut(&id) else {
+            return;
+        };
+        let Some(magnification) = open.magnification(viewport, scale) else {
+            return;
+        };
+        let mut now: Vec<usize> = crate::layout::place(open, viewport, scale, magnification)
+            .iter()
+            .map(|placed| placed.page)
+            .collect();
+        now.sort_unstable();
+        now.dedup();
+        let before = open.visible.clone();
+        let leaving: Vec<usize> = if matches!(change, Change::Arriving) {
+            Vec::new()
+        } else {
+            before
+                .iter()
+                .copied()
+                .filter(|page| !now.contains(page))
+                .collect()
+        };
+        let arriving: Vec<usize> = if matches!(change, Change::Leaving) {
+            Vec::new()
+        } else {
+            now.iter()
+                .copied()
+                .filter(|page| !before.contains(page))
+                .collect()
+        };
+        if leaving.is_empty() && arriving.is_empty() {
+            return;
+        }
+        open.visible.retain(|page| !leaving.contains(page));
+        open.visible.extend(&arriving);
+        open.visible.sort_unstable();
+        let pages = pdf_model::Pages::new(&open.document);
+        let mut raised: Vec<(ObjectId, Trigger)> = Vec::new();
+        for page in &leaving {
+            for annotation in annotations_on(open, &pages, *page) {
+                raised.push((annotation, Trigger::PageInvisible));
+            }
+        }
+        for page in &arriving {
+            for annotation in annotations_on(open, &pages, *page) {
+                raised.push((annotation, Trigger::PageVisible));
+            }
+        }
+        drop(pages);
+        self.raise(id, raised, None, None, events);
     }
 
     /// Runs Table 198's `/O` or `/C` scripts of page `page` of the document in front, and its
@@ -531,4 +623,15 @@ impl Viewer {
             open.stale();
         }
     }
+}
+
+/// Which half of Table 197's visibility pair [`Viewer::visibility_of`] raises.
+#[derive(Debug, Clone, Copy)]
+enum Change {
+    /// `/PI` for the pages leaving the screen.
+    Leaving,
+    /// `/PV` for the pages arriving on it.
+    Arriving,
+    /// Both, as a settled arrangement compares with the last.
+    Both,
 }

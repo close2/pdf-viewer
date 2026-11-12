@@ -1232,7 +1232,7 @@ fn scan_for_pages(document: &Document, named: &BTreeSet<u32>) -> Vec<Recovered> 
         if found.len() >= MAX_NODES_VISITED {
             break;
         }
-        let id = ObjectId::new(number, 0);
+        let id = document.defined_id(number);
         let object = document.get(id);
         if let Some(dict) = object.as_dict() {
             if declares_a_page(document, dict) {

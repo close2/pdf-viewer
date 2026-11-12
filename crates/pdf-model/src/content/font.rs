@@ -528,26 +528,30 @@ impl Kept {
 /// by that content stream" — and a file that names `/F1` with nothing behind it has broken that
 /// `shall`; nothing here invents a font for it, and the report stands.
 ///
-/// The exception is the fourteen names §9.6.2.2 lists, because for those the standard states what
-/// the name means: Table 109 makes `/FirstChar`, `/LastChar`, `/Widths` and `/FontDescriptor`
-/// "(Required; optional in PDF 1.0-1.7 for the standard 14 fonts)", so a file may name one and
-/// say nothing else about it. The clause used to add that the fonts "shall be available to the
-/// PDF processor", and Errata Collection 3 struck that sentence and made its neighbour a NOTE
-/// (Issue #47 and #48; [`pdf_font::standard`] carries the reading and ADR 0253 the reason
-/// `doc/md/` cannot show it) — which leaves the permission where the work is anyway.
+/// The exception is the fourteen names §9.6.2.2 lists, and it is **a recovery heuristic, not a
+/// reading the standard licenses** (ADR 2812 qualifies ADR 0183). A `Tf` operand is a key in the
+/// `/Font` subdictionary, a label the producer chose, and §9.6.2.2's names are `/BaseFont` values:
+/// no clause reserves `/Helvetica` as a resource key or says what a missing one means. What makes
+/// the guess a good one is how little it needs — Table 109 makes `/FirstChar`, `/LastChar`,
+/// `/Widths` and `/FontDescriptor` "(Required; optional in PDF 1.0-1.7 for the standard 14
+/// fonts)", so a dictionary carrying only that `/BaseFont` is complete, and the compiled-in
+/// fourteen (ADR 0133) draw it. (The clause used to add that the fonts "shall be available to the
+/// PDF processor"; Errata Collection 3 struck that sentence and made its neighbour a NOTE, Issue
+/// #47 and #48, [`pdf_font::standard`] carries the reading and ADR 0253 the reason `doc/md/`
+/// cannot show it.)
 ///
-/// So a stream whose `Tf` says `/Helvetica` with an empty resource dictionary has named something
-/// the standard permits it to name and nothing else, and drawing it from the compiled-in fourteen
-/// (ADR 0133) is a better reading of that stream than drawing nothing. `issue17492.pdf` is the
+/// So a stream whose `Tf` says `/Helvetica` with an empty resource dictionary is drawn as though
+/// its producer had written the one-entry font dictionary that label suggests, which is a better
+/// guess at that stream than drawing nothing. `issue17492.pdf` is the
 /// witness: a text widget's stored appearance stream carries `/Resources <<>>` and sets its text
 /// in `/Helvetica 12 Tf`, `mupdf` and `ghostscript` draw the three lines, `poppler` refuses with
 /// *Unknown font tag 'Helvetica'*, and this tree drew nothing and said so.
 ///
-/// **The same argument `variable_text`'s `STANDARD_ABBREVIATIONS` makes**, one clause over and
-/// with a stronger premise: there the name is a four-letter convention for one of the fourteen,
-/// here it *is* one of the fourteen. `pdf_font::standard::is_standard_name` is deliberately exact
-/// — no case folding, no families — so `/F1`, `/Arial` and `/helvetica` still name nothing and
-/// still report. Two corpus documents naming `/F1` are unaffected, which is the narrowness
+/// **The same guess `variable_text`'s `STANDARD_ABBREVIATIONS` makes**, one clause over: there
+/// the label is a four-letter convention for one of the fourteen, here it spells one of the
+/// fourteen's names. `pdf_font::standard::is_standard_name` is deliberately exact — no case
+/// folding, no families — so `/F1`, `/Arial` and `/helvetica` still name nothing and still
+/// report. Two corpus documents naming `/F1` are unaffected, which is the narrowness
 /// visible in the gate rather than argued in a comment.
 fn standard_font_named(name: &str) -> Option<Object> {
     if !pdf_font::standard::is_standard_name(name) {

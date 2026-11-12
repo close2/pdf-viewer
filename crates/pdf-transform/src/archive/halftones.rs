@@ -253,7 +253,7 @@ pub(super) fn defaults(document: &Document, input: &pdf_archive::Report) -> Resu
         }
     }
     for number in document.xref().object_numbers() {
-        let holder = ObjectId::new(number, 0);
+        let holder = document.defined_id(number);
         let object = document.get(holder);
         let dict = match &object {
             Object::Dictionary(dict) => dict,

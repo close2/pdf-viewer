@@ -161,7 +161,7 @@ impl ShortProfiles {
     pub(super) fn of(document: &Document, reading: Reading) -> Self {
         let mut out = Self::default();
         for number in document.xref().object_numbers() {
-            let object = document.get(ObjectId::new(number, 0));
+            let object = document.get(document.defined_id(number));
             out.visit(document, reading, &object, None, 0);
         }
         out

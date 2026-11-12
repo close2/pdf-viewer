@@ -48,7 +48,7 @@ pub const MAX_VALUES: usize = 64;
 /// `CLAUDE.md`'s third principle requires of pathological content. It is a budget for the
 /// whole tree one root builds, not a per-array limit, because a bound on breadth alone
 /// leaves `breadth ^ depth` reachable. 4096 is sixteen times the largest k seen in a real
-/// file, and a `Function` is 120 bytes on this target, so the ceiling is 480 KiB of
+/// file, and a `Function` is 128 bytes on this target, so the ceiling is 512 KiB of
 /// functions for one shading — checked by `tests/hostile_functions.rs` rather than recalled.
 pub const MAX_FUNCTIONS: usize = 4096;
 
@@ -114,6 +114,103 @@ pub enum FunctionError {
     },
 }
 
+/// What a §7.10.5.3 program did at run time that the clause makes an error.
+///
+/// ISO 32000-2 §7.10.5.3:
+///
+/// > It shall be an error for the number of remaining operands to differ from the number of
+/// > output variables specified by Range or for any of them to be objects other than numbers.
+///
+/// > Implementations of Type 4 functions shall provide a stack with room for at least 100
+/// > entries. No implementation shall be required to provide a larger stack, and it shall be an
+/// > error to overflow the stack.
+///
+/// Where the abstract walk proves one of these on every path, [`Function::parse`] refuses the
+/// program instead (see `provable_error`); what is left is a program whose error depends on its
+/// inputs, and that is decided where it happens. The evaluator still answers — the cell has to
+/// hold something — but it records the fault on the function, and [`Function::evaluation_fault`]
+/// is how a caller with a report finds it, so that the answer is not drawn as though the program
+/// had produced it (trap 5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum EvaluationFault {
+    /// The program left more or fewer values than `/Range` declares outputs; the evaluator
+    /// dropped the extra ones or answered 0 for the missing ones.
+    OutputCount,
+    /// The program left a boolean where an output belongs; the evaluator read it as 1 or 0.
+    NonNumberOutput,
+    /// The program overflowed the operand stack; the evaluator dropped what did not fit.
+    StackOverflow,
+}
+
+impl EvaluationFault {
+    /// Every fault, in the order of their bits in [`Faults`].
+    const ALL: [Self; 3] = [
+        Self::OutputCount,
+        Self::NonNumberOutput,
+        Self::StackOverflow,
+    ];
+
+    /// This fault's bit in [`Faults`].
+    const fn bit(self) -> u8 {
+        match self {
+            Self::OutputCount => 1,
+            Self::NonNumberOutput => 2,
+            Self::StackOverflow => 4,
+        }
+    }
+}
+
+impl std::fmt::Display for EvaluationFault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::OutputCount => {
+                "a type 4 program left a different number of values than /Range declares \
+                 (§7.10.5.3)"
+            }
+            Self::NonNumberOutput => "a type 4 program left a boolean as an output (§7.10.5.3)",
+            Self::StackOverflow => "a type 4 program overflowed the operand stack (§7.10.5.3)",
+        })
+    }
+}
+
+/// The [`EvaluationFault`]s a function has met, as bits a shared function can set from any
+/// thread.
+///
+/// Sticky rather than returned, and the reason is where evaluation happens: a shading's grid
+/// evaluates a function once per device cell on rayon's threads, deep below any caller that has
+/// a report, and a `Result` per cell would be threaded through every colour conversion for a
+/// fault no conforming file has. A caller that can report asks once, after it has sampled. The
+/// cost on the path that does not fault is one comparison per program (the output count) and the
+/// boolean test the outputs were already read through; the store happens only on a fault, and
+/// only once per bit, so threads that fault together do not contend on the line.
+#[derive(Debug, Default)]
+struct Faults(std::sync::atomic::AtomicU8);
+
+impl Faults {
+    fn record(&self, fault: EvaluationFault) {
+        use std::sync::atomic::Ordering::Relaxed;
+        if self.0.load(Relaxed) & fault.bit() == 0 {
+            self.0.fetch_or(fault.bit(), Relaxed);
+        }
+    }
+
+    fn first(&self) -> Option<EvaluationFault> {
+        let bits = self.0.load(std::sync::atomic::Ordering::Relaxed);
+        EvaluationFault::ALL
+            .into_iter()
+            .find(|fault| bits & fault.bit() != 0)
+    }
+}
+
+impl Clone for Faults {
+    fn clone(&self) -> Self {
+        Self(std::sync::atomic::AtomicU8::new(
+            self.0.load(std::sync::atomic::Ordering::Relaxed),
+        ))
+    }
+}
+
 /// A PDF function, ready to evaluate.
 #[derive(Debug, Clone)]
 pub struct Function {
@@ -122,6 +219,8 @@ pub struct Function {
     /// Output bounds, as pairs. Required for types 0 and 4, optional otherwise.
     range: Option<Vec<(f32, f32)>>,
     kind: Kind,
+    /// What evaluating this function has met that §7.10.5.3 calls an error.
+    faults: Faults,
 }
 
 /// The four function types.
@@ -226,7 +325,12 @@ impl Function {
             )?)),
             2 => Self::parse_exponential(document, &dict)?,
             3 => Self::parse_stitching(document, &dict, &domain, budget)?,
-            4 => Self::parse_postscript(document, &resolved, domain.len())?,
+            4 => Self::parse_postscript(
+                document,
+                &resolved,
+                domain.len(),
+                range.as_ref().map(Vec::len),
+            )?,
             other => return Err(FunctionError::UnsupportedType { kind: other }),
         };
 
@@ -234,6 +338,7 @@ impl Function {
             domain,
             range,
             kind,
+            faults: Faults::default(),
         })
     }
 
@@ -395,29 +500,42 @@ impl Function {
             // §7.10.5.3: "The input variables shall constitute the initial operand stack; the
             // items remaining on the operand stack after execution of the function shall be the
             // output variables." The inputs arrive as real numbers — they are a `/Domain`'s
-            // clipped coordinates — and what is left is read back as numbers, which the same
-            // clause requires: "It shall be an error … for any of them to be objects other than
-            // numbers." A boolean left there is that error, and the subset has no way to raise
-            // one, so it is read as the 1 or 0 it stands for rather than dropped: dropping it
-            // would change how many outputs the function has, which is the *other* half of the
-            // same sentence.
-            // The two `extend`s are the cheapest form of this measured: a `reserve` and a `push`
-            // loop, which is what suggests itself, costs 10 million instructions more on
-            // `function_based_shading.pdf` because each of these iterators is `TrustedLen` and
-            // reserves once already (ADR 0371).
+            // clipped coordinates — and what is left is read back as numbers. The same clause
+            // makes a boolean left there, a count that differs from `/Range`'s and an overflow
+            // errors; `parse_postscript` refuses each where it is proven on every path, and
+            // what reaches here is a program whose error depends on its inputs. The cell still
+            // gets an answer — a boolean read as 1 or 0, the count fixed by the range below —
+            // and the fault is recorded for [`Self::evaluation_fault`], so the answer is not
+            // passed off as the program's.
+            // The `extend` is the cheapest form measured: a `reserve` and a `push` loop costs
+            // 10 million instructions more on `function_based_shading.pdf` because the iterator
+            // is `TrustedLen` and reserves once already (ADR 0371). The boolean test is a second
+            // pass over the handful of outputs, taken only to set a bit.
             Kind::PostScript(program) => {
                 stack.clear();
                 stack.extend(clipped.iter().map(|input| Value::Real(*input)));
-                evaluate_postscript(program, stack);
+                if evaluate_postscript(program, stack) {
+                    self.faults.record(EvaluationFault::StackOverflow);
+                }
                 outputs.extend(stack.iter().map(|value| value.number()));
+                if stack.iter().any(|value| matches!(value, Value::Boolean(_))) {
+                    self.faults.record(EvaluationFault::NonNumberOutput);
+                }
+                if self
+                    .range
+                    .as_ref()
+                    .is_some_and(|range| range.len() != outputs.len())
+                {
+                    self.faults.record(EvaluationFault::OutputCount);
+                }
             }
         }
 
         if let Some(range) = &self.range {
             outputs.truncate(range.len());
-            // A function whose program produced too few values still has to answer with
-            // the number its range promises, or the caller reads a colour component that
-            // is not there.
+            // A function that produced another count still has to answer with the number its
+            // range promises, or the caller reads a colour component that is not there; for a
+            // type 4 program that is §7.10.5.3's error, recorded above as a fault.
             while outputs.len() < range.len() {
                 outputs.push(0.0);
             }
@@ -425,6 +543,21 @@ impl Function {
                 *value = clamp(*value, *low, *high);
             }
         }
+    }
+
+    /// The first §7.10.5.3 error an evaluation of this function, or of a function it stitches,
+    /// has met — `None` while every evaluation has been one the clause allows.
+    ///
+    /// A caller that samples a function and has a report asks this afterwards; the values it was
+    /// given are the evaluator's stand-ins for the ones the program failed to produce
+    /// ([`EvaluationFault`] says which).
+    #[must_use]
+    pub fn evaluation_fault(&self) -> Option<EvaluationFault> {
+        // Recursion as deep as `MAX_STITCH_DEPTH`, the depth the parser built to.
+        self.faults.first().or_else(|| match &self.kind {
+            Kind::Stitching { functions, .. } => functions.iter().find_map(Self::evaluation_fault),
+            Kind::Sampled(_) | Kind::Exponential { .. } | Kind::PostScript(_) => None,
+        })
     }
 
     /// How many values this function returns, when that is known before evaluating.
@@ -537,11 +670,26 @@ impl Function {
         let x = clipped.first().copied().unwrap_or(0.0);
         let (domain_low, domain_high) = self.domain.first().copied().unwrap_or((0.0, 1.0));
 
-        // The sub-domain containing x: the first bound above it, or the last function.
-        let index = bounds
-            .iter()
-            .position(|bound| x < *bound)
-            .unwrap_or(bounds.len());
+        // The sub-domain containing x: the first bound above it, or the last function. ISO
+        // 32000-2 §7.10.4 makes the first interval [Domain0, Bounds0] closed where the two are
+        // equal, and then:
+        //
+        // > For the degenerate case, if the first bound, Bounds 0 , is equal to Domain 0 then x′
+        // > shall be defined to be Encode 0 .
+        //
+        // so x at that bound (the clipped input never lies below it) is the first function's,
+        // whose zero-width interval `interpolate` maps to Encode 0.
+        let first_is_degenerate = bounds
+            .first()
+            .is_some_and(|first| first.total_cmp(&domain_low).is_eq());
+        let index = if first_is_degenerate && x <= domain_low {
+            0
+        } else {
+            bounds
+                .iter()
+                .position(|bound| x < *bound)
+                .unwrap_or(bounds.len())
+        };
         let low = if index == 0 {
             domain_low
         } else {
@@ -815,6 +963,7 @@ impl Function {
         document: &Document,
         object: &Object,
         inputs: usize,
+        outputs: Option<usize>,
     ) -> Result<Kind, FunctionError> {
         let stream = object.as_stream().ok_or_else(|| FunctionError::Malformed {
             detail: "a PostScript function must be a stream".to_owned(),
@@ -828,10 +977,10 @@ impl Function {
         let program = compile_postscript(&data)?;
         // Before the fold rather than after it, and the order is load-bearing: `true 0 gt` is a
         // closed island, so folding replaces the whole departure with the one value this reading
-        // says it does not have. [`ordering_reaches_a_boolean`] has the clause and the argument.
-        if ordering_reaches_a_boolean(&program, inputs) {
+        // says it does not have. [`provable_error`] has the clauses and the argument.
+        if let Some(error) = provable_error(&program, inputs, outputs) {
             return Err(FunctionError::Malformed {
-                detail: "ge, gt, lt or le on a boolean operand (§7.10.5.2)".to_owned(),
+                detail: error.detail().to_owned(),
             });
         }
         // §7.10.5.3 makes the inputs "the initial operand stack", so the walk starts where the
@@ -1223,7 +1372,7 @@ fn narrow(value: f64) -> f32 {
 /// `num 1 num 2` by §B.3 *and* by §7.10.5.2's normative deferral, so a boolean under one of them
 /// has no reading that loses least — it has no reading. A program in which one provably reaches
 /// such an operand is refused at parse time and its caller reports it;
-/// `ordering_reaches_a_boolean` is the whole argument, and ADR 0412 the decision. The conversion
+/// `provable_error` is the whole argument, and ADR 0412 the decision. The conversion
 /// above still answers where that walk could not decide, because an evaluator cannot raise
 /// §7.10.5's error at a device pixel.
 ///
@@ -1544,7 +1693,7 @@ fn without_comments(program: &str) -> String {
 ///
 /// Two compile-time walks need this and they know different things about a slot, so `counted`
 /// is what each of them supplies: [`fold_constants`] knows a slot's [`Value`] or nothing, and
-/// [`ordering_reaches_a_boolean`] knows a slot's value, or only its type, or nothing. Both answer
+/// [`provable_error`] knows a slot's value, or only its type, or nothing. Both answer
 /// `None` for a slot they cannot read a count out of, and both abandon the program when they do.
 ///
 /// The three §B.5 counting operators are the reason this is a function of the stack rather than a
@@ -1800,7 +1949,7 @@ enum Sort {
     Boolean,
 }
 
-/// What [`ordering_reaches_a_boolean`] knows about one slot of the operand stack.
+/// What [`provable_error`] knows about one slot of the operand stack.
 ///
 /// Three rungs rather than two, which is what makes the walk worth running at all: a program
 /// whose comparison reads a *computed* boolean — `x 0.5 gt 0 gt` — has no literal under the
@@ -1841,7 +1990,8 @@ impl Slot {
     }
 }
 
-/// Whether the program **provably** applies `ge`, `gt`, `lt` or `le` to a boolean operand.
+/// The error the program **provably** commits, if any: first whether it applies `ge`, `gt`, `lt`
+/// or `le` to a boolean operand, then the three §7.10.5.3 states (the last section below).
 ///
 /// # The clause, and why this is a refusal rather than a conversion
 ///
@@ -1878,7 +2028,7 @@ impl Slot {
 ///
 /// The walk is [`fold_constants`]' — the same forward pass, the same absolute-depth model, the
 /// same abandonment where the depth stops being modellable — over [`Slot`] instead of
-/// `Option<Value>`. It answers `true` **only** where a slot is certainly a boolean, and `Unknown`
+/// `Option<Value>`. It finds the ordering error **only** where a slot is certainly a boolean, and `Unknown`
 /// wherever a type depends on a value the walk does not have:
 ///
 /// - a join is a join of two arms, so every slot below it becomes [`Slot::Unknown`] rather than
@@ -1895,7 +2045,26 @@ impl Slot {
 ///
 /// `inputs` is `/Domain`'s pair count, because §7.10.5.3 makes the input variables the initial
 /// operand stack and `Function::eval_into` pushes each of them as a [`Value::Real`].
-fn ordering_reaches_a_boolean(program: &[Instruction], inputs: usize) -> bool {
+///
+/// # The other errors §7.10.5.3 states, and why the same walk proves them
+///
+/// > It shall be an error for the number of remaining operands to differ from the number of
+/// > output variables specified by Range or for any of them to be objects other than numbers.
+///
+/// > … it shall be an error to overflow the stack.
+///
+/// A walk that reaches the end without abandoning has modelled the depth exactly on every path —
+/// every join it passed was a join of two arms of equal depth — so a final depth other than
+/// `outputs` is the error on every run. A slot certainly boolean at the end was pushed after the
+/// last join, so on every run too. An overflow is proven only where the instruction that meets it
+/// lies outside every conditional arm ([`unconditional`]); one inside an arm is an error of some
+/// runs and is left to the evaluator, which records it ([`EvaluationFault`]). `outputs` is
+/// `/Range`'s pair count, `None` where the function states no `/Range`.
+fn provable_error(
+    program: &[Instruction],
+    inputs: usize,
+    outputs: Option<usize>,
+) -> Option<ProvenError> {
     let mut is_target = vec![false; program.len().saturating_add(1)];
     let mut promised: Vec<Option<usize>> = vec![None; program.len().saturating_add(1)];
     for instruction in program {
@@ -1905,6 +2074,7 @@ fn ordering_reaches_a_boolean(program: &[Instruction], inputs: usize) -> bool {
             *slot = true;
         }
     }
+    let unconditional = unconditional(program);
 
     let mut stack: Vec<Slot> = vec![Slot::Sorted(Sort::Real); inputs.min(MAX_VALUES)];
     let mut window: Vec<Slot> = Vec::new();
@@ -1913,20 +2083,22 @@ fn ordering_reaches_a_boolean(program: &[Instruction], inputs: usize) -> bool {
         if is_target.get(at).copied().unwrap_or(false) {
             match promised.get(at).copied().flatten() {
                 Some(depth) if depth == stack.len() => stack.fill(Slot::Unknown),
-                _ => return false,
+                _ => return None,
             }
         }
+        let on_every_path = unconditional.get(at).copied().unwrap_or(false);
         match instruction {
             Instruction::Push(value) => {
                 if stack.len() >= MAX_STACK {
-                    return false;
+                    return on_every_path.then_some(ProvenError::Overflow);
                 }
                 stack.push(Slot::Known(*value));
             }
             Instruction::Operator(operator) => {
-                let Some(demand) = operand_demand(*operator, &stack, Slot::count) else {
-                    return false;
-                };
+                if on_every_path && overflows_sorts(*operator, &stack) {
+                    return Some(ProvenError::Overflow);
+                }
+                let demand = operand_demand(*operator, &stack, Slot::count)?;
                 let below = stack.len().saturating_sub(demand);
                 window.clear();
                 window.extend(stack.drain(below..));
@@ -1936,7 +2108,7 @@ fn ordering_reaches_a_boolean(program: &[Instruction], inputs: usize) -> bool {
                 ) {
                     let (a, b) = ordering_operands(&window);
                     if a.is_boolean() || b.is_boolean() {
-                        return true;
+                        return Some(ProvenError::OrderingOnBoolean);
                     }
                 }
                 apply_sorts(*operator, &mut window);
@@ -1944,29 +2116,114 @@ fn ordering_reaches_a_boolean(program: &[Instruction], inputs: usize) -> bool {
                 // evaluator's own `dup` and `copy` guards start declining where this walk does
                 // not, and a depth that has stopped matching is a slot read at the wrong place.
                 if below.saturating_add(window.len()) >= MAX_STACK {
-                    return false;
+                    return None;
                 }
                 stack.extend(window.iter().copied());
             }
             Instruction::JumpUnless(target) => {
                 stack.pop();
-                if promise(&mut promised, *target, stack.len()).is_none() {
-                    return false;
-                }
+                promise(&mut promised, *target, stack.len())?;
             }
             Instruction::Jump(target) => {
-                if promise(&mut promised, *target, stack.len()).is_none() {
-                    return false;
-                }
-                let Some(depth) = promised.get(at.saturating_add(1)).copied().flatten() else {
-                    return false;
-                };
+                promise(&mut promised, *target, stack.len())?;
+                let depth = promised.get(at.saturating_add(1)).copied().flatten()?;
                 stack.clear();
                 stack.resize(depth, Slot::Unknown);
             }
         }
     }
-    false
+    // A branch whose arm runs to the end of the program joins there, after the last instruction.
+    if is_target.get(program.len()).copied().unwrap_or(false) {
+        match promised.get(program.len()).copied().flatten() {
+            Some(depth) if depth == stack.len() => stack.fill(Slot::Unknown),
+            _ => return None,
+        }
+    }
+    if outputs.is_some_and(|outputs| outputs != stack.len()) {
+        return Some(ProvenError::OutputCount);
+    }
+    stack
+        .iter()
+        .any(|slot| slot.is_boolean())
+        .then_some(ProvenError::BooleanOutput)
+}
+
+/// What [`provable_error`] proves of a program, each one a `shall` of §7.10.5.2 or §7.10.5.3.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProvenError {
+    /// `ge`, `gt`, `lt` or `le` reads a boolean operand (§7.10.5.2's deferral to PLRM3).
+    OrderingOnBoolean,
+    /// The program leaves a different number of values than `/Range` declares.
+    OutputCount,
+    /// The program leaves a boolean as an output.
+    BooleanOutput,
+    /// The program overflows the operand stack on every run.
+    Overflow,
+}
+
+impl ProvenError {
+    /// The refusal's detail, for [`FunctionError::Malformed`].
+    const fn detail(self) -> &'static str {
+        match self {
+            Self::OrderingOnBoolean => "ge, gt, lt or le on a boolean operand (§7.10.5.2)",
+            Self::OutputCount => {
+                "the program leaves a different number of values than /Range declares (§7.10.5.3)"
+            }
+            Self::BooleanOutput => "the program leaves a boolean as an output (§7.10.5.3)",
+            Self::Overflow => "the program overflows the operand stack (§7.10.5.3)",
+        }
+    }
+}
+
+/// Which instructions run on every path through `program`: those outside every arm of an `if`
+/// or `ifelse`.
+///
+/// [`compile_block`] lays a conditional out as a `JumpUnless` over its first arm and, for
+/// `ifelse`, a `Jump` over its second, both forward; so an instruction strictly between a jump and
+/// its target is in an arm, and every other one is on every path. One pass with a running count
+/// of the arms open at each index.
+fn unconditional(program: &[Instruction]) -> Vec<bool> {
+    let mut opened = vec![0_i64; program.len().saturating_add(2)];
+    for (at, instruction) in program.iter().enumerate() {
+        if let Instruction::Jump(target) | Instruction::JumpUnless(target) = instruction
+            && *target > at.saturating_add(1)
+        {
+            if let Some(slot) = opened.get_mut(at.saturating_add(1)) {
+                *slot = slot.saturating_add(1);
+            }
+            if let Some(slot) = opened.get_mut(*target) {
+                *slot = slot.saturating_sub(1);
+            }
+        }
+    }
+    let mut open = 0_i64;
+    (0..program.len())
+        .map(|at| {
+            open = open.saturating_add(opened.get(at).copied().unwrap_or(0));
+            open == 0
+        })
+        .collect()
+}
+
+/// [`overflows`] over types: whether the operator certainly finds no room at this depth, which
+/// for `copy` needs the count to be a known value.
+fn overflows_sorts(operator: Operator, stack: &[Slot]) -> bool {
+    match operator {
+        Operator::Dup => !stack.is_empty() && stack.len() >= MAX_STACK,
+        Operator::True | Operator::False => stack.len() >= MAX_STACK,
+        Operator::Copy => {
+            stack
+                .last()
+                .and_then(|slot| slot.count())
+                .is_some_and(|count| {
+                    count > 0
+                        && stack.len().saturating_sub(1).saturating_add(
+                            usize::try_from(count).unwrap_or(MAX_STACK).min(MAX_STACK),
+                        ) > MAX_STACK
+                })
+        }
+        _ => false,
+    }
 }
 
 /// The two operands `binary` in [`apply_operator`] would hand a comparison, given its window.
@@ -2412,9 +2669,15 @@ fn compile_token(token: &str) -> Result<Instruction, FunctionError> {
 ///
 /// The caller owns the stack so that a grid of a million cells allocates once rather than once
 /// per cell. See [`Function::eval_into`].
-fn evaluate_postscript(program: &[Instruction], stack: &mut Vec<Value>) {
+///
+/// Answers whether the program overflowed the stack — §7.10.5.3's "it shall be an error to
+/// overflow the stack" — which this evaluator's stack, [`MAX_STACK`] deep where the clause asks
+/// for at least 100, meets when a push or a `dup`, `copy`, `true` or `false` finds no room. The
+/// value that did not fit is dropped and the run goes on, so the caller can record the fault.
+fn evaluate_postscript(program: &[Instruction], stack: &mut Vec<Value>) -> bool {
     let mut at = 0usize;
     let mut steps = 0usize;
+    let mut overflowed = false;
     // Forward-only jumps make the ceiling unreachable, and it costs one comparison to be certain
     // rather than to argue about it. Computed once rather than per instruction: the program does
     // not change length while it runs, and this loop is entered once per device pixel of a
@@ -2432,6 +2695,8 @@ fn evaluate_postscript(program: &[Instruction], stack: &mut Vec<Value>) {
             Instruction::Push(value) => {
                 if stack.len() < MAX_STACK {
                     stack.push(*value);
+                } else {
+                    overflowed = true;
                 }
             }
             Instruction::Jump(target) => at = *target,
@@ -2445,8 +2710,35 @@ fn evaluate_postscript(program: &[Instruction], stack: &mut Vec<Value>) {
                     at = *target;
                 }
             }
-            Instruction::Operator(operator) => apply_operator(*operator, stack),
+            Instruction::Operator(operator) => {
+                overflowed |= overflows(*operator, stack);
+                apply_operator(*operator, stack);
+            }
         }
+    }
+    overflowed
+}
+
+/// Whether `operator` finds no room on `stack` for what it pushes, which [`apply_operator`]
+/// answers by declining (`dup`, `copy`) or the stack by growing past [`MAX_STACK`] (`true`,
+/// `false`). Every other operator pops at least as many values as it pushes. One match per
+/// operator, decided before the operator runs because a declined `copy` leaves no trace after.
+fn overflows(operator: Operator, stack: &[Value]) -> bool {
+    match operator {
+        Operator::Dup => !stack.is_empty() && stack.len() >= MAX_STACK,
+        Operator::True | Operator::False => stack.len() >= MAX_STACK,
+        // The same window `apply_operator`'s arm declines: the count it pops, capped as it caps
+        // it, over the depth below that count.
+        Operator::Copy => stack.last().is_some_and(|count| {
+            let count = count.integer();
+            count > 0
+                && stack
+                    .len()
+                    .saturating_sub(1)
+                    .saturating_add(usize::try_from(count).unwrap_or(MAX_STACK).min(MAX_STACK))
+                    > MAX_STACK
+        }),
+        _ => false,
     }
 }
 
@@ -2492,8 +2784,7 @@ fn evaluate_postscript(program: &[Instruction], stack: &mut Vec<Value>) {
 /// # What the audit of the rest of Table 42 turned on
 ///
 /// Three arms are choices rather than readings, because the standard's line does not reach them
-/// and the deferral cannot be quoted. Each is stated where it is made: `bitshift`'s width for a
-/// right shift of a negative value; `div`, `idiv` and `mod` by zero and `ln`, `log` and `sqrt`
+/// and the deferral cannot be quoted. Each is stated where it is made: `div`, `idiv` and `mod` by zero and `ln`, `log` and `sqrt`
 /// outside their domains, where PostScript raises an error the subset has no way to express; and
 /// a pop from an empty operand stack, which is [`EMPTY_STACK`].
 ///
@@ -2713,42 +3004,27 @@ fn apply_operator(operator: Operator, stack: &mut Vec<Value>) {
         Operator::And => binary(stack, |a, b| logic(a, b, |x, y| x & y, |x, y| x && y)),
         Operator::Or => binary(stack, |a, b| logic(a, b, |x, y| x | y, |x, y| x || y)),
         Operator::Xor => binary(stack, |a, b| logic(a, b, |x, y| x ^ y, |x, y| x != y)),
-        // §B.3: "Perform bitwise shift of int 1 (positive is left)", which fixes the direction
-        // and nothing else. A *right* shift of a negative value is where implementations part,
-        // and it parts on a number the standard never states: the width of the integer. A shift
-        // that fills from the left with zeros answers `2147483646` for `-4 -1 bitshift` at 32
-        // bits and `9223372036854775806` at 64, so choosing that convention means choosing a
-        // width, and ISO 32000-2 states one nowhere — Annex C's "Integer values (such as object
-        // numbers) can often be expressed within 32 bits" is informative and is about object
-        // numbers. §7.10.5.2 defers the rest to a document this project does not hold.
-        //
-        // **So the choice is the sign-preserving shift**, which is the only one of the two that
-        // is a function of the *value* rather than of a width nobody stated: `-4 -1 bitshift` is
-        // `-2` under it whatever the register is. It is a choice and not a reading, and the
-        // instrument that says what it costs is `examples/type4_operator_census`, which counts
-        // the programs in the corpora that reach `bitshift` at all — none of 7 360 when ADR 0371
-        // ran it.
-        //
-        // A shift wider than the register is where that principle used to leak, and the last
-        // line is what closes it: shifting right by more bits than an integer has leaves the
-        // sign repeated, so it is `-1` for a negative value and `0` for a non-negative one
-        // rather than `0` for both. Answering `0` for a negative value would have made the
-        // answer depend on the width after all — `-8 -40 bitshift` was `-1` while the integer
-        // was 64 bits wide and `0` when it became 32 — which is exactly what this arm's choice
-        // says it will not do (ADR 0371).
+        // §B.3: "Perform bitwise shift of int 1 (positive is left)", which fixes the direction;
+        // §7.10.5.1 gives the operators PostScript's meaning, and the PostScript Language
+        // Reference, third edition, defines `bitshift` as a shift of int1's binary representation
+        // in which the bits shifted out are lost and the bits shifted in are zero, in either
+        // direction, warning that the result is arithmetically correct only for a positive int1.
+        // Its Appendix B fixes the integer as 32-bit two's complement, which is [`Value`]'s
+        // `i32`. So a right shift is the logical one: `-8 -1 bitshift` is `2147483644`, and a
+        // shift by 32 bits or more in either direction leaves only zeros (ADR 2811, which
+        // supersedes ADR 0369's and ADR 0371's sign-preserving choice).
         Operator::Bitshift => binary(stack, |value, shift| {
             let (value, shift) = (value.integer(), shift.integer());
-            Value::Integer(if shift >= 0 {
-                value
-                    .checked_shl(u32::try_from(shift).unwrap_or(u32::MAX))
-                    .unwrap_or(0)
+            // The two's-complement bits of `value`, reinterpreted rather than converted.
+            let bits = u32::from_ne_bytes(value.to_ne_bytes());
+            let amount = shift.unsigned_abs();
+            let shifted = if shift >= 0 {
+                bits.checked_shl(amount)
             } else {
-                shift
-                    .checked_neg()
-                    .and_then(|amount| u32::try_from(amount).ok())
-                    .and_then(|amount| value.checked_shr(amount))
-                    .unwrap_or(if value < 0 { -1 } else { 0 })
-            })
+                bits.checked_shr(amount)
+            }
+            .unwrap_or(0);
+            Value::Integer(i32::from_ne_bytes(shifted.to_ne_bytes()))
         }),
         // §B.3: "Perform logical | bitwise not" — two operators wearing one name, like `and`
         // above, except that here the two *disagree*. Logical `not` of true is false; the one's
@@ -2793,7 +3069,7 @@ fn apply_operator(operator: Operator, stack: &mut Vec<Value>) {
         //
         // **So a boolean does not reach these arms.** `Function::parse_postscript` refuses a
         // program in which one provably can, which is where the whole argument lives
-        // ([`ordering_reaches_a_boolean`]); what is left here is every program the walk could not
+        // ([`provable_error`]); what is left here is every program the walk could not
         // decide, and there [`Value`]'s conversion policy still stands — `true 0 gt` compares 1
         // with 0 — because an evaluator has no way to raise §7.10.5's error at a device pixel.
         // That this is a departure rather than a choice is ADR 0412's reading; the question came
@@ -2974,8 +3250,8 @@ fn to_integer(value: f32) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        Function, FunctionError, Instruction, Operator, Value, compile_postscript,
-        evaluate_postscript, ordering_reaches_a_boolean,
+        EvaluationFault, Function, FunctionError, Instruction, Operator, ProvenError, Value,
+        compile_postscript, evaluate_postscript, provable_error,
     };
 
     /// Compiles and runs a type 4 program, which needs no document to exist, and reads what it
@@ -3303,10 +3579,10 @@ mod tests {
         assert_eq!(calculator("{ 1 2 gt }", &[]), vec![0.0]);
     }
 
-    /// Whether [`ordering_reaches_a_boolean`] proves it of a program with `inputs` inputs.
+    /// Whether [`provable_error`] proves it of a program with `inputs` inputs.
     fn reaches(source: &str, inputs: usize) -> bool {
         let program = compile_postscript(source.as_bytes()).expect("compiles");
-        ordering_reaches_a_boolean(&program, inputs)
+        provable_error(&program, inputs, None) == Some(ProvenError::OrderingOnBoolean)
     }
 
     /// A program that provably compares a boolean is refused, and the walk says why.
@@ -3314,7 +3590,7 @@ mod tests {
     /// §7.10.5.2 hands the four operators' semantics to a document clause 2 makes normative, and
     /// §B.3 corroborates with `num 1 num 2` — three operand classes in one table, `any 1 any 2`
     /// for `eq` and `bool | int` for `and`. So the operand is not one, and
-    /// [`ordering_reaches_a_boolean`] has the argument for refusing rather than converting.
+    /// [`provable_error`] has the argument for refusing rather than converting.
     ///
     /// Each line is a different route a boolean takes to the operand: a literal, an `eq`, a
     /// comparison of its own, `and` on two booleans, `not` on one, and one arriving through the
@@ -3382,6 +3658,90 @@ mod tests {
             matches!(&error, FunctionError::Malformed { detail } if detail.contains("boolean")),
             "{error:?}"
         );
+    }
+
+    /// A type 4 function over `/Domain [0 1]` with `range` as its `/Range`, built through
+    /// [`Function::parse`] so that the refusals are the ones a document meets.
+    fn type4(program: &str, range: &str) -> Result<Function, FunctionError> {
+        let source = format!(
+            "%PDF-1.7\n1 0 obj\n<< /FunctionType 4 /Domain [0 1] /Range {range} /Length {} >>\n\
+             stream\n{program}\nendstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n",
+            program.len().saturating_add(1)
+        );
+        let document = pdf_syntax::Document::open(source.into_bytes()).expect("opens");
+        let object = document.get(pdf_syntax::ObjectId {
+            number: 1,
+            generation: 0,
+        });
+        Function::parse(&document, &object)
+    }
+
+    /// §7.10.5.3's three errors, refused at parse time where every run commits them: "It shall be
+    /// an error for the number of remaining operands to differ from the number of output variables
+    /// specified by Range or for any of them to be objects other than numbers", and "it shall be an
+    /// error to overflow the stack".
+    #[test]
+    fn a_program_that_errs_on_every_run_is_refused() {
+        let refused = |program: &str, why: &str| {
+            let error = type4(program, "[0 1]").expect_err(program);
+            assert!(
+                matches!(&error, FunctionError::Malformed { detail } if detail.contains(why)),
+                "{program}: {error:?}"
+            );
+        };
+        // One input on the stack, one output declared.
+        refused("{ 1 }", "different number");
+        refused("{ pop }", "different number");
+        refused("{ 0.5 gt }", "boolean as an output");
+        refused(
+            &format!("{{ {} }}", "1 ".repeat(super::MAX_STACK)),
+            "overflows",
+        );
+        refused(
+            &format!("{{ {} true }}", "1 ".repeat(super::MAX_STACK - 1)),
+            "overflows",
+        );
+        refused("{ 0.5 gt { 1 1 } { 2 2 } ifelse }", "different number");
+        // The same shapes, conforming, are admitted.
+        for program in [
+            "{ 2 mul }",
+            "{ 0.5 gt { 1 } { 0 } ifelse }",
+            "{ dup 0.5 gt { pop 1 } if }",
+        ] {
+            assert!(type4(program, "[0 1]").is_ok(), "{program}");
+        }
+        assert!(type4("{ dup }", "[0 1 0 1]").is_ok());
+    }
+
+    /// The same errors where only some inputs commit them: the evaluator answers within the range
+    /// and records the fault on the function, so a caller with a report can tell the answer from
+    /// one the program produced.
+    #[test]
+    fn an_error_that_depends_on_the_input_is_recorded_as_a_fault() {
+        let faults_at = |program: &str, input: f32| {
+            let function = type4(program, "[0 1]").expect(program);
+            let out = function.eval(&[input]);
+            assert_eq!(out.len(), 1, "{program} at {input}");
+            function.evaluation_fault()
+        };
+        let counts = "{ 0.5 gt { 1 1 } { 1 } ifelse }";
+        assert_eq!(faults_at(counts, 0.1), None);
+        assert_eq!(faults_at(counts, 0.9), Some(EvaluationFault::OutputCount));
+        // The second arm runs to the end of the program, so the join is after its last
+        // instruction; a walk that missed it would read the boolean as every run's output.
+        let boolean = "{ 0.5 gt { 1 } { true } ifelse }";
+        assert_eq!(faults_at(boolean, 0.9), None);
+        assert_eq!(
+            faults_at(boolean, 0.1),
+            Some(EvaluationFault::NonNumberOutput)
+        );
+        let deep = format!(
+            "{{ 0.5 gt {{ {} {} }} {{ 1 }} ifelse }}",
+            "1 ".repeat(super::MAX_STACK + 1),
+            "pop ".repeat(super::MAX_STACK - 1)
+        );
+        assert_eq!(faults_at(&deep, 0.1), None);
+        assert_eq!(faults_at(&deep, 0.9), Some(EvaluationFault::StackOverflow));
     }
 
     /// **`inf` and `NaN` are `f32::from_str`'s spellings and belong to neither §7.3.3 nor Table
@@ -3458,28 +3818,30 @@ mod tests {
         assert_eq!(typed("{ 6.9 3.9 and }", &[]), vec![Value::Integer(2)]);
     }
 
-    /// §B.3's `bitshift`, and the one place its answer is this project's choice rather than
-    /// the standard's.
+    /// §B.3's `bitshift`: positive is left, and the PostScript Language Reference's definition
+    /// shifts zeros in from either end of a 32-bit two's-complement integer (ADR 2811).
     ///
-    /// The direction is stated — positive is left — and the width of the integer is not, which
-    /// only shows on a right shift of a negative value. The sign-preserving shift is chosen
-    /// because it is the answer that does not depend on a width nobody stated; the last two
-    /// lines are what that choice looks like.
+    /// The negative lines are where that shows: a right shift of a negative value clears its
+    /// sign bit, and a shift past the width leaves nothing. Planted against the sign-preserving
+    /// shift this arm used to make, the `-8 -1` and `-1 -1` lines fail.
     #[test]
-    fn a_bit_shift_moves_left_for_a_positive_count_and_keeps_its_sign_going_right() {
+    fn a_bit_shift_moves_left_for_a_positive_count_and_shifts_zeros_in_going_right() {
         assert_eq!(calculator("{ 1 3 bitshift }", &[]), vec![8.0]);
         assert_eq!(calculator("{ 8 -3 bitshift }", &[]), vec![1.0]);
         assert_eq!(calculator("{ 5 0 bitshift }", &[]), vec![5.0]);
         assert_eq!(calculator("{ -8 1 bitshift }", &[]), vec![-16.0]);
-        assert_eq!(calculator("{ -8 -1 bitshift }", &[]), vec![-4.0]);
-        assert_eq!(calculator("{ -1 -1 bitshift }", &[]), vec![-1.0]);
-        // Wider than the register the value is held in, which is where the sign-preserving
-        // reading has to keep answering or it was a reading about the register after all: a
-        // negative value shifted right past its own width is the sign repeated, and a
-        // non-negative one is zero.
-        assert_eq!(calculator("{ -8 -40 bitshift }", &[]), vec![-1.0]);
+        assert_eq!(
+            typed("{ -8 -1 bitshift }", &[]),
+            vec![Value::Integer(2_147_483_644)]
+        );
+        assert_eq!(
+            typed("{ -1 -1 bitshift }", &[]),
+            vec![Value::Integer(i32::MAX)]
+        );
+        assert_eq!(calculator("{ -8 -40 bitshift }", &[]), vec![0.0]);
         assert_eq!(calculator("{ 8 -40 bitshift }", &[]), vec![0.0]);
         assert_eq!(calculator("{ 8 40 bitshift }", &[]), vec![0.0]);
+        assert_eq!(calculator("{ 1 31 bitshift }", &[]), vec![-2_147_483_648.0]);
     }
 
     /// A program that underflows must not panic, and must still answer.
@@ -3617,7 +3979,7 @@ mod tests {
     /// clause in it.
     #[test]
     fn a_program_that_computes_no_real_number_still_answers_within_its_range() {
-        let program = "{ -8 0.5 exp }";
+        let program = "{ pop -8 0.5 exp }";
         let source = format!(
             "%PDF-1.7\n1 0 obj\n<< /FunctionType 4 /Domain [0 1] /Range [0 1] /Length {} >>\n\
              stream\n{program}\nendstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n",

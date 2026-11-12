@@ -62,7 +62,7 @@ pub(super) fn restated(document: &Document) -> Result<ComponentCounts, Because> 
         refused: None,
     };
     for number in document.xref().object_numbers() {
-        let object = document.get(ObjectId::new(number, 0));
+        let object = document.get(document.defined_id(number));
         walk.visit(document, &object, 0);
     }
     if let Some(because) = walk.refused {

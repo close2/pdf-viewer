@@ -18,8 +18,9 @@
 //!
 //! # Why anything is owed here at all, when this tree anti-aliases
 //!
-//! Anti-aliasing is a departure from the clause read literally, licensed by §10.7.1's NOTE that
-//! "\[t]he specifics of the scan conversion algorithm are not defined as part of PDF", and it
+//! Anti-aliasing is a departure from the clause read literally — a documented choice that
+//! §10.7.1's informative NOTE, "\[t]he specifics of the scan conversion algorithm are not defined
+//! as part of PDF", explains and does not license (ADR 2812) — and it
 //! replaces the clause's "paint the pixel" with **coverage proportional to area**. That
 //! replacement is what has to hold: a shape occupying a twentieth of a pixel is drawn at a
 //! twentieth of the ink, which is neither the clause's answer nor nothing. Coverage that rounds

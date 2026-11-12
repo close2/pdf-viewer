@@ -1,0 +1,4 @@
+{
+  "warning": "Round 2000's manifest of the audit's failing tests that still fail after its fixes. The owner's expected-failures.json is kept as recorded; this file lists only what still fails, and why. Measured 2026-11-11 by cargo nextest over pdf-archive, pdf-colour, pdf-model, pdf-syntax, pdf-transform, viewer-core, viewer-host, viewer-qt and viewer-ui (5726 run, 5726 passed) and xvfb-run -a cargo test -p viewer-gtk --lib (20 passed). All 72 of the owner's manifest now pass; doc/reviews/1983-specification-audit/fixes.md section 1 names the fix of each.",
+  "failures": []
+}

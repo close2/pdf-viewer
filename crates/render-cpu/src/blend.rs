@@ -5,11 +5,11 @@
 //!
 //! `tiny-skia` offers all sixteen modes, and twelve separable ones plus `Saturation`
 //! agree with Vello to the channel. `Hue`, `Color` and `Luminosity` do not: they come
-//! out 113 of 255 away from the clause's own arithmetic, because an intermediate in the
-//! library's `u16x16` lane arithmetic exceeds sixteen bits and wraps — a debug build
-//! panics inside `wide/u16x16_t.rs` with "attempt to multiply with overflow" rather than
-//! producing the wrong number quietly. ADR 0046 has how that was found; ADR 0047 has why
-//! the fix is here.
+//! out 113 of 255 away from §11.3.5.3's closed form, which is what settled which backend
+//! is wrong. Why the library's answer differs is not known here, and a debug build's
+//! overflow panic in its lane arithmetic is not the reason — the same panic fires on
+//! `Overlay`, which agrees with Vello in release (ADR 0047). ADR 0046 has how the
+//! disagreement was found; ADR 0047 has why the fix is here.
 //!
 //! Table 135's four are the ones worth taking back, because they are *non-separable*:
 //! each is defined over all three components at once through [`lum`], [`clip_colour`],

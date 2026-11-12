@@ -196,9 +196,11 @@ impl Decode {
         let mut values = Vec::with_capacity(space.components());
         for component in 0..space.components() {
             let at = component.saturating_mul(2);
-            // A `/Decode` array "shall contain one pair of numbers for each component"; one
-            // that does not is honoured as far as it goes, since the alternative is
-            // discarding a pair the producer did state.
+            // A `/Decode` array "shall contain one pair of numbers for each component". A base
+            // image whose array does not is refused before its samples are read, as §8.9.5.1
+            // requires (`dispatch::inconsistent_entries`, ADR 2812); what reaches here short is
+            // a soft mask's or an alternate's, which that clause does not govern, and is
+            // honoured as far as it goes rather than discarding a pair the producer did state.
             let (low, high) = match (stated.get(at), stated.get(at.saturating_add(1))) {
                 (Some(low), Some(high)) => (*low, *high),
                 _ => space.default_decode(component, bits),

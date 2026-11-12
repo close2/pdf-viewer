@@ -319,6 +319,7 @@ impl Viewer {
             return;
         }
 
+        let (viewport, scale) = (self.viewport, self.scale);
         let Some(open) = self.focused_mut() else {
             return;
         };
@@ -334,6 +335,7 @@ impl Viewer {
             && target != open.page_index
         {
             let left = open.page_index;
+            open.retain_corner(viewport, scale);
             open.page_index = target;
             open.scroll = (0.0, 0.0);
             // §12.4.4.1's clock is the page's, and an action that jumped has changed the page.

@@ -172,7 +172,7 @@ pub(super) fn collapse(document: &Document, survey: &Survey) -> Result<Duplicate
         shared: false,
     };
     for number in document.xref().object_numbers() {
-        let id = ObjectId::new(number, 0);
+        let id = document.defined_id(number);
         walk.visit(document, &document.get(id), None, 0);
     }
     if walk.overprinting {

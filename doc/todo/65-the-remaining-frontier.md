@@ -272,7 +272,15 @@ A normal round can advance or close each of these today; there is no missing sur
 package, no cross-round architecture. Membership is re-derived from the ledger rather than carried: a
 row is in this bucket when its note names none of those three.
 
-No row is in this bucket at present.
+- §12.2 — `partial`: Table 147's `/Enforce` names preferences "that shall not be overridden by
+  subsequent selections in the application user interface", and it is reported rather than obeyed.
+  It is a document restriction, so it attaches to the reader's four-level policy; the build is that
+  attachment, and `doc/questions/Q834` section 2 asks only for its default level (ADR 2814).
+- §9.9.2 — `partial`: a subset tag is a digest, and two different subsets of one face may digest
+  alike. `variable_text::for_a_file` gives a later subset in the same resource dictionary the next
+  tag, but the subsets written into two appearance streams of one saved file, and those the file
+  already held, are not yet checked against each other; a registry across the writers' calls is the
+  build (ADR 2818).
 
 
 §7.4.9's buildable part is built but for one piece: e-sRGB and e-sYCC are drawn from the held PIMA
@@ -315,7 +323,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4.
+§7.4, §7.6, §7.6.5, §9.9, §12.8, §12.8.3, §12.8.3.4.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

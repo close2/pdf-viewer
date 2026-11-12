@@ -181,7 +181,7 @@ pub(super) fn rekey(
 fn parents(document: &Document, descendant: ObjectId) -> Result<Vec<(ObjectId, i64)>, Because> {
     let mut out = Vec::new();
     for number in document.xref().object_numbers() {
-        let id = ObjectId::new(number, 0);
+        let id = document.defined_id(number);
         let object = document.get(id);
         if let Object::Dictionary(dict) = &object
             && names_descendant(document, dict, descendant)

@@ -210,6 +210,47 @@ impl ViewState {
         handed
     }
 
+    /// Runs the Table 248 scripts of an FDF import at one of its two moments, each as a
+    /// document-level script labelled with its `/Doc` name or its entry's key.
+    ///
+    /// ISO 32000-2 §12.7.8.3.1 calls them "ECMAScript scripts that shall be defined globally at
+    /// the document level", so they run where Table 32's name tree's scripts run — as
+    /// [`ScriptSite::Library`] — over the document's whole field table, since an import may reach
+    /// any field (ADR 2816). Where no runner is supplied nothing runs, and
+    /// [`ViewState::import`] has said so once.
+    pub(super) fn run_fdf_scripts(&mut self, document: &Document, scripts: &[(&str, &str)]) {
+        if self.runner.0.is_none() || scripts.is_empty() {
+            return;
+        }
+        let table = super::widgets_by_field_name(document);
+        let started = Instant::now();
+        let (mut changed, mut calculate) = (false, false);
+        for (index, (label, script)) in scripts.iter().enumerate() {
+            if started.elapsed() > MAX_SEQUENCE_TIME {
+                self.report(format!(
+                    "the FDF file's scripts were stopped at {} of {}: they ran longer than their \
+                     budget of {} ms (ADR 1602)",
+                    index.saturating_add(1),
+                    scripts.len(),
+                    MAX_SEQUENCE_TIME.as_millis()
+                ));
+                break;
+            }
+            let event = ScriptEvent {
+                label,
+                script,
+                ..ScriptEvent::at(ScriptSite::Library, "")
+            };
+            if let Some((result, applied)) = self.run_event(document, &table, event) {
+                changed |= applied.values;
+                calculate |= applied.calculate;
+                self.report_each(&format!("the FDF file's script {label:?}"), result.report);
+            }
+        }
+        self.after_scripts(document, &table, changed, calculate);
+        self.refresh_formatted(document, &table);
+    }
+
     /// Runs Table 198's `/O` or `/C` of page `page` and its annotations' matching Table 197
     /// events, in the order the two tables state, and answers how many scripts were handed over
     /// and whether what a page draws may have changed ([`ScriptsRan`]).
@@ -282,14 +323,58 @@ impl ViewState {
         annotation: ObjectId,
         trigger: AnnotationTrigger,
     ) -> ScriptsRan {
+        self.annotation_chain(document, annotation, trigger, None).0
+    }
+
+    /// Performs one of Table 197's events on an annotation whole: its non-script `actions`
+    /// ([`Self::perform_all`]'s) and its ECMAScript actions ([`Self::run_annotation_scripts`]'s),
+    /// in §12.6.2's one order.
+    ///
+    /// `actions` is `crate::action::read` of the same chain, in which each ECMAScript action stands
+    /// as its `JavaScript` refusal; each script runs where its refusal stands, so a script after a
+    /// `/SetOCGState` in the chain sees the state that action set and one before it does not. Table
+    /// 196: "an array of action dictionaries that shall be performed in order" (ADR 2814).
+    ///
+    /// Where no script runs — no runner, the open sequence not yet run, no script in the chain —
+    /// this is the two calls one after the other, because there is nothing to interleave. Where
+    /// the two walks disagree about how many ECMAScript actions the chain holds (each stops at its
+    /// own bound on a chain built to be long), the scripts run first, as they would through the
+    /// two calls, and the order is kept as far as it can be told.
+    pub fn perform_annotation_chain(
+        &mut self,
+        document: &Document,
+        annotation: ObjectId,
+        trigger: AnnotationTrigger,
+        actions: &[crate::action::Action],
+    ) -> (ScriptsRan, Vec<super::Request>) {
+        self.annotation_chain(document, annotation, trigger, Some(actions))
+    }
+
+    /// [`Self::run_annotation_scripts`] and [`Self::perform_annotation_chain`], one body:
+    /// `actions` is [`None`] for the scripts alone.
+    fn annotation_chain(
+        &mut self,
+        document: &Document,
+        annotation: ObjectId,
+        trigger: AnnotationTrigger,
+        actions: Option<&[crate::action::Action]>,
+    ) -> (ScriptsRan, Vec<super::Request>) {
+        // What the scripts do not interleave with is performed after them: either there are no
+        // scripts to run, or the chain cannot be matched against the list.
+        let after = |state: &mut Self| {
+            actions.map_or_else(Vec::new, |actions| state.perform_all(document, actions))
+        };
         if self.runner.0.is_none() {
-            return ScriptsRan::default();
+            return (ScriptsRan::default(), after(self));
         }
         let Some(dictionary) = document.get(annotation).as_dict().cloned() else {
-            return ScriptsRan::default();
+            return (ScriptsRan::default(), after(self));
         };
         let Walked {
-            scripts, unread, ..
+            scripts,
+            unread,
+            slots,
+            ..
         } = annotation_chain(document, &dictionary, trigger)
             .map(|entry| chain(document, &entry))
             .unwrap_or_default();
@@ -302,10 +387,11 @@ impl ViewState {
             &unread,
         );
         if scripts.is_empty() {
-            return ScriptsRan {
+            let ran = ScriptsRan {
                 said,
                 ..ScriptsRan::default()
             };
+            return (ran, after(self));
         }
         if !self.scripting.opened {
             let before = self.before_open(
@@ -316,17 +402,57 @@ impl ViewState {
                     annotation.number
                 ),
             );
-            return ScriptsRan {
+            let ran = ScriptsRan {
                 said: said.saturating_add(before),
                 ..ScriptsRan::default()
             };
+            return (ran, after(self));
         }
+        // The place of each ECMAScript action in `actions`, matched one for one with `slots`.
+        let places: Vec<usize> = actions.map_or_else(Vec::new, |actions| {
+            actions
+                .iter()
+                .enumerate()
+                .filter(|(_, action)| {
+                    matches!(action, crate::action::Action::Refused(why)
+                        if why.starts_with("JavaScript:"))
+                })
+                .map(|(place, _)| place)
+                .collect()
+        });
+        let interleaved = actions.is_some() && places.len() == slots.len();
         let table = super::widgets_by_field_name(document);
         let page = page_of(document, annotation, &dictionary);
-        let mut ran =
-            self.annotation_scripts(document, &table, annotation, &scripts, trigger, page);
+        let mut requests = Vec::new();
+        let mut ran = if let (true, Some(actions)) = (interleaved, actions) {
+            let mut ran = Ran::default();
+            let mut from = 0;
+            for (slot, place) in slots.iter().zip(&places) {
+                requests
+                    .extend(self.perform_all(document, actions.get(from..*place).unwrap_or(&[])));
+                from = place.saturating_add(1);
+                if let Some(script) = slot.and_then(|index| scripts.get(index)) {
+                    let one = self.annotation_scripts(
+                        document,
+                        &table,
+                        annotation,
+                        std::slice::from_ref(script),
+                        trigger,
+                        page,
+                    );
+                    ran.add(one);
+                }
+            }
+            requests.extend(self.perform_all(document, actions.get(from..).unwrap_or(&[])));
+            ran
+        } else {
+            let ran =
+                self.annotation_scripts(document, &table, annotation, &scripts, trigger, page);
+            requests = after(self);
+            ran
+        };
         ran.said = ran.said.saturating_add(said);
-        self.finish(document, &table, ran)
+        (self.finish(document, &table, ran), requests)
     }
 
     /// Runs the ECMAScript actions of outline item `item`'s Table 151 `/A` chain, in §12.6.2's
@@ -618,7 +744,7 @@ impl ViewState {
             resolved.as_dict().is_some_and(|annotation| {
                 let view = self.annotation_of(entry.as_reference());
                 crate::annotation::interacts(document, annotation, view)
-                    && super::annotations::rectangle_covers(
+                    && super::annotations::active_area_covers(
                         document,
                         annotation,
                         f64::from(x),
@@ -1043,7 +1169,8 @@ fn document_entry(document: &Document, trigger: DocumentTrigger) -> Option<Objec
 }
 
 /// The text of every ECMAScript action in one chain, in §12.6.2's execution order — an action,
-/// then its `/Next` subtree, then the next sibling — each action dictionary visited once; with
+/// then its `/Next` subtree, then the next sibling — every occurrence visited and an action
+/// reached again from itself skipped, as `crate::action::read` walks the same chain; with
 /// how many actions are of another type, and why each ECMAScript action whose text is not run is
 /// not.
 fn chain(document: &Document, entry: &Object) -> Walked {
@@ -1061,7 +1188,12 @@ struct Walked {
     others: usize,
     /// For each ECMAScript action whose text is not run, the phrase saying why (ADR 1950).
     unread: Vec<String>,
-    /// Every action dictionary visited, by object.
+    /// Each ECMAScript action in walk order: the index into [`Self::scripts`] of one whose text
+    /// is run, [`None`] for one counted in [`Self::unread`]. The order `crate::action::read`
+    /// writes its `JavaScript` placeholders in, which is what lets a caller put each script
+    /// between the actions it stands between.
+    slots: Vec<Option<usize>>,
+    /// The action dictionaries between the chain's root and the one being visited, by object.
     seen: BTreeSet<ObjectId>,
     /// How many entries the walk has visited, held to [`MAX_CHAIN`].
     visited: usize,
@@ -1080,19 +1212,39 @@ fn walk(document: &Document, entry: &Object, walked: &mut Walked) {
         return;
     }
     walked.visited = walked.visited.saturating_add(1);
-    if let Object::Reference(id) = entry
-        && !walked.seen.insert(*id)
-    {
-        return;
+    // Table 196's array performs every occurrence, so only an action on its own path is a cycle
+    // (§12.6.2 NOTE 1's "self-referential actions"); the identity leaves the path on the way out.
+    let entered = match entry {
+        Object::Reference(id) => {
+            if !walked.seen.insert(*id) {
+                return;
+            }
+            Some(*id)
+        }
+        _ => None,
+    };
+    walk_one(document, entry, walked);
+    if let Some(id) = entered {
+        walked.seen.remove(&id);
     }
+}
+
+/// [`walk`]'s visit of one occurrence already on the path.
+fn walk_one(document: &Document, entry: &Object, walked: &mut Walked) {
     let resolved = document.resolve(entry);
     let Some(action) = resolved.as_dict() else {
         return;
     };
     match read_script(document, action) {
-        ScriptText::Read(script) => walked.scripts.push(script),
+        ScriptText::Read(script) => {
+            walked.slots.push(Some(walked.scripts.len()));
+            walked.scripts.push(script);
+        }
         ScriptText::NotScript => walked.others = walked.others.saturating_add(1),
-        ScriptText::Unread(why) => walked.unread.push(why),
+        ScriptText::Unread(why) => {
+            walked.slots.push(None);
+            walked.unread.push(why);
+        }
     }
     let next = action.get("Next").cloned().unwrap_or(Object::Null);
     match document.resolve(&next) {

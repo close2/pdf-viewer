@@ -305,7 +305,7 @@ pub fn state(document: &Document) -> State {
     if u64::try_from(at).unwrap_or(u64::MAX) >= PARAMETERS_WITHIN {
         return State::Ordinary;
     }
-    let object = document.get(ObjectId::new(number, 0));
+    let object = document.get(document.defined_id(number));
     let Some(parameters) = object.as_dict().and_then(parameters_of) else {
         return State::Ordinary;
     };

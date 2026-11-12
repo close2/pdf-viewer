@@ -435,7 +435,11 @@ impl ViewState {
                 Some(object) => {
                     field.insert(Name::new(&b"V"[..]), object.clone());
                 }
-                // ADR 0090: an FDF field stating no `/V` removes the value it replaces.
+                // An FDF field stating no `/V` removes the value it replaces. That is this
+                // program's choice, not the clause's: Table 249 makes `/V` optional and
+                // §12.7.8.3.2's replacement sentence speaks of entries the FDF field states, so
+                // the standard settles neither this nor keeping the value (ADR 0090 as qualified
+                // by ADR 2816 section 6).
                 None => {
                     field.remove("V");
                 }
@@ -596,7 +600,13 @@ impl ViewState {
                 filing::file_specification(
                     &filed.key,
                     filed.stream,
-                    filed.filing.description.as_deref(),
+                    match filed.filing.home {
+                        FilingHome::Document => Some(filing::tree_description(
+                            filed.filing.description.as_deref(),
+                            &filed.filing.name,
+                        )),
+                        FilingHome::Page { .. } => filed.filing.description.as_deref(),
+                    },
                 ),
             );
         }
@@ -710,10 +720,7 @@ impl ViewState {
             if !free_text && !is_text_note(document, &dict) {
                 continue;
             }
-            dict.insert(
-                Name::new(&b"Contents"[..]),
-                Object::String(pdf_syntax::text_string::encode_text_string(text).into()),
-            );
+            dict.insert(Name::new(&b"Contents"[..]), contents_string(text));
             update.stamp(&mut dict);
             // A text note's appearance is its icon, which §12.5.6.4 draws whatever the note says,
             // so the producer's `/AP` stays (`ViewState::set_note_text`).
@@ -1548,6 +1555,20 @@ fn promote_streams(update: &mut Update, value: Object) -> Object {
     }
 }
 
+/// Table 166's `/Contents` as a writer states it, with each paragraph break a carriage return.
+///
+/// ISO 32000-2 §12.5.6.2, of the text a markup annotation carries:
+///
+/// > When separating text into paragraphs, a CARRIAGE RETURN (0Dh) shall be used and not, for
+/// > example, a LINE FEED character (0Ah).
+///
+/// A person's editor ends a line with whatever its platform does, so a line feed, and a carriage
+/// return followed by a line feed, each become the one carriage return the clause asks for.
+pub(super) fn contents_string(text: &str) -> Object {
+    let paragraphs = text.replace("\r\n", "\r").replace('\n', "\r");
+    Object::String(pdf_syntax::text_string::encode_text_string(&paragraphs).into())
+}
+
 /// Replaces the appearance of a free text annotation whose `/Contents` a person retyped.
 ///
 /// [`ViewState::write_retypings`] carries the argument for replacing rather than splicing and for
@@ -1732,4 +1753,21 @@ fn replaced_stream(document: &Document, id: ObjectId, data: Vec<u8>) -> Object {
         data: data.into(),
         decryption_failed: false,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use pdf_syntax::Object;
+
+    /// §12.5.6.2's paragraph rule reaches every way a person's editor ends a line: a line feed, and
+    /// a carriage return followed by a line feed, each become one carriage return, and a carriage
+    /// return already alone stays one.
+    #[test]
+    fn written_contents_separate_paragraphs_with_one_carriage_return() {
+        let written = super::contents_string("one\r\ntwo\nthree\rfour");
+        let Object::String(bytes) = written else {
+            panic!("a text string is written as a string");
+        };
+        assert_eq!(&bytes[..], &b"one\rtwo\rthree\rfour"[..]);
+    }
 }

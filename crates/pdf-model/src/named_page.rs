@@ -189,14 +189,22 @@ impl NamedPages {
                 });
                 continue;
             };
+            // §12.7.7: "Such invisible pages shall have an object type of Template rather than
+            // Page", so an absent `/Type`, or one that is not a name, states that type no more
+            // than `/Type /Page` does.
             let stated = document.get_key(dict, "Type");
-            if stated
-                .as_name()
-                .is_some_and(|kind| kind.as_bytes() != b"Template")
-            {
+            let detail = match stated.as_name() {
+                Some(kind) if kind.as_bytes() == b"Template" => None,
+                Some(_) => Some("named in /Templates with a /Type that is not Template"),
+                None if matches!(stated, Object::Null) => {
+                    Some("named in /Templates with no /Type, where §12.7.7 requires Template")
+                }
+                None => Some("named in /Templates with a /Type that is not a name"),
+            };
+            if let Some(detail) = detail {
                 out.push(Disagreement {
                     name: name.clone(),
-                    detail: "named in /Templates with a /Type that is not Template",
+                    detail,
                 });
             }
             for (key, detail) in [

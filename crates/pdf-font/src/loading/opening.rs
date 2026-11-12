@@ -30,6 +30,11 @@ use std::sync::{Mutex, OnceLock};
 
 impl LoadedFont {
     /// Loads a simple font: one byte per code.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per glyph-selection route §9.6.5 and §9.9.1 name, read side by side so \
+                  that which route a program takes is decided in one place"
+    )]
     pub(super) fn load_simple(
         document: &Document,
         dict: &Dictionary,
@@ -84,6 +89,19 @@ impl LoadedFont {
                 let (table, resolved) =
                     substitute_code_table(document, dict, request, encoded, &data, program, name)?;
                 names = Some(resolved);
+                CodeMapping::Named(Box::new(table))
+            }
+            // ISO 32000-2 §9.9.1's first bullet of "[t]he process of finding glyph descriptions
+            // in OpenType fonts": "For Type 1 fonts using "CFF " tables, the process shall be as
+            // described in 9.6.5.2, "Encodings for Type 1 fonts"" — the `/Encoding`'s glyph
+            // names looked up in the CFF charset, exactly as for a bare one, and never §9.6.5.4's
+            // `cmap` route, which that list keeps for TrueType fonts using `glyf` (ADR 2817).
+            // The glyph index the charset answers is the one the wrapped program draws.
+            (Program::Sfnt, None)
+                if let Some(keyed) = type1_cff_in_opentype(document, dict, &data) =>
+            {
+                let (table, resolved) = simple_code_table(document, dict, &keyed, name)?;
+                (names, notdef) = (Some(resolved), keyed.by_name.get(".notdef").copied());
                 CodeMapping::Named(Box::new(table))
             }
             (Program::Sfnt, None) => {
@@ -400,23 +418,43 @@ impl LoadedFont {
     }
 }
 
+/// The name-keyed CFF program inside an OpenType font a `Type1` font dictionary embeds, if it is
+/// one: §9.9.1 sends such a font through §9.6.5.2's route rather than §9.6.5.4's.
+///
+/// A CID-keyed `CFF ` table, or none, answers `None` and leaves the font to the route its `glyf`
+/// or `cmap` decides; `MMType1` is §9.6.2.3's multiple master form of a Type 1 font and is asked
+/// the same.
+fn type1_cff_in_opentype(
+    document: &Document,
+    dict: &Dictionary,
+    data: &[u8],
+) -> Option<crate::name_keyed::NameKeyed> {
+    let subtype = document.get_key(dict, "Subtype");
+    if !matches!(
+        subtype.as_name().map(pdf_syntax::Name::as_bytes),
+        Some(b"Type1" | b"MMType1")
+    ) {
+        return None;
+    }
+    match CodeToGlyph::read(crate::sfnt::table(data, *b"CFF ")?).ok()? {
+        CodeToGlyph::Named(keyed) => Some(keyed),
+        CodeToGlyph::Keyed { .. } => None,
+    }
+}
+
 /// The standard face whose published metrics position an embedded program's glyphs when its
 /// dictionary states no `/Widths`.
 ///
-/// ISO 32000-2 §9.6.2.1, beneath Table 109:
-///
-/// > For compatibility reasons PDF processors shall provide glyph widths and font descriptor data
-/// > for those standard fonts for use in processing PDF files when the entries are absent.
-///
-/// The sentence is about the fourteen of §9.6.2.2, which are Type 1 fonts named exactly
-/// ([`crate::standard::is_standard_name`]), and about the widths being absent, so it binds a
-/// `Type1` dictionary under one of those names that states no `/Widths`, a descriptor and a
-/// program beside it or not. ISO 32000-1 Table 111 makes such a dictionary malformed, since it
-/// lets the fourteen leave out the four entries only all together, and says nothing of what a
-/// reader then lays the glyphs by; Table 109's `/MissingWidth` for every code would put every
-/// glyph at one advance, so the clause that names the widths of a standard font when they are
-/// absent is the one read (`doc/adr/2687`). A substitute already carries its request and is not
-/// asked again.
+/// ISO 32000-2 Table 109 makes `/Widths` "Required; optional in PDF 1.0-1.7 for the standard 14
+/// fonts", so a `Type1` dictionary under one of the fourteen names of §9.6.2.2
+/// ([`crate::standard::is_standard_name`]) that states no `/Widths` is a file the table admits,
+/// and §6.3.2.2 still has the page rendered as defined — which needs the advances the dictionary
+/// left out. The compatibility sentence beneath Table 109 that once said so outright was replaced
+/// by a cross-reference in Errata Collection 3 (Issues #47 and #48), so it is not quoted here as
+/// the warrant; the table's permission is. Table 109's `/MissingWidth` for every code would put
+/// every glyph at one advance, so the fourteen's published widths are the ones read, a descriptor
+/// and a program beside them or not (`doc/adr/2687`, whose quotation the same errata retired). A
+/// substitute already carries its request and is not asked again.
 fn published_metrics(
     document: &Document,
     dict: &Dictionary,

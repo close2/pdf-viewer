@@ -76,7 +76,11 @@
 //! - **Table 252's `/Rename`** decides which fully qualified name a template's fields answer to
 //!   afterwards, and the clause says outright that the flag "does not define a renaming
 //!   algorithm". It is read, and nothing here merges field trees for it to matter to.
-//! - **`/JavaScript`** (Table 248) is on `CLAUDE.md`'s closed exclusion list.
+//! - **`/JavaScript`** (Table 248) is read into [`FormsData::scripts`] and is not on this list:
+//!   its scripts reach this document's fields and this viewer's state, which is the side of
+//!   `CLAUDE.md`'s script exclusion that is in scope, so `crate::view::ViewState::import` runs
+//!   them in Table 248's order where a host supplied a runner (ADRs 1904, 2816). Only a script it
+//!   cannot read is named here.
 //! - **`/Differences`** is the target document's own incremental updates, carried for a server;
 //!   applying it would mean *writing* the target file, which principle 5 puts outside this
 //!   project.
@@ -265,11 +269,116 @@ pub struct FormsData {
     /// [`Self::files`] is this file and everything under it in the order an import applies them,
     /// and [`match_to_document`] is where that order becomes the import. ADR 1185.
     pub embedded: Vec<FormsData>,
+    /// Table 246's `/JavaScript`, Table 248's ECMAScript dictionary: scripts "defined globally at
+    /// the document level", run around the import by `crate::view::ViewState::import` where a
+    /// host has supplied a runner (ADR 2816).
+    pub scripts: FdfScripts,
     /// What this file states and this program does not act on, each by name.
     ///
     /// Not errors and not silences: a file may carry all of them and still import its values
     /// correctly. The module comment argues each one.
     pub owed: Vec<&'static str>,
+}
+
+/// ISO 32000-2 §12.7.8.3.1, Table 248: the ECMAScript dictionary of an FDF file.
+///
+/// > The dictionary may contain scripts defining ECMAScript functions for use by other scripts in
+/// > the document, as well as scripts that shall be executed immediately before and after the FDF
+/// > file is imported.
+///
+/// Each script is §7.9.2.2's text string, read from a text string or a text stream.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FdfScripts {
+    /// `/Doc`'s name and script pairs, in the array's order: scripts that "shall be added to those
+    /// already defined in the name dictionary and shall then be executed before the script defined
+    /// in the Before entry is executed".
+    pub doc: Vec<(String, String)>,
+    /// `/Before`: "executed just before the FDF file is imported".
+    pub before: Option<String>,
+    /// `/After`: "executed just after the FDF file is imported".
+    pub after: Option<String>,
+    /// `/AfterPermsReady`: "executed after the FDF file is imported and the usage rights in the
+    /// PDF document have been determined".
+    pub after_perms_ready: Option<String>,
+}
+
+impl FdfScripts {
+    /// How many scripts the dictionary holds.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.doc
+            .len()
+            .saturating_add(usize::from(self.before.is_some()))
+            .saturating_add(usize::from(self.after.is_some()))
+            .saturating_add(usize::from(self.after_perms_ready.is_some()))
+    }
+
+    /// Whether the dictionary holds no script.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// Table 248's dictionary read; a script that is neither a text string nor a text stream this
+/// program can decode within [`crate::view::MAX_SCRIPT_BYTES`] is named in `owed` rather than run
+/// half-read.
+fn read_scripts(document: &Document, entry: &Object, owed: &mut Vec<&'static str>) -> FdfScripts {
+    let resolved = document.resolve(entry);
+    let Some(dictionary) = resolved.as_dict() else {
+        if !resolved.is_null() {
+            owed.push("/JavaScript: not a Table 248 ECMAScript dictionary");
+        }
+        return FdfScripts::default();
+    };
+    let mut unread = false;
+    let mut script = |object: &Object| -> Option<String> {
+        let bytes = match document.resolve(object) {
+            Object::String(bytes) => Some(bytes.to_vec()),
+            Object::Stream(stream) => document
+                .decoded_stream_data(&stream)
+                .map(|data| data.to_vec()),
+            _ => None,
+        };
+        let read = bytes
+            .filter(|bytes| bytes.len() <= crate::view::MAX_SCRIPT_BYTES)
+            .map(|bytes| pdf_syntax::text_string(&bytes));
+        unread |= read.is_none();
+        read
+    };
+    let mut entry = |key: &str| dictionary.get(key).and_then(&mut script);
+    let before = entry("Before");
+    let after = entry("After");
+    let after_perms_ready = entry("AfterPermsReady");
+    let mut doc = Vec::new();
+    let mut unpaired = false;
+    if let Some(pairs) = document.get_key(dictionary, "Doc").as_array() {
+        for pair in pairs.chunks(2) {
+            let [name, text] = pair else {
+                unpaired = true;
+                break;
+            };
+            let Object::Name(name) = document.resolve(name) else {
+                unpaired = true;
+                continue;
+            };
+            if let Some(text) = script(text) {
+                doc.push((String::from_utf8_lossy(name.as_bytes()).into_owned(), text));
+            }
+        }
+    }
+    if unread || unpaired {
+        owed.push(
+            "/JavaScript: a Table 248 script that is not a text string or text stream this \
+             program reads within its bound",
+        );
+    }
+    FdfScripts {
+        doc,
+        before,
+        after,
+        after_perms_ready,
+    }
 }
 
 /// Table 246's `/Encoding`: how an FDF field's value, option or name is encoded.
@@ -630,19 +739,9 @@ impl FormsData {
 
         let annotations = read_annotations(document, &document.get_key(&fdf, "Annots"), &mut owed);
         let embedded = read_embedded(document, &fdf, budget, depth, &mut owed);
-        for (key, why) in [
-            (
-                "JavaScript",
-                "/JavaScript: document-level scripts, excluded",
-            ),
-            (
-                "Differences",
-                "/Differences: the target document's own incremental updates",
-            ),
-        ] {
-            if !document.get_key(&fdf, key).is_null() {
-                owed.push(why);
-            }
+        let scripts = read_scripts(document, &document.get_key(&fdf, "JavaScript"), &mut owed);
+        if !document.get_key(&fdf, "Differences").is_null() {
+            owed.push("/Differences: the target document's own incremental updates");
         }
         // §12.7.8.3.4's own requirement is Table 254's `/Page`, "[t]he ordinal page number on
         // which this annotation shall appear", and an annotation stating none names no page to
@@ -677,10 +776,12 @@ impl FormsData {
                 .and_then(crate::file_spec::FileSpec::display_name),
             identifier: identifier(document, &fdf),
             fields,
+            // Table 246 types `/Status` a PDFDocEncoded string, §7.9.2.3, so a leading
+            // 254 255 is two characters of that encoding and selects no Unicode form.
             status: document
                 .get_key(&fdf, "Status")
                 .as_string()
-                .map(pdf_syntax::text_string),
+                .map(pdf_syntax::pdf_doc_encoded_string),
             encoding,
             annotations,
             pages,
@@ -689,6 +790,7 @@ impl FormsData {
                 .as_string()
                 .map(pdf_syntax::text_string),
             embedded,
+            scripts,
             owed,
         })
     }
@@ -1499,6 +1601,13 @@ pub struct Import {
     /// value's characters — the rule a stored `/RV` is drawn by (ADR 1635) — so an import of a
     /// rich value shows its formatting. `None` leaves the target's own `/RV` standing. ADR 1648.
     pub rich_value: Option<String>,
+    /// Table 249's `/Opt`, "\[a]n array of options that shall be presented to the user", which
+    /// replaces Table 234's `/Opt` of a choice field under §12.7.8.3.2's replacing sentence.
+    ///
+    /// `crate::view::ViewState::import` states it as the same rewrite of the field's `/Opt` a
+    /// script's `setItems` makes, so the host's control lists it, the appearance draws it and a
+    /// save writes it by one route (ADR 2816). `None` leaves the target's own options standing.
+    pub options: Option<Vec<String>>,
 }
 
 /// Pairs an FDF file's fields with a target document's widgets, by fully qualified name.
@@ -1557,6 +1666,7 @@ pub fn match_fields(
                     appearance_reference: field.appearance_reference.clone(),
                     actions: field.actions.clone(),
                     rich_value: field.rich_value.clone(),
+                    options: field.options.clone(),
                 },
             ));
         }
@@ -1809,7 +1919,6 @@ mod tests {
             [
                 "/Fields and /Pages are both present, which Table 246 forbids",
                 "/EmbeddedFDFs: a file specification naming a file outside this one",
-                "/JavaScript: document-level scripts, excluded",
                 "/Differences: the target document's own incremental updates",
             ]
         );

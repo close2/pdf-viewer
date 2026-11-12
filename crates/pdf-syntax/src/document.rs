@@ -127,8 +127,10 @@ pub struct Document {
     bytes: FileBytes,
     xref: XrefTable,
     limits: Limits,
-    /// Objects already parsed, so a repeated lookup does not re-parse.
-    cache: RwLock<BTreeMap<u32, Object>>,
+    /// Objects already parsed, so a repeated lookup does not re-parse, each under its number
+    /// with the generation the file defines it at: a reference naming the number at another
+    /// generation names an undefined object (ISO 32000-2 §7.3.10).
+    cache: RwLock<BTreeMap<u32, (u16, Object)>>,
     /// Object streams already expanded, keyed by the stream's object number.
     expanded_streams: RwLock<BTreeMap<u32, Arc<BTreeMap<u32, Object>>>>,
     /// Object numbers currently being loaded **on each thread**, so that a self-referential

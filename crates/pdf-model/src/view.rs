@@ -62,6 +62,7 @@ pub use script_model::{
 };
 pub use script_sites::ScriptsRan;
 pub use script_timers::{MAX_TIMERS, MIN_PERIOD};
+pub(crate) use scripts::MAX_SCRIPT_BYTES;
 pub use scripts::{
     Committed, Displayed, FocusRequest, FormAction, FormOverride, FormOverrideMode, Resumed,
     ScriptEvent, ScriptResult, ScriptRunner,

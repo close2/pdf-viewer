@@ -114,7 +114,11 @@ impl Interpreter<'_> {
             mcid,
             // §14.9.4's replacement text, which belongs to *extraction* and not to
             // drawing: the marks are unchanged and what a reader copies is not.
-            actual_text,
+            actual_text_languages: actual_text
+                .as_ref()
+                .map(|(_, languages)| languages.clone())
+                .unwrap_or_default(),
+            actual_text: actual_text.map(|(text, _)| text),
             described,
             artifact,
             reversed,
@@ -146,6 +150,7 @@ impl Interpreter<'_> {
             // description, for the content" — so whatever the enclosed operators
             // read back is discarded and the stated text stands in its place.
             let replaced_here = section.actual_text.is_some();
+            let mut replacement_languages = Vec::new();
             if let Some(replacement) = section.actual_text
                 && section.starts_at <= self.text.len()
             {
@@ -166,8 +171,14 @@ impl Interpreter<'_> {
                 {
                     self.truncate_readback(end);
                 }
+                let replaced_from = self.text.len();
                 self.push_replacement(&replacement);
                 *replaced_ends_at = Some(self.text.len());
+                replacement_languages = language_runs(
+                    replaced_from,
+                    self.text.len(),
+                    &section.actual_text_languages,
+                );
             } else if !replaced_here && self.text.len() > section.starts_at {
                 // Marks were made that no `/ActualText` replaced, so whatever came
                 // before is no longer adjacent to whatever comes next.
@@ -184,6 +195,11 @@ impl Interpreter<'_> {
                     language: described.language,
                 });
             }
+            // After the section's own description, so that a run its replacement text states a
+            // language for is the inner statement — §7.9.2.2.2's escape overrides "the
+            // prevailing Lang entry", the section's included — even where the run is the whole
+            // replacement and the two ranges are equal.
+            self.described.extend(replacement_languages);
             // Last, because the range is over the readback *as it now stands*:
             // an artifact whose section also states an `/ActualText` has had its
             // text replaced by the block above, and a range taken before that
@@ -223,4 +239,29 @@ impl Interpreter<'_> {
             }
         }
     }
+}
+
+/// The §14.9.2 spans a replacement text's §7.9.2.2.2 language escapes describe, once it sits in
+/// the readback at `from..to`: each escape's language governs from its offset to the next one's,
+/// the last to the end of the replacement.
+fn language_runs(
+    from: usize,
+    to: usize,
+    languages: &[(usize, String)],
+) -> Vec<crate::accessibility::Described> {
+    languages
+        .iter()
+        .enumerate()
+        .map(|(index, (offset, language))| {
+            let end = languages
+                .get(index.saturating_add(1))
+                .map_or(to, |(next, _)| from.saturating_add(*next).min(to));
+            crate::accessibility::Described {
+                range: from.saturating_add(*offset).min(to)..end,
+                alt: None,
+                expansion: None,
+                language: Some(language.clone()),
+            }
+        })
+        .collect()
 }

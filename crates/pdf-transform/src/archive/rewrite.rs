@@ -551,9 +551,10 @@ pub enum Rewrite {
     /// zero, where the text shown under the name moved by no more than its widths. The reader drew
     /// nothing for the name, and neither does the empty resource (`doc/adr/2500`).
     EmptyResourceDefined,
-    /// Every page tree node whose `/Count` is missing or no integer states the number of leaves
-    /// this reader walks beneath it, which ISO 32000-2 §7.7.3.2's Table 30 defines the entry as
-    /// (`doc/adr/2456`).
+    /// Every page tree node whose `/Count` is missing, no integer, or an integer other than the
+    /// leaves beneath it states the number of leaves this reader walks beneath it, which ISO
+    /// 32000-2 §7.7.3.2's Table 30 defines the entry as and its NOTE makes definitive
+    /// (`doc/adr/2456`, `doc/adr/2819`).
     PageCountRestated,
     /// Every font descriptor whose `/CharSet` or `/CIDSet` does not describe the whole of its own
     /// embedded program loses that entry.
@@ -1465,8 +1466,8 @@ impl Rewrite {
                  any other name as an empty resource of its category, which draws nothing"
             }
             Self::PageCountRestated => {
-                "a page tree node whose Count is missing or is no integer states the number of \
-                 page objects beneath it, which ISO 32000-2 \u{a7}7.7.3.2's Table 30 defines the \
+                "a page tree node whose Count is missing, is no integer or disagrees with its \
+                 Kids states the number of page objects beneath it, which ISO 32000-2 \u{a7}7.7.3.2's Table 30 defines the \
                  entry as and which this reader counted"
             }
             Self::DescriptorSetRemoved => {

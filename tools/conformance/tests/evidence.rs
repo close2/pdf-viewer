@@ -214,6 +214,11 @@ fn sentences(text: &str) -> Vec<(usize, String)> {
     found
 }
 
+/// Records the project owner wrote, which no round may edit, and which this rule therefore cannot
+/// bind: review 1983, the owner's specification audit, names its local working data outside the
+/// tree, and what a round adds about it goes beside it, in its directory's `fixes.md`.
+const OWNERS_RECORDS: [&str; 1] = ["1983-specification-audit.md"];
+
 /// Every document in the population, as its directory, its file name and its text.
 #[expect(
     clippy::expect_used,
@@ -242,7 +247,7 @@ fn population() -> (usize, Vec<(&'static str, u32, String, String)>) {
             else {
                 continue;
             };
-            if number < from {
+            if number < from || OWNERS_RECORDS.contains(&name.as_str()) {
                 continue;
             }
             let text = std::fs::read_to_string(&path).expect("a record's text");

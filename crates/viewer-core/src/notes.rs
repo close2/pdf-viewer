@@ -162,15 +162,19 @@ pub(crate) fn about(
     // > read the document successfully and that the user may not be able to change or save the
     // > document.
     //
-    // The second half of that sentence is the loop below; this is the first (ADR 0206). **No
-    // corpus document reaches it**: the newest of the 974 states 2.0, which is what this program
-    // is written against, so this note exists for the file that has not been written yet.
+    // The sentence names two causes and gives each the same two-part warning: that the
+    // document is unlikely to be read successfully, and that the user may not be able to change
+    // or save it. The version is the first cause; the requirements after it are the second, and
+    // their warning follows the loop that names them (ADR 2815). **No corpus document reaches
+    // the version note**: the newest of the 974 states 2.0, which is what this program is
+    // written against, so this note exists for the file that has not been written yet.
     if let Some(version) = document.version()
         && version > pdf_syntax::Version::SUPPORTED
     {
         notes.push(format!(
             "this document states PDF {version}, which is newer than the {} this program \
-             implements — it is unlikely to be read successfully",
+             implements — it is unlikely to be read successfully, and you may not be able to \
+             change or save it (Annex I)",
             pdf_syntax::Version::SUPPORTED
         ));
     }
@@ -183,12 +187,22 @@ pub(crate) fn about(
     // level this reader sets — `restriction::Operation::Process`, `off` by default — and these
     // lines are said whatever it is, because naming what could not be promised is a report about
     // the file rather than an obedience to it (ADR 1167). No corpus document states any of this.
-    for (requirement, reason) in pdf_model::requirements::unmet(document) {
+    let unmet = pdf_model::requirements::unmet(document);
+    for (requirement, reason) in &unmet {
         notes.push(format!(
             "this document requires {} (penalty {}) — {reason}",
             requirement.kind.as_str(),
             requirement.penalty
         ));
+    }
+    // Annex I's warning for its second cause, said once for every requirement named above.
+    if !unmet.is_empty() {
+        notes.push(
+            "this document states requirements this program is not prepared to process, so it \
+             is unlikely to be read successfully, and you may not be able to change or save it \
+             (Annex I)"
+                .to_owned(),
+        );
     }
 
     // §12.11.3's own threshold, which the clause states:

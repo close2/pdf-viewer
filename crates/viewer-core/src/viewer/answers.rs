@@ -297,9 +297,19 @@ fn collection(open: &Open) -> Answer<'static> {
     })
 }
 
-/// §12.4.2's label for a page, where the document states a non-empty one.
+/// §12.4.2's label for a page, where the document states one — an empty one included.
+///
+/// ISO 32000-2 §12.4.2 Table 161, of `/S`:
+///
+/// > There is no default numbering style; if no S entry is present, page labels shall consist
+/// > solely of a label prefix with no numeric portion. ... (If the P entry is also missing or
+/// > empty, the page label is an empty string.)
+///
+/// So a range with neither `/S` nor `/P`, or with an empty `/P`, labels its pages with the empty
+/// string, and that is the label rather than the absence of one: answering [`None`] would hand
+/// the page to a host's own "Page n" for pages the document has labelled (ADR 2814).
 pub(super) fn label(open: &Open, index: usize) -> Option<String> {
-    open.labels.label(index).filter(|label| !label.is_empty())
+    open.labels.label(index)
 }
 
 /// §8.11.4.3's `/Order`, turned into what a layer panel shows.

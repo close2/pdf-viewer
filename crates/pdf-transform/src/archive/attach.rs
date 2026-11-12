@@ -103,6 +103,14 @@ pub(super) fn attached_history(rows: &[AttachedFile]) -> Option<String> {
 pub(super) const NO_SPARE_OBJECT: &str = "no unused object number could be found for the embedded \
      file this remedy attaches, so the objects §7.11.4 needs for it cannot be numbered";
 
+/// Why a document that states no modification date cannot have its bytes attached.
+pub(super) const NO_MODIFICATION_DATE: &str = "ISO 32000-2 §7.11.4.1's Table 45 makes an \
+     embedded file stream's /Params /ModDate \"( Optional, required in the case of an embedded \
+     file stream used as an associated file )\", and §14.13.2 makes it \"the latest modification \
+     date of the source file\"; the source of these bytes is this document, whose document \
+     information dictionary states no ModDate in §7.9.4's grammar, and a date this converter chose \
+     would be one nobody stated";
+
 /// Why a catalog this conversion cannot read stops an attachment.
 pub(super) const NO_CATALOG: &str = "the attachment is filed in the name tree §7.7.4 puts in the \
      document catalog, and this document states no catalog this conversion can read";
@@ -278,6 +286,10 @@ pub(super) fn attach(
     // 1211 is why this tree has exactly one writer of it.
     let existing = filing::Tree::read(document, catalog, &|id| document.get(id));
     let modified = modification_date(document);
+    // Every kept file is associated with the catalog, so each one's stream needs the date.
+    if !keeps.is_empty() && modified.is_none() {
+        return Err(Because::NotBuiltYet(NO_MODIFICATION_DATE));
+    }
     let mut entries = existing.entries.clone();
     let mut written = Vec::new();
     let mut associated = Vec::new();
@@ -298,9 +310,8 @@ pub(super) fn attach(
         let specification = spare
             .take(document)
             .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
-        // §14.13.2's `should`, answered from the file rather than from a clock: an associated
-        // file's stream "should contain a Params key whose value shall be a dictionary containing
-        // at least a ModDate key whose value shall be the latest modification date of the source
+        // Table 45's `/ModDate`, required of an associated file's stream, answered from the file
+        // rather than from a clock: §14.13.2 makes it "the latest modification date of the source
         // file", and the source of these bytes is this document, whose own latest modification
         // date §14.3.3's Table 349 states. Table 45's `/CreationDate` is left out: it is "[t]he
         // date and time when the embedded file was created" and nothing in the document says when
@@ -390,9 +401,11 @@ pub(super) fn attach(
 /// document. Table 349's `/ModDate` is where it says so, in §7.9.4's grammar, which is the
 /// grammar Table 45's entry is written in too — so nothing is converted and nothing is guessed.
 ///
-/// `None` where the document states none or states one §7.9.4 does not admit: the entry is then
-/// omitted, and §14.13.2's sentence about it is a `should`. The date is read as the text string
-/// §7.9.4 makes it, in whichever of §7.9.2.2's encodings it is written (`doc/adr/2358`).
+/// `None` where the document states none or states one §7.9.4 does not admit. Table 45 makes the
+/// entry "( Optional, required in the case of an embedded file stream used as an associated file
+/// )", so [`attach`] then attaches nothing rather than write a stream without it (`doc/adr/2820`).
+/// The date is read as the text string §7.9.4 makes it, in whichever of §7.9.2.2's encodings it
+/// is written (`doc/adr/2358`).
 fn modification_date(document: &Document) -> Option<pdf_syntax::Date> {
     let Object::Dictionary(info) = document.get_key(document.trailer(), "Info") else {
         return None;

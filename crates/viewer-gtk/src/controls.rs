@@ -198,6 +198,62 @@ fn tooltip(field: &FormField) -> Option<String> {
     Some(shown.to_owned())
 }
 
+/// ISO 32000-2 §12.7.5.3, Table 232's `/MaxLen`:
+///
+/// > The maximum length of the field's text, in characters.
+///
+/// The control enforces it, which is what a native one is for, and it does so for every kind of
+/// text control the field can be shown as — single-line, password and multiline alike, since the
+/// entry sets no exception by flag. A person who cannot type the eleventh character is better
+/// served than one whose eleventh character disappears. Zero is a limit like any other: GTK reads
+/// a `max-length` of zero as "unlimited", so zero is enforced by refusing every insertion rather
+/// than by handing GTK the number (ADR 2816).
+fn limits_the_line(editable: &impl IsA<gtk4::Editable>, max: u32) {
+    // The characters are inserted into the delegate `GtkText`, which is the one widget a
+    // `GtkEntry` and a `GtkPasswordEntry` share and the one that owns the length property.
+    let Some(text) = editable
+        .as_ref()
+        .delegate()
+        .and_then(|delegate| delegate.downcast::<gtk4::Text>().ok())
+    else {
+        return;
+    };
+    match i32::try_from(max) {
+        Ok(0) => {
+            text.connect_insert_text(|text, _, _| text.stop_signal_emission_by_name("insert-text"));
+        }
+        Ok(max) => text.set_max_length(max),
+        // Past `i32::MAX` characters no insertion GTK can hold reaches the limit.
+        Err(_) => {}
+    }
+}
+
+/// [`limits_the_line`] for a multiline control, whose `GtkTextBuffer` has no length property:
+/// an insertion that would pass the limit is replaced by the prefix of it that fits.
+fn limits_the_buffer(buffer: &gtk4::TextBuffer, max: u32) {
+    let max = usize::try_from(max).unwrap_or(usize::MAX);
+    buffer.connect_insert_text(move |buffer, at, inserted| {
+        let held = usize::try_from(buffer.char_count()).unwrap_or(0);
+        let Some(fits) = fitting(inserted, max.saturating_sub(held)) else {
+            return;
+        };
+        buffer.stop_signal_emission_by_name("insert-text");
+        if !fits.is_empty() {
+            // The nested insertion re-enters this handler and fits, so it goes through; it also
+            // moves `at` past what it inserted, which is where the default handler would have.
+            buffer.insert(at, fits);
+        }
+    });
+}
+
+/// The prefix of `inserted` that `room` more characters admit, or `None` when all of it fits.
+fn fitting(inserted: &str, room: usize) -> Option<&str> {
+    match inserted.char_indices().nth(room) {
+        Some((cut, _)) => Some(&inserted[..cut]),
+        None => None,
+    }
+}
+
 /// §12.7.5.3's text field.
 fn entry(
     field: &FormField,
@@ -217,6 +273,9 @@ fn entry(
         // hold one, which is why the clause's flag decides the *control* and not a property of it.
         let view = gtk4::TextView::new();
         view.buffer().set_text(&value);
+        if let Some(max) = max_len {
+            limits_the_buffer(&view.buffer(), max);
+        }
         commits_on_leaving(&view, &name, change);
         abandons_on_escape(&view, &name, change);
         holds_on_entering(&view, &name, change);
@@ -251,6 +310,9 @@ fn entry(
         // answer's own `ShownValue::obscured` rather than on this control's kind.
         let secure = gtk4::PasswordEntry::new();
         secure.set_show_peek_icon(true);
+        if let Some(max) = max_len {
+            limits_the_line(&secure, max);
+        }
         let name = field.name.qualified.clone();
         commits_on_enter(&secure, &name, change);
         commits_on_leaving(&secure, &name, change);
@@ -270,12 +332,8 @@ fn entry(
     }
     let entry = gtk4::Entry::new();
     entry.set_text(&value);
-    // Table 232's `/MaxLen`: "[t]he maximum length of the field's text, in characters". The
-    // control enforces it, which is what a native one is for — the field enforces it too, and a
-    // person who cannot type the eleventh character is better served than one whose eleventh
-    // character disappears.
-    if let Some(max) = max_len.and_then(|max| i32::try_from(max).ok()) {
-        entry.set_max_length(max);
+    if let Some(max) = max_len {
+        limits_the_line(&entry, max);
     }
     let suppress = Rc::clone(suppress);
     let typed = Rc::clone(change);
@@ -537,6 +595,34 @@ fn chosen(selection: &gtk4::SelectionModel) -> Vec<usize> {
 /// own migration note points at, and it is the same answer ADR 0508 reached one entry further up
 /// this file: a toolkit that will not hand over a *widget* has usually not withheld the
 /// *capability*.
+/// Sends a selection in a choice control, and commits it at once where Table 233 bit 27 says so.
+///
+/// ISO 32000-2 §12.7.5.4, Table 233 bit 27 (`CommitOnSelChange`):
+///
+/// > If set, the new value shall be committed as soon as a selection is made (commonly with the
+/// > pointing device).
+///
+/// and "\[i]f clear, the new value is not committed until the user exits the field", which is
+/// the commit [`commits_on_leaving`] sends. Either commit runs the field's `/V` validation, so a
+/// selection is validated whichever way it was made (ADR 2816).
+fn selects(change: &dyn Fn(FieldChange), field: &str, chosen: Vec<usize>, commits: bool) {
+    change(FieldChange::Set {
+        field: field.to_owned(),
+        value: Entered::Chosen(chosen),
+    });
+    if commits {
+        change(FieldChange::Commit {
+            field: field.to_owned(),
+            enter: false,
+        });
+    }
+}
+
+/// Table 233 bit 27 of a choice field, false for any other.
+fn commits_on_selection(field: &FormField) -> bool {
+    matches!(&field.control, pdf_model::form::Control::Choice(choice) if choice.commit_on_selection)
+}
+
 fn combo(
     field: &FormField,
     options: &[String],
@@ -560,6 +646,8 @@ fn combo(
         reports_shown(&popover, &name, change);
     }
     let arrow = arrows_choose(&drop, suppress);
+    commits_on_leaving(&drop, &name, change);
+    let commits = commits_on_selection(field);
     let suppress = Rc::clone(suppress);
     let change = Rc::clone(change);
     drop.connect_selected_notify(move |drop| {
@@ -581,10 +669,7 @@ fn combo(
         // is the second element — and the position is what says *which* label, where two entries
         // carry the same one. A drop-down list has no other value to send, which is Table 233 bit
         // 19 clear stated as a control rather than reported: there is nowhere here to type.
-        change(FieldChange::Set {
-            field: name.clone(),
-            value: Entered::Chosen(vec![index]),
-        });
+        selects(&*change, &name, vec![index], commits);
         if arrows {
             change(FieldChange::Arrows { held: false });
         }
@@ -704,9 +789,17 @@ fn editable_combo(
     let button = gtk4::MenuButton::new();
     button.set_icon_name("pan-down-symbolic");
     button.set_popover(Some(&popover));
-    arrows_choose_rows(&list, &name, options.len(), &arrowed, suppress, change);
+    arrows_choose_rows(
+        &list,
+        (&name, commits_on_selection(field)),
+        options.len(),
+        &arrowed,
+        suppress,
+        change,
+    );
     {
         let count = options.len();
+        let commits = commits_on_selection(field);
         let change = Rc::clone(change);
         list.connect_row_activated(move |_, row| {
             let Ok(index) = usize::try_from(row.index()) else {
@@ -719,10 +812,7 @@ fn editable_combo(
             if arrowed.take() == Some(index) {
                 return;
             }
-            change(FieldChange::Set {
-                field: name.clone(),
-                value: Entered::Chosen(vec![index]),
-            });
+            selects(&*change, &name, vec![index], commits);
         });
     }
     // The text box commits as a text field's does — Enter, and the keyboard leaving it — because
@@ -747,7 +837,7 @@ fn editable_combo(
 /// `arrowed` keeps the row sent, for the Enter that closes the list to find it already sent.
 fn arrows_choose_rows(
     list: &gtk4::ListBox,
-    name: &str,
+    (name, commits): (&str, bool),
     count: usize,
     arrowed: &Rc<Cell<Option<usize>>>,
     suppress: &Rc<Cell<bool>>,
@@ -770,10 +860,7 @@ fn arrows_choose_rows(
         };
         arrowed.set(Some(index));
         change(FieldChange::Arrows { held: true });
-        change(FieldChange::Set {
-            field: name.clone(),
-            value: Entered::Chosen(vec![index]),
-        });
+        selects(&*change, &name, vec![index], commits);
         change(FieldChange::Arrows { held: false });
     });
 }
@@ -858,6 +945,8 @@ fn list(
     let view = gtk4::ListView::new(Some(selection.clone()), Some(factory));
     let arrow = marks_arrows(&view);
     let name = field.name.qualified.clone();
+    commits_on_leaving(&view, &name, change);
+    let commits = commits_on_selection(field);
     let suppress = Rc::clone(suppress);
     let change = Rc::clone(change);
     selection.connect_selection_changed(move |selection, _, _| {
@@ -870,10 +959,7 @@ fn list(
         }
         // Read out of the model rather than accumulated from the signal's range: the signal says
         // *which positions changed*, and what the edit needs is what is selected now.
-        change(FieldChange::Set {
-            field: name.clone(),
-            value: Entered::Chosen(chosen(selection)),
-        });
+        selects(&*change, &name, chosen(selection), commits);
         if arrows {
             change(FieldChange::Arrows { held: false });
         }
@@ -1047,3 +1133,5 @@ fn scroll_to_top_index(scroller: &gtk4::ScrolledWindow, top: usize, options: usi
 
 #[cfg(test)]
 mod max_len_audit;
+#[cfg(test)]
+mod selection_commits;

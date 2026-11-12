@@ -1266,6 +1266,16 @@ fn need_appearances_rewrites_the_marked_content_region_and_keeps_the_rest() {
         is_blue(&outside),
         "marks outside the pair survive; the new contents are appended"
     );
+
+    // "to the matching EMC": a pair nested inside the region closes first, and the square after
+    // it is still the region's. A replacement that stopped at the first EMC would keep it.
+    let (nested_reports, nested) =
+        draw(field("/Tx BMC /Span BMC EMC 0 0 1 rg 0 0 160 30 re f EMC"));
+    assert!(nested_reports.is_empty(), "{nested_reports:?}");
+    assert!(
+        !is_blue(&nested),
+        "the region runs to the EMC matching /Tx, past a nested pair's"
+    );
 }
 
 /// The flag does not reach a button, because §12.7.5.2.3 puts its appearance in `/AP`.

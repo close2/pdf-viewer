@@ -16,6 +16,10 @@ use super::Interpreter;
 use super::report::Unsupported;
 use crate::transfer::Transfer;
 
+/// §14.9.4's replacement text, with the §7.9.2.2.2 languages its escapes state, each beside the
+/// byte offset in the text from which it governs.
+pub(super) type Replacement = (String, Vec<(usize, String)>);
+
 /// One open marked-content section, `BMC`/`BDC` to `EMC`.
 ///
 /// Three independent things hang off the same nesting, which is why this is a struct rather
@@ -30,6 +34,9 @@ pub(super) struct Marked {
     pub(super) starts_at: usize,
     /// §14.9.4's `/ActualText`, which replaces what the section reads back.
     pub(super) actual_text: Option<String>,
+    /// The languages §7.9.2.2.2's escape sequences state inside [`Self::actual_text`], each with
+    /// the byte offset in it from which the language governs; empty where it states none.
+    pub(super) actual_text_languages: Vec<(usize, String)>,
     /// §14.9.3's `/Alt` and §14.9.5's `/E`, which replace what it is *spoken* as, and
     /// §14.9.2's `/Lang`, which says in what language.
     ///
@@ -438,9 +445,19 @@ impl Interpreter<'_> {
         &self,
         resources: &Dictionary,
         operand: Option<&Object>,
-    ) -> (Option<String>, Option<Accessible>) {
+    ) -> (Option<Replacement>, Option<Accessible>) {
         let Some(list) = self.property_list(resources, operand) else {
             return (None, None);
+        };
+        // §7.9.2.2.2: a Unicode text string may carry "an escape sequence using a language tag
+        // indicating the language of the text and overriding the prevailing Lang entry", so the
+        // replacement text keeps the languages its escapes state beside the text they leave.
+        let replacement = |value: Object| match value {
+            Object::String(bytes) => {
+                let text = pdf_syntax::text_string(&bytes);
+                (!text.is_empty()).then(|| (text, pdf_syntax::text_string_languages(&bytes)))
+            }
+            _ => None,
         };
         let stated = |key: &str| match self.document.get_key(&list, key) {
             Object::String(bytes) => {
@@ -449,7 +466,7 @@ impl Interpreter<'_> {
             }
             _ => None,
         };
-        let mut actual_text = stated("ActualText");
+        let mut actual_text = replacement(self.document.get_key(&list, "ActualText"));
         let mut described = Accessible {
             alt: stated("Alt"),
             expansion: stated("E"),
@@ -467,7 +484,8 @@ impl Interpreter<'_> {
             && let Some(element) = self.structure.element(self.document, mcid)
         {
             let document = self.document;
-            actual_text = actual_text.or_else(|| crate::structure::actual_text(document, &element));
+            actual_text =
+                actual_text.or_else(|| replacement(document.get_key(&element, "ActualText")));
             described.alt = described
                 .alt
                 .or_else(|| crate::structure::alternate_description(document, &element));

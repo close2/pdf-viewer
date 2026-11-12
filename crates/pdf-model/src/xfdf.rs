@@ -574,6 +574,8 @@ impl Reader {
             pages: Vec::new(),
             target: None,
             embedded: Vec::new(),
+            // XFDF's `javascript` element is not read into this program's model of a form file.
+            scripts: crate::forms_data::FdfScripts::default(),
             owed: self.owed,
         }
     }

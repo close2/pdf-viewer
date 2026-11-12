@@ -280,7 +280,7 @@ impl Holders {
             profiles: BTreeSet::new(),
         };
         for number in document.xref().object_numbers() {
-            let object = document.get(ObjectId::new(number, 0));
+            let object = document.get(document.defined_id(number));
             let Some(dict) = object.as_dict() else {
                 continue;
             };

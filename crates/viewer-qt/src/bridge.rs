@@ -654,10 +654,9 @@ pub mod ffi {
         copies: i32,
         /// `/Duplex`: `-1` none stated, `0` simplex, `1` the long edge, `2` the short one.
         duplex: i32,
-        /// `/PrintPageRange`'s first page, **one-based**, or `0` where the document states none.
-        from_page: i32,
-        /// Its last page, one-based, or `0`.
-        to_page: i32,
+        /// `/PrintPageRange`'s pairs, flattened — first, last, first, last — **one-based**, and
+        /// empty where the document states none.
+        page_ranges: Vec<i32>,
         /// `/PrintScaling` is `None`: the dialogue opens on the page at its own size.
         no_scaling: bool,
     }

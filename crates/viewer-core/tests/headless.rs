@@ -1590,6 +1590,14 @@ fn a_file_newer_than_this_program_says_so_when_it_is_asked() {
         newer.iter().any(|note| note.contains("newer than the 2.0")),
         "a 2.1 file is newer than what this program implements: {newer:?}"
     );
+    // The same sentence's second part: "and that the user may not be able to change or save the
+    // document".
+    assert!(
+        newer
+            .iter()
+            .any(|note| note.contains("newer than the 2.0") && note.contains("change or save")),
+        "the warning carries both of Annex I's parts: {newer:?}"
+    );
     let current = about("%PDF-2.0");
     assert!(
         !current.iter().any(|note| note.contains("newer than")),
@@ -1870,6 +1878,13 @@ fn a_document_whose_unmet_requirements_pass_the_clauses_threshold_says_the_total
         over.iter()
             .any(|note| note.contains("this document requires EnableJavaScripts (penalty 60)")),
         "and each requirement is still named beside the total: {over:?}"
+    );
+    // Annex I gives requirements a processor "is not prepared to process" the same warning as a
+    // newer version, both parts of it.
+    assert!(
+        over.iter().any(|note| note.contains("not prepared to process")
+            && note.contains("change or save")),
+        "unmet requirements carry Annex I's warning: {over:?}"
     );
     // Nothing was refused, because the level for `restriction::Operation::Process` is `off` by
     // default and this viewer was told nothing else. What §12.11.6 asks a processor to do about

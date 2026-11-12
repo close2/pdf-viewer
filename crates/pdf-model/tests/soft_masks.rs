@@ -277,30 +277,51 @@ fn an_alpha_mask_reads_the_groups_alpha_and_ignores_its_colour() {
 /// again over the same place — and the second rectangle must be solid.
 #[test]
 fn none_removes_the_mask() {
-    let mut objects = page(
-        "/SMask << /Type /Mask /S /Luminosity /G 6 0 R /BC [0] >>",
-        "q /GS gs /Off gs 0 g 0 0 40 40 re f Q",
-        "1 g 0 0 20 40 re f",
-    );
-    // A second `/ExtGState`, `/Off`, added to the page's resources by rewriting the one
-    // place they are written. Cheaper than a second builder and impossible to get subtly
-    // wrong: if the name does not resolve, `gs` reports and `render` fails the fixture.
-    let with_off = String::from_utf8(objects)
-        .expect("the fixture is ASCII")
-        .replace(
-            "/ExtGState << /GS 5 0 R >>",
-            "/ExtGState << /GS 5 0 R /Off 7 0 R >>",
-        )
-        .replace(
-            "trailer\n<< /Size 7",
-            "7 0 obj\n<< /Type /ExtGState /SMask /None >>\nendobj\ntrailer\n<< /Size 8",
+    // Written out with its own cross-reference table, so that the second `/ExtGState` has an
+    // offset and the file opens without the recovery scan a damaged table would ask for.
+    let with_off = |content: &str| {
+        assemble(&[
+            b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec(),
+            b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_vec(),
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
+              /Resources << /ExtGState << /GS 5 0 R /Off 7 0 R >> >> /Contents 4 0 R >>\nendobj\n"
+                .to_vec(),
+            stream_object(4, "", content.as_bytes()),
+            b"5 0 obj\n<< /Type /ExtGState /SMask << /Type /Mask /S /Luminosity /G 6 0 R /BC [0] >> >>\nendobj\n"
+                .to_vec(),
+            stream_object(
+                6,
+                "/Type /XObject /Subtype /Form /BBox [0 0 20 40] /Resources << >> \
+                 /Group << /Type /Group /S /Transparency /CS /DeviceGray >>",
+                b"1 g 0 0 20 40 re f",
+            ),
+            b"7 0 obj\n<< /Type /ExtGState /SMask /None >>\nendobj\n".to_vec(),
+        ])
+    };
+    let opened = |bytes: Vec<u8>| {
+        let document = Document::open(bytes.clone()).expect("the fixture is a valid PDF");
+        assert!(
+            !document.was_recovered(),
+            "the fixture's cross-reference table is exact"
         );
-    objects = with_off.into_bytes();
+        render(bytes)
+    };
 
-    // The cross-reference table now names an object it has no offset for, which is exactly
-    // the malformation `pdf-syntax` recovers from by scanning; the fixture is valid enough
-    // to open and that is all this test needs it to be.
-    let raster = render(objects);
+    // The control: the mask alone keeps the black off the right half, where its group painted
+    // nothing and `/BC [0]` makes the mask zero.
+    let masked = opened(with_off("q /GS gs 0 g 0 0 40 40 re f Q"));
+    near(
+        level(&masked, 5, 20),
+        0,
+        "under the mask the box is painted",
+    );
+    near(
+        level(&masked, 30, 20),
+        255,
+        "and outside it the mask keeps the page white",
+    );
+
+    let raster = opened(with_off("q /GS gs /Off gs 0 g 0 0 40 40 re f Q"));
     near(
         level(&raster, 5, 20),
         0,
@@ -416,40 +437,73 @@ fn page_with_a_patterned_mask_group(content: &str) -> Vec<u8> {
 
 /// §8.6.8's uncoloured restriction does not reach inside a soft mask's group.
 ///
-/// The clause restricts colour operators "[i]n any glyph description that uses the d1
-/// operator … and to all other content streams invoked from within the same glyph
-/// description", and says why one sentence earlier: the restriction is for "graphical figures
-/// whose colours shall be specified separately each time they are used". A soft mask is not
-/// one. It carries no colour to the page — §11.6.5.2 turns the group's result into a
-/// luminosity and uses it as *alpha* — so NOTE 1's reason for exempting a stencil applies
-/// word for word, and the restriction is destructive rather than neutral here: a
-/// `/Luminosity` mask's values **are** its group's colours.
+/// The clause restricts colour operators in a `d1` glyph description and "\[i]n the content
+/// stream of an uncoloured tiling pattern (see 8.7.3.3, "Uncoloured tiling patterns") and to
+/// all other content streams invoked from within the uncoloured tiling pattern stream", and says
+/// why one sentence earlier: the restriction is for "graphical figures whose colours shall be
+/// specified separately each time they are used". A soft mask is not one. It carries no colour
+/// to the page — §11.6.5.2 turns the group's result into a luminosity and uses it as *alpha* — so
+/// NOTE 1's reason for exempting a stencil applies word for word, and the restriction is
+/// destructive rather than neutral here: a `/Luminosity` mask's values **are** its group's
+/// colours.
 ///
-/// The fixture is the shape `issue19634.pdf` uses: a `d1` glyph description whose whole body
-/// is a `gs` naming a luminosity mask and one filled rectangle. The mask's group is stated in
-/// *glyph* space, because §11.6.5.1 fixes the mask's coordinate system at the `gs` and the
-/// `gs` is inside the glyph; it paints mid grey, so the glyph's black must come out about
-/// half strength. With the flag leaking in,
-/// the group's `0.5 g` was ignored, the group painted its initial black, and the mask came
-/// out **zero** — the glyph vanished, in silence.
+/// The fixture is an uncoloured tiling pattern whose cell is a `gs` naming a luminosity mask and
+/// one filled rectangle. §8.6.8's list of `gs` entries that cell ignores names no transparency
+/// entry, so the mask applies; its group paints mid grey, so the cell's black must come out
+/// about half strength. With the flag leaking into the group, its `0.5 g` would be ignored, the
+/// group would paint its initial black, and the mask would come out **zero** — the fill gone,
+/// in silence. (`issue19634.pdf` put the same `gs` in a `d1` glyph description, where Table 111
+/// has a transparency parameter ignored outright: the second half below, and ADR 2812.)
 #[test]
 fn a_soft_mask_group_is_not_bound_by_an_uncoloured_glyphs_restriction() {
-    let objects = vec![
+    let mask = || {
+        vec![
+            b"5 0 obj\n<< /Type /ExtGState /SMask << /Type /Mask /S /Luminosity /G 6 0 R >> \
+              >>\nendobj\n"
+                .to_vec(),
+            stream_object(
+                6,
+                "/Type /XObject /Subtype /Form /BBox [0 0 1000 1000] \
+                 /Group << /Type /Group /S /Transparency /CS /DeviceGray >>",
+                b"0.5 g 0 0 1000 1000 re f",
+            ),
+        ]
+    };
+    let mut patterned = vec![
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec(),
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_vec(),
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
+          /Resources << /ColorSpace << /CsP [/Pattern /DeviceGray] >> /Pattern << /P1 7 0 R >> >> \
+          /Contents 4 0 R >>\nendobj\n"
+            .to_vec(),
+        stream_object(4, "", b"/CsP cs 0 /P1 scn 0 0 40 40 re f"),
+    ];
+    patterned.extend(mask());
+    patterned.push(stream_object(
+        7,
+        "/Type /Pattern /PatternType 1 /PaintType 2 /TilingType 1 /BBox [0 0 40 40] \
+         /XStep 40 /YStep 40 /Resources << /ExtGState << /GS 5 0 R >> >>",
+        b"/GS gs 0 0 40 40 re f",
+    ));
+    let raster = render(assemble(&patterned));
+    // Black through a mask of 0.5 over white is 128; a mask whose group lost its fill is 0,
+    // and paints nothing.
+    near(
+        level(&raster, 20, 20),
+        128,
+        "the uncoloured cell is painted at the mask's own value",
+    );
+
+    let mut glyph = vec![
         b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec(),
         b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_vec(),
         b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
           /Resources << /Font << /FT3 7 0 R >> >> /Contents 4 0 R >>\nendobj\n"
             .to_vec(),
         stream_object(4, "", b"BT /FT3 40 Tf 0 0 0 rg 0 10 Td (a) Tj ET"),
-        b"5 0 obj\n<< /Type /ExtGState /SMask << /Type /Mask /S /Luminosity /G 6 0 R >> \
-          >>\nendobj\n"
-            .to_vec(),
-        stream_object(
-            6,
-            "/Type /XObject /Subtype /Form /BBox [0 0 1000 1000] \
-             /Group << /Type /Group /S /Transparency /CS /DeviceGray >>",
-            b"0.5 g 0 0 1000 1000 re f",
-        ),
+    ];
+    glyph.extend(mask());
+    glyph.extend([
         b"7 0 obj\n<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] \
           /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs 9 0 R /Encoding 8 0 R \
           /FirstChar 97 /LastChar 97 /Widths [1000] \
@@ -462,15 +516,16 @@ fn a_soft_mask_group_is_not_bound_by_an_uncoloured_glyphs_restriction() {
             "",
             b"1000 0 0 0 1000 1000 d1\n/GS gs\n0 0 1000 1000 re f",
         ),
-    ];
-    let raster = render(assemble(&objects));
-
-    // Black through a mask of 0.5 over white is 128. Before the fix this pixel was 255: the
-    // mask group's fill was ignored, so the mask was zero and the glyph painted nothing.
+    ]);
+    let raster = render(assemble(&glyph));
+    // ISO 32000-2 §9.6.4, Table 111, `d1`: the description "should not execute any operators
+    // that set the colour (or other colour-related parameters including transparency) in the
+    // graphics state; any use of such operators shall be ignored". The `gs`'s soft mask is such
+    // a parameter, so the glyph paints in full.
     near(
         level(&raster, 20, 30),
-        128,
-        "the glyph is painted at the mask's own value",
+        0,
+        "a d1 glyph ignores the soft mask its gs sets",
     );
 }
 

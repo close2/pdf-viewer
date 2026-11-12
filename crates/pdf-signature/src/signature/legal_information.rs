@@ -1,6 +1,6 @@
 //! The author's legal attestation and the document facts against which it can be checked.
 
-use pdf_syntax::{Document, Object, ObjectId};
+use pdf_syntax::{Document, Object};
 
 /// §12.8.7's legal attestation dictionary: what the author says is in the document. Table 264.
 ///
@@ -95,10 +95,7 @@ fn census(document: &Document) -> Vec<(String, i64)> {
     .map(|key| (key, 0))
     .collect();
     for number in document.xref().object_numbers() {
-        let object = document.get(ObjectId {
-            number,
-            generation: 0,
-        });
+        let object = document.get(document.defined_id(number));
         let dict = match &object {
             Object::Dictionary(dict) => dict,
             Object::Stream(stream) => &stream.dict,

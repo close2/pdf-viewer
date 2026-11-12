@@ -572,7 +572,8 @@ pub fn attachments(document: &Document) -> Vec<Attachment> {
 /// > Desc entry ( PDF 1.6 ) in the file specification dictionary (see "Table 43 -Entries in a
 /// > file specification dictionary") identified by the annotation's FS entry.
 ///
-/// So [`Attachment::description`] is Table 166's `/Contents` where the annotation states one.
+/// So [`Attachment::description`] is Table 166's `/Contents` where the annotation states one, the
+/// empty string included.
 /// Where it states none there is no "this entry" to use instead, and §7.11.4.1's `/Desc` keeps
 /// its own clause's meaning — "a textual description of the embedded file, which can be
 /// displayed in the user interface" — which is what [`read`] already put there.
@@ -587,11 +588,10 @@ pub fn of_annotation(document: &Document, annotation: &Dictionary) -> Option<Att
         .display_name()
         .unwrap_or_default();
     let mut attachment = read(document, specification, name)?;
+    // Present is the condition, not non-empty: the empty string is a text string the annotation
+    // states, and the clause's "rather than" leaves `/Desc` nothing to say beside it (ADR 2814).
     if let Object::String(bytes) = document.get_key(annotation, "Contents") {
-        let contents = pdf_syntax::text_string(&bytes);
-        if !contents.is_empty() {
-            attachment.description = Some(contents);
-        }
+        attachment.description = Some(pdf_syntax::text_string(&bytes));
     }
     Some(attachment)
 }

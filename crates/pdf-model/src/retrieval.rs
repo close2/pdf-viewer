@@ -291,10 +291,11 @@ fn centre(quad: &[f32; 8]) -> Option<Point> {
 /// [`crate::content::page_transform`] is the direction this crate has and inverting it would
 /// answer `None` for a degenerate page rather than for a degenerate quadrilateral.
 ///
-/// A bounding box rather than the crossing-number rule the clause's counterclockwise order would
-/// want: §12.5.6.10's own NOTE says producers have written these corners "in a different order",
-/// and every quadrilateral in the documents this has been run over is axis-aligned, so the box is
-/// the quadrilateral.
+/// A bounding box rather than the crossing-number rule Table 182's counterclockwise order would
+/// want, which is a choice: files also write the corners top edge first, an order that is no
+/// polygon when walked as written, and the box is the same for either order. Every quadrilateral
+/// in the documents this has been run over is axis-aligned, so there the box is the
+/// quadrilateral; a turned one is answered by its box, which is larger.
 fn contains(quad: &[f32], transform: Transform, point: Point) -> bool {
     let mut low = Point {
         x: f32::MAX,

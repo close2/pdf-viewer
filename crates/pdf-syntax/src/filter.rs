@@ -2429,7 +2429,48 @@ impl AsciiHex {
     }
 }
 
+/// A turn that wants more input or more room before it can go on.
+fn more(took: usize, wrote: usize) -> Turned {
+    Turned {
+        took,
+        wrote,
+        state: Standing::More,
+    }
+}
+
+/// What the byte after a `~` makes of §7.4.3's EOD marker, "the 2-character sequence ~>".
+enum Marker {
+    /// `>` follows: the marker is whole and the data ends.
+    Complete,
+    /// Another byte follows, which is an error rather than an end (pdf-issues #293).
+    Broken,
+    /// The window ends on the `~` and more input is to come, so the next window decides.
+    Undecided,
+    /// The data itself ends on the `~`: the truncation a missing marker already is.
+    Truncated,
+}
+
+/// Classifies the byte after a `~`; see [`Marker`].
+fn marker_end(next: Option<u8>, last: bool) -> Marker {
+    match next {
+        Some(b'>') => Marker::Complete,
+        Some(_) => Marker::Broken,
+        None if !last => Marker::Undecided,
+        None => Marker::Truncated,
+    }
+}
+
 impl Ascii85 {
+    /// Steps over the optional `<~` introducer, which needs two bytes to recognise and is only
+    /// ever at the very beginning: the bytes it took, or `None` while too few have arrived.
+    fn open(&mut self, input: &[u8], last: bool) -> Option<usize> {
+        if input.len() < 2 && !last {
+            return None;
+        }
+        self.opened = true;
+        Some(if input.starts_with(b"<~") { 2 } else { 0 })
+    }
+
     /// One turn of the base-85 decode. See [`Engine::turn`] and [`ascii85`].
     fn turn(&mut self, input: &[u8], last: bool, out: &mut [u8]) -> Turned {
         let mut took = 0usize;
@@ -2443,19 +2484,10 @@ impl Ascii85 {
             state: Standing::Damaged(Damage::Corrupt),
         };
         if !self.opened {
-            // The optional `<~` introducer, which needs two bytes to recognise and is only ever
-            // at the very beginning.
-            if input.len() < 2 && !last {
-                return Turned {
-                    took: 0,
-                    wrote: 0,
-                    state: Standing::More,
-                };
-            }
-            self.opened = true;
-            if input.starts_with(b"<~") {
-                took = 2;
-            }
+            let Some(introducer) = self.open(input, last) else {
+                return more(0, 0);
+            };
+            took = introducer;
         }
         loop {
             while self.spill_at < self.spill_len && wrote < out.len() {
@@ -2468,11 +2500,7 @@ impl Ascii85 {
                 self.spill_at = self.spill_at.saturating_add(1);
             }
             if self.spill_at < self.spill_len {
-                return Turned {
-                    took,
-                    wrote,
-                    state: Standing::More,
-                };
+                return more(took, wrote);
             }
             self.spill_len = 0;
             self.spill_at = 0;
@@ -2484,19 +2512,11 @@ impl Ascii85 {
                 };
             }
             if wrote >= out.len() {
-                return Turned {
-                    took,
-                    wrote,
-                    state: Standing::More,
-                };
+                return more(took, wrote);
             }
             let Some(&byte) = input.get(took) else {
                 if !last {
-                    return Turned {
-                        took,
-                        wrote,
-                        state: Standing::More,
-                    };
+                    return more(took, wrote);
                 }
                 // The bytes ran out before the EOD marker. [`ascii85`] flushes the partial
                 // group and calls that whole, because §7.4.3 makes a partial final group the
@@ -2512,6 +2532,14 @@ impl Ascii85 {
                 continue;
             }
             if byte == b'~' {
+                match marker_end(input.get(took).copied(), last) {
+                    Marker::Complete => took = took.saturating_add(1),
+                    Marker::Broken => return corrupt(took, wrote),
+                    Marker::Undecided => {
+                        return more(took.saturating_sub(1), wrote);
+                    }
+                    Marker::Truncated => {}
+                }
                 if !self.close() {
                     return corrupt(took, wrote);
                 }
@@ -2876,7 +2904,7 @@ fn ascii85(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
     // other two filters had and was found by asserting that all four agree. One input byte
     // yields at most four output bytes, so the overshoot inside the loop is four; the check
     // after it is what catches a group that landed on the last byte.
-    for byte in body.iter().copied() {
+    for (at, byte) in body.iter().copied().enumerate() {
         if out.len() > limits.max_stream_len {
             return Err(FilterRefusal::TooLarge {
                 limit: limits.max_stream_len,
@@ -2886,7 +2914,12 @@ fn ascii85(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
             continue;
         }
         if byte == b'~' {
-            break;
+            // §7.4.3's EOD marker is "the 2-character sequence ~>": a `~` followed by any
+            // other byte is an error (pdf-issues #293), and one the data ends on is truncation.
+            match body.get(at.saturating_add(1)) {
+                Some(b'>') | None => break,
+                Some(_) => return Err(FilterRefusal::Corrupt),
+            }
         }
         // `z` stands for four zero bytes, and is only valid between groups.
         if byte == b'z' && count == 0 {

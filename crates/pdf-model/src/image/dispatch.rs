@@ -65,6 +65,9 @@ pub(super) fn decode_parts_in(
     // An image mask is one bit per sample, painted in the fill colour, and carries no
     // colour space of its own.
     let is_mask = matches!(document.get_key(dict, "ImageMask"), Object::Boolean(true));
+    if let Some(detail) = inconsistent_entries(document, dict, resources, is_mask) {
+        return Err(ImageError::Malformed { detail });
+    }
 
     // §8.9.6.3 and §8.9.6.4: `/Mask` is either a second image naming the areas of this one
     // that are painted, or a range of colours that are not. Read before the samples, because
@@ -850,6 +853,72 @@ pub fn filter_samples(document: &Document, stream: &Stream) -> Result<FilterSamp
             ),
         }),
     }
+}
+
+/// The entries of a base image's dictionary that contradict each other, named.
+///
+/// ISO 32000-2 §8.9.5.1:
+///
+/// > Attempting to use an image dictionary whose entries are inconsistent with each other or
+/// > with the current colour space shall cause an error.
+///
+/// Two of Table 87's relationships are checked here, before any sample is read, because each
+/// would otherwise be repaired in silence further down. `/BitsPerComponent` on an image mask:
+///
+/// > If ImageMask is true , this entry is optional, but if specified, its value shall be 1 .
+///
+/// and the length of `/Decode`:
+///
+/// > If ImageMask is true , the array shall be either \[0 1] or \[1 0]; otherwise, its length
+/// > shall be twice the number of colour components required by ColorSpace .
+///
+/// A `JPXDecode` image stating no `/ColorSpace` is exempt from the second, since the same row
+/// has that image's array ignored unless the image is a mask, and an image whose colour space
+/// cannot be read is left to the route that reads it, which says so in its own words.
+fn inconsistent_entries(
+    document: &Document,
+    dict: &Dictionary,
+    resources: &Dictionary,
+    is_mask: bool,
+) -> Option<String> {
+    let decode = document.get_key(dict, "Decode");
+    let decode = decode.as_array();
+    if is_mask {
+        if let Some(bits) = document.get_key(dict, "BitsPerComponent").as_integer()
+            && bits != 1
+        {
+            return Some(format!(
+                "an image mask states /BitsPerComponent {bits}, where Table 87 admits only 1"
+            ));
+        }
+        let pair = decode.map(|items| {
+            items
+                .iter()
+                .map(|item| document.resolve(item).as_number())
+                .collect::<Vec<_>>()
+        });
+        return match pair.as_deref() {
+            None | Some([Some(0.0), Some(1.0)] | [Some(1.0), Some(0.0)]) => None,
+            Some(_) => Some(
+                "an image mask's /Decode is neither [0 1] nor [1 0], which Table 87 requires"
+                    .to_owned(),
+            ),
+        };
+    }
+    let decode = decode?;
+    if matches!(document.get_key(dict, "ColorSpace"), Object::Null) {
+        return None;
+    }
+    // Asked for its component count and nothing else, as `mask::colour_key_entry` asks it.
+    let space = colour_space(document, dict, resources, &Conversion::device()).ok()?;
+    let wanted = space.components().saturating_mul(2);
+    (decode.len() != wanted).then(|| {
+        format!(
+            "/Decode has {} numbers where its colour space's {} components need {wanted}",
+            decode.len(),
+            space.components()
+        )
+    })
 }
 
 /// Reads a required positive dimension, Table 87's `/Width` or `/Height`.

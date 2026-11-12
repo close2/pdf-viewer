@@ -624,14 +624,39 @@ fn extend(additions: &Dictionary, trailer: &mut Dictionary) {
 
 /// The trailer entries an update must repeat because a reader stops at the first section.
 ///
-/// §7.5.5 makes `/Encrypt` and `/Info` properties of the *file*, and a reader that took the
-/// newest trailer as the whole answer would find neither. `/Root` and `/Size` are written by the
-/// caller because they are computed rather than copied.
+/// ISO 32000-2 §7.5.6:
+///
+/// > The added trailer shall contain all the entries except the Prev entry (if present) from the
+/// > previous trailer, whether modified or not.
+///
+/// So every entry is copied — `/Encrypt`, `/Info`, and a second-class or extension name (Annex
+/// E.2) alike — except the ones that describe the *section* rather than the file: `/Prev`,
+/// `/Size`, `/Root` and `/ID`, which the caller computes; `/XRefStm`, which names the previous
+/// hybrid section's own stream (§7.5.8.4); and a cross-reference stream's own stream keys
+/// (Table 5 and Table 17), which belong to the stream they were read from.
 fn carry_forward(document: &crate::Document, trailer: &mut Dictionary) {
-    for key in ["Encrypt", "Info"] {
-        if let Some(value) = document.trailer().get(key) {
-            trailer.insert(Name::new(key.as_bytes()), value.clone());
+    const THE_SECTIONS_OWN: [&[u8]; 15] = [
+        b"Prev",
+        b"Size",
+        b"Root",
+        b"ID",
+        b"XRefStm",
+        b"Type",
+        b"W",
+        b"Index",
+        b"Length",
+        b"Filter",
+        b"DecodeParms",
+        b"F",
+        b"FFilter",
+        b"FDecodeParms",
+        b"DL",
+    ];
+    for (key, value) in document.trailer().iter() {
+        if THE_SECTIONS_OWN.contains(&key.as_bytes()) {
+            continue;
         }
+        trailer.insert(key.clone(), value.clone());
     }
 }
 

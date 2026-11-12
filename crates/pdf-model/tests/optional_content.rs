@@ -747,21 +747,24 @@ fn a_hidden_base_image_shows_nothing_and_does_not_reach_its_alternates() {
 #[test]
 fn a_base_image_with_no_group_shows_the_first_visible_alternate() {
     let base = one_pixel_image(7, 0x00, "/Alternates 8 0 R");
-    let alternates =
-        "8 0 obj\n[ << /Image 9 0 R /OC 5 0 R >> << /Image 10 0 R /OC 6 0 R >> ]\nendobj\n";
+    // A third alternate, visible too and later in the array, is what makes "first" the thing
+    // under test: a selection of the last visible alternate would draw it instead.
+    let alternates = "8 0 obj\n[ << /Image 9 0 R /OC 5 0 R >> << /Image 10 0 R /OC 6 0 R >> \
+                      << /Image 11 0 R /OC 6 0 R >> ]\nendobj\n";
     let hidden = one_pixel_image(9, 0x40, "");
     let shown = one_pixel_image(10, 0xFF, "");
+    let later = one_pixel_image(11, 0x80, "");
     let (raster, reports) = interpret(pdf(
         TWO_GROUPS,
         "/XObject << /Im 7 0 R >>",
         DRAW_IMAGE,
         "",
-        &format!("{GROUP}{SECOND_GROUP}{base}{alternates}{hidden}{shown}"),
+        &format!("{GROUP}{SECOND_GROUP}{base}{alternates}{hidden}{shown}{later}"),
     ));
     assert_eq!(
         pixel(&raster, 50, 50),
         [255, 255, 255, 255],
-        "the second alternate, whose group is on"
+        "the second alternate, the first whose group is on"
     );
     assert!(reports.is_empty(), "{reports:?}");
 }

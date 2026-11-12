@@ -1,6 +1,7 @@
 //! ISO 32000-2 §7.7.3.2's page tree nodes, as the three verbs that write a whole file read them:
 //! a node no reader can walk refused by name before anything is written (ADR 2444), and a
-//! `/Count` that is no integer restated from the leaves this reader walks (ADR 2456).
+//! `/Count` that is no integer, or an integer other than the leaves beneath its node, restated
+//! from the leaves this reader walks (ADR 2456, ADR 2819).
 //!
 //! # The reading
 //!
@@ -23,17 +24,22 @@
 //! pages this reader draws from it — none, or the ones a scan of the file finds — are not the
 //! producer's tree, and nothing written from it would be.
 //!
-//! **A `/Count` that is no integer has a value the standard states**: the same cell defines it as
-//! the number of descendant leaves, and its NOTE puts the restatement on the writer — "\[a\] PDF
-//! writer shall ensure that the value of the Count key is consistent with the number of entries in
-//! the Kids array and its descendants which definitively determines the number of descendant
-//! pages". The conversion restates it, because ISO 19005's section 5.1 is failed there and says so
-//! in a row of its own, `file-structure/page-tree-node-count-is-an-integer` — ADR 0947's second
-//! rule, nothing changed that no failed requirement asked for, is kept by that row. The count
-//! written is [`restated`]'s, the leaves `pdf_model::Pages` reaches beneath the node, so the
-//! output states the pages this reader already drew. `optimize` and `redact` carry the producer's
-//! nodes as they stand and refuse both shapes ([`refuse_a_page_tree_no_reader_can_walk`]): the
-//! restatement is an object rewrite, and theirs is a closure copy with no object rewritten.
+//! **A `/Count` that is no integer, or an integer other than the leaves beneath its node, has a
+//! value the standard states**: the same cell defines it as the number of descendant leaves, and
+//! its NOTE puts the consistency on the writer — "\[a\] PDF writer shall ensure that the value of
+//! the Count key is consistent with the number of entries in the Kids array and its descendants
+//! which definitively determines the number of descendant pages". The conversion is a writer, so
+//! it restates both: ISO 19005's section 5.1 is failed there and says so in two rows,
+//! `file-structure/page-tree-node-count-is-an-integer` and
+//! `file-structure/page-tree-node-count-counts-its-leaves`, and ADR 0947's second rule, nothing
+//! changed that no failed requirement asked for, is kept by them. The count written is
+//! [`restated`]'s, the leaves beneath the node, which the NOTE makes definitive: where an integer
+//! `/Count` under-counts them, `pdf_model::Pages` trusts the integer and draws fewer pages than the
+//! tree holds, and the archive holds every leaf the tree names (ADR 2819). An over-count is the
+//! loss `page-not-held`, decided from the source's count before anything is written (ADR 2596).
+//! `optimize` and `redact` carry the producer's nodes as they stand and refuse all three shapes
+//! ([`refuse_a_page_tree_no_reader_can_walk`]): the restatement is an object rewrite, and theirs is
+//! a closure copy with no object rewritten.
 
 use std::collections::BTreeMap;
 
@@ -129,7 +135,45 @@ fn refuse(document: &Document, root: ObjectId, held: Held) -> Result<(), Refusal
         return Ok(());
     };
     let mut visited = 0_usize;
-    walk(document, pages, 0, &mut visited, held)
+    walk(document, pages, 0, &mut visited, held)?;
+    if held == Held::KidsAndCount {
+        refuse_a_count_other_than_its_leaves(document)?;
+    }
+    Ok(())
+}
+
+/// The verbs that carry every node as it stands refuse an integer `/Count` that disagrees with the
+/// leaves beneath its node: Table 30's NOTE makes that consistency the writer's to ensure, and a
+/// closure copy rewrites no object to ensure it with (ADR 2819).
+fn refuse_a_count_other_than_its_leaves(document: &Document) -> Result<(), Refusal> {
+    let why = match restated(document) {
+        Ok(counts) => {
+            let Some((id, leaves)) = counts.at.first_key_value() else {
+                return Ok(());
+            };
+            format!(
+                "§7.7.3.2's Table 30 makes a page tree node's /Count \"( Required ) The number of \
+                 leaf nodes (page objects) that are descendants of this node within the page \
+                 tree.\", and object {}'s states {} where the /Kids beneath it reach {leaves}; \
+                 this verb carries the producer's page tree as it stands, and the table's NOTE \
+                 makes that consistency the writer's to ensure",
+                id.number,
+                document
+                    .get(*id)
+                    .as_dict()
+                    .and_then(|node| document.get_key(node, "Count").as_integer())
+                    .map_or_else(|| "no integer".to_owned(), |stated| stated.to_string()),
+            )
+        }
+        // Every node agrees, or the walk's bounds stopped it: the same answer the walk above
+        // gives a tree past them.
+        Err(Because::NotBuiltYet(why)) if why == NOT_REACHED => return Ok(()),
+        Err(Because::NotBuiltYet(why) | Because::TheFence(why) | Because::NotThisTarget(why)) => {
+            format!("§7.7.3.2's Table 30 /Count: {why}")
+        }
+        Err(other) => format!("§7.7.3.2's Table 30 /Count: {other:?}"),
+    };
+    Err(Refusal::Reconstructed(why))
 }
 
 /// One node and the nodes below it.
@@ -307,13 +351,13 @@ pub(super) fn children_not_held(document: &Document) -> ChildrenNotHeld {
 }
 
 /// Why a node written inside its parent's `/Kids` keeps its failing `/Count`.
-const WRITTEN_INSIDE_ITS_PARENT: &str = "a page tree node whose Count is no integer is written \
+const WRITTEN_INSIDE_ITS_PARENT: &str = "a page tree node whose Count is no integer or disagrees with its leaves is written \
      directly inside its parent's Kids array rather than as an object of its own, and this \
      conversion restates an entry at the object that holds it, which here is the parent - so the \
      restatement has no object to be written at (ADR 2456)";
 
 /// Why a node reached by more than one route keeps its failing `/Count`.
-const MORE_THAN_ONE_NUMBER: &str = "a page tree node whose Count is no integer is reached by \
+const MORE_THAN_ONE_NUMBER: &str = "a page tree node whose Count is no integer or disagrees with its leaves is reached by \
      more than one route through the tree and has a different number of leaves beneath it on \
      each, which ISO 32000-2 section 7.7.3.2's \"A page tree shall not contain multiple indirect \
      references to the same page tree node.\" is about; no one integer is the number of its \
@@ -332,7 +376,7 @@ pub(super) struct RestatedCounts {
     pub(super) at: BTreeMap<ObjectId, i64>,
 }
 
-/// Every node whose `/Count` is no integer, with the number of leaves this reader walks beneath
+/// Every node whose `/Count` is no integer or an integer other than its leaves, with the number of leaves this reader walks beneath
 /// it, or why one cannot be restated.
 ///
 /// The walk is `pdf_model::Pages`'s leaf count, read the same way entry by entry: a `/Kids` entry
@@ -355,7 +399,7 @@ pub(super) fn restated(document: &Document) -> Result<RestatedCounts, Because> {
         document,
         visited: 0,
         path: Vec::new(),
-        out: RestatedCounts::default(),
+        counted: BTreeMap::new(),
         refused: None,
     };
     if let Some(root) = root {
@@ -364,10 +408,18 @@ pub(super) fn restated(document: &Document) -> Result<RestatedCounts, Because> {
     if let Some(because) = tally.refused {
         return Err(because);
     }
-    if tally.out.at.is_empty() {
+    let out = RestatedCounts {
+        at: tally
+            .counted
+            .into_iter()
+            .filter(|(_, (stated, count))| *stated != Some(*count))
+            .map(|(id, (_, count))| (id, count))
+            .collect(),
+    };
+    if out.at.is_empty() {
         return Err(Because::NotBuiltYet(NOT_REACHED));
     }
-    Ok(tally.out)
+    Ok(out)
 }
 
 /// One count of the tree.
@@ -378,8 +430,9 @@ struct Tally<'a> {
     visited: usize,
     /// The identities of the node being counted and the nodes above it, root first.
     path: Vec<ObjectId>,
-    /// What it found to restate.
-    out: RestatedCounts,
+    /// Every indirect node reached, with the `/Count` it states where that is an integer and the
+    /// leaves beneath it.
+    counted: BTreeMap<ObjectId, (Option<i64>, i64)>,
     /// The first node it could not answer for, which leaves the requirement refused.
     refused: Option<Because>,
 }
@@ -421,26 +474,31 @@ impl Tally<'_> {
         if id.is_some() {
             self.path.pop();
         }
-        if self.document.get_key(dict, "Count").as_integer().is_none() {
-            self.record(id, count);
-        }
+        let stated = self.document.get_key(dict, "Count").as_integer();
+        self.record(id, stated, count);
         count
     }
 
-    /// One failing node's count, or the reason it cannot be written.
-    fn record(&mut self, id: Option<ObjectId>, count: usize) {
-        let Some(id) = id else {
-            self.refused
-                .get_or_insert(Because::NotBuiltYet(WRITTEN_INSIDE_ITS_PARENT));
-            return;
-        };
+    /// One node's count on this route, or the reason it cannot be written.
+    ///
+    /// Every indirect node's count is kept, the sound ones too, so that a node reached by two
+    /// routes is held to one number whichever of them its stated `/Count` agrees with; which of
+    /// them is restated is decided once the walk is over.
+    fn record(&mut self, id: Option<ObjectId>, stated: Option<i64>, count: usize) {
         let Ok(count) = i64::try_from(count) else {
             self.refused
                 .get_or_insert(Because::NotBuiltYet(NOT_REACHED));
             return;
         };
-        if let Some(earlier) = self.out.at.insert(id, count)
-            && earlier != count
+        let Some(id) = id else {
+            if stated != Some(count) {
+                self.refused
+                    .get_or_insert(Because::NotBuiltYet(WRITTEN_INSIDE_ITS_PARENT));
+            }
+            return;
+        };
+        if let Some(earlier) = self.counted.insert(id, (stated, count))
+            && earlier.1 != count
         {
             self.refused
                 .get_or_insert(Because::TheFence(MORE_THAN_ONE_NUMBER));
@@ -611,6 +669,27 @@ mod tests {
             counts(&nested),
             Ok(vec![(3, 2)]),
             "a sound node is not restated"
+        );
+    }
+
+    /// Table 30's NOTE: the `/Kids` arrays "definitively" determine the number of descendant
+    /// pages, so an integer `/Count` that under-counts them is restated as the leaves, at the
+    /// node that states it and nowhere else (ADR 2819).
+    #[test]
+    fn an_integer_count_other_than_the_leaves_is_restated_from_them() {
+        let under = [
+            CATALOG,
+            "<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>",
+            "<< /Type /Pages /Parent 2 0 R /Kids [4 0 R 6 0 R] /Count 2 >>",
+            PAGE,
+            PAGE,
+            "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 100 100] >>",
+        ];
+        assert_eq!(counts(&under), Ok(vec![(2, 3)]));
+        let sentence = refused(&under).expect("a verb that carries the tree refuses it");
+        assert!(
+            sentence.contains("object 2's states 2 where the /Kids beneath it reach 3"),
+            "{sentence}"
         );
     }
 

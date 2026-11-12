@@ -33,7 +33,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use pdf_syntax::{Document, FileBytes, Limits, Object, ObjectId, SyntaxError};
+use pdf_syntax::{Document, FileBytes, Limits, Object, SyntaxError};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
 /// The root every gate of `doc/todo/02` §2 walks, under the name [`roots`] reports it by.
@@ -279,7 +279,7 @@ pub fn classify(path: &Path, password: &str) -> Vec<Class> {
 /// producer writes.
 fn states_filter(document: &Document, filter: &str) -> bool {
     document.xref().object_numbers().any(|number| {
-        let object = document.get(ObjectId::new(number, 0));
+        let object = document.get(document.defined_id(number));
         let Object::Stream(stream) = &object else {
             return false;
         };

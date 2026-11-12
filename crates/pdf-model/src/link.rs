@@ -156,6 +156,20 @@ fn destination(
     })
 }
 
+/// Whether a point in default user space is inside a link annotation's activation region.
+///
+/// The one test every route to a link shares — the pointer's press and hover routing as much as
+/// [`at`]'s activation — because ISO 32000-2 §12.5.6.5 Table 176 makes `/QuadPoints` the region
+/// "in which the link should be activated", and a press that highlights a link outside it has
+/// activated the link where the file said it was not (ADR 2814).
+pub(crate) fn region_covers(document: &Document, annotation: &Dictionary, x: f32, y: f32) -> bool {
+    rectangle(document, annotation).is_some_and(|rect| {
+        region(document, annotation, rect)
+            .iter()
+            .any(|quad| inside(quad, x, y))
+    })
+}
+
 /// The activation region: `/QuadPoints` where the clause admits them, `/Rect` otherwise.
 fn region(document: &Document, annotation: &Dictionary, rect: [f32; 4]) -> Vec<[f32; 8]> {
     let quads = document.get_key(annotation, "QuadPoints");

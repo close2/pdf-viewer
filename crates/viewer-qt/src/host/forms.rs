@@ -26,6 +26,9 @@ pub(super) struct Placement {
     on_state: Option<String>,
     /// Table 229 bit 15: whether clicking the selected radio button of a set turns it off.
     no_toggle_to_off: bool,
+    /// Table 233 bit 27, `CommitOnSelChange`: whether a selection in this choice control is
+    /// committed as soon as it is made rather than when the field is left.
+    commit_on_selection: bool,
     /// Table 227 bit 1: "the field shall not be modified by the user".
     ///
     /// The control is disabled, so a person cannot reach it — and an assistive technology's click
@@ -124,7 +127,8 @@ impl Host {
         }
     }
 
-    /// §12.7.5.4: which of Table 234's `/Opt` entries are selected now.
+    /// §12.7.5.4: which of Table 234's `/Opt` entries are selected now, committed at once where
+    /// Table 233 bit 27 is set.
     ///
     /// An empty set is a field with nothing chosen, which the clause makes a real state — "\[t]he
     /// default value of V is null , indicating that no item is currently selected" — and not a
@@ -134,6 +138,7 @@ impl Host {
             return;
         };
         let field = placed.name.qualified.clone();
+        let commits = placed.commit_on_selection;
         let chosen: Vec<usize> = chosen
             .iter()
             .filter_map(|index| usize::try_from(*index).ok())
@@ -143,9 +148,23 @@ impl Host {
             format_args!("{field}: option(s) {chosen:?} of Table 234's /Opt selected"),
         );
         self.dispatch(Command::Edit(Edit::SetField {
-            field,
+            field: field.clone(),
             value: Entered::Chosen(chosen),
         }));
+        // ISO 32000-2 §12.7.5.4, Table 233 bit 27:
+        //
+        // > If this flag is on, then processing does not wait for leaving the field action to
+        // > occur, but immediately proceeds to the third step.
+        //
+        // The third step is the commit that "triggers any actions associated with the entry or
+        // changing of this data", which is the one `Command::CommitField` runs; with the bit clear
+        // the selection waits for the field to be left, as typed text does (ADR 2816).
+        if commits {
+            self.dispatch(Command::CommitField {
+                field,
+                by: viewer_core::Committing::Unstated,
+            });
+        }
     }
 
     /// §12.7.5.2.3's check box or §12.7.5.2.4's radio button was clicked.
@@ -377,6 +396,10 @@ pub(super) fn placement(
                     no_toggle_to_off: true,
                     ..
                 }
+            ),
+            commit_on_selection: matches!(
+                &field.control,
+                pdf_model::form::Control::Choice(choice) if choice.commit_on_selection
             ),
             read_only: field.read_only,
         }),

@@ -24,8 +24,18 @@ impl ViewState {
     /// [`Appearance::Normal`] for every annotation the pointer is not on, which §12.5.5 makes
     /// the case rather than a default: the normal appearance "shall be used when the
     /// annotation is not interacting with the user".
+    ///
+    /// And for every annotation while the purpose is printing, wherever the pointer is: the
+    /// same bullet of ISO 32000-2 §12.5.5 goes on
+    ///
+    /// > This appearance is also used for printing the annotation.
+    ///
+    /// so a press the screen is showing is not something a printed sheet shows (ADR 2813).
     #[must_use]
     pub fn appearance_for(&self, annotation: ObjectId) -> Appearance {
+        if self.purpose == crate::optional_content::Purpose::Print {
+            return Appearance::Normal;
+        }
         match self.pointer {
             Some((id, Pointer::Over)) if id == annotation => Appearance::Rollover,
             Some((id, Pointer::Down)) if id == annotation => Appearance::Down,
@@ -226,11 +236,40 @@ pub fn annotation_at(
         if !crate::annotation::interacts(document, dict, view.annotation(id)) {
             continue;
         }
-        if rectangle_covers(document, dict, x, y) {
+        if active_area_covers(document, dict, x, y) {
             found = Some(id);
         }
     }
     found
+}
+
+/// Whether an annotation's active area covers a point in default user space.
+///
+/// Table 166's `/Rect` for every subtype but one: a link's area is Table 176's `/QuadPoints`
+/// where the clause admits them, "the region in which the link should be activated", so a
+/// press inside `/Rect` and outside every quadrilateral is a press on nothing (ADR 2814).
+pub(super) fn active_area_covers(
+    document: &Document,
+    annotation: &Dictionary,
+    x: f64,
+    y: f64,
+) -> bool {
+    let is_link = document
+        .get_key(annotation, "Subtype")
+        .as_name()
+        .is_some_and(|subtype| subtype.as_bytes() == b"Link");
+    if is_link {
+        // Narrowed as `crate::link` narrows every coordinate: a pointer position is an `f32`
+        // already, widened only to share `rectangle_covers`'s signature.
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "the point began as an f32 and returns to one"
+        )]
+        let (x, y) = (x as f32, y as f32);
+        crate::link::region_covers(document, annotation, x, y)
+    } else {
+        rectangle_covers(document, annotation, x, y)
+    }
 }
 
 /// Whether Table 166's `/Rect` covers a point in default user space.

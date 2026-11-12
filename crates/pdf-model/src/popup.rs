@@ -257,7 +257,7 @@ pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -
             folded_only.extend(popupless_reply(document, view, id, dict));
             continue;
         }
-        if subtype == Some(b"Text") {
+        if subtype.is_some_and(opens_a_window) {
             read_windows
                 .extend(own_window(document, page, view, id, dict).map(|own| (own, None, 0)));
             continue;
@@ -392,8 +392,36 @@ fn popupless_reply(
     Some((comment, host, depth))
 }
 
-/// The window a text annotation that states no `/Popup` displays when it is open: ISO 32000-2
-/// §12.5.6.4, which makes the window the note's own (ADR 1723).
+/// Whether an annotation of this subtype displays a popup window when it is opened, by its own
+/// clause rather than by a `/Popup` it states.
+///
+/// §12.5.6.4's text annotation, and every subtype whose clause says, in the words of §12.5.6.12's
+/// rubber stamp, "When opened, it shall display a popup window containing the text of the
+/// associated note": §12.5.6.7's line, §12.5.6.8's square and circle, §12.5.6.10's four text
+/// markup subtypes, §12.5.6.12's stamp and §12.5.6.13's ink. Table 172 makes `/Popup` optional,
+/// so a file that omits it has not withdrawn the window the clause requires; an annotation that
+/// states one is shown in that one, and the window placed for one stating none is declined for it
+/// (ADRs 1723 and 2814).
+#[must_use]
+pub fn opens_a_window(subtype: &[u8]) -> bool {
+    matches!(
+        subtype,
+        b"Text"
+            | b"Line"
+            | b"Square"
+            | b"Circle"
+            | b"Highlight"
+            | b"Underline"
+            | b"Squiggly"
+            | b"StrikeOut"
+            | b"Stamp"
+            | b"Ink"
+    )
+}
+
+/// The window an annotation of a subtype [`opens_a_window`] names displays when it is open and
+/// states no `/Popup`: ISO 32000-2 §12.5.6.4 for a text note, which makes the window the note's
+/// own, and the same for the others (ADRs 1723, 2814).
 ///
 /// > When closed, the annotation shall appear as an icon; when open, it shall display a popup
 /// > window containing the text of the note in a font and size chosen by the interactive PDF
@@ -507,16 +535,16 @@ fn thread_window(document: &Document, annotation: &Dictionary) -> (Option<Object
     (window, found_at)
 }
 
-/// Whether this annotation is a text note [`own_window`] gives a window of its own: a text
-/// annotation that states no `/IRT` and no `/Popup` (ADR 1723), which a reply to it is threaded
-/// into (ADR 1727).
+/// Whether this annotation is one [`own_window`] gives a window of its own: a subtype
+/// [`opens_a_window`] names that states no `/IRT` and no `/Popup` (ADRs 1723, 2814), which a reply
+/// to it is threaded into (ADR 1727).
 fn states_its_own_window(document: &Document, annotation: &Dictionary) -> bool {
     annotation.get("IRT").is_none()
         && annotation.get("Popup").is_none()
         && document
             .get_key(annotation, "Subtype")
             .as_name()
-            .is_some_and(|subtype| subtype.as_bytes() == b"Text")
+            .is_some_and(|subtype| opens_a_window(subtype.as_bytes()))
 }
 
 /// Whether this annotation is Table 172's *reply* rather than a group's subordinate.
@@ -1540,11 +1568,15 @@ mod tests {
     /// The second half is the case with nothing above it at all: a reply whose whole chain opens
     /// no window has nothing to be shown *together with*, and it keeps its own rather than being
     /// dropped. Obeying the sentence by losing the text is trap 5's failure.
+    ///
+    /// Each head is a caret annotation because §12.5.6.11 gives a caret no window of its own; a
+    /// square, a line or a stamp head would display one when opened (ADR 2814), and its replies
+    /// would hang on it.
     #[test]
     fn a_thread_hangs_on_the_highest_window_its_chain_states() {
         let deep = document(
             "4 0 R 6 0 R 7 0 R 8 0 R 9 0 R",
-            "4 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 90 90] \
+            "4 0 obj << /Type /Annot /Subtype /Caret /Rect [10 10 90 90] \
              /Contents (the head, with no window) >> endobj\n\
              6 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 90 90] /IRT 4 0 R /RT /R \
              /Popup 7 0 R /Contents (the reply) >> endobj\n\
@@ -1568,7 +1600,7 @@ mod tests {
 
         let alone = document(
             "4 0 R 6 0 R 7 0 R",
-            "4 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 90 90] \
+            "4 0 obj << /Type /Annot /Subtype /Caret /Rect [10 10 90 90] \
              /Contents (no window) >> endobj\n\
              6 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 90 90] /IRT 4 0 R /RT /R \
              /Popup 7 0 R /Contents (the reply) >> endobj\n\

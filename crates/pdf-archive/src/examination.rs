@@ -153,8 +153,12 @@ impl<'a> Examination<'a> {
                 .xref()
                 .object_numbers()
                 .map(|number| {
-                    let id = ObjectId::new(number, 0);
-                    (id, self.document.get(id))
+                    // The key stays at generation zero (`reach::numbered` compares by number);
+                    // the read uses the generation the file defines the number under.
+                    (
+                        ObjectId::new(number, 0),
+                        self.document.get(self.document.defined_id(number)),
+                    )
                 })
                 .collect()
         })

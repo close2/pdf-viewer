@@ -59,6 +59,7 @@ fn content(outline: &Outline) -> Content<'_> {
         outline,
         layers: &[],
         attachments: &[],
+        external_files: &[],
         articles: &[],
         collection: None,
         information: &NOTHING,

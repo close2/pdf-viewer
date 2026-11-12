@@ -729,6 +729,11 @@ fn transfer(document: &Document, mask: &Dictionary) -> Result<Option<Transfer>, 
             *entry = (value * 255.0).clamp(0.0, 255.0).round() as u8;
         }
     }
+    // ISO 32000-2 §7.10.5.3's errors that depend on the input are met while sampling; a table
+    // built from the evaluator's stand-ins is a mask the file did not describe.
+    if let Some(fault) = function.evaluation_fault() {
+        return Err(format!("/SMask has a /TR and {fault}"));
+    }
     Ok(Some(Transfer::from_samples(table)))
 }
 

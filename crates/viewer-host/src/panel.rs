@@ -482,8 +482,15 @@ pub fn external_rows(files: &[ExternalAssociatedFile]) -> Vec<PanelRow> {
 /// Both or either or neither: `/Desc` is "a textual description of the embedded file, which can
 /// be displayed in the user interface" and takes precedence over both, because it is the entry
 /// the clause wrote *for* this purpose.
+///
+/// An empty description is one an annotation's `/Contents ()` stated (§12.5.6.15), and it has
+/// nothing to show, so the type and size stand in the line it leaves empty.
 fn detail_of(attachment: &Attachment) -> Option<String> {
-    if let Some(description) = attachment.description.clone() {
+    if let Some(description) = attachment
+        .description
+        .clone()
+        .filter(|text| !text.is_empty())
+    {
         return Some(description);
     }
     match (&attachment.media_type, attachment.size) {

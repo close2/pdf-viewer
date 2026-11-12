@@ -19,7 +19,7 @@
 use std::fmt;
 
 use pdf_syntax::Document;
-use pdf_syntax::object::{Object, ObjectId};
+use pdf_syntax::object::Object;
 
 /// Where the count is read from when it is the page tree root's (`doc/adr/2596`'s wording).
 pub const STATED_BY_THE_ROOT: &str = "its page tree root's /Count";
@@ -71,7 +71,7 @@ impl NoPageHeld {
         let stated = match root_count {
             Some(count) => Some((STATED_BY_THE_ROOT, count)),
             None => document.xref().object_numbers().find_map(|number| {
-                let object = document.get(ObjectId::new(number, 0));
+                let object = document.get(document.defined_id(number));
                 let dict = object.as_dict()?;
                 dict.get("Linearized")?;
                 Some((

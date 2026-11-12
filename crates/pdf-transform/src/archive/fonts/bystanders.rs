@@ -70,7 +70,7 @@ pub(super) fn keep_their_own_descriptors(
     let mut copies: BTreeMap<ObjectId, ObjectId> = BTreeMap::new();
     let mut inline: Vec<(Dictionary, ObjectId)> = Vec::new();
     for number in 1..document.xref().next_object_number() {
-        let font_at = ObjectId::new(number, 0);
+        let font_at = document.defined_id(number);
         let font = document.get(font_at);
         collect_inline(&font, &renamed, 0, &mut inline);
         let Some(descriptor) = font

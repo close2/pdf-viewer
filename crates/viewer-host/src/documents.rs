@@ -409,9 +409,14 @@ pub fn document_title(
 /// that show this caption, so that the rule is not three rules (ADR 1973).
 #[must_use]
 pub fn caption(index: usize, label: Option<&str>, of: usize, section: Option<&str>) -> String {
+    // An empty label (§12.4.2 Table 161: a range with no `/S` and no prefix) is a label, and
+    // shown as one it is nothing at all, so the caption is the index alone rather than a dash
+    // standing beside nothing.
     let page = match label.map(one_line) {
-        Some(label) => format!("{label} — page {} of {of}", index.saturating_add(1)),
-        None => format!("page {} of {of}", index.saturating_add(1)),
+        Some(label) if !label.is_empty() => {
+            format!("{label} — page {} of {of}", index.saturating_add(1))
+        }
+        _ => format!("page {} of {of}", index.saturating_add(1)),
     };
     match section.map(one_line) {
         Some(section) if !section.is_empty() => format!("{page} — {section}"),

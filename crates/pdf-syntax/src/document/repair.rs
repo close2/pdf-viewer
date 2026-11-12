@@ -42,7 +42,7 @@ impl Document {
     ///
     /// One linear scan of the file, memoised, and only for a document that has already been
     /// found to be wrong about one of its objects. Two of the 974 corpus documents reach it.
-    pub(super) fn load_by_header(&self, id: ObjectId) -> Option<Object> {
+    pub(super) fn load_by_header(&self, id: ObjectId) -> Option<(u16, Object)> {
         let headers = self.object_headers();
         let Location::Offset(offset) = headers.location(id.number)? else {
             return None;
@@ -52,7 +52,7 @@ impl Document {
             return None;
         }
         write(&self.misfiled).insert(id.number);
-        Some(object)
+        Some((found.generation, object))
     }
 
     /// The file's own object headers, scanned once and remembered.

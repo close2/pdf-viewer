@@ -62,7 +62,7 @@ const MAX_REPORTS: usize = 256;
 /// Table 221's `/JS` is the document's, so its length is too. A field script is a few hundred bytes
 /// and the longest the census population carries is under a hundred kilobytes; a megabyte is not a
 /// field script, and decoding one per keystroke is work this bound refuses.
-pub(super) const MAX_SCRIPT_BYTES: usize = 1 << 20;
+pub(crate) const MAX_SCRIPT_BYTES: usize = 1 << 20;
 
 /// Longest one sequence of scripts may take: a commit's walk of `/CO`, or the open sequence.
 ///
@@ -300,7 +300,8 @@ pub(super) struct Scripting {
     /// The zero-based page a script last turned to, until a host takes the request (ADR 1640).
     page: Option<usize>,
     /// The properties scripts set that a widget's appearance draws, by widget: what
-    /// [`super::AnnotationView::scripted`] carries (ADR 1617).
+    /// [`super::AnnotationView::scripted`] carries (ADR 1617). §12.7.8's import states Table 249's
+    /// `/Opt` here too, as the rewrite of Table 234's `/Opt` a script's `setItems` is (ADR 2816).
     pub(super) drawn: BTreeMap<ObjectId, Vec<Property>>,
     /// Every widget and member a script set through a `Field` of that widget alone, until a set on
     /// the whole field replaces it: a save writes such a member's field entries — `/DA`, `/Q` — on

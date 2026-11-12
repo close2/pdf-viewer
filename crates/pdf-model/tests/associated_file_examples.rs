@@ -115,7 +115,9 @@ fn examples() -> Document {
              /AFRelationship /Supplement /EF <</F 42 0 R>> >>"
                 .to_owned(),
         ),
-        (42, embedded("/application#2Fxhtml+xml", "<math/>")),
+        // The clause prints `/application#2Fxhtml+xml` for a MathML file; the published errata's
+        // Issue #637 corrects it to MathML's own type, which is what a producer writes.
+        (42, embedded("/application#2Fmathml+xml", "<math/>")),
     ];
     Document::open(assemble(&objects)).expect("the examples make a valid file")
 }
@@ -162,14 +164,12 @@ fn example_2s_data_table_is_associated_with_the_section_it_encloses() {
     assert_eq!(file.relationship, Relationship::Data);
     assert_eq!(file.file_name.as_deref(), Some("datatable.doc"));
     assert_eq!(file.media_type.as_deref(), Some("application/vnd.ms-word"));
-    if drawn.glyphs > 0 {
-        assert_eq!(
-            drawn.text.get(range.clone()).map(str::trim),
-            Some("Hello"),
-            "the range is the section's own content: {:?}",
-            drawn.text
-        );
-    }
+    assert_eq!(
+        drawn.text.get(range.clone()).map(str::trim),
+        Some("Hello"),
+        "the range is the section's own content: {:?}",
+        drawn.text
+    );
 }
 
 /// EXAMPLE 3: a file associated with a form `XObject`, through the form dictionary's `/AF`.
@@ -184,4 +184,8 @@ fn example_3s_equation_is_associated_with_its_form() {
     };
     assert_eq!(equation.relationship, Relationship::Supplement);
     assert_eq!(equation.file_name.as_deref(), Some("equation.mathml"));
+    assert_eq!(
+        equation.media_type.as_deref(),
+        Some("application/mathml+xml")
+    );
 }

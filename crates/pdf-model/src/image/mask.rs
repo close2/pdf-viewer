@@ -25,7 +25,7 @@ use super::{Flattened, ImageError, MAX_SAMPLES, Parts, Picture, decode, decode_p
 /// `issue16263.pdf`'s 2×2 image with a 34862×4332 `/SMask` asks for 604 MB combined and 19 MB
 /// packed, for two distinct colours.
 ///
-/// **It is a preference and not a ceiling** (ADR 0456): one number deciding both questions would
+/// **It is a preference and not a ceiling** (ADR 0451 §2): one number deciding both questions would
 /// refuse a grid past it outright wherever `eligible_for_the_device_scale` says no — which is
 /// every explicit `/Mask`, because a stencil is `/ImageMask true` and Table 87 gives it no
 /// colour space. The ceiling is [`MAX_SAMPLES`]: a combined grid is a raster this crate
@@ -125,7 +125,7 @@ pub(super) fn mask_entry(
 ) -> MaskEntry {
     let dict = &stream.dict;
     let mask = document.get_key(dict, "Mask");
-    if matches!(mask, Object::Null) {
+    if matches!(mask, Object::Null) || stencil(document, dict) {
         return MaskEntry::Absent;
     }
     // §11.6.4.3 orders the three mechanisms an image dictionary can carry, and `/Mask` is
@@ -234,11 +234,6 @@ fn colour_key_entry(
     items: &[Object],
 ) -> MaskEntry {
     let dict = &stream.dict;
-    if matches!(document.get_key(dict, "ImageMask"), Object::Boolean(true)) {
-        return MaskEntry::Unusable(
-            "colour-key /Mask on an image mask, which has no colour components".to_owned(),
-        );
-    }
     // Asked for its component count and nothing else, so what the samples are composited
     // into does not enter: `Compositing::Device` is the question rather than an assumption.
     let Ok(space) = colour_space(document, dict, resources, &Conversion::device()) else {
@@ -701,7 +696,20 @@ pub fn overrides_graphics_state_mask(document: &Document, dict: &Dictionary) -> 
             .get_key(dict, "SMaskInData")
             .as_integer()
             .is_some_and(|value| value != 0)
-        || !matches!(document.get_key(dict, "Mask"), Object::Null)
+        || (!matches!(document.get_key(dict, "Mask"), Object::Null) && !stencil(document, dict))
+}
+
+/// Whether the image is an image mask, whose `/Mask` and `/ColorSpace` are not read.
+///
+/// ISO 32000-2 §8.9.5.1, Table 87, `/ImageMask`:
+///
+/// > If this flag is true , the value of BitsPerComponent , if present, shall be 1 and Mask and
+/// > ColorSpace shall not be specified
+///
+/// and Errata Collection 3's Issue #215 has a reader ignore the two where a producer specified
+/// them all the same — so a `/Mask` beside `/ImageMask true` masks nothing and overrides nothing.
+fn stencil(document: &Document, dict: &Dictionary) -> bool {
+    matches!(document.get_key(dict, "ImageMask"), Object::Boolean(true))
 }
 
 /// Applies §8.9.6.3's explicit mask: where the stencil does not mark, the image is not drawn.

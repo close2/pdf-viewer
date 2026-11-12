@@ -1313,7 +1313,7 @@ fn cmap_embedded_or_predefined(exam: &Examination<'_>, findings: &mut Findings) 
 fn cmap_uses_only_predefined_cmaps(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for number in document.xref().object_numbers() {
-        let id = ObjectId::new(number, 0);
+        let id = document.defined_id(number);
         let Object::Stream(stream) = document.get(id) else {
             continue;
         };
@@ -1363,7 +1363,7 @@ fn cmap_uses_only_predefined_cmaps(exam: &Examination<'_>, findings: &mut Findin
 fn embedded_cmap_states_its_own_write_mode(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for number in document.xref().object_numbers() {
-        let id = ObjectId::new(number, 0);
+        let id = document.defined_id(number);
         let Object::Stream(stream) = document.get(id) else {
             continue;
         };
@@ -3494,7 +3494,7 @@ fn reaches_replacement_text(
 fn actual_text_states_no_private_use(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for number in document.xref().object_numbers() {
-        let id = ObjectId::new(number, 0);
+        let id = document.defined_id(number);
         let dict = match document.get(id) {
             Object::Dictionary(dict) => dict,
             Object::Stream(stream) => stream.dict.clone(),

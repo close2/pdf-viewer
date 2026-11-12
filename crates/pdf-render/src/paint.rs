@@ -867,15 +867,17 @@ impl Image {
     /// > the pixel area. If the resolution of the source image is higher than that of device
     /// > space, some source samples might not be used.
     ///
-    /// That is point sampling, and this function is the averaging that sentence forbids. What
-    /// licenses the departure is §10.7.1's own framing of the clause it sits in — "the
-    /// specifics of the scan conversion algorithm are not defined as part of PDF. Different
-    /// implementations can perform scan conversion in different ways; techniques that are
-    /// appropriate for one device could be inappropriate for another" — together with the
-    /// fact that this tree already departs from the same subclause's *first* rule, since
-    /// anti-aliasing a fill is not "painting any pixel whose half-open square region
-    /// intersects the shape". §10.7.4 describes a device that quantises coverage to whole
-    /// pixels; a display does not, and neither does this renderer.
+    /// That is point sampling, and this function is the averaging that sentence forbids. **The
+    /// departure is a documented choice, and nothing in the standard licenses it** (ADR 0025,
+    /// qualified by ADR 2812): §10.7.1's NOTE — "the specifics of the scan conversion
+    /// algorithm are not defined as part of PDF. Different implementations can perform scan
+    /// conversion in different ways; techniques that are appropriate for one device could be
+    /// inappropriate for another" — is informative and cannot set aside §10.7.4's `shall`. It
+    /// says why the choice is a reasonable one for a display, beside the fact that this tree
+    /// already departs from the same subclause's *first* rule, since anti-aliasing a fill is
+    /// not "painting any pixel whose half-open square region intersects the shape". §10.7.4
+    /// describes a device that quantises coverage to whole pixels; a display does not, and
+    /// neither does this renderer.
     ///
     /// The cost of the choice is recorded rather than assumed away: a producer who relied on
     /// a particular sample surviving the reduction — a one-pixel rule, a dither pattern —

@@ -64,8 +64,8 @@ impl Document {
     /// cases that matter.
     #[must_use]
     pub fn get(&self, id: ObjectId) -> Object {
-        if let Some(cached) = read(&self.cache).get(&id.number) {
-            return cached.clone();
+        if let Some((generation, cached)) = read(&self.cache).get(&id.number) {
+            return defined_at(*generation, id, cached.clone());
         }
 
         // Loading an object can need other objects: an indirect `/Length`, an indirect
@@ -76,11 +76,36 @@ impl Document {
         if !self.begin_loading(id.number) {
             return Object::Null;
         }
-        let object = self.load(id).unwrap_or(Object::Null);
+        let (generation, object) = self.load(id).unwrap_or((id.generation, Object::Null));
         self.end_loading(id.number);
 
-        write(&self.cache).insert(id.number, object.clone());
-        object
+        write(&self.cache).insert(id.number, (generation, object.clone()));
+        defined_at(generation, id, object)
+    }
+
+    /// The generation the file defines `number` at, so that a walk over the file's object
+    /// numbers names each object as the file does.
+    ///
+    /// [`Self::get`] treats a reference at any other generation as undefined (ISO 32000-2
+    /// §7.3.10), so a walk that built every identifier at generation zero would read an object
+    /// a reused number defines at generation one as null. Zero for a number that defines nothing,
+    /// which [`Self::get`] then reads as null either way.
+    #[must_use]
+    pub fn generation_of(&self, number: u32) -> u16 {
+        if let Some((generation, _)) = read(&self.cache).get(&number) {
+            return *generation;
+        }
+        // Loading caches the generation the file states, whichever one is asked for.
+        let _ = self.get(ObjectId::new(number, 0));
+        read(&self.cache)
+            .get(&number)
+            .map_or(0, |(generation, _)| *generation)
+    }
+
+    /// The identifier `number` is defined under in this file: [`Self::generation_of`] beside it.
+    #[must_use]
+    pub fn defined_id(&self, number: u32) -> ObjectId {
+        ObjectId::new(number, self.generation_of(number))
     }
 
     /// Records that this thread has begun loading `number`, or reports a cycle.
@@ -200,8 +225,9 @@ impl Document {
         let held = {
             let cache = read(&self.cache);
             match cache.get(&id.number) {
-                Some(Object::Reference(_)) | None => Held::Unread,
-                Some(object) => object.as_dict().map_or(Held::NotADictionary, |dict| {
+                Some((_, Object::Reference(_))) | None => Held::Unread,
+                Some((generation, _)) if *generation != id.generation => Held::NotADictionary,
+                Some((_, object)) => object.as_dict().map_or(Held::NotADictionary, |dict| {
                     Held::Entry(dict.get(key).cloned().unwrap_or(Object::Null))
                 }),
             }
@@ -219,8 +245,13 @@ impl Document {
         }
     }
 
-    /// Loads an object from wherever the cross-reference table says it is.
-    pub(super) fn load(&self, id: ObjectId) -> Option<Object> {
+    /// Loads an object from wherever the cross-reference table says it is, with the generation
+    /// the file defines it at.
+    ///
+    /// An object at an offset is defined at the generation its own header states; a compressed
+    /// object at zero, because ISO 32000-2 §7.5.7 says "The generation number of an object
+    /// stream and of any compressed object shall be zero".
+    pub(super) fn load(&self, id: ObjectId) -> Option<(u16, Object)> {
         let Some(location) = self.xref.location(id.number) else {
             // The table's own header said an entry for this number was there and the entry
             // itself was not read, so nothing has said the number names nothing — which is
@@ -240,7 +271,9 @@ impl Document {
                 // graph silently, so what is at the offset is used only when it says it is
                 // this object — and where it does not, the file's own headers are asked.
                 match self.parse_at(offset) {
-                    Some((found, object)) if found.number == id.number => Some(object),
+                    Some((found, object)) if found.number == id.number => {
+                        Some((found.generation, object))
+                    }
                     _ => self.load_by_header(id),
                 }
             }
@@ -252,7 +285,25 @@ impl Document {
                     .get(&id.number)
                     .cloned()
                     .or_else(|| expanded.values().nth(index as usize).cloned())
+                    .map(|object| (0, object))
             }
         }
+    }
+}
+
+/// The object a reference names, given the generation the file defines its number at.
+///
+/// ISO 32000-2 §7.3.10 identifies an indirect object by its object number *and* its generation
+/// number, and:
+///
+/// > An indirect reference to an undefined object shall not be considered an error by a PDF
+/// > processor; it shall be treated as a reference to the null object.
+///
+/// So a reference naming a defined number at another generation is a reference to null.
+fn defined_at(generation: u16, id: ObjectId, object: Object) -> Object {
+    if generation == id.generation {
+        object
+    } else {
+        Object::Null
     }
 }

@@ -59,6 +59,6 @@ pub use serialize::{
     Access, Assembly, AssemblyError, Entropy, Form, ObjectStreams, Options, Protection,
     SerializeError, Streams, SystemEntropy, Written, serialize, serialize_encrypted,
 };
-pub use text_string::{is_text_string, text_string};
+pub use text_string::{is_text_string, pdf_doc_encoded_string, text_string, text_string_languages};
 pub use version::Version;
 pub use xref::{Location, SectionRecord, XrefTable};

@@ -74,13 +74,16 @@ pub(crate) struct Outcome {
     pub(crate) redraw: bool,
 }
 
-/// Whether this dictionary is one of §12.5.6.14's popup annotations, or a §12.5.6.4 text
-/// annotation, which displays a window of its own where it states no popup (ADR 1723).
+/// Whether this dictionary is one of §12.5.6.14's popup annotations, or one whose clause has it
+/// display a window of its own when opened where it states no popup — §12.5.6.4's text note,
+/// §12.5.6.12's stamp and the rest `pdf_model::popup::opens_a_window` names (ADRs 1723, 2814).
 fn has_a_window(document: &Document, dict: &Dictionary) -> bool {
     document
         .get_key(dict, "Subtype")
         .as_name()
-        .is_some_and(|subtype| matches!(subtype.as_bytes(), b"Popup" | b"Text"))
+        .is_some_and(|subtype| {
+            subtype.as_bytes() == b"Popup" || pdf_model::popup::opens_a_window(subtype.as_bytes())
+        })
 }
 
 /// The annotation under a point in default user space of one page, where it is a link.
@@ -132,20 +135,28 @@ pub(crate) fn activate(open: &mut Open, page: usize, x: f32, y: f32) -> Outcome 
     drop(links);
     // The click is Table 197's `/U` on the link, and a link's `/A` is that event's chain by the
     // table's own precedence, so its scripts are handed to the runner here as a widget's are at
-    // the same event (ADRs 1750, 1752); the page is interpreted again only where what the scripts
-    // did can have changed what it draws (ADR 1771).
-    let ran = link_id.map(|id| {
-        open.view
-            .run_annotation_scripts(&open.document, id, Trigger::Up)
-    });
+    // the same event (ADRs 1750, 1752), each where the chain puts it among the other actions
+    // (ADR 2814); the page is interpreted again only where what the scripts did can have changed
+    // what it draws (ADR 1771).
+    let before = open.view.clone();
+    let (ran, requests) = match link_id {
+        Some(id) => {
+            let (ran, requests) =
+                open.view
+                    .perform_annotation_chain(&open.document, id, Trigger::Up, &actions);
+            (Some(ran), requests)
+        }
+        None => (None, open.view.perform_all(&open.document, &actions)),
+    };
     let scripted = ran.is_some_and(|ran| ran.answered());
     if ran.is_some_and(|ran| ran.changed) {
         open.stale();
     }
     let actions = handed_over(actions, scripted);
-    perform(
+    resolve(
         open,
         &actions,
+        Performed { before, requests },
         destination,
         Some(((x, y), rect)),
         // Table 240 bit 5 measures from "the field's widget annotation rectangle", which is a
@@ -266,6 +277,40 @@ pub(crate) fn activate_object(open: &mut Open, id: ObjectId) -> Outcome {
     // clicking an annotation; it shall be ignored for actions associated with outline items" —
     // so the clause itself says what a caller with no cursor position does here.
     perform(open, &actions, destination, None, None, "this item")
+}
+
+/// Performs the catalog's `/OpenAction` where it is an action, at the first present.
+///
+/// ISO 32000-2 §7.7.2 Table 29: "A value specifying a destination that shall be displayed or an
+/// action that shall be performed when the document is opened." The destination half — an array,
+/// or a go-to action's `/D` — is the view the document opens to and was applied when it was read
+/// (`Open::around`), and the chain's ECMAScript actions are the open sequence's
+/// (`ViewState::run_open_scripts`), which reports them where they do not run. Everything else in
+/// the chain is performed here, as a link's chain is at a click, so a `/Named /LastPage` opens the
+/// document on its last page (ADR 2814). `None` where the entry is not an action, or the action
+/// is the go-to already shown and nothing follows it.
+pub(crate) fn open_action(open: &mut Open) -> Option<Outcome> {
+    let catalog = open.document.catalog().ok()?;
+    let entry = catalog.get("OpenAction")?.clone();
+    // An array is a destination, and the open has shown it already.
+    open.document.resolve(&entry).as_dict()?;
+    let mut actions = pdf_model::action::read(&open.document, &entry);
+    // The root go-to is the destination the document opened to.
+    if matches!(actions.first(), Some(Action::GoTo(_))) {
+        actions.remove(0);
+    }
+    let actions = handed_over(actions, true);
+    if actions.is_empty() {
+        return None;
+    }
+    Some(perform(
+        open,
+        &actions,
+        None,
+        None,
+        None,
+        "the document's open action",
+    ))
 }
 
 /// Whether a dictionary is one of §12.4.3's article threads.
@@ -529,12 +574,43 @@ fn perform(
     click: Option<Click>,
     subject: &str,
 ) -> Outcome {
-    let mut outcome = Outcome::default();
-
     // §12.6.4's actions first, because two of the eleven this program performs change what the
     // *current* page draws — a layer's state (§12.6.4.13) and an annotation's Hidden flag
     // (§12.6.4.11) — and a link may do both and then jump.
     let before = open.view.clone();
+    let requests = open.view.perform_all(&open.document, actions);
+    resolve(
+        open,
+        actions,
+        Performed { before, requests },
+        destination,
+        at,
+        click,
+        subject,
+    )
+}
+
+/// What performing a chain's actions left: the view state before they ran, which decides a
+/// redraw, and what they asked of the viewer.
+struct Performed {
+    /// The view state before the first action of the chain.
+    before: pdf_model::view::ViewState,
+    /// What the actions asked for, in order.
+    requests: Vec<Request>,
+}
+
+/// [`perform`]'s second half, for a chain whose actions have already run: says what was declined
+/// and resolves the requests into an [`Outcome`].
+fn resolve(
+    open: &mut Open,
+    actions: &[Action],
+    Performed { before, requests }: Performed,
+    destination: Option<pdf_model::destination::Destination>,
+    at: Option<((f32, f32), [f32; 4])>,
+    click: Option<Click>,
+    subject: &str,
+) -> Outcome {
+    let mut outcome = Outcome::default();
     // Trap 5, on the one path where an action can be declined: every type Table 201 lists and
     // this program does not perform arrives as `Action::Refused` carrying its own reason, and
     // dropping it silently would make a click that does nothing indistinguishable from a click
@@ -544,7 +620,6 @@ fn perform(
             outcome.notes.push(format!("{subject} declines — {why}"));
         }
     }
-    let requests = open.view.perform_all(&open.document, actions);
 
     // The first request that names a page wins, because a chain that jumps twice has shown the
     // second page either way and §12.6.2 states no rule for the pair.

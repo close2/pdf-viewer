@@ -79,7 +79,6 @@ impl Host {
         let Some(job) = self.print.as_ref() else {
             return empty_print_job();
         };
-        let range = job.defaults.page_range.first().copied().unwrap_or((0, 0));
         QtPrintJob {
             pages: job.pages,
             page_width: job.page.0,
@@ -100,11 +99,16 @@ impl Host {
                 Some(pdf_model::viewer_preferences::Duplex::FlipLongEdge) => 1,
                 Some(pdf_model::viewer_preferences::Duplex::FlipShortEdge) => 2,
             },
-            // One-based, as Table 147's own NOTE insists, and the first pair only: a
-            // `QPrintDialog` states one range and the entry may state several, so what a dialogue
-            // opens on is the first of them and a person changes it (ADR 1180).
-            from_page: narrow(range.0),
-            to_page: narrow(range.1),
+            // One-based, as Table 147's own NOTE insists, and every pair: §12.2's
+            // `/PrintPageRange` is "an array containing an even number of integers" naming each
+            // range, and Qt's `QPageRanges` holds several, so the dialogue opens on all of them
+            // as the GTK host's does (ADR 2814).
+            page_ranges: job
+                .defaults
+                .page_range
+                .iter()
+                .flat_map(|&(first, last)| [narrow(first), narrow(last)])
+                .collect(),
             no_scaling: job.defaults.scaling
                 == pdf_model::viewer_preferences::PrintScaling::NoScaling,
         }
@@ -246,8 +250,7 @@ fn empty_print_job() -> QtPrintJob {
         enforcement: String::new(),
         copies: 0,
         duplex: -1,
-        from_page: 0,
-        to_page: 0,
+        page_ranges: Vec::new(),
         no_scaling: false,
     }
 }

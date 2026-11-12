@@ -1200,6 +1200,38 @@ struct State {
     overprint: Overprint,
     /// ISO 32000-2 §11.3.4's current blending colour space, where a group established one.
     blending: Blending,
+    /// Which of Annex Q.2's four conditions the current graphics state meets.
+    transparency: Transparency,
+}
+
+/// ISO 32000-2 Annex Q.2's four conditions, each as the last `gs` that stated its key left it.
+///
+/// Q.2 tests the graphics state of an element "to be rendered", so the conditions travel with
+/// the state, are saved and restored by `q` and `Q` with it, and mark a page only where a
+/// rendering operator meets them. A key a `gs` does not state keeps the value an earlier one gave
+/// it, as §8.4.5 has every graphics state parameter dictionary set only the parameters it names.
+#[derive(Clone, Copy, Default)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "one field per condition Annex Q.2 lists, each set by its own key; an enum would \
+              invent a grouping the annex does not have"
+)]
+struct Transparency {
+    /// `SMask` names a dictionary.
+    soft_mask: bool,
+    /// `ca` is below one.
+    fill_alpha: bool,
+    /// `CA` is below one.
+    stroke_alpha: bool,
+    /// `BM` selects a mode other than `Normal`.
+    blend: bool,
+}
+
+impl Transparency {
+    /// Whether any of the four conditions holds.
+    const fn any(self) -> bool {
+        self.soft_mask || self.fill_alpha || self.stroke_alpha || self.blend
+    }
 }
 
 impl State {
@@ -1790,19 +1822,31 @@ struct Context<'a> {
 /// ISO 32000-2 Annex Q.2's fourth condition, applied to the two dictionaries that carry the
 /// entry: a graphics state parameter dictionary (§8.4.5) and, since PDF 2.0, an annotation
 /// (§12.5.2). `Compatible` is treated as `Normal` because §11.3.5 defines it as that mode under
-/// its older name, so a file that states it has not asked for a blend at all. The array form is
-/// the older one, whose entries a processor picks the first recognised mode from.
+/// its older name, so a file that states it has not asked for a blend at all.
+///
+/// The array form decides by the one mode it selects, which ISO 32000-2 §11.6.3 fixes:
+///
+/// > If encountered, a PDF processor shall use the first blend mode in the array that it
+/// > recognizes (or Normal if it recognizes none of them).
+///
+/// A later entry is never the mode in force, so it cannot make the element transparent.
 fn blends(document: &Document, dict: &Dictionary) -> bool {
-    let other_than_normal = |object: &Object| {
-        object
-            .as_name()
-            .is_some_and(|mode| mode.as_bytes() != b"Normal" && mode.as_bytes() != b"Compatible")
-    };
+    let other_than_normal =
+        |mode: &[u8]| mode != b"Normal".as_slice() && mode != b"Compatible".as_slice();
     match &document.get_key(dict, "BM") {
         Object::Array(modes) => modes
             .iter()
-            .any(|mode| other_than_normal(&document.resolve(mode))),
-        stated => other_than_normal(stated),
+            .find_map(|mode| {
+                document
+                    .resolve(mode)
+                    .as_name()
+                    .map(|name| name.as_bytes().to_vec())
+                    .filter(|name| crate::table::graphics::BLEND_MODES.contains(&name.as_slice()))
+            })
+            .is_some_and(|mode| other_than_normal(&mode)),
+        stated => stated
+            .as_name()
+            .is_some_and(|mode| other_than_normal(mode.as_bytes())),
     }
 }
 
@@ -2547,6 +2591,30 @@ mod tests {
             &[],
         );
         assert!(!Survey::of(&opaque).page_is_transparent(0));
+    }
+
+    /// Annex Q.2 judges the state an element is painted under, and §8.4.5 has a `gs` set only
+    /// the parameters its dictionary names: a later `ca 1` puts the fill alpha back, while a
+    /// `gs` that names no alpha leaves the earlier one in force.
+    #[test]
+    fn annex_q_reads_the_state_each_gs_leaves_at_the_painting_operator() {
+        let states = "/Resources << /ExtGState << /Half << /ca 0.5 >> /Whole << /ca 1 >> \
+                      /Width << /LW 2 >> >> >>";
+        let reset = page_with("/Half gs /Whole gs 0 0 1 1 re f", states, &[]);
+        assert!(
+            !Survey::of(&reset).page_is_transparent(0),
+            "the painted path's fill alpha is one again"
+        );
+        let kept = page_with("/Half gs /Width gs 0 0 1 1 re f", states, &[]);
+        assert!(
+            Survey::of(&kept).page_is_transparent(0),
+            "a gs naming no alpha leaves the half alpha in force"
+        );
+        let unpainted = page_with("/Half gs 0 0 1 1 re n", states, &[]);
+        assert!(
+            !Survey::of(&unpainted).page_is_transparent(0),
+            "a path ended without painting renders no element"
+        );
     }
 
     /// Annex Q.3: a form `XObject` that is a transparency group puts transparency on the page

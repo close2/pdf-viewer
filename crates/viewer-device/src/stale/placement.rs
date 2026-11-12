@@ -49,20 +49,23 @@ fn disagreement(first: Transform, then: Transform, over: &TargetSpec) -> f32 {
 
 /// How far two pages' placements may disagree and still be one placement: **half a device pixel**.
 ///
-/// # Where the number comes from, which is the geometry and not a corpus
+/// # Where the number comes from, and what it is
 ///
-/// A device pixel is a sample of unit spacing, and half of one is the largest distance a point can
-/// move without leaving the pixel it is a sample of. So two placements whose worst disagreement
-/// over the whole picture is under half a pixel put every feature of that picture **in the same
-/// pixel**; the grid this frame is drawn on cannot state them apart. It is the same argument
-/// `TargetSpec::for_page` already rounds a page's extent by (ADR 0064) and it is stated in the
-/// display's own unit, which is the discipline rules 4 and 5 were re-grounded on in ADR 0384.
+/// The worst disagreement over the picture is exact — the four corners bound it, because the
+/// difference of two affines attains its maximum at a vertex — and half a device pixel is the
+/// threshold chosen for it, stated in the display's own unit, which is the discipline rules 4 and
+/// 5 were re-grounded on in ADR 0384. **It is an approximation threshold, not a guarantee that a
+/// feature keeps its pixel**: a feature 0.49 px from a pixel boundary crosses it under a shift of
+/// 0.02 px, so no bound above zero keeps every feature in its cell. What supports half a pixel is
+/// the separation measured below — a scroll's disagreements and a zoom step's lie four orders of
+/// magnitude apart, with this bound between them.
 ///
-/// **What it claims is exactly that and no more.** It does not claim the two resamples are
-/// bit-identical: a filtered sample is a continuous function of the placement, so a sub-pixel
-/// shift moves its weights by a fraction of one. It claims that the choice between them moves
-/// nothing into a different pixel — on a picture that is a deliberate approximation to begin with,
-/// where the *other* error present is a whole-texture resample.
+/// Three things it does not say. It does not claim the two resamples are bit-identical: a filtered
+/// sample is a continuous function of the placement. It admits a disagreement equal to the bound,
+/// since only one above it is refused. And it is measured on the placements as composed, before
+/// `snapped` moves a pure translation to whole device pixels, which may add up to half a pixel on
+/// each axis of its own. The picture is a deliberate approximation to begin with, where the
+/// *other* error present is a whole-texture resample.
 ///
 /// # Why an exact comparison was wrong, which is arithmetic rather than arrangement
 ///
@@ -233,8 +236,7 @@ pub fn absorbed(carried: Carried, pages: usize, trace: impl crate::FrameLines) {
     }
     trace.say(format_args!(
         "one placement for {pages} pages: they disagree by {:.4} px at the worst corner, \
-             against a bound of {AGREEMENT} — half a device pixel, which moves nothing into \
-             another pixel",
+             against a bound of {AGREEMENT}, half a device pixel",
         carried.within
     ));
 }

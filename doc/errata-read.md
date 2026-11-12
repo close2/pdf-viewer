@@ -760,7 +760,8 @@ worth reading, and this is the evidence for it.**
 
 `emit` over all fourteen documents, before writing, on the annotation family — which is
 `doc/todo/02` §4's rule and the one that keeps finding things `check` cannot. §12.5.6.4 carries no
-annotation at all and neither does §12.5.5; §12.5.3 carries **Issue #34, `Review/Completed`**, and
+annotation at all and neither does §12.5.5; §12.5.2's amended NOTE 2, just above §12.5.3's heading on
+physical page 485, carries **Issue #34, `Review/Completed`**, and
 one of its two halves had never been read here:
 
 > When an appearance dictionary is not present, the rendered appearance will be implementation

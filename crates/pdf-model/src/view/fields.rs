@@ -30,6 +30,57 @@ impl ViewState {
     /// Nothing is written to the file here: the import is a statement in this log, and
     /// [`Self::save`] is where it reaches §7.5.6's update with the edits beside it (ADR 1661).
     pub fn import(&mut self, document: &Document, data: &crate::forms_data::FormsData) -> Imported {
+        // Table 248: every `/Doc` script "shall then be executed before the script defined in the
+        // Before entry is executed", `/Before` "just before the FDF file is imported", `/After`
+        // "just after", and `/AfterPermsReady` "after the FDF file is imported and the usage rights
+        // in the PDF document have been determined" — which §12.8.2.3's rights are by the time a
+        // document is open, so it follows `/After` (ADR 2816).
+        let files = data.files();
+        let held: usize = files.iter().map(|file| file.scripts.len()).sum();
+        if held > 0 && self.runner.0.is_none() {
+            self.report(format!(
+                "the FDF file carries {held} Table 248 script(s), and none was run: no host has \
+                 supplied a runner for scripts"
+            ));
+        }
+        let before: Vec<(&str, &str)> = files
+            .iter()
+            .flat_map(|file| {
+                let scripts = &file.scripts;
+                scripts
+                    .doc
+                    .iter()
+                    .map(|(name, script)| (name.as_str(), script.as_str()))
+                    .chain(scripts.before.as_deref().map(|script| ("Before", script)))
+            })
+            .collect();
+        let after: Vec<(&str, &str)> = files
+            .iter()
+            .flat_map(|file| {
+                let scripts = &file.scripts;
+                (scripts.after.as_deref().map(|script| ("After", script)))
+                    .into_iter()
+                    .chain(
+                        scripts
+                            .after_perms_ready
+                            .as_deref()
+                            .map(|script| ("AfterPermsReady", script)),
+                    )
+            })
+            .collect();
+        self.run_fdf_scripts(document, &before);
+        let outcome = self.import_fields(document, data);
+        self.run_fdf_scripts(document, &after);
+        outcome
+    }
+
+    /// [`Self::import`]'s replacement of the fields, pages and annotations, between the two
+    /// moments of Table 248's scripts.
+    fn import_fields(
+        &mut self,
+        document: &Document,
+        data: &crate::forms_data::FormsData,
+    ) -> Imported {
         let table = widgets_by_field_name(document);
         let (matched, unmatched) = crate::forms_data::match_to_document(data, &table);
         let mut outcome = Imported {
@@ -46,6 +97,7 @@ impl ViewState {
         for (widget, import) in &matched {
             let mut import = import.clone();
             named.resolve(document, *widget, &mut import, &mut outcome, &mut awaiting);
+            self.import_options(document, *widget, import.options.as_deref());
             self.imported.insert(*widget, import);
         }
         self.awaiting.append(&mut awaiting);
@@ -54,6 +106,52 @@ impl ViewState {
         // An import changes values, and Table 224's `/CO` recalculates on any change.
         self.recalculate(document, &widgets_by_field_name(document));
         outcome
+    }
+
+    /// States Table 249's `/Opt` for one widget of a choice field: ISO 32000-2 §12.7.8.3.2's
+    ///
+    /// > Unless otherwise indicated in the table, importing a field causes the values of the
+    /// > entries in the FDF field dictionary to replace those of the corresponding entries in the
+    /// > field with the same fully qualified name in the target document.
+    ///
+    /// over Table 249's "\[r]equired; choice fields only" `/Opt`, "\[a]n array of options that
+    /// shall be presented to the user". The replacement is the one a script's `setItems` makes of
+    /// Table 234's `/Opt`, so it is stated as that property: the host's control lists the new
+    /// options, a list box's appearance draws them, an index names one of them and a save writes
+    /// them as the field's `/Opt` (ADR 2816). A Table 249 element is an option, or an option and a
+    /// default appearance string, so each becomes an option whose label is also its value. A
+    /// field that is not a choice field has no `/Opt` to replace and takes nothing.
+    fn import_options(
+        &mut self,
+        document: &Document,
+        widget: ObjectId,
+        options: Option<&[String]>,
+    ) {
+        let Some(options) = options else {
+            return;
+        };
+        let Some(dict) = document.get(widget).as_dict().cloned() else {
+            return;
+        };
+        let field = crate::appearance::Field::read(document, &dict, FieldValue::Stored);
+        if !matches!(
+            field.kind,
+            Some(crate::appearance::FieldKind::Choice { .. })
+        ) {
+            return;
+        }
+        let property = Property::Options(
+            options
+                .iter()
+                .map(|label| crate::form::Choice {
+                    export: None,
+                    label: label.clone(),
+                })
+                .collect(),
+        );
+        let held = self.scripting.drawn.entry(widget).or_default();
+        held.retain(|kept| !kept.replaces(&property));
+        held.push(property);
     }
 
     /// Sets the value of every widget of one field, the way a person typing into it does.
@@ -224,15 +322,30 @@ impl ViewState {
         // any other way takes them with it: a pathname and bytes that no longer belong to it
         // would be the wrong file submitted under the right name.
         self.chosen.remove(name);
-        // Characters are typed and later committed; a choice or a clear is whole when it is made.
-        // The whole text, before `accepted` cuts it to the field's room, is XFA's `fullText`.
-        if let Entered::Text(whole) = value {
-            self.begin_typing(document, name, &taking);
-            let full = scripts::fills(document, &taking, whole, taken.as_deref().unwrap_or(whole));
-            self.hold_typing(name, Some((whole, full)));
-        } else {
-            self.uncommitted.remove(name);
-            self.hold_typing(name, None);
+        // Characters are typed and a choice is selected, and either is committed later; a clear
+        // is whole when it is made. ISO 32000-2 §12.7.5.4, Table 233 bit 27 (`CommitOnSelChange`)
+        // makes a selection a value that waits for its commit like typed text does:
+        //
+        // > If clear, the new value is not committed until the user exits the field.
+        //
+        // and with the bit set a host commits at once, so the commit — and the `/V` validation it
+        // runs — is the same commit either way (ADR 2816). The whole text, before `accepted` cuts
+        // it to the field's room, is XFA's `fullText`.
+        match value {
+            Entered::Text(whole) => {
+                self.begin_typing(document, name, &taking);
+                let full =
+                    scripts::fills(document, &taking, whole, taken.as_deref().unwrap_or(whole));
+                self.hold_typing(name, Some((whole, full)));
+            }
+            Entered::Chosen(_) => {
+                self.begin_typing(document, name, &taking);
+                self.hold_typing(name, None);
+            }
+            Entered::Cleared => {
+                self.uncommitted.remove(name);
+                self.hold_typing(name, None);
+            }
         }
         let mut applied = 0_usize;
         for widget in &taking {

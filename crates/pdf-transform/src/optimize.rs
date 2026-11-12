@@ -611,7 +611,7 @@ fn copy_closure_with(
             .and_then(Object::as_integer)
             .unwrap_or(0);
         for number in 1..u32::try_from(size).unwrap_or(0) {
-            let id = ObjectId::new(number, 0);
+            let id = document.defined_id(number);
             if document.get(id) == Object::Null {
                 continue;
             }

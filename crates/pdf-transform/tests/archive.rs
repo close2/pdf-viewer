@@ -687,6 +687,48 @@ fn the_catalogs_version_is_restated_in_the_shape_part_four_requires() {
 }
 
 #[test]
+fn a_page_tree_nodes_integer_count_other_than_its_leaves_is_restated_from_them() {
+    // ISO 19005-2 and ISO 19005-4 section 5.1, at ISO 32000-2 §7.7.3.2's Table 30 and its NOTE:
+    // "A PDF writer shall ensure that the value of the Count key is consistent with the number of
+    // entries in the Kids array and its descendants which definitively determines the number of
+    // descendant pages." The fixture's root states `0` over its one page, an integer of the same
+    // length, so every offset holds; the row fails, and the count written is the one leaf
+    // (ADR 2819).
+    let sound = b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>";
+    for (fixture, target) in [
+        (Conforming::part_two(), Target::Two(Level::B)),
+        (Conforming::default(), Target::Four(Flavour::Plain)),
+    ] {
+        let mut source = fixture.build();
+        let at = source
+            .windows(sound.len())
+            .position(|window| window == sound)
+            .expect("the fixture's page tree node");
+        source[at..at + sound.len()].copy_from_slice(b"<< /Type /Pages /Kids [3 0 R] /Count 0 >>");
+        assert_ne!(
+            holds(&source, target).verdict(),
+            Verdict::Conforms,
+            "the source fails the row"
+        );
+        let (report, output) = convert(&source, target, Authorisations::default());
+        assert_eq!(
+            decision(
+                &report,
+                "file-structure/page-tree-node-count-counts-its-leaves"
+            ),
+            Decision::Mechanical(Rewrite::PageCountRestated)
+        );
+        let output = output.expect("the document converts");
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+        let catalog = document.catalog().expect("a catalog");
+        let root = document.get_key(&catalog, "Pages");
+        let count = root.as_dict().map(|node| document.get_key(node, "Count"));
+        assert_eq!(count.and_then(|count| count.as_integer()), Some(1));
+    }
+}
+
+#[test]
 fn a_page_tree_nodes_count_that_is_no_integer_is_restated_from_its_leaves() {
     // ISO 19005-2 and ISO 19005-4 section 5.1, at ISO 32000-2 §7.7.3.2's Table 30: `/Count` is a
     // required integer, "[t]he number of leaf nodes (page objects) that are descendants of this
@@ -7131,6 +7173,8 @@ fn an_xfa_resource_written_as_packets_is_kept_as_one_file_where_the_target_holds
             String::from_utf8(template).expect("ascii"),
             String::from_utf8(close).expect("ascii"),
         ],
+        // Table 45 requires the associated file's stream to carry the document's own date.
+        info: Some("/ModDate (D:20260101000000Z)".to_owned()),
         ..Conforming::default()
     }
     .build();
@@ -7865,6 +7909,12 @@ fn a_packet_a_predefined_schema_rejects_with(catalog: String) -> Vec<u8> {
 /// document's first, and `doc/adr/1014` has the text set in a typeface the document itself
 /// carries.
 fn a_document_carrying(packet: String, catalog: String) -> Vec<u8> {
+    a_dated_document_carrying(packet, catalog, None)
+}
+
+/// [`a_document_carrying`] with `info` as its document information dictionary's entries, for a
+/// fixture whose remedy reads the document's own `/ModDate`.
+fn a_dated_document_carrying(packet: String, catalog: String, info: Option<String>) -> Vec<u8> {
     let cmap = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
          /CMapName /Test def\n/CMapType 2 def\n\
          1 begincodespacerange\n<00> <FF>\nendcodespacerange\n\
@@ -7896,6 +7946,7 @@ fn a_document_carrying(packet: String, catalog: String) -> Vec<u8> {
                 LIBERATION_SANS,
             ),
         ],
+        info,
         ..Conforming::part_two()
     }
     .build();
@@ -8207,12 +8258,30 @@ fn a_packet_this_tree_cannot_read_is_kept_on_a_page_when_the_configuration_asks(
     assert_eq!(row.pages, vec![1], "the appended page, zero-based");
 }
 
+/// The date a dictionary's `key` states, parsed, so that two spellings of one date compare equal.
+fn stated_date(
+    document: &Document,
+    dict: &pdf_syntax::Dictionary,
+    key: &str,
+) -> Option<pdf_syntax::Date> {
+    document
+        .get_key(dict, key)
+        .as_string()
+        .and_then(|date| pdf_syntax::Date::parse(&pdf_syntax::text_string(date)))
+}
+
 #[test]
 fn a_packet_this_tree_cannot_read_is_kept_as_a_file_where_the_target_holds_one() {
     // `doc/rfc/0007` section 4.6.1's other mechanism: ISO 19005-4 section 6.9 requires an
     // embedded file to conform to a part of ISO 19005 and Annex A lifts that for PDF/A-4f, so at
     // that target the producer's own packet stays in the archive as a file (`doc/adr/1270`).
-    let source = a_document_carrying(a_packet_that_will_not_parse(), String::new());
+    // The document states its own modification date, which Table 45 requires the associated
+    // file's stream to carry (`doc/adr/2820`).
+    let source = a_dated_document_carrying(
+        a_packet_that_will_not_parse(),
+        String::new(),
+        Some("/ModDate (D:20260101000000Z)".to_owned()),
+    );
     let target = Target::Four(Flavour::F);
     let config = "[site.\"metadata/xmp-packets-well-formed\"]\nremedy = \"preserve\"\n\
          original = \"attach\"\nfresh-packet = true\n";
@@ -8292,6 +8361,13 @@ fn a_packet_this_tree_cannot_read_is_kept_as_a_file_where_the_target_holds_one()
         document.get_key(params, "Size").as_integer(),
         Some(i64::try_from(bytes.len()).expect("a length")),
         "Table 45's Size is the size of the uncompressed embedded file"
+    );
+    // Table 45's ModDate, "required in the case of an embedded file stream used as an associated
+    // file", is the document's own.
+    assert_eq!(
+        stated_date(&document, params, "ModDate"),
+        pdf_syntax::Date::parse("D:20260101000000Z"),
+        "Table 45's ModDate is the source document's latest modification date"
     );
     // §14.13.2: a file associated with the document as a whole is named in the catalog's AF.
     let associated = document.get_key(&catalog, "AF");

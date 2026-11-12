@@ -198,6 +198,10 @@ impl Walk<'_> {
     }
 
     /// One operator, against the state it changes.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per state-changing operator, each beside the state it changes"
+    )]
     fn apply(
         &mut self,
         operator: &Operator,
@@ -207,6 +211,20 @@ impl Walk<'_> {
         context: &Context<'_>,
         reader: &mut ContentReader<'_>,
     ) {
+        // ISO 32000-2 Annex Q.2 tests the graphics state of each element "to be rendered", so a
+        // transparent state marks the page where an operator renders under it, and a state that
+        // `Q` restores before anything is painted marks nothing.
+        let renders = matches!(
+            *operator,
+            Operator::Show { .. }
+                | Operator::Invoke
+                | Operator::Shade
+                | Operator::Paint { .. }
+                | Operator::InlineImage
+        );
+        if renders && state.transparency.any() {
+            self.survey.transparent.insert(context.page);
+        }
         match *operator {
             Operator::Save => {
                 if stack.len() < MAX_NESTING {

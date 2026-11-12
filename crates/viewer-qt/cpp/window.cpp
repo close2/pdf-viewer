@@ -42,6 +42,7 @@
 #include <QMouseEvent>
 #include <QMoveEvent>
 #include <QPainter>
+#include <QPageRanges>
 #include <QPainterPath>
 #include <QPalette>
 #include <QPlainTextEdit>
@@ -2307,11 +2308,19 @@ void MainWindow::runThePrintDialogue()
     }
     const int pages = static_cast<int>(job.pages);
     printer.setFromTo(1, pages);
-    // `/PrintPageRange`, one-based as the table's own NOTE insists, clamped to the document rather
-    // than refused: a document naming a page it has not got has said nothing a dialogue can open
-    // on, and the range it did name is still worth opening on.
-    if (job.from_page > 0 && job.to_page >= job.from_page) {
-        printer.setFromTo(qBound(1, job.from_page, pages), qBound(1, job.to_page, pages));
+    // `/PrintPageRange`, every pair, one-based as the table's own NOTE insists, clamped to the
+    // document rather than refused: a document naming a page it has not got has said nothing a
+    // dialogue can open on, and the ranges it did name are still worth opening on.
+    QPageRanges stated;
+    for (std::size_t pair = 0; pair + 1 < job.page_ranges.size(); pair += 2) {
+        const int from = job.page_ranges[pair];
+        const int to = job.page_ranges[pair + 1];
+        if (from > 0 && to >= from && from <= pages) {
+            stated.addRange(qBound(1, from, pages), qBound(1, to, pages));
+        }
+    }
+    if (!stated.isEmpty()) {
+        printer.setPageRanges(stated);
     }
 
     QPrintDialog dialog(&printer, this);
@@ -2370,14 +2379,12 @@ void MainWindow::runThePrintDialogue()
         return;
     }
 
-    int first = printer.fromPage();
-    int last = printer.toPage();
-    if (first <= 0) {
-        first = 1;
-    }
-    if (last <= 0 || last > pages) {
-        last = pages;
-    }
+    // The ranges the dialogue settled on, several where the document or the person named
+    // several; none means the whole document.
+    const QPageRanges chosen = printer.pageRanges();
+    const int first = chosen.isEmpty() ? 1 : qBound(1, chosen.firstPage(), pages);
+    const int last = chosen.isEmpty() ? pages : qBound(1, chosen.lastPage(), pages);
+    const auto chosenPage = [&chosen](int page) { return chosen.isEmpty() || chosen.contains(page); };
 
     QPainter painter;
     if (!painter.begin(&printer)) {
@@ -2391,10 +2398,15 @@ void MainWindow::runThePrintDialogue()
     // is its *lower*-left one because that is where ISO 32000-2 §8.3.2.3 puts an origin.
     const qreal perPoint = static_cast<qreal>(printer.resolution()) / 72.0;
     std::size_t onSheet = 0;
+    bool begun = false;
     for (int page = first; page <= last; ++page) {
-        if (onSheet == 0 && page != first) {
+        if (!chosenPage(page)) {
+            continue;
+        }
+        if (onSheet == 0 && begun) {
             printer.newPage();
         }
+        begun = true;
         const rust::Vec<std::uint32_t> size = host_->print_page(static_cast<std::size_t>(page - 1));
         for (const rust::String& note : host_->print_reports()) {
             say(text(note));
@@ -3199,11 +3211,36 @@ void MainWindow::rebuildControls()
         }
         case 1: { // Table 231 bit 13: "the field may contain multiple lines of text"
             auto* entry = new QPlainTextEdit(page_);
-            connect(entry, &QPlainTextEdit::textChanged, this, [this, index, entry] {
+            const int cap = control.max_len;
+            connect(entry, &QPlainTextEdit::textChanged, this, [this, index, entry, cap] {
                 if (busy_ || writing_) {
                     return;
                 }
                 Busy guard(busy_);
+                // ISO 32000-2 12.7.5.3, Table 232's MaxLen: "The maximum length of the field's
+                // text, in characters", which no flag exempts a multiline field from. A
+                // QPlainTextEdit has no length property, so the characters past the limit that
+                // this change put in front of the cursor are taken out again before the field
+                // hears of it; under `busy_`, so the removal is not a second change (ADR 2816).
+                // Where the cursor has fewer characters before it than the excess, the rest
+                // comes off the end, so the cap holds whatever the change was.
+                if (cap >= 0) {
+                    QTextCursor cursor = entry->textCursor();
+                    for (int pass = 0; pass < 2; ++pass) {
+                        const qsizetype excess = entry->toPlainText().toUcs4().size() - cap;
+                        if (excess <= 0) {
+                            break;
+                        }
+                        if (pass == 1) {
+                            cursor.movePosition(QTextCursor::End);
+                        }
+                        cursor.clearSelection();
+                        cursor.movePosition(QTextCursor::PreviousCharacter, QTextCursor::KeepAnchor,
+                            static_cast<int>(std::min<qsizetype>(excess, cursor.position())));
+                        cursor.removeSelectedText();
+                    }
+                    entry->setTextCursor(cursor);
+                }
                 const QByteArray utf8 = entry->toPlainText().toUtf8();
                 host_->set_control(index, rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
                 applyUpdates();

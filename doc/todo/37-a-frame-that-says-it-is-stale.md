@@ -119,8 +119,9 @@ in the picture. `stale::one_placement` composes each page's own `settled⁻¹ �
 **It was exact rather than tolerant, and that was the defect** — a scroll's placements differ in
 the last bits of an `f32` inverse, so the sharp layer was refused for a share of a column's ordinary
 view changes (ADR 0444, and the section at the head of this file). What replaced the exactness is a
-bound with a derivation rather than a threshold: half a device pixel, at the worst corner of the
-picture. What removes the refusal on the device rather than bounding it is a placement *per page*:
+threshold on an exact measure: half a device pixel, at the worst corner of the picture — an
+approximation the measured separation of scrolls from zooms supports, not a guarantee that a
+feature keeps its pixel (`stale::AGREEMENT` says why). What removes the refusal on the device rather than bounding it is a placement *per page*:
 the presenter puts the one page texture up once a page, each under that page's own placement and
 showing that page's rectangle alone, so a zoom in a column stands in from the last frame as a single
 page's does (ADR 2416, which takes the price ADR 0461 declined at down to no texture and no render
@@ -287,8 +288,8 @@ claims have been corrected by running it and the corrections are here.
 - ~~**`Refusal::Rearranged` fires on scrolls.**~~ **Taken**
   (ADR 0444), in the order this entry asked for: the bound comes from the geometry — the four
   corners of the picture, because the difference of two affines is convex and attains its maximum at
-  a vertex — and half a device pixel is the raster's own quantisation, the largest distance a point
-  can move without leaving the pixel it is a sample of. The measurement was taken *after*, and what
+  a vertex — and half a device pixel is the threshold chosen on that measure — a threshold,
+  since no bound above zero guarantees that a feature keeps its pixel. The measurement was taken *after*, and what
   it found is a separation rather than a threshold: a scroll's placements differ by 0 to 0.000183 px
   and a zoom step's by 1.25 to 2.75 px, four orders of magnitude apart with the bound between them.
   `stale::AGREEMENT` carries the derivation and both tables; the frame line prints the disagreement

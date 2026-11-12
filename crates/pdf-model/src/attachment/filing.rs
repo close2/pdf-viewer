@@ -233,6 +233,25 @@ pub fn file_specification(name: &[u8], stream: ObjectId, description: Option<&st
     Object::Dictionary(dict)
 }
 
+/// The `/Desc` a file specification placed in the `EmbeddedFiles` name tree carries.
+///
+/// ISO 32000-2 §7.11.3, Table 43, `/Desc`:
+///
+/// > It shall be used for file specification dictionaries referenced from the EmbeddedFiles
+/// > name tree (see 7.7.4, "Name dictionary").
+///
+/// A person who gave no description has still given the file a name, so the name is the
+/// description: it is text the person supplied rather than text this program composes, and a
+/// specification in the tree is never written without the entry the table requires there
+/// (ADR 2812).
+#[must_use]
+pub fn tree_description<'a>(description: Option<&'a str>, name: &'a str) -> &'a str {
+    match description {
+        Some(description) if !description.is_empty() => description,
+        _ => name,
+    }
+}
+
 /// §12.5.6.15's annotation dictionary, Table 187 with Table 166's `/Rect`, `/P` and `/Contents`.
 ///
 /// > A file attachment annotation ( PDF 1.3 ) contains a reference to a file, which typically

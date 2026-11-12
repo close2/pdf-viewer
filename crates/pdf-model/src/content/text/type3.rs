@@ -107,6 +107,7 @@ impl Interpreter<'_> {
             .cloned();
 
         let saved_uncoloured = self.uncoloured;
+        let saved_shape_only = self.shape_only_glyph;
         self.glyph_depth = self.glyph_depth.saturating_add(1);
         self.enter_ledger_frame(crate::content::ledger::Route::Type3Glyph, reference);
         if let Some(reference) = reference {
@@ -137,5 +138,6 @@ impl Interpreter<'_> {
         // than clearing is what lets an uncoloured glyph invoke another one without the
         // inner one's end re-enabling colour for the rest of the outer.
         self.uncoloured = saved_uncoloured;
+        self.shape_only_glyph = saved_shape_only;
     }
 }

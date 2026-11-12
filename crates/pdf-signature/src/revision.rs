@@ -1395,7 +1395,7 @@ fn classify(
         let (kind, exercise) = classify_one(
             signed, current, number, bucket, &material, tables, offset, &templates,
         );
-        if let Some(dict) = dictionary_of(&held.get(ObjectId::new(number, 0))) {
+        if let Some(dict) = dictionary_of(&held.get(held.defined_id(number))) {
             let owned = appearances(held, &dict);
             match kind {
                 Kind::FieldFilledIn | Kind::Signing => {
@@ -1596,13 +1596,12 @@ fn classify_one(
     offset: Option<usize>,
     templates: &[Vec<u8>],
 ) -> (Kind, Exercise) {
-    let id = ObjectId::new(number, 0);
     let held = if bucket == Bucket::Removed {
         signed
     } else {
         current
     };
-    let object = held.get(id);
+    let object = held.get(held.defined_id(number));
     let Some(dict) = dictionary_of(&object) else {
         return (Kind::Unclassified, Exercise::Unrecognised);
     };
@@ -1627,7 +1626,7 @@ fn classify_one(
     let field = field_type(held, &dict);
     match bucket {
         Bucket::Redefined => {
-            let before = signed.get(id);
+            let before = signed.get(signed.defined_id(number));
             if restated(&before, &object) {
                 return (Kind::RestatedUnchanged, Exercise::Nothing);
             }
@@ -2043,11 +2042,10 @@ fn extended_by_instantiation(
     number: u32,
     instantiated: &BTreeSet<u32>,
 ) -> bool {
-    let id = ObjectId::new(number, 0);
-    let Some(after) = dictionary_of(&current.get(id)) else {
+    let Some(after) = dictionary_of(&current.get(current.defined_id(number))) else {
         return false;
     };
-    let Some(before) = dictionary_of(&signed.get(id)) else {
+    let Some(before) = dictionary_of(&signed.get(signed.defined_id(number))) else {
         return false;
     };
     if name(&after, "Type").as_deref() != Some("Pages") {

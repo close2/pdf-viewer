@@ -410,12 +410,12 @@ fn a_text_markups_quadrilaterals_are_drawn_where_its_rect_covers_no_area() {
         interpretation.unsupported
     );
     let raster = render_incomplete(&interpretation);
-    // §12.5.6.10's underline is a bar on the quadrilateral's bottom edge — y 40, and x across the
-    // quadrilateral rather than at the point `/Rect` names.
-    assert!(painted(&raster, 50, 41), "the bar is on the bottom edge");
+    // §12.5.6.10's underline is a bar centred on the quadrilateral's bottom edge — y 40, and x
+    // across the quadrilateral rather than at the point `/Rect` names (ADR 2818).
+    assert!(painted(&raster, 50, 40), "the bar is on the bottom edge");
     assert!(!painted(&raster, 50, 55), "and nowhere else in the quad");
     assert!(
-        !painted(&raster, 5, 41),
+        !painted(&raster, 5, 40),
         "the bar stops at the quadrilateral's own edge"
     );
 }
@@ -2161,10 +2161,13 @@ fn an_annotation_draws_over_the_page_content() {
 ///
 /// The last case is the one Table 170 decides: `/R` is optional, so an annotation with the
 /// pointer over it and no rollover appearance shows its normal one rather than nothing.
+///
+/// The widget states `/H /P`, because Table 191's default `I` would override the down
+/// appearance (ADR 2813) and this test is about which appearance the pointer selects.
 #[test]
 fn the_pointer_chooses_between_an_annotations_appearances() {
     let bytes = pdf_with(
-        "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 \
+        "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 /H /P \
          /AP << /N 6 0 R /D 7 0 R >> >>",
         "/BBox [0 0 80 80]",
         "1 0 0 rg 0 0 80 80 re f",
@@ -2221,9 +2224,9 @@ fn the_pointer_chooses_between_an_annotations_appearances() {
 /// > annotation.
 ///
 /// So a widget stating `/H /N` beside a `/D` shows its **normal** stream while the button is
-/// down and draws nothing over it, where the same widget with no `/H` shows the `/D` its
+/// down and draws nothing over it, where the same widget with `/H /P` shows the `/D` its
 /// producer wrote (`the_pointer_chooses_between_an_annotations_appearances`, the pair this is
-/// read against). `/H /O` is the other direction of the same sentence: the normal stream again,
+/// read against), and with no `/H` at all is Table 191's default `I` (ADR 2813). `/H /O` is the other direction of the same sentence: the normal stream again,
 /// with §11.3.5.2's Difference border over it, which is the clause's own `f(x) = 1 - x`.
 ///
 /// **The sentence is a widget's alone**, which is why the fixture states `/Subtype /Widget`:
@@ -2279,9 +2282,14 @@ fn a_widgets_highlighting_mode_overrides_its_down_appearance() {
         "`I` inverts the normal stream's red rather than showing the blue `/D`"
     );
     assert_eq!(
-        colour_under("", 50, 50),
+        colour_under("/H /P", 50, 50),
         (0, 0, 255),
-        "the control: no `/H` at all beside a `/D` is read as `P`, and the `/D` is shown"
+        "the control: `P` shows the `/D`"
+    );
+    assert_eq!(
+        colour_under("", 50, 50),
+        (0, 255, 255),
+        "no `/H` is Table 191's default `I`, which overrides the `/D` as a stated `I` does"
     );
 }
 
@@ -2482,9 +2490,10 @@ fn with_down_appearance(bytes: Vec<u8>) -> Vec<u8> {
 ///
 /// The fixture states a horizontal `/L` from (20, 50) to (80, 50) with `/LL 20`. Traversing
 /// left to right in this y-up space, clockwise is *downwards* — the same quarter turn
-/// §7.7.3.3's `/Rotate` takes — so the line proper is at y = 30 and nothing is drawn along
-/// y = 50 except the two leaders at its ends. Drawing `/L` itself would paint the middle of
-/// y = 50 and leave y = 30 blank, so the two assertions are the two readings (ADR 0075).
+/// §7.7.3.3's `/Rotate` takes. The leaders extend *from* the line proper in that direction and
+/// end at `/L`, so the line proper is 20 units the other way, at y = 70, and nothing is drawn
+/// along y = 50 except the leaders' ends. Drawing `/L` itself would paint the middle of y = 50,
+/// and putting the line on the clockwise side would paint y = 30 (ADR 2818).
 #[test]
 fn a_line_annotations_leader_lines_put_the_line_where_the_clause_says() {
     let raster = render(pdf_with(
@@ -2495,18 +2504,22 @@ fn a_line_annotations_leader_lines_put_the_line_where_the_clause_says() {
     ));
 
     assert!(
-        painted(&raster, 50, 30),
-        "the line proper is 20 units clockwise of /L, which is below it in a y-up space"
+        painted(&raster, 50, 70),
+        "the leaders run clockwise from the line proper to /L, so the line is above /L"
+    );
+    assert!(
+        !painted(&raster, 50, 30),
+        "and not on the clockwise side of /L"
     );
     assert!(
         !painted(&raster, 50, 50),
         "and /L itself is not the line: only its two leaders touch that row"
     );
     assert!(
-        painted(&raster, 20, 48),
-        "the first leader starts at /L and runs from there"
+        painted(&raster, 20, 52),
+        "the first leader ends at /L and runs from there"
     );
-    assert!(painted(&raster, 80, 40), "and runs to the line proper");
+    assert!(painted(&raster, 80, 60), "to the line proper");
 }
 
 /// A negative `/LL` puts the line on the other side, which is the entry's whole sign rule.
@@ -2522,8 +2535,11 @@ fn a_negative_leader_length_reverses_the_side() {
         "/BBox [0 0 10 10]",
         "",
     ));
-    assert!(painted(&raster, 50, 70), "20 units anticlockwise of /L");
-    assert!(!painted(&raster, 50, 30), "and not on the clockwise side");
+    assert!(
+        painted(&raster, 50, 30),
+        "the leaders run anticlockwise from the line proper, so the line is below /L"
+    );
+    assert!(!painted(&raster, 50, 70), "and not above it");
 }
 
 /// `/LLE` extends each leader past the line, and `/LLO` leaves a gap before it starts.
@@ -2531,8 +2547,9 @@ fn a_negative_leader_length_reverses_the_side() {
 /// Table 178: `/LLE` is "the length of leader line extensions that extend from the line proper
 /// 180 degrees from the leader lines", and `/LLO` "the amount of empty space between the
 /// endpoints of the annotation and the beginning of the leader lines". So with `/LL 20`,
-/// `/LLE 10` and `/LLO 5` the leader occupies the band 5 to 30 units below `/L` — y = 45 down
-/// to y = 20 — and the rows either side of that band are blank.
+/// `/LLE 10` and `/LLO 5` the leader occupies the band 5 to 30 units above `/L` — the line proper
+/// is at y = 70 (ADR 2818), so y = 55 up to y = 80 — and the rows either side of that band are
+/// blank.
 #[test]
 fn a_leader_line_has_an_offset_before_it_and_an_extension_beyond_it() {
     let raster = render(pdf_with(
@@ -2542,19 +2559,19 @@ fn a_leader_line_has_an_offset_before_it_and_an_extension_beyond_it() {
         "",
     ));
     assert!(
-        !painted(&raster, 20, 49),
-        "/LLO leaves the first units below /L empty"
+        !painted(&raster, 20, 50),
+        "/LLO leaves the first units above /L empty"
     );
     assert!(
-        painted(&raster, 20, 40),
+        painted(&raster, 20, 60),
         "the leader runs from there to the line"
     );
     assert!(
-        painted(&raster, 20, 22),
-        "/LLE carries it past the line at y = 30"
+        painted(&raster, 20, 77),
+        "/LLE carries it past the line at y = 70"
     );
     assert!(
-        !painted(&raster, 20, 15),
+        !painted(&raster, 20, 84),
         "and it stops: 20 + 10 units from /L is as far as the clause states"
     );
 }

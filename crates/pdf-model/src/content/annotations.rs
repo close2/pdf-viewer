@@ -146,7 +146,14 @@ impl Interpreter<'_> {
             view,
             crate::annotation::ViewGeometry {
                 rotate: page.rotate,
-                magnification: self.view.magnification(),
+                // ISO 32000-2 §12.5.3's NoZoom keeps a size "on the screen" against "the
+                // magnification level at which the page itself is displayed"; a printed sheet is
+                // drawn at the job's scale and no screen's magnification reaches it (ADR 2813).
+                magnification: if self.view.purpose() == crate::optional_content::Purpose::Print {
+                    None
+                } else {
+                    self.view.magnification()
+                },
                 // §12.5.6.22's media, for a watermark stating Table 193's `/FixedPrint`: "When
                 // displaying a watermark annotation on-screen, interactive PDF processors shall
                 // use the dimensions of the media box".

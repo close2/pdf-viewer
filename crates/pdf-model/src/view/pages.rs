@@ -15,7 +15,8 @@ impl ViewState {
     ///
     /// A template page is a page **this document already holds** — §12.7.7 puts it in the
     /// catalog's `/Templates` name tree, outside the page tree so that it is not displayed until
-    /// something asks for it — so adding one costs a name lookup and no page content at all.
+    /// something asks for it — so adding one costs a name lookup and no page content at all; the
+    /// templates of one FDF page that names several are read into one page (`layered_page`).
     ///
     /// The name trees are read only when the FDF file states a page, which is never for any
     /// document anyone has opened: `CLAUDE.md`'s "nothing eager" applies, and this is the one
@@ -56,8 +57,13 @@ impl ViewState {
             return;
         }
         let named = crate::named_page::NamedPages::read(document);
+        let tree = crate::page::Pages::new(document);
         let mut appearances = NamedPageAppearances::default();
         for page in pages {
+            // Table 251: one FDF page dictionary is one page, and its `/Templates` are "the named
+            // pages that serve as templates on the page" — so the templates this document holds
+            // make one page between them, however many there are (ADR 2816).
+            let mut serving: Vec<ObjectId> = Vec::new();
             for template in &page.templates {
                 let reference = &template.reference;
                 if let Some(file) = &reference.file {
@@ -86,8 +92,7 @@ impl ViewState {
                     ));
                     continue;
                 };
-                self.appended.push(AppendedPage::Named(id));
-                outcome.pages = outcome.pages.saturating_add(1);
+                serving.push(id);
                 if template.fields.is_empty() {
                     continue;
                 }
@@ -113,6 +118,23 @@ impl ViewState {
                 self.awaiting.append(&mut awaiting);
                 outcome.widgets = outcome.widgets.saturating_add(matched.len());
                 outcome.unmatched.extend(unmatched);
+            }
+            let added = match serving.as_slice() {
+                [] => None,
+                [one] => Some(AppendedPage::Named(*one)),
+                several => layered_page(document, &tree, several).map(AppendedPage::Carried),
+            };
+            match added {
+                Some(added) => {
+                    self.appended.push(added);
+                    outcome.pages = outcome.pages.saturating_add(1);
+                }
+                None if serving.len() > 1 => outcome.refused.push(format!(
+                    "an FDF page's {} templates could not be read as one page: a part of a \
+                     template's /Contents did not decode",
+                    serving.len()
+                )),
+                None => {}
             }
         }
     }
@@ -474,6 +496,104 @@ impl<'a> NamedPageAppearances<'a> {
             import.appearance = Some(appearance);
         }
     }
+}
+
+/// One page on which several template pages of this document serve, for an FDF page whose
+/// Table 251 `/Templates` names more than one.
+///
+/// The clause makes them one page and states no arrangement, so this one is a documented choice
+/// that adds no geometry of its own (ADR 2816): the page is the first template's — its boxes, its
+/// `/Rotate`, its group — and every template, the first included, is drawn on it in the array's
+/// order as a form of its own content and resources in its own default user space, unmoved and
+/// unscaled, so that a later template's marks lie over an earlier one's. Each form is the
+/// template's own content stream, as [`carried_page`] carries one; the page's own content does
+/// nothing but paint the forms, and its `/Annots` are the templates' own, which are objects of
+/// this document. `None` where a part of a template's `/Contents` did not decode (trap 5).
+fn layered_page(
+    document: &Document,
+    pages: &crate::page::Pages<'_>,
+    ids: &[ObjectId],
+) -> Option<Dictionary> {
+    let name = |bytes: &[u8]| Name::new(bytes);
+    let rectangle = |edges: [f32; 4]| {
+        Object::Array(
+            edges
+                .iter()
+                .map(|edge| Object::Real(f64::from(*edge)))
+                .collect(),
+        )
+    };
+    let stream = |dict: Dictionary, data: Vec<u8>| {
+        Object::Stream(std::sync::Arc::new(pdf_syntax::Stream {
+            dict,
+            data: data.into(),
+            decryption_failed: false,
+        }))
+    };
+    let mut forms = Dictionary::new();
+    let mut painting = Vec::new();
+    let mut annotations = Vec::new();
+    let mut first = None;
+    for (index, id) in ids.iter().enumerate() {
+        let object = document.get(*id);
+        let dict = object.as_dict()?;
+        let page = pages
+            .index_of(*id)
+            .and_then(|index| pages.get(index))
+            .unwrap_or_else(|| pages.detached(dict));
+        let (content, issues) = page.content_with_report(document);
+        if !issues.is_empty() {
+            return None;
+        }
+        let mut form = Dictionary::new();
+        form.insert(name(b"Type"), Object::Name(name(b"XObject")));
+        form.insert(name(b"Subtype"), Object::Name(name(b"Form")));
+        form.insert(name(b"BBox"), rectangle(page.crop_box));
+        form.insert(
+            name(b"Resources"),
+            Object::Dictionary((*page.resources).clone()),
+        );
+        if let Some(group) = dict.get("Group") {
+            form.insert(name(b"Group"), group.clone());
+        }
+        form.insert(
+            name(b"Length"),
+            Object::Integer(i64::try_from(content.len()).ok()?),
+        );
+        let key = format!("T{index}");
+        forms.insert(name(key.as_bytes()), stream(form, content));
+        painting.extend_from_slice(format!("q /{key} Do Q\n").as_bytes());
+        if let Some(listed) = document.get_key(dict, "Annots").as_array() {
+            annotations.extend(listed.iter().cloned());
+        }
+        if first.is_none() {
+            first = Some((page, dict.get("Group").cloned()));
+        }
+    }
+    let (page, group) = first?;
+    let mut resources = Dictionary::new();
+    resources.insert(name(b"XObject"), Object::Dictionary(forms));
+    let mut contents = Dictionary::new();
+    contents.insert(
+        name(b"Length"),
+        Object::Integer(i64::try_from(painting.len()).ok()?),
+    );
+    let mut out = Dictionary::new();
+    out.insert(name(b"Type"), Object::Name(name(b"Page")));
+    out.insert(name(b"MediaBox"), rectangle(page.media_box));
+    out.insert(name(b"CropBox"), rectangle(page.crop_box));
+    if page.rotate != 0 {
+        out.insert(name(b"Rotate"), Object::Integer(i64::from(page.rotate)));
+    }
+    if let Some(group) = group {
+        out.insert(name(b"Group"), group);
+    }
+    out.insert(name(b"Resources"), Object::Dictionary(resources));
+    out.insert(name(b"Contents"), stream(contents, painting));
+    if !annotations.is_empty() {
+        out.insert(name(b"Annots"), Object::Array(annotations));
+    }
+    Some(out)
 }
 
 /// §12.7.8.3.3's template page from a second file, copied into a page this document can hold.

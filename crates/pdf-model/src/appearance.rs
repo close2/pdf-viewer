@@ -695,23 +695,18 @@ pub(crate) fn construct(
             "its clause states where an appearance stream is placed rather than a mark to draw, \
              and Table 194's entries all transform the annotation rectangle",
         )),
-        // **§12.5.6.18 states this one's answer outright**, and it states it in the prose after
-        // Table 190 rather than in the table (ADR 0901):
-        //
-        // > If AP is not present, the screen annotation shall not have a default visual appearance
-        // > and shall not be printed.
-        //
-        // So a `Screen` with no appearance stream is not an annotation whose artwork is left
-        // unstated; it is one the clause says has none, and Table 190's `/MK` is not a second
-        // route — that cell gives its `/I` entry as "the icon used in generating the appearance
-        // referred to by the screen annotation's AP entry", which describes how a *stored* stream
-        // was made. `crate::annotation::construct` answers the same subtype before reaching this
-        // function, so the viewer never arrives here; [`for_annotation`] has no such caller in
-        // front of it and did arrive, at the catch-all below, whose sentence is about an
-        // annotation that states no subtype and is therefore false of this one.
+        // §12.5.6.18 leaves a `Screen` with no appearance stream nothing to draw. The sentence
+        // that once stated so outright ("If AP is not present, the screen annotation shall not have
+        // a default visual appearance and shall not be printed.") is struck by Errata Collection 3,
+        // issue 42, so drawing nothing is this reader's choice, not a quotation of the clause: Table
+        // 190 states no artwork of its own, and its `/MK` cell gives `/I` as "the icon used in
+        // generating the appearance referred to by the screen annotation's AP entry", which
+        // describes how a *stored* stream was made rather than a second route (ADR 0901 as
+        // qualified by ADR 2818). `crate::annotation::construct` answers the subtype before
+        // reaching this function; [`for_annotation`] has no such caller in front of it.
         b"Screen" => Err(Refusal::NotDerivable(
-            "§12.5.6.18 states that without an AP entry a screen annotation shall not have a \
-             default visual appearance and shall not be printed",
+            "§12.5.6.18 and Table 190 state no artwork for a screen annotation without an AP \
+             entry, so nothing is drawn for it",
         )),
         // Every subtype Table 171 defines has an arm above, except `Popup` and `Projection` —
         // two of the three Table 166 excepts from needing an appearance dictionary at all,
@@ -822,6 +817,9 @@ pub(crate) fn regenerate(
         .map(|border| border.thickness())
         .unwrap_or_default();
 
+    // The stream keeps its own `/Resources` with `/DR`'s added under them, so a `/DA` font name
+    // the stream already defines is laid out in the font the stream will show it in.
+    let resources = with_default_resources(document, stream_resources(document, stored));
     // §12.7.4.3 puts the appearance stream's `/BBox` at the origin, so the text is laid out in
     // the stream's own space rather than the page's.
     let (marks, report) = match field_text(
@@ -836,6 +834,7 @@ pub(crate) fn regenerate(
         Asked::default(),
         Format::of(view),
         fonts,
+        Some(&resources),
     ) {
         Ok(Some(laid_out)) => (laid_out.content, laid_out.owed.map(|owed| owed.detail())),
         // A field with no value has no marks, and an empty marked-content region is the
@@ -855,7 +854,7 @@ pub(crate) fn regenerate(
 
     Some(Regenerated {
         content: spliced(&data, marks.as_bytes()),
-        resources: with_default_resources(document, stream_resources(document, stored)),
+        resources,
         report,
     })
 }
@@ -1224,15 +1223,11 @@ pub(crate) fn for_saving(
     }
 
     // With no stream to splice into, the appearance is built from Table 192's characteristics
-    // and the field's value — and `crate::annotation::construct` says why its `/BBox` is the
-    // annotation's `/Rect`: the marks are written in the page's own default user space, so
-    // §12.5.5's algorithm reduces to the identity.
-    // A widget's rectangle is the file's: §12.5.6.4's fixed-size icon is the only case where a
-    // constructed appearance's box is not `/Rect`, and a widget is not it.
-    let rect = rectangle(document, annotation).unwrap_or([0.0; 4]);
+    // and the field's value, in the form space §12.7.4.3 states for a new one ([`in_form_box`]).
+    let (posed, rect) = in_form_box(annotation, rect);
     let constructed = construct(
         document,
-        annotation,
+        &posed,
         b"Widget",
         crate::view::AnnotationView {
             value,
@@ -1264,6 +1259,37 @@ pub(crate) fn for_saving(
     })
 }
 
+/// The widget posed with its `/Rect` at the origin, and that rectangle: the form space ISO 32000-2
+/// §12.7.4.3 states for an appearance stream a processor writes.
+///
+/// > The lower-left corner of the bounding box ( BBox ) is set to coordinates (0, 0) in the form
+/// > coordinate system. The box's top and right coordinates are taken from the dimensions of the
+/// > annotation rectangle (the Rect entry in the widget annotation dictionary).
+///
+/// A construction reads the widget's own `/Rect` for its geometry, so posing the widget there is
+/// what makes every mark it writes land in that box; with no `/Matrix`, §12.5.5's algorithm
+/// carries the box back onto the widget's `/Rect` by a translation, and the page draws what it
+/// drew before the save (ADR 2818). The pose is only what the construction reads: the widget the
+/// file is written with keeps its `/Rect`.
+fn in_form_box(annotation: &Dictionary, rect: [f32; 4]) -> (Dictionary, [f32; 4]) {
+    let form = [
+        0.0,
+        0.0,
+        (rect[2] - rect[0]).abs(),
+        (rect[3] - rect[1]).abs(),
+    ];
+    let mut posed = annotation.clone();
+    posed.insert(
+        Name::new(&b"Rect"[..]),
+        Object::Array(
+            form.iter()
+                .map(|edge| Object::Real(f64::from(*edge)))
+                .collect(),
+        ),
+    );
+    (posed, form)
+}
+
 /// A toggling button's on and off states, each constructed as the page draws it (ADR 1676).
 ///
 /// The page draws such a widget by constructing it in whichever state it is in
@@ -1281,12 +1307,12 @@ fn toggling_states(
     scripted: &[crate::view::Property],
 ) -> Option<SavedStates> {
     let on = on_state(document, annotation)?;
-    let rect = rectangle(document, annotation).ok()?;
+    let (at_origin, rect) = in_form_box(annotation, rectangle(document, annotation).ok()?);
     let mut states = Vec::new();
     // One for both states, which are the same widget in the same face.
     let fonts = LayoutFonts::new(document);
     for name in [on, Name::new(OFF)] {
-        let mut posed = annotation.clone();
+        let mut posed = at_origin.clone();
         posed.insert(Name::new(&b"AS"[..]), Object::Name(name.clone()));
         let constructed = construct(
             document,
@@ -2174,12 +2200,12 @@ fn polygon(
     // §12.5.6.2: `/C` is a group attribute and `/IC` is not.
     let shared = crate::markup::group_source(document, annotation);
     let border = Border::read(document, annotation, &shared, "C")?;
-    let interior = if closed {
-        colour(document, annotation, "IC")?
-    } else {
-        Colour::None
-    };
-    if !border.strokes() && interior == Colour::None {
+    // Read for both subtypes: a polygon fills its shape with it and a polyline its line endings,
+    // which Table 181 states in one cell.
+    let interior = colour(document, annotation, "IC")?;
+    // A polyline's interior colour fills only endings, which are drawn on its stroke, so a
+    // polyline that strokes nothing draws nothing.
+    if !border.strokes() && (!closed || interior == Colour::None) {
         return Ok(Painted::EMPTY);
     }
 
@@ -2190,17 +2216,25 @@ fn polygon(
     } else {
         None
     };
-    let (fill, stroke) = (interior != Colour::None, border.strokes());
+    let (fill, stroke) = (closed && interior != Colour::None, border.strokes());
     let vertices = if let Some(segments) = path_segments(document, annotation)? {
-        // §12.5.6.9's `/Path` is a sequence of curves, and Table 181 makes `/Vertices` "not
-        // present" where it is used — so the ends an ending would decorate are inside a
-        // construction this routine does not hold. Reported below rather than guessed at.
+        // §12.5.6.9's `/Path` is a sequence of curves, and Table 181's `/Vertices` row says the
+        // entry is "\[r]equired unless a Path key is present, in which case it shall be
+        // ignored" — so a `/Vertices` beside it is not read, and the ends an ending would
+        // decorate are inside a construction this routine does not hold. Reported below rather
+        // than guessed at.
         if let Some(cloud) =
             cloud.and_then(|radius| crate::cloud::cloud(&path_outline(&segments), radius))
         {
             stream.cloud(&cloud, fill, stroke);
         } else {
             write_path(stream, &segments);
+            // §12.5.6.9 describes a polyline as like a polygon "except that the first and last
+            // vertex are not implicitly connected", so a polygon's are, whichever of `/Vertices`
+            // and `/Path` states them: the closing edge is stroked, not only filled.
+            if closed {
+                stream.close();
+            }
             stream.paint(fill, stroke);
         }
         None
@@ -2234,10 +2268,13 @@ fn polygon(
     {
         // Each end's direction is the segment it belongs to, not the whole shape's: a polyline
         // bends, and an arrowhead follows the last leg.
+        // Table 181's `/LE` gives the styles for "the endpoints defined, respectively, by the
+        // first and last pairs of coordinates in the Vertices array", so the first sits on
+        // `first` and points away from `second`.
         draw_endings(
             stream,
             [endings[0], Ending::None],
-            [*second, *first],
+            [*first, *second],
             border.width,
             interior,
         );
@@ -2277,18 +2314,13 @@ fn polygon(
 /// stated as fractions so that they are right at every font size without a constant that is
 /// right at one.
 ///
-/// # Two readings of "counterclockwise", and a construction that needs neither
+/// # Which edge the text sits on
 ///
-/// Table 182 says the four vertices are "in counterclockwise order" and Figure 84 shows
-/// (x1, y1) and (x2, y2) as the *top* edge — which is not counterclockwise in a y-up space,
-/// and every producer follows the figure. Rather than choose, this takes the clause's one
-/// unambiguous sentence: the edge from (x1, y1) to (x2, y2) is the text's direction. The
-/// other two vertices are the opposite edge, and which of them pairs with (x1, y1) is decided
-/// by projecting them onto that direction — true under either reading.
-///
-/// Which of the two edges is the *bottom* is then the one open question, and it is answered by
-/// the page rather than by the clause: the lower midpoint in default user space, ties going to
-/// the second edge, which is Figure 84's arrangement.
+/// Table 182 gives the four vertices "in counterclockwise order" and orients the text "with
+/// respect to the edge connecting points ( x 1 , y 1 ) and ( x 2 , y 2 )"; Figure 84 draws that
+/// edge as the baseline. So the bottom is decided in the text's own frame, never by which edge is
+/// lower on the page, and a quadrilateral turned on the page keeps its underline on the stated
+/// edge — see `Quad::read` (ADR 2818).
 ///
 /// # Why a highlight multiplies
 ///
@@ -2331,7 +2363,9 @@ fn text_markup(
             b"Highlight" => quad.outline(stream),
             b"StrikeOut" => quad.bar(stream, 0.5),
             b"Squiggly" => quad.squiggle(stream),
-            // Underline: a bar sitting on the bottom edge, inside the quadrilateral.
+            // Underline: a bar centred on the bottom edge, the edge Table 182 orients the text
+            // to. Where the bar sits about that edge is this reader's choice; ADR 2818 §4 says
+            // what it costs.
             _ => quad.bar(stream, 0.0),
         }
     }
@@ -2341,50 +2375,77 @@ fn text_markup(
 
 /// One of §12.5.6.10's quadrilaterals, in the frame the clause's own sentence defines.
 ///
-/// `origin` is the bottom edge's first vertex, `along` runs to its second, and `up` is the
-/// offset from the bottom edge to the top one — so `along` is the text's direction and
-/// `up.length()` is the height every fraction below is taken of.
+/// The four corners are kept as stated: Table 182 calls the region a quadrilateral, not a
+/// parallelogram, so a trapezoid's far corner bounds the mark as much as the other three.
+/// `bottom` is the edge the text sits on, in the text's direction, and `top` the opposite edge in
+/// the same direction; every point is a bilinear blend of the two, so `at(u, v)` is `u` of the
+/// way along and `v` of the way up.
 struct Quad {
-    origin: [f32; 2],
-    along: [f32; 2],
-    up: [f32; 2],
+    bottom: [[f32; 2]; 2],
+    top: [[f32; 2]; 2],
 }
 
 impl Quad {
-    /// Reads one quadrilateral, or `None` if it encloses nothing.
+    /// Reads one quadrilateral, or `None` if its text direction has no length.
+    ///
+    /// ISO 32000-2 §12.5.6.10, Table 182: the vertices are given "in counterclockwise order" and
+    /// "\[t]he text shall be oriented with respect to the edge connecting points ( x 1 , y 1 ) and
+    /// ( x 2 , y 2 )". So the text runs from (x1, y1) to (x2, y2), and its up direction is the
+    /// counterclockwise quarter turn of that: a counterclockwise quadrilateral holds its other two
+    /// vertices on that side, which makes (x1, y1)-(x2, y2) the bottom edge, where the text is
+    /// set, whatever way the page turns it (ADR 2818).
+    ///
+    /// A file whose other two vertices lie on the clockwise side has not given the
+    /// counterclockwise order; its text still runs from (x1, y1) to (x2, y2), with the stated edge
+    /// on top and the opposite one below. The opposite edge's two vertices are paired with
+    /// (x1, y1) and (x2, y2) by where each falls along the text's direction, so either order of
+    /// (x3, y3) and (x4, y4) gives the same quadrilateral.
     fn read(vertices: &[[f32; 2]]) -> Option<Self> {
         let (&first, &second) = (vertices.first()?, vertices.get(1)?);
         let (&third, &fourth) = (vertices.get(2)?, vertices.get(3)?);
         let stated = [second[0] - first[0], second[1] - first[1]];
-
-        // The opposite edge, ordered by where each vertex falls along the text's direction,
-        // which is what makes this independent of the two readings of "counterclockwise".
+        if stated[0] == 0.0 && stated[1] == 0.0 {
+            return None;
+        }
         let project = |point: [f32; 2]| {
             (point[0] - first[0]).mul_add(stated[0], (point[1] - first[1]) * stated[1])
         };
-        let (near, far) = if project(third) <= project(fourth) {
-            (third, fourth)
+        let opposite = if project(third) <= project(fourth) {
+            [third, fourth]
         } else {
-            (fourth, third)
+            [fourth, third]
         };
-
-        // Which of the two edges is the bottom: the lower midpoint in default user space,
-        // ties going to the second edge, which is Figure 84's arrangement.
-        let (origin, along, opposite) = if near[1] + far[1] <= first[1] + second[1] {
-            (near, [far[0] - near[0], far[1] - near[1]], first)
+        // Twice the signed distance of the opposite edge's midpoint from the stated edge's line,
+        // positive on its counterclockwise side.
+        let middle = [
+            opposite[0][0] + opposite[1][0] - 2.0 * first[0],
+            opposite[0][1] + opposite[1][1] - 2.0 * first[1],
+        ];
+        let side = stated[0].mul_add(middle[1], -(stated[1] * middle[0]));
+        Some(if side >= 0.0 {
+            Self {
+                bottom: [first, second],
+                top: opposite,
+            }
         } else {
-            (first, stated, near)
-        };
-        let up = [opposite[0] - origin[0], opposite[1] - origin[1]];
-        (along[0] != 0.0 || along[1] != 0.0).then_some(Self { origin, along, up })
+            Self {
+                bottom: opposite,
+                top: [first, second],
+            }
+        })
     }
 
-    /// The point at `u` along the bottom edge and `v` of the way up.
+    /// The point at `u` along the quadrilateral and `v` of the way from its bottom edge to its top.
     fn at(&self, u: f32, v: f32) -> [f32; 2] {
-        [
-            self.origin[0] + self.along[0] * u + self.up[0] * v,
-            self.origin[1] + self.along[1] * u + self.up[1] * v,
-        ]
+        let lerp = |from: [f32; 2], to: [f32; 2], t: f32| {
+            [
+                (to[0] - from[0]).mul_add(t, from[0]),
+                (to[1] - from[1]).mul_add(t, from[1]),
+            ]
+        };
+        let low = lerp(self.bottom[0], self.bottom[1], u);
+        let high = lerp(self.top[0], self.top[1], u);
+        lerp(low, high, v)
     }
 
     /// The whole quadrilateral, as a closed subpath.
@@ -2396,13 +2457,13 @@ impl Quad {
         stream.close();
     }
 
-    /// A bar across the quadrilateral, its lower edge `v` of the way up.
+    /// A bar along the quadrilateral, centred `v` of the way up.
     ///
     /// One sixteenth of the height thick; see the note on [`text_markup`] for why that is a
     /// choice and why it is a fraction.
     fn bar(&self, stream: &mut Stream, v: f32) {
         const THICKNESS: f32 = 1.0 / 16.0;
-        let low = (v - THICKNESS * 0.5).max(0.0);
+        let low = v - THICKNESS * 0.5;
         let high = low + THICKNESS;
         stream.move_to(self.at(0.0, low));
         stream.line_to(self.at(1.0, low));
@@ -2418,8 +2479,9 @@ impl Quad {
         // A wavelength of a third of the height, rounded to a whole number of periods so the
         // squiggle begins and ends at the quadrilateral's own edges, and bounded so that a
         // long quadrilateral with a tiny height cannot ask for an unbounded path.
-        let length = self.along[0].hypot(self.along[1]);
-        let height = self.up[0].hypot(self.up[1]).max(f32::MIN_POSITIVE);
+        let span = |from: [f32; 2], to: [f32; 2]| (to[0] - from[0]).hypot(to[1] - from[1]);
+        let length = span(self.bottom[0], self.bottom[1]);
+        let height = span(self.at(0.5, 0.0), self.at(0.5, 1.0)).max(f32::MIN_POSITIVE);
         let periods = (length / (height / 3.0)).clamp(1.0, 512.0);
         #[expect(
             clippy::cast_possible_truncation,
@@ -2513,8 +2575,9 @@ fn ink(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Out
 /// — with the sign deciding which side: "\[a] positive value shall mean that the leader lines
 /// appear in the direction that is clockwise when traversing the line from its starting point
 /// to its ending point (as specified by L); a negative value shall indicate the opposite
-/// direction." `/LLE` extends each leader "from the line proper 180 degrees from the leader
-/// lines", and `/LLO` is "the amount of empty space between the endpoints of the annotation and
+/// direction." A leader extends *from* the line proper and `/L` is its far end, so a positive
+/// `/LL` puts the line proper counterclockwise of `/L` (ADR 2818). `/LLE` extends each leader
+/// "from the line proper 180 degrees from the leader lines", and `/LLO` is "the amount of empty space between the endpoints of the annotation and
 /// the beginning of the leader lines". That is a complete construction, and this draws it.
 ///
 /// **It was refused on the true observation that `/L` is not the line** — which is a reason to
@@ -2556,7 +2619,12 @@ fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
     // no direction to point in either, which [`draw_endings`] answers for itself.
     let (proper, leaders) = match perpendicular(start, end).filter(|_| leader != 0.0) {
         None => ([start, end], Vec::new()),
-        Some(offset) => {
+        Some(clockwise) => {
+            // The leaders run *from* the line proper in the signed clockwise direction and end at
+            // `/L`, so the line proper lies from `/L` the other way: `/L` minus `/LL` times the
+            // clockwise unit vector, and every distance below is measured in that direction
+            // (ADR 2818).
+            let offset = [-clockwise[0], -clockwise[1]];
             // "A non-negative number": a negative `/LLE` or `/LLO` states no length, so it is
             // dropped rather than reflected — the sign the clause gives a meaning to is `/LL`'s.
             let extension = entry_number(document, annotation, "LLE")
@@ -2594,13 +2662,12 @@ fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
         stream.line_to(to);
     }
     stream.paint(false, true);
-    // **On the line proper's ends, not on `/L`'s**, where the two differ. Table 178 says `/LE`
-    // states the styles "for the endpoints defined … by the first and second pairs of
-    // coordinates … in the L array", and says four rows earlier that with `/LL` present those
-    // coordinates are "the endpoints of the leader lines rather than the endpoints of the line
-    // itself". So the endpoints the first sentence names are not on the line; Figure 80 draws
-    // the arrowhead on the line proper, and an ending is an ending *of a line*.
-    draw_endings(stream, endings, proper, border.width, interior);
+    // **At `/L`'s coordinates, also where `/LL` moves the line proper away from them.** Table 178
+    // names the points outright, and no other entry moves them: `/LE` gives the styles "for the
+    // endpoints defined, respectively, by the first and second pairs of coordinates, (x1, y1)
+    // and (x2, y2), in the L array" (ADR 2818). The line proper is parallel to `/L`, so each
+    // ending still points along the line.
+    draw_endings(stream, endings, [start, end], border.width, interior);
     if let Some(mark) = caption.drawn {
         mark.write(stream);
     }
@@ -3279,6 +3346,7 @@ fn widget(
         Asked::default(),
         Format::of(view),
         fonts,
+        None,
     ) {
         Ok(laid_out) => laid_out,
         Err(refusal) => {
@@ -3953,13 +4021,19 @@ fn list_box_options(
 /// `asked` is what a *question* wants out of the layout and is empty for everything that draws:
 /// where it asks anything at all, an empty field is laid out rather than skipped, because a place
 /// for the next character is exactly what an empty field can still be asked for.
+///
+/// `written_with` is the resource dictionary the laid-out marks will be written under, where that
+/// is not `/DR` alone: a regenerated stream keeps its own `/Resources`, which win over `/DR`'s
+/// same-named entries, so the font a `/DA` name resolves to there is the font the text is measured
+/// in — §12.7.4.3's quadding places the text by its width, and only the font it is shown in has
+/// that width.
 #[expect(
     clippy::too_many_arguments,
     clippy::too_many_lines,
     reason = "one layout's inputs, each a different clause's: the widget, its characteristics, its \
-              box, its value, its appearance state, what a host asked, and Table 199's format, \
-              and the fonts the layouts before it loaded; and one match over §12.7.4.3's field \
-              types, each arm the text that type lays out"
+              box, its value, its appearance state, what a host asked, Table 199's format, the \
+              fonts the layouts before it loaded, and the resources the marks are written under; \
+              and one match over §12.7.4.3's field types, each arm the text that type lays out"
 )]
 fn field_text(
     document: &Document,
@@ -3971,6 +4045,7 @@ fn field_text(
     asked: Asked,
     format: Format<'_>,
     fonts: &LayoutFonts<'_>,
+    written_with: Option<&Dictionary>,
 ) -> Result<Option<variable_text::LaidOut>, Refusal> {
     let field = Field::read(document, annotation, value);
     if field.cyclic {
@@ -4117,7 +4192,7 @@ fn field_text(
     if formatting.red {
         default_appearance.extend_from_slice(b" 1 0 0 rg");
     }
-    let resources = default_resources(document);
+    let resources = written_with.map_or_else(|| default_resources(document), Clone::clone);
     let quadding = Quadding::read(document, &sources);
     if let Some(source) = rich_source {
         let root = crate::rich_text::root_style(document, &resources, &default_appearance);
@@ -4678,6 +4753,7 @@ fn laid_out_in(
         // value as typed rather than as a format shows it (ADR 1579).
         Format::RAW,
         &fonts,
+        None,
     )
     .ok()
     .flatten()

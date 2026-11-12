@@ -82,7 +82,6 @@ use std::time::Duration;
 
 use pdf_archive::{Target, table};
 use pdf_syntax::Document;
-use pdf_syntax::object::ObjectId;
 
 use crate::tool::{Bounds, PLACEHOLDERS, Tool};
 
@@ -3299,7 +3298,7 @@ fn requirement_binds(id: &str, target: Target) -> bool {
 fn embedded_files(document: &Document) -> Vec<(String, Option<String>, String)> {
     let mut out = Vec::new();
     for number in document.xref().object_numbers() {
-        let object = document.get(ObjectId::new(number, 0));
+        let object = document.get(document.defined_id(number));
         let Some(specification) = object.as_dict() else {
             continue;
         };

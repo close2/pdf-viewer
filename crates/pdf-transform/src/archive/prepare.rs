@@ -2364,7 +2364,7 @@ impl Spare {
         for _ in 0..MAX_SPARE_NUMBERS {
             let id = ObjectId::new(self.next, 0);
             self.next = self.next.checked_add(1)?;
-            if document.get(id) == Object::Null {
+            if document.get(document.defined_id(id.number)) == Object::Null {
                 return Some(id);
             }
         }

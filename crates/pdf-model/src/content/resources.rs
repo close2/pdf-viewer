@@ -57,6 +57,26 @@ impl Interpreter<'_> {
         if self.is_hidden() {
             return;
         }
+        self.note_missing_state_resource(category, name, issue);
+    }
+
+    /// Reports a name the current resource dictionary does not define, for an operator that sets
+    /// graphics state rather than paints — reported whether or not the content is hidden.
+    ///
+    /// ISO 32000-2 §8.11.3.1 has hidden content keep its effect on the graphics state:
+    ///
+    /// > Graphics state operations, such as setting the colour, transformation matrix, and
+    /// > clipping, shall still be applied.
+    ///
+    /// So a `gs` or a pattern `scn` that names nothing inside a hidden section leaves the state
+    /// that visible marks after the section's `EMC` are painted with different from what the
+    /// producer stated, and the miss can cost a visible mark where a hidden `Do` cannot.
+    pub(super) fn note_missing_state_resource(
+        &mut self,
+        category: &'static str,
+        name: &Name,
+        issue: &str,
+    ) {
         self.note(Unsupported::MissingResource {
             category,
             detail: format!("/{} {issue}", String::from_utf8_lossy(name.as_bytes())),

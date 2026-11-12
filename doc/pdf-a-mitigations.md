@@ -417,6 +417,23 @@ ISO 19005-2 5.1, ISO 19005-4 5.1 · all six · **built** (`Mechanical`, ADR 2456
 - **Departure** — not needed; departing would leave a node veraPDF reported it could not parse, so
   **C**.
 
+### `file-structure/page-tree-node-count-counts-its-leaves`
+ISO 19005-2 5.1, ISO 19005-4 5.1 · all six · **built** (`Mechanical`, ADR 2819)
+
+- **What was built.** The same `/Count` cell defines the entry as the number of descendant leaves,
+  and its NOTE makes the `/Kids` arrays what "definitively determines the number of descendant
+  pages" and the consistency the writer's to ensure. A node whose integer `/Count` is another
+  number than the leaves its `/Kids` reach fails, named by its object, and the conversion writes
+  there the leaves — so where this reader trusted an under-counting integer and drew fewer pages,
+  the archive holds every page the tree names. An over-count at the root is the loss
+  `page-not-held`, decided from the source before anything is written (ADR 2596). The count stays
+  refused where the node is written inside its parent's `/Kids`, where it is reached by two routes
+  with a different number of leaves beneath each, and past the walk's bounds. `optimize` and
+  `redact`, which rewrite no node, refuse such a source by name.
+- **By target** — none.
+- **From a configuration** — nothing: the remedy loses nothing and asks nothing.
+- **Departure** — not needed.
+
 ### `file-structure/page-tree-node-kids-is-an-array`
 ISO 19005-2 5.1, ISO 19005-4 5.1 · all six · today `the-fence` (ADR 2444)
 

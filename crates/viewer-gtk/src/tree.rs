@@ -31,14 +31,6 @@ use viewer_host::panel::{PanelRow, Picture, RowAction};
 /// page's §12.3.4 `/Thumb` out. `None` is most files and is not a defect (ADR 1251).
 pub(crate) type Previews = Rc<dyn Fn(&str) -> Option<gtk4::gdk::MemoryTexture>>;
 
-/// How many rows the initial expansion will open before it stops.
-///
-/// §12.3.3 lets a document ask for an outline to open — the sign of `/Count` — and ISO 32000-2's
-/// own outline is nine hundred items, so "do what the file asked" has to have an end. A document
-/// that asks for more than this gets the first of them opened and the rest closed, which is a
-/// tree a person can still open by hand.
-const EXPANSION_LIMIT: u32 = 4096;
-
 /// A scrollable tree over these rows, with `act` called for every row a person acts on.
 ///
 /// `pictures` answers a file's own preview where the row asks for one, and is called from `bind`
@@ -85,13 +77,19 @@ fn store(rows: &[PanelRow]) -> gio::ListStore {
     store
 }
 
-/// Opens the rows whose document asked for them to be open, bounded by [`EXPANSION_LIMIT`].
+/// Opens every row whose document asked for it to be open.
+///
+/// §12.3.3 lets a document ask for an item to open — the sign of `/Count` — and every such item
+/// is opened, however many: a cap here would leave items the file asked to show closed, which
+/// is the file's outline drawn otherwise than it states (ADR 2814). The walk has an end without
+/// one, because the rows do: `pdf_model::outline` reads at most its own `MAX_ITEMS`, so the model
+/// cannot grow past that.
 ///
 /// Expanding a row inserts its children after it, so the scan walks forward over a model that
 /// grows underneath it — which is what makes one pass enough for a whole subtree.
 fn open_what_the_document_asked_for(model: &gtk4::TreeListModel) {
     let mut index = 0_u32;
-    while index < model.n_items().min(EXPANSION_LIMIT) {
+    while index < model.n_items() {
         if let Some(row) = model.row(index) {
             let wanted = row
                 .item()

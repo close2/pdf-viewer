@@ -654,6 +654,25 @@ fn a_glyph_stroked_in_a_tiling_pattern_is_tiled() {
         green, 0,
         "and never in the solid colour the pattern replaced"
     );
+    // The cell paints one quarter of its area, so the tiled outline carries roughly a quarter of
+    // the ink the same outline stroked in solid red does. Red ink alone would also pass the two
+    // assertions above if the pattern were drawn as its cell's solid colour.
+    let solid = render(pdf_with_font(
+        &quartered_cell(),
+        "BT /F0 120 Tf 1 0 0 RG 3 w 1 Tr 5 10 Td (A) Tj ET",
+    ));
+    let solid_red = (0..100u32)
+        .flat_map(|y| (0..100u32).map(move |x| (x, y)))
+        .filter(|&(x, y)| {
+            let (r, g, b, alpha) = pixel(&solid, x, y);
+            alpha > 0 && r > g && r > b
+        })
+        .count();
+    assert!(
+        u64::from(red).saturating_mul(2) < u64::try_from(solid_red).unwrap_or(u64::MAX),
+        "and leaves the cell's gaps along the outline unpainted: {red} tiled against \
+         {solid_red} solid"
+    );
 }
 
 /// A glyph filled with a tiling pattern is its outline tiled, not a solid fill.

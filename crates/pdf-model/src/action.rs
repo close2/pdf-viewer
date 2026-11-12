@@ -75,7 +75,8 @@
 //! NOTE 1 also states the one robustness rule the clause gives, and it is a rule about
 //! *documents that are wrong*: "self-referential actions ought not be executed more than
 //! once". A `/Next` is a reference a file controls, so a cycle is a file a reader must
-//! survive; [`read`] visits each action object once and bounds the total.
+//! survive; [`read`] skips an action reached again from itself and bounds the total, while an
+//! array that names one action twice performs it twice (ADR 2814).
 
 use std::collections::BTreeSet;
 
@@ -1574,46 +1575,80 @@ pub fn for_page(document: &Document, page: &Dictionary, event: PageTrigger) -> V
 /// annotation with no `/A` at all.
 #[must_use]
 pub fn read(document: &Document, entry: &Object) -> Vec<Action> {
-    let mut out = Vec::new();
-    let mut seen = BTreeSet::new();
-    push(document, entry, &mut out, &mut seen);
-    out
+    let mut walk = Walk {
+        out: Vec::new(),
+        path: BTreeSet::new(),
+        visits: 0,
+    };
+    walk.push(document, entry);
+    walk.out
 }
 
-/// Appends one action and its `/Next` subtree.
+/// Most action dictionaries one [`read`] visits, counting each occurrence.
 ///
-/// `seen` holds the object identity of every action dictionary already visited, which is what
-/// makes NOTE 1's "self-referential actions ought not be executed more than once" true here.
-/// A *direct* action dictionary has no identity to record; it also cannot be part of a cycle,
-/// because nothing can refer back to it.
-fn push(document: &Document, entry: &Object, out: &mut Vec<Action>, seen: &mut BTreeSet<ObjectId>) {
-    if out.len() >= MAX_ACTIONS {
-        return;
-    }
-    if let Object::Reference(id) = entry
-        && !seen.insert(*id)
-    {
-        return;
-    }
-    let resolved = document.resolve(entry);
-    let Some(dict) = resolved.as_dict() else {
-        return;
-    };
-    if let Some(action) = one(document, dict) {
-        out.push(action);
-    }
+/// [`MAX_ACTIONS`] bounds what is performed; this bounds what is *looked at*, which is not the
+/// same number: an array that names one object twice, nested, doubles the occurrences at every
+/// level, and dictionaries that are no action this program performs add visits without adding
+/// actions.
+const MAX_VISITS: usize = 4 * MAX_ACTIONS;
 
-    // "The value is either a single action dictionary or an array of action dictionaries
-    // that shall be performed in order."
-    let next = dict.get("Next").cloned().unwrap_or(Object::Null);
-    match document.resolve(&next) {
-        Object::Array(items) => {
-            for item in &items {
-                push(document, item, out, seen);
+/// One flattening of a `/Next` tree.
+struct Walk {
+    /// The actions to perform, in order.
+    out: Vec<Action>,
+    /// The object identity of every action dictionary between the root and the one being
+    /// visited — the actions an occurrence could be referring back to.
+    path: BTreeSet<ObjectId>,
+    /// Occurrences visited so far, against [`MAX_VISITS`].
+    visits: usize,
+}
+
+impl Walk {
+    /// Appends one action and its `/Next` subtree.
+    ///
+    /// **A cycle is an action on its own path, and only that.** Table 196 makes `/Next` "an
+    /// array of action dictionaries that shall be performed in order", so an array naming one
+    /// object twice states the action twice and both occurrences are performed. What NOTE 1
+    /// sets aside is the "self-referential" action, one reachable again from itself through its
+    /// own `/Next` — that is the occurrence whose identity is already on `path`, and it is
+    /// skipped. A *direct* action dictionary has no identity to record; it also cannot be part
+    /// of a cycle, because nothing can refer back to it.
+    fn push(&mut self, document: &Document, entry: &Object) {
+        if self.out.len() >= MAX_ACTIONS || self.visits >= MAX_VISITS {
+            return;
+        }
+        self.visits = self.visits.saturating_add(1);
+        let entered = match entry {
+            Object::Reference(id) => {
+                if !self.path.insert(*id) {
+                    return;
+                }
+                Some(*id)
+            }
+            _ => None,
+        };
+        let resolved = document.resolve(entry);
+        if let Some(dict) = resolved.as_dict() {
+            if let Some(action) = one(document, dict) {
+                self.out.push(action);
+            }
+
+            // "The value is either a single action dictionary or an array of action
+            // dictionaries that shall be performed in order."
+            let next = dict.get("Next").cloned().unwrap_or(Object::Null);
+            match document.resolve(&next) {
+                Object::Array(items) => {
+                    for item in &items {
+                        self.push(document, item);
+                    }
+                }
+                Object::Dictionary(_) => self.push(document, &next),
+                _ => {}
             }
         }
-        Object::Dictionary(_) => push(document, &next, out, seen),
-        _ => {}
+        if let Some(id) = entered {
+            self.path.remove(&id);
+        }
     }
 }
 
@@ -2409,6 +2444,24 @@ mod tests {
         ]);
         let actions = read(&doc, &Object::Reference(id(2)));
         assert_eq!(actions.len(), 2, "each action once: {actions:?}");
+    }
+
+    /// Table 196's array performs each occurrence, so an array naming one object twice doubles
+    /// the work at every level it is nested; [`MAX_VISITS`] is what stops forty levels of that
+    /// from being a trillion visits. The dictionaries carry no `/S`, so [`MAX_ACTIONS`] — which
+    /// counts only what is performed — never fires, and only the visit bound can end the walk.
+    #[test]
+    fn repeated_occurrences_nested_deep_are_bounded_by_visits() {
+        let mut objects = vec!["<< /Type /Catalog >>".to_owned()];
+        for level in 2..42_u32 {
+            let next = level.saturating_add(1);
+            objects.push(format!("<< /Next [{next} 0 R {next} 0 R] >>"));
+        }
+        let bodies: Vec<&str> = objects.iter().map(String::as_str).collect();
+        let doc = document(&bodies);
+        let actions = read(&doc, &Object::Reference(id(2)));
+        // Reaching this line is the assertion: without the bound the walk does not end.
+        assert!(actions.is_empty(), "nothing here is an action: {actions:?}");
     }
 
     /// ISO 32000-2 §12.7.6.1's three form action types, each reaching its own answer.

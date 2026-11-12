@@ -458,7 +458,7 @@ impl ViewState {
             }
             added.dict.insert(
                 Name::new(&b"Contents"[..]),
-                Object::String(pdf_syntax::text_string::encode_text_string(text).into()),
+                super::writing::contents_string(text),
             );
             return true;
         }

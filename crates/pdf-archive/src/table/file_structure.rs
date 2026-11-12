@@ -434,6 +434,20 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(page_tree_node_count_is_an_integer),
     },
     Requirement {
+        id: "file-structure/page-tree-node-count-counts-its-leaves",
+        asks: "Every page tree node's integer Count shall equal the number of page objects \
+               beneath it.",
+        // The same table's `/Count` row, "( Required ) The number of leaf nodes (page objects)
+        // that are descendants of this node within the page tree.", and the NOTE under the table
+        // that makes the consistency the writer's: "A PDF writer shall ensure that the value of
+        // the Count key is consistent with the number of entries in the Kids array and its
+        // descendants which definitively determines the number of descendant pages." A `/Count`
+        // that is no integer is the row above's (ADR 2819).
+        clauses: Clauses::both("5.1", "5.1"),
+        applies: Applies::Always,
+        check: Check::Implemented(page_tree_node_count_counts_its_leaves),
+    },
+    Requirement {
         id: "file-structure/page-tree-holds-a-page-it-counts",
         asks: "A document whose page tree root states a Count of one or more shall hold at \
                least one page.",
@@ -2424,6 +2438,108 @@ fn page_tree_node_count_is_an_integer(exam: &Examination<'_>, findings: &mut Fin
         };
         findings.record(place, what);
     });
+}
+
+/// Section 5.1, at ISO 32000-2 §7.7.3.2's Table 30 `/Count` row and its NOTE: an integer `/Count`
+/// other than the leaves the `/Kids` arrays reach beneath its node (ADR 2819).
+///
+/// The leaves are counted as `pdf_model::Pages` counts them where it has no `/Count` to trust: a
+/// `/Kids` entry that is a reference or a dictionary is a child, any other entry is no leaf, a
+/// child naming the node or one above it closes a cycle and is stepped over, and a dictionary with
+/// no `/Kids` array is a leaf unless it declares `/Type /Pages`. A node reached by two routes is
+/// judged on each and named once.
+fn page_tree_node_count_counts_its_leaves(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    let Some(root) = document
+        .catalog()
+        .ok()
+        .and_then(|catalog| catalog.get("Pages").cloned())
+    else {
+        return;
+    };
+    let mut walk = LeafWalk {
+        document,
+        path: Vec::new(),
+        visited: 0,
+        named: std::collections::BTreeSet::new(),
+        findings,
+    };
+    walk.leaves(&root, 0);
+}
+
+/// One count of the page tree's leaves, for [`page_tree_node_count_counts_its_leaves`].
+struct LeafWalk<'a, 'f> {
+    /// The document whose tree is counted.
+    document: &'a Document,
+    /// The node being counted and the nodes above it, root first.
+    path: Vec<ObjectId>,
+    /// Nodes visited, against [`MAX_PAGE_TREE_NODES`].
+    visited: usize,
+    /// The nodes already named, so a node reached twice is named once.
+    named: std::collections::BTreeSet<ObjectId>,
+    /// Where each disagreement is recorded.
+    findings: &'f mut Findings,
+}
+
+impl LeafWalk<'_, '_> {
+    /// The leaves beneath one `/Kids` entry, recording each node that states another number.
+    fn leaves(&mut self, entry: &Object, depth: usize) -> usize {
+        if depth > MAX_PAGE_TREE_DEPTH || self.visited >= MAX_PAGE_TREE_NODES {
+            return 0;
+        }
+        let (id, value) = match entry {
+            Object::Reference(id) => (Some(*id), self.document.get(*id)),
+            Object::Dictionary(_) => (None, entry.clone()),
+            _ => return 0,
+        };
+        let Some(node) = value.as_dict() else {
+            return 0;
+        };
+        self.visited = self.visited.saturating_add(1);
+        let Some(kids) = self
+            .document
+            .get_key(node, "Kids")
+            .as_array()
+            .map(<[Object]>::to_vec)
+        else {
+            let declares_a_node = self
+                .document
+                .get_key(node, "Type")
+                .as_name()
+                .is_some_and(|name| name.as_bytes() == b"Pages");
+            return usize::from(!declares_a_node);
+        };
+        self.path.extend(id);
+        let mut count = 0_usize;
+        for kid in &kids {
+            if let Object::Reference(kid) = kid
+                && self.path.contains(kid)
+            {
+                continue;
+            }
+            count = count.saturating_add(self.leaves(kid, depth.saturating_add(1)));
+        }
+        if id.is_some() {
+            self.path.pop();
+        }
+        if let Some(stated) = self.document.get_key(node, "Count").as_integer()
+            && usize::try_from(stated).ok() != Some(count)
+        {
+            let place = match id {
+                Some(id) if !self.named.insert(id) => return count,
+                Some(id) => Where::object(id),
+                None => Where::file().named("a page tree node written inside its parent's Kids"),
+            };
+            self.findings.record(
+                place,
+                format!(
+                    "a page tree node's Count states {stated} and the Kids beneath it reach \
+                     {count} page objects"
+                ),
+            );
+        }
+        count
+    }
 }
 
 /// Section 5.1, at ISO 32000-2 §7.7.3.2's Table 30 `/Count` row: a root counting one page or more

@@ -655,8 +655,16 @@ impl Viewer {
                 }
             }
             Command::Presented => {
-                if let Some(open) = self.focused_mut() {
-                    open_sequence(open);
+                let Some(id) = self.focused else { return };
+                let Some(open) = self.focused_mut() else {
+                    return;
+                };
+                let first = !open.presented;
+                open_sequence(open);
+                // Table 29's `/OpenAction` is performed "when the document is opened", after the
+                // open sequence's scripts and with the first frame already shown (ADR 2814).
+                if first && let Some(outcome) = interact::open_action(open) {
+                    self.apply(id, outcome, events);
                 }
             }
             Command::SetGroup { group, on } => {

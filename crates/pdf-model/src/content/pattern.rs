@@ -408,7 +408,7 @@ impl Interpreter<'_> {
         // Unresolved first, for the same reason `draw_xobject` reads its entry that way: the
         // reference is the one thing that says which stream a tiling cell is.
         let Some(entry) = self.resource_entry(resources, "Pattern", name) else {
-            self.note_missing_resource("Pattern", name, "is not in /Pattern");
+            self.note_missing_state_resource("Pattern", name, "is not in /Pattern");
             return None;
         };
         let source = entry.as_reference();
@@ -421,7 +421,11 @@ impl Interpreter<'_> {
             // is neither is a pattern with no definition, which is the same failure as a name
             // the subdictionary omits arriving one step later.
             _ => {
-                self.note_missing_resource("Pattern", name, "is not a dictionary or a stream");
+                self.note_missing_state_resource(
+                    "Pattern",
+                    name,
+                    "is not a dictionary or a stream",
+                );
                 return None;
             }
         };

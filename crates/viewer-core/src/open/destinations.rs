@@ -25,8 +25,17 @@ impl Open {
     /// > A null value for any of the parameters left , top , or zoom specifies that the current
     /// > value of that parameter shall be retained unchanged.
     ///
-    /// So an absent coordinate leaves the scroll where it is and an absent zoom leaves the
-    /// magnification, which is why each is applied separately rather than as a whole position.
+    /// So an absent zoom leaves the magnification, and an absent coordinate keeps the *coordinate*
+    /// — the point of default user space at the window's corner before the destination, not the
+    /// pixel scroll that showed it. A new magnification moves every pixel of the page, so a kept
+    /// scroll would be a different `left` and `top`; and a page turn starts the new page at its
+    /// top, so the point is read before the turn ([`Self::retain_corner`]) and taken here. ADR 2814.
+    ///
+    /// **`/FitBH`'s `top` and `/FitBV`'s `left` are coordinates like any other form's.** Table 149
+    /// calls them "the vertical coordinate top" and "the horizontal coordinate left", in the same
+    /// words as `/FitH` and `/FitV`; only the magnification is the bounding box's. So they go
+    /// through the page's transform, and only `/Fit`'s and `/FitB`'s corners — which this function
+    /// works out itself, in the display list's space — do not.
     ///
     /// `bounds` is what the page's contents cover, in the display list's own space, and is only
     /// consulted by the three `/FitB` forms — "the smallest rectangle enclosing all of its
@@ -51,6 +60,12 @@ impl Open {
             return false;
         };
         let before = (self.zoom, self.scroll);
+        // Read before the zoom changes: the point at the corner is a function of the
+        // magnification it was scrolled under.
+        let current = self.retained_corner.take().or_else(|| {
+            self.magnification(viewport, scale)
+                .and_then(|magnification| self.window_corner(magnification))
+        });
         // The box each form fits: the page for five of them, its contents for the `/FitB`
         // family. A `/FitB` on a page whose contents cover nothing falls back to the page,
         // because the alternative is a magnification of infinity.
@@ -102,61 +117,104 @@ impl Open {
             self.zoom = before.0;
             return false;
         };
+        // The point put at the window's top-left corner, and which of its two components the
+        // destination decides. `/Fit` and `/FitB` are worked out here in the display list's
+        // space; every other form states default user space, where a null takes the current
+        // value (`current`) and only a coordinate with neither stays where the scroll has it.
         let corner = match view {
-            View::Xyz { left, top, .. } => (left, top),
-            View::FitH { top } | View::FitBH { top } => (None, top),
-            View::FitV { left } | View::FitBV { left } => (left, None),
-            // Table 149 puts the rectangle's own corner at the window's.
-            View::FitR { rect } => (Some(rect[0].min(rect[2])), Some(rect[1].max(rect[3]))),
             // "Display the page ... with its contents magnified just enough to fit the entire
             // page within the window" — the whole page is in view, so there is nothing to
             // scroll to and the top-left corner is the answer in both directions.
-            View::Fit => (Some(0.0), Some(size.height)),
-            View::FitB => content.map_or((Some(0.0), Some(size.height)), |box_| {
-                (Some(box_.min.x), Some(box_.max.y))
-            }),
+            View::Fit => Some(((0.0, size.height), (true, true))),
+            View::FitB => Some(content.map_or(((0.0, size.height), (true, true)), |box_| {
+                ((box_.min.x, box_.max.y), (true, true))
+            })),
+            View::Xyz { left, top, .. } => self.user_corner((left, top), current, size.height),
+            View::FitH { top } | View::FitBH { top } => {
+                self.user_corner((None, top), current, size.height)
+            }
+            View::FitV { left } | View::FitBV { left } => {
+                self.user_corner((left, None), current, size.height)
+            }
+            // Table 149 puts the rectangle's own corner at the window's.
+            View::FitR { rect } => self.user_corner(
+                (Some(rect[0].min(rect[2])), Some(rect[1].max(rect[3]))),
+                current,
+                size.height,
+            ),
         };
-        self.scroll_to(corner, view, magnification, size.height);
+        if let Some((point, decided)) = corner {
+            self.scroll_to(point, decided, magnification, size.height);
+        }
         crate::layout::settle_scroll(self, viewport, scale, magnification);
         (self.zoom, self.scroll) != before
     }
 
-    /// Puts a point of the page at the window's top-left corner.
+    /// Records the point at the window's corner before a page turn discards the scroll, so that a
+    /// waiting destination's null `left` or `top` can keep it (Table 149).
     ///
-    /// The `/FitB` forms already carry display-list coordinates, because that is the space a
-    /// content bounding box is measured in; every other form states default user space and goes
-    /// through the page's transform first.
+    /// Does nothing where no view is waiting: a turn with no destination starts the page at its
+    /// top, and that is the turn's own rule rather than a value a destination retains.
+    pub(crate) fn retain_corner(&mut self, viewport: (u32, u32), scale: f32) {
+        if self.pending_views.is_empty() {
+            return;
+        }
+        self.retained_corner = self
+            .magnification(viewport, scale)
+            .and_then(|magnification| self.window_corner(magnification));
+    }
+
+    /// The point of default user space at the window's top-left corner of the current page.
+    fn window_corner(&self, magnification: f32) -> Option<(f32, f32)> {
+        let size = self.page_size(self.page_index)?;
+        let page = self.shown_page()?;
+        // The inverse of `scroll_to`: a scroll counts down from the top, the display list's y
+        // counts up from the bottom.
+        pdf_model::content::user_space_at(
+            page,
+            self.scroll.0 / magnification,
+            size.height - self.scroll.1 / magnification,
+        )
+    }
+
+    /// A corner stated in default user space, with each null filled from `current`, carried into
+    /// the display list's space through the page's transform (§7.7.3.3's rotation, the crop
+    /// box's origin, `/UserUnit`).
+    ///
+    /// Answers which components were decided — stated or retained — beside the point; `None`
+    /// where neither was, which leaves the scroll as it is.
+    fn user_corner(
+        &self,
+        stated: (Option<f32>, Option<f32>),
+        current: Option<(f32, f32)>,
+        page_height: f32,
+    ) -> Option<((f32, f32), (bool, bool))> {
+        let left = stated.0.or(current.map(|corner| corner.0));
+        let top = stated.1.or(current.map(|corner| corner.1));
+        if left.is_none() && top.is_none() {
+            return None;
+        }
+        let (x, y) = (left.unwrap_or(0.0), top.unwrap_or(page_height));
+        let point = match self.shown_page() {
+            Some(page) => pdf_model::content::page_space_at(page, x, y),
+            None => (x, y),
+        };
+        Some((point, (left.is_some(), top.is_some())))
+    }
+
+    /// Puts a point of the display list's space at the window's top-left corner, in each
+    /// direction `decided` names.
     fn scroll_to(
         &mut self,
-        corner: (Option<f32>, Option<f32>),
-        view: pdf_model::destination::View,
+        (x, y): (f32, f32),
+        decided: (bool, bool),
         magnification: f32,
         page_height: f32,
     ) {
-        use pdf_model::destination::View;
-
-        let already_page_space = matches!(
-            view,
-            View::Fit | View::FitB | View::FitBH { .. } | View::FitBV { .. }
-        );
-        let (x, y) = match (corner.0, corner.1) {
-            (None, None) => return,
-            (left, top) => {
-                let point = (left.unwrap_or(0.0), top.unwrap_or(page_height));
-                if already_page_space {
-                    point
-                } else {
-                    match self.shown_page() {
-                        Some(page) => pdf_model::content::page_space_at(page, point.0, point.1),
-                        None => point,
-                    }
-                }
-            }
-        };
-        if corner.0.is_some() {
+        if decided.0 {
             self.scroll.0 = (x * magnification).max(0.0);
         }
-        if corner.1.is_some() {
+        if decided.1 {
             // The display list's y counts up from the bottom of the page and a raster's rows
             // count down from the top, so the distance scrolled is measured from the *top*.
             self.scroll.1 = ((page_height - y) * magnification).max(0.0);

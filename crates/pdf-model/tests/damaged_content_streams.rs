@@ -12,10 +12,13 @@
 //! > certain fonts (9.6.4, "Type 3 fonts"), and annotation appearances (12.5.5, "Appearance
 //! > streams").
 //!
-//! ADR 0343 settled the rule for the first kind: a prefix of a sequence of instructions is a
-//! shorter sequence of the same kind, made of bytes the producer's own encoder emitted, so it is
-//! drawn — and §7.4.1's other half, that this is not "the original form", is the report. ADR 0359
-//! carries that to the four the clause names beside it. `tests/contents_entry.rs` is the same rule
+//! ADR 0343 settled the rule for the first kind: what a damaged filter delivered is drawn as far
+//! as it reads, and §7.4.1's other half, that this is not "the original form", is the report.
+//! ADR 0359 carries that to the four the clause names beside it. **It is a disclosed recovery
+//! choice, not a subset of the producer's page** (ADR 2812): corrupt compressed bytes need not
+//! decode to a prefix of what the producer wrote, and a prefix of a sequence that later paints
+//! over its earlier marks can show marks the whole would have covered — a damaged mask group
+//! can even add ink to a page its intact suffix would have left white. `tests/contents_entry.rs` is the same rule
 //! for Table 31's entry; this file is the rest of the sentence.
 //!
 //! **Each rule is pinned by a pair of fixtures differing only in the damage**, which is trap 8's

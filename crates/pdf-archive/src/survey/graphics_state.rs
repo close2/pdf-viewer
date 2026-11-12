@@ -6,7 +6,7 @@ use pdf_syntax::ObjectId;
 
 use pdf_model::content::ledger::Route as Via;
 
-use super::{Context, State, Walk, below_one, blends};
+use super::{Context, State, Transparency, Walk, below_one, blends};
 
 impl Walk<'_> {
     /// A `gs` operator: Annex Q.2's four conditions on the graphics state it sets.
@@ -17,9 +17,7 @@ impl Walk<'_> {
         let Object::Dictionary(dict) = self.document.resolve(&entry) else {
             return;
         };
-        if self.is_transparent_state(&dict) {
-            self.survey.transparent.insert(context.page);
-        }
+        state.transparency = self.transparency(&dict, state.transparency);
         self.overprint(&dict, entry.as_reference(), state);
         self.soft_mask(&dict, context);
     }
@@ -87,22 +85,39 @@ impl Walk<'_> {
         }
     }
 
-    /// ISO 32000-2 §Q.2's four tests on one graphics state parameter dictionary.
+    /// The Annex Q.2 conditions in force after a `gs` sets `dict` over `before`.
+    ///
+    /// ISO 32000-2 §Q.2's four tests:
     ///
     /// > - SMask key is present and its value is of type dictionary;
     /// > - ca key is present and its value is less than one (1);
     /// > - CA key is present and its value is less than one (1);
     /// > - BM key is present and its value is not Normal.
+    ///
+    /// Each is decided again only where the dictionary states its key, because §8.4.5 has a
+    /// graphics state parameter dictionary set the parameters it names and no others.
+    fn transparency(&self, dict: &Dictionary, before: Transparency) -> Transparency {
+        let mut conditions = before;
+        if dict.get("SMask").is_some() {
+            conditions.soft_mask = self.document.get_key(dict, "SMask").as_dict().is_some();
+        }
+        if dict.get("ca").is_some() {
+            conditions.fill_alpha = below_one(&self.document.get_key(dict, "ca"));
+        }
+        if dict.get("CA").is_some() {
+            conditions.stroke_alpha = below_one(&self.document.get_key(dict, "CA"));
+        }
+        if dict.get("BM").is_some() {
+            conditions.blend = blends(self.document, dict);
+        }
+        conditions
+    }
+
+    /// Whether one graphics state parameter dictionary, set over §8.4.1's initial state, meets
+    /// any of the four tests.
+    #[cfg(test)]
     fn is_transparent_state(&self, dict: &Dictionary) -> bool {
-        if dict.get("SMask").is_some() && self.document.get_key(dict, "SMask").as_dict().is_some() {
-            return true;
-        }
-        if below_one(&self.document.get_key(dict, "ca"))
-            || below_one(&self.document.get_key(dict, "CA"))
-        {
-            return true;
-        }
-        blends(self.document, dict)
+        self.transparency(dict, Transparency::default()).any()
     }
 }
 

@@ -1203,14 +1203,24 @@ pub(crate) fn for_a_file(resources: &Dictionary) -> Result<Dictionary, String> {
         return Ok(resources.clone());
     };
     let mut written = fonts.clone();
+    // Each subset's name, with the font that carries it: a tag is a digest, and two different
+    // subsets may digest alike, so a later one meeting an earlier one's tag is given another.
+    let mut named: std::collections::BTreeMap<Vec<u8>, Dictionary> =
+        std::collections::BTreeMap::new();
     for (key, font) in fonts.iter() {
         let Some(font) = font.as_dict().filter(|font| is_machine_font(font)) else {
             continue;
         };
-        written.insert(
-            key.clone(),
-            Object::Dictionary(machine_font_for_a_file(font)?),
-        );
+        let mut subset = machine_font_for_a_file(font)?;
+        while let Some(name) = subset_name(&subset)
+            && named.get(&name).is_some_and(|earlier| *earlier != subset)
+        {
+            retag(&mut subset, &name);
+        }
+        if let Some(name) = subset_name(&subset) {
+            named.insert(name, subset.clone());
+        }
+        written.insert(key.clone(), Object::Dictionary(subset));
     }
     let mut out = resources.clone();
     out.insert(
@@ -1218,6 +1228,59 @@ pub(crate) fn for_a_file(resources: &Dictionary) -> Result<Dictionary, String> {
         Object::Dictionary(written),
     );
     Ok(out)
+}
+
+/// A written font's `/BaseFont`, where it is a subset's: six letters, a plus sign and a face.
+fn subset_name(font: &Dictionary) -> Option<Vec<u8>> {
+    let name = font.get("BaseFont").and_then(Object::as_name)?.as_bytes();
+    (name.get(6) == Some(&b'+')).then(|| name.to_vec())
+}
+
+/// Gives a written subset the next tag after `name`'s, wherever its name is stated.
+///
+/// ISO 32000-2 §9.9.2:
+///
+/// > The tag shall consist of exactly six uppercase letters; the choice of letters is
+/// > arbitrary, but different subsets of the same font in the same PDF file shall have different
+/// > tags.
+///
+/// The letters are read as a number in base twenty-six and one is added, wrapping from `ZZZZZZ`
+/// to `AAAAAA`, so the result is still six uppercase letters and the same resources always come
+/// out with the same names. The name is `/BaseFont` of the Type 0 font and of its `CIDFont`, and
+/// the descriptor's `/FontName`, which Table 119 and §9.9.2 require to agree.
+fn retag(font: &mut Dictionary, name: &[u8]) {
+    let mut renamed = name.to_vec();
+    for letter in renamed.iter_mut().take(6).rev() {
+        if *letter == b'Z' {
+            *letter = b'A';
+        } else {
+            *letter = letter.saturating_add(1);
+            break;
+        }
+    }
+    let renamed = Object::Name(pdf_syntax::Name::new(renamed));
+    let key = |value: &[u8]| pdf_syntax::Name::new(value.to_vec());
+    font.insert(key(b"BaseFont"), renamed.clone());
+    let Some(Object::Array(descendants)) = font.get("DescendantFonts").cloned() else {
+        return;
+    };
+    let descendants = descendants
+        .into_iter()
+        .map(|descendant| {
+            let Object::Dictionary(mut descendant) = descendant else {
+                return descendant;
+            };
+            descendant.insert(key(b"BaseFont"), renamed.clone());
+            if let Some(Object::Dictionary(mut descriptor)) =
+                descendant.get("FontDescriptor").cloned()
+            {
+                descriptor.insert(key(b"FontName"), renamed.clone());
+                descendant.insert(key(b"FontDescriptor"), Object::Dictionary(descriptor));
+            }
+            Object::Dictionary(descendant)
+        })
+        .collect();
+    font.insert(key(b"DescendantFonts"), Object::Array(descendants));
 }
 
 /// Whether a font dictionary is one [`machine_font`] wrote.

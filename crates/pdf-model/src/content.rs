@@ -1563,6 +1563,7 @@ impl<'a> Interpreter<'a> {
             chain: Vec::new(),
             descriptions_running: Vec::new(),
             uncoloured: false,
+            shape_only_glyph: false,
             enclosing_knockout: None,
             // §8.4.1 Table 51 gives the alpha source parameter an initial value of `false`,
             // so a page that never states `gs` paints entirely under §11.6.4.3's opacity
@@ -1689,6 +1690,7 @@ impl<'a> Interpreter<'a> {
             soft_mask_depth,
             nesting,
             uncoloured,
+            shape_only_glyph,
             enclosing_knockout,
             readings,
             compositing,
@@ -1742,6 +1744,7 @@ impl<'a> Interpreter<'a> {
             soft_mask_depth: *soft_mask_depth,
             nesting: *nesting,
             uncoloured: *uncoloured,
+            shape_only_glyph: *shape_only_glyph,
             enclosing_knockout: *enclosing_knockout,
             readings: *readings,
             compositing: compositing.clone(),
@@ -1792,6 +1795,7 @@ impl<'a> Interpreter<'a> {
             soft_mask_depth,
             nesting,
             uncoloured,
+            shape_only_glyph,
             enclosing_knockout,
             readings,
             compositing,
@@ -1834,6 +1838,7 @@ impl<'a> Interpreter<'a> {
         self.soft_mask_depth = soft_mask_depth;
         self.nesting = nesting;
         self.uncoloured = uncoloured;
+        self.shape_only_glyph = shape_only_glyph;
         self.enclosing_knockout = enclosing_knockout;
         self.readings = readings;
         self.compositing = compositing;
@@ -1943,6 +1948,8 @@ struct Checkpoint {
     nesting: usize,
     /// See [`Interpreter::uncoloured`].
     uncoloured: bool,
+    /// See [`Interpreter::shape_only_glyph`].
+    shape_only_glyph: bool,
     /// See [`Interpreter::enclosing_knockout`].
     enclosing_knockout: Option<KnockoutKind>,
     /// See [`Interpreter::readings`]; its marks index [`Self::list`], which is why the two are
@@ -3051,6 +3058,18 @@ struct Interpreter<'a> {
     /// clause extends the restriction to everything such a stream invokes: an inner figure
     /// finishing must not re-enable colour for the rest of an outer one.
     uncoloured: bool,
+    /// Whether a `d1` glyph description is running, which is narrower than [`Self::uncoloured`]:
+    ///
+    /// ISO 32000-2 §9.6.4, Table 111, `d1`:
+    ///
+    /// > A glyph description that begins with the d1 operator should not execute any operators
+    /// > that set the colour (or other colour-related parameters including transparency) in the
+    /// > graphics state; any use of such operators shall be ignored and the glyph stream
+    /// > continues to be processed without error (see 8.6.8, "Colour operators").
+    ///
+    /// So a `gs` there sets no transparency parameter, while §8.6.8's list for an uncoloured
+    /// tiling pattern names no transparency entry. Saved and restored with `uncoloured`.
+    shape_only_glyph: bool,
     /// §11.4.6's knockout group this content is a **direct element** of, and which of that
     /// clause's two initial backdrops it composites its elements with — `None` where this
     /// content is not a direct element of a knockout group at all.

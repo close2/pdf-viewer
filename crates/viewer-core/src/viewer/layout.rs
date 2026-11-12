@@ -221,6 +221,7 @@ impl Viewer {
             }
         }
 
+        self.visibility(id, events);
         self.schedule(id, events);
     }
 

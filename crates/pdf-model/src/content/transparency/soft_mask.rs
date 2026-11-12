@@ -273,7 +273,10 @@ impl Interpreter<'_> {
         // transfer function of 0.0 for `Alpha`, `/BC`'s luminosity for `Luminosity`. A place
         // the damage took is a place the group did not paint, and the clause already answers
         // for one of those — where a sampled function's missing samples are values it has no
-        // answer for and interpolates from. Places, not values, so the prefix is drawn.
+        // answer for and interpolates from. Places, not values, so the prefix is drawn. That
+        // answer can be *more* mask than the intact group gives, not less — a place a lost
+        // suffix would have painted white takes `/BC`'s value instead — which is why the
+        // drawing is reported and is a recovery choice rather than a subset (ADR 2812).
         let Some(content) = self.content_stream(
             &request.group,
             "a soft mask's transparency group /G (§11.6.5.1)",
@@ -341,6 +344,7 @@ impl Interpreter<'_> {
         // is skipped by §8.6.8's image rule, the mask comes out zero and the text vanishes.
         // Ink 2.87 against `mupdf`'s 7.63 and `hayro`'s 8.11 (ADR 0173).
         let saved_uncoloured = std::mem::replace(&mut self.uncoloured, false);
+        let saved_shape_only = std::mem::replace(&mut self.shape_only_glyph, false);
         // §11.6.5.1 makes the group's `/CS` "the colour space in which the compositing
         // computation is to be performed", and `crate::soft_mask` has already decided which of
         // this tree's two routes answers that space. A mask group nested inside another one
@@ -443,6 +447,7 @@ impl Interpreter<'_> {
         self.blending = saved_blending;
         self.leave_mask_compositing(saved_compositing);
         self.uncoloured = saved_uncoloured;
+        self.shape_only_glyph = saved_shape_only;
         self.soft_mask_depth = self.soft_mask_depth.saturating_sub(1);
 
         self.note_mask_group_structure(
@@ -497,11 +502,20 @@ impl Interpreter<'_> {
         // departure, reported on the same conditions, rather than a second reading of the
         // same table.
         if let Some(group) = self.transparency_group(&request.group.dict) {
+            let four_components = black.is_some();
             let backdrop_stated =
                 state_mask_backdrop(request.kind, &group, extent, commands, black);
-            // `false`: a mask's group is evaluated into a mask raster by
-            // `pdf_render::SoftMask`, which carries no knockout flag, so a knockout here is
-            // a departure whatever its elements are.
+            // §11.4.6 for a knockout mask group, with the construction a painted group gets.
+            // The mask raster draws the list it is given, so the group is stated in it as
+            // one `Command::Group` that carries the rule, and the derivation reads the
+            // result as it reads any other (ADR 2817). Taken only where the group's elements
+            // are drawn on transparency — an isolated group, or one where nothing blends,
+            // whose backdrop then cancels (§11.4.4 NOTE 3) — and the list has no black half
+            // to rewrite beside it; anywhere else the group stays the report below.
+            let knockout = group.knockout
+                && !four_components
+                && !backdrop_stated
+                && self.knock_out_mask_group(&group, commands, alpha_sources);
             // For the second, a mask raster is built on transparency, so a non-isolated mask
             // group is drawn as §11.4.5's isolated one and reports on the condition a painted
             // group reports on (`note_group_structure`) — except where the backdrop is stated in the list
@@ -516,13 +530,63 @@ impl Interpreter<'_> {
                 &group,
                 commands,
                 GroupDrawn {
-                    knockout: false,
+                    knockout,
                     isolated: !(backdrop_stated || request.kind == SoftMaskKind::Alpha),
                     backdrop_transparent: false,
                     alpha_sources,
                 },
             );
         }
+    }
+
+    /// Replaces a knockout mask group's elements with one isolated knockout `Command::Group`
+    /// holding them, where §11.4.6's construction for a painted group draws them on
+    /// transparency; says whether it did.
+    ///
+    /// ISO 32000-2 §11.5.3, of the group a soft mask is derived from:
+    ///
+    /// > G may be any kind of group - isolated or not, knockout or not - producing various
+    /// > effects on the C result in each case.
+    ///
+    /// So a `/K true` group knocks out inside a mask as it does on a page. The constructions
+    /// that keep the group's own backdrop, or move a blend mode to the `Do`, have no `Do` and
+    /// no backdrop to work with here and are not taken.
+    fn knock_out_mask_group(
+        &mut self,
+        group: &super::TransparencyGroup,
+        commands: &mut Vec<Command>,
+        alpha_sources: super::readings::AlphaSourcesSeen,
+    ) -> bool {
+        let settled = alpha_sources.settled_over(commands);
+        let construction = super::knockout::knockout_construction(
+            group,
+            commands.clone(),
+            None,
+            settled,
+            None,
+            BlendMode::Normal,
+            self.image_masks.shape_masks(),
+            &mut self.one_colour,
+        );
+        if !construction.knockout
+            || construction.backdrop_composited
+            || construction.blend != BlendMode::Normal
+        {
+            return false;
+        }
+        let alpha_is_shape = super::shape::group_alpha_is_shape(&construction.commands, settled);
+        *commands = vec![Command::Group {
+            alpha_is_shape,
+            commands: construction.commands,
+            alpha: 1.0,
+            clip: None,
+            isolated: true,
+            mask: None,
+            blend: BlendMode::Normal,
+            knockout: true,
+            blending: None,
+        }];
+        true
     }
 }
 

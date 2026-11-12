@@ -6,12 +6,17 @@
 //! producer's file fails them in two ways this module answers without touching a content-stream
 //! byte (`doc/adr/0816`):
 //!
-//! - **A form, a tiling pattern or an annotation appearance that states no `/Resources`.** ISO
-//!   32000-2 §7.8.3 hands such a stream the resources of the page it is drawn on, and this reader
-//!   draws it so (`doc/adr/0255`). [`assign`] writes that dictionary into the stream's own
-//!   dictionary: the reference where the page's is an object, a copy where it is direct. A form
-//!   reached from pages whose dictionaries differ is written again for each such dictionary, and
-//!   the dictionary's `XObject` table names the copy (`doc/adr/2523`).
+//! - **A form or an annotation appearance that states no `/Resources`.** ISO 32000-2 §7.8.3
+//!   hands such a stream the resources of the page it is drawn on, and this reader draws it so
+//!   (`doc/adr/0255`). [`assign`] writes that dictionary into the stream's own dictionary: the
+//!   reference where the page's is an object, a copy where it is direct. A form reached from
+//!   pages whose dictionaries differ is written again for each such dictionary, and the
+//!   dictionary's `XObject` table names the copy (`doc/adr/2523`).
+//! - **A tiling pattern that states no `/Resources`.** §7.8.3's fallback names forms and Type 3
+//!   fonts and not patterns, so this reader reads such a cell against nothing (`doc/adr/1059`).
+//!   [`assign`] writes that: an empty dictionary, which [`supply`] then fills with an empty
+//!   resource for each name the cell used, so the cell paints the nothing it painted before
+//!   (`doc/adr/2820`).
 //! - **A Type 3 font that states no `/Resources`.** ISO 32000-2 §9.6.4 reads its glyph procedures
 //!   against the resources of the page that shows it; [`assign`] writes into the font the object
 //!   every such page states, or one dictionary holding the bindings of all of them where that
@@ -373,11 +378,19 @@ fn location_of(document: &Document, pages: &Pages<'_>, index: usize) -> Option<L
 }
 
 /// Every form, pattern and appearance that names resources and states none, given the dictionary
-/// its page states.
+/// the reader read it against.
 ///
-/// ISO 19005-2 section 6.2.2 and ISO 19005-4 section 6.2.2 require the association to be explicit;
-/// ISO 32000-2 §7.8.3 is where the reader's own search ends, at the page's resources, so writing
-/// that dictionary changes no name's resolution (`doc/adr/0255`, `doc/adr/2500`).
+/// ISO 19005-2 section 6.2.2 and ISO 19005-4 section 6.2.2 require the association to be explicit.
+/// For a form and an appearance ISO 32000-2 §7.8.3 is where the reader's own search ends, at the
+/// page's resources, so writing that dictionary changes no name's resolution (`doc/adr/0255`,
+/// `doc/adr/2500`). A tiling pattern is given an empty dictionary instead, because §7.8.3's
+/// fallback does not reach one:
+///
+/// > All resources that are referenced from those forms and fonts shall be inherited from the
+/// > resource dictionary of the page on which they are used.
+///
+/// so the page's dictionary would resolve names the reader left unresolved and paint marks it
+/// never drew (`doc/adr/1059`, `doc/adr/2820`).
 pub(super) fn assign(
     document: &Document,
     survey: &Survey,
@@ -412,7 +425,9 @@ pub(super) fn assign(
             glyphs.entry(object).or_default().insert(opened.page);
             continue;
         }
-        let value = if let Some(id) = found.shared_by_page.get(&opened.page) {
+        let value = if opened.what == TILING_PATTERN {
+            Object::Dictionary(Dictionary::new())
+        } else if let Some(id) = found.shared_by_page.get(&opened.page) {
             Object::Reference(*id)
         } else {
             match location_of(document, &pages, opened.page) {
@@ -455,6 +470,9 @@ pub(super) fn assign(
 
 /// What the survey calls a Type 3 glyph procedure.
 const GLYPH: &str = "a Type 3 glyph procedure";
+
+/// What the survey calls a tiling pattern's cell.
+const TILING_PATTERN: &str = "a tiling pattern";
 
 /// Gives each Type 3 font stating no `/Resources` the dictionary its glyph procedures were read
 /// against (`doc/adr/2746`).
@@ -984,6 +1002,20 @@ pub(super) fn supply(
                 value,
             };
             found.file(holder, Edit::Define(place, addition));
+            continue;
+        }
+        // A cell that stated no resources was read against nothing, and `assign` gives it the
+        // empty dictionary it was read against; the name goes into that dictionary, never into
+        // the page's, where it would replace what the page's own content draws.
+        if miss.what == TILING_PATTERN && !miss.own_resources {
+            let holder = miss.object.ok_or(Because::NotBuiltYet(UNFOLLOWED_STREAM))?;
+            found.file(holder, Edit::Assign(Object::Dictionary(Dictionary::new())));
+            let addition = Addition {
+                category: miss.category,
+                name: miss.name.clone(),
+                value,
+            };
+            found.file(holder, Edit::Define(Place::OwnResources, addition));
             continue;
         }
         let key = (miss.page, miss.object, miss.own_resources, miss.category);

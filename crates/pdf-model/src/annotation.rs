@@ -153,11 +153,11 @@ pub(crate) fn press_changes(
     view: crate::view::AnnotationView<'_>,
 ) -> bool {
     let down = has_down(document, annotation);
-    let shows_down = down && !down_overridden(document, annotation, down);
+    let shows_down = down && !down_overridden(document, annotation);
     shows_down
         || toggles_no_view(document, annotation, view)
         || !matches!(
-            highlight(document, annotation, down),
+            highlight(document, annotation),
             Highlight::None | Highlight::Push
         )
 }
@@ -180,15 +180,14 @@ pub(crate) fn press_changes(
 /// appearance stream. §12.5.5's "down appearance shall be used when the mouse button is pressed"
 /// therefore stands for every subtype but the one whose own table overrides it.
 ///
-/// `has_down` is passed rather than read again because [`highlight`]'s default turns on it: an
-/// annotation stating a `/D` and no `/H` is read as having said `P`, so the default can never
-/// take the artwork away.
-fn down_overridden(document: &Document, annotation: &Dictionary, has_down: bool) -> bool {
+/// An absent `/H` is Table 191's default `I`, so a widget stating a `/D` and no `/H` shows its
+/// normal appearance inverted while pressed (ADR 2813).
+fn down_overridden(document: &Document, annotation: &Dictionary) -> bool {
     let subtype = document.get_key(annotation, "Subtype");
     if subtype.as_name().map(Name::as_bytes) != Some(b"Widget") {
         return false;
     }
-    !matches!(highlight(document, annotation, has_down), Highlight::Push)
+    !matches!(highlight(document, annotation), Highlight::Push)
 }
 
 /// Whether the cursor arriving changes what this annotation looks like; see
@@ -250,12 +249,11 @@ fn pressed_mark(
     annotation: &Dictionary,
     view: crate::view::AnnotationView<'_>,
     rect: [f32; 4],
-    has_down: bool,
 ) -> Option<Mark> {
     if view.appearance != crate::view::Appearance::Down {
         return None;
     }
-    match highlight(document, annotation, has_down) {
+    match highlight(document, annotation) {
         Highlight::None | Highlight::Push => None,
         Highlight::Invert => Some(Mark::Rectangle(rect)),
         Highlight::Outline => Some(Mark::Border {
@@ -311,22 +309,15 @@ pub(crate) enum Highlight {
     Push,
 }
 
-/// What §12.5.6.19's `/H` asks for, with the reading its default needs.
+/// What §12.5.6.19's `/H` asks for, with the default both tables give it.
 ///
-/// **The default is `I` and this applies it only where the annotation states no down
-/// appearance.** The two clauses genuinely disagree for an annotation that states a `/D` and no
-/// `/H`: §12.5.5 says the down appearance "shall be used when the mouse button is pressed", and
-/// Table 191 gives `/H` the default `I` and says "\[a] highlighting mode other than P shall
-/// override any down appearance". Taking the default flatly makes the *file's own artwork*
-/// unshowable — 95 of the corpus's page-one annotations state a `/D` and no `/H`, so 95 pieces
-/// of artwork would exist for a moment that could never display them. Taking a stated `/D` as
-/// the writer having said `P` leaves every stated entry meaning something, and loses only a
-/// default the file did not write.
-///
-/// A **stated** mode is honoured exactly, including the override: `/H /I` beside a `/D` inverts
-/// and the down appearance is not used. The corpus cannot decide between the two readings —
-/// every one of the four annotations stating both states `/H P` — so the argument has to.
-pub(crate) fn highlight(document: &Document, annotation: &Dictionary, has_down: bool) -> Highlight {
+/// Table 176 (a link) and Table 191 (a widget) both end the row "Default value: I", and neither
+/// makes the default depend on whether the annotation states a down appearance, so an absent
+/// `/H` is `I` whatever `/AP` holds (ADR 2813). What `I` then does to a stated `/D` is each
+/// table's own: Table 191's "\[a] highlighting mode other than P shall override any down
+/// appearance" takes it away from a widget ([`down_overridden`]), and Table 176 has no such
+/// sentence, so a link shows its `/D` and inverts it.
+pub(crate) fn highlight(document: &Document, annotation: &Dictionary) -> Highlight {
     // **Two tables define `/H` and no others do**: Table 176's, on a link annotation (§12.5.6.5),
     // and Table 191's, on a widget (§12.5.6.19). Both give it the default `I`, and a default
     // belongs to the entry rather than to annotations in general — so a subtype whose clause
@@ -341,11 +332,7 @@ pub(crate) fn highlight(document: &Document, annotation: &Dictionary, has_down: 
     }
     let stated = document.get_key(annotation, "H");
     let Some(name) = stated.as_name() else {
-        return if has_down {
-            Highlight::Push
-        } else {
-            Highlight::Invert
-        };
+        return Highlight::Invert;
     };
     match name.as_bytes() {
         b"N" => Highlight::None,
@@ -1020,12 +1007,6 @@ fn target_media(
 /// [`decide`] without §12.5.3's view-dependent flags, which it applies to whatever this returns.
 ///
 /// `media` is §12.5.6.22's target media and how the page sits on it; see [`fixed_print`].
-#[expect(
-    clippy::too_many_lines,
-    reason = "one decision over the three places §12.5.5 finds an appearance — a stored stream set \
-              aside, none stated, one stored — and the precedence between them is the function; \
-              split, the order would live apart from the arms it orders"
-)]
 fn decided(
     document: &Document,
     annotation: &Dictionary,
@@ -1241,13 +1222,7 @@ fn decided(
 
     Decision::Draw {
         adjust: ViewAdjust::default(),
-        highlight: pressed_mark(
-            document,
-            annotation,
-            view,
-            rect,
-            has_down(document, annotation),
-        ),
+        highlight: pressed_mark(document, annotation, view, rect),
         appearance: Box::new(Appearance {
             transform: placement(bbox, matrix, placed),
             bbox: Some(bbox),
@@ -1321,22 +1296,14 @@ fn construct(
         return Decision::Nothing;
     }
 
-    // **§12.5.6.18 states this reader's answer outright**, and it states it in the prose after
-    // Table 190 rather than in the table — which is why a row that enumerated the table's five
-    // entries never named it (ADR 0901):
-    //
-    // > If AP is not present, the screen annotation shall not have a default visual appearance
-    // > and shall not be printed.
-    //
-    // This path is exactly `/AP` not being present ([`Normal::Absent`]), so the requirement is
-    // met by drawing nothing and *reporting* nothing. The catch-all in
-    // [`crate::appearance::construct`] answered `its clause states no geometry`, which is false
-    // of a clause that states the absence of one — trap 11's shape, and the same correction
-    // §12.5.6.11's caret and §12.5.6.23's redaction each took out of that arm.
-    //
-    // The clause's other reader-facing `shall` is the `/P` bullet above it, and it binds a
-    // processor that performs a **rendition action**: §12.6.4.14 is `out-of-scope` on principle
-    // 5's clause 13 exclusion, so nothing here reaches the condition it is written for.
+    // A `Screen` with no appearance stream draws nothing and reports nothing. §12.5.6.18 once
+    // said so in the prose after Table 190 ("If AP is not present, the screen annotation shall not
+    // have a default visual appearance and shall not be printed."), and Errata Collection 3, issue
+    // 42, strikes that sentence; what remains states no artwork for the subtype, so drawing nothing
+    // is this reader's choice for an annotation whose clause gives it none (ADR 0901 as qualified
+    // by ADR 2818). Reporting it as unsupported would claim an owed appearance the clause no longer
+    // describes. The clause's `/P` bullet binds a processor performing a rendition action, which
+    // A254 and ADR 1960 brought into scope; it is answered there, not on this path.
     if subtype == b"Screen" {
         return Decision::Nothing;
     }
@@ -1358,9 +1325,7 @@ fn construct(
     let stroke_alpha = opacity(document, annotation, "CA");
     Decision::Draw {
         adjust: ViewAdjust::default(),
-        // A constructed appearance is one the file did not state, so there is no `/D` to have
-        // meant `P` by.
-        highlight: pressed_mark(document, annotation, view, rect, false),
+        highlight: pressed_mark(document, annotation, view, rect),
         appearance: Box::new(Appearance {
             transform: Transform::IDENTITY,
             // §8.10.2's box is a *form XObject's*, and a construction is not one: the clause
@@ -1530,11 +1495,7 @@ fn stored_appearance(
         crate::view::Appearance::Rollover => "R",
         // Table 191's own override, which is the one place a mode decides *which stream*
         // rather than what is drawn over it — see [`down_overridden`].
-        crate::view::Appearance::Down
-            if down_overridden(document, annotation, has_down(document, annotation)) =>
-        {
-            "N"
-        }
+        crate::view::Appearance::Down if down_overridden(document, annotation) => "N",
         crate::view::Appearance::Down => "D",
     };
     // The *entry* before it is resolved, because §14.7.5.2's Table 357 names an appearance

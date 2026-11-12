@@ -64,6 +64,7 @@ impl Interpreter<'_> {
                 // paints with the non-stroking colour because that is what an image
                 // mask does, not because a `d1` glyph has one colour.
                 self.uncoloured = true;
+                self.shape_only_glyph = true;
             }
             // Only this family's operators are sent here, by `run_operator`.
             _ => {}

@@ -484,10 +484,11 @@ fn a_function_based_shadings_discontinuity_lands_at_the_device_pixel() {
 /// the only difference between them is the one being asked about.
 #[test]
 fn a_function_based_shadings_grid_is_the_same_however_it_is_divided() {
-    // Varies in both axes, so a row taken by the wrong thread would show as a shifted band.
+    // Varies in both axes, so a row taken by the wrong thread would show as a shifted band. Three
+    // outputs for the three components `/Range` declares, as §7.10.5.3 requires.
     let function = "7 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] \
-                    /Length 43 >>\n\
-                    stream\n{ 2 copy add 2 div 3 1 roll sub abs exch }\nendstream\nendobj\n";
+                    /Length 45 >>\n\
+                    stream\n{ 2 copy add 2 div 3 1 roll sub abs exch 0 }\nendstream\nendobj\n";
     let shading = "<< /ShadingType 1 /ColorSpace /DeviceRGB /Domain [0 1 0 1] \
                    /Matrix [200 0 0 200 0 0] /Function 7 0 R >>";
     let bytes = pdf_with_extra(shading, "/Sh0 sh", function);

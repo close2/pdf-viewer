@@ -528,7 +528,7 @@ fn refuse_a_count_the_reader_fell_short_of(
 ) -> Result<(Option<NotHeld>, Option<StatedCount>), Refusal> {
     let as_count = |value: Option<i64>| value.and_then(|n| usize::try_from(n).ok());
     let linearized = document.xref().object_numbers().find_map(|number| {
-        let object = document.get(ObjectId::new(number, 0));
+        let object = document.get(document.defined_id(number));
         let dict = object.as_dict()?;
         dict.get("Linearized")?;
         as_count(dict.get("N").and_then(Object::as_integer))

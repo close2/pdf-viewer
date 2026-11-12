@@ -84,9 +84,11 @@ impl Interpreter<'_> {
         let stream = object.as_stream()?;
         // §8.7.3.1: "The appearance of the pattern cell shall be defined by a content stream
         // containing the painting operators needed to paint one instance of the cell." So the
-        // cell is §7.8.2's sequence of instructions, a prefix of it is a cell with fewer marks
-        // in the same places, and the tiling replicates that shorter cell at the file's own
-        // `/XStep` and `/YStep` — nothing stands in place of the marks the damage took.
+        // cell is §7.8.2's sequence of instructions, what a damaged filter delivered of it is
+        // drawn as such a sequence and reported (ADR 0343's choice; ADR 2812 says why it is a
+        // choice and not a subset of the cell), and the tiling replicates that cell at the
+        // file's own `/XStep` and `/YStep` — nothing stands in place of the marks the damage
+        // took.
         // See [`Interpreter::content_stream`].
         //
         // A cell whose stream cannot be decoded at all is **reported**, never dropped with the

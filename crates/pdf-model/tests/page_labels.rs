@@ -94,16 +94,20 @@ fn every_document_stating_labels_labels_its_first_page() {
 /// states the answers rather than the rules.
 #[test]
 fn the_clauses_own_example_produces_the_labels_it_states() {
-    let objects = [
-        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /PageLabels 4 0 R >>\nendobj\n",
-        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
-        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\nendobj\n",
-        "4 0 obj\n<< /Nums [0 << /S /r >> 4 << /S /D >> 7 << /S /D /P (A-) /St 8 >>] >>\nendobj\n",
+    // A page for every label asked for: object 3 and objects 5 onwards, so each index the
+    // assertion reads names a page the document has.
+    let mut objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /PageLabels 4 0 R >>\nendobj\n".to_owned(),
+        pages_object(9),
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\nendobj\n".to_owned(),
+        "4 0 obj\n<< /Nums [0 << /S /r >> 4 << /S /D >> 7 << /S /D /P (A-) /St 8 >>] >>\nendobj\n"
+            .to_owned(),
     ];
+    objects.extend(more_pages(9));
 
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
-    for object in objects {
+    for object in &objects {
         offsets.push(out.len());
         out.push_str(object);
     }
@@ -119,6 +123,12 @@ fn the_clauses_own_example_produces_the_labels_it_states() {
     );
 
     let document = Document::open(out.into_bytes()).expect("a valid file");
+    assert!(!document.was_recovered(), "exact offsets");
+    assert_eq!(
+        pdf_model::Pages::new(&document).len(),
+        objects.len() - 3,
+        "every queried index is a page of the document"
+    );
     let labels = PageLabels::read(&document);
     let shown: Vec<String> = (0..9)
         .map(|index| labels.label(index).unwrap_or_default())
@@ -142,16 +152,19 @@ fn the_clauses_own_example_produces_the_labels_it_states() {
 /// rather than carrying the previous range's count.
 #[test]
 fn a_prefix_on_the_default_start_labels_the_ranges_boundary_a_one() {
-    let objects = [
-        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /PageLabels 4 0 R >>\nendobj\n",
-        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
-        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\nendobj\n",
-        "4 0 obj\n<< /Nums [0 << /S /r >> 4 << /S /D /P (A-) /St 1 >>] >>\nendobj\n",
+    // A page for every label asked for: object 3 and objects 5 onwards, so each index the
+    // assertion reads names a page the document has.
+    let mut objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /PageLabels 4 0 R >>\nendobj\n".to_owned(),
+        pages_object(7),
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\nendobj\n".to_owned(),
+        "4 0 obj\n<< /Nums [0 << /S /r >> 4 << /S /D /P (A-) /St 1 >>] >>\nendobj\n".to_owned(),
     ];
+    objects.extend(more_pages(7));
 
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
-    for object in objects {
+    for object in &objects {
         offsets.push(out.len());
         out.push_str(object);
     }
@@ -167,6 +180,12 @@ fn a_prefix_on_the_default_start_labels_the_ranges_boundary_a_one() {
     );
 
     let document = Document::open(out.into_bytes()).expect("a valid file");
+    assert!(!document.was_recovered(), "exact offsets");
+    assert_eq!(
+        pdf_model::Pages::new(&document).len(),
+        objects.len() - 3,
+        "every queried index is a page of the document"
+    );
     let labels = PageLabels::read(&document);
     let shown: Vec<String> = (0..7)
         .map(|index| labels.label(index).unwrap_or_default())
@@ -177,4 +196,28 @@ fn a_prefix_on_the_default_start_labels_the_ranges_boundary_a_one() {
         ["i", "ii", "iii", "iv", "A-1", "A-2", "A-3"],
         "pages 0-3 are lowercase Roman and page 4 is the A- range's first, A-1"
     );
+}
+
+/// The `/Pages` object of a fixture with `count` pages: object 3, then objects 5 onwards.
+fn pages_object(count: usize) -> String {
+    let kids: Vec<String> = std::iter::once(3)
+        .chain((5..).take(count.saturating_sub(1)))
+        .map(|number| format!("{number} 0 R"))
+        .collect();
+    format!(
+        "2 0 obj\n<< /Type /Pages /Count {count} /Kids [{}] >>\nendobj\n",
+        kids.join(" ")
+    )
+}
+
+/// The pages after the first of a fixture with `count` pages, objects 5 onwards.
+fn more_pages(count: usize) -> Vec<String> {
+    (5..)
+        .take(count.saturating_sub(1))
+        .map(|number| {
+            format!(
+                "{number} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\nendobj\n"
+            )
+        })
+        .collect()
 }

@@ -173,6 +173,13 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "file-structure/page-tree-node-count-is-an-integer",
         answer: Answer::Mechanical(Rewrite::PageCountRestated),
     },
+    // The same row's integer that disagrees with the leaves beneath its node: the NOTE makes the
+    // `/Kids` arrays definitive and the consistency the writer's, so the count written is theirs
+    // (`doc/adr/2819`).
+    Remedy {
+        requirement: "file-structure/page-tree-node-count-counts-its-leaves",
+        answer: Answer::Mechanical(Rewrite::PageCountRestated),
+    },
     // ISO 19005-2 section 6.1.13's last limit: every page boundary between 3 and 14 400 units.
     // Nine of that subclause's ten limits are `IMPLEMENTATION_LIMITS` refusals and this one is
     // not, because §7.7.3.3's Table 31 makes four of §14.11.2's five boxes **optional** and

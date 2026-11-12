@@ -196,7 +196,7 @@ impl GraphicsStateReach {
     fn of(document: &Document) -> Self {
         let mut reach = Self::default();
         for number in document.xref().object_numbers() {
-            let id = ObjectId::new(number, 0);
+            let id = document.defined_id(number);
             reach.walk(document, id, &document.get(id), 0);
         }
         reach
@@ -877,7 +877,7 @@ pub(super) fn descriptor_sets(
 /// Every font descriptor object a `/Type /Font` object names that states `key`.
 fn every_descriptor_stating(document: &Document, key: &'static str, found: &mut DescriptorSets) {
     for number in document.xref().object_numbers() {
-        let font = document.get(ObjectId::new(number, 0));
+        let font = document.get(document.defined_id(number));
         let Some(font) = dictionary_of(&font) else {
             continue;
         };
@@ -2466,7 +2466,7 @@ fn pages_inheriting(
 ) -> BTreeMap<ObjectId, BTreeMap<Vec<u8>, Object>> {
     let mut out = BTreeMap::new();
     for number in document.xref().object_numbers() {
-        let id = ObjectId::new(number, 0);
+        let id = document.defined_id(number);
         let object = document.get(id);
         let Some(page) = object.as_dict() else {
             continue;
@@ -2511,7 +2511,7 @@ fn separation_arrays(document: &Document) -> Separations {
     let mut out: BTreeMap<Vec<u8>, Object> = BTreeMap::new();
     let mut clashed: BTreeSet<Vec<u8>> = BTreeSet::new();
     for number in document.xref().object_numbers() {
-        let object = document.get(ObjectId::new(number, 0));
+        let object = document.get(document.defined_id(number));
         descend_for_separations(
             document,
             &object,
@@ -2769,7 +2769,7 @@ pub(super) struct SeparationUse {
 pub(super) fn separation_uses(document: &Document) -> Vec<SeparationUse> {
     let mut found = Vec::new();
     for number in document.xref().object_numbers() {
-        let object = document.get(ObjectId::new(number, 0));
+        let object = document.get(document.defined_id(number));
         collect_separation_uses(document, &object, 0, &mut found);
     }
     found
@@ -3059,7 +3059,7 @@ pub(super) fn embedded_files(
         return Ok(found);
     }
     for number in document.xref().object_numbers() {
-        let id = ObjectId::new(number, 0);
+        let id = document.defined_id(number);
         let object = document.get(id);
         let Some(dict) = object.as_dict() else {
             continue;

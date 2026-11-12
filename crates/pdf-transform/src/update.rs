@@ -808,6 +808,8 @@ fn insert_pages(
         &mut replacements,
     );
 
+    raise_version(document, incoming, root_id, &catalog, &mut replacements);
+
     report_losses(incoming, from, &stripped, report);
     // A document whose cross-reference table this reader rebuilt by scanning is a document
     // somebody's copy may have been cut short in the middle of — and it is *also* what a
@@ -833,6 +835,46 @@ fn insert_pages(
         count.saturating_add(carried_count),
         format!("{carried_count} page(s) of source {from} inserted at position {position}"),
     ))
+}
+
+/// Table 29's `/Version` raised to the inserted document's, where that one is the newer.
+///
+/// ISO 32000-2 §I.2:
+///
+/// > If a document is modified by inserting the contents of another PDF file into it, the saved
+/// > document's version should be the most recent of the original PDF file's version, and the
+/// > inserted PDF file's version.
+///
+/// An update cannot rewrite §7.5.2's header, which stands at the start of the original bytes, so
+/// the catalog carries the newer version: §7.7.2 has a catalog `/Version` later than the header's
+/// take its place. Where the original is the newer or the two are equal nothing is written,
+/// because the same paragraph has a writer never move a file's version to an older one, and the
+/// catalog the update already rewrites keeps whatever `/Version` it stated.
+fn raise_version(
+    document: &Document,
+    incoming: &Document,
+    root_id: ObjectId,
+    catalog: &Dictionary,
+    replacements: &mut BTreeMap<ObjectId, Object>,
+) {
+    let Some(inserted) = incoming.version() else {
+        return;
+    };
+    if document
+        .version()
+        .is_some_and(|original| original >= inserted)
+    {
+        return;
+    }
+    let mut root = match replacements.get(&root_id) {
+        Some(Object::Dictionary(rewritten)) => rewritten.clone(),
+        _ => catalog.clone(),
+    };
+    root.insert(
+        Name::new(&b"Version"[..]),
+        Object::Name(Name::new(inserted.to_string().as_bytes())),
+    );
+    replacements.insert(root_id, Object::Dictionary(root));
 }
 
 /// The catalog entries an in-place insertion leaves behind, each named where a source has one.
@@ -1051,6 +1093,7 @@ fn set_information(
     for entry in entries {
         validate(entry)?;
     }
+    keeps_the_required_date(document, entries)?;
     let version = document.version();
     let mut next = document.xref().next_object_number();
     let mut replacements: BTreeMap<ObjectId, Object> = BTreeMap::new();
@@ -1151,6 +1194,37 @@ fn set_information(
         pages,
         format!("{} §14.3.3 entr(y|ies) set", changes.len()),
     ))
+}
+
+/// Refuses to remove `/ModDate` from a document whose catalog states `/PieceInfo`.
+///
+/// ISO 32000-2 §14.3.3's Table 349 makes the entry conditional on the catalog:
+///
+/// > ( Required if PieceInfo is present in the document catalog dictionary; otherwise optional;
+/// > PDF 1.1 )
+///
+/// and §14.5 is why: a page-piece dictionary's `/LastModified` is compared with it to tell
+/// whether the private data is still current. A removal would publish a file that breaks the
+/// `shall`, so it is declined by name; setting the date to another valid one stays an edit.
+fn keeps_the_required_date(document: &Document, entries: &[InfoEntry]) -> Result<(), Refusal> {
+    let removes = entries
+        .iter()
+        .any(|entry| entry.key == "ModDate" && entry.value.is_none());
+    if !removes {
+        return Ok(());
+    }
+    // §7.3.7 makes an entry whose value is null the same as an absent one.
+    let pieces = document
+        .catalog()
+        .is_ok_and(|catalog| document.get_key(&catalog, "PieceInfo") != Object::Null);
+    if pieces {
+        return Err(Refusal::Pattern(String::from(
+            "§14.3.3's Table 349 makes /ModDate \"( Required if PieceInfo is present in the \
+             document catalog dictionary; otherwise optional; PDF 1.1 )\", and this document's \
+             catalog states /PieceInfo, so the date is not removed",
+        )));
+    }
+    Ok(())
 }
 
 /// Table 349's nine entries as the document states them, in [`INFORMATION_KEYS`]' order.
@@ -1391,9 +1465,10 @@ pub(crate) fn deprecated_in(version: Option<Version>, key: &str) -> bool {
 /// no value is removed and nothing is written in its place. Every other byte of the packet
 /// crosses unchanged, which is what both functions promise.
 ///
-/// A date [`pdf_syntax::date::Date`] cannot read is not written, so the packet then states no
-/// date beside the dictionary's rather than a different one; [`validate`] has already held the
-/// value to §7.9.4's alphabet.
+/// Every caller has held a date to §7.9.4 through [`validate`] first, so each one here is a date
+/// [`pdf_syntax::date::Date`] reads. A value it could not read would leave the packet's property
+/// exactly as it stands, neither removed nor replaced, because a packet that lost its date to a
+/// value nobody could write is a loss nobody asked for.
 ///
 /// # Errors
 ///
@@ -1411,11 +1486,12 @@ pub(crate) fn restated_packet(
         else {
             continue;
         };
-        stated.push(xmp::Name {
+        let name = xmp::Name {
             namespace: namespace.to_owned(),
             local: local.to_owned(),
-        });
+        };
         let Some(value) = entry.value.as_deref() else {
+            stated.push(name);
             continue;
         };
         let value = if entry.key == "CreationDate" || entry.key == "ModDate" {
@@ -1426,6 +1502,7 @@ pub(crate) fn restated_packet(
         } else {
             value.to_owned()
         };
+        stated.push(name);
         supplements.push(xmp::Supplement {
             namespace,
             prefix,
@@ -1491,34 +1568,17 @@ pub(crate) fn validate(entry: &InfoEntry) -> Result<(), Refusal> {
              {value:?} is none of them"
         )));
     }
-    if (entry.key == "CreationDate" || entry.key == "ModDate") && !is_a_date(value) {
+    if (entry.key == "CreationDate" || entry.key == "ModDate")
+        && pdf_syntax::date::Date::parse(value).is_none()
+    {
         return Err(Refusal::Pattern(format!(
             "§7.9.4 makes a date \"a text string value containing no white-space, of the form\" \
-             D:YYYYMMDDHHmmSSOHH'mm, whose \"prefix ' D: ' shall be present\" and whose year \
-             \"shall be present\"; {value:?} is not one"
+             D:YYYYMMDDHHmmSSOHH'mm, each field within the range the clause gives it, and one \
+             \"may be present but only if all of their preceding fields are also present\"; \
+             {value:?} is not one"
         )));
     }
     Ok(())
-}
-
-/// Whether a string is §7.9.4's date.
-///
-/// > The prefix ' D: ' shall be present, the year field (YYYY) shall be present and all other
-/// > fields may be present but only if all of their preceding fields are also present.
-///
-/// So the check is the prefix, four digits, and then only the alphabet the clause's form is
-/// written in — the field-by-field ranges are the producer's business and a reader that
-/// re-derived them would be rejecting dates the clause admits. A date this program refuses is a
-/// date it would otherwise write into somebody's file (trap 5).
-fn is_a_date(value: &str) -> bool {
-    let Some(rest) = value.strip_prefix("D:") else {
-        return false;
-    };
-    if rest.len() < 4 || !rest.as_bytes()[..4].iter().all(u8::is_ascii_digit) {
-        return false;
-    }
-    rest.bytes()
-        .all(|byte| byte.is_ascii_digit() || matches!(byte, b'+' | b'-' | b'Z' | b'\''))
 }
 
 /// Where a carried block joins §7.7.3.2's tree.

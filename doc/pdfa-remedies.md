@@ -89,7 +89,7 @@ answers without loss are listed in another; the rest are rows.
 
 Not a property a file can fail, so never a refusal (a processor's requirement, unchecked, or outside validation): `linearization-permitted` (Processor), `undescribed-data-never-renders` (Processor), `unreferenced-objects-never-influence-rendering` (Processor).
 
-Answered without loss under every profile, no remedy owed: `catalog-version-key`, `cross-reference-keyword-line-endings`, `document-information-dictionary-holds-only-a-modification-date`, `document-information-dictionary-needs-piece-info`, `file-header`, `file-identifier`, `hexadecimal-string-digits`, `hexadecimal-string-holds-only-digits`, `indirect-object-syntax`, `no-lzw-filter`, `nothing-after-the-last-end-of-file-marker`, `page-tree-node-count-is-an-integer`, `permissions-dictionary-keys`, `stream-filters-are-standard`, `stream-keyword-line-endings`, `stream-length-matches-the-data`.
+Answered without loss under every profile, no remedy owed: `catalog-version-key`, `cross-reference-keyword-line-endings`, `document-information-dictionary-holds-only-a-modification-date`, `document-information-dictionary-needs-piece-info`, `file-header`, `file-identifier`, `hexadecimal-string-digits`, `hexadecimal-string-holds-only-digits`, `indirect-object-syntax`, `no-lzw-filter`, `nothing-after-the-last-end-of-file-marker`, `page-tree-node-count-counts-its-leaves`, `page-tree-node-count-is-an-integer`, `permissions-dictionary-keys`, `stream-filters-are-standard`, `stream-keyword-line-endings`, `stream-length-matches-the-data`.
 
 ### implementation-limits
 

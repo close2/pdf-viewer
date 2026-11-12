@@ -8,21 +8,22 @@
 //! `doc/todo/_scan-conversion.md` — and an anti-aliased mark composites at its own coverage, so the
 //! pair leaves a seam.
 //!
-//! **The seam is what §11.3.7.3 states, not a defect either backend can be accused of.** Result
-//! shape is the *union* of the backdrop's and the source's,
-//!
-//! > This is a generalization of the conventional concept of union for opaque shapes, and it can
-//! > be thought of as an "inverted multiplication" -a multiplication with the inputs and outputs
-//! > complemented. The result tends toward 1.0: if either input is 1.0, the result is 1.0.
-//!
-//! and the union of two halves is three quarters, not one. So this file gates the two things the
-//! standard does state and declines to gate the artefact itself:
+//! **The seam is not what §11.3.7.3 states; it is what evaluating that clause on pixel-averaged
+//! shapes leaves** (ADR 0582). The clause's union is a function of shape values at points, and
+//! §11.6.4.2 makes a painted path's shape "1.0 inside and 0.0 outside the path", so at every point
+//! of two abutting marks one shape is 1.0 and the union is 1.0: the model states no seam anywhere.
+//! §11.3.7.2's NOTE 1 permits anti-aliased, fractional shape values "when such objects are
+//! rasterized to device pixels", and the union of two pixel-averaged halves is three quarters, not
+//! one — averaging and union do not commute. So this file gates what the standard and that
+//! permitted approximation together bound, and declines to gate the artefact itself:
 //!
 //! - **one statement of a region covers it**, which is §10.7.4's "[t]he area covered by painted
 //!   pixels shall always be at least as large as the area of the original shape";
-//! - **two statements of the same region leave no more than the union does**, which is
-//!   §11.3.7.3's formula read as an upper bound — a backend that composed coverage any other way
-//!   would leave more, and this catches it;
+//! - **two statements of the same region leave no more than the union of their pixel coverages
+//!   does**, which is §11.3.7.3's formula on those coverages read as an upper bound — a backend
+//!   that composed coverage any other way would leave more, and this catches it. It is not the
+//!   point-wise answer, which leaves nothing, and asserting that as a lower bound is deliberately
+//!   not done while the anti-aliasing departure stands;
 //! - and both backends answer alike.
 //!
 //! A rasteriser that resolved the two marks against one another before compositing would leave

@@ -289,8 +289,10 @@ fn a_three_component_frame_marked_transform_zero_is_three_components() {
 
 /// Transform 2 on a *three*-component frame is the same mistake one step further on.
 ///
-/// §7.4.8's Table 13 describes transform 2 for four components — YCCK — and a decoder that
-/// believed the marker over the frame would run this tree's four-channel `YCCK → CMYK`
+/// The Adobe APP14 marker's transform 2 means YCCK, four components: that value is Adobe
+/// Technical Note 5116's, not §7.4.8's, whose Table 13 defines `/ColorTransform` 0 and 1 only and
+/// lets the marker, where present, govern over the entry. A decoder that believed the marker over
+/// the frame would run this tree's four-channel `YCCK → CMYK`
 /// conversion across three-channel pixels, which walks past every pixel boundary rather than
 /// refusing. Files spell this: `zune-jpeg` reads such a frame as `YCbCr`, and so must we.
 #[test]

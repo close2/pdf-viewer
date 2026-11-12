@@ -140,6 +140,16 @@ pub(crate) struct Open {
     /// what it says about the value the previous parameter left. Table 29's `/OpenAction` puts at
     /// most one here, so nothing that existed before this list can tell the difference.
     pub(crate) pending_views: Vec<pdf_model::destination::View>,
+    /// The point of default user space at the window's top-left corner when a page turn that
+    /// carries a view discarded the scroll — the "current value" Table 149's null retains.
+    ///
+    /// A turn starts the new page at its top, so by the time [`Self::pending_views`] is applied
+    /// the scroll that held the reader's position is gone; this keeps it, in the units a
+    /// destination's `left` and `top` are stated in, for `apply_view` to take.
+    pub(crate) retained_corner: Option<(f32, f32)>,
+    /// The pages Table 197's `/PV` has been raised for and `/PI` not since, in page order: the
+    /// pages the window's arrangement shows, as of the last time it was settled.
+    pub(crate) visible: Vec<usize>,
     /// How far the page is scrolled under the viewport, in device pixels.
     ///
     /// Positive means the content has moved up and left — the top-left of the raster is off the
@@ -993,6 +1003,8 @@ impl Open {
             consent: crate::scripting::Consent::default(),
             scripts_said: 0,
             pending_views: open_view.into_iter().collect(),
+            retained_corner: None,
+            visible: Vec::new(),
             scroll: (0.0, 0.0),
             pointed: None,
             on_screen: Vec::new(),

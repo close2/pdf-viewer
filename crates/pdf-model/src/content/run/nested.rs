@@ -17,9 +17,10 @@ impl Interpreter<'_> {
     /// > (12.5.5, "Appearance streams").
     ///
     /// Every one of those is "a sequence of instructions" by the same clause's first sentence,
-    /// so §7.4.1's two halves are owed here exactly as they are for a page's `/Contents`: the
-    /// prefix a damaged filter produced goes on the page, and that it is only a prefix goes in
-    /// the report. `what` says which kind and which resource, because each of the five costs a
+    /// so the choice made for a page's `/Contents` is made here too: what a damaged filter
+    /// produced goes on the page, and that it is not §7.4.1's "original form" goes in the
+    /// report. It is a recovery the standard does not ask for and a choice this tree discloses,
+    /// not a subset of the producer's marks (ADR 2812). `what` says which kind and which resource, because each of the five costs a
     /// different mark and a report that did not distinguish them could not be acted on.
     ///
     /// `None` where nothing decoded at all. The caller words that one itself: there the whole

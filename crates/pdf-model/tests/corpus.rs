@@ -347,7 +347,7 @@ const FOUND_BY_SCANNING: [&str; 5] = [
 /// fifty-nine, none is this reader's — `freetext_no_appearance.pdf`, the last, draws since ADRs
 /// 1413 and 1414 set its Arabic joined and right to left in a face from the machine; four are no
 /// route the standard states; fifty-five are the file's (ADR 1401, ADR 1411).
-const INCOMPLETE: [&str; 60] = [
+const INCOMPLETE: [&str; 59] = [
     // ── The file's: §9.7.5.2, "[t]he Identity-H and Identity-V CMaps shall not be used with a
     // non-embedded font". Every one is a `CIDFontType2` naming a system face (Arial, Calibri,
     // Times New Roman …) whose CIDs are that face's glyph indices, which §9.7.4.2 says are "not
@@ -445,9 +445,8 @@ const INCOMPLETE: [&str; 60] = [
     // The check box's on appearance has no `/BBox`, which Table 93 requires and §12.5.5 needs.
     "checkbox-bad-appearance.pdf",
     "checkbox_no_appearance.pdf",
-    // `/NeedAppearances true` and a `/DA` naming `/F1` in a form with no `/DR` (§12.7.4.3).
-    "issue19389.pdf",
-    // The same `/DR` fault, and a `/Contents` whose flate data will not inflate.
+    // A `/DA` naming a font in a form with no `/DR` (§12.7.4.3), and a `/Contents` whose flate
+    // data will not inflate.
     "poppler-395-0-fuzzed.pdf",
     // ── The file's: `/Contents` parts under `/JBIG2Decode`, which §7.4.7 defines as decoding
     // monochrome image data, not a content stream.

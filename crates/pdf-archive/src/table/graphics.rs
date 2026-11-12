@@ -989,7 +989,7 @@ const MAX_DEPTH: usize = 32;
 /// defined, and a rule about what the standard *defines* is not a rule about what it prefers.
 /// The same list drives `pdf_model::content::ext_gstate`, which is where a name reaching this
 /// program is turned into a mode.
-const BLEND_MODES: [&[u8]; 17] = [
+pub(crate) const BLEND_MODES: [&[u8]; 17] = [
     b"Normal",
     b"Compatible",
     b"Multiply",
@@ -1122,7 +1122,7 @@ fn positions(exam: &Examination<'_>) -> BTreeMap<ObjectId, Position> {
     let document = exam.document;
     let mut found = BTreeMap::new();
     for number in document.xref().object_numbers() {
-        let id = ObjectId::new(number, 0);
+        let id = document.defined_id(number);
         collect_positions(document, &document.get(id), 0, &mut found);
     }
     found
@@ -2458,7 +2458,7 @@ fn separations(exam: &Examination<'_>) -> Vec<Separation> {
     let document = exam.document;
     let mut found = Vec::new();
     for number in document.xref().object_numbers() {
-        let id = ObjectId::new(number, 0);
+        let id = document.defined_id(number);
         collect_separations(document, &document.get(id), id, 0, &mut found);
     }
     found

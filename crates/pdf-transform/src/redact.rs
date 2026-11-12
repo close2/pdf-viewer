@@ -2155,10 +2155,7 @@ fn reference_counts(document: &Document) -> HashMap<u32, usize> {
         tally_references(value, &mut counts, 0);
     }
     for number in document.xref().object_numbers() {
-        let object = document.get(ObjectId {
-            number,
-            generation: 0,
-        });
+        let object = document.get(document.defined_id(number));
         tally_references(&object, &mut counts, 0);
     }
     counts

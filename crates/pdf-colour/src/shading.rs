@@ -821,10 +821,18 @@ fn ramp(
     let (low, high) = domain(document, dict);
     let breaks = breakpoints_over(&functions, low, high);
 
-    Ok(Ramp::sample_across_at(colouring.resolution, &breaks, |t| {
+    let ramp = Ramp::sample_across_at(colouring.resolution, &breaks, |t| {
         let parameter = low + t * (high - low);
         colour_from(&functions, &[parameter], space, colouring.into)
-    }))
+    });
+    // §7.10.5.3's errors that depend on the input surface here, once the whole ramp is sampled;
+    // a ramp drawn from the evaluator's stand-ins would be a gradient the file never described.
+    if let Some(fault) = functions.iter().find_map(Function::evaluation_fault) {
+        return Err(ShadingError::Malformed {
+            detail: fault.to_string(),
+        });
+    }
+    Ok(ramp)
 }
 
 /// Where a shading's functions jump, as fractions of the interval `low` to `high`.

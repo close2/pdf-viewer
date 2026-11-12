@@ -210,13 +210,13 @@ fn more_subfunctions_than_the_budget_is_refused_by_count() {
 
 /// The arithmetic the budget's documentation states, checked rather than recalled.
 ///
-/// `MAX_FUNCTIONS` is priced in the module as "a `Function` is 120 bytes on this target, so
-/// the ceiling is 480 KiB" — a claim about a type, which is the kind that decays.
+/// `MAX_FUNCTIONS` is priced in the module as "a `Function` is 128 bytes on this target, so
+/// the ceiling is 512 KiB" — a claim about a type, which is the kind that decays.
 #[test]
 fn the_budgets_price_is_what_the_type_costs() {
     assert_eq!(
         size_of::<Function>(),
-        120,
+        128,
         "the module prices its budget at this size; correct the comment with the number"
     );
 }

@@ -256,13 +256,13 @@ impl Interpreter<'_> {
         // *wrong* graphics state rather than a missing mark, which is the harder of the two to
         // see on a page and the better reason to say so.
         let Some(dict) = self.resource(resources, "ExtGState", &name) else {
-            self.note_missing_resource("ExtGState", &name, "is not in /ExtGState");
+            self.note_missing_state_resource("ExtGState", &name, "is not in /ExtGState");
             return;
         };
         // §8.4.5 makes the value "a graphics state parameter dictionary whose contents specify
         // the values of one or more graphics state parameters"; anything else specifies none.
         let Some(dict) = dict.as_dict() else {
-            self.note_missing_resource("ExtGState", &name, "is not a dictionary");
+            self.note_missing_state_resource("ExtGState", &name, "is not a dictionary");
             return;
         };
 
@@ -272,10 +272,14 @@ impl Interpreter<'_> {
         state.black_generation = read.pair;
         let label = format!("/{}", String::from_utf8_lossy(name.as_bytes()));
         self.note_unreadable_black_generation(&label, read.unreadable);
-        if let Some(alpha) = self.document.get_key(dict, "ca").as_number() {
+        // Table 111 has a `d1` glyph description ignore "colour-related parameters including
+        // transparency" (see [`Interpreter::shape_only_glyph`]): Table 57's `/CA`, `/ca`, `/BM`,
+        // `/SMask`, `/AIS` and `/TK` are skipped there, and the rest of the dictionary applies.
+        let transparency = !self.shape_only_glyph;
+        if transparency && let Some(alpha) = self.document.get_key(dict, "ca").as_number() {
             state.fill_alpha = clamp_unit(alpha);
         }
-        if let Some(alpha) = self.document.get_key(dict, "CA").as_number() {
+        if transparency && let Some(alpha) = self.document.get_key(dict, "CA").as_number() {
             state.stroke_alpha = clamp_unit(alpha);
         }
         // Table 57 `/D`: the line dash pattern, "expressed as an array of the form
@@ -454,6 +458,9 @@ impl Interpreter<'_> {
             if let Object::Name(intent) = self.document.get_key(dict, "RI") {
                 state.intent = Intent::read(intent.as_bytes());
             }
+        }
+        if !transparency {
+            return;
         }
         if let Some(blend) = stated_blend_mode(self.document, &self.document.get_key(dict, "BM")) {
             state.blend = blend;

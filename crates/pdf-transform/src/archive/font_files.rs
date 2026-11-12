@@ -431,7 +431,7 @@ fn dictionaries_naming_each_program(document: &Document) -> BTreeMap<ObjectId, V
         }
     };
     for number in document.xref().object_numbers() {
-        let id = ObjectId::new(number, 0);
+        let id = document.defined_id(number);
         let object = document.get(id);
         let Some(font) = object.as_dict() else {
             continue;

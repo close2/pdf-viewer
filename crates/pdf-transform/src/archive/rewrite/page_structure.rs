@@ -68,7 +68,8 @@ impl Rewriter<'_> {
     }
 
     /// §7.7.3.2's Table 30 `/Count`, written as the leaves beneath the node where the source's is
-    /// missing or no integer; `super::super::page_tree::restated` counted them (`doc/adr/2456`).
+    /// missing, no integer or another number; `super::super::page_tree::restated` counted them
+    /// (`doc/adr/2456`, `doc/adr/2819`).
     pub(super) fn restate_page_count(
         &self,
         id: ObjectId,

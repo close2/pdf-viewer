@@ -13,8 +13,9 @@
 //!
 //! # Why a boundary pixel needs anything said about it at all
 //!
-//! Both backends of this tree anti-alias, which is a departure from the clause read literally and
-//! is licensed by §10.7.1's NOTE that the algorithm "is not defined as part of PDF". The
+//! Both backends of this tree anti-alias, which is a departure from the clause read literally — a
+//! documented choice, which §10.7.1's informative NOTE that the algorithm "is not defined as part
+//! of PDF" explains and does not license (ADR 2812). The
 //! departure replaces "paint the pixel" with **coverage proportional to area**, and
 //! `doc/todo/_scan-conversion.md` records it (ADR 0025). What it does not
 //! license is measuring that area *coarsely enough to reach zero*: an edge covering a tenth of its
