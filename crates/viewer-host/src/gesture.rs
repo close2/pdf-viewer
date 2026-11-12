@@ -123,6 +123,16 @@ mod tests {
         }
     }
 
+    /// The magnification showing is the one expected, as [`same`] reads two magnifications.
+    #[track_caller]
+    fn shows(window: &Window, expected: f32, why: &str) {
+        assert!(
+            same(window.showing, expected),
+            "{why}: showing {}, expected {expected}",
+            window.showing
+        );
+    }
+
     #[test]
     fn a_pinch_is_a_factor_of_what_is_showing() {
         assert_eq!(pinch(0.25), ZoomTravel::Factor(1.25));
@@ -145,9 +155,9 @@ mod tests {
         };
         let mut smart = SmartZoom::default();
         smart.tap(window.showing, |zoom| Some(window.zoom(zoom)));
-        assert_eq!(window.showing, 1.6, "the first tap fits the width");
+        shows(&window, 1.6, "the first tap fits the width");
         smart.tap(window.showing, |zoom| Some(window.zoom(zoom)));
-        assert_eq!(window.showing, 1.0, "the second goes back");
+        shows(&window, 1.0, "the second goes back");
         assert_eq!(
             window.sent,
             [Zoom::FitWidth, Zoom::Scale(1.0)],
@@ -164,12 +174,9 @@ mod tests {
         };
         let mut smart = SmartZoom::default();
         smart.tap(window.showing, |zoom| Some(window.zoom(zoom)));
-        assert_eq!(
-            window.showing, 3.2,
-            "a fit that moves nothing is a doubling"
-        );
+        shows(&window, 3.2, "a fit that moves nothing is a doubling");
         smart.tap(window.showing, |zoom| Some(window.zoom(zoom)));
-        assert_eq!(window.showing, 1.6, "and the second tap comes back");
+        shows(&window, 1.6, "and the second tap comes back");
     }
 
     #[test]
@@ -184,7 +191,7 @@ mod tests {
         // A pinch in between: the reader is somewhere they chose.
         window.zoom(Zoom::Scale(2.5));
         smart.tap(window.showing, |zoom| Some(window.zoom(zoom)));
-        assert_eq!(window.showing, 1.6, "fitted again, not sent back to 1.0");
+        shows(&window, 1.6, "fitted again, not sent back to 1.0");
     }
 
     #[test]
@@ -197,7 +204,11 @@ mod tests {
         let mut smart = SmartZoom::default();
         smart.tap(window.showing, |zoom| Some(window.zoom(zoom)));
         smart.tap(window.showing, |zoom| Some(window.zoom(zoom)));
-        assert_eq!(window.showing, 64.0);
+        shows(
+            &window,
+            64.0,
+            "the range's end is where the taps come back to",
+        );
         assert_eq!(
             window.sent.last(),
             Some(&Zoom::Scale(64.0)),
