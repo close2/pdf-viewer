@@ -52,7 +52,7 @@ pub(crate) struct Written<'a> {
     pub(crate) identity: Option<&'a [u8]>,
 }
 
-fn service_xml(service: &Written<'_>) -> String {
+pub(crate) fn service_xml(service: &Written<'_>) -> String {
     let identity = base64_of(
         &service
             .identity

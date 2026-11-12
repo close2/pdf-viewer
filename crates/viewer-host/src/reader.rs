@@ -23,8 +23,8 @@ use viewer_core::Command;
 use crate::policy::{
     ACCEPT_UNKNOWN_REVOCATION, INTERFACE_LANGUAGE, READER_NAME, READER_ORGANISATION, READER_TITLE,
     RECIPIENT_CERTIFICATE, RECIPIENT_KEY, REFERENCE_FILES, SCRIPTS, Scripts, TRUST_ANCHORS,
-    TRUSTED_LISTS, audience, recipient_key, reference_files, scripting, scripts, trust_anchors,
-    trusted_lists,
+    TRUSTED_LISTS, audience, now, recipient_key, reference_files, scripting, scripts,
+    trust_anchors, trusted_lists,
 };
 
 /// What a person typed of the reader's policy words.
@@ -195,6 +195,12 @@ impl ReaderWords {
             self.accept_unknown_revocation,
         );
         let (lists, lists_refused) = trusted_lists(self.trusted_lists.as_deref());
+        // A verdict through a list, and ETSI TS 119 615 clause 4.1's "has passed", are asked at
+        // the instant the anchors carry; with no anchor directory named the anchors carry none,
+        // so the lists bring this machine's clock with them.
+        if trust.anchors.is_empty() && !lists.is_empty() {
+            trust.anchors = pdf_signature::trust::Supply::of(Vec::new(), String::new(), now());
+        }
         trust.lists = lists;
         let (files, files_refused) = reference_files(self.reference_files.as_deref());
         // §7.6.5.1's two files, read on this side of the confinement and carried as bytes (ADR

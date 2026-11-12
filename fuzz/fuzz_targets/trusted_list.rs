@@ -8,6 +8,10 @@
 //! overflow checks stay on in this profile — two properties are under test:
 //!
 //! - **The reading is a function of the bytes**: read twice, the same list or the same refusal.
+//! - **The signature verifier and clauses 4.1 and 4.2 are functions of the bytes too**
+//!   (`pdf_signature::xml_signature`, `Lists::read`, ADR 2842): the octets are offered as the list
+//!   of trusted lists and as a Member State's list at once, so the canonicaliser's subset, the
+//!   reference digests and the pointer reader all run on the fuzzer's XML.
 //! - **The search never reaches past a list's services**: every tuple clause 4.3 returns names a
 //!   service of the list it searched, with `SI-at-Date-time` the service's current information or
 //!   one of its own history instances, at any instant.
@@ -15,8 +19,11 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use pdf_signature::trusted_list::{CA_QC, TrustedList, matching};
+use pdf_signature::trusted_list::{
+    Authentication, CA_QC, Lists, MAX_ENTRIES, TrustedList, matching,
+};
 use pdf_signature::x509::{self, Instant};
+use pdf_signature::xml_signature;
 
 fuzz_target!(|data: &[u8]| {
     // The first eight bytes are the instant the search asks about, and the rest is the list.
@@ -30,6 +37,28 @@ fuzz_target!(|data: &[u8]| {
         first,
         TrustedList::read(octets),
         "the reading is a function of the bytes"
+    );
+    let verified = xml_signature::verify_enveloped(octets, MAX_ENTRIES);
+    assert_eq!(
+        verified,
+        xml_signature::verify_enveloped(octets, MAX_ENTRIES),
+        "the verification is a function of the bytes"
+    );
+    let supplied = Lists::of(
+        vec![
+            ("eu-lotl.xml".to_owned(), octets.to_vec()),
+            ("member.xml".to_owned(), octets.to_vec()),
+        ],
+        String::new(),
+    );
+    let reading = supplied.read(at);
+    assert!(
+        reading.lists.iter().all(
+            |list| list.authentication != Authentication::VouchedForByTheHost
+                && list.territory != "EU"
+        ),
+        "once clause 4.1 runs, no list is used on the host's word, and the list of trusted lists \
+         is its input rather than a list searched"
     );
     let Ok(list) = first else {
         return;

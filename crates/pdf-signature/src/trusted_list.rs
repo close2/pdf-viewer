@@ -18,13 +18,16 @@
 //! This crate opens no socket and reads no file (`CLAUDE.md` principle 3), so the list of trusted
 //! lists is never walked here.
 //!
-//! **A list's own XML signature is not verified.** TS 119 615 clause 4.3's first step
-//! (PRO-4.3.4-01) authenticates the list by clause 4.2, against the certificates the list of trusted
-//! lists names for it, which clause 4.1 authenticates in turn. Neither is built, so a list is
-//! believed on the word of the host that supplied it — the same footing RFC 5280 section 6.1 gives
-//! any anchor, "delivered to the path processing procedure by some trustworthy out-of-band
-//! procedure" — and every answer built on one says so ([`Authentication::VouchedForByTheHost`]).
-//! ADR 2834.
+//! **A list's own XML signature is verified where the host supplied what to verify it against.**
+//! TS 119 615 clause 4.3's first step (PRO-4.3.4-01) authenticates the list by clause 4.2, against
+//! the certificates the list of trusted lists names for it, which clause 4.1 authenticates in turn
+//! against the Official Journal's certificates; [`authentication`] runs both over the files a host
+//! supplied, and [`Lists::read`] refuses by name a list they do not authenticate. A host that
+//! supplied neither the list of trusted lists nor the Official Journal's certificates gave nothing
+//! to authenticate against, so its lists are believed on its word — the footing RFC 5280 section
+//! 6.1 gives any anchor, "delivered to the path processing procedure by some trustworthy
+//! out-of-band procedure" — and every answer built on one says so
+//! ([`Authentication::VouchedForByTheHost`]). ADRs 2834 and 2842.
 //!
 //! # The bounds
 //!
@@ -37,6 +40,10 @@ use crate::trust::{Trust, TrustAnchors};
 use crate::verdict::Listing;
 use crate::x509::{self, Certificate, Instant};
 use crate::xml::{self, Element, Tree, XmlError, base64, date_time};
+
+pub mod authentication;
+
+pub use authentication::Outcome;
 
 /// TS 119 612 Annex C's target namespace for the list's own elements.
 pub const NAMESPACE: &str = "http://uri.etsi.org/02231/v2#";
@@ -103,6 +110,10 @@ pub enum TrustedListError {
     /// element is named.
     #[error("the trusted list's {0} is missing or not what ETSI TS 119 612 clause 5 gives it")]
     Malformed(&'static str),
+    /// ETSI TS 119 615 clause 4.2 did not authenticate it, or clause 4.1 did not authenticate the
+    /// list of trusted lists it would have been authenticated under; the indications are said.
+    #[error("ETSI TS 119 615 did not authenticate the list: {0}")]
+    NotAuthenticated(Outcome),
 }
 
 impl From<XmlError> for TrustedListError {
@@ -169,15 +180,53 @@ pub struct TrustedList {
     pub next_update: Option<Instant>,
     /// Clause 5.3.18's providers.
     pub providers: Vec<Provider>,
+    /// Clause 5.3.7's scheme information URIs, in the list's order, every language's.
+    pub scheme_information_uris: Vec<String>,
+    /// Clause 5.3.13's pointers to other lists.
+    pub pointers: Vec<Pointer>,
+    /// How far this list's authenticity was established: what [`TrustedList::read`] alone can
+    /// say, [`Authentication::VouchedForByTheHost`], until [`Lists::read`] runs TS 119 615
+    /// clauses 4.1 and 4.2.
+    pub authentication: Authentication,
 }
+
+/// One tuple of TS 119 612 clause 5.3.13's pointers to other lists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pointer {
+    /// Item a): the URI of the pointed-to list's machine-processable form (`TSLLocation`).
+    pub location: String,
+    /// Item b): the digital identities of the pointed-to list's issuer, the clause 5.5.3
+    /// `X509Certificate`s decoded.
+    pub certificates: Vec<Vec<u8>>,
+    /// Item c)'s scheme territory qualifier, where stated.
+    pub territory: Option<String>,
+    /// Item c)'s MIME type qualifier (clause 6.2), where stated.
+    pub mime_type: Option<String>,
+}
+
+/// Clause 6.2's media type for a list's XML form.
+pub const XML_MIME_TYPE: &str = "application/vnd.etsi.tsl+xml";
+
+/// The namespace of the additional types clause 5.3.13's MIME type qualifier is written in
+/// (Annex C's `19612_additionaltypes_xsd.xsd`).
+pub const ADDITIONAL_TYPES: &str = "http://uri.etsi.org/02231/v2/additionaltypes#";
 
 /// How far a list's authenticity was established before anything was built on it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Authentication {
-    /// TS 119 615 clauses 4.1 and 4.2 were not run: the list is believed because the host that
-    /// supplied it vouched for it (module documentation).
+    /// TS 119 615 clauses 4.1 and 4.2 were not run, because the host supplied neither the list of
+    /// trusted lists nor the Official Journal's certificates: the list is believed because the host
+    /// that supplied it vouched for it (module documentation, ADR 2842).
     VouchedForByTheHost,
+    /// Clause 4.2 passed: the list's signature verified under a certificate the authenticated list
+    /// of trusted lists names for its territory, and that list passed clause 4.1 against the
+    /// Official Journal's certificates.
+    Authenticated {
+        /// The sequence number (TS 119 612 clause 5.3.2) of the list of trusted lists that
+        /// authenticated it.
+        lotl_sequence_number: u64,
+    },
 }
 
 impl TrustedList {
@@ -303,8 +352,8 @@ pub struct Matching<'l> {
 /// revocation material, which clause 4.3 does not name; whether the certificate was revoked is the
 /// validation's, after this search has chosen its anchors.
 ///
-/// PRO-4.3.4-01's authentication of the list by clause 4.2 is the step not run (module
-/// documentation): the territory test it opens with is.
+/// PRO-4.3.4-01's authentication of the list by clause 4.2 is [`Lists::read`]'s, before a list
+/// reaches this search; the territory test it opens with is here.
 #[must_use]
 pub fn matching<'l>(
     list: &'l TrustedList,
@@ -476,7 +525,7 @@ pub fn listed_anchors(
                     service: matched.service.current.name.clone(),
                     service_type: matched.service.current.type_identifier.clone(),
                     status_at_issue: matched.at_date_time.map(|state| state.status.clone()),
-                    authentication: Authentication::VouchedForByTheHost,
+                    authentication: list.authentication,
                 },
                 matched.service.current.certificates.clone(),
             ));
@@ -529,21 +578,84 @@ impl Lists {
         &self.lists
     }
 
-    /// The lists that read, and the ones that did not with why — named rather than dropped
-    /// (trap 5), because a verdict computed under fewer lists than a host named is not the one it
-    /// asked for.
+    /// The lists that read and were authenticated, and the ones that were not with why — named
+    /// rather than dropped (trap 5), because a verdict computed under fewer lists than a host named
+    /// is not the one it asked for.
+    ///
+    /// TS 119 615 clauses 4.1 and 4.2 run where the host supplied the list of trusted lists or a
+    /// parameter of GPR-4.0-02's ([`authentication`]), at `at`; a list they do not authenticate is
+    /// refused with [`TrustedListError::NotAuthenticated`], and the lists of territory `EU` (the
+    /// list of trusted lists and its pivots) are clause 4.1's inputs and not searched. Where the
+    /// host supplied neither, every list that reads is returned as
+    /// [`Authentication::VouchedForByTheHost`].
     #[must_use]
-    pub fn read(&self) -> (Vec<TrustedList>, Vec<(String, TrustedListError)>) {
-        let mut read = Vec::new();
-        let mut refused = Vec::new();
+    pub fn read(&self, at: Instant) -> Reading {
+        let configuration = authentication::Configuration::of(self);
+        let lotl_name = authentication::file_name(&configuration.ojeu_lotl_loc);
+        let run = configuration.supplied || self.lists.iter().any(|(name, _)| name == lotl_name);
+        let lotl = run.then(|| authentication::lotl(self, &configuration, at));
+        let mut reading = Reading::default();
         for (name, octets) in &self.lists {
-            match TrustedList::read(octets) {
-                Ok(list) => read.push(list),
-                Err(error) => refused.push((name.clone(), error)),
+            if run && authentication::Configuration::names(name) {
+                continue;
+            }
+            let mut list = match TrustedList::read(octets) {
+                Ok(list) => list,
+                Err(error) => {
+                    reading.refused.push((name.clone(), error));
+                    continue;
+                }
+            };
+            match &lotl {
+                None => reading.lists.push(list),
+                Some(_) if list.territory == "EU" => {}
+                // PRO-4.2.4-02: the LOTL's indications become the list's.
+                Some(Err(outcome)) => {
+                    let mut sub_status = vec![outcome.status.to_owned()];
+                    sub_status.extend(outcome.sub_status.iter().cloned());
+                    reading.refused.push((
+                        name.clone(),
+                        TrustedListError::NotAuthenticated(Outcome {
+                            status: "TL_VERIFICATION_FAILED",
+                            sub_status,
+                        }),
+                    ));
+                }
+                Some(Ok(authenticated)) => {
+                    match authentication::member_state(&mut list, octets, authenticated, at) {
+                        Ok(outcome) => {
+                            if !outcome.sub_status.is_empty() {
+                                reading.warnings.push((name.clone(), outcome));
+                            }
+                            reading.lists.push(list);
+                        }
+                        Err(outcome) => reading
+                            .refused
+                            .push((name.clone(), TrustedListError::NotAuthenticated(outcome))),
+                    }
+                }
             }
         }
-        (read, refused)
+        reading.lotl = lotl.map(|outcome| match outcome {
+            Ok(authenticated) => (authenticated.list.sequence_number, authenticated.outcome),
+            Err(outcome) => (0, outcome),
+        });
+        reading
     }
+}
+
+/// What [`Lists::read`] made of the host's files.
+#[derive(Debug, Default)]
+pub struct Reading {
+    /// The lists that read and, where clauses 4.1 and 4.2 ran, were authenticated.
+    pub lists: Vec<TrustedList>,
+    /// The files that are not lists this reader uses, by the host's name, with why.
+    pub refused: Vec<(String, TrustedListError)>,
+    /// Clause 4.1's outcome where it ran, with the sequence number of the list of trusted lists it
+    /// authenticated (zero where it authenticated none).
+    pub lotl: Option<(u64, Outcome)>,
+    /// The authenticated lists whose clause 4.2 outcome carries a warning, by the host's name.
+    pub warnings: Vec<(String, Outcome)>,
 }
 
 /// Whether `element` is the list namespace's `local`.
@@ -627,12 +739,71 @@ impl<'t> Reader<'t> {
                 providers.push(self.provider(provider, &mut services)?);
             }
         }
+        let scheme_information_uris = self
+            .first(scheme, "SchemeInformationURI")
+            .map(|uris| {
+                self.all(uris, "URI")
+                    .into_iter()
+                    .map(|uri| uri.text.trim().to_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut pointers = Vec::new();
+        if let Some(list) = self.first(scheme, "PointersToOtherTSL") {
+            for pointer in self.all(list, "OtherTSLPointer") {
+                pointers.push(self.pointer(pointer)?);
+            }
+        }
         Ok(TrustedList {
             territory: self.text(scheme, "SchemeTerritory")?,
             sequence_number,
             issued: self.instant(scheme, "ListIssueDateTime")?,
             next_update,
             providers,
+            scheme_information_uris,
+            pointers,
+            authentication: Authentication::VouchedForByTheHost,
+        })
+    }
+
+    /// Clause 5.3.13's tuple: the location, the issuer's certificates, and the qualifiers in
+    /// `AdditionalInformation`'s `OtherInformation` children.
+    fn pointer(&self, pointer: &Element) -> Result<Pointer, TrustedListError> {
+        let mut certificates = Vec::new();
+        if let Some(identities) = self.first(pointer, "ServiceDigitalIdentities") {
+            for identity in self.all(identities, "ServiceDigitalIdentity") {
+                for digital in self.all(identity, "DigitalId") {
+                    for certificate in self.all(digital, "X509Certificate") {
+                        certificates.push(
+                            base64(&certificate.text)
+                                .ok_or(TrustedListError::Malformed("X509Certificate"))?,
+                        );
+                    }
+                }
+            }
+        }
+        let mut territory = None;
+        let mut mime_type = None;
+        if let Some(additional) = self.first(pointer, "AdditionalInformation") {
+            for other in self.all(additional, "OtherInformation") {
+                for &index in &other.children {
+                    let qualifier = self.element(index)?;
+                    let value = Some(qualifier.text.trim().to_owned());
+                    if is(qualifier, "SchemeTerritory") {
+                        territory = territory.or(value);
+                    } else if qualifier.namespace == ADDITIONAL_TYPES
+                        && qualifier.local == "MimeType"
+                    {
+                        mime_type = mime_type.or(value);
+                    }
+                }
+            }
+        }
+        Ok(Pointer {
+            location: self.text(pointer, "TSLLocation")?,
+            certificates,
+            territory,
+            mime_type,
         })
     }
 

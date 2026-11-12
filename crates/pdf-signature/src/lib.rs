@@ -103,6 +103,7 @@ pub mod trust;
 pub mod trusted_list;
 pub mod verdict;
 mod xml;
+pub mod xml_signature;
 /// The two encodings every module here is built on, DER and the certificate.
 ///
 /// They live in `pdf-pki`, below `pdf-syntax`, because the public-key security handler reads

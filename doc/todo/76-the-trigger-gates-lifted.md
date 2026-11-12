@@ -58,7 +58,7 @@ a test's timing are not work held back and are not here.
 | 26 | ADR 2784 | a drop-down's `preOpen` and `postOpen` | JavaScript events | already built (ADR 2791) |
 | 27 | ADR 0207 | fragment identifiers "for a host with a URI" | Annex O | already built |
 | 28 | ADRs 2378, 2445, 2519, 2630, 2677, 2682; `doc/todo/72` | the archive conversion's font and press gates | `archive` | the PDF/A lane's |
-| 29 | `doc/questions/A800` item 3; ADRs 2725, 2782 | European signatures' eIDAS levels against EU trusted lists, and a *locally valid* standing for a reader's own anchors | §12.8.1, §12.8.3.4.4, §12.8.3.4.5 | the signatures lane's, **built in part** (ADRs 2834, 2835): locally valid, a TS 119 612 reader and TS 119 615 clause 4.3 run; the lists' authentication and the level are `doc/todo/77`'s order |
+| 29 | `doc/questions/A800` item 3; ADRs 2725, 2782 | European signatures' eIDAS levels against EU trusted lists, and a *locally valid* standing for a reader's own anchors | §12.8.1, §12.8.3.4.4, §12.8.3.4.5 | the signatures lane's, **built in part** (ADRs 2834, 2835, 2842, 2843): locally valid, a TS 119 612 reader, TS 119 615 clauses 4.1 and 4.2 authenticating the lists and clause 4.3 run; the QC statements and the level are `doc/todo/77`'s order |
 
 ## 3. The order
 

@@ -757,7 +757,10 @@ fn signatures(
         return;
     }
     let reading = trust.anchors.read();
-    let (lists, refused_lists) = trust.lists.read();
+    // ETSI TS 119 615 clause 4.1's "has passed" is asked at the host's instant, the one the
+    // anchors carry.
+    let list_reading = trust.lists.read(trust.anchors.at());
+    let lists = &list_reading.lists;
     // §12.8.4's store and §12.8.5's chain are read once here and lent to the three functions that
     // word them: `Signature::trust` needs the material, the chain needs it too, and a verdict on a
     // signature needs to know whether the document states a time this program could establish.
@@ -792,7 +795,7 @@ fn signatures(
             acceptance: trust.acceptance,
             timestamps,
             copies,
-            lists: &lists,
+            lists,
         };
         about_one(signature, document, length, &asked, notes, published);
         modifications(signature, document, &permissions, notes);
@@ -801,7 +804,7 @@ fn signatures(
     security_store(&store, &material, notes);
     document_timestamps(&chain, notes);
     anchors_note(trust, &reading, notes);
-    lists_note(trust, &lists, &refused_lists, notes);
+    lists_note(trust, &list_reading, notes);
     // The three questions, named, in the order §12.8.1 states them. This paragraph is what stops
     // the sentences above it being read as "the signature is good": where nobody named an anchor
     // two of them are answered, and the third is the one that decides whether a signature means
@@ -2517,11 +2520,13 @@ fn listed_or_local(
 ///
 /// **Locally valid is said in those words** (`doc/questions/A800` item 3): a company's own
 /// certificate is neither invalid nor the same thing as a service a Member State lists, and the
-/// reader is owed which of the two it is. A listed service is named with its list, and two things
-/// are said that this build does not do: the list's own signature (TS 119 615 clauses 4.1 and 4.2)
-/// and the eIDAS level (clauses 4.4 and 4.5, joined by TS 119 172-4 clause 4.4.2), so that a
-/// listing is never read as a qualified signature (ADR 2835).
+/// reader is owed which of the two it is. A listed service is named with its list, and how far the
+/// list itself was authenticated is said: under the European Commission's list of trusted lists
+/// (TS 119 615 clauses 4.1 and 4.2, ADR 2842), or on the word of whoever supplied it. The eIDAS
+/// level (clauses 4.4 and 4.5, joined by TS 119 172-4 clause 4.4.2) is said to be undetermined, so
+/// that a listing is never read as a qualified signature (ADR 2835).
 fn valid_sentence(valid: &pdf_signature::verdict::Valid, asked_at: &str) -> String {
+    use pdf_signature::trusted_list::Authentication;
     use pdf_signature::verdict::Standing;
     let reached = format!(
         "the document has not changed since it was signed, the signature verifies under the \
@@ -2529,20 +2534,36 @@ fn valid_sentence(valid: &pdf_signature::verdict::Valid, asked_at: &str) -> Stri
         valid.path_length()
     );
     match valid.standing() {
-        Standing::Listed(listing) => format!(
-            "that signature is valid under the trusted list of {} (sequence number {}): {reached} \
-             reaches the service \"{}\" of {}, which the list publishes as {} with the status {} \
-             when the signer's certificate was issued (ETSI TS 119 615 clause 4.3){asked_at}. That \
-             list's own signature was not checked — it is believed because it came from the \
-             trusted lists you supplied — and whether this is a qualified electronic signature or \
-             seal (QES, AdES/QC, AdES) is not determined by this build",
-            listing.territory,
-            listing.sequence_number,
-            listing.service,
-            listing.provider,
-            listing.service_type,
-            listing.status_at_issue.as_deref().unwrap_or("none yet")
-        ),
+        Standing::Listed(listing) => {
+            let believed = match listing.authentication {
+                Authentication::Authenticated {
+                    lotl_sequence_number,
+                } => format!(
+                    "That list's own signature was authenticated under the European Commission's \
+                     list of trusted lists (sequence number {lotl_sequence_number}), whose own \
+                     signature was authenticated against the Official Journal's certificates \
+                     (ETSI TS 119 615 clauses 4.1 and 4.2)"
+                ),
+                // Every other footing, and any a later build adds, is said in the words that
+                // claim least.
+                _ => "That list's own signature was not checked — it is believed because it came \
+                      from the trusted lists you supplied"
+                    .to_owned(),
+            };
+            format!(
+                "that signature is valid under the trusted list of {} (sequence number {}): \
+                 {reached} reaches the service \"{}\" of {}, which the list publishes as {} with \
+                 the status {} when the signer's certificate was issued (ETSI TS 119 615 clause \
+                 4.3){asked_at}. {believed}, and whether this is a qualified electronic signature \
+                 or seal (QES, AdES/QC, AdES) is not determined by this build",
+                listing.territory,
+                listing.sequence_number,
+                listing.service,
+                listing.provider,
+                listing.service_type,
+                listing.status_at_issue.as_deref().unwrap_or("none yet")
+            )
+        }
         // Every other standing — the reader's own anchors, and any a later build adds — is said
         // in the local words, which never claim more than the reader's own setting granted.
         _ => format!(
@@ -2555,29 +2576,60 @@ fn valid_sentence(valid: &pdf_signature::verdict::Valid, asked_at: &str) -> Stri
 }
 
 /// The trusted lists a host supplied: how many read, which did not, and on whose word they are
-/// believed — the list-side sentence to [`anchors_note`]'s.
+/// believed — the list-side sentence to [`anchors_note`]'s. Where ETSI TS 119 615 clause 4.1 ran,
+/// its outcome is said with the clause's own indications, and every list it did not authenticate
+/// is named with why.
 fn lists_note(
     trust: &crate::TrustPolicy,
-    lists: &[pdf_signature::trusted_list::TrustedList],
-    refused: &[(String, pdf_signature::trusted_list::TrustedListError)],
+    reading: &pdf_signature::trusted_list::Reading,
     notes: &mut Vec<String>,
 ) {
     if trust.lists.is_empty() {
         return;
     }
-    let territories: Vec<&str> = lists.iter().map(|list| list.territory.as_str()).collect();
-    notes.push(format!(
-        "the trusted lists this reader searched for the signers' certification authorities were \
-         supplied by whoever started it, from {}: {} of {} read as ETSI TS 119 612 lists ({}). \
-         Their own signatures were not checked against the European Commission's list of trusted \
-         lists (ETSI TS 119 615 clauses 4.1 and 4.2), so they are believed for where they came \
-         from, as an anchor is",
-        trust.lists.source(),
-        lists.len(),
-        trust.lists.lists().len(),
-        territories.join(", "),
-    ));
-    for (name, error) in refused {
+    let territories: Vec<&str> = reading
+        .lists
+        .iter()
+        .map(|list| list.territory.as_str())
+        .collect();
+    notes.push(match &reading.lotl {
+        None => format!(
+            "the trusted lists this reader searched for the signers' certification authorities \
+             were supplied by whoever started it, from {}: {} of {} read as ETSI TS 119 612 lists \
+             ({}). Neither the European Commission's list of trusted lists nor the Official \
+             Journal's certificates were among them, so their own signatures were not checked \
+             (ETSI TS 119 615 clauses 4.1 and 4.2) and they are believed for where they came \
+             from, as an anchor is",
+            trust.lists.source(),
+            reading.lists.len(),
+            trust.lists.lists().len(),
+            territories.join(", "),
+        ),
+        Some((_, outcome)) if !outcome.passed() => {
+            format!(
+                "the European Commission's list of trusted lists supplied from {} was not \
+                 authenticated against the Official Journal's certificates (ETSI TS 119 615 \
+                 clause 4.1: {outcome}), so no trusted list was searched",
+                trust.lists.source(),
+            )
+        }
+        Some((sequence_number, outcome)) => format!(
+            "the trusted lists this reader searched for the signers' certification authorities \
+             were supplied from {}, and {} of them were authenticated ({}) under the European \
+             Commission's list of trusted lists, sequence number {sequence_number}, which was \
+             itself authenticated against the Official Journal's certificates (ETSI TS 119 615 \
+             clauses 4.1 and 4.2: {outcome})",
+            trust.lists.source(),
+            reading.lists.len(),
+            territories.join(", "),
+        ),
+    });
+    for (name, outcome) in &reading.warnings {
+        notes.push(format!(
+            "{name} was authenticated with a warning (ETSI TS 119 615 clause 4.2): {outcome}"
+        ));
+    }
+    for (name, error) in &reading.refused {
         notes.push(format!(
             "{name} is not a trusted list this reader can use: {error}"
         ));
@@ -4063,5 +4115,58 @@ mod tests {
         );
         let acroform = said("<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [] >> >>");
         assert!(!acroform.contains("XFA"), "{acroform}");
+    }
+
+    /// **What ETSI TS 119 615 clause 4.1 said is said**, in the clause's own indications, and no
+    /// list is searched under a list of trusted lists it did not authenticate (PRO-4.2.4-02); a
+    /// directory holding neither that list nor the Official Journal's certificates is believed on
+    /// the host's word and says which of the two it was (ADR 2842).
+    #[test]
+    fn a_list_of_trusted_lists_that_fails_clause_4_1_is_said_and_nothing_is_searched() {
+        let policy = |files: Vec<(&str, &[u8])>| crate::TrustPolicy {
+            anchors: pdf_signature::trust::Supply::none(),
+            acceptance: pdf_signature::verdict::Acceptance::RevocationMustBeGood,
+            lists: pdf_signature::trusted_list::Lists::of(
+                files
+                    .into_iter()
+                    .map(|(name, octets)| (name.to_owned(), octets.to_vec()))
+                    .collect(),
+                "the directory a test named".to_owned(),
+            ),
+        };
+        let said = |trust: &crate::TrustPolicy| {
+            let reading = trust
+                .lists
+                .read(pdf_signature::x509::Instant::from_unix_seconds(
+                    1_790_812_800,
+                ));
+            let mut notes = Vec::new();
+            super::lists_note(trust, &reading, &mut notes);
+            notes.join("\n")
+        };
+        let failed = said(&policy(vec![("eu-lotl.xml", b"<not-a-list/>")]));
+        assert!(
+            failed.contains(
+                "was not authenticated against the Official Journal's certificates (ETSI TS 119 \
+                 615 clause 4.1: LOTL_VERIFICATION_FAILED (LOTL_UNREADABLE"
+            ),
+            "{failed}"
+        );
+        assert!(
+            failed.contains("so no trusted list was searched"),
+            "{failed}"
+        );
+        let vouched = said(&policy(vec![("at.xml", b"<not-a-list/>")]));
+        assert!(
+            vouched.contains(
+                "Neither the European Commission's list of trusted lists nor the Official \
+                 Journal's certificates were among them"
+            ),
+            "{vouched}"
+        );
+        assert!(
+            vouched.contains("at.xml is not a trusted list this reader can use"),
+            "{vouched}"
+        );
     }
 }

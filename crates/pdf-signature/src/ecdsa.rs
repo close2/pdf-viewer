@@ -208,6 +208,37 @@ pub fn verify(key: PublicKey<'_>, signature: &[u8], digest: &[u8]) -> Result<boo
     }
 }
 
+/// Verifies an ECDSA signature written as W3C XML Signature 1.1 section 6.4.3 writes one: `r` and
+/// `s` each converted by RFC 3447's I2OSP to the width of the curve's base point order, and
+/// concatenated — no DER around them. For every curve [`Curve`] names the order is as wide as the
+/// field, so the width is `EcCurve::field_octets` (`pdf_pki::x509`).
+///
+/// # Errors
+///
+/// [`EcdsaError::NotASignatureValue`] where the value is not two such halves; otherwise as
+/// [`verify`].
+pub fn verify_concatenated(
+    key: PublicKey<'_>,
+    signature: &[u8],
+    digest: &[u8],
+) -> Result<bool, EcdsaError> {
+    let width = key.curve.field_octets();
+    if signature.len() != width.saturating_mul(2) {
+        return Err(EcdsaError::NotASignatureValue);
+    }
+    let (r, s) = signature.split_at(width);
+    match key.curve {
+        Curve::P256 => verify_on::<p256::NistP256>(key.point, r, s, digest),
+        Curve::P384 => verify_on::<p384::NistP384>(key.point, r, s, digest),
+        Curve::P521 => verify_on::<p521::NistP521>(key.point, r, s, digest),
+        Curve::BrainpoolP256r1 => verify_on::<bp256::BrainpoolP256r1>(key.point, r, s, digest),
+        Curve::BrainpoolP384r1 => verify_on::<bp384::BrainpoolP384r1>(key.point, r, s, digest),
+        Curve::BrainpoolP512r1 => {
+            verify_on::<crate::brainpool_p512::BrainpoolP512r1>(key.point, r, s, digest)
+        }
+    }
+}
+
 /// The same, once the curve is a type.
 ///
 /// One function rather than six copies: the six arms of [`verify`] differ only in which

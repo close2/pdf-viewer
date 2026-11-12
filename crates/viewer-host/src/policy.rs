@@ -2667,6 +2667,11 @@ pub const TRUST_ANCHORS: &str = "--trust-anchors";
 /// service a list publishes is reported with that list. Read from disk, never fetched: fetching
 /// the European Commission's list of trusted lists is a transmission, and a host's to make under
 /// its own rule (`doc/questions/A130`), which this word does not. Off where nobody typed it.
+///
+/// **The same directory authenticates them** (ADR 2842): the European Commission's list of trusted
+/// lists and its pivots saved under their own names, and the Official Journal's certificates in
+/// files named `OJEU-LOTL-Certs-Set…`, make ETSI TS 119 615 clauses 4.1 and 4.2 run, and a list
+/// they do not authenticate is refused by name.
 pub const TRUSTED_LISTS: &str = "--trusted-lists";
 
 /// The word a person types to act on a signature whose revocation status could not be determined.
@@ -2850,13 +2855,7 @@ pub fn trust_anchors(
             certificates.push((labelled, der));
         }
     }
-    let at = Instant::from_unix_seconds(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .ok()
-            .and_then(|since| i64::try_from(since.as_secs()).ok())
-            .unwrap_or(0),
-    );
+    let at = now();
     (
         TrustPolicy {
             anchors: Supply::of(
@@ -2868,6 +2867,19 @@ pub fn trust_anchors(
             lists: Lists::none(),
         },
         refused,
+    )
+}
+
+/// This machine's clock as RFC 5280 section 6.1.1's input (b), zero before the epoch — see
+/// [`trust_anchors`] for why the host answers it.
+#[must_use]
+pub fn now() -> Instant {
+    Instant::from_unix_seconds(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .and_then(|since| i64::try_from(since.as_secs()).ok())
+            .unwrap_or(0),
     )
 }
 

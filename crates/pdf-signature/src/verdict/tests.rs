@@ -157,6 +157,36 @@ fn a_path_to_a_listed_service_carries_the_listing() {
     );
 }
 
+/// **A listing found through an authenticated list says so** (ADR 2842): the same service as
+/// [`a_path_to_a_listed_service_carries_the_listing`], in Austria's list authenticated by ETSI TS
+/// 119 615 clause 4.2 under a list of trusted lists clause 4.1 authenticated, carries
+/// `Authenticated` with that list's sequence number — which is what drops the "believed for
+/// where it came from" sentence in a report.
+#[test]
+fn a_listing_from_an_authenticated_list_carries_its_authentication() {
+    use crate::trusted_list::authentication::tests::authenticated_reading;
+    use crate::trusted_list::tests::{GRANTED_AT_LATER, Written};
+    use crate::trusted_list::{Authentication, listed_anchors};
+    let (_, signature) = opened(fixtures::signed());
+    let root = hex(fixtures::ROOT);
+    let service = Written {
+        identity: Some(&root),
+        ..GRANTED_AT_LATER
+    };
+    let reading = authenticated_reading(&[service]);
+    assert!(reading.refused.is_empty(), "{:?}", reading.refused);
+    let found = listed_anchors(&reading.lists, &signature);
+    let [(listing, _)] = found.as_slice() else {
+        panic!("one service issued the signer: {found:?}");
+    };
+    assert_eq!(
+        listing.authentication,
+        Authentication::Authenticated {
+            lotl_sequence_number: 7
+        }
+    );
+}
+
 /// **A broken policy constraint withholds the word; a met one does not grant anything.**
 ///
 /// §12.8.3.4.4: a handler "shall enforce signature policy constraints" during validation, so the

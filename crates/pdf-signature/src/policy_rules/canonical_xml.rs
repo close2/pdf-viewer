@@ -226,9 +226,61 @@ pub fn canonicalize(
             octets: octets.len(),
         });
     }
+    let subset = Subset {
+        apex: Target::Named(*apex),
+        excluded: None,
+        whole_document: false,
+    };
+    if canonicalize_subset(octets, &subset, method, MAX_ENTRIES, out)? {
+        Ok(())
+    } else {
+        Err(PolicyDocumentError::ElementMalformed("PolicyComponents"))
+    }
+}
+
+/// Which element a subset is drawn around.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Target<'a> {
+    /// The first element [`Apex`] describes.
+    Named(Apex<'a>),
+    /// The element whose start tag is this one in document order, the root's being zero — the
+    /// index `crate::xml::Tree` gives the same element, so that a caller that chose an element by
+    /// reading the tree names that element and no other of the same name (a signature-wrapping
+    /// document holds two).
+    Ordinal(usize),
+}
+
+/// The node set a W3C XML Signature reference selects, as far as this canonicaliser renders one.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Subset<'a> {
+    /// The element the subset is drawn around, with its descendants.
+    pub(crate) apex: Target<'a>,
+    /// The ordinal of an element removed from the subset with its descendants: the enveloped
+    /// signature transform's `ds:Signature` (XML Signature 1.1 section 6.6.4).
+    pub(crate) excluded: Option<usize>,
+    /// Whether the subset is the whole document's (a reference whose `URI` is empty, XML
+    /// Signature 1.1 section 4.4.3.3), so that a processing instruction outside the root is
+    /// rendered with Canonical XML 1.0 section 2.3's line break between it and the root.
+    pub(crate) whole_document: bool,
+}
+
+/// The canonical form of `subset` in `octets`, handed to `out` in pieces, with `entries` as the
+/// budget every element, declaration and prefix is charged to; `false` where the document holds
+/// no element the subset names. The caller bounds the octets.
+///
+/// # Errors
+///
+/// As [`canonicalize`], but for the apex's absence, which is the `false`.
+pub(crate) fn canonicalize_subset(
+    octets: &[u8],
+    subset: &Subset<'_>,
+    method: &Method<'_>,
+    entries: usize,
+    out: &mut dyn FnMut(&[u8]),
+) -> Result<bool, PolicyDocumentError> {
     let body = octets.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(octets);
     let text = std::str::from_utf8(body).map_err(|_| refused("the document is not UTF-8"))?;
-    let mut budget = Budget(MAX_ENTRIES);
+    let mut budget = Budget(entries);
     let mut inclusive = HashSet::new();
     if method.algorithm == Algorithm::Exclusive10 {
         for prefix in method
@@ -252,20 +304,18 @@ pub fn canonicalize(
         comments: method.comments,
         inclusive,
         rendered: HashMap::new(),
+        started: 0,
+        excluded_at: None,
         out,
     };
     for token in xmlparser::Tokenizer::from(text) {
         let token = token.map_err(|error| PolicyDocumentError::Xml(error.to_string()))?;
-        writer.token(token, apex)?;
+        writer.token(token, subset)?;
     }
     if !writer.open.is_empty() {
         return Err(refused("the document's root element is not closed"));
     }
-    if writer.found {
-        Ok(())
-    } else {
-        Err(PolicyDocumentError::ElementMalformed("PolicyComponents"))
-    }
+    Ok(writer.found)
 }
 
 /// [`PolicyDocumentError::Xml`] with a fixed reason.
@@ -295,6 +345,10 @@ struct Writer<'o> {
     /// Exclusive canonicalisation's section 3.1 `ns_rendered`: per prefix, the URIs output
     /// ancestors rendered, innermost last, an empty URI being `xmlns=""`.
     rendered: HashMap<String, Vec<String>>,
+    /// How many start tags were read: the ordinal the next one has.
+    started: usize,
+    /// How many elements were open when the excluded element's start tag was, while it is open.
+    excluded_at: Option<usize>,
     out: &'o mut dyn FnMut(&[u8]),
 }
 
@@ -304,13 +358,13 @@ impl Writer<'_> {
     }
 
     fn inside(&self) -> bool {
-        self.subset.is_some()
+        self.subset.is_some() && self.excluded_at.is_none()
     }
 
     fn token(
         &mut self,
         token: xmlparser::Token<'_>,
-        apex: &Apex<'_>,
+        subset: &Subset<'_>,
     ) -> Result<(), PolicyDocumentError> {
         match token {
             xmlparser::Token::Declaration { encoding, .. } => {
@@ -331,6 +385,7 @@ impl Writer<'_> {
                 if self.open.len() >= usize::from(der::MAX_DEPTH) {
                     return Err(PolicyDocumentError::NestedTooDeep);
                 }
+                self.started = self.started.saturating_add(1);
                 let qname = if prefix.is_empty() {
                     local.as_str().to_owned()
                 } else {
@@ -352,9 +407,9 @@ impl Writer<'_> {
                 ..
             } => self.attribute(prefix.as_str(), local.as_str(), value.as_str())?,
             xmlparser::Token::ElementEnd { end, .. } => match end {
-                xmlparser::ElementEnd::Open => self.start_tag(apex)?,
+                xmlparser::ElementEnd::Open => self.start_tag(subset)?,
                 xmlparser::ElementEnd::Empty => {
-                    self.start_tag(apex)?;
+                    self.start_tag(subset)?;
                     self.close()?;
                 }
                 xmlparser::ElementEnd::Close(prefix, local) => {
@@ -393,7 +448,12 @@ impl Writer<'_> {
                 target,
                 content,
                 span,
-            } => self.instruction(span.as_str(), target.as_str(), content.map(|c| c.as_str()))?,
+            } => self.instruction(
+                span.as_str(),
+                target.as_str(),
+                content.map(|c| c.as_str()),
+                subset.whole_document,
+            )?,
             xmlparser::Token::EntityDeclaration { .. } | xmlparser::Token::DtdEnd { .. } => {}
         }
         Ok(())
@@ -409,6 +469,7 @@ impl Writer<'_> {
         span: &str,
         target: &str,
         content: Option<&str>,
+        whole_document: bool,
     ) -> Result<(), PolicyDocumentError> {
         if target.eq_ignore_ascii_case("xml") {
             return Err(refused(
@@ -424,10 +485,20 @@ impl Writer<'_> {
                 "a processing instruction's target is not followed by white space",
             ));
         }
+        let written = match content.map(line_breaks) {
+            Some(content) => format!("<?{target} {content}?>"),
+            None => format!("<?{target}?>"),
+        };
         if self.inside() {
-            match content.map(line_breaks) {
-                Some(content) => self.emit(&format!("<?{target} {content}?>")),
-                None => self.emit(&format!("<?{target}?>")),
+            self.emit(&written);
+        } else if whole_document && self.open.is_empty() {
+            // Canonical XML 1.0 section 2.3: a node outside the document element is separated
+            // from it by one line break, after the node where it comes before the root and before
+            // it where it comes after.
+            if self.found {
+                self.emit(&format!("\n{written}"));
+            } else {
+                self.emit(&format!("{written}\n"));
             }
         }
         Ok(())
@@ -472,7 +543,7 @@ impl Writer<'_> {
     /// The end of a start tag: its declarations bound, and the tag rendered where it is in the
     /// subset. An empty-element tag is rendered as a start-tag and end-tag pair (section 2.3),
     /// the end tag written by [`Self::close`].
-    fn start_tag(&mut self, apex: &Apex<'_>) -> Result<(), PolicyDocumentError> {
+    fn start_tag(&mut self, subset: &Subset<'_>) -> Result<(), PolicyDocumentError> {
         let declarations = std::mem::take(&mut self.declarations);
         let attributes = std::mem::take(&mut self.pending);
         let depth = self.open.len().saturating_sub(1);
@@ -504,11 +575,21 @@ impl Writer<'_> {
             (None, _) => return Err(refused("an element's prefix is not declared")),
         };
         let resolved = self.resolved(attributes)?;
+        let ordinal = self.started.saturating_sub(1);
         let entering = self.subset.is_none()
             && !self.found
-            && depth == apex.depth
-            && local == apex.local
-            && apex.namespaces.contains(&namespace.as_str());
+            && match subset.apex {
+                Target::Named(apex) => {
+                    depth == apex.depth
+                        && local == apex.local
+                        && apex.namespaces.contains(&namespace.as_str())
+                }
+                Target::Ordinal(wanted) => ordinal == wanted,
+            };
+        if self.inside() && subset.excluded == Some(ordinal) {
+            self.excluded_at = Some(depth);
+            return Ok(());
+        }
         if !self.inside() && !entering {
             if let Some(element) = self.open.last_mut() {
                 element.xml_attributes = resolved
@@ -786,6 +867,9 @@ impl Writer<'_> {
             .ok_or_else(|| refused("an element is closed without being opened"))?;
         if self.inside() {
             self.emit(&format!("</{}>", element.qname));
+        }
+        if self.excluded_at == Some(self.open.len()) {
+            self.excluded_at = None;
         }
         if self.subset == Some(self.open.len()) {
             self.subset = None;
