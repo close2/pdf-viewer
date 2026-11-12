@@ -230,6 +230,7 @@ pub(super) fn embed(
             compact_from(document, descendant, program, Format::Sfnt, &glyphs, &shown)?
         }
     };
+    named_in_the_file(document, &stream, &mut gains, substitutes);
     noticed(document, &face, &mut stream, spare, substitutes)?;
     substitutes.written.insert(at, stream);
     substitutes
@@ -272,6 +273,31 @@ pub(super) fn embed(
         font: super::selected(used),
     });
     Ok(())
+}
+
+/// The subset tag `gains`' `/BaseFont` is written under: §9.9.2's "different subsets of the same
+/// font in the same PDF file shall have different tags" across the whole converted file, through
+/// the one record the conversion's writers share (ADR 2838). The program's encoded bytes are its
+/// identity, since one subset encodes the same way every time.
+fn named_in_the_file(
+    document: &Document,
+    stream: &Object,
+    gains: &mut Dictionary,
+    substitutes: &mut Substitutes,
+) {
+    let (Some(name), Object::Stream(program)) =
+        (gains.get("BaseFont").and_then(Object::as_name), stream)
+    else {
+        return;
+    };
+    let name = String::from_utf8_lossy(name.as_bytes()).into_owned();
+    let named = substitutes
+        .names
+        .name_program(document, &name, &program.data);
+    gains.insert(
+        Name::new(&b"BaseFont"[..]),
+        Object::Name(Name::new(named.as_bytes())),
+    );
 }
 
 /// The descriptor's `/FontName` where the descendant gains a `/BaseFont`, which Table 120 makes the

@@ -153,12 +153,13 @@ impl<'a> Examination<'a> {
                 .xref()
                 .object_numbers()
                 .map(|number| {
-                    // The key stays at generation zero (`reach::numbered` compares by number);
-                    // the read uses the generation the file defines the number under.
-                    (
-                        ObjectId::new(number, 0),
-                        self.document.get(self.document.defined_id(number)),
-                    )
+                    // Each object under the identifier the file defines it at: ISO 32000-2
+                    // §7.3.10 names an object by its number and generation together, so a
+                    // finding, a holder a converter edits and a reference the reach walk follows
+                    // all name the object the file wrote rather than its number at generation
+                    // zero, which `pdf_syntax::Document::get` reads as undefined.
+                    let id = self.document.defined_id(number);
+                    (id, self.document.get(id))
                 })
                 .collect()
         })

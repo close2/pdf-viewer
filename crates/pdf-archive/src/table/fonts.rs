@@ -2215,6 +2215,13 @@ fn type3_notdef_shown(document: &Document, used: &SelectedFont, findings: &mut F
 /// both put a *failed* selection there; the two rules therefore report the same file, under the
 /// two clauses that each state a requirement it breaks.
 ///
+/// **So is a code reaching an index at or past the program's last glyph** — a `/CIDToGIDMap`
+/// naming a glyph a subset was cut without — because a glyph index is a position in the program,
+/// and the program defines nothing there ([`program_glyph_count`]). A reader that draws nothing
+/// for such an index has not been given a definition; it has been given none. Section 6.2.11.5's
+/// widths are not asked of it: the program states no width for a glyph it does not hold, so the
+/// failure is this clause's, whatever a validator also prints under that one.
+///
 /// # The two places this is less exact than the clause
 ///
 /// - **Mode 3 is excused per font rather than per string.** The clause exempts a glyph referenced
@@ -2233,14 +2240,14 @@ fn embedded_programs_define_every_glyph_shown(exam: &Examination<'_>, findings: 
         let Some(font) = font_with_its_own_program(document, used) else {
             continue;
         };
+        let glyphs = program_glyph_count(document, &used.dict);
         let mut reported = BTreeSet::new();
         for text in used.shown.keys() {
             for code in font.decode(text) {
-                if font
-                    .glyph_index(code)
-                    .is_some_and(|glyph| glyph != NOTDEF_GLYPH)
-                    || !reported.insert(code.value())
-                {
+                let defined = font.glyph_index(code).is_some_and(|glyph| {
+                    glyph != NOTDEF_GLYPH && glyphs.is_none_or(|count| u32::from(glyph) < count)
+                });
+                if defined || !reported.insert(code.value()) {
                     continue;
                 }
                 findings.record(
@@ -2255,6 +2262,29 @@ fn embedded_programs_define_every_glyph_shown(exam: &Examination<'_>, findings: 
             }
         }
     }
+}
+
+/// How many glyphs the program a font renders from holds, where its format states the count.
+///
+/// A glyph index is a position in the program, so one at or past the count names no glyph the
+/// program defines: ISO 32000-2 §9.7.4.2 lets a `/CIDToGIDMap` send a CID to any index, and
+/// nothing in the dictionary stops it naming one the subset does not hold. The count is the
+/// program's own statement — `maxp`'s for an sfnt, the `CharStrings` INDEX's length for a bare
+/// CFF ([`pdf_font::embedding::glyph_count`]); a Type 1 program states none, and is read by name.
+fn program_glyph_count(document: &Document, font: &Dictionary) -> Option<u32> {
+    let holder = if subtype(document, font).as_deref() == Some("Type0") {
+        descendant(document, font)?.1
+    } else {
+        font.clone()
+    };
+    let descriptor = descriptor(document, &holder)?;
+    let (_, at) = embedded_under(document, &descriptor)?;
+    let Object::Stream(stream) = document.get(at) else {
+        return None;
+    };
+    let program = document.decoded_stream_data(&stream)?;
+    let format = pdf_font::standard::program_format(&program)?;
+    pdf_font::embedding::glyph_count(&program, format).map(u32::from)
 }
 
 // --------------------------------------------------------------------------------------------
@@ -4476,6 +4506,11 @@ mod tests {
     /// 0 to glyph `cid_zero_glyph`, CID 36 to glyph 36 (`A`), and CIDs 1 to 35 to glyph 0. The
     /// stream ends at CID 36, so a CID past it has no glyph of its own.
     fn cid_page(shown: &[u16], cid_zero_glyph: u16) -> Document {
+        cid_page_sending_36_to(shown, cid_zero_glyph, 36)
+    }
+
+    /// [`cid_page`] with CID 36 mapped to `cid_36_glyph` rather than to glyph 36, A.
+    fn cid_page_sending_36_to(shown: &[u16], cid_zero_glyph: u16, cid_36_glyph: u16) -> Document {
         const LIBERATION_SANS: &[u8] =
             include_bytes!("../../../../data/standard-fonts/LiberationSans-Regular.ttf");
         let codes = shown.iter().fold(String::new(), |mut codes, cid| {
@@ -4487,7 +4522,7 @@ mod tests {
             .flat_map(|cid| {
                 match cid {
                     0 => cid_zero_glyph,
-                    36 => 36,
+                    36 => cid_36_glyph,
                     _ => 0,
                 }
                 .to_be_bytes()
@@ -4614,6 +4649,29 @@ mod tests {
         );
         let crossed = judged(584, 333);
         assert_eq!(crossed.len(), 2, "{crossed:?}");
+    }
+
+    #[test]
+    fn a_cid_mapped_past_the_programs_last_glyph_names_no_glyph_the_program_defines() {
+        // ISO 19005-2 section 6.2.11.4.1 requires embedded fonts to define every glyph referenced
+        // for rendering, and a glyph index is a position in the program: Liberation Sans's
+        // `maxp` states 681 glyphs, so a `/CIDToGIDMap` sending CID 36 to glyph 60 000 names
+        // none (ISO 32000-2 §9.7.4.2), however a reader draws it.
+        use super::embedded_programs_define_every_glyph_shown;
+        assert!(
+            findings(
+                &cid_page(&[36], 1),
+                embedded_programs_define_every_glyph_shown
+            )
+            .is_empty(),
+            "the control: CID 36 reaches A, glyph 36"
+        );
+        let past = findings(
+            &cid_page_sending_36_to(&[36], 1, 60_000),
+            embedded_programs_define_every_glyph_shown,
+        );
+        assert_eq!(past.len(), 1, "{past:?}");
+        assert!(past[0].contains("defines no glyph"), "{past:?}");
     }
 
     #[test]

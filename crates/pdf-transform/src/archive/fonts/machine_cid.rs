@@ -184,7 +184,11 @@ fn written_in(
         return Err(Because::NotBuiltYet(NOT_THIS_ROUTES));
     }
     let shown = shown(document, used, font)?;
-    let written = written(program, &shown)?;
+    let mut written = written(program, &shown)?;
+    // §9.9.2: one tag per subset across the whole converted file (ADR 2838).
+    written.name = substitutes
+        .names
+        .name_program(document, &written.name, &written.program);
     let home = home_of(document, descendant, substitutes, &written, program)?;
     let subtype = written.subtype();
     if written.cid_to_glyph.is_none() && descendant.get("CIDToGIDMap").is_some() {

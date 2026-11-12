@@ -611,7 +611,6 @@ impl<'a> Walker<'a> {
 
     /// Records an arrival at an object the walk has not seen before.
     fn enter(&mut self, id: ObjectId, from: Option<ObjectId>, through: Vec<Entry>) {
-        let id = numbered(id);
         if self.arrivals.contains_key(&id) {
             return;
         }
@@ -640,20 +639,6 @@ fn run_of(trail: &[(Entry, Option<usize>)], at: Option<usize>) -> Vec<Entry> {
     }
     run.reverse();
     run
-}
-
-/// One object identity as this reader keys them: by number, with the generation dropped.
-///
-/// **Not a reading of §7.3.10**, which pairs a reference's object number *and* generation with
-/// the object it names. It is agreement with the program: `pdf_syntax::Document::get` caches and
-/// resolves on the object number alone, `XrefTable` maps numbers to locations, and
-/// `Examination::objects` names every object at generation zero for that reason. A walk that kept
-/// the generation would report an object as unreferenced because the only reference to it spells
-/// a generation the reader never compares — a finding about this crate's own bookkeeping rather
-/// than about the document. It changes no count over `doc/veraPDF-corpus`, where no reference
-/// spells a generation other than zero; it is here for the file that does.
-fn numbered(id: ObjectId) -> ObjectId {
-    ObjectId::new(id.number, 0)
 }
 
 /// Where one entry's value sits, given where its dictionary sits and what the key is.
@@ -859,9 +844,13 @@ fn indirect_dictionaries(
 /// it is sorted and a search costs a logarithm rather than a map of its own over a hundred
 /// thousand entries.
 fn object_at(objects: &[(ObjectId, Object)], id: ObjectId) -> Option<&Object> {
+    // A reference names an object by its number and generation together, and one naming the
+    // number at a generation the file does not define it at names nothing (ISO 32000-2
+    // §7.3.10); the objects are in number order, one under each number.
     let at = objects
         .binary_search_by_key(&id.number, |(had, _)| had.number)
-        .ok()?;
+        .ok()
+        .filter(|at| objects.get(*at).is_some_and(|(had, _)| *had == id))?;
     objects.get(at).map(|(_, object)| object)
 }
 
@@ -898,13 +887,13 @@ fn note_keys(
         match (inner, value) {
             (Spot::Resources(names), Object::Reference(id)) => {
                 resources
-                    .entry(numbered(*id))
+                    .entry(*id)
                     .or_default()
                     .extend(names.iter().cloned());
             }
             (Spot::Category(names), Object::Reference(id)) => {
                 categories
-                    .entry(numbered(*id))
+                    .entry(*id)
                     .or_default()
                     .extend(names.iter().cloned());
             }

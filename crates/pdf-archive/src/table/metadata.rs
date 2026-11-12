@@ -2496,7 +2496,7 @@ impl PacketFault {
 pub fn metadata_streams(document: &Document) -> Vec<ObjectId> {
     let mut out = Vec::new();
     for number in document.xref().object_numbers() {
-        let id = ObjectId::new(number, 0);
+        let id = document.defined_id(number);
         if let Object::Stream(stream) = document.get(id)
             && document
                 .get_key(&stream.dict, "Type")

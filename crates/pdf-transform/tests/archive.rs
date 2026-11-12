@@ -4036,6 +4036,88 @@ fn a_direct_descendant_stating_no_type_is_given_type_font_inside_its_type0_font(
     }
 }
 #[test]
+fn a_direct_font_in_an_object_defined_at_generation_two_is_typed_in_that_object() {
+    // ISO 32000-2 §7.3.10 names an object by its number and generation together, so a holder the
+    // file defines as `6 2 obj` is object 6 2: the row's walk, the holder it names to the
+    // converter and the converter's read of it all have to say 6 2, or the converter reads 6 0 —
+    // an object the file does not define — as null and refuses a font it can type
+    // (`pdf.js/test/pdfs/freetexts.pdf`, whose object 2 2 holds `/Invalid_font` with no `/Type`).
+    let stated: &[u8] = b"<< /Type /Font /Subtype /CIDFontType2";
+    let mut source = an_embedded_cid_font_stating_no_map("%PDF-1.6", Descendant::Direct);
+    let at = source
+        .windows(stated.len())
+        .position(|window| window == stated)
+        .expect("the fixture's descendant");
+    source[at..at + stated.len()].copy_from_slice(b"<<             /Subtype /CIDFontType2");
+    // The holder, object 6, at generation 2 in its header and in every reference to it: the same
+    // lengths, so every cross-reference offset still holds.
+    for (from, to) in [(&b"6 0 obj"[..], &b"6 2 obj"[..]), (b"6 0 R", b"6 2 R")] {
+        let mut found = 0;
+        while let Some(at) = source.windows(from.len()).position(|window| window == from) {
+            source[at..at + from.len()].copy_from_slice(to);
+            found += 1;
+        }
+        assert!(
+            found > 0,
+            "the fixture writes {}",
+            String::from_utf8_lossy(from)
+        );
+    }
+    let row = "fonts/font-dictionary-states-type-font";
+    for (target, (report, output)) in [
+        (Target::Four(Flavour::Plain), to_part_four(&source)),
+        (Target::Two(Level::B), to_part_two(&source)),
+    ] {
+        let found = holds(&source, target);
+        let failed = found
+            .failures()
+            .find(|failed| failed.id == row)
+            .expect("the direct font states no Type");
+        let Outcome::Failed { places, .. } = &failed.outcome else {
+            panic!("a failure");
+        };
+        assert!(
+            places.iter().all(|finding| finding
+                .place
+                .name
+                .as_deref()
+                .is_some_and(|name| name.contains("object 6 2"))),
+            "{target:?}: the holder is named as the file defines it: {places:?}"
+        );
+        assert_eq!(
+            decision(&report, row),
+            Decision::Mechanical(Rewrite::FontTypeStated),
+            "{target:?}"
+        );
+        assert!(
+            conversion(&report).settled.is_empty(),
+            "{target:?}: a first-pass construction"
+        );
+        let output = output.expect("the document converts");
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
+            "{target:?}"
+        );
+        let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+        let font = font_resource(&held);
+        let Some(pdf_syntax::Object::Array(kids)) = font.get("DescendantFonts") else {
+            panic!("the array is still written in the Type 0 font");
+        };
+        let Some(pdf_syntax::Object::Dictionary(descendant)) = kids.first() else {
+            panic!("and the descendant is still written inside it: {kids:?}");
+        };
+        assert_eq!(
+            held.get_key(descendant, "Type")
+                .as_name()
+                .map(|name| name.as_bytes().to_vec()),
+            Some(b"Font".to_vec()),
+            "{target:?}: Table 115's one value, written into the object the file defines"
+        );
+    }
+}
+
+#[test]
 fn a_direct_descendant_of_a_pdf_two_file_stays_refused_at_part_four() {
     // The control for the test above: labelled 2.0, the same direct font is the file's own
     // statement under an edition with no default, and keeps the refusal that names the label.

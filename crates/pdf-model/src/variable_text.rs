@@ -1238,7 +1238,7 @@ fn for_a_file(resources: &Dictionary) -> Result<Dictionary, String> {
 /// holds, since §9.9.2 forbids one tag for two subsets and asks nothing of one subset under two
 /// tags. The file's names are the objects its cross-reference information names, read the first
 /// time a save writes a subset and not before, so a save that writes none costs nothing more.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SubsetNames {
     /// Each subset written into the file, under the name it was written with.
     written: BTreeMap<Vec<u8>, Dictionary>,
@@ -1248,6 +1248,34 @@ pub struct SubsetNames {
 }
 
 impl SubsetNames {
+    /// The name a subset written by another writer of the same file goes under: `name` itself,
+    /// or the next tag after it that no other subset in the file carries, recorded as taken.
+    ///
+    /// For a writer that holds a program rather than a font dictionary this module built — the
+    /// archive conversion's embedding of a face (ADR 2838). The program's bytes are the subset's
+    /// identity: the same bytes under the same name keep it, and any other subset under that
+    /// name, one of this module's dictionaries included, moves this one to the next tag. A name
+    /// without §9.9.2's tag is no subset's, and is returned as it is.
+    ///
+    /// The record keeps the program for that comparison, so it costs the subsets' own size for as
+    /// long as the file is being written.
+    pub fn name_program(&mut self, document: &Document, name: &str, program: &[u8]) -> String {
+        let mut subset = Dictionary::new();
+        subset.insert(
+            pdf_syntax::Name::new(&b"BaseFont"[..]),
+            Object::Name(pdf_syntax::Name::new(name.as_bytes())),
+        );
+        subset.insert(
+            pdf_syntax::Name::new(&b"FontFile"[..]),
+            Object::String(program.into()),
+        );
+        self.name(&mut subset, Some(document));
+        subset_name(&subset).map_or_else(
+            || name.to_owned(),
+            |named| String::from_utf8_lossy(&named).into_owned(),
+        )
+    }
+
     /// The name `subset` is written under: its own, or the next tag after it that no other
     /// subset in the file carries ([`retag`]), which is recorded as taken.
     fn name(&mut self, subset: &mut Dictionary, document: Option<&Document>) {
@@ -3644,8 +3672,44 @@ pub(crate) fn value_text(document: &Document, value: &Object) -> Option<String> 
 
 #[cfg(test)]
 mod tests {
-    use super::{MACHINE_FACE, for_a_file, machine_font};
+    use super::{MACHINE_FACE, SubsetNames, for_a_file, machine_font};
     use pdf_syntax::{Dictionary, Name, Object};
+
+    /// ISO 32000-2 §9.9.2: "different subsets of the same font in the same PDF file shall have
+    /// different tags". A program named through the record keeps its name the second time it is
+    /// written, moves to the next tag where another program took the name or the file states
+    /// it, and a name with no tag is no subset's.
+    #[test]
+    fn a_program_named_through_the_record_passes_over_every_other_subsets_tag() {
+        let document = pdf_syntax::Document::open(
+            b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type \
+              /Pages /Kids [] /Count 0 /Stated << /BaseFont /AAAAAA+Stated >> >>\nendobj\n\
+              trailer\n<< /Root 1 0 R >>\n%%EOF\n"
+                .to_vec(),
+        )
+        .expect("the fixture opens");
+        let mut names = SubsetNames::default();
+        assert_eq!(
+            names.name_program(&document, "AAAAAA+Face", b"one"),
+            "AAAAAA+Face"
+        );
+        assert_eq!(
+            names.name_program(&document, "AAAAAA+Face", b"one"),
+            "AAAAAA+Face",
+            "one subset written twice keeps its one name"
+        );
+        assert_eq!(
+            names.name_program(&document, "AAAAAA+Face", b"two"),
+            "AAAAAB+Face",
+            "a different subset under the same tag moves to the next"
+        );
+        assert_eq!(
+            names.name_program(&document, "AAAAAA+Stated", b"three"),
+            "AAAAAB+Stated",
+            "a tag the file states is passed over"
+        );
+        assert_eq!(names.name_program(&document, "Face", b"four"), "Face");
+    }
 
     /// A face's program and the characters a shaped value displays, each with what it means.
     type Face = (

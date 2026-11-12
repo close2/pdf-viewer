@@ -287,6 +287,8 @@ pub(super) fn embed(
     )?;
     let at = home.program;
     let (bytes, name, route) = written_program(&program, collection, &widths)?;
+    // §9.9.2: one tag per subset across the whole converted file (ADR 2838).
+    let name = substitutes.names.name_program(document, &name, &bytes);
 
     let row = Table124 {
         key: "FontFile3",

@@ -479,6 +479,11 @@ pub(super) struct Substitutes {
     /// The content-stream requirements whose every page this conversion photographed, which the
     /// decision of each reads to know the page it fails on is no longer in the output.
     pub(super) fenced: BTreeSet<&'static str>,
+    /// Every subset name this conversion writes, so that ISO 32000-2 §9.9.2's "different subsets
+    /// of the same font in the same PDF file shall have different tags" holds across the whole
+    /// converted file: the embedding's subsets here, and the appearances constructed after it
+    /// name theirs through the same record (ADR 2838).
+    pub(super) names: pdf_model::appearance::SubsetNames,
 }
 
 impl Substitutes {

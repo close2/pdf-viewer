@@ -19,6 +19,7 @@ use super::{
 };
 use crate::json::Value;
 use pdf_archive::Target;
+use pdf_model::appearance::SubsetNames;
 use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Object, ObjectId, Stream};
 use std::collections::{BTreeMap, BTreeSet};
@@ -141,7 +142,7 @@ pub(super) fn prepare_appearances(
     document: &Document,
     target: Target,
     forbidden: Option<&ForbiddenAnnotations>,
-    spare: &mut Spare,
+    (spare, names): (&mut Spare, &mut SubsetNames),
 ) -> Result<Appearances, Because> {
     let mut at = BTreeMap::new();
     let mut written = Vec::new();
@@ -166,7 +167,7 @@ pub(super) fn prepare_appearances(
         if button && !sites::push_button(document, &dict) {
             return Err(Because::NotBuiltYet(BUTTON_APPEARANCE_STATES));
         }
-        let built = pdf_model::appearance::for_annotation(document, &dict)
+        let built = pdf_model::appearance::for_annotation_in(document, &dict, names)
             .ok_or(Because::TheFence(APPEARANCE_NOT_DERIVABLE))?;
         // Two refusals rather than one, because they are two facts and only one of them is about
         // this program: a construction that put marks on the page and owes an entry beside them is
@@ -255,7 +256,7 @@ pub(super) fn prepare_field_appearances(
     document: &Document,
     target: Target,
     already: Option<&Appearances>,
-    spare: &mut Spare,
+    (spare, subset_names): (&mut Spare, &mut SubsetNames),
 ) -> Result<FieldAppearances, Because> {
     let names = pdf_model::view::widgets_by_field_name(document);
     let mut found = FieldAppearances::default();
@@ -275,7 +276,7 @@ pub(super) fn prepare_field_appearances(
             found.unconstructed.push(name());
             continue;
         }
-        let built = pdf_model::appearance::for_annotation(document, &dict);
+        let built = pdf_model::appearance::for_annotation_in(document, &dict, subset_names);
         let Some(built) = built.filter(|built| built.owed.is_none()) else {
             found.unconstructed.push(name());
             continue;

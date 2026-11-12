@@ -60,6 +60,17 @@ fn an_identity_font_beside(
     sibling: Sibling,
     name: &str,
 ) -> Vec<u8> {
+    an_identity_fixture(entries, shown, third, sibling, name).build()
+}
+
+/// [`an_identity_font_beside`] before it is built, for a test that adds to it.
+fn an_identity_fixture(
+    entries: &str,
+    shown: &[u8],
+    third: &str,
+    sibling: Sibling,
+    name: &str,
+) -> Conforming {
     let present = !matches!(sibling, Sibling::Absent);
     let second = match sibling {
         Sibling::Shown(codes) => [&b" /F2 12 Tf 10 80 Td "[..], codes, &b" Tj"[..]].concat(),
@@ -130,7 +141,6 @@ fn an_identity_font_beside(
             .collect(),
         ..Conforming::part_two()
     }
-    .build()
 }
 
 /// With nothing authorised the font is a loss to authorise: `glyphs-from-to-unicode` whichever face
@@ -455,5 +465,75 @@ fn a_character_the_shipped_face_lacks_is_drawn_from_the_pack_at_the_documents_ci
         by_cid.keys().copied().collect::<Vec<_>>(),
         vec![0, 36, 37, 256],
         "the charset numbers every glyph by the document's own CID"
+    );
+}
+
+/// The descendant `CIDFont`'s `/BaseFont` in a converted [`an_identity_fixture`].
+fn written_name(output: Vec<u8>) -> Vec<u8> {
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    fonts_and_their_descriptors(&held);
+    let font = font_resource(&held);
+    let descendant = held
+        .resolve(
+            held.get_key(&font, "DescendantFonts")
+                .as_array()
+                .and_then(|array| array.first())
+                .expect("§9.7.6.2's one-element array"),
+        )
+        .as_dict()
+        .cloned()
+        .expect("the descendant CIDFont");
+    held.get_key(&descendant, "BaseFont")
+        .as_name()
+        .map(|name| name.as_bytes().to_vec())
+        .expect("a BaseFont")
+}
+
+// ISO 32000-2 §9.9.2: "different subsets of the same font in the same PDF file shall have
+// different tags". A converted file keeps every name its source states, so a subset this
+// conversion writes under a name the source already states is a second subset under one tag,
+// and moves to the next tag (ADR 2832's record, which the conversion's writers share, ADR 2838).
+#[test]
+fn a_rekeyed_subset_passes_over_a_tag_the_file_already_states() {
+    let mut plan = a_supplied_font(Target::Two(Level::B), "NotThisFont", &[]);
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::MachineFace);
+    authorised.authorise(Loss::GlyphsFromToUnicode);
+    plan.authorised = authorised;
+    // A serif face is the shipped bare CFF one, which the route cuts to a subset (`compact`).
+    let fixture = || {
+        an_identity_fixture(
+            "3 beginbfchar\n<0024> <0041>\n<0025> <0042>\n<0030> <0041>\nendbfchar\n",
+            b"<002400250030>",
+            "48 [667]",
+            Sibling::Absent,
+            "Times-Roman",
+        )
+    };
+    let (_, output) = convert_with_plan(&fixture().build(), &plan);
+    let first = written_name(output.expect("it converts"));
+    assert_eq!(
+        first.get(6),
+        Some(&b'+'),
+        "a subset's tag: {}",
+        String::from_utf8_lossy(&first)
+    );
+    let mut fixture = fixture();
+    // The name the subset was written under, stated by the source in a dictionary of its own.
+    fixture.catalog = format!(
+        "/Stated << /BaseFont /{} >>",
+        String::from_utf8_lossy(&first)
+    );
+    let (report, output) = convert_with_plan(&fixture.build(), &plan);
+    assert!(
+        super::conversion(&report).settled.is_empty(),
+        "a first-pass construction"
+    );
+    let second = written_name(output.expect("it still converts"));
+    assert_ne!(second, first, "the stated tag is passed over");
+    assert_eq!(second[6..], first[6..], "and only the tag moves");
+    assert!(
+        second[..6].iter().all(u8::is_ascii_uppercase),
+        "§9.9.2's six uppercase letters"
     );
 }

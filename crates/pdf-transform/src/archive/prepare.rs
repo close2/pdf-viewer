@@ -1569,12 +1569,19 @@ impl Prepared {
         // **Prepared after the removal and from it**, for the reason the composed pages are:
         // section 6.3.3's population is the annotations the *output* holds, and section 6.3.1's
         // removal is what says which of the source's those are (ADR 1105).
+        // ISO 32000-2 §9.9.2 binds the subset tags of the whole converted file, so the
+        // appearances constructed here name their subsets through the record the font embedding
+        // wrote its own into (ADR 2838).
+        let mut subset_names = substitutes
+            .as_ref()
+            .map(|substitutes| substitutes.names.clone())
+            .unwrap_or_default();
         let appearances = asked(wanted(Rewrite::AppearanceDictionary), || {
             prepare_appearances(
                 document,
                 plan.target,
                 forbidden_annotations.as_ref().ok(),
-                &mut spare,
+                (&mut spare, &mut subset_names),
             )
         });
         // **Prepared after the section 6.3.3 construction and from it**: an annotation with no
@@ -1587,7 +1594,7 @@ impl Prepared {
                     document,
                     plan.target,
                     appearances.as_ref().ok(),
-                    &mut spare,
+                    (&mut spare, &mut subset_names),
                 )
             } else {
                 Ok(FieldAppearances::default())
