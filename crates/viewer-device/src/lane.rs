@@ -203,6 +203,41 @@ pub fn swapchain(
     }
 }
 
+/// Whether the window's first present leaves a surface the device can go on presenting to — the
+/// decision behind both hosts' `ground`, from what the present returned and what the device said.
+///
+/// **A swapchain that is merely waited out is a grounded surface.** raster's acquire configures
+/// before it asks for a texture, so a refusal of [`Swapchain::Wait`]'s kind arrives *after* the
+/// first configure; and a configure that failed is never silent here, because wgpu reports it
+/// to the uncaptured-error handler whose words are `said` (ADR 0462). With `said` empty the
+/// surface holds its error sink, the fatal branch ADR 0462 closes is closed, and the background
+/// simply goes up on the next tick. A window the window system has not yet shown — macOS answers
+/// a launch from a terminal with `Occluded` — is the case this exists for: refusing there put the
+/// whole session on the processor because of a frame nobody could have seen.
+///
+/// # Errors
+///
+/// The sentence to report before drawing on the processor instead: a refusal a retry does not
+/// clear, or the device's own account of a configure that failed.
+pub fn grounding(
+    refused: Option<raster_gpu::RenderError>,
+    said: Option<render_raster::Uncaptured>,
+) -> Result<(), String> {
+    match (refused, said) {
+        (None, None) => Ok(()),
+        (Some(raster_gpu::RenderError::SurfaceUnavailable { reason }), None)
+            if swapchain(reason, None) == Swapchain::Wait =>
+        {
+            Ok(())
+        }
+        (Some(problem), Some(said)) => {
+            Err(format!("{problem}, and the device said: {}", said.last))
+        }
+        (Some(problem), None) => Err(problem.to_string()),
+        (None, Some(said)) => Err(said.last),
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -304,7 +339,7 @@ mod tests {
     use raster_gpu::SurfaceProblem;
     use render_raster::Uncaptured;
 
-    use super::{GPU_COVERAGE_MAGNIFICATION, Swapchain, coverage_for, swapchain};
+    use super::{GPU_COVERAGE_MAGNIFICATION, Swapchain, coverage_for, grounding, swapchain};
 
     /// The device's words after a `wgpu::Surface::configure` that failed, as wgpu formats them — the
     /// project owner's own launch, verbatim from their session.
@@ -333,6 +368,48 @@ mod tests {
     fn an_occluded_or_busy_swapchain_is_waited_out() {
         assert_eq!(swapchain(SurfaceProblem::Timeout, None), Swapchain::Wait);
         assert_eq!(swapchain(SurfaceProblem::Occluded, None), Swapchain::Wait);
+    }
+
+    /// **A window not yet on screen still has a device.** The acquire configured before it was
+    /// refused, and with the device silent that configure succeeded; the background is owed to
+    /// the next tick, not the session to the processor.
+    #[test]
+    fn a_first_present_waited_out_still_grounds() {
+        for reason in [SurfaceProblem::Occluded, SurfaceProblem::Timeout] {
+            assert_eq!(
+                grounding(
+                    Some(raster_gpu::RenderError::SurfaceUnavailable { reason }),
+                    None
+                ),
+                Ok(()),
+                "{reason:?}"
+            );
+        }
+    }
+
+    /// The same states with the device's account of a failed configure beside them are ADR
+    /// 0462's: the surface has no error sink, and the next acquire would abort.
+    #[test]
+    fn a_failed_configure_is_never_waited_out() {
+        let refused = raster_gpu::RenderError::SurfaceUnavailable {
+            reason: SurfaceProblem::Occluded,
+        };
+        let why = grounding(Some(refused), Some(what_the_owner_saw()))
+            .expect_err("a configure the device refused leaves no surface to present to");
+        assert!(why.contains("In Surface::configure"), "{why}");
+        assert_eq!(
+            grounding(None, Some(what_the_owner_saw())).map_err(|why| why.contains("configure")),
+            Err(true)
+        );
+    }
+
+    /// A swapchain that will not be rebuilt is a refusal at launch as at any other time.
+    #[test]
+    fn a_validation_refusal_does_not_ground() {
+        let refused = raster_gpu::RenderError::SurfaceUnavailable {
+            reason: SurfaceProblem::Validation,
+        };
+        assert!(grounding(Some(refused), None).is_err());
     }
 
     /// **The refusal the project owner's crash would have produced, had it not aborted first.**

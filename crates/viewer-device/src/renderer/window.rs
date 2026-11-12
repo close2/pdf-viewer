@@ -189,7 +189,9 @@ impl Ungrounded {
     /// The presenter's own refusal, or the device's words where it refused nothing — either way
     /// the sentence a caller reports. A device that cannot put one opaque texel on its window
     /// cannot show a page on it either, so this is a launch decision and not a lost frame: the
-    /// caller draws on the processor instead (`CLAUDE.md`'s second job for the CPU backend).
+    /// caller draws on the processor instead (`CLAUDE.md`'s second job for the CPU backend). A
+    /// swapchain that is only occluded or busy is not a refusal: the configure behind it has
+    /// happened, and [`crate::lane::grounding`] has the argument.
     pub fn ground(mut self) -> Result<Window, String> {
         let (width, height) = self.0.size;
         #[expect(
@@ -208,14 +210,7 @@ impl Ungrounded {
         // configure that failed under a present that then succeeded would be silent — and this is
         // the one call in the program that knows a failure here is not survivable.
         let said = self.0.uncaptured.take();
-        match (refused, said) {
-            (None, None) => Ok(self.0),
-            (Some(problem), Some(said)) => {
-                Err(format!("{problem}, and the device said: {}", said.last))
-            }
-            (Some(problem), None) => Err(problem.to_string()),
-            (None, Some(said)) => Err(said.last),
-        }
+        crate::lane::grounding(refused, said).map(|()| self.0)
     }
 }
 

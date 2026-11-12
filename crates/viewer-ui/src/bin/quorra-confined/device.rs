@@ -239,7 +239,8 @@ impl Ungrounded {
     /// # Errors
     ///
     /// The presenter's refusal, or the device's words where it refused nothing — the sentence a
-    /// caller reports before drawing on the processor instead.
+    /// caller reports before drawing on the processor instead. An occluded or busy swapchain is
+    /// not one (`viewer_device::lane::grounding`).
     pub(crate) fn ground(mut self) -> Result<Device, String> {
         let (width, height) = self.0.size;
         #[expect(
@@ -258,14 +259,7 @@ impl Ungrounded {
         // configure that failed under a present that then succeeded would be silent — and this
         // is the one call here that knows a failure is not survivable.
         let said = self.0.uncaptured.take();
-        match (refused, said) {
-            (None, None) => Ok(self.0),
-            (Some(problem), Some(said)) => {
-                Err(format!("{problem}, and the device said: {}", said.last))
-            }
-            (Some(problem), None) => Err(problem.to_string()),
-            (None, Some(said)) => Err(said.last),
-        }
+        viewer_device::lane::grounding(refused, said).map(|()| self.0)
     }
 }
 
