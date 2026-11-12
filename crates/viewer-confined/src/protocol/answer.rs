@@ -71,6 +71,8 @@ pub(super) mod answer_kind {
     pub(in crate::protocol) const EXTERNAL_FILES: u8 = 37;
     // `query_kind::TEXT`'s answer: a page and its text, per page on the screen (ADR 2836).
     pub(in crate::protocol) const TEXT: u8 = 38;
+    // `query_kind::TEXT_AT`'s answer: a flag (ADR 2848).
+    pub(in crate::protocol) const OVER_TEXT: u8 = 39;
 }
 
 /// Encodes one answer.
@@ -132,6 +134,9 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
         }
         Answer::Link(there) => {
             writer.u8(k::LINK).bool(*there);
+        }
+        Answer::OverText(there) => {
+            writer.u8(k::OVER_TEXT).bool(*there);
         }
         Answer::Selected(selected) => {
             writer.u8(k::SELECTED).str(&selected.text);
@@ -497,6 +502,7 @@ pub(crate) fn decode_answer_reusing(
         }),
         k::LABEL => Reply::Label(reader.string("a page label")?),
         k::LINK => Reply::Link(reader.bool("a link")?),
+        k::OVER_TEXT => Reply::OverText(reader.bool("whether text is under a point")?),
         k::SELECTED => Reply::Selected {
             text: reader.string("the selected text")?,
             quads: read_quads(&mut reader, "a selection's shapes")?,

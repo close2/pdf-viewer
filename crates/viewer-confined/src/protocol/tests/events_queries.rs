@@ -367,6 +367,7 @@ fn every_query_is_carried() {
         Query::PageGeometry(2),
         Query::PageLabel(2),
         Query::LinkAt((3.0, 4.0)),
+        Query::TextAt((3.0, 4.0)),
         Query::FieldAt((3.0, 4.0)),
         Query::Caret {
             at: (3.0, 4.0),
@@ -411,7 +412,7 @@ fn every_query_is_carried() {
         Query::View,
         Query::Text,
     ];
-    assert_eq!(carried.len(), 38, "every question `viewer-core` states");
+    assert_eq!(carried.len(), 39, "every question `viewer-core` states");
     for query in carried {
         let encoded = encode_query(query).unwrap();
         let read = decode_query(&encoded).unwrap();

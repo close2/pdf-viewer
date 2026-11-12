@@ -84,6 +84,7 @@ fn entry_points(query: &Query<'_>) -> &'static [&'static str] {
         // caller learns one picture idiom (ADR 1251).
         Query::AttachmentPreview(_) => &["quorra_attachment_preview_read"],
         Query::LinkAt(_) => &["quorra_link_at"],
+        Query::TextAt(_) => &["quorra_text_at"],
         Query::FieldAt(_) => &["quorra_field_at"],
         Query::Fields => &["quorra_fields_read"],
         Query::Caret { .. } => &["quorra_caret"],
@@ -176,6 +177,7 @@ fn every_query() -> Vec<Query<'static>> {
         Query::AttachmentPreview("<3>report.pdf"),
         Query::PrintPage(0),
         Query::LinkAt(at),
+        Query::TextAt(at),
         Query::FieldAt(at),
         Query::Fields,
         Query::Caret { at, offset: 0 },

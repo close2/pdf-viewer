@@ -318,16 +318,16 @@ impl App {
                 PointerAction::Moved
             },
         });
-        // §12.5.6.5's activation region, asked at pointer speed — which is why it is a query
-        // rather than a command with an event coming back.
-        if let (Answer::Link(over), Some(state)) =
-            (self.viewer.query(Query::LinkAt(point)), self.state.as_ref())
-        {
-            state.window.set_cursor(if over {
-                winit::window::CursorIcon::Pointer
-            } else {
-                winit::window::CursorIcon::Default
-            });
+        // §12.5.6.5's activation region or the page's text, asked at pointer speed — which is
+        // why each is a query rather than a command with an event coming back (ADR 2848).
+        if let Some(state) = self.state.as_ref() {
+            state
+                .window
+                .set_cursor(match viewer_host::Under::at(&self.viewer, point) {
+                    viewer_host::Under::Link => winit::window::CursorIcon::Pointer,
+                    viewer_host::Under::Text => winit::window::CursorIcon::Text,
+                    viewer_host::Under::Nothing => winit::window::CursorIcon::Default,
+                });
         }
     }
 
@@ -384,14 +384,20 @@ impl App {
     pub(crate) fn wheel(&mut self, delta: winit::event::MouseScrollDelta) {
         // A line is not a pixel and winit reports whichever the device produced. Sixteen logical
         // pixels a line is about one row of this program's own text, which is what a line means
-        // on a list; a touchpad reports pixels and needs no conversion.
-        let by = match delta {
-            winit::event::MouseScrollDelta::LineDelta(_, lines) => -lines * 16.0,
+        // on a list; a touchpad reports pixels and needs no conversion. **Both axes**, because a
+        // touchpad's two fingers move across as readily as down, and a page wider than the window
+        // is scrolled across by them (ADR 2848); a list scrolls down only, and takes `by`.
+        let (across, by) = match delta {
+            winit::event::MouseScrollDelta::LineDelta(columns, lines) => {
+                (-columns * 16.0, -lines * 16.0)
+            }
             #[expect(
                 clippy::cast_possible_truncation,
                 reason = "a scroll delta in pixels, which is tens"
             )]
-            winit::event::MouseScrollDelta::PixelDelta(position) => -(position.y as f32),
+            winit::event::MouseScrollDelta::PixelDelta(position) => {
+                (-(position.x as f32), -(position.y as f32))
+            }
         };
         if self.about.shown {
             let Some((_, height, scale)) = self.window() else {
@@ -450,8 +456,45 @@ impl App {
             drop(layers);
             self.redraw();
         } else {
-            self.dispatch(Command::Scroll { dx: 0.0, dy: by });
+            self.dispatch(Command::Scroll { dx: across, dy: by });
         }
+    }
+
+    /// A touchpad's pinch: the page magnified by what the fingers travelled, about the point
+    /// under the pointer, as `viewer_host::gesture` turns it into a zoom (ADR 2848).
+    pub(crate) fn pinch(&mut self, delta: f64) {
+        if self.about.shown {
+            return;
+        }
+        let Some((_, _, scale)) = self.window() else {
+            return;
+        };
+        let at = (!self.over_panel()).then(|| self.on_page(self.cursor));
+        for command in viewer_host::pinch(delta).commands(&self.viewer, scale, at) {
+            self.dispatch(command);
+        }
+    }
+
+    /// The touchpad's two-finger double tap: the page's width, and back again on the next one —
+    /// `viewer_host::SmartZoom`'s choice, about the point under the pointer (ADR 2848).
+    pub(crate) fn smart_zoom(&mut self) {
+        if self.about.shown {
+            return;
+        }
+        let Some((_, _, scale)) = self.window() else {
+            return;
+        };
+        let Some(showing) = viewer_host::magnification(&self.viewer, scale) else {
+            return;
+        };
+        let at = (!self.over_panel()).then(|| self.on_page(self.cursor));
+        // A copy, so that the tap can dispatch through `self` while it decides.
+        let mut smart = self.smart_zoom;
+        smart.tap(showing, |zoom| {
+            self.dispatch(Command::Zoom { zoom, at });
+            viewer_host::magnification(&self.viewer, scale)
+        });
+        self.smart_zoom = smart;
     }
 }
 

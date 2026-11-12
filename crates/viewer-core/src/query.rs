@@ -167,6 +167,17 @@ pub enum Query<'a> {
     /// query and not a command, and it is the reason the second channel exists. Device pixels
     /// from the viewport's top-left corner.
     LinkAt((f32, f32)),
+    /// Whether a glyph of the page's text is under this viewport point.
+    ///
+    /// **The second thing a host needs to choose a cursor**, beside [`Query::LinkAt`]: over text
+    /// a press starts a selection, and a window that shows the same arrow there as over a picture
+    /// hides that the text can be selected until somebody drags. ISO 32000-2 states nothing about
+    /// a pointer's shape, so the shape is each toolkit's convention; *where the text is* is not
+    /// a convention, and no host can answer it, because the glyphs' quadrilaterals are this
+    /// crate's (§9.4.4's text rendering matrix, ADR 0118). A query for the same reason `LinkAt`
+    /// is one: it is asked on every pointer move. Device pixels from the viewport's top-left
+    /// corner. ADR 2848.
+    TextAt((f32, f32)),
     /// What the form field at a point is called, where there is one.
     ///
     /// What a host needs before it can send [`crate::Edit::SetField`], and it asks on a click.
@@ -643,6 +654,8 @@ pub enum Answer<'a> {
     PrintPage(Box<PrintPage>),
     /// Whether a link is under the point asked about.
     Link(bool),
+    /// Whether a glyph of the page's text is under the point asked about — [`Query::TextAt`].
+    OverText(bool),
     /// What is selected.
     Selected(Selected<'a>),
     /// What the field is called: §12.7.4.2's fully qualified name, and Table 226's `/TU`.

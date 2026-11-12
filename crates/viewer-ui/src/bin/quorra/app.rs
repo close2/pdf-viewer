@@ -397,11 +397,12 @@ pub(crate) struct App {
     pub(crate) backend_asked_for: bool,
     /// Whether the button is down, which is what separates a move from a drag.
     pub(crate) dragging: bool,
-    /// Whether Ctrl is held, which is what separates a wheel scroll from a wheel zoom.
+    /// Whether the platform's command modifier is held — Ctrl, or ⌘ on macOS — which is what
+    /// separates a wheel scroll from a wheel zoom.
     ///
     /// `winit` reports a modifier change as its own event and puts nothing in the wheel's, so a
     /// host that wants to know has to remember. Ctrl + wheel is a convention rather than a
-    /// clause, and it is the one every desktop viewer has converged on. ADR 0166.
+    /// clause, and it is the one every desktop viewer has converged on. ADRs 0166, 2848.
     pub(crate) control: bool,
     /// Whether shift is held, which is the only thing that distinguishes §12.5.1's tab from
     /// its shift-tab: winit reports one key for both.
@@ -414,6 +415,8 @@ pub(crate) struct App {
     /// converts at `viewer_host::ZOOM_PIXELS` instead). Carried rather than discarded — a truncation per
     /// event threw away every sub-line notch a high-resolution wheel ever sent (ADR 1118).
     pub(crate) zoom_carry: viewer_host::ZoomWheel,
+    /// Where the touchpad's two-finger double tap goes back to, once it has gone in (ADR 2848).
+    pub(crate) smart_zoom: viewer_host::SmartZoom,
     /// Whether anything a person did is unsaved.
     pub(crate) dirty: bool,
     /// §7.6.4.1's attempts, counted by [`viewer_host::Asking`] so that three hosts count alike.

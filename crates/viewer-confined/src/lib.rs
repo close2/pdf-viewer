@@ -566,6 +566,8 @@ pub enum Reply {
     Label(String),
     /// Whether a link is under the point asked about.
     Link(bool),
+    /// Whether a glyph of the page's text is under the point asked about (ADR 2848).
+    OverText(bool),
     /// What is selected, and the shapes covering it in device pixels.
     Selected {
         /// The selected text, as the page reads back.

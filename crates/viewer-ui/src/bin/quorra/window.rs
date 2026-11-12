@@ -452,14 +452,7 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::Resized(size) => {
-                let scale = self.state.as_ref().map_or(1.0, |state| {
-                    #[expect(
-                        clippy::cast_possible_truncation,
-                        reason = "a display's scale factor is a small ratio"
-                    )]
-                    let scale = state.window.scale_factor() as f32;
-                    scale
-                });
+                let scale = self.scale();
                 if let Some(state) = self.state.as_mut() {
                     let extent = (size.width.max(1), size.height.max(1));
                     state.size = extent;
@@ -488,6 +481,10 @@ impl ApplicationHandler for App {
             WindowEvent::Moved(_) => self.place_window(),
 
             WindowEvent::MouseWheel { delta, .. } => self.wheel(delta),
+            // A touchpad's pinch and double tap, sent only while the system's trackpad settings
+            // have them on, so answering them obeys those settings (ADR 2848).
+            WindowEvent::PinchGesture { delta, .. } => self.pinch(delta),
+            WindowEvent::DoubleTapGesture { .. } => self.smart_zoom(),
 
             // Remembered rather than read at the wheel, because winit puts no modifier state in
             // the wheel's own event.
@@ -824,15 +821,25 @@ impl App {
 /// about a modifier can be tested without a window: a `ModifiersState` is a set of bits and
 /// nothing here calls winit. The other two hosts have the same seam.
 ///
-/// Alt, the platform key and the rest are deliberately not folded into either: they belong to a
-/// window manager, and a host that passed one of them as Control would bind a key it was not
-/// given (ADR 1192).
+/// **The table's `ctrl` is the platform's command modifier, named by its role** (ADRs 2048, 2072):
+/// Control on Linux and Windows, ⌘ on macOS, where Control + wheel is the system's own screen
+/// zoom and ⌘ is the key every program's save, copy and zoom are on. The other of the two, Alt,
+/// and the rest are deliberately not folded into either: they belong to a window manager, and a
+/// host that passed one of them as the command modifier would bind a key it was not given (ADRs
+/// 1192, 2848).
 fn modifiers_held(state: winit::keyboard::ModifiersState) -> viewer_host::Modifiers {
     viewer_host::Modifiers {
         shift: state.shift_key(),
-        ctrl: state.control_key(),
+        ctrl: state.contains(COMMAND),
     }
 }
+
+/// The modifier this platform's programs put their commands on: ⌘ on macOS, Control elsewhere.
+const COMMAND: winit::keyboard::ModifiersState = if cfg!(target_os = "macos") {
+    winit::keyboard::ModifiersState::SUPER
+} else {
+    winit::keyboard::ModifiersState::CONTROL
+};
 
 /// winit's key as the one [`viewer_host::keys`] states a meaning for, or nothing.
 ///
@@ -1218,24 +1225,31 @@ mod tests {
 
     /// This host's whole contribution to what a modifier means, checked without a window.
     ///
-    /// Three things, and each was wrong here before ADR 1192: Shift crosses, Control crosses, and
-    /// a modifier this program does not bind is folded into neither — which is what makes
-    /// `viewer_host::ctrl_meaning` answer nothing for a key a window manager is about to take.
+    /// Three things, and each was wrong here before ADR 1192: Shift crosses, the platform's
+    /// command modifier crosses (ADR 2848), and a modifier this program does not bind is folded
+    /// into neither — which is what makes `viewer_host::ctrl_meaning` answer nothing for a key a
+    /// window manager is about to take.
     #[test]
     fn both_modifiers_the_table_reads_cross_and_no_others_do() {
         use winit::keyboard::ModifiersState as Held;
+        // Whichever of Control and ⌘ is not this platform's command modifier.
+        let other = if cfg!(target_os = "macos") {
+            Held::CONTROL
+        } else {
+            Held::SUPER
+        };
         assert_eq!(modifiers_held(Held::empty()), viewer_host::Modifiers::NONE);
         assert_eq!(modifiers_held(Held::SHIFT), viewer_host::Modifiers::SHIFT);
-        assert_eq!(modifiers_held(Held::CONTROL), viewer_host::Modifiers::CTRL);
+        assert_eq!(modifiers_held(super::COMMAND), viewer_host::Modifiers::CTRL);
         assert_eq!(
-            modifiers_held(Held::SHIFT | Held::CONTROL),
+            modifiers_held(Held::SHIFT | super::COMMAND),
             viewer_host::Modifiers {
                 shift: true,
                 ctrl: true
             }
         );
         assert_eq!(
-            modifiers_held(Held::ALT | Held::SUPER),
+            modifiers_held(Held::ALT | other),
             viewer_host::Modifiers::NONE,
             "a modifier this program does not bind is not passed off as one it does"
         );

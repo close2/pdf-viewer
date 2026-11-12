@@ -142,11 +142,13 @@ pub mod archiving;
 pub mod arrangement;
 pub mod clock;
 pub mod copying;
+pub mod cursor;
 pub mod documents;
 pub mod drawing;
 pub mod fit;
 pub mod form;
 pub mod geometry;
+pub mod gesture;
 pub mod keys;
 pub mod loading;
 pub mod machine_faces;
@@ -175,11 +177,13 @@ pub mod wheel;
 pub use arrangement::next_layout;
 pub use clock::{Clock, face, face_target};
 pub use copying::{ContentOrder, Copied, copied};
+pub use cursor::Under;
 pub use documents::{Arrivals, Arriving, Close, Documents, Named};
 pub use drawing::{DrawRequest, Drawing, Finished, Partial};
 pub use fit::ControlFit;
 pub use form::{Clicked, ControlKind, Pressed, clicked, control_kind, pressed, toggling};
 pub use geometry::{bounds, covers};
+pub use gesture::{SmartZoom, pinch};
 pub use keys::{
     Decided, Key, Keyboard, Meaning, Mode, Modifiers, PRINT_ENDED, PrintKey, Printer, Waiting,
     WindowAct, ctrl_meaning, decide, meaning, print_key, scroll_by,
@@ -228,7 +232,8 @@ pub use status::{
 };
 pub use trace::{Topic, Trace, parse_topics};
 pub use wheel::{
-    DiscreteWheel, SCROLL_NOTCH, WheelTravel, ZOOM_PIXELS, ZoomTravel, ZoomWheel, placement_receipt,
+    DiscreteWheel, SCROLL_NOTCH, WheelTravel, ZOOM_PIXELS, ZoomTravel, ZoomWheel, magnification,
+    placement_receipt,
 };
 
 /// The third-party notices every binary in this tree is obliged to carry with it.

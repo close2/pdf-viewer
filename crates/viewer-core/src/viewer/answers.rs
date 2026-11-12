@@ -115,6 +115,13 @@ impl Viewer {
                     .and_then(|(page, (x, y))| interact::link_at(open, page, x, y))
                     .is_some(),
             ),
+            // Against the interpretation already held for the page under the point, never a
+            // fresh one: a pointer move that interpreted a page would put a page's whole cost on
+            // the pointer, and a page not yet interpreted has no glyph a person could be over.
+            Query::TextAt(at) => Answer::OverText(
+                self.page_point(open, at)
+                    .is_some_and(|(page, point)| open.text_at(page, point)),
+            ),
             Query::FieldAt(at) => self
                 .user_space(open, at)
                 .and_then(|(page, (x, y))| {

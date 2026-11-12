@@ -118,6 +118,34 @@ pub unsafe extern "C" fn quorra_link_at(
     }
 }
 
+/// Whether a glyph of the page's text is under this viewport point.
+///
+/// The second half of choosing a cursor, beside [`quorra_link_at`]: a link wins where both are
+/// true, because a press there follows the link. A question rather than a command, and it
+/// produces no events (ADR 2848).
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_text_at(
+    viewer: *const Session,
+    x: f32,
+    y: f32,
+    text: *mut bool,
+) -> c_int {
+    let (Some(viewer), Some(text)) = (viewer.as_ref(), text.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match viewer.text_at((x, y)) {
+        Ok(over) => {
+            *text = over;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
 /// The selected text, in the two-call idiom [`quorra_events_describe`](super::quorra_events_describe) uses.
 ///
 /// # Safety

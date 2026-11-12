@@ -207,11 +207,11 @@ pub struct Host {
     /// whether the C++ side has to rebuild the widgets, and `popups` then hands over what the
     /// comparison was made on. `viewer_core::PopupWindow` is `PartialEq`, which is the whole test.
     popups_shown: Vec<viewer_core::PopupWindow>,
-    /// Whether the pointer was last over §12.5.6.5's activation region.
+    /// What the pointer was last over: §12.5.6.5's activation region, the page's text, or neither.
     ///
     /// Kept so that the cursor is changed when the answer changes rather than on every motion
     /// event, which is the same economy `viewer-gtk` makes for the same reason.
-    over_link: bool,
+    under: viewer_host::Under,
     /// The keys the core was last told of (ADR 1771).
     keys_told: pdf_model::view::Keys,
     /// What has changed since the C++ side last asked.
@@ -427,7 +427,7 @@ impl Host {
             fields: Vec::new(),
             placed: Vec::new(),
             popups_shown: Vec::new(),
-            over_link: false,
+            under: viewer_host::Under::Nothing,
             keys_told: pdf_model::view::Keys::default(),
             update: nothing_changed(),
             accessibility: None,

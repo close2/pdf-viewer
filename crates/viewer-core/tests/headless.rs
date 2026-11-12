@@ -2236,6 +2236,68 @@ fn selecting_everything_is_the_readback_and_clearing_it_is_nothing() {
     assert!(matches!(viewer.query(Query::Selection), Answer::None));
 }
 
+/// `Query::TextAt` answers over the page's text and not beside it, which is the whole of what a
+/// host's text cursor rests on (ADR 2848).
+///
+/// The point is taken from the document's own selection rather than from the code under test —
+/// trap 12a's rule — and checked along the middle of the first run of a line, because a run is
+/// merged across the gaps between words and its centre alone could be one of them. The corner of
+/// the viewport is nowhere near a glyph, and neither is the point a link's mirror would be.
+/// `basicapi.pdf`, as the link test beside it, because its first page draws lines of text.
+#[test]
+fn the_text_under_a_point_is_where_the_selection_draws_it() {
+    let Some(bytes) = corpus_bytes("basicapi.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    let events: Vec<_> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.into(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let request = request(&events).clone();
+    serve(&mut viewer, &request);
+
+    viewer
+        .handle(Command::Select(Selection::All))
+        .for_each(drop);
+    let Answer::Selected(selection) = viewer.query(Query::Selection) else {
+        panic!("everything is selected");
+    };
+    let run = *selection.quads.first().expect("the first page draws text");
+    viewer
+        .handle(Command::Select(Selection::None))
+        .for_each(drop);
+
+    // Halfway between the run's baseline and its top, at steps along it.
+    let along = |fraction: f32| {
+        let (start, end) = (
+            (f32::midpoint(run[0], run[6]), f32::midpoint(run[1], run[7])),
+            (f32::midpoint(run[2], run[4]), f32::midpoint(run[3], run[5])),
+        );
+        (
+            start.0 + (end.0 - start.0) * fraction,
+            start.1 + (end.1 - start.1) * fraction,
+        )
+    };
+    let over = (1..20u8)
+        .map(|step| along(f32::from(step) / 20.0))
+        .filter(|&point| matches!(viewer.query(Query::TextAt(point)), Answer::OverText(true)))
+        .count();
+    assert!(over > 10, "most of a run of a line is glyphs: {over} of 19");
+    assert!(
+        matches!(
+            viewer.query(Query::TextAt((1.0, 1.0))),
+            Answer::OverText(false)
+        ),
+        "the corner of the viewport is no glyph"
+    );
+}
+
 #[test]
 fn turning_the_page_forgets_what_was_selected() {
     // The selection is a range of *this page's* readback, so carrying it across a page turn

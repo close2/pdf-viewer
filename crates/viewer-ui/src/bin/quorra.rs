@@ -462,6 +462,7 @@ fn main() {
         control: false,
         shift: false,
         zoom_carry: viewer_host::ZoomWheel::default(),
+        smart_zoom: viewer_host::SmartZoom::default(),
         dirty: false,
         asking: viewer_host::Asking::new(),
         report_due: viewer_host::report::Due::default(),

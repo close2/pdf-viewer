@@ -34,6 +34,18 @@ pub(crate) fn position_at(placed: &[Placed], point: (f32, f32)) -> Option<usize>
     best.map(|(_, position)| position)
 }
 
+/// Whether a point is inside the box of any glyph.
+///
+/// Inside rather than nearest, which is the difference from [`position_at`]: a drag that began
+/// on text may wander off it and still means the nearest position, but a pointer is *over* text
+/// only where a glyph is. The box is [`distance_to`]'s bounding rectangle, so the space between
+/// two words of a line is not text while the space inside a word is, which is where a text
+/// cursor is wanted. A choice, like everything in this module: ISO 32000-2 says where a glyph is
+/// drawn and nothing about a pointer. ADR 2848.
+pub(crate) fn over_text(placed: &[Placed], point: (f32, f32)) -> bool {
+    placed.iter().any(|entry| distance_to(entry, point) <= 0.0)
+}
+
 /// Which end of this glyph the point is nearer, as a byte offset into the readback.
 ///
 /// Measured along the glyph's own advance rather than along x, so that rotated and mirrored text

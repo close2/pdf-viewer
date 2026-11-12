@@ -1526,6 +1526,9 @@ int32_t quorra_dirty(const quorra_viewer *viewer, bool *dirty);
 int32_t quorra_timer_due(const quorra_viewer *viewer, bool *held, uint32_t *millis);
 /* §12.5.6.5: whether activating here would follow a link. Asked on every pointer move. */
 int32_t quorra_link_at(const quorra_viewer *viewer, float x, float y, bool *link);
+/* Whether a glyph of the page's text is here: a text cursor where no link is. Asked on every
+ * pointer move (ADR 2848). */
+int32_t quorra_text_at(const quorra_viewer *viewer, float x, float y, bool *text);
 /* What the pages on the screen could not draw — the same sentences a REPORTED carried, kept so a
  * caller that cleared its status bar can ask again rather than remembering. ONE ENTRY PER PAGE
  * Table 29's arrangement is showing: `entry` below indexes this, and quorra_reported_page says
