@@ -49,6 +49,7 @@
 //! right answer where a wrong axis or a wrong glyph would be the alternative.
 
 use pdf_syntax::{Dictionary, Document, Lexer, Object, Token};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
 /// Table 228's `/Q`: "A code specifying the form of quadding (justification) that shall be
@@ -1014,7 +1015,7 @@ pub(crate) fn machine_faces_for(
     text: &str,
     missing: &str,
 ) -> Vec<Dictionary> {
-    let mut glyphs: std::collections::BTreeMap<char, String> = missing
+    let mut glyphs: BTreeMap<char, String> = missing
         .chars()
         .map(|character| (character, character.to_string()))
         .collect();
@@ -1034,8 +1035,7 @@ pub(crate) fn machine_faces_for(
             .into_iter()
             .collect();
     }
-    let mut sets: std::collections::BTreeMap<u32, std::collections::BTreeMap<char, String>> =
-        std::collections::BTreeMap::new();
+    let mut sets: BTreeMap<u32, BTreeMap<char, String>> = BTreeMap::new();
     for (shown, meaning) in glyphs {
         sets.entry(machine_set_of(shown))
             .or_default()
@@ -1069,8 +1069,8 @@ pub(crate) fn machine_faces_for(
 /// set for, the stored ones, which is §9.10.2's first method.
 fn machine_font(
     program: &std::sync::Arc<[u8]>,
-    glyphs: &std::collections::BTreeMap<char, String>,
-) -> Option<(Dictionary, std::collections::BTreeMap<char, u16>)> {
+    glyphs: &BTreeMap<char, String>,
+) -> Option<(Dictionary, BTreeMap<char, u16>)> {
     use pdf_font::shaping::face;
     let key = |value: &[u8]| pdf_syntax::Name::new(value.to_vec());
     let name = |value: &[u8]| Object::Name(pdf_syntax::Name::new(value.to_vec()));
@@ -1078,9 +1078,9 @@ fn machine_font(
     let metrics = face::metrics(program)?;
     let cff = pdf_font::embed::has_cff_outlines(program);
 
-    let mut by_character = std::collections::BTreeMap::new();
-    let mut widths: std::collections::BTreeMap<u16, f32> = std::collections::BTreeMap::new();
-    let mut meanings: std::collections::BTreeMap<u16, &str> = std::collections::BTreeMap::new();
+    let mut by_character = BTreeMap::new();
+    let mut widths: BTreeMap<u16, f32> = BTreeMap::new();
+    let mut meanings: BTreeMap<u16, &str> = BTreeMap::new();
     for (character, meaning) in glyphs {
         let (glyph, advance) = face::glyph(program, *character)?;
         by_character.insert(*character, glyph);
@@ -1194,32 +1194,151 @@ const MACHINE_FACE: &[u8] = b"VariableTextMachineFace";
 /// incremental update's [`crate::view`] and the archive conversion each do that for every stream
 /// they write. Resources with no machine face come back unchanged.
 ///
+/// Every subset is named against the subsets `names` has seen and the names `document` already
+/// states, which is the call a writer of a whole file makes, once per appearance stream it
+/// writes, with one [`SubsetNames`] for the file; [`SubsetNames`] says why.
+///
 /// # Errors
 ///
 /// The sentence naming why the face cannot be written — its licence, a program with neither `glyf`
 /// nor `CFF ` outlines, or a CID-keyed `CFF ` program whose CIDs are not its glyph indices.
-pub(crate) fn for_a_file(resources: &Dictionary) -> Result<Dictionary, String> {
+pub(crate) fn for_a_file_in(
+    document: &Document,
+    resources: &Dictionary,
+    names: &mut SubsetNames,
+) -> Result<Dictionary, String> {
+    in_one_file(resources, names, Some(document))
+}
+
+/// [`for_a_file_in`] for one resource dictionary alone, with no file beside it: the form the
+/// owner's audit test drives (`variable_text_subset_audit.rs`).
+#[cfg(test)]
+fn for_a_file(resources: &Dictionary) -> Result<Dictionary, String> {
+    in_one_file(resources, &mut SubsetNames::default(), None)
+}
+
+/// The subset names one written PDF file holds, so that two different subsets never share one.
+///
+/// ISO 32000-2 §9.9.2:
+///
+/// > The tag shall consist of exactly six uppercase letters; the choice of letters is
+/// > arbitrary, but different subsets of the same font in the same PDF file shall have different
+/// > tags.
+///
+/// "In the same PDF file" reaches past one appearance stream: a save that writes three widgets'
+/// appearances writes three resource dictionaries into one file, and a tag is a digest of the
+/// program and the glyphs kept, so two different subsets can digest alike in two streams as
+/// readily as in one. So one registry is held for the whole of a file's writing, and each subset
+/// is named against every one written before it (ADR 2832).
+///
+/// **The names the file already states are taken as well**, because an incremental update
+/// (§7.5.6) appends to a file that keeps every font it held: a subset written now under a name an
+/// earlier subset of the same face carries would be two different subsets under one tag in one
+/// file. A name the file states is never compared for contents — it is passed over whatever it
+/// holds, since §9.9.2 forbids one tag for two subsets and asks nothing of one subset under two
+/// tags. The file's names are the objects its cross-reference information names, read the first
+/// time a save writes a subset and not before, so a save that writes none costs nothing more.
+#[derive(Debug, Default)]
+pub struct SubsetNames {
+    /// Each subset written into the file, under the name it was written with.
+    written: BTreeMap<Vec<u8>, Dictionary>,
+    /// Every subset-tagged font name the document being written stated before this write, once
+    /// read; `None` until a subset needs them, and empty where no document is beside the write.
+    stated: Option<BTreeSet<Vec<u8>>>,
+}
+
+impl SubsetNames {
+    /// The name `subset` is written under: its own, or the next tag after it that no other
+    /// subset in the file carries ([`retag`]), which is recorded as taken.
+    fn name(&mut self, subset: &mut Dictionary, document: Option<&Document>) {
+        let stated = self
+            .stated
+            .get_or_insert_with(|| document.map(stated_subset_names).unwrap_or_default());
+        while let Some(name) = subset_name(subset) {
+            let taken = match self.written.get(&name) {
+                Some(earlier) => earlier != subset,
+                None => stated.contains(&name),
+            };
+            if !taken {
+                self.written.insert(name, subset.clone());
+                return;
+            }
+            retag(subset, &name);
+        }
+    }
+}
+
+/// How deep [`stated_subset_names`] follows direct dictionaries and arrays inside one object: a
+/// font's names sit at most at a resource dictionary's `/Font`, a Type 0 font's
+/// `/DescendantFonts` and a descriptor, and a bound keeps a hostile nesting from costing more.
+const NAME_SEARCH_DEPTH: usize = 12;
+
+/// Every `/BaseFont` and `/FontName` the document's objects state that carries §9.9.2's tag:
+/// "exactly six uppercase letters" and a plus sign.
+///
+/// Read over the objects the cross-reference information names, each once, direct values
+/// followed to [`NAME_SEARCH_DEPTH`]; references are not followed, since the object they name is
+/// read in its own turn.
+fn stated_subset_names(document: &Document) -> BTreeSet<Vec<u8>> {
+    fn visit(object: &Object, depth: usize, names: &mut BTreeSet<Vec<u8>>) {
+        let Some(depth) = depth.checked_sub(1) else {
+            return;
+        };
+        let dict = match object {
+            Object::Dictionary(dict) => dict,
+            Object::Stream(stream) => &stream.dict,
+            Object::Array(items) => {
+                for item in items {
+                    visit(item, depth, names);
+                }
+                return;
+            }
+            _ => return,
+        };
+        for (key, value) in dict.iter() {
+            let a_font_name = matches!(key.as_bytes(), b"BaseFont" | b"FontName");
+            match value.as_name() {
+                Some(name) if a_font_name && is_subset_tagged(name.as_bytes()) => {
+                    names.insert(name.as_bytes().to_vec());
+                }
+                _ => visit(value, depth, names),
+            }
+        }
+    }
+    let mut names = BTreeSet::new();
+    for number in document.xref().object_numbers() {
+        visit(
+            &document.get(document.defined_id(number)),
+            NAME_SEARCH_DEPTH,
+            &mut names,
+        );
+    }
+    names
+}
+
+/// Whether a font name begins with §9.9.2's tag: "exactly six uppercase letters" followed by a
+/// plus sign.
+fn is_subset_tagged(name: &[u8]) -> bool {
+    name.get(6) == Some(&b'+') && name.iter().take(6).all(u8::is_ascii_uppercase)
+}
+
+/// [`for_a_file_in`]: every machine font in `resources` rewritten for a file,
+/// each named through `names`.
+fn in_one_file(
+    resources: &Dictionary,
+    names: &mut SubsetNames,
+    document: Option<&Document>,
+) -> Result<Dictionary, String> {
     let Some(fonts) = resources.get("Font").and_then(Object::as_dict) else {
         return Ok(resources.clone());
     };
     let mut written = fonts.clone();
-    // Each subset's name, with the font that carries it: a tag is a digest, and two different
-    // subsets may digest alike, so a later one meeting an earlier one's tag is given another.
-    let mut named: std::collections::BTreeMap<Vec<u8>, Dictionary> =
-        std::collections::BTreeMap::new();
     for (key, font) in fonts.iter() {
         let Some(font) = font.as_dict().filter(|font| is_machine_font(font)) else {
             continue;
         };
         let mut subset = machine_font_for_a_file(font)?;
-        while let Some(name) = subset_name(&subset)
-            && named.get(&name).is_some_and(|earlier| *earlier != subset)
-        {
-            retag(&mut subset, &name);
-        }
-        if let Some(name) = subset_name(&subset) {
-            named.insert(name, subset.clone());
-        }
+        names.name(&mut subset, document);
         written.insert(key.clone(), Object::Dictionary(subset));
     }
     let mut out = resources.clone();
@@ -1290,7 +1409,7 @@ fn is_machine_font(font: &Dictionary) -> bool {
         .is_some_and(|name| name.as_bytes() == MACHINE_FACE)
 }
 
-/// One of [`machine_font`]'s fonts rewritten as [`for_a_file`] describes.
+/// One of [`machine_font`]'s fonts rewritten as [`for_a_file_in`] describes.
 fn machine_font_for_a_file(font: &Dictionary) -> Result<Dictionary, String> {
     let key = |value: &[u8]| pdf_syntax::Name::new(value.to_vec());
     let name = |value: &[u8]| Object::Name(pdf_syntax::Name::new(value.to_vec()));
@@ -1318,7 +1437,7 @@ fn machine_font_for_a_file(font: &Dictionary) -> Result<Dictionary, String> {
         _ => return Err(unreadable()),
     };
     // `/W` is `[glyph [advance] glyph [advance] …]`, one entry per displayed glyph.
-    let used: std::collections::BTreeSet<u16> = descendant
+    let used: BTreeSet<u16> = descendant
         .get("W")
         .and_then(Object::as_array)
         .map(|w| {
@@ -1485,7 +1604,7 @@ fn stream(mut dict: Dictionary, data: std::sync::Arc<[u8]>) -> Object {
 ///
 /// `bfchar` entries in blocks of a hundred, the size the `CMap`s §9.7.5.2 lists are written in;
 /// each destination is the characters' UTF-16BE, which is how §9.10.3 states a Unicode value.
-fn to_unicode(meanings: &std::collections::BTreeMap<u16, &str>) -> String {
+fn to_unicode(meanings: &BTreeMap<u16, &str>) -> String {
     let mut out = String::from(
         "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
          /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n\
@@ -3742,3 +3861,7 @@ mod tests {
 #[cfg(test)]
 #[path = "variable_text_subset_audit.rs"]
 mod subset_collision_audit;
+
+#[cfg(test)]
+#[path = "variable_text_subset_names.rs"]
+mod subset_names_in_one_file;

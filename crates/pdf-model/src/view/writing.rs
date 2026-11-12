@@ -881,6 +881,10 @@ pub(super) struct Update {
     /// `None` is a host that has said nothing, and nothing is then written: this crate has no
     /// clock (`CLAUDE.md` rule 3), and the entry is Optional. ADR 1160.
     modified: Option<pdf_syntax::Date>,
+    /// Every font subset the update writes, by name, beside the names the file already states:
+    /// one record for the whole save, since §9.9.2's tags are distinct "in the same PDF file"
+    /// and not only within one appearance stream (ADR 2832).
+    subset_names: crate::variable_text::SubsetNames,
 }
 
 impl Update {
@@ -893,6 +897,7 @@ impl Update {
             next: document.xref().next_object_number(),
             owed: Vec::new(),
             modified,
+            subset_names: crate::variable_text::SubsetNames::default(),
         }
     }
 
@@ -1185,8 +1190,14 @@ impl Update {
         displayed: Option<&Displayed>,
         scripted: &[Property],
     ) {
-        let built = match crate::appearance::for_saving(document, dict, value, displayed, scripted)
-        {
+        let built = match crate::appearance::for_saving(
+            document,
+            dict,
+            value,
+            displayed,
+            scripted,
+            &mut self.subset_names,
+        ) {
             crate::appearance::ForSaving::Stream(built) => built,
             crate::appearance::ForSaving::States(states) => {
                 self.write_states(document, widget, states);
@@ -1473,7 +1484,9 @@ fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut D
     // A value set in a face from this machine is written with the face subset and embedded
     // (ADR 1425); the layout offers no face whose licence forbids that (ADR 2548), so a refusal
     // here is a face whose program could not be read back.
-    let Ok(resources) = crate::variable_text::for_a_file(&built.resources) else {
+    let Ok(resources) =
+        crate::variable_text::for_a_file_in(document, &built.resources, &mut update.subset_names)
+    else {
         return false;
     };
     // No content and a report is a layout that declined — text no face this program may write
@@ -1495,7 +1508,7 @@ fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut D
 
 /// A form's resources with every stream inside them given a number in this update.
 ///
-/// §7.3.8.1 for the fonts [`crate::variable_text::for_a_file`] writes around a face from this
+/// §7.3.8.1 for the fonts [`crate::variable_text::for_a_file_in`] writes around a face from this
 /// machine: the program, its `/CIDToGIDMap` and its `/ToUnicode` are streams held directly in
 /// their dictionaries until a writer numbers them (ADR 1425).
 fn promote_resource_streams(update: &mut Update, resources: Dictionary) -> Dictionary {
@@ -1610,7 +1623,9 @@ fn write_retyped_appearance(
     // 1425), and the layout offers no face whose licence forbids that (ADR 2548); a face whose
     // program could not be read back leaves the annotation owing its appearance, as a layout that
     // declined does.
-    let resources = crate::variable_text::for_a_file(&built.resources).ok();
+    let resources =
+        crate::variable_text::for_a_file_in(document, &built.resources, &mut update.subset_names)
+            .ok();
     let unwritten = resources.is_none();
     let (Some(content), Some(resources)) = (built.content, resources) else {
         // Table 177 makes `/AP` decisive over `/DA`, so a stream that draws the producer's text is

@@ -138,6 +138,10 @@ use crate::inheritance::Inherited;
 use crate::variable_text::{self, Asked, LayoutFonts, Owed, Quadding, Request, Shape};
 use crate::view::FieldValue;
 
+/// The subset names one written file holds, which [`for_annotation_in`] names each subset
+/// against (ISO 32000-2 §9.9.2, ADR 2832).
+pub use crate::variable_text::SubsetNames;
+
 /// The default border width §12.5.4 states: "If neither the Border nor the BS entry is present,
 /// the border shall be drawn as a solid line with a width of 1 point."
 const DEFAULT_BORDER_WIDTH: f32 = 1.0;
@@ -209,8 +213,26 @@ pub(crate) struct Constructed {
 /// which is a different refusal with a different sentence: an annotation that legitimately draws
 /// nothing, one drawn as far as its entries reach, and one whose clause states no mark anywhere
 /// all carry a stream, and only the last two owe anything.
+///
+/// A writer putting more than one appearance into one file calls [`for_annotation_in`] with one
+/// [`SubsetNames`] for the file instead, so that §9.9.2's tags stay distinct across them all.
 #[must_use]
 pub fn for_annotation(document: &Document, annotation: &Dictionary) -> Option<Written> {
+    for_annotation_in(document, annotation, &mut SubsetNames::default())
+}
+
+/// [`for_annotation`] for one of the appearances a single written file holds.
+///
+/// ISO 32000-2 §9.9.2 requires "different subsets of the same font in the same PDF file" to have
+/// different tags, and a subset this writes around a face from this machine is named against
+/// every subset `names` has seen in the file and every name `document` already states
+/// ([`SubsetNames`], ADR 2832).
+#[must_use]
+pub fn for_annotation_in(
+    document: &Document,
+    annotation: &Dictionary,
+    names: &mut SubsetNames,
+) -> Option<Written> {
     let subtype = document
         .get_key(annotation, "Subtype")
         .as_name()
@@ -229,10 +251,11 @@ pub fn for_annotation(document: &Document, annotation: &Dictionary) -> Option<Wr
     // subset and embedded as a file holds a font, where the face's licence permits it; where it
     // does not, the construction is owed with the licence's sentence (ADR 1425). The font's
     // streams are still direct here, and the writer that takes this gives each its own number.
-    let (resources, unwritten) = match variable_text::for_a_file(&built.resources) {
-        Ok(resources) => (resources, None),
-        Err(sentence) => (built.resources, Some(sentence)),
-    };
+    let (resources, unwritten) =
+        match variable_text::for_a_file_in(document, &built.resources, names) {
+            Ok(resources) => (resources, None),
+            Err(sentence) => (built.resources, Some(sentence)),
+        };
     let owed = built.report.or(unwritten);
     Some(Written {
         // An annotation that draws nothing gets an empty stream rather than none: drawing
@@ -1149,13 +1172,16 @@ pub(crate) struct SavedStream {
 /// file draws as the viewer did (ADR 1603). `scripted` is what scripts set on the field that the
 /// appearance draws: a widget [`constructs_for_script`] says is constructed anew is constructed
 /// here too, whatever its stored stream, so that the saved file shows what the viewer did (ADR
-/// 1617).
+/// 1617). `names` is the save's one record of the subset names its file holds, which §9.9.2's
+/// "different subsets of the same font in the same PDF file shall have different tags" makes
+/// one for every appearance the save writes (ADR 2832).
 pub(crate) fn for_saving(
     document: &Document,
     annotation: &Dictionary,
     value: FieldValue<'_>,
     displayed: Option<&crate::view::Displayed>,
     scripted: &[crate::view::Property],
+    names: &mut SubsetNames,
 ) -> ForSaving {
     let constructed_for_script =
         !scripted.is_empty() && constructs_for_script(document, annotation, scripted);
@@ -1164,7 +1190,7 @@ pub(crate) fn for_saving(
     // replace: so each state is constructed and written under its own name, and only a widget
     // whose on state has no name to be written under is left to Table 224's flag (ADR 1676).
     if constructed_for_script && is_toggling(document, annotation) {
-        return toggling_states(document, annotation, scripted)
+        return toggling_states(document, annotation, scripted, names)
             .map_or(ForSaving::Owed, ForSaving::States);
     }
     if !constructed_for_script && !regenerates(document, annotation, b"Widget", value) {
@@ -1207,7 +1233,8 @@ pub(crate) fn for_saving(
         // A value set in a face from this machine is saved with the face subset and embedded;
         // where its licence forbids that, the flag Table 224 gives a writer for an appearance it
         // did not provide is the honest answer (ADR 1425).
-        let Ok(resources) = variable_text::for_a_file(&regenerated.resources) else {
+        let Ok(resources) = variable_text::for_a_file_in(document, &regenerated.resources, names)
+        else {
             return ForSaving::Owed;
         };
         return ForSaving::Stream(SavedStream {
@@ -1247,7 +1274,8 @@ pub(crate) fn for_saving(
             None => ForSaving::Selected,
         };
     };
-    let Ok(resources) = variable_text::for_a_file(&constructed.resources) else {
+    let Ok(resources) = variable_text::for_a_file_in(document, &constructed.resources, names)
+    else {
         return ForSaving::Owed;
     };
     ForSaving::Stream(SavedStream {
@@ -1305,6 +1333,7 @@ fn toggling_states(
     document: &Document,
     annotation: &Dictionary,
     scripted: &[crate::view::Property],
+    names: &mut SubsetNames,
 ) -> Option<SavedStates> {
     let on = on_state(document, annotation)?;
     let (at_origin, rect) = in_form_box(annotation, rectangle(document, annotation).ok()?);
@@ -1332,7 +1361,8 @@ fn toggling_states(
             None if constructed.report.is_none() => Vec::new(),
             None => return None,
         };
-        let resources = variable_text::for_a_file(&constructed.resources).ok()?;
+        let resources =
+            variable_text::for_a_file_in(document, &constructed.resources, names).ok()?;
         states.push((
             name,
             SavedStream {

@@ -279,10 +279,10 @@ row is in this bucket when its note names none of those three.
   It is a document restriction, so it attaches to the reader's four-level policy; the build is that
   attachment, and `doc/questions/Q834` section 2 asks only for its default level (ADR 2814).
 - §9.9.2 — `partial`: a subset tag is a digest, and two different subsets of one face may digest
-  alike. `variable_text::for_a_file` gives a later subset in the same resource dictionary the next
-  tag, but the subsets written into two appearance streams of one saved file, and those the file
-  already held, are not yet checked against each other; a registry across the writers' calls is the
-  build (ADR 2818).
+  alike. A save names every subset it writes through one `variable_text::SubsetNames`, against the
+  other subsets of the save and the names the file already states (ADR 2832); the archive
+  conversion's writers do not yet share one record (`appearance::for_annotation_in` is the join), and
+  appearances imported whole from an FDF keep their producer's names unchecked.
 
 
 §7.4.9's buildable part is built but for one piece: e-sRGB and e-sYCC are drawn from the held PIMA

@@ -353,6 +353,9 @@ Merged from every group's "left" section; results-LEAD2 governs.
   to ask `evaluation_fault()` after the page. The GPU `device_program` evaluator records nothing.
 - §9.9.2 subset-tag uniqueness across the writers of one saved file (needs a registry across the six `for_a_file`
   calls). Ledger rows 9.9.2 and 9.9 are `partial` meanwhile.
+  Round 2007: a save now names every subset through one record for the file, against the names the file already
+  states (ADR 2832); the archive conversion's writers and FDF-imported appearances remain, so both rows stay
+  `partial`. The §7.10.5.3 item above is set out, unbuilt, in ADR 2833.
 - Table 253 /F: FDF templates naming another file still arrive one page each on supply.
 - Composition of several templates on one FDF page: first template's page, all templates as forms in array order
   (ADR 2816 section 4); the owner may prefer otherwise.
