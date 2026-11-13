@@ -26,12 +26,14 @@ use std::rc::Rc;
 use std::task::{Context as TaskContext, Poll, Waker};
 use std::time::{Duration, Instant};
 
+use boa_engine::builtins::promise::PromiseState;
 use boa_engine::job::{GenericJob, Job, JobExecutor, NativeAsyncJob, PromiseJob};
-use boa_engine::{Context, JsNativeError, JsResult, JsValue};
+use boa_engine::object::builtins::JsPromise;
+use boa_engine::{Context, JsError, JsNativeError, JsResult, JsValue};
 
 use crate::{Budget, Ending, Exceeded};
 
-use super::ending_of;
+use super::{State, ending_of};
 
 /// The jobs a realm's context has enqueued and not yet run.
 #[derive(Debug, Default)]
@@ -170,11 +172,17 @@ pub(super) fn settle(
             break Ending::Finished;
         }
     };
-    if !pending.is_empty() {
+    let unsettled = pending.len();
+    drop(pending);
+    // Every job has run, so a rejection still held is one nothing handled and nothing now can
+    // within this run. A run stopped by a budget is reported as stopped and no more.
+    if ending == Ending::Finished {
+        notes.extend(unhandled(&cell.borrow()));
+    }
+    if unsettled > 0 {
         notes.push(format!(
-            "{} of the engine's own asynchronous job(s) had not settled when the run ended, and \
-             their promises stay pending",
-            pending.len()
+            "{unsettled} of the engine's own asynchronous job(s) had not settled when the run \
+             ended, and their promises stay pending"
         ));
     }
     if jobs.timers.get() > 0 {
@@ -184,7 +192,45 @@ pub(super) fn settle(
             jobs.timers.get()
         ));
     }
-    drop(pending);
     jobs.clear();
     (ending, notes)
+}
+
+/// A sentence for each promise the run rejected that no handler took up by the end of its jobs,
+/// with the reason it was rejected with, and one for the rejections past what a run follows.
+///
+/// ECMA-262 section 25.6.1.9 leaves the tracking of rejections to the host; this host says each
+/// one, because an error thrown after an `await` that nothing catches is otherwise the one error a
+/// run loses without a word (principle 1, ADR 2866). The run is not ended by it: an `async`
+/// function turns the throw into its promise's rejection (section 25.7), and the statement that
+/// called it completed normally.
+fn unhandled(context: &Context) -> Vec<String> {
+    let Some((rejected, unfollowed)) = State::with(context, |record| {
+        (
+            std::mem::take(&mut record.rejected),
+            std::mem::take(&mut record.rejections_unfollowed),
+        )
+    }) else {
+        return Vec::new();
+    };
+    let mut sentences: Vec<String> = rejected
+        .into_iter()
+        .filter_map(
+            |promise| match JsPromise::from_object(promise).ok()?.state() {
+                PromiseState::Rejected(reason) => Some(format!(
+                    "a promise was rejected and nothing handled it: {}",
+                    JsError::from_opaque(reason)
+                )),
+                PromiseState::Pending | PromiseState::Fulfilled(_) => None,
+            },
+        )
+        .collect();
+    if unfollowed > 0 {
+        sentences.push(format!(
+            "{unfollowed} further promise(s) were rejected with no handler at the time, past the \
+             {} a run follows, and whether one was added later is not known",
+            super::MAX_REJECTIONS
+        ));
+    }
+    sentences
 }

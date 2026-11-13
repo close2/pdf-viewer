@@ -422,3 +422,21 @@ fn a_chain_of_reactions_that_never_ends_is_stopped_and_the_realm_goes_on() {
         Ok(Scalar::Number(5.0))
     );
 }
+
+/// A rejection nothing handled is the run's refusal sentence, the one place an XFA run says what
+/// its value rests on (ADR 2866).
+#[test]
+fn a_rejection_nothing_handled_is_the_runs_sentence() {
+    let (mut realm, host) = (realm(), Receipt::new());
+    let ran = run(
+        &mut realm,
+        &host,
+        "(async function () { await 0; throw new Error('lost'); })(); 1",
+    );
+    assert!(
+        ran.outcome.as_ref().is_err_and(|sentence| sentence
+            .starts_with("a promise was rejected and nothing handled it")
+            && sentence.contains("lost")),
+        "{ran:?}"
+    );
+}

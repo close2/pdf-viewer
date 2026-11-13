@@ -168,3 +168,59 @@ fn a_dynamic_import_is_rejected_within_the_run() {
     assert_eq!(outcome.ending, Ending::Finished, "{outcome:?}");
     assert_eq!(outcome.log, vec!["refused"], "{outcome:?}");
 }
+
+/// ECMA-262 section 25.6.1.9 leaves the tracking of rejections to the host; this realm says each
+/// rejection nothing handled by the end of the run's jobs, with its reason, and the run still
+/// finishes, since the statement that called the `async` function completed normally (ADR 2866).
+#[test]
+fn an_error_after_an_await_that_nothing_catches_is_said_and_the_run_finishes() {
+    let outcome = opened(
+        "(async function () { await 0; throw new TypeError('after the await'); })(); \
+         console.println('sync');",
+    );
+    assert_eq!(outcome.ending, Ending::Finished, "{outcome:?}");
+    assert_eq!(outcome.log, vec!["sync"], "{outcome:?}");
+    assert_eq!(
+        outcome
+            .notes
+            .iter()
+            .filter(
+                |note| note.starts_with("a promise was rejected and nothing handled it")
+                    && note.contains("after the await")
+            )
+            .count(),
+        1,
+        "{outcome:?}"
+    );
+}
+
+/// A handler added later in the same run — after the rejection, by a job — takes the rejection
+/// up (section 25.6.1.9's "handle" operation), and nothing is said.
+#[test]
+fn a_rejection_handled_later_in_the_run_is_not_said() {
+    let outcome = opened(
+        "var p = Promise.reject(new Error('late')); \
+         Promise.resolve().then(function () { \
+             p.catch(function (e) { console.println('caught ' + e.message); }); \
+         });",
+    );
+    assert_eq!(outcome.ending, Ending::Finished, "{outcome:?}");
+    assert_eq!(outcome.log, vec!["caught late"], "{outcome:?}");
+    assert!(
+        !outcome
+            .notes
+            .iter()
+            .any(|note| note.contains("nothing handled")),
+        "{outcome:?}"
+    );
+}
+
+/// A rejection is the run's: one left unhandled by an earlier run is not said again by the next.
+#[test]
+fn an_unhandled_rejection_is_said_by_its_own_run_only() {
+    let mut realm = Realm::new(Budget::FIELD_EVENT).expect("a realm");
+    let first = realm.run(&request("Promise.reject(1);"));
+    assert_eq!(first.notes.len(), 1, "{first:?}");
+    let second = realm.run(&request("1 + 1;"));
+    assert!(second.notes.is_empty(), "{second:?}");
+}

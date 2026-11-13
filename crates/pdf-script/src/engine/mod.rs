@@ -51,6 +51,7 @@ use std::task::{Context as TaskContext, Poll, Waker};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use boa_engine::builtins::promise::{OperationType, Promise};
 use boa_engine::context::HostHooks;
 use boa_engine::context::time::{Clock, JsInstant};
 use boa_engine::error::{EngineError, RuntimeLimitError};
@@ -82,6 +83,10 @@ const MAX_LOG_LINES: usize = 64;
 
 /// Most notes one run keeps.
 const MAX_NOTES: usize = 64;
+
+/// Most rejected promises one run follows to the end of its jobs: as many as it keeps notes, since
+/// each one still unhandled then is a note. A rejection past it is counted, not followed.
+const MAX_REJECTIONS: usize = MAX_NOTES;
 
 /// Longest logged line kept, in characters.
 const MAX_LOG_CHARACTERS: usize = 1024;
@@ -445,6 +450,11 @@ pub(crate) struct Record {
     pub(crate) unasked: u32,
     /// What a script set `this.dirty` to in this run, which it reads back until the run ends.
     pub(crate) dirty_written: Option<bool>,
+    /// The promises rejected with no handler and not handled since, in the order they were
+    /// rejected (ECMA-262 section 25.6.1.9, ADR 2866).
+    pub(crate) rejected: Vec<boa_engine::JsObject>,
+    /// How many rejections past [`MAX_REJECTIONS`] were counted and not followed.
+    pub(crate) rejections_unfollowed: u32,
 }
 
 impl State {
@@ -617,6 +627,26 @@ impl Record {
         }
     }
 
+    /// Follows a promise's rejection: a rejection with no handler is held, and a handler added
+    /// later lets it go (ECMA-262 section 25.6.1.9's two operations).
+    pub(crate) fn track_rejection(
+        &mut self,
+        promise: boa_engine::JsObject,
+        operation: OperationType,
+    ) {
+        match operation {
+            OperationType::Reject if self.rejected.len() < MAX_REJECTIONS => {
+                self.rejected.push(promise);
+            }
+            OperationType::Reject => {
+                self.rejections_unfollowed = self.rejections_unfollowed.saturating_add(1);
+            }
+            OperationType::Handle => self
+                .rejected
+                .retain(|held| !boa_engine::JsObject::equals(held, &promise)),
+        }
+    }
+
     /// Records a note, cut to [`MAX_LOG_CHARACTERS`].
     pub(crate) fn note(&mut self, sentence: &str) {
         if self.notes.len() < MAX_NOTES {
@@ -698,6 +728,21 @@ impl HostHooks for Hooks {
 
     fn max_buffer_size(&self, _context: &mut Context) -> u64 {
         self.buffer_bytes
+    }
+
+    /// ECMA-262 section 25.6.1.9's `HostPromiseRejectionTracker`, which the standard leaves to the
+    /// host and defaults to doing nothing. Here it follows each rejection to the end of the run's
+    /// jobs, so that an error nothing handled — thrown after an `await`, say — is said in the
+    /// outcome rather than lost (principle 1, ADR 2866). It completes normally in every case, as
+    /// the section requires: a record that cannot be borrowed is passed over.
+    fn promise_rejection_tracker(
+        &self,
+        promise: &boa_engine::JsObject<Promise>,
+        operation: OperationType,
+        context: &mut Context,
+    ) {
+        let promise = promise.clone().upcast();
+        State::with(context, |record| record.track_rejection(promise, operation));
     }
 
     fn create_global_this(
