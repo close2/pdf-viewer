@@ -91,6 +91,9 @@ const REFUSED: i32 = 17;
 /// Exit code from a probe whose forbidden operation *succeeded*, which is the failure.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 const ALLOWED: i32 = 18;
+/// Exit code from a macOS probe whose operation failed with something other than `EPERM`.
+#[cfg(target_os = "macos")]
+const UNEXPECTED: i32 = 20;
 /// Exit code from a probe that decoded an image behind its own filter.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 const DECODED: i32 = 19;
@@ -366,8 +369,8 @@ fn a_worker_for_whole_decodes_reports_the_ceiling_its_budget_states() {
 /// what footprint (ADR 2864).
 ///
 /// The process is this test binary again, asked to write memory in 32 MiB steps until something
-/// stops it; the watch is the only thing that will. A probe that is never stopped exits
-/// `ALLOWED` once it has written four times its ceiling, so the test cannot hang.
+/// stops it; the watch is the only thing that will. A probe that is never stopped exits `ALLOWED`
+/// after a few seconds, so the test cannot hang.
 #[test]
 #[cfg(target_os = "macos")]
 fn a_process_past_its_watched_ceiling_is_killed() {
@@ -404,6 +407,11 @@ const GROW_CEILING: u64 = 256 << 20;
 #[test]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn a_confined_process_cannot_open_a_file() {
+    // The same file opens unconfined, so a refusal below is the confinement's.
+    assert!(
+        std::fs::File::open(READABLE).is_ok(),
+        "{READABLE} is not readable here"
+    );
     let status = run_probe("open");
     assert_ne!(
         status.code(),
@@ -574,35 +582,60 @@ fn confined_probe() {
 
     pdf_sandbox::lockdown::apply().expect("a probe that cannot confine itself proves nothing");
 
-    let permitted = match probe.as_str() {
+    let attempt: std::io::Result<()> = match probe.as_str() {
         // A file guaranteed to exist and to be readable by this user: a failure here has to be the
         // sandbox, not a missing file.
-        "open" => std::fs::File::open(READABLE).is_ok(),
-        "socket" => std::net::UdpSocket::bind("127.0.0.1:0").is_ok(),
+        "open" => std::fs::File::open(READABLE).map(drop),
+        "socket" => std::net::UdpSocket::bind("127.0.0.1:0").map(drop),
         // `fcntl(0, F_GETFD)`. ADR 0888 admits exactly this for the *interpreter*; here it must
         // still be a kill, which is what makes that rule a narrowing rather than a habit.
         #[cfg(target_os = "linux")]
-        "fcntl" => rustix::io::fcntl_getfd(std::io::stdin()).is_ok(),
+        "fcntl" => rustix::io::fcntl_getfd(std::io::stdin())
+            .map(drop)
+            .map_err(std::io::Error::from),
         other => panic!("no probe named {other}"),
     };
 
-    std::process::exit(if permitted { ALLOWED } else { REFUSED });
+    std::process::exit(match attempt {
+        Ok(()) => ALLOWED,
+        // A Seatbelt profile refuses with `EPERM` and nothing else; any other error is the probe
+        // failing for a reason of its own, which must not pass for the sandbox working.
+        #[cfg(target_os = "macos")]
+        Err(error) if error.kind() != std::io::ErrorKind::PermissionDenied => {
+            eprintln!("probe {probe}: not a refusal: {error}");
+            UNEXPECTED
+        }
+        Err(_) => REFUSED,
+    });
 }
 
 /// Writes memory in 32 MiB steps, holding every step, until it is stopped — or exits `ALLOWED`
-/// once it holds four times [`GROW_CEILING`], which only an unwatched process reaches.
+/// after [`GROW_FOR`], which only an unwatched process reaches.
+///
+/// Bounded by time rather than by bytes, so that a watch thread starved by a loaded test run still
+/// has seconds to act; and the steps stop growing past eight times the ceiling, so an unwatched run
+/// costs two gibibytes at most.
 #[cfg(target_os = "macos")]
 fn grow() -> ! {
+    let started = std::time::Instant::now();
     let mut held = Vec::new();
     let step = 32 << 20;
     let mut total: u64 = 0;
-    while total < 4 * GROW_CEILING {
-        held.push(vec![1u8; step]);
-        total += step as u64;
+    while started.elapsed() < GROW_FOR {
+        if total < 8 * GROW_CEILING {
+            // `black_box`, or an optimised build removes buffers nothing reads.
+            held.push(std::hint::black_box(vec![1u8; step]));
+            total += step as u64;
+        }
         std::thread::sleep(Duration::from_millis(5));
     }
+    std::hint::black_box(&held);
     std::process::exit(ALLOWED);
 }
+
+/// How long [`grow`] runs before it gives up on being stopped.
+#[cfg(target_os = "macos")]
+const GROW_FOR: Duration = Duration::from_secs(5);
 
 /// The script worker's probes: confine with `Profile::Script`, then do one thing and say how it
 /// went in the exit code.

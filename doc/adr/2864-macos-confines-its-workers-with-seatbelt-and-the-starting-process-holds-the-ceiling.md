@@ -72,9 +72,17 @@ and, of the memory ceiling, that it should not reshape the abstraction:
 - **The watch is a sampling interval late.** Linux refuses the allocation that crosses the ceiling;
   macOS's worker is killed after its footprint is seen past it, up to 20 ms of writing later. The
   bound is the same number; the overshoot is what a bound held from outside costs.
-- **The watch never kills another process.** It ends when a reading fails or when the worker's start
-  time differs from the first reading's, so an identifier the system has given to a new process is
-  never acted on. The one window left is between a reading and the kill after it.
+- **The watch is built not to kill another process.** It ends when the worker is gone or its start
+  time differs from the first reading's, and its owners end it before they reap the worker, so an
+  identifier the system has given to a new process is not acted on. The one window left is between
+  a reading and the kill after it.
+- **The watch fails closed.** A first reading refused for any reason but the worker being gone is an
+  error the spawner reports instead of starting the worker unwatched; a later one kills the worker
+  and names the reason, so a worker is never reported as held to a ceiling nobody is reading.
+- **On macOS the ceiling is now a footprint**, and the confined viewer's and the virtual file
+  system's message budgets are computed from it with an address-space baseline of zero, since
+  `/proc` does not exist there. The largest message falls from 2 GiB to about 1.4 GiB, as on Linux;
+  the sentences that name the ceiling still call it an address-space ceiling.
 - **A confined macOS worker decodes in process on its own thread**, as a confined Linux one does
   (`lockdown::CONFINED`): Seatbelt would let the deadline thread start, and the same path on both
   platforms keeps the deadline the starting process's.
@@ -87,10 +95,10 @@ and, of the memory ceiling, that it should not reshape the abstraction:
 
 ## Checked
 
-- `cargo test -p darwin-sandbox`: a footprint reading sees 64 MiB written; a reaped process is an
-  error.
-- `cargo test -p pdf-sandbox --test confinement` on macOS: a confined probe cannot open `/etc/hosts`
-  and cannot bind a socket; a worker reports `Seatbelt` and its ceiling, for the ordinary and the
+- `cargo test --release -p darwin-sandbox`: a footprint reading sees 64 MiB written; a reaped
+  process is an error.
+- `cargo test --release -p pdf-sandbox --test confinement` on macOS: a confined probe is refused
+  `/etc/hosts` and a socket with `EPERM`, the same file opening unconfined; a worker reports `Seatbelt` and its ceiling, for the ordinary and the
   whole-resolution decoder; a process writing memory past a 256 MiB watch is killed by `SIGKILL` and
   the watch names the footprint. With the profile changed to `(allow default)` the file and network
   probes fail, so they test the profile and not the probe.

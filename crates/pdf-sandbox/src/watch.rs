@@ -18,11 +18,15 @@
 //!   this sees the footprint after it has crossed, so a worker can be past its ceiling by what it
 //!   writes in [`INTERVAL`] before it is stopped. That is the difference between a bound held
 //!   inside a process and one held from outside it, and ADR 2864 accepts it.
-//! - **It never kills a process that is not the worker.** The worker is named by its identifier,
-//!   which the system gives to another process once the worker is reaped; so every reading also
-//!   compares the start time with the first one, and the watch ends the moment either the reading
-//!   fails or the start time differs. The one window left is between a reading and the kill that
-//!   follows it, microseconds against a worker that has to exit and be reaped inside them.
+//! - **It is built not to kill a process that is not the worker.** The worker is named by its
+//!   identifier, which the system gives to another process once the worker is reaped; so every
+//!   reading also compares the start time with the first one, and the watch ends the moment the
+//!   process is gone or the start time differs. Its owners end the watch before they reap the
+//!   worker. The one window left is between a reading and the kill that follows it, microseconds
+//!   against a worker that would have to exit and be reaped by somebody else inside them.
+//! - **It fails closed.** A reading refused for any reason but the process being gone — a host
+//!   that is itself sandboxed, a worker of another user — is a worker held to nothing: the first
+//!   one is an error for the caller, and one later in the run kills the worker and says why.
 //!
 //! On every platform but macOS [`Watch::start`] answers `None` and starts nothing: Linux's ceiling
 //! is the kernel's, and Windows has none yet (`doc/todo/35`).
@@ -81,19 +85,28 @@ impl Watch {
     /// The sentence a worker killed by this watch is reported with, or `None` where it was not.
     #[must_use]
     pub fn sentence(&self) -> Option<String> {
-        self.exceeded().map(|footprint| {
-            format!(
+        if let Some(footprint) = self.exceeded() {
+            return Some(format!(
                 "it was stopped by the process that started it, at a footprint of {footprint} \
                  bytes, past its ceiling"
-            )
-        })
+            ));
+        }
+        #[cfg(target_os = "macos")]
+        if self.inner.unread() {
+            return Some(
+                "it was stopped by the process that started it, which could no longer read its \
+                 footprint and so could not hold it to its ceiling"
+                    .to_owned(),
+            );
+        }
+        None
     }
 }
 
 #[cfg(target_os = "macos")]
 mod macos {
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::mpsc::{self, RecvTimeoutError};
     use std::thread::JoinHandle;
 
@@ -106,7 +119,14 @@ mod macos {
         stop: Option<mpsc::Sender<()>>,
         /// The footprint the worker was killed at, or 0 while it has not been.
         exceeded: Arc<AtomicU64>,
+        /// Whether the worker was killed because a reading of it was refused.
+        unread: Arc<AtomicBool>,
         thread: Option<JoinHandle<()>>,
+    }
+
+    /// Whether a refused reading means only that the process is gone, which ends a watch quietly.
+    fn gone(error: &std::io::Error) -> bool {
+        error.raw_os_error() == Some(rustix::io::Errno::SRCH.raw_os_error())
     }
 
     impl Watching {
@@ -114,10 +134,13 @@ mod macos {
             if ceiling == 0 {
                 return Ok(None);
             }
-            // The first reading names the process the watch is about; a worker already gone has
-            // nothing to be held to.
-            let Ok(first) = darwin_sandbox::usage(pid) else {
-                return Ok(None);
+            // The first reading names the process the watch is about. A worker already gone has
+            // nothing to be held to; one that cannot be read cannot be held, and that is the
+            // caller's to refuse.
+            let first = match darwin_sandbox::usage(pid) {
+                Ok(first) => first,
+                Err(error) if gone(&error) => return Ok(None),
+                Err(error) => return Err(error),
             };
             let Some(target) = i32::try_from(pid)
                 .ok()
@@ -127,6 +150,8 @@ mod macos {
             };
             let exceeded = Arc::new(AtomicU64::new(0));
             let found = Arc::clone(&exceeded);
+            let unread = Arc::new(AtomicBool::new(false));
+            let refused = Arc::clone(&unread);
             let (stop, stopped) = mpsc::channel::<()>();
             let thread = std::thread::Builder::new()
                 .name("pdf-sandbox-watch".to_owned())
@@ -136,8 +161,20 @@ mod macos {
                             Err(RecvTimeoutError::Timeout) => {}
                             Ok(()) | Err(RecvTimeoutError::Disconnected) => return,
                         }
-                        let Ok(now) = darwin_sandbox::usage(pid) else {
-                            return;
+                        let now = match darwin_sandbox::usage(pid) {
+                            Ok(now) => now,
+                            Err(error) if gone(&error) => return,
+                            Err(_) => {
+                                // Fails closed: a worker that can no longer be read is no longer
+                                // held, and the start time cannot be checked either — but the
+                                // process could still be read a tick ago, so it is the worker.
+                                refused.store(true, Ordering::Release);
+                                let _ = rustix::process::kill_process(
+                                    target,
+                                    rustix::process::Signal::KILL,
+                                );
+                                return;
+                            }
                         };
                         if now.started != first.started {
                             return;
@@ -157,8 +194,13 @@ mod macos {
             Ok(Some(Self {
                 stop: Some(stop),
                 exceeded,
+                unread,
                 thread: Some(thread),
             }))
+        }
+
+        pub(super) fn unread(&self) -> bool {
+            self.unread.load(Ordering::Acquire)
         }
 
         pub(super) fn exceeded(&self) -> Option<u64> {

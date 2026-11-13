@@ -19,6 +19,10 @@
 //!
 //! On every other platform the crate is empty.
 
+// Denied here and admitted only in `macos`, so that `unsafe` cannot spread past the two calls
+// without a second `expect` saying why.
+#![deny(unsafe_code)]
+
 #[cfg(target_os = "macos")]
 mod macos;
 

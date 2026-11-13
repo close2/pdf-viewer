@@ -1,5 +1,10 @@
 //! The two calls, on the one platform that has them.
 
+#![expect(
+    unsafe_code,
+    reason = "the two foreign calls this crate exists to wrap, each with its contract beside it"
+)]
+
 use std::ffi::{CStr, CString, c_char};
 
 // `sandbox_init` and `sandbox_free_error` are declared by `<sandbox.h>` and defined in
@@ -125,7 +130,8 @@ mod tests {
     fn this_process_reads_as_itself() {
         let me = std::process::id();
         let first = usage(me).unwrap();
-        let held = vec![1u8; 64 << 20];
+        // `black_box`, or an optimised build removes a buffer nothing reads, and its pages with it.
+        let held = std::hint::black_box(vec![1u8; 64 << 20]);
         let second = usage(me).unwrap();
         assert!(first.footprint > 0);
         assert_eq!(first.started, second.started);

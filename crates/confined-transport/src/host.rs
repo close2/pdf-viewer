@@ -539,6 +539,9 @@ impl Drop for Host {
     /// socket does — but a worker in the middle of the work would not notice for as long as that
     /// takes, and a host that has dropped its handle is not waiting for one.
     fn drop(&mut self) {
+        // The watch first, so that it is not reading an identifier the reap below gives back to
+        // the system (`pdf_sandbox::watch`).
+        drop(self.watch.take());
         self.canceller.kill();
         let _ = self.canceller.reap();
     }
