@@ -193,10 +193,19 @@ pub(super) fn prepare_reference_xobjects(
 
 /// What a per-object flag policy preserves, and what its separately authorised removal loses.
 pub(super) const BY_SHAPE: &str = "each annotation is answered by its flag shape: preserved \
-    annotations stay on their pages with conforming flags; discarded annotations leave the page. Closed reciprocal hidden markup/popup pairs may leave together; other linked structures are refused. The report names each original flag value and each kept value";
+    annotations stay on their pages with conforming flags; discarded annotations leave the page, and a closed popup leaves with the hidden markup annotation it belongs to; other linked structures are refused. The report names each original flag value and each kept value";
 
 /// Splits the one validated population without granting a site-wide loss.
-/// Ambiguous flag shapes and widget removal remain a refusal, never a guessed screen state.
+/// Ambiguous flag shapes remain a refusal, never a guessed screen state.
+///
+/// **A hidden widget is discarded as any hidden annotation is** (ADR 2851): taken out of its page's
+/// `/Annots` array and nothing else, which is what the site-wide removal does to it. Its field
+/// stays in the interactive form dictionary with its value: ISO 32000-2 §12.7.2 says a terminal
+/// field "may have children that are widget annotations", which §12.5.6.19 makes the field's
+/// appearance on a page, so a field no page shows is still a field of the form.
+///
+/// **A closed popup leaves with the hidden annotation it belongs to** ([`linked_popups::prove`]):
+/// its own flags may conform, so no row names it, and it is still nothing a reader can show.
 pub(super) fn partition_flags(
     document: &Document,
     answers: super::config::AnnotationFlagAnswers,
@@ -205,26 +214,26 @@ pub(super) fn partition_flags(
     use super::config::Kind;
     const STOP: &str = "the annotation flag shape is stopped or outside the configured Hidden/NoView \
         and visible-nonprinting shapes; Invisible, ToggleNoView and malformed flags need their own answer";
-    const WIDGET: &str = "removing a hidden widget could leave its field structure inconsistent; \
-        the per-shape flag remedy does not remove form fields";
     let mut at = BTreeSet::new();
     let mut removed = Vec::new();
     let mut kept = Vec::new();
+    let failing: BTreeSet<ObjectId> = rows.iter().map(|row| row.at).collect();
     for row in rows {
-        let answer = row.flags.and_then(|flags| answers.for_flags(flags));
+        let answer = shape_flags(&row).and_then(|flags| answers.for_flags(flags));
         match answer {
             Some(Kind::Preserve) => kept.push(row),
             Some(Kind::Discard) => {
-                if row.subtype == "Widget" {
-                    return Err(Because::NotBuiltYet(WIDGET));
-                }
                 at.insert(row.at);
                 removed.push(row);
             }
             _ => return Err(Because::NotBuiltYet(STOP)),
         }
     }
-    linked_popups::prove(document, &removed)?;
+    for companion in linked_popups::prove(document, &removed, &failing)? {
+        at.insert(companion.at);
+        removed.push(companion);
+    }
+    removed.sort_by_key(|row| row.page);
     if kept.iter().any(|row| at.contains(&row.at)) {
         return Err(Because::NotBuiltYet(
             "a removed popup is also an annotation the flag plan keeps",
@@ -234,6 +243,30 @@ pub(super) fn partition_flags(
         at,
         removed,
         kept: Some(kept),
+    })
+}
+
+/// The flags a shape is read from: the stated ones, less an `Invisible` bit that states nothing.
+///
+/// ISO 32000-2 Table 167 says of `Invisible` that it "\[a]pplies only to annotations which do not
+/// belong to one of the standard annotation types and for which no annotation handler is
+/// available". So on a subtype of Table 171 the bit draws and prints nothing differently, and a
+/// shape read with it set would stop an annotation whose screen state the other bits state whole
+/// (ADR 2851). The subtypes are the ones ISO 19005-4 section 6.3.1 admits, which is Table 171
+/// less `Sound`, `Screen` and `Movie`; those three keep the bit, and section 6.3.1's removal is
+/// theirs anyway.
+pub(super) fn shape_flags(row: &RemovedAnnotation) -> Option<i64> {
+    const INVISIBLE: i64 = 1;
+    let standard = pdf_archive::annotation_subtype_permitted(
+        Some(row.subtype.as_str()),
+        pdf_archive::Part::Four,
+    );
+    row.flags.map(|flags| {
+        if standard && flags >= 0 {
+            flags & !INVISIBLE
+        } else {
+            flags
+        }
     })
 }
 

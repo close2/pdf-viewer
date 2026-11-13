@@ -89,7 +89,8 @@ fn shapes_keep_visible_marks_and_remove_hidden_ones_in_the_same_document() {
 
 #[test]
 fn shapes_refuse_ambiguous_flags_even_if_global_removal_is_authorised() {
-    for flags in [1, 256, 258, -1] {
+    // 256 and 258 set ToggleNoView, whose screen state is the pointer's; -1 sets every bit.
+    for flags in [256, 258, -1] {
         let source = an_annotation_stating(&flags.to_string(), "<< /N 7 0 R >>");
         let mut plan = plan_from(SHAPES, Target::Four(Flavour::Plain));
         plan.authorised.hidden_annotation = true;
@@ -211,13 +212,9 @@ fn shared_annotations_keep_one_identity_and_report_each_page_occurrence() {
 }
 
 #[test]
-fn linked_annotations_and_widgets_are_refused_before_mixed_writes() {
+fn linked_annotations_are_refused_before_mixed_writes() {
     let target = Target::Four(Flavour::Plain);
-    for (subtype, linked) in [
-        ("Square", "/Popup 8 0 R"),
-        ("Square", "/Parent 8 0 R"),
-        ("Widget", ""),
-    ] {
+    for (subtype, linked) in [("Square", "/Popup 8 0 R"), ("Square", "/Parent 8 0 R")] {
         let source = Conforming {
             page: "/Annots [6 0 R]".to_owned(),
             objects: vec![format!("<< /Type /Annot /Subtype /{subtype} /Rect [20 30 60 70] /F 2 /AP << /N 7 0 R >> {linked} >>")],
@@ -358,4 +355,192 @@ fn the_previous_unqualified_stop_does_not_convert_the_mixed_population() {
             .is_none(),
         "answering visible marks alone must not authorise hidden-object removal"
     );
+}
+
+/// A text field with one hidden widget (Table 167 bit 2), in the form and on the page: merged
+/// into one dictionary, or a kid naming its field through Table 226's `/Parent`.
+fn a_hidden_field(target: Target, kid: bool) -> Vec<u8> {
+    let base = if matches!(target, Target::Two(_)) {
+        Conforming::part_two()
+    } else {
+        Conforming::default()
+    };
+    let objects = if kid {
+        vec![
+            "<< /FT /Tx /T (Kept) /V (value) /Kids [7 0 R] >>".to_owned(),
+            "<< /Type /Annot /Subtype /Widget /Parent 6 0 R /F 2 /Rect [20 30 60 70] \
+             /AP << /N 8 0 R >> >>"
+                .to_owned(),
+        ]
+    } else {
+        vec![
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (Kept) /V (value) /F 2 \
+             /Rect [20 30 60 70] /AP << /N 7 0 R >> >>"
+                .to_owned(),
+        ]
+    };
+    Conforming {
+        catalog: "/AcroForm << /Fields [6 0 R] >>".to_owned(),
+        page: format!("/Annots [{} 0 R]", if kid { 7 } else { 6 }),
+        objects,
+        binary_objects: vec![stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 40 40]",
+            b"0 0 40 40 re f",
+        )],
+        ..base
+    }
+    .build()
+}
+
+#[test]
+fn a_hidden_widget_leaves_its_page_and_its_field_stays_in_the_form() {
+    // `hidden-at-rest` discards an annotation whose Hidden flag is set (ISO 19005-2 and ISO
+    // 19005-4 section 6.3.2; ISO 32000-2 Table 167). ISO 32000-2 §12.7.2: a terminal field "may
+    // have children that are widget annotations", so the field and its value stay in the form
+    // and only the page's Annots entry goes (ADR 2851).
+    for (target, kid) in [
+        (Target::Two(Level::B), false),
+        (Target::Four(Flavour::Plain), false),
+        (Target::Two(Level::B), true),
+        (Target::Four(Flavour::Plain), true),
+    ] {
+        let source = a_hidden_field(target, kid);
+        let (report, output) = convert_with_plan(&source, &plan_from(SHAPES, target));
+        let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+        assert!(
+            conversion(&report).settled.is_empty(),
+            "the first pass answers it"
+        );
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        assert_eq!(
+            conversion(&report)
+                .removed_annotations
+                .iter()
+                .map(|row| (row.subtype.as_str(), row.flags))
+                .collect::<Vec<_>>(),
+            vec![("Widget", Some(2))]
+        );
+        let document = Document::open_with_limits(output, Limits::DEFAULT).expect("output");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page");
+        let annotations = document.get_key(&page.dict, "Annots");
+        assert!(
+            annotations.as_array().is_none_or(<[Object]>::is_empty),
+            "the hidden widget is off its page"
+        );
+        let catalog = document.catalog().expect("catalog");
+        let form = document.get_key(&catalog, "AcroForm");
+        let fields = document.get_key(form.as_dict().expect("the form stays"), "Fields");
+        let fields = fields.as_array().expect("its fields stay");
+        assert_eq!(fields.len(), 1);
+        let field = document.resolve(&fields[0]);
+        let field = field.as_dict().expect("a field");
+        assert_eq!(
+            document.get_key(field, "V").as_string().map(<[u8]>::to_vec),
+            Some(b"value".to_vec()),
+            "its value stays"
+        );
+    }
+}
+
+#[test]
+fn a_signature_widget_takes_the_answer_its_flag_rule_was_given() {
+    // ISO 19005-2 section 6.4.3 and ISO 19005-4 section 6.5.1 ask the annotation rules again of
+    // a signature field's widget. A `preserve` at the flags row gives every annotation stating no
+    // F the Print flag (section 6.3.2's first sentence), the widget among them, so the compound
+    // row is answered by that answer rather than by the table's unauthorised loss (ADR 2850).
+    const PRESERVE: &str = r#"
+[site."annotations/flags-entry-present"]
+remedy = "preserve"
+"#;
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let base = if matches!(target, Target::Two(_)) {
+            Conforming::part_two()
+        } else {
+            Conforming::default()
+        };
+        let source = Conforming {
+            catalog: "/AcroForm << /Fields [6 0 R] >>".to_owned(),
+            page: "/Annots [6 0 R]".to_owned(),
+            objects: vec![
+                "<< /Type /Annot /Subtype /Widget /FT /Sig /T (Signature) \
+                 /Rect [10 10 90 90] /AP << /N 7 0 R >> >>"
+                    .to_owned(),
+            ],
+            binary_objects: vec![stream(
+                "/Type /XObject /Subtype /Form /BBox [0 0 80 80]",
+                b"",
+            )],
+            ..base
+        }
+        .build();
+        let (report, output) = convert_with_plan(&source, &plan_from(PRESERVE, target));
+        let flags = decision(&report, "annotations/flags-entry-present");
+        assert!(matches!(flags, Decision::Configured { .. }), "{flags:?}");
+        assert_eq!(
+            decision(
+                &report,
+                "signatures/signature-widgets-meet-the-annotation-rules"
+            ),
+            flags,
+            "the compound row is the rule's own answer"
+        );
+        let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+        assert!(
+            conversion(&report).settled.is_empty(),
+            "the first pass answers it"
+        );
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    }
+}
+
+#[test]
+fn invisible_on_a_standard_subtype_is_read_as_the_flags_beside_it() {
+    // ISO 32000-2 Table 167: Invisible "[a]pplies only to annotations which do not belong to one
+    // of the standard annotation types", and Square is one (Table 171). So /F 1 is the
+    // visible-nonprinting shape, kept and written with section 6.3.2's flags (Print set, the four
+    // forbidden bits clear: 4), and /F 3 (Hidden) is hidden-at-rest and leaves (ADR 2851).
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        for (flags, kept) in [(1, true), (3, false), (17, true)] {
+            let base = if matches!(target, Target::Two(_)) {
+                Conforming::part_two()
+            } else {
+                Conforming::default()
+            };
+            let source = Conforming {
+                page: "/Annots [6 0 R]".to_owned(),
+                objects: vec![format!(
+                    "<< /Type /Annot /Subtype /Square /Rect [20 30 60 70] /F {flags} \
+                     /AP << /N 7 0 R >> >>"
+                )],
+                binary_objects: vec![stream(
+                    "/Type /XObject /Subtype /Form /BBox [0 0 40 40]",
+                    b"0 0 40 40 re f",
+                )],
+                ..base
+            }
+            .build();
+            let (report, output) = convert_with_plan(&source, &plan_from(SHAPES, target));
+            let output =
+                output.unwrap_or_else(|| panic!("{flags}: {}", conversion(&report).render()));
+            assert!(conversion(&report).settled.is_empty(), "{flags}");
+            assert_eq!(
+                holds(&output, target).verdict(),
+                Verdict::Conforms,
+                "{flags}"
+            );
+            let document = Document::open_with_limits(output, Limits::DEFAULT).expect("output");
+            let page = pdf_model::Pages::new(&document).get(0).expect("page");
+            let annotations = document.get_key(&page.dict, "Annots");
+            let annotations = annotations.as_array().unwrap_or_default();
+            if kept {
+                assert_eq!(annotations.len(), 1, "{flags}");
+                let annotation = document.resolve(&annotations[0]);
+                let written = document.get_key(annotation.as_dict().expect("annotation"), "F");
+                // Print (4) set, Invisible (1) clear, NoRotate (16) the producer's.
+                assert_eq!(written, Object::Integer((flags & 16) | 4), "{flags}");
+            } else {
+                assert!(annotations.is_empty(), "{flags}");
+            }
+        }
+    }
 }

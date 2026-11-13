@@ -884,7 +884,10 @@ fn decide_every_failure(
         // reaches the embedded-file rows a derivation answers.
         let mut decision = appended_pages(remedies, judgement.id, &prepared)
             .or_else(|| configured(plan, remedies, judgement.id, &prepared))
-            .unwrap_or_else(|| decide(input, judgement, plan.authorised, &prepared));
+            .unwrap_or_else(|| {
+                let operators = |id| configured(plan, remedies, id, &prepared);
+                decide(input, judgement, (plan.authorised, &operators), &prepared)
+            });
         if decision.rewrite() == Some(Rewrite::FileHeader) {
             match version_for(document, plan.target) {
                 Ok(stated) => version = Some(stated),

@@ -7,6 +7,15 @@
 //! reference to a popup annotation for entering or editing the text associated with this
 //! annotation", and §12.5.6.14's Table 186 gives the popup `/Parent`. Removing one member leaves
 //! the other naming an object no page holds, so the pair leaves together or not at all.
+//!
+//! **A closed popup whose flags conform leaves with its hidden parent** (ADR 2851). Section 6.3.2
+//! names no popup whose `/F` it admits, so the popup is in no row and has no answer of its own to
+//! give; Table 186's `/Open`, false or absent, means it is not displayed, and Table 167's `Hidden`
+//! on its parent says "do not render the annotation or allow it to interact with the user" (its
+//! `NoView`, the same of the screen), so nothing a reader does opens it. What the window shows of the pair is nothing either
+//! way, and leaving the popup naming an annotation no page holds is the one thing the removal
+//! may not do. A popup no page holds at all loses no `/Annots` entry: its parent leaves alone, held
+//! to having no other incoming link.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -66,18 +75,28 @@ impl Graph {
 }
 
 /// Checks only where a discarded annotation has a relationship; unlinked policy is unchanged.
-pub(super) fn prove(document: &Document, removed: &[RemovedAnnotation]) -> Result<(), Because> {
+///
+/// Returns the popups that leave with their parents without being rows of their own: `failing` is
+/// every annotation the flag rows name, discarded or kept, and a popup outside it conforms.
+pub(super) fn prove(
+    document: &Document,
+    removed: &[RemovedAnnotation],
+    failing: &BTreeSet<ObjectId>,
+) -> Result<Vec<RemovedAnnotation>, Because> {
     let linked: Vec<_> = removed
         .iter()
+        // A widget's `/Parent` is "[a]n indirect reference to the widget annotation's parent
+        // field" (§12.5.6.19's Table 191), not Table 186's popup link: a hidden widget leaving its
+        // page takes nothing of its field with it (ADR 2851).
         .filter(|row| {
-            document
-                .get(row.at)
-                .as_dict()
-                .is_some_and(|dict| dict.get("Popup").is_some() || dict.get("Parent").is_some())
+            document.get(row.at).as_dict().is_some_and(|dict| {
+                dict.get("Popup").is_some()
+                    || (dict.get("Parent").is_some() && !named(document, dict, "Widget"))
+            })
         })
         .collect();
     if linked.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     let graph = Graph::read(document)?;
     let hidden: BTreeSet<_> = removed
@@ -86,11 +105,12 @@ pub(super) fn prove(document: &Document, removed: &[RemovedAnnotation]) -> Resul
         // ToggleNoView (bit 9, value 256) clear, and Hidden (bit 2, value 2) or NoView (bit 6,
         // value 32) set, so the annotation is not drawn on screen whatever a pointer does.
         .filter(|row| {
-            row.flags
+            super::shape_flags(row)
                 .is_some_and(|flags| flags >= 0 && flags & (1 | 256) == 0 && flags & (2 | 32) != 0)
         })
         .map(|row| row.at)
         .collect();
+    let mut companions = Vec::new();
     for row in linked {
         let object = document.get(row.at);
         let dict = object.as_dict().ok_or(REFUSED)?;
@@ -99,9 +119,37 @@ pub(super) fn prove(document: &Document, removed: &[RemovedAnnotation]) -> Resul
         } else {
             (row.at, reference(dict, "Popup")?)
         };
-        pair(document, &graph, &hidden, parent, popup)?;
+        let carried = !failing.contains(&popup);
+        pair(document, &graph, (&hidden, carried), parent, popup)?;
+        if carried
+            && !companions
+                .iter()
+                .any(|row: &RemovedAnnotation| row.at == popup)
+        {
+            // A popup no page holds leaves nothing to take out of an `/Annots` array.
+            let Some(page) = graph
+                .pages
+                .get(&popup)
+                .and_then(|pages| pages.first())
+                .copied()
+            else {
+                continue;
+            };
+            companions.push(RemovedAnnotation {
+                at: popup,
+                page,
+                subtype: "Popup".to_owned(),
+                appearance: None,
+                flags: document.get(popup).as_dict().and_then(|dict| {
+                    match document.get_key(dict, "F") {
+                        Object::Integer(flags) => Some(flags),
+                        _ => None,
+                    }
+                }),
+            });
+        }
     }
-    Ok(())
+    Ok(companions)
 }
 
 fn reference(dict: &Dictionary, key: &str) -> Result<ObjectId, Because> {
@@ -115,10 +163,12 @@ fn named(document: &Document, dict: &Dictionary, name: &str) -> bool {
         .is_some_and(|value| value.as_bytes() == name.as_bytes())
 }
 
+/// Whether the pair may leave: `hidden` is every discarded annotation the flags hide, and `carried`
+/// says the popup is in no row and leaves because its parent does.
 fn pair(
     document: &Document,
     graph: &Graph,
-    hidden: &BTreeSet<ObjectId>,
+    (hidden, carried): (&BTreeSet<ObjectId>, bool),
     parent: ObjectId,
     popup: ObjectId,
 ) -> Result<(), Because> {
@@ -127,7 +177,15 @@ fn pair(
     let parent_dict = parent_object.as_dict().ok_or(REFUSED)?;
     let popup_dict = popup_object.as_dict().ok_or(REFUSED)?;
     let parent_pages = graph.pages.get(&parent).ok_or(REFUSED)?;
-    let popup_pages = graph.pages.get(&popup).ok_or(REFUSED)?;
+    // A carried popup no page holds has no `/Annots` entry to lose, and its `/Parent` is no page
+    // annotation's link, so the parent is held to having no incoming link at all.
+    let popup_pages = graph.pages.get(&popup);
+    let on_no_page = carried && popup_pages.is_none();
+    let popup_pages = match popup_pages {
+        Some(pages) => pages,
+        None if on_no_page => parent_pages,
+        None => return Err(REFUSED),
+    };
     // A popup's parent is any subtype Table 171's Markup column says `Yes` of: §12.5.6.14's popup
     // "is associated with a markup annotation", and §12.5.6.2 says Table 172, which holds
     // `/Popup`, lists entries "that apply to all markup annotations". §12.5.6.2's groups are not
@@ -160,13 +218,14 @@ fn pair(
         || !markup
         || !named(document, popup_dict, "Popup")
         || !hidden.contains(&parent)
-        || !hidden.contains(&popup)
+        || !(carried || hidden.contains(&popup))
         || parent_pages.len() != 1
         || parent_pages != popup_pages
         || reference(parent_dict, "Popup")? != popup
         || reference(popup_dict, "Parent")? != parent
         || !graph.sole_link(popup, parent, "Popup")
-        || !graph.sole_link(parent, popup, "Parent")
+        || !(graph.sole_link(parent, popup, "Parent")
+            || (on_no_page && !graph.incoming.contains_key(&parent)))
         || parent_dict.get("Parent").is_some()
         || popup_dict.get("Popup").is_some()
         || ["A", "AA", "IRT", "StructParent"]

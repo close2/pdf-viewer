@@ -110,7 +110,7 @@ column. R02 is built (ADR 2498) and no document reaches it.
 | 5 | R11-truetype-route | 5 | 5 | 6 / 6 | builds only | built: A694 item 3, ADR 2520 |
 | 6 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
 | 7 | R03a-notdef-named | 2 | 2 | 6 / 3 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650, 2753; left, a code an embedded CMap reads as invalid in a CJK collection without ToUnicode |
-| 8 | R16-annotations-and-forms | 2 | 2 | 14 / 17 | builds only | built: a push button with no appearance dictionary (ADR 2751), an appearance dictionary stating no entry (ADR 2752); left, named per site |
+| 8 | R16-annotations-and-forms | 2 | 2 | 6 / 9 | builds only | built: a push button with no appearance dictionary (ADR 2751), an appearance dictionary stating no entry (ADR 2752), a signature widget answered as its rules were (ADR 2850), a hidden widget, a closed popup and an inert Invisible under the per-shape plan (ADR 2851); left, named per site |
 | 9 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
 | 10 | R07-undecodable-stream | 1 | 2 | 1 / 2 | builds only | built: ADR 2689; the `UnknownFilter` files' `%PDF-3.x` header, ADR 2692; left, an ICC profile written as its alternate |
 | 11 | R12-spot-colourant | 1 | 1 | 1 / 1 | builds only | built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490) |
@@ -475,17 +475,27 @@ in `xmpMM:History` (`modification-date`), under `as-shown`, `as-if-printed` and 
 (`disagreeing = "discard"`). Left: the stating profiles, whose page would have to state a packet
 property.
 
-**R16 — annotations and forms** (4 documents under `as-if-printed`, 14 at 2b and 17 at 4 under
-`as-shown`). Built: a push button with no appearance dictionary is given the constructed one under
-ADR 2319's state (ADR 2751, `160F-2019`), and an appearance dictionary stating no entry, or only null
-ones, is taken away (ADR 2752, `sakula`). Left: a check box with no appearance dictionary (1,
-`checkbox_no_appearance` — §12.7.5.2.3 makes its state names its values, and the reader draws
-nothing for it, so the remedy left is its removal, which touches its field), a hidden widget whose
-removal could break its field (3), a Popup pair the linked removal cannot take (2), an appearance kept on an appended page of a
-document with a structure tree (10 over four sites, `as-shown` — at 2b and 4 no structure element is required, and
-under a Level A target ADR 1014 already places the element inside the permission), a field whose
-appearance the converter could not build (1), a signature widget that does not print (2, both XFA
-forms — section 7.1). Builds only. Mitigations sections 6 and 7.
+**R16 — annotations and forms** (2 documents under `as-if-printed`, 6 at 2b and 9 at 4 under
+`as-shown`). Built: a push button with no appearance dictionary is given the
+constructed one under ADR 2319's state (ADR 2751, `160F-2019`); an appearance dictionary stating no entry,
+or only null ones, is taken away (ADR 2752, `sakula`); a signature widget's compound row takes the answer
+the operator gave the annotation rules it names (ADR 2850); and `as-shown`'s per-shape flag plan removes
+a hidden widget from its page with its field kept in the form, removes a closed popup with the hidden
+markup annotation it belongs to, and reads `Invisible` on a Table 171 subtype as the bits beside it
+(ADR 2851: `160F-2019`, `annotation_hidden_noview`, `widget_hidden_print`, `annotation_hidden_print`,
+`OrphanPopups`, `pr7352`). Left, named per site: a check box with no appearance dictionary
+(`checkbox_no_appearance` — §12.7.5.2.3 makes its state names its values, and the reader refuses its *on*
+widget, which states neither an `/AP` nor Table 192's `/CA`, so what is left is its removal, which touches
+its field); a `FreeText` whose `/DA` names a font `/DR` does not define (`poppler-395-0-fuzzed` — the
+window sets it in ADR 0112's stand-in and reports it, so a build is that construction written under a
+loss naming the stand-in face); an appearance kept on an appended page of a document with a structure
+tree (`as-shown`: `PDF-Sample-Document-Fully-Featured-Layout_Redacted` and the two `embedded_video` files
+at both parts, the two file attachment files at 4, each R15 besides — at 2b and 4 no structure element is
+required, and under a Level A target ADR 1014 already places the element inside the permission); an
+annotation to be removed that states no normal appearance for the appended page (`issue7446`); a 3D
+annotation no appended page was composed for (`multimedia_annotations`, at 4). The two XFA forms' signature
+widgets are answered by the flags rule (ADR 2850) and stop at X1 alone. Builds only. Mitigations sections 6
+and 7.
 
 **R14 — the appended page could not be composed** (2 documents, each alone): `balloon_a1b_jp2k`'s
 packet header holds U+0000 where the byte-order mark goes, which no face draws. Under
@@ -620,6 +630,6 @@ disagrees with `/Widths` the refusal's sentence is `PROGRAM_NOT_RESTATABLE`.
 - R12-spot-colourant (1): pdf.js:devicen.pdf
 - R14-appended-page-composition (4): corpora:241573_ftp.pdf, corpora:JPXTestGrey.pdf, corpora:balloon_a1b_jp2k.pdf, pdf.js:poppler-742-0-fuzzed.pdf
 - R15-embedded-files (7): corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:embedded_video_avi.pdf, corpora:embedded_video_quicktime.pdf, corpora:fileAttachment_fileAttachmentAnnotation.pdf, pdf.js:annotation-fileattachment.pdf, pdf.js:issue17056.pdf, pdf.js:issue18030.pdf
-- R16-annotations-and-forms (17): corpora:MOZILLA-1671648-0.pdf, corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:PDFBOX-6018-099267-p9-OrphanPopups.pdf, corpora:embedded_video_avi.pdf, corpora:embedded_video_quicktime.pdf, corpora:fileAttachment_fileAttachmentAnnotation.pdf, pdf.js:160F-2019.pdf, pdf.js:annotation-fileattachment.pdf, pdf.js:annotation_hidden_noview.pdf, pdf.js:annotation_hidden_print.pdf, pdf.js:checkbox_no_appearance.pdf, pdf.js:issue7446.pdf, pdf.js:multimedia_annotations.pdf, pdf.js:poppler-395-0-fuzzed.pdf, pdf.js:pr7352.pdf, pdf.js:widget_hidden_print.pdf, pdf.js:xfa_filled_imm1344e.pdf
+- R16-annotations-and-forms (9): corpora:PDF-Sample-Document-Fully-Featured-Layout_Redacted.pdf, corpora:embedded_video_avi.pdf, corpora:embedded_video_quicktime.pdf, corpora:fileAttachment_fileAttachmentAnnotation.pdf, pdf.js:annotation-fileattachment.pdf, pdf.js:checkbox_no_appearance.pdf, pdf.js:issue7446.pdf, pdf.js:multimedia_annotations.pdf, pdf.js:poppler-395-0-fuzzed.pdf
 - X1-dynamic-xfa (4): corpora:MOZILLA-1671648-0.pdf, pdf.js:issue14130.pdf, pdf.js:xfa_filled_imm1344e.pdf, pdf.js:xfa_issue14315.pdf
 - X2-no-page-to-see (6): corpora:PDFBOX-6041-example.pdf, pdf.js:Brotli-Prototype-FileA.pdf, pdf.js:REDHAT-1531897-0.pdf, pdf.js:bug1020226.pdf, pdf.js:poppler-85140-0.pdf, pdf.js:poppler-937-0-fuzzed.pdf

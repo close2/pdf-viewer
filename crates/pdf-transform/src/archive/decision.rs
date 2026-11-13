@@ -1962,10 +1962,15 @@ fn only_on_photographed_page_groups(
         })
 }
 
+/// The decision the table takes about one requirement the document failed.
+///
+/// `configured` is the operator's own answer to a row, where the configuration gave one; the
+/// table asks it of each rule a compound row names ([`decide_as_underlying`]), because the
+/// conversion answers that rule's places with it whatever row they are reported under (ADR 2850).
 pub(super) fn decide(
     input: &pdf_archive::Report,
     judgement: &Judgement,
-    authorised: Authorisations,
+    (authorised, configured): (Authorisations, &dyn Fn(&'static str) -> Option<Decision>),
     prepared: &Prepared,
 ) -> Decision {
     // **A page photographed answers a fault of its content stream** where the profile authorised
@@ -2072,7 +2077,7 @@ pub(super) fn decide(
         );
     };
     if let Answer::AsUnderlying(rules) = remedy.answer {
-        return decide_as_underlying(input, rules, authorised, prepared);
+        return decide_as_underlying(input, rules, (authorised, configured), prepared);
     }
     answer_of(remedy.answer, authorised, prepared)
 }
@@ -2088,10 +2093,17 @@ pub(super) fn decide(
 /// A rule the document did not fail contributes nothing, and where **none** of them failed the
 /// compound is refused: its predicate found something at a population the rules did not reach,
 /// and [`NOTHING_UNDERLYING_FAILED`] is what that is.
+///
+/// **A rule the operator answered is answered by that answer here too** (ADR 2850). ISO 19005-2
+/// section 6.4.3 and ISO 19005-4 section 6.5.1 ask the annotation rules again of a signature
+/// field's widget, and the widget is one of the annotations those rules' own rows rewrite: a
+/// `preserve` at `annotations/flags-entry-present` gives it the Print flag with every other
+/// annotation stating no `/F`. The table's default for the rule would refuse, for a loss the
+/// operator has answered, a widget the conversion is rewriting under that same answer.
 fn decide_as_underlying(
     input: &pdf_archive::Report,
     rules: &[&str],
-    authorised: Authorisations,
+    (authorised, configured): (Authorisations, &dyn Fn(&'static str) -> Option<Decision>),
     prepared: &Prepared,
 ) -> Decision {
     let mut best: Option<Decision> = None;
@@ -2116,7 +2128,8 @@ fn decide_as_underlying(
         if matches!(remedy.answer, Answer::AsUnderlying(_)) {
             continue;
         }
-        let decision = answer_of(remedy.answer, authorised, prepared);
+        let decision = configured(judgement.id)
+            .unwrap_or_else(|| answer_of(remedy.answer, authorised, prepared));
         if best.is_none_or(|held| constraint(decision) > constraint(held)) {
             best = Some(decision);
         }

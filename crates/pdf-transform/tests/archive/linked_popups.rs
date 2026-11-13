@@ -1,4 +1,5 @@
-//! Closed reciprocal popup pairs require independent hidden-object answers.
+//! Closed reciprocal popup pairs leave together where the parent is hidden: the popup by its own
+//! hidden answer, or, where its flags conform, because the parent it belongs to goes (ADR 2851).
 //!
 //! The expected values come from four places, named on each test: ISO 19005-2 section 6.3.2 and ISO
 //! 19005-4 section 6.3.2 (every annotation but a `Popup` sets Print and clears Hidden, Invisible,
@@ -119,22 +120,19 @@ fn closed_hidden_pairs_leave_together_without_erasing_external_references() {
     }
 }
 
-/// Every popup or parent that is not a closed, hidden, sole-linked member is refused rather than
-/// guessed at: by Table 167, `/F 28`, an absent or null `/F`, and `/F 0` are not hidden, `/F 31`
-/// sets Invisible, `/F 286` sets `ToggleNoView`, and `/F -1` read as bits sets every flag and
-/// every bit §12.5.3 says "shall be set to 0"; Table 186's `/Open` is a boolean defaulting to
+/// Every popup or parent that is not a closed, sole-linked member is refused rather than guessed
+/// at: by Table 167, `/F 0` is visible and fails section 6.3.2 for its clear Print bit, so the
+/// popup has an answer of its own and it is not a hidden one; `/F 286` sets `ToggleNoView`, and
+/// `/F -1` read as bits sets every flag and every bit §12.5.3 says "shall be set to 0"; Table
+/// 186's `/Open` is a boolean defaulting to
 /// false, so `true` is open and `0` is not its type; a direct `/Parent` breaks Table 186's
 /// indirect reference, and a dangling one or none at all leaves no parent to pair with; an
 /// appearance, an `/AA` or a `/Popup` of the popup's own is a relationship the proof does not
-/// infer. A parent stating `/Open` likewise, and a popup the page does not hold or holds
-/// twice.
+/// infer. A parent stating `/Open` likewise, and a popup the page holds twice.
 #[test]
 fn linked_pair_proof_refuses_unconsented_or_ambiguous_companions() {
     let target = Target::Four(Flavour::Plain);
     for popup in [
-        "/F 28 /Parent 6 0 R /Open false", // Print+NoZoom+NoRotate, NOT hidden.
-        "/Parent 6 0 R",
-        "/F null /Parent 6 0 R",
         "/F 0 /Parent 6 0 R",
         "/F 30 /Parent 6 0 R /Open true",
         "/F 30 /Parent 6 0 R /Open 0",
@@ -144,7 +142,8 @@ fn linked_pair_proof_refuses_unconsented_or_ambiguous_companions() {
         "/F 30 /Parent 6 0 R /AP << /N 9 0 R >>",
         "/F 30 /Parent 6 0 R /AA << >>",
         "/F 30 /Parent 6 0 R /Popup 6 0 R",
-        "/F 31 /Parent 6 0 R",
+        "/F 28 /Parent 6 0 R /Open true",
+        "/F 28 /Parent 6 0 R /AP << /N 9 0 R >>",
         "/F -1 /Parent 6 0 R",
         "/F 286 /Parent 6 0 R",
     ] {
@@ -169,14 +168,18 @@ fn linked_pair_proof_refuses_unconsented_or_ambiguous_companions() {
         assert!(output.is_none(), "parent Open {open}");
         assert!(matches!(decision(&report, SITE), Decision::Refused(_)));
     }
-    for annots in ["6 0 R 8 0 R", "6 0 R 7 0 R 7 0 R 8 0 R"] {
-        let source = fixture(target, "/Popup 7 0 R", "/F 30 /Parent 6 0 R", annots, "");
-        assert!(
-            convert_with_plan(&source, &plan_from(SHAPES, target))
-                .1
-                .is_none()
-        );
-    }
+    let twice = fixture(
+        target,
+        "/Popup 7 0 R",
+        "/F 30 /Parent 6 0 R",
+        "6 0 R 7 0 R 7 0 R 8 0 R",
+        "",
+    );
+    assert!(
+        convert_with_plan(&twice, &plan_from(SHAPES, target))
+            .1
+            .is_none()
+    );
 }
 
 /// A third annotation naming the popup through Table 172's `/Popup` or `/IRT` or Table 186's
@@ -318,15 +321,15 @@ fn linked_pair_members_cannot_be_shared_across_pages() {
 
 /// Two corpus pairs, their object numbers and flags read from the files' own bytes: under the
 /// shipped `as-shown` profile, `ZapfDingbats.pdf`'s `/F 30` pair leaves the site's decision
-/// configured, and `OrphanPopups`' `/F 28` companion is Print, `NoZoom` and `NoRotate` by
-/// Table 167, not hidden, so its conversion is refused.
+/// configured, and so does `OrphanPopups`', whose closed `/F 28` popup (Print, `NoZoom` and
+/// `NoRotate` by Table 167) conforms and leaves with its hidden parent (ADR 2851).
 #[test]
 #[ignore = "named corpus witnesses; run explicitly when the external corpora are present"]
 #[expect(
     clippy::print_stdout,
     reason = "the explicit corpus diagnostic records independent conversion refusals"
 )]
-fn named_popup_witnesses_use_the_project_parser_without_expanding_consent() {
+fn named_popup_witnesses_use_the_project_parser() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for (name, path, parent, popup, flags) in [
         (
@@ -375,18 +378,10 @@ fn named_popup_witnesses_use_the_project_parser_without_expanding_consent() {
                 output.is_some(),
                 conversion(&report).render()
             );
-            if name == "ZapfDingbats" {
-                assert!(matches!(
-                    decision(&report, SITE),
-                    Decision::Configured { .. }
-                ));
-            }
-            if name == "OrphanPopups" {
-                assert!(
-                    output.is_none(),
-                    "F28 companion is not an independently hidden annotation"
-                );
-            }
+            assert!(matches!(
+                decision(&report, SITE),
+                Decision::Configured { .. }
+            ));
         }
     }
 }
@@ -468,5 +463,83 @@ fn a_popup_pairs_with_every_markup_subtype_but_sound() {
         );
         let (_, output) = convert_with_plan(&source, &plan_from(SHAPES, target));
         assert!(output.is_none(), "{subtype}");
+    }
+}
+
+/// A closed popup whose own flags section 6.3.2 admits, or which states none (Table 166's
+/// default, and section 6.3.2's first sentence exempts a popup from stating one), is in no flag
+/// row and leaves with its hidden parent: Table 186's `/Open` false or absent keeps it closed, and
+/// Table 167's Hidden on the parent says "do not render the annotation or allow it to interact
+/// with the user", so nothing opens it. `/F 31` sets Invisible, which Table 167 makes inert on a
+/// standard subtype, so it is the `/F 30` shape (ADR 2851). Each output holds only the Square.
+/// A popup no page holds (`OrphanPopups`' shape) is in no row either and has no `/Annots` entry
+/// to lose: the parent leaves alone, and the report names it alone.
+#[test]
+fn a_closed_popup_leaves_with_its_hidden_parent() {
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        for popup in ["/F 30 /Parent 6 0 R", "/F 28 /Parent 6 0 R"] {
+            let source = fixture(target, "/Popup 7 0 R", popup, "6 0 R 8 0 R", "");
+            let (report, output) = convert_with_plan(&source, &plan_from(SHAPES, target));
+            let output =
+                output.unwrap_or_else(|| panic!("{popup}: {}", conversion(&report).render()));
+            assert!(conversion(&report).settled.is_empty(), "{popup}");
+            assert_eq!(
+                holds(&output, target).verdict(),
+                Verdict::Conforms,
+                "{popup}"
+            );
+            let removed: Vec<_> = conversion(&report)
+                .removed_annotations
+                .iter()
+                .map(|row| (row.at, row.subtype.as_str()))
+                .collect();
+            assert_eq!(
+                removed,
+                vec![(pdf_syntax::ObjectId::new(6, 0), "Text")],
+                "{popup}"
+            );
+        }
+        for popup in [
+            "/F 28 /Parent 6 0 R /Open false",
+            "/F 28 /Parent 6 0 R",
+            "/Parent 6 0 R",
+            "/F null /Parent 6 0 R",
+            "/F 31 /Parent 6 0 R",
+        ] {
+            let source = fixture(target, "/Popup 7 0 R", popup, "6 0 R 7 0 R 8 0 R", "");
+            let (report, output) = convert_with_plan(&source, &plan_from(SHAPES, target));
+            let output =
+                output.unwrap_or_else(|| panic!("{popup}: {}", conversion(&report).render()));
+            assert!(conversion(&report).settled.is_empty(), "{popup}");
+            assert_eq!(
+                holds(&output, target).verdict(),
+                Verdict::Conforms,
+                "{popup}"
+            );
+            let removed: Vec<_> = conversion(&report)
+                .removed_annotations
+                .iter()
+                .map(|row| (row.at, row.subtype.as_str()))
+                .collect();
+            assert_eq!(
+                removed,
+                vec![
+                    (pdf_syntax::ObjectId::new(6, 0), "Text"),
+                    (pdf_syntax::ObjectId::new(7, 0), "Popup")
+                ],
+                "{popup}"
+            );
+            let document = Document::open(output).expect("output");
+            let page = pdf_model::Pages::new(&document).get(0).expect("page");
+            let annotations = document.get_key(&page.dict, "Annots");
+            let annotations = annotations.as_array().expect("Annots");
+            assert_eq!(annotations.len(), 1, "{popup}");
+            let kept = document.resolve(&annotations[0]);
+            assert_eq!(
+                document.get_key(kept.as_dict().expect("annotation"), "Subtype"),
+                Object::Name(pdf_syntax::object::Name::new(&b"Square"[..])),
+                "{popup}"
+            );
+        }
     }
 }
