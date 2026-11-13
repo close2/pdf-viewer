@@ -373,6 +373,7 @@ Merged from every group's "left" section; results-LEAD2 governs.
 - The four owner questions are doc/questions/Q834: (1) a model-side /MaxLen cut, which contradicts two passing audit
   tests; (2) §12.2 /Enforce level; (3) Redact /RO against the overlay exclusion; (4) Annex I first-error suppression.
   Round 2011: A834 built (ADRs 2840, 2841): MaxLen cut, /Enforce warn, removal proven, Annex I pinned; /RO is Q842.
+- Round 2015: every page now reports §7.10.5.3's run-time faults of every type 4 function it parsed (ADR 2848); the type 1 grid is asked after drawing by `Interpretation::function_faults_after_drawing`, which no host calls yet, and the GPU evaluator is named, its two remedies unpriced (ADR 2849).
 
 ## 5. Files touched
 

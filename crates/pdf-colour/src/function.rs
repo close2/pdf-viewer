@@ -23,6 +23,9 @@ use pdf_render::{ProgramOperator, ProgramStep};
 use pdf_syntax::{Dictionary, Document, Object};
 
 mod cubic_spline;
+mod watch;
+
+pub use watch::{Watched, watching};
 
 /// Most values a function may take or return — the *dimensionality*, m and n.
 ///
@@ -131,7 +134,7 @@ pub enum FunctionError {
 /// hold something — but it records the fault on the function, and [`Function::evaluation_fault`]
 /// is how a caller with a report finds it, so that the answer is not drawn as though the program
 /// had produced it (trap 5).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum EvaluationFault {
     /// The program left more or fewer values than `/Range` declares outputs; the evaluator
@@ -150,6 +153,11 @@ impl EvaluationFault {
         Self::NonNumberOutput,
         Self::StackOverflow,
     ];
+
+    /// The first fault, in [`Self::ALL`]'s order, whose bit `bits` holds.
+    fn first_of(bits: u8) -> Option<Self> {
+        Self::ALL.into_iter().find(|fault| bits & fault.bit() != 0)
+    }
 
     /// This fault's bit in [`Faults`].
     const fn bit(self) -> u8 {
@@ -184,8 +192,14 @@ impl std::fmt::Display for EvaluationFault {
 /// cost on the path that does not fault is one comparison per program (the output count) and the
 /// boolean test the outputs were already read through; the store happens only on a fault, and
 /// only once per bit, so threads that fault together do not contend on the line.
-#[derive(Debug, Default)]
-struct Faults(std::sync::atomic::AtomicU8);
+///
+/// **Shared by every clone**, because a clone of a function is the same function of the file: a
+/// colour space, a graphics state and a shading are cloned freely, and the instance a caller asks
+/// after drawing has to be the instance that evaluated (ADRs 2833, 2848). The same cell is what
+/// [`watching`] keeps, so a page's interpreter can ask every type 4 function it parsed without
+/// holding the resources that carried them.
+#[derive(Debug, Default, Clone)]
+struct Faults(Arc<std::sync::atomic::AtomicU8>);
 
 impl Faults {
     fn record(&self, fault: EvaluationFault) {
@@ -196,18 +210,7 @@ impl Faults {
     }
 
     fn first(&self) -> Option<EvaluationFault> {
-        let bits = self.0.load(std::sync::atomic::Ordering::Relaxed);
-        EvaluationFault::ALL
-            .into_iter()
-            .find(|fault| bits & fault.bit() != 0)
-    }
-}
-
-impl Clone for Faults {
-    fn clone(&self) -> Self {
-        Self(std::sync::atomic::AtomicU8::new(
-            self.0.load(std::sync::atomic::Ordering::Relaxed),
-        ))
+        EvaluationFault::first_of(self.0.load(std::sync::atomic::Ordering::Relaxed))
     }
 }
 
@@ -334,11 +337,16 @@ impl Function {
             other => return Err(FunctionError::UnsupportedType { kind: other }),
         };
 
+        let faults = Faults::default();
+        // Only a type 4 program can meet §7.10.5.3's three errors, so only its cell is watched.
+        if matches!(kind, Kind::PostScript(_)) {
+            watch::register(&faults.0);
+        }
         Ok(Self {
             domain,
             range,
             kind,
-            faults: Faults::default(),
+            faults,
         })
     }
 
@@ -3742,6 +3750,90 @@ mod tests {
         );
         assert_eq!(faults_at(&deep, 0.1), None);
         assert_eq!(faults_at(&deep, 0.9), Some(EvaluationFault::StackOverflow));
+    }
+
+    /// A clone is the same function of the file, so a fault one clone meets is the other's: the
+    /// instance a caller asks after drawing need not be the one that evaluated (ISO 32000-2
+    /// §7.10.5.3's count error, met only above 0.5; ADR 2848).
+    #[test]
+    fn a_fault_a_clone_meets_is_the_functions() {
+        let function = type4("{ 0.5 gt { 1 1 } { 1 } ifelse }", "[0 1]").expect("parses");
+        let clone = function.clone();
+        let _ = clone.eval(&[0.9]);
+        assert_eq!(
+            function.evaluation_fault(),
+            Some(EvaluationFault::OutputCount)
+        );
+    }
+
+    /// A scope sees every type 4 function parsed inside it, still reads a cell after the scope
+    /// closed (the type 1 grid is evaluated after interpretation returns), hands its functions
+    /// to the scope around it, and keeps the bits of a function already dropped. The errors are
+    /// §7.10.5.3's, each met for some inputs only.
+    #[test]
+    fn a_watch_sees_what_its_span_parsed_and_what_was_evaluated_later() {
+        let counts = "{ 0.5 gt { 1 1 } { 1 } ifelse }";
+        let boolean = "{ 0.5 gt { 1 } { true } ifelse }";
+        let ((kept, inner), outer) = super::watching(|| {
+            super::watching(|| {
+                let kept = type4(counts, "[0 1]").expect("parses");
+                // Parsed, evaluated where it errs, and dropped inside the span.
+                let _ = type4(boolean, "[0 1]").expect("parses").eval(&[0.1]);
+                // A function of another type is never watched: it cannot meet these errors.
+                assert!(type4_free_function().is_ok());
+                kept
+            })
+        });
+        assert_eq!(inner.len(), 2, "both type 4 functions, and nothing else");
+        assert_eq!(
+            outer.len(),
+            2,
+            "the inner scope's functions are the outer's too"
+        );
+        assert_eq!(inner.faults(), [EvaluationFault::NonNumberOutput]);
+        let _ = kept.eval(&[0.1]);
+        assert_eq!(inner.faults(), [EvaluationFault::NonNumberOutput]);
+        let _ = kept.eval(&[0.9]);
+        assert_eq!(
+            outer.faults(),
+            [
+                EvaluationFault::OutputCount,
+                EvaluationFault::NonNumberOutput
+            ]
+        );
+        // A scope that parses nothing watches nothing.
+        let ((), empty) = super::watching(|| ());
+        assert!(empty.is_empty() && empty.faults().is_empty());
+    }
+
+    /// A scope that parses more functions than it keeps alive folds the dropped ones into its
+    /// settled bits rather than holding a cell per parse, and loses no fault doing it.
+    #[test]
+    fn a_watch_holds_the_live_functions_and_the_dropped_ones_bits() {
+        let boolean = "{ 0.5 gt { 1 } { true } ifelse }";
+        let ((), watched) = super::watching(|| {
+            let _ = type4(boolean, "[0 1]").expect("parses").eval(&[0.1]);
+            for _ in 0..1000 {
+                drop(type4("{ 2 mul }", "[0 1]").expect("parses"));
+            }
+        });
+        assert!(watched.len() < 64, "{} cells kept", watched.len());
+        assert_eq!(watched.faults(), [EvaluationFault::NonNumberOutput]);
+    }
+
+    /// A type 2 function, which §7.10.5.3's errors cannot reach.
+    fn type4_free_function() -> Result<Function, FunctionError> {
+        let document = pdf_syntax::Document::open(
+            b"%PDF-1.7\n1 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >>\n\
+              endobj\ntrailer\n<< /Root 1 0 R >>\n"
+                .to_vec(),
+        )
+        .expect("opens");
+        let object = document.get(pdf_syntax::ObjectId {
+            number: 1,
+            generation: 0,
+        });
+        Function::parse(&document, &object)
     }
 
     /// **`inf` and `NaN` are `f32::from_str`'s spellings and belong to neither §7.3.3 nor Table

@@ -152,6 +152,7 @@ fn differences(replaced: &Interpretation, whole: &Interpretation) -> Vec<&'stati
         associated_files,
         language,
         text_layer,
+        functions,
     } = replaced;
     let mut found = Vec::new();
     let mut differs = |same: bool, field: &'static str| {
@@ -198,5 +199,9 @@ fn differences(replaced: &Interpretation, whole: &Interpretation) -> Vec<&'stati
     );
     differs(language == &whole.language, "§14.9.2.3's /Lang");
     differs(text_layer == &whole.text_layer, "where the codes sit");
+    differs(
+        functions.faults() == whole.functions.faults(),
+        "§7.10.5.3's faults",
+    );
     found
 }

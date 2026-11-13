@@ -498,6 +498,25 @@ pub enum Unsupported {
         /// Which graphics state, which entry, and what it held instead of a function.
         detail: String,
     },
+    /// A type 4 function the page evaluated met one of ISO 32000-2 §7.10.5.3's errors for some of
+    /// the inputs it was given, so a colour drawn from it is the evaluator's stand-in rather than
+    /// the program's answer.
+    ///
+    /// > It shall be an error for the number of remaining operands to differ from the number of
+    /// > output variables specified by Range or for any of them to be objects other than numbers.
+    ///
+    /// > … it shall be an error to overflow the stack.
+    ///
+    /// A program that meets one of these on every run is refused when it is parsed and reported by
+    /// whichever resource it belonged to; this is the program whose error depends on its inputs,
+    /// asked of every type 4 function the page parsed — tint transforms, transfer, black-generation
+    /// and undercolour-removal functions, every shading's — once the page has been drawn. Raised
+    /// only on a recorded fault, which only the clause's three errors set (trap 11), and once per
+    /// error rather than once per function or per evaluation. ADRs 2833, 2848.
+    FunctionEvaluation {
+        /// Which of the three errors.
+        fault: crate::function::EvaluationFault,
+    },
 }
 
 /// The sentence an [`Unsupported::Operator`] carries for a text object its stream ended inside.
@@ -841,6 +860,9 @@ pub struct Interpretation {
     /// the OCR layer under a scanned page, and it is the text a person most wants to select.
     /// Excludes text on an optional-content layer that is switched off, which is not on the page.
     pub text_layer: Vec<Placed>,
+    /// Every type 4 function the interpretation parsed, still watched after it returned
+    /// ([`Self::function_faults_after_drawing`]).
+    pub functions: crate::function::Watched,
 }
 
 /// One character code's readback, and where its glyph sits on the page.
@@ -1184,6 +1206,26 @@ pub struct MarkedSpan {
 }
 
 impl Interpretation {
+    /// ISO 32000-2 §7.10.5.3's errors a type 4 function of this page met **after** the
+    /// interpretation returned, as the reports [`Self::unsupported`] would have carried.
+    ///
+    /// Every evaluation the interpreter makes is asked before it returns. One kind is not made
+    /// there: §8.7.4.5.2's type 1 shading states a colour at "every point in the domain", so the
+    /// display list carries its function and a backend asks for the grid its device needs
+    /// (`pdf_render::ColoursAtDeviceScale`), on the same function and so on the same fault cell.
+    /// A caller that has drawn the page asks this afterwards; an empty answer is a page whose
+    /// programs all ran as the clause allows, or whose faults [`Self::unsupported`] already says.
+    /// ADR 2848.
+    #[must_use]
+    pub fn function_faults_after_drawing(&self) -> Vec<Unsupported> {
+        self.functions
+            .faults()
+            .into_iter()
+            .map(|fault| Unsupported::FunctionEvaluation { fault })
+            .filter(|report| !self.unsupported.contains(report))
+            .collect()
+    }
+
     /// The page as §14.9 says it should be vocalised: [`Self::text`] with the descriptions,
     /// expansions and languages applied.
     ///

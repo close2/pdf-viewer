@@ -207,6 +207,7 @@ fn agree(replaced: &Interpretation, whole: &Interpretation, index: usize, at: Op
         associated_files,
         language,
         text_layer,
+        functions,
     } = replaced;
     assert_eq!(display_list, &whole.display_list, "display list, {where_}");
     assert_eq!(view_dependent, &whole.view_dependent, "NoZoom, {where_}");
@@ -258,6 +259,11 @@ fn agree(replaced: &Interpretation, whole: &Interpretation, index: usize, at: Op
     assert_eq!(
         text_layer, &whole.text_layer,
         "where the codes sit, {where_}"
+    );
+    assert_eq!(
+        functions.faults(),
+        whole.functions.faults(),
+        "§7.10.5.3's faults the page's type 4 functions met, {where_}"
     );
     // Not a field, and the one thing a caller reads that is derived from several of them.
     assert_eq!(

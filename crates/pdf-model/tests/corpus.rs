@@ -718,6 +718,10 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
             Whose::TheFile,
             "a /BG or /UCR entry Table 57 does not admit, the pair in force kept (§10.4.2.4)",
         ),
+        Unsupported::FunctionEvaluation { .. } => (
+            Whose::TheFile,
+            "a type 4 program that met one of §7.10.5.3's errors for some inputs",
+        ),
         Unsupported::DamagedContentStream { .. } => (
             Whose::TheFile,
             "one of §7.8.2's other content streams, drawn as far as its damage",

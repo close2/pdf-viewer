@@ -685,34 +685,40 @@ pub fn replace(
     references: &Supply,
     replacement: &Replacement,
 ) -> Interpretation {
-    let mut interpreter = Interpreter::for_page(
-        document,
-        page,
-        state,
-        replacement.checkpoint.compositing.clone(),
-        &replacement.presses,
-        fonts,
-        references,
-        None,
-    );
-    interpreter.restore(replacement.checkpoint.clone());
-    let mut interpretation = complete(document, page, base_transform(page), interpreter).0;
-    // The separation `interpreted` makes beside a page drawn in one or three components, made
-    // again: it is a whole interpretation per plane and holds no seam of its own (ADRs 1311,
-    // 1329).
-    if state.separation_simulation() {
-        let separated = separate_drawn(
+    let (mut interpretation, watched) = crate::function::watching(|| {
+        let mut interpreter = Interpreter::for_page(
             document,
             page,
             state,
-            &replacement.checkpoint.compositing,
+            replacement.checkpoint.compositing.clone(),
             &replacement.presses,
             fonts,
             references,
             None,
         );
-        draw_separated(&mut interpretation, separated);
-    }
+        interpreter.restore(replacement.checkpoint.clone());
+        let mut interpretation = complete(document, page, base_transform(page), interpreter).0;
+        // The separation `interpreted` makes beside a page drawn in one or three components, made
+        // again: it is a whole interpretation per plane and holds no seam of its own (ADRs 1311,
+        // 1329).
+        if state.separation_simulation() {
+            let separated = separate_drawn(
+                document,
+                page,
+                state,
+                &replacement.checkpoint.compositing,
+                &replacement.presses,
+                fonts,
+                references,
+                None,
+            );
+            draw_separated(&mut interpretation, separated);
+        }
+        interpretation
+    });
+    report_function_faults(&mut interpretation, &replacement.functions);
+    report_function_faults(&mut interpretation, &watched);
+    interpretation.functions = replacement.functions.joined(&watched);
     interpretation
 }
 
@@ -740,10 +746,60 @@ pub struct Replacement {
     /// however many times the annotations are re-placed. ADR 0417 is why that budget is per
     /// interpretation.
     presses: Arc<crate::colour::Presses>,
+    /// The type 4 functions the run that made this parsed. The checkpoint's graphics states
+    /// carry some of them across the seam, and an evaluation [`replace`] makes of one is
+    /// recorded on the same cell (ADR 2848).
+    functions: crate::function::Watched,
 }
 
-/// One interpretation of a page, and the replacement it was asked to keep.
+/// One interpretation of a page, and the replacement it was asked to keep, with ISO 32000-2
+/// §7.10.5.3's run-time errors said.
+///
+/// Every type 4 function the run parses is watched ([`crate::function::watching`]), and the
+/// faults their evaluations recorded are asked once, after the whole page — §11.4.7's planes, the
+/// annotations, the soft masks — has been drawn into the list (ADR 2848).
 fn interpreted(
+    document: &Document,
+    page: &Page,
+    state: &crate::view::ViewState,
+    fonts: &FontCache,
+    references: &Supply,
+    keep: Keep,
+    ledger: Option<&std::cell::RefCell<Ledger>>,
+) -> (Interpretation, Option<Replacement>) {
+    let ((mut interpretation, replacement), watched) = crate::function::watching(|| {
+        interpreted_unwatched(document, page, state, fonts, references, keep, ledger)
+    });
+    report_function_faults(&mut interpretation, &watched);
+    interpretation.functions = watched.clone();
+    let replacement = replacement.map(|replacement| Replacement {
+        functions: watched,
+        ..replacement
+    });
+    (interpretation, replacement)
+}
+
+/// Says each of ISO 32000-2 §7.10.5.3's errors `watched`'s functions have met, once each.
+///
+/// Raised only on a recorded fault, which only the clause's three errors set (trap 11): a page
+/// whose programs all ran as the clause allows says nothing here. A fault already said — by a
+/// nested interpretation whose reports this one carries — is not said twice.
+fn report_function_faults(interpretation: &mut Interpretation, watched: &crate::function::Watched) {
+    let faults = watched.faults();
+    if faults.is_empty() {
+        return;
+    }
+    for fault in faults {
+        let report = Unsupported::FunctionEvaluation { fault };
+        if !interpretation.unsupported.contains(&report) {
+            interpretation.unsupported.push(report);
+        }
+    }
+    interpretation.unsupported.sort_unstable();
+}
+
+/// [`interpreted`]'s body: the page drawn, before its functions are asked.
+fn interpreted_unwatched(
     document: &Document,
     page: &Page,
     state: &crate::view::ViewState,
@@ -822,6 +878,7 @@ fn interpreted(
                 .map(|checkpoint| Replacement {
                     checkpoint,
                     presses,
+                    functions: crate::function::Watched::default(),
                 });
             return (grey, replacement);
         }
@@ -875,6 +932,7 @@ fn interpreted(
         .map(|checkpoint| Replacement {
             checkpoint,
             presses,
+            functions: crate::function::Watched::default(),
         });
     (interpretation, replacement)
 }
@@ -2425,6 +2483,7 @@ fn finished(document: &Document, mut interpreter: Interpreter<'_>) -> Interpreta
         associated_files: interpreter.associated,
         language,
         text_layer: interpreter.text_layer,
+        functions: crate::function::Watched::default(),
     }
 }
 
