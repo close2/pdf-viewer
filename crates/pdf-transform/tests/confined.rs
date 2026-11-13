@@ -111,10 +111,10 @@ fn the_worker_greets_its_broker_confined() {
     .expect("the worker starts and greets");
     let confinement = host.confinement();
     println!("transform-worker: confined {confinement:?}");
-    if cfg!(target_os = "linux") {
+    if cfg!(any(target_os = "linux", target_os = "macos")) {
         assert!(
             confinement.is_enforced(),
-            "the system-call filter is in force: {confinement:?}"
+            "the system-call filter or the Seatbelt profile is in force: {confinement:?}"
         );
         assert!(confinement.address_space_limit > 0, "{confinement:?}");
     }

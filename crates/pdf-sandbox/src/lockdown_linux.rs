@@ -64,41 +64,6 @@ use seccompiler::{
     TargetArch,
 };
 
-/// Ceiling on a decoder's address space, in bytes.
-///
-/// A bilevel page at 600 dpi is 35 megabytes as one byte per pixel and the decoders hold a
-/// handful of such planes at once, so a gigabyte is roughly thirty times the largest
-/// legitimate working set. It is a bound against a hostile file, not a budget anyone should
-/// ever reach: crossing it aborts the worker, which the parent reports as an undecodable
-/// image.
-const ADDRESS_SPACE_LIMIT: u64 = 1 << 30;
-
-/// Ceiling on an interpreter's address space, in bytes.
-///
-/// Four times the decoder's, and the multiplier is derived rather than chosen. A rasteriser is
-/// asked for a whole page at a whole magnification, and `viewer_core`'s own `MAX_PIXELS` bounds
-/// one at 2²⁸ pixels — which is [`ADDRESS_SPACE_LIMIT`] exactly, in RGBA, for the raster alone.
-/// Beside it live the document's bytes, the display list, the glyph outlines and a rasteriser's
-/// scratch sheet on every core, so a ceiling equal to the pixel budget would refuse pages the
-/// viewer permits. Four gibibytes leaves room for all of that and is still a bound: a document
-/// that reaches it has asked for more than any page needs.
-const INTERPRETER_ADDRESS_SPACE_LIMIT: u64 = 4 << 30;
-
-/// Ceiling on a script worker's address space, in bytes.
-///
-/// Sized from measurements rather than chosen (ADR 1609). What the worker may hold whatever it runs
-/// comes to about 43 MiB in a debug build: its image at start (17.6 MiB; 12.4 in release) and the
-/// engine one run constructs (0.4), as measured, and three bounds of the worker's own — the frames
-/// of one run and their decoded copies (8), the scripts it holds (8) and a main-thread stack grown
-/// to its 8 MiB. Beside that sits what a script makes:
-/// the largest allocation `pdf_script::Budget` admits at face value, a 16 MiB `ArrayBuffer`, and
-/// as much again for the script's own objects. Ninety-six mebibytes holds both. A call whose
-/// transient cost is many times the size its budget names — `padStart` at the string budget peaked
-/// 96 MiB above start, `join` at the element budget 150 — and growth through an operator, which no
-/// per-call budget sees, meet it here instead, and the worker aborts with the allocator's sentence
-/// on the pipe its host reads.
-const SCRIPT_ADDRESS_SPACE_LIMIT: u64 = 96 << 20;
-
 /// Ceiling on open descriptors.
 ///
 /// The worker inherits three and opens none. Eight leaves room for the runtime to do
@@ -131,12 +96,11 @@ const SCRIPT_DESCRIPTOR_LIMIT: u64 = 0;
 /// `wider` is a ceiling a caller sized for a stated budget, which is taken only where it is above
 /// the profile's own (`crate::lockdown::apply_for_decoder_within`).
 pub(crate) fn apply(profile: Profile, wider: Option<u64>) -> Result<Confinement, LockdownError> {
-    let (own, descriptors) = match profile {
-        Profile::Decoder => (ADDRESS_SPACE_LIMIT, DESCRIPTOR_LIMIT),
-        Profile::Interpreter => (INTERPRETER_ADDRESS_SPACE_LIMIT, DESCRIPTOR_LIMIT),
-        Profile::Script => (SCRIPT_ADDRESS_SPACE_LIMIT, SCRIPT_DESCRIPTOR_LIMIT),
+    let descriptors = match profile {
+        Profile::Decoder | Profile::Interpreter => DESCRIPTOR_LIMIT,
+        Profile::Script => SCRIPT_DESCRIPTOR_LIMIT,
     };
-    let address_space_limit = wider.map_or(own, |wider| wider.max(own));
+    let address_space_limit = crate::lockdown::ceiling(profile, wider);
     limit_resources(address_space_limit)?;
     let landlock = deny_filesystem_and_network();
     // After Landlock, because building its domain takes a descriptor — the ruleset is one — and a

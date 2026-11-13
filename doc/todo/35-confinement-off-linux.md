@@ -1,12 +1,12 @@
 # Confinement on macOS and Windows
 
-Status: **open, and no longer blocking an executable.** The viewer builds and ships on all three
-platforms (ADR 0194); what is owed here is the
-confinement itself on the two that have none.
+Status: **open for Windows; macOS is done (ADR 2864).** The viewer builds and ships on all three
+platforms (ADR 0194); what is owed here is the confinement itself on the one that has none.
 Priority: 35 — capability. Nothing is wrong here; something does not exist.
 Corpus: — (this is not a question about any document)
 Clauses: none. Principle 3, not the standard.
 Code: `crates/pdf-sandbox/src/lockdown.rs`, `crates/pdf-sandbox/src/lockdown_linux.rs`,
+`crates/pdf-sandbox/src/lockdown_macos.rs`, `crates/pdf-sandbox/src/watch.rs`, `crates/darwin-sandbox`,
 `.github/workflows/ci.yml`'s `platforms` and `snapshot` jobs.
 
 **Read [`_image-codecs-and-the-sandbox.md`](_image-codecs-and-the-sandbox.md) first if the
@@ -17,10 +17,12 @@ for resource exhaustion and panic isolation, which are as true off Linux as on i
 ## What is true today
 
 `pdf-sandbox` compiles everywhere. On Linux it confines the worker with seccomp-BPF, Landlock and
-`RLIMIT_AS`; on macOS and Windows it installs **nothing** and says so — `Confinement::shortfall`
-words it, the worker's handshake carries it, and `quorra` prints it in its first line.
+`RLIMIT_AS`. On macOS the worker enters a Seatbelt profile of `(deny default)` and the process that
+started it holds its ceiling by watching its footprint (ADR 2864). On Windows it installs
+**nothing** and says so — `Confinement::shortfall` words it, the worker's handshake carries it, and
+`quorra` prints it in its first line.
 
-What those two platforms still get, and it is not nothing:
+What Windows still gets, and it is not nothing:
 
 - **The worker process**, so a decoder panic costs one image rather than the viewer — release
   builds are `panic = "abort"`, and this is the reason that matters most in practice.
@@ -29,14 +31,14 @@ What those two platforms still get, and it is not nothing:
   hostile file's decode, which is why it was worth the thread.
 - **`decode.rs`'s `MAX_PIXELS` and `MAX_SAMPLES`**, which are a discipline rather than a fact.
 
-What they do not get: a system-call filter, so the worker's filesystem and network are the
+What it does not get: a system-call filter, so the worker's filesystem and network are the
 process's own; and an address-space ceiling, so a decompression bomb is bounded only by the
 machine.
 
 ## What is owed: option 1, per platform
 
 The three ways out are in ADR 0194's context; option 3 was taken. Option 1 is what closes this
-file, and it is two independent pieces of work.
+file. macOS's half is built (ADR 2864); Windows's is what is left.
 
 **Windows.** A *job object* gives the address-space ceiling (`JOB_OBJECT_LIMIT_PROCESS_MEMORY`),
 and AppContainer or `SetProcessMitigationPolicy` gives the rest — no filesystem, no network,
@@ -46,10 +48,10 @@ and the Windows equivalents would have to be found or written to the same standa
 reached for with an `unsafe` block. That constraint is why this crate builds unconfined on Windows
 today rather than half-confined.
 
-**macOS.** The App Sandbox, with `sandbox_init` deprecated and entitlements the supported route —
-which means a signed, bundled application, so this is the option that reaches furthest into how the
-program is packaged. `setrlimit(RLIMIT_AS)` exists and would be the cheap half; whether it is
-*enforced* on modern macOS is the first thing to measure rather than assume.
+**macOS** is built, and ADR 2864 has the measurements: `setrlimit(RLIMIT_AS)` is refused there and
+does not bound an allocation, so the ceiling is held from outside; `sandbox_init` in the worker, the
+place Linux installs seccomp, carries no filesystem and no network; the App Sandbox's entitlements
+attach to a signed bundle and cannot confine a helper started with a pipe.
 
 ## What a round taking either owes
 

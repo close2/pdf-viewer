@@ -27,6 +27,12 @@ landlock.workspace = true
 libc.workspace = true
 seccompiler.workspace = true
 
+# macOS's confinement: entering a Seatbelt profile, and the footprint a worker's starting process
+# holds it to. The two foreign calls are in a crate of their own so that this one stays
+# `forbid(unsafe_code)` (ADR 2864).
+[target.'cfg(target_os = "macos")'.dependencies]
+darwin-sandbox.workspace = true
+
 # `poll` on the worker's pipe, which is what gives a request a deadline. POSIX, so every unix
 # has it; Windows reads on a thread instead and the reason is written in `lib.rs`.
 [target.'cfg(unix)'.dependencies]
