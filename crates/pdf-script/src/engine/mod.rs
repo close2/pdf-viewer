@@ -22,7 +22,9 @@
 //! where either is spent. The sizes an argument can ask a built-in to allocate are checked before
 //! the built-in runs (`guard`), and how deep a script's text nests before the parser is handed it
 //! (`crate::depth`, ADR 1626) — its own text, and any string `eval` or `Function` compiles while it
-//! runs. Boa's AST optimizer is off, for ADR 1626's figures. What none of these bounds — work inside one native call that
+//! runs. Boa's AST optimizer is off, for ADR 1626's figures. The jobs a script enqueues — a
+//! promise's reactions, an `async` function's continuations — run after it returns, under the same
+//! wall budget checked between jobs (`jobs`, ADR 2865). What none of these bounds — work inside one native call that
 //! calls back into script, growth through an operator, and a realm's heap across its lifetime — is
 //! the process's to bound, and ADRs 1590 and 1602 name each.
 
@@ -31,6 +33,7 @@ mod bookmarks;
 mod bridge;
 mod choices;
 mod guard;
+mod jobs;
 mod members;
 mod pages;
 mod util;
@@ -126,6 +129,8 @@ pub struct Realm {
     budget: Budget,
     /// How long the current run's question waited on its answer.
     waited: Rc<Cell<Duration>>,
+    /// The jobs the context has enqueued, run after each script (ADR 2865).
+    jobs: Rc<jobs::Jobs>,
 }
 
 impl Realm {
@@ -157,10 +162,12 @@ impl Realm {
         // built — a `realpath`, which the script worker's confinement kills for (trap 31, ADR
         // 1608). A document's scripts import nothing, so the loader is the one that refuses every
         // module and reads nothing.
+        let jobs = Rc::new(jobs::Jobs::default());
         let mut context = Context::builder()
             .host_hooks(Rc::new(hooks))
             .clock(Rc::clone(&clock))
             .module_loader(Rc::new(IdleModuleLoader))
+            .job_executor(Rc::clone(&jobs))
             .build()
             .map_err(|error| format!("the engine could not be constructed: {error}"))?;
         let limits = context.runtime_limits_mut();
@@ -181,6 +188,7 @@ impl Realm {
             utc_offset_seconds,
             budget,
             waited,
+            jobs,
         })
     }
 
@@ -212,7 +220,36 @@ impl Realm {
             Err(error) => return Outcome::unchanged(Ending::Unparsed(error.to_string())),
         };
         self.waited.set(Duration::ZERO);
-        let ending = evaluate(&script, &mut self.context, &self.budget, &self.waited);
+        self.jobs.clear();
+        let started = Instant::now();
+        let mut ending = evaluate(
+            &script,
+            &mut self.context,
+            &self.budget,
+            &self.waited,
+            started,
+        );
+        // ECMA-262 section 8.4: what the script enqueued is performed once no execution context
+        // is running, which is so once it has returned, normally or by a throw; the realm performs
+        // it then (`jobs`). A script stopped by a budget leaves its jobs unrun.
+        if matches!(ending, Ending::Finished | Ending::Threw(_)) {
+            let (settled, notes) = jobs::settle(
+                &self.jobs,
+                &mut self.context,
+                &self.budget,
+                started,
+                &self.waited,
+            );
+            State::with(&self.context, |record| {
+                for note in &notes {
+                    record.note(note);
+                }
+            });
+            if settled != Ending::Finished {
+                ending = settled;
+            }
+        }
+        self.jobs.clear();
         let recorded = State::take(&self.context);
         let ending = match (ending, recorded.exceeded) {
             (_, Some(exceeded)) => Ending::Exceeded(exceeded),
@@ -288,8 +325,8 @@ fn evaluate(
     context: &mut Context,
     budget: &Budget,
     waited: &Cell<Duration>,
+    started: Instant,
 ) -> Ending {
-    let started = Instant::now();
     let mut spent = 0_u64;
     let mut waker = TaskContext::from_waker(Waker::noop());
     let mut evaluation = pin!(script.evaluate_async_with_budget(context, SLICE));

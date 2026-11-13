@@ -380,3 +380,45 @@ fn a_som_expression_in_a_string_is_read_within_its_bounds() {
         assert!(som(refused).is_err(), "{refused}");
     }
 }
+
+/// ECMA-262 section 8.4: a promise's reaction and an `async` function's continuation are performed
+/// once no execution context is running, which the realm makes the moment the script returns, so an assignment made after an `await` reaches the
+/// host; the calculation's value is still the script's completion value (page 379), which a job
+/// run afterwards does not change (ADR 2865).
+#[test]
+fn a_continuation_runs_before_the_run_ends_and_its_assignment_reaches_the_host() {
+    let (mut realm, host) = (realm(), Receipt::new());
+    let ran = run(
+        &mut realm,
+        &host,
+        "(async function () { await 0; Total.rawValue = Units.rawValue * 2; })(); 7",
+    );
+    assert_eq!(ran.outcome, Ok(Scalar::Number(7.0)));
+    assert_eq!(
+        host.assigned.borrow().as_slice(),
+        &[(3, Scalar::Number(10.0))]
+    );
+}
+
+/// A chain of reactions each of which enqueues the next is stopped by the wall budget the script
+/// runs under, reports itself over, and the realm goes on.
+#[test]
+fn a_chain_of_reactions_that_never_ends_is_stopped_and_the_realm_goes_on() {
+    let (mut realm, host) = (realm(), Receipt::new());
+    let ran = run(
+        &mut realm,
+        &host,
+        "function again() { Promise.resolve().then(again); } again(); 1",
+    );
+    assert!(
+        ran.outcome
+            .as_ref()
+            .is_err_and(|sentence| sentence.starts_with("the script was stopped")),
+        "{ran:?}"
+    );
+    assert!(ran.steps > Budget::FIELD_EVENT.steps, "{ran:?}");
+    assert_eq!(
+        run(&mut realm, &host, "Units.rawValue").outcome,
+        Ok(Scalar::Number(5.0))
+    );
+}
