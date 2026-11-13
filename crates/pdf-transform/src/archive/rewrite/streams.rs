@@ -105,13 +105,13 @@ impl Rewriter<'_> {
             if restated.carries_hexadecimal.contains(&id) {
                 count(applied, Rewrite::HexadecimalDigitCompleted);
             }
-            return Rewritten::Changed(respelled.clone());
+            return Rewritten::Changed(self.with_its_dictionary_rewritten(id, respelled, applied));
         }
         // The same shape, for the same reason: the repaired bytes, their `/Filter` and their
         // `/Length` change together, so what crosses is a stream rather than a dictionary edit.
         if let Some(repaired) = self.hexadecimal_repair(id) {
             count(applied, Rewrite::HexadecimalDigitCompleted);
-            return Rewritten::Changed(repaired);
+            return Rewritten::Changed(self.with_its_dictionary_rewritten(id, &repaired, applied));
         }
         // The same shape once more: the stream written with the number this reader draws in place
         // of each run it salvages. `super::super::as_drawn` refuses a stream either repair above
@@ -119,7 +119,7 @@ impl Rewriter<'_> {
         if self.wants(Rewrite::RunWrittenAsDrawn)
             && let Some(drawn) = self.as_drawn.and_then(|drawn| drawn.at.get(&id))
         {
-            return Rewritten::Changed(drawn.clone());
+            return Rewritten::Changed(self.with_its_dictionary_rewritten(id, drawn, applied));
         }
         // **Five writers over one packet, and the last of them is what carries the others'
         // work.** `super::super::prepare` folds the replacement into the bytes the header cut starts
@@ -330,6 +330,36 @@ impl Rewriter<'_> {
             })));
         }
         Rewritten::Carried
+    }
+
+    /// A content stream whose bytes one of the three content repairs wrote, with the edits every
+    /// other rewrite makes to the dictionary of the same object.
+    ///
+    /// A repair of a content stream's bytes changes its `/Filter`, `/DecodeParms` and `/Length`
+    /// and nothing else of its dictionary, and the dictionary still answers to every row that
+    /// asks something of it: a form's `/Resources` may hold a font written directly inside it
+    /// that `sites::cid_to_gid_maps` named the form a holder of (ADR 2722), and a form's own
+    /// entries are `rewrite_xobject`'s. So the replacement's dictionary is given the same edits
+    /// the stream's would have been given had its bytes crossed untouched (ADR 2860). Anything
+    /// other than a stream is returned as it stands.
+    fn with_its_dictionary_rewritten(
+        &self,
+        id: ObjectId,
+        replacement: &Object,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> Object {
+        let Object::Stream(written) = replacement else {
+            return replacement.clone();
+        };
+        let mut dict = self
+            .rewrite_dictionary(id, &written.dict, applied)
+            .unwrap_or_else(|| written.dict.clone());
+        self.rewrite_xobject(&mut dict, applied);
+        Object::Stream(std::sync::Arc::new(Stream {
+            dict,
+            data: std::sync::Arc::clone(&written.data),
+            decryption_failed: written.decryption_failed,
+        }))
     }
 
     /// The image and form `XObject` keys ISO 19005 forbids.

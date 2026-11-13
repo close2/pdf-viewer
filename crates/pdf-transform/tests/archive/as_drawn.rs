@@ -336,3 +336,72 @@ fn the_runs_one_conversion_writes_are_bounded_and_tested_at_the_bound() {
         decision(&report, OPERATORS)
     );
 }
+
+// `hesr13613-sup-0001-Authormatrix.pdf`'s other shape: the lone `>` stands in a form whose own
+// `/Resources` writes a Type 0 font directly, its embedded Type 2 CIDFont stating no
+// `/CIDToGIDMap`. ISO 32000-1's Table 117 gives that entry the default `Identity`, so the form is a
+// holder the CIDFont is given the entry in (ADR 2722), and the delimiter's repair rewrites the
+// same form's bytes. The repair changes the stream's filter and length and nothing else of its
+// dictionary, so the dictionary is still given the entry, in the first pass (ADR 2860).
+#[test]
+fn a_form_whose_bytes_are_written_as_drawn_keeps_its_cid_font_s_identity_map() {
+    let source = Conforming {
+        resources: "/XObject << /Fm0 8 0 R >>".to_owned(),
+        contents: Some((String::new(), b"/Fm0 Do".to_vec())),
+        objects: vec![
+            "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 \
+             /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+             /CapHeight 716 /StemV 80 /FontFile2 7 0 R >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![
+            stream(
+                &format!("/Length {}", LIBERATION_SANS.len()),
+                LIBERATION_SANS,
+            ),
+            {
+                let data = b"BT /F0 12 Tf 10 100 Td <0024> Tj > Tj ET";
+                stream(
+                    &format!(
+                        "/Type /XObject /Subtype /Form /BBox [0 0 200 200] /Resources << /Font \
+                         << /F0 << /Type /Font /Subtype /Type0 /BaseFont /LiberationSans \
+                         /Encoding /Identity-H /DescendantFonts [<< /Type /Font /Subtype \
+                         /CIDFontType2 /BaseFont /LiberationSans /CIDSystemInfo << /Registry \
+                         (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 6 0 R \
+                         /DW 1000 /W [36 [667]] >>] >> >> >> /Length {}",
+                        data.len()
+                    ),
+                    data,
+                )
+            },
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (report, output) = convert_with_plan(&source, &under("as-if-printed", target));
+        let mapped = decision(&report, "fonts/cid-to-gid-map-present");
+        assert_eq!(
+            mapped.rewrite(),
+            Some(Rewrite::CidToGidIdentity),
+            "{mapped:?}"
+        );
+        let Decision::Authorised { losses, .. } = decision(&report, OPERATORS) else {
+            panic!("{:?}", decision(&report, OPERATORS));
+        };
+        assert!(
+            losses.iter().eq([Loss::ContentAsDrawn]),
+            "{}",
+            losses.words()
+        );
+        let output = output.expect("a file is written");
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        let conversion = conversion(&report);
+        assert!(conversion.settled.is_empty(), "{:?}", conversion.settled);
+        assert!(conversion.photographed.is_empty());
+        let [written] = conversion.runs_written_as_drawn.as_slice() else {
+            panic!("one delimiter: {:?}", conversion.runs_written_as_drawn);
+        };
+        assert_eq!(written.run, b">");
+    }
+}
