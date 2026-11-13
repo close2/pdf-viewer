@@ -1848,14 +1848,20 @@ fn verify(
 ) -> Result<bool, String> {
     let named =
         || x509::dotted(algorithm).unwrap_or_else(|| "an unreadable object identifier".to_owned());
+    let key_parameters = key.pss_parameters();
     match (crate::cms::SignatureAlgorithm::from_oid(algorithm), key) {
         (crate::cms::SignatureAlgorithm::RsaPkcs1V15, PublicKey::Rsa(key)) => {
             let digest = crate::certificate_signature::digest(algorithm).ok_or_else(named)?;
             let computed = digest.compute(&[message]);
             pkcs1::verify(key, signature, digest, &computed).map_err(|_| named())
         }
-        (crate::cms::SignatureAlgorithm::RsaPss, PublicKey::Rsa(key)) => {
+        // RFC 4055 sections 1.2 and 3.3, as `crate::certificate_signature::verify` reads them.
+        (
+            crate::cms::SignatureAlgorithm::RsaPss,
+            PublicKey::Rsa(key) | PublicKey::RsaPss { key, .. },
+        ) => {
             let parameters = pss::parameters(parameters).map_err(|_| named())?;
+            pss::admitted_by_key(parameters, key_parameters).map_err(|_| named())?;
             let computed = parameters.hash.compute(&[message]);
             pss::verify(key, signature, parameters, &computed).map_err(|_| named())
         }

@@ -1019,6 +1019,10 @@ cd fuzz && cargo +nightly fuzz run trusted_list -- -max_total_time=600 -rss_limi
   # a function of the bytes, and every tuple the search returns a service of the list searched with
   # its status at the instant one of that service's own. Seeded by `fuzz/seeds.sh` with one list per
   # territory class naming `x509_fixtures.rs`'s certificate.
+cd fuzz && cargo +nightly fuzz run qc_statement -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
+  # ETSI EN 319 412-5's QC statements off a signer's certificate (ADR 2853): the reading a function
+  # of the bytes, bounded by `MAX_ENTRIES`, and every clause 4.2.4 country two letters. Seeded by
+  # `fuzz/seeds.sh` with the extension value `qc_statement/tests.rs` writes and one with countries.
 cd fuzz && cargo +nightly fuzz run jpeg_bands   -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
   # §7.4.8's frames cut into bands at their restart intervals (ADR 1433) and at an entropy pass's
   # rows (ADR 1481), each against the whole frame's decoder through `pdf_model::image::

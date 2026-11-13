@@ -56,6 +56,14 @@ pub use keys::{
 /// file states — see [`PublicKey::Unverifiable`] and [`dotted`].
 pub const RSA_ENCRYPTION: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01];
 
+/// RFC 4055 section 3.1's `id-RSASSA-PSS`, `1.2.840.113549.1.1.10` — "{ pkcs-1 10 }".
+///
+/// The same number names two things, and RFC 4055 section 1.2 is why a certificate reader meets
+/// it: as a signature algorithm it is RFC 8017's RSASSA-PSS, and as a *subject public key*
+/// algorithm it is an RSA key whose owner restricted it to that scheme. [`PublicKey::RsaPss`] is
+/// the second reading.
+pub const ID_RSASSA_PSS: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0A];
+
 /// RFC 5480 section 2.1.1's `id-ecPublicKey`, `1.2.840.10045.2.1`.
 ///
 /// Table 260 names this family by pointing at that RFC — "ECDSA Algorithm Support ( defined by
@@ -63,6 +71,9 @@ pub const RSA_ENCRYPTION: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x
 /// rather than digits typed here. Which curve, and whether this program computes on it, is
 /// [`EcCurve`]'s question.
 const ID_EC_PUBLIC_KEY: const_oid::ObjectIdentifier = const_oid::db::rfc5912::ID_EC_PUBLIC_KEY;
+
+/// RFC 3739 section 3.2.6's `id-pe-qcStatements`, `1.3.6.1.5.5.7.1.3` — "{ id-pe 3 }".
+pub const QC_STATEMENTS: &[u8] = &[0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x01, 0x03];
 
 /// RFC 5280's `id-ce-subjectKeyIdentifier`, `2.5.29.14`.
 const SUBJECT_KEY_IDENTIFIER: &[u8] = &[0x55, 0x1D, 0x0E];
@@ -142,7 +153,8 @@ pub enum X509Error {
     /// `subjectPublicKeyInfo` is absent or is not an algorithm identifier and a `BIT STRING`.
     #[error("the certificate states no readable subjectPublicKeyInfo")]
     NoPublicKey,
-    /// The key is `rsaEncryption` but its `RSAPublicKey` is not a modulus and an exponent.
+    /// The key is `rsaEncryption` or `id-RSASSA-PSS` but its `RSAPublicKey` is not a modulus and an
+    /// exponent.
     #[error("the certificate's RSA public key is malformed")]
     MalformedRsaKey,
     /// The key is `id-dsa` but its `Dss-Parms` or its `DSAPublicKey` is not shaped like one.
@@ -332,6 +344,15 @@ pub struct Extensions<'a> {
     pub policy_constraints: Option<&'a [u8]>,
     /// `inhibitAnyPolicy`'s encoded `SkipCerts` — section 4.2.1.14.
     pub inhibit_any_policy: Option<&'a [u8]>,
+    /// `qcStatements`' encoded `QCStatements` — RFC 3739 section 3.2.6, where ETSI EN 319 412-5
+    /// clause 4.1 puts the statements a qualified certificate makes about itself.
+    ///
+    /// Read beside the chain like [`Self::extended_key_usage`], and for the same reason a
+    /// critical one still lands in [`Self::unrecognised_critical`]: EN 319 412-5's note to clause
+    /// 4.1 says the extension "is not processed as part of IETF RFC 5280 path validation", and
+    /// QCS-4.1-02 says it "shall not be marked as critical", so a path never decides anything on
+    /// it. `pdf_signature::qc_statement` is its reader.
+    pub qc_statements: Option<&'a [u8]>,
     /// The first critical extension this reader does not recognise, as its encoded identifier.
     pub unrecognised_critical: Option<&'a [u8]>,
     /// Whether the walk stopped at [`MAX_EXTENSIONS`] with extensions left unread.
@@ -346,6 +367,29 @@ pub struct Extensions<'a> {
 pub enum PublicKey<'a> {
     /// RFC 8017's `rsaEncryption`, with the two integers `pdf_signature::pkcs1::verify` needs.
     Rsa(RsaPublicKey<'a>),
+    /// RFC 4055 section 1.2's `id-RSASSA-PSS`: an RSA key its owner restricted to RSASSA-PSS.
+    ///
+    /// The key itself is the same `RSAPublicKey` — "Regardless of the object identifier used,
+    /// the RSA public key is encoded in the same manner in the subject public key information" —
+    /// and what the identifier adds is a restriction on its use, which RFC 4055 section 1.2 puts
+    /// on whoever verifies with it: "the certificate user MUST only use the certified RSA public
+    /// key for RSASSA-PSS operations, and, if RSASSA-PSS-params is present, the certificate user
+    /// MUST perform those operations using the one-way hash function, mask generation function,
+    /// and trailer field identified in the subject public key algorithm identifier parameters
+    /// within the certificate." A separate variant, rather than [`Self::Rsa`] with a flag, so
+    /// that every verifier matching on a key has to answer for the restriction: a PKCS #1 v1.5
+    /// signature under this key reaches no arm that verifies it.
+    RsaPss {
+        /// The modulus and the exponent.
+        key: RsaPublicKey<'a>,
+        /// The `AlgorithmIdentifier`'s `parameters`, where the certificate states any.
+        ///
+        /// RFC 4055 section 3.1: "The parameters may be either absent or present when used as
+        /// subject public key information." Carried as the value, unread, because what they
+        /// constrain is a signature's own `RSASSA-PSS-params` and the reader of those is
+        /// `pdf_signature::pss`, which is where section 3.3's comparison is made.
+        parameters: Option<Value<'a>>,
+    },
     /// RFC 3279's `id-dsa`, with the four integers `pdf_signature::dsa::verify` needs.
     Dsa(DsaPublicKey<'a>),
     /// RFC 5480's `id-ecPublicKey` on one of ISO/TS 32002 Table 3's six curves.
@@ -375,6 +419,21 @@ pub enum PublicKey<'a> {
         /// The `AlgorithmIdentifier`'s object identifier, as encoded.
         algorithm: &'a [u8],
     },
+}
+
+impl<'a> PublicKey<'a> {
+    /// The `RSASSA-PSS-params` an `id-RSASSA-PSS` key was restricted to, where it states any.
+    ///
+    /// `None` for every other key and for such a key that states none, which are RFC 4055
+    /// section 3.3's first two cases — "no parameter validation is needed" — so a verifier can
+    /// hand this to its comparison without asking which kind of key it holds.
+    #[must_use]
+    pub fn pss_parameters(&self) -> Option<Value<'a>> {
+        match self {
+            Self::RsaPss { parameters, .. } => *parameters,
+            _ => None,
+        }
+    }
 }
 
 /// One X.509 certificate, read for a public key and for the two ways a signer names one.
@@ -806,7 +865,16 @@ fn read_public_key(spki: Value<'_>) -> Result<PublicKey<'_>, X509Error> {
         return Err(X509Error::NoPublicKey);
     };
     if oid == RSA_ENCRYPTION {
-        return read_rsa_key(bits);
+        return read_rsa_key(bits).map(PublicKey::Rsa);
+    }
+    if oid == ID_RSASSA_PSS {
+        // The same shape as `id-dsa`'s: the restriction's parameters are the *algorithm* value's
+        // second member, and the key is the `RSAPublicKey` `rsaEncryption` carries.
+        let mut members = algorithm.children()?;
+        let _identifier = members.next_value()?;
+        let parameters = members.next_value()?;
+        let key = read_rsa_key(bits)?;
+        return Ok(PublicKey::RsaPss { key, parameters });
     }
     if is_dsa(oid) {
         // `AlgorithmIdentifier ::= SEQUENCE { algorithm, parameters ANY OPTIONAL }`, and for
@@ -884,7 +952,7 @@ fn spki_key_octets<'a>(spki: &Value<'a>) -> Option<&'a [u8]> {
 }
 
 /// `RSAPublicKey ::= SEQUENCE { modulus INTEGER, publicExponent INTEGER }` (RFC 8017 section A.1.1).
-fn read_rsa_key(bits: Value<'_>) -> Result<PublicKey<'_>, X509Error> {
+fn read_rsa_key(bits: Value<'_>) -> Result<RsaPublicKey<'_>, X509Error> {
     let encapsulated = key_octets(&bits).ok_or(X509Error::MalformedRsaKey)?;
     let mut inner = Reader::new(encapsulated)?;
     let Some(key) = inner.next_value()? else {
@@ -897,10 +965,10 @@ fn read_rsa_key(bits: Value<'_>) -> Result<PublicKey<'_>, X509Error> {
     if modulus.identifier != INTEGER || exponent.identifier != INTEGER {
         return Err(X509Error::MalformedRsaKey);
     }
-    Ok(PublicKey::Rsa(RsaPublicKey {
+    Ok(RsaPublicKey {
         modulus: modulus.contents,
         exponent: exponent.contents,
-    }))
+    })
 }
 
 /// RFC 3279 section 2.3.2's `Dss-Parms ::= SEQUENCE { p INTEGER, q INTEGER, g INTEGER }` and the
@@ -996,6 +1064,9 @@ fn read_extensions(extensions: Value<'_>) -> Result<Extensions<'_>, X509Error> {
         // field's own documentation says why the distinction is load-bearing here.
         if oid == EXTENDED_KEY_USAGE.as_bytes() {
             read.extended_key_usage = Some(value.unwrap_or(&[]));
+        }
+        if oid == QC_STATEMENTS {
+            read.qc_statements = Some(value.unwrap_or(&[]));
         }
         if oid == SUBJECT_KEY_IDENTIFIER {
             read.key_identifier = inner
@@ -1276,6 +1347,93 @@ mod tests {
         assert_eq!(
             parse(&[0x30, 0x05, 0x30, 0x03, 0x02, 0x01, 0x01]),
             Err(X509Error::MalformedTbs)
+        );
+    }
+
+    /// One DER value: a tag, a definite length and the contents (lengths below 128 only).
+    fn tlv(tag: u8, contents: &[u8]) -> Vec<u8> {
+        let length = u8::try_from(contents.len()).expect("a short test value");
+        assert!(length < 0x80);
+        [&[tag, length][..], contents].concat()
+    }
+
+    /// A `SubjectPublicKeyInfo` stating `algorithm` with `parameters`, over one `RSAPublicKey`.
+    fn rsa_spki(algorithm: &[u8], parameters: Option<&[u8]>) -> Vec<u8> {
+        let identifier = tlv(
+            0x30,
+            &[&tlv(0x06, algorithm)[..], parameters.unwrap_or_default()].concat(),
+        );
+        let key = tlv(
+            0x30,
+            &[
+                tlv(0x02, &[0x00, 0xC1, 0x07, 0x05]),
+                tlv(0x02, &[0x01, 0x00, 0x01]),
+            ]
+            .concat(),
+        );
+        tlv(
+            0x30,
+            &[identifier, tlv(0x03, &[&[0x00][..], &key].concat())].concat(),
+        )
+    }
+
+    fn key_of(spki: &[u8]) -> PublicKey<'_> {
+        let value = super::Reader::new(spki)
+            .expect("a reader")
+            .next_value()
+            .expect("a value")
+            .expect("one value");
+        super::read_public_key(value).expect("a key")
+    }
+
+    /// RFC 4055 section 1.2: an `id-RSASSA-PSS` subject key is an RSA key restricted to
+    /// RSASSA-PSS — "Regardless of the object identifier used, the RSA public key is encoded in
+    /// the same manner" — so the same modulus and exponent are read, and the restriction travels
+    /// with them; section 3.1: "The parameters may be either absent or present when used as
+    /// subject public key information", so both are read, and present ones are carried as written.
+    #[test]
+    fn an_rsassa_pss_key_is_an_rsa_key_restricted_to_pss() {
+        let plain = rsa_spki(super::RSA_ENCRYPTION, Some(&[0x05, 0x00]));
+        let PublicKey::Rsa(rsa) = key_of(&plain) else {
+            panic!("rsaEncryption is an unrestricted RSA key");
+        };
+        let absent = rsa_spki(super::ID_RSASSA_PSS, None);
+        assert_eq!(
+            key_of(&absent),
+            PublicKey::RsaPss {
+                key: rsa,
+                parameters: None
+            },
+            "the same RSAPublicKey, with no parameters stated"
+        );
+        // `RSASSA-PSS-params ::= SEQUENCE { saltLength [2] INTEGER 32 }`.
+        let parameters = [0x30, 0x05, 0xA2, 0x03, 0x02, 0x01, 0x20];
+        let present = rsa_spki(super::ID_RSASSA_PSS, Some(&parameters));
+        let PublicKey::RsaPss {
+            key,
+            parameters: Some(stated),
+        } = key_of(&present)
+        else {
+            panic!("an id-RSASSA-PSS key with parameters");
+        };
+        assert_eq!(key, rsa);
+        assert_eq!(stated.contents, &parameters[2..]);
+        assert_eq!(
+            dotted(super::ID_RSASSA_PSS).as_deref(),
+            Some("1.2.840.113549.1.1.10")
+        );
+        // A malformed `RSAPublicKey` under the restricted identifier is the RSA key's error.
+        let mut broken = absent.clone();
+        let last = broken.len() - 1;
+        broken[last - 4] = 0x04;
+        let value = super::Reader::new(&broken)
+            .expect("a reader")
+            .next_value()
+            .expect("a value")
+            .expect("one value");
+        assert_eq!(
+            super::read_public_key(value),
+            Err(X509Error::MalformedRsaKey)
         );
     }
 }

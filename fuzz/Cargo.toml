@@ -385,3 +385,10 @@ path = "fuzz_targets/trusted_list.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "qc_statement"
+path = "fuzz_targets/qc_statement.rs"
+test = false
+doc = false
+bench = false

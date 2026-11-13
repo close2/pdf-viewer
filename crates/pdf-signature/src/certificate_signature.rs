@@ -70,14 +70,18 @@ pub(crate) fn verify(
     use crate::cms::SignatureAlgorithm;
     let named =
         || dotted(algorithm).unwrap_or_else(|| "an unreadable object identifier".to_owned());
+    let key_parameters = key.pss_parameters();
     match (SignatureAlgorithm::from_oid(algorithm), key) {
         (SignatureAlgorithm::RsaPkcs1V15, PublicKey::Rsa(key)) => {
             let digest = digest(algorithm).ok_or_else(named)?;
             let computed = digest.compute(&[message]);
             pkcs1::verify(key, signature, digest, &computed).map_err(|_| named())
         }
-        (SignatureAlgorithm::RsaPss, PublicKey::Rsa(key)) => {
+        // RFC 4055 section 1.2: an `id-RSASSA-PSS` key verifies this scheme only, and under its
+        // own parameters where it states any (section 3.3).
+        (SignatureAlgorithm::RsaPss, PublicKey::Rsa(key) | PublicKey::RsaPss { key, .. }) => {
             let parameters = pss::parameters(parameters).map_err(|_| named())?;
+            pss::admitted_by_key(parameters, key_parameters).map_err(|_| named())?;
             let computed = parameters.hash.compute(&[message]);
             pss::verify(key, signature, parameters, &computed).map_err(|_| named())
         }

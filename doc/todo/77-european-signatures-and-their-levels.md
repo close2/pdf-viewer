@@ -1,7 +1,8 @@
 # 77 — European signatures, their levels, and *locally valid*
 
-Status: **open** — locally valid, the list reader and the lists' authentication are built (ADRs 2834,
-2835, 2842, 2843); section 2 is the order for the rest.
+Status: **open** — locally valid, the list reader, the lists' authentication, RSASSA-PSS subject
+keys and the QC statements are built (ADRs 2834, 2835, 2842, 2843, 2852, 2853); section 2 is the
+order for the rest.
 Priority: the owner's, 2026-11-06, `doc/questions/A800` item 3: "we should be able to validate all
 european digital signatures and be able to tell the user the different levels of signatures QES,
 AES,..." and "We should have a local valid certificate setting as well."
@@ -34,15 +35,19 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
   by name with the clauses' indications; a host that supplied neither the LOTL nor the Official
   Journal's certificates has its lists `VouchedForByTheHost`, and the report says which.
 
+- **RSASSA-PSS subject keys** (ADR 2852). `pdf_pki::x509::PublicKey::RsaPss`: RFC 4055 section
+  1.2's `id-RSASSA-PSS` key read as an RSA key restricted to PSS, its parameters carried;
+  `pdf_signature::pss::admitted_by_key` is section 3.3, asked by every PSS verifier (CMS,
+  certificate, CRL, OCSP, a list's XML signature). A PKCS #1 v1.5 signature under such a key is
+  refused. Germany's list, whose signer's key is one, is the evidence (never committed).
+- **EN 319 412-5's QC statements** (ADR 2853). `pdf_pki::x509::Extensions::qc_statements` and
+  `pdf_signature::qc_statement`: `QcCompliance`, `QcSSCD`, `QcType`, `QcCClegislation` read by
+  their clauses' syntax, every other statement named by identifier, bounded; `fuzz/`'s
+  `qc_statement` target. `verdict::Listing::statements` carries them and `viewer_core::notes`
+  names them as the issuer's claims, never as a level.
+
 ## 2. What is left, in order
 
-0. **A list signed under an RFC 4055 `id-RSASSA-PSS` key.** Germany's list (`TL-DE.xml`, read as
-   evidence on 2026-11-12) is signed with `sha256-rsa-MGF1` by a certificate whose subject public
-   key names `id-RSASSA-PSS`, which `pdf_pki::x509` reads as unverifiable, so clause 4.2 refuses it
-   by name. RFC 4055 section 1.2 makes that key an RSA key restricted to PSS: read it as one. The
-   same evidence run authenticated the real LOTL through its five pivots and Austria's list.
-1. **EN 319 412-5's QC statements** read off the signing certificate: `QcCompliance`, `QcSSCD`,
-   `QcType`, `QcCClegislation` (pdf-pki's `x509` extensions).
 2. **TS 119 615 clause 4.4** (EU qualified certificate determination at the best signature time):
    the service's qualifications extension (TS 119 612 clause 5.5.9.2, `CriteriaList` and
    `Qualifier`), additional service information, the status at the instant, the transition rules.

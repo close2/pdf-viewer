@@ -128,6 +128,9 @@ fn a_path_to_a_listed_service_carries_the_listing() {
     assert_eq!(listing.service_type, CA_QC);
     assert_eq!(listing.status_at_issue.as_deref(), Some(GRANTED));
     assert_eq!(listing.authentication, Authentication::VouchedForByTheHost);
+    // ETSI EN 319 412-5: the fixture's signer carries no `qcStatements`, and a listing says so
+    // rather than inventing a claim the certificate did not make.
+    assert_eq!(listing.statements, crate::qc_statement::Stated::Nothing);
 
     let parsed: Vec<_> = identities
         .iter()
@@ -146,7 +149,10 @@ fn a_path_to_a_listed_service_carries_the_listing() {
     let Verdict::Valid(valid) = &verdict else {
         panic!("the listed path is valid: {verdict:?}");
     };
-    assert_eq!(*valid.standing(), Standing::Listed(listing.clone()));
+    assert_eq!(
+        *valid.standing(),
+        Standing::Listed(Box::new(listing.clone()))
+    );
 
     let elsewhere =
         TrustedList::read(list_xml("AT", &[("A provider", &[GRANTED_AT_LATER])]).as_bytes())

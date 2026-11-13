@@ -216,13 +216,25 @@ pub fn verify_enveloped(octets: &[u8], entries: usize) -> Result<Verified, XmlSi
     let verifies = match (family, certificate.public_key) {
         (Family::Pkcs1, PublicKey::Rsa(key)) => pkcs1::verify(key, &value, digest, &computed)
             .map_err(|error| XmlSignatureError::Certificate(error.to_string()))?,
-        (Family::Pss, PublicKey::Rsa(key)) => {
+        // RFC 4055 section 1.2: a key restricted to RSASSA-PSS is the same RSA key, and it is
+        // how Germany's list signer states its key.
+        (Family::Pss, PublicKey::Rsa(key) | PublicKey::RsaPss { key, .. }) => {
             // RFC 6931 section 2.3.10: the hash names MGF1's too, and the salt is the hash's length.
             let parameters = pss::Parameters {
                 hash: digest,
                 mgf_hash: digest,
                 salt_length: digest.compute(&[]).len(),
             };
+            // RFC 4055 section 3.3: where the certificate states the parameters its key is
+            // restricted to, the method's must be those.
+            pss::admitted_by_key(parameters, certificate.public_key.pss_parameters()).map_err(
+                |problem| {
+                    XmlSignatureError::Unsupported(format!(
+                        "{signature_method} under a key RFC 4055 section 3.3 restricts otherwise: \
+                     {problem:?}"
+                    ))
+                },
+            )?;
             pss::verify(key, &value, parameters, &computed)
                 .map_err(|error| XmlSignatureError::Certificate(error.to_string()))?
         }

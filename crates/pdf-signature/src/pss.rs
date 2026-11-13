@@ -62,7 +62,10 @@ use crate::der::{INTEGER, SEQUENCE, Value};
 use crate::pkcs1::{Pkcs1Error, PublicKey, rsavp1};
 
 /// RFC 8017 Appendix A.2.3's `id-RSASSA-PSS`, `1.2.840.113549.1.1.10` — "{ pkcs-1 10 }".
-pub const ID_RSASSA_PSS: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0A];
+///
+/// The certificate reader's constant, so that the signature algorithm and the subject key
+/// algorithm RFC 4055 section 1.2 gives the same number are one number here too.
+pub const ID_RSASSA_PSS: &[u8] = pdf_pki::x509::ID_RSASSA_PSS;
 
 /// RFC 8017 Appendix B.2.1's `id-mgf1`, `1.2.840.113549.1.1.8` — "{ pkcs-1 8 }".
 pub const ID_MGF1: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x08];
@@ -185,6 +188,59 @@ pub fn parameters(value: Option<Value<'_>>) -> Result<Parameters, ParameterProbl
         mgf_hash: mgf_hash.unwrap_or(Digest::Sha1),
         salt_length,
     })
+}
+
+/// What RFC 4055 section 3.3 found between a signature's parameters and its key's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyParameterProblem<'a> {
+    /// The key's own `RSASSA-PSS-params` are not ones this program can act on, so there is no
+    /// restriction it could check a signature against.
+    Key(ParameterProblem<'a>),
+    /// The signature's parameters are not the ones the key was restricted to.
+    ///
+    /// Section 3.3's third case: "all parameters in the signature structure algorithm identifier
+    /// MUST match the parameters in the key structure algorithm identifier except the saltLength
+    /// field. The saltLength field in the signature parameters MUST be greater or equal to that
+    /// in the key parameters field."
+    Differs {
+        /// What the certificate restricted its key to.
+        key: Parameters,
+        /// What the signature states.
+        signature: Parameters,
+    },
+}
+
+/// Whether a signature's `parameters` are ones its RSA key admits, RFC 4055 section 3.3.
+///
+/// `key_parameters` is the subject key's `AlgorithmIdentifier` parameters for an `id-RSASSA-PSS`
+/// key (`pdf_pki::x509::PublicKey::RsaPss`), and `None` both for such a key that states none and
+/// for an `rsaEncryption` key — the section's first two cases, where "no parameter validation is
+/// needed". The third case is the comparison: hash and mask generation function equal, which
+/// [`parameters`] has already reduced to the [`Digest`] each names so that an explicit SHA-1 and
+/// an absent field compare equal as RFC 4055 section 3.1 requires a verifier to read them, the
+/// trailer field equal because [`parameters`] admits only 1 on either side, and the signature's
+/// salt at least the key's.
+///
+/// # Errors
+///
+/// [`KeyParameterProblem`], naming whether the key's parameters were unreadable or the
+/// signature's departed from them.
+pub fn admitted_by_key(
+    signature: Parameters,
+    key_parameters: Option<Value<'_>>,
+) -> Result<(), KeyParameterProblem<'_>> {
+    let Some(stated) = key_parameters else {
+        return Ok(());
+    };
+    let key = parameters(Some(stated)).map_err(KeyParameterProblem::Key)?;
+    if key.hash == signature.hash
+        && key.mgf_hash == signature.mgf_hash
+        && signature.salt_length >= key.salt_length
+    {
+        Ok(())
+    } else {
+        Err(KeyParameterProblem::Differs { key, signature })
+    }
 }
 
 /// The one value inside an explicit context tag.
@@ -504,7 +560,7 @@ pub(crate) mod fixtures {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::fixtures::{
         MODULUS, SIGNATURE_SHA1_SALT20, SIGNATURE_SHA256_SALT32, SIGNATURE_SHA512_SALT64, hex,
     };
@@ -744,7 +800,7 @@ mod tests {
     /// Steps 5 to 12 of EMSA-PSS-ENCODE, with the salt supplied by the test: `M' = 00 x8 ||
     /// mHash || salt`, `H = Hash(M')`, `DB = PS || 0x01 || salt`, `maskedDB = DB xor MGF(H,
     /// emLen - hLen - 1)` with the spare top bits cleared, `EM = maskedDB || H || 0xbc`.
-    fn emsa_pss_encode(
+    pub(crate) fn emsa_pss_encode(
         hash: Digest,
         message_digest: &[u8],
         salt: &[u8],
@@ -822,5 +878,71 @@ mod tests {
             };
             assert!(!emsa_pss_verify(cramped, &digest, &encoded, em_bits));
         }
+    }
+
+    /// RFC 4055 section 3.3's three cases, each by its words.
+    #[test]
+    fn a_signature_is_held_to_the_parameters_its_key_was_restricted_to() {
+        use super::{KeyParameterProblem, admitted_by_key};
+        let sha256 = Digest::Sha256.oid();
+        let signed = Parameters {
+            hash: Digest::Sha256,
+            mgf_hash: Digest::Sha256,
+            salt_length: 32,
+        };
+        // Cases 1 and 2: "no parameter validation is needed", whatever the signature states.
+        assert_eq!(admitted_by_key(signed, None), Ok(()));
+        // Case 3, every member stated and equal.
+        let restriction = |salt: u8, mgf: &[u8]| {
+            tagged(
+                0x30,
+                &[
+                    tagged(0xA0, &[algorithm(sha256)]),
+                    tagged(
+                        0xA1,
+                        &[tagged(0x30, &[primitive(0x06, ID_MGF1), algorithm(mgf)])],
+                    ),
+                    tagged(0xA2, &[primitive(0x02, &[salt])]),
+                ],
+            )
+        };
+        let equal = restriction(32, sha256);
+        assert_eq!(admitted_by_key(signed, first_value(&equal)), Ok(()));
+        // "The saltLength field in the signature parameters MUST be greater or equal to that in
+        // the key parameters field": a key asking for 20 admits 32, one asking for 48 does not.
+        let shorter = restriction(20, sha256);
+        assert_eq!(admitted_by_key(signed, first_value(&shorter)), Ok(()));
+        let longer = restriction(48, sha256);
+        assert!(matches!(
+            admitted_by_key(signed, first_value(&longer)),
+            Err(KeyParameterProblem::Differs { key, .. }) if key.salt_length == 48
+        ));
+        // "All parameters ... MUST match ... except the saltLength field": MGF1 over another hash
+        // is a departure, and so is a key whose hash defaults to SHA-1 (section 3.1's absent
+        // `hashAlgorithm`) under a SHA-256 signature.
+        let other_mask = restriction(32, Digest::Sha512.oid());
+        assert!(matches!(
+            admitted_by_key(signed, first_value(&other_mask)),
+            Err(KeyParameterProblem::Differs { key, .. }) if key.mgf_hash == Digest::Sha512
+        ));
+        let defaults = tagged(0x30, &[]);
+        assert!(matches!(
+            admitted_by_key(signed, first_value(&defaults)),
+            Err(KeyParameterProblem::Differs { key, .. }) if key.hash == Digest::Sha1
+        ));
+        // And an explicit SHA-1 under the defaults is the same parameters, which section 3.1
+        // requires a verifier to "recognize ... as an indication that SHA-1 was used".
+        let sha1 = Parameters {
+            hash: Digest::Sha1,
+            mgf_hash: Digest::Sha1,
+            salt_length: 20,
+        };
+        assert_eq!(admitted_by_key(sha1, first_value(&defaults)), Ok(()));
+        // A key whose own parameters cannot be read restricts to nothing this program can check.
+        let null = primitive(0x05, &[]);
+        assert_eq!(
+            admitted_by_key(signed, first_value(&null)),
+            Err(KeyParameterProblem::Key(ParameterProblem::Malformed))
+        );
     }
 }

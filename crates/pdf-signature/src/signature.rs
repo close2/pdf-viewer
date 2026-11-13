@@ -2452,11 +2452,21 @@ pub(crate) fn authenticity_of(cms: &SignedData<'_>, detached: Detached<'_>) -> A
                     .map(|verified| (verified, key.bits())),
             )
         }
-        (SignatureAlgorithm::RsaPss, x509::PublicKey::Rsa(key)) => {
+        // RFC 4055 section 1.2: an `id-RSASSA-PSS` key is the same RSA key, usable for this
+        // scheme only and, where it states parameters, under those (section 3.3).
+        (
+            SignatureAlgorithm::RsaPss,
+            x509::PublicKey::Rsa(key) | x509::PublicKey::RsaPss { key, .. },
+        ) => {
             let parameters = match pss::parameters(cms.signature_algorithm_parameters) {
                 Ok(parameters) => parameters,
                 Err(problem) => return pss_parameter_answer(problem),
             };
+            if let Err(problem) =
+                pss::admitted_by_key(parameters, certificate.public_key.pss_parameters())
+            {
+                return pss_key_answer(problem);
+            }
             // RFC 8017 section 9.1.2 step 2's `mHash` is computed with the parameters' own
             // hash — RFC 5652's `digestAlgorithm` describes the `message-digest` attribute,
             // which is question 1's comparison, not this one's.
@@ -2637,6 +2647,28 @@ fn pss_parameter_answer(problem: pss::ParameterProblem<'_>) -> Authenticity {
     }
 }
 
+/// RFC 4055 section 3.3's refusal, worded the way [`pss_parameter_answer`] words a signature's.
+fn pss_key_answer(problem: pss::KeyParameterProblem<'_>) -> Authenticity {
+    let statement = match problem {
+        pss::KeyParameterProblem::Key(_) => "parameters checked against the signer's \
+            certificate, which restricts its key to RSASSA-PSS-params this program cannot read \
+            (RFC 4055 section 3.3)"
+            .to_owned(),
+        pss::KeyParameterProblem::Differs { key, signature } => format!(
+            "hash {:?}, MGF1 over {:?} and a {}-octet salt, where the signer's certificate \
+             restricts its key to hash {:?}, MGF1 over {:?} and a salt of at least {} octets \
+             (RFC 4055 section 3.3)",
+            signature.hash,
+            signature.mgf_hash,
+            signature.salt_length,
+            key.hash,
+            key.mgf_hash,
+            key.salt_length
+        ),
+    };
+    Authenticity::PssParametersNotVerifiable { statement }
+}
+
 /// The identifier of the algorithm a certificate's key is for, as dotted decimal.
 ///
 /// The two families this program reads are named by the identifier the standard that defines them
@@ -2658,6 +2690,7 @@ fn curve_name(curve: Option<&[u8]>) -> String {
 fn key_algorithm_name(certificate: &x509::Certificate<'_>) -> String {
     match certificate.public_key {
         x509::PublicKey::Rsa(_) => name(x509::RSA_ENCRYPTION),
+        x509::PublicKey::RsaPss { .. } => name(x509::ID_RSASSA_PSS),
         x509::PublicKey::Dsa(_) => name(dsa::ID_DSA),
         // Both elliptic-curve arms state the same key algorithm: RFC 5480's `id-ecPublicKey` is
         // what the certificate says, and which curve it is on is a second identifier that

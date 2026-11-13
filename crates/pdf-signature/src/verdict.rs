@@ -83,7 +83,10 @@ pub enum Standing {
     Local,
     /// The path ended at a service digital identity a trusted list publishes, which is the set of
     /// anchors ETSI TS 119 172-4 REQ-4.2-03 a) prescribes for an EU qualified signature.
-    Listed(Listing),
+    ///
+    /// Boxed because a listing carries the signing certificate's statements as well as the
+    /// list's names, and a `Standing` is held by every valid verdict whether listed or not.
+    Listed(Box<Listing>),
 }
 
 /// The listed service whose digital identity ended a path, as ETSI TS 119 615 clause 4.3 returned
@@ -110,6 +113,9 @@ pub struct Listing {
     pub status_at_issue: Option<String>,
     /// How far the list's own authenticity was established.
     pub authentication: crate::trusted_list::Authentication,
+    /// What the signing certificate's own `qcStatements` say, in ETSI EN 319 412-5 clause 4.2's
+    /// terms — the issuer's claims that TS 119 615 clause 4.4 starts from, carried unweighed.
+    pub statements: crate::qc_statement::Stated,
 }
 
 impl Anchored {
@@ -131,7 +137,7 @@ impl Anchored {
     #[must_use]
     pub fn listed(trust: &Trust, listing: Listing) -> Option<Self> {
         Self::of(trust).map(|anchored| Self {
-            standing: Standing::Listed(listing),
+            standing: Standing::Listed(Box::new(listing)),
             ..anchored
         })
     }

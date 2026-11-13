@@ -703,6 +703,15 @@ fn signer_key(cms: &cms::SignedData<'_>) -> String {
             PublicKey::Rsa(key) => {
                 format!("1.2.840.113549.1.1.1 (rsaEncryption, {}-bit)", key.bits())
             }
+            PublicKey::RsaPss { key, parameters } => format!(
+                "1.2.840.113549.1.1.10 (id-RSASSA-PSS, {}-bit, parameters {})",
+                key.bits(),
+                if parameters.is_some() {
+                    "stated"
+                } else {
+                    "absent"
+                }
+            ),
             PublicKey::Dsa(key) => format!(
                 "1.2.840.10040.4.1 (id-dsa, L = {}, N = {})",
                 key.bits(),

@@ -1364,7 +1364,7 @@ impl<'m> SignerFacts<'m> {
 /// A public key's length in bits, where its family has one this reader measures.
 pub(crate) fn key_bits(key: &PublicKey<'_>) -> Option<usize> {
     match key {
-        PublicKey::Rsa(key) => Some(key.bits()),
+        PublicKey::Rsa(key) | PublicKey::RsaPss { key, .. } => Some(key.bits()),
         PublicKey::Dsa(key) => Some(key.bits()),
         PublicKey::Ec(key) => Some(key.curve.bits()),
         PublicKey::EdDsa(_)

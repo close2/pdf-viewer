@@ -106,6 +106,99 @@ pub(crate) const MEMBER_CERT: &str = "\
     4e7f9f809be175f4391aef48cc9bdf0baa63b668a915c9c629aeb2f924aa92\
 ";
 
+/// The modulus of an `id-RSASSA-PSS` key stating no parameters, as Germany's list signer's is.
+pub(crate) const PSS_OPEN_N: &str = "\
+    a4080b1e2726c163b540343dbe24ed0bd3ea5fbd2332b7dfc0ee53d8060b8d705c7369a26c4d5ef0282263a81a93\
+    09a877b35232c270ec299321d5d5ad1afd3f34e757ee4fdec9a2a661a2031cc40818d028222f1231f5e88b624d33\
+    877f0f626de084af49a5fe1508c713c188e0a23581a7f33c2ed4455df1c1953901e6cf7c06dbda6dbe07b87468e7\
+    90287e814b88c31b1bb8ad12fe4a65bbe149bcc3680b121d0161e6591f1f2903f1ae7dc7aeb09da0b33d47218a1d\
+    c78c4700536d4f4934646c76546063c03bf25b45fbb03f10d0e4f6ab540afb6c25fd4d9bf408d81aa4e9fb9fee7b\
+    5874abfa8080b1ed71c51abbaf8e11a5ed988616a7f497e08be7\
+";
+
+/// Its private exponent.
+pub(crate) const PSS_OPEN_D: &str = "\
+    3d048cf63384342e5e0f3b1fb8aacdcf378e98fca7aa474221e7c622b6e4f74153f2ced9cfc5dc4a23f3def47aa6\
+    35d2886c99682e72893751f7252f6e4c7ae6574cb3a5ffea1541bef8d4a6a9bdb6715c858169d72fe49513bc8691\
+    6396fd67150e8eed11cd80bddc5d09d9558c926aab0789f0da4eb65b23026afb20dcf653494d9789871fc7afa332\
+    2f713c87318b36f92dc09827aa7fb4b24ae0cecdcbfcdff9c12059b7c1266107a3f6ed7d48334e58cc45ac5326c9\
+    e88027f626396a35d1ee68ff588b5b0aa785b413ebbf42c61bee682228a8247b7e63a806646adc237fdbc2864fc0\
+    2b78f61435fe801f4b46caeaf73aa728edb5b50cf2025b352c49\
+";
+
+/// Its self-signed certificate, `openssl req -x509` over the key.
+pub(crate) const PSS_OPEN_CERT: &str = "\
+    308203ca3082027ea003020102020107304106092a864886f70d01010a3034a00f300d0609608648016503040201\
+    0500a11c301a06092a864886f70d010108300d06096086480165030402010500a203020120304b310b3009060355\
+    040613024445311d301b060355040a0c145465737420536368656d65204f70657261746f72311d301b0603550403\
+    0c14505353206c697374207369676e6572206f70656e301e170d3236313131333034313033315a170d3336313131\
+    303034313033315a304b310b3009060355040613024445311d301b060355040a0c145465737420536368656d6520\
+    4f70657261746f72311d301b06035504030c14505353206c697374207369676e6572206f70656e30820120300b06\
+    092a864886f70d01010a0382010f003082010a0282010100a4080b1e2726c163b540343dbe24ed0bd3ea5fbd2332\
+    b7dfc0ee53d8060b8d705c7369a26c4d5ef0282263a81a9309a877b35232c270ec299321d5d5ad1afd3f34e757ee\
+    4fdec9a2a661a2031cc40818d028222f1231f5e88b624d33877f0f626de084af49a5fe1508c713c188e0a23581a7\
+    f33c2ed4455df1c1953901e6cf7c06dbda6dbe07b87468e790287e814b88c31b1bb8ad12fe4a65bbe149bcc3680b\
+    121d0161e6591f1f2903f1ae7dc7aeb09da0b33d47218a1dc78c4700536d4f4934646c76546063c03bf25b45fbb0\
+    3f10d0e4f6ab540afb6c25fd4d9bf408d81aa4e9fb9fee7b5874abfa8080b1ed71c51abbaf8e11a5ed988616a7f4\
+    97e08be70203010001a3533051301d0603551d0e0416041491778d277719c3be3e0205133637203c96a0d1c2301f\
+    0603551d2304183016801491778d277719c3be3e0205133637203c96a0d1c2300f0603551d130101ff0405300301\
+    01ff304106092a864886f70d01010a3034a00f300d06096086480165030402010500a11c301a06092a864886f70d\
+    010108300d06096086480165030402010500a2030201200382010100794e431df502fbaed48018c93e7f4a8a9abd\
+    dfed6d480ce932319d1f70e2c2101c29f56774fb43331c96949d9c7e5febca21c68b18afa41f1993583f79439a44\
+    18a8e1db4b8b2272b5fa6dc27f323e43dd4b29c465c38c9806d1c76c06ac8e9f73f1ac688ee5e4c66e4a87aa102a\
+    a559dce6a453c2f10b8e83d5bce0a6e9a1b1c9866ff59ce4a18394ff6b601054689f74b0f477fa1ee82f197aea85\
+    1d91dce69bf043edbc4beb767aa86622750d289b6e93fe193c674147718b5ccba816b4e1e423b44707c4d9a8aec7\
+    6c8b32d4da902d22d802142768a9509b33dcb1d87a761b1a00d5446a671e584483b0d8534d6bffba6299d80f2824\
+    afadfb4709deb84a\
+";
+
+/// The modulus of an `id-RSASSA-PSS` key restricted to SHA-256, MGF1 over SHA-256, 32-octet salt.
+pub(crate) const PSS_BOUND_N: &str = "\
+    a49d6c341ae520612c88f105b87564a3e018b1589974604fc6ea70a26299d5c31556da7749733f5d495516356df8\
+    b9e1aa3769d4a8263cccc19364be283750f5bfd3f44644283fc7c3d0a6db9dc17df38c8a141d6f921b965d646a75\
+    688bfdbe90ac17481413b890fc79c8076e14f22dc599d75a32979c86340eeca4daa9ca08beac34f373f896491904\
+    51d634560247e445430338d116761b8e6501e1ac6b7d98c7b9a23a65480df3820f4ccbd65af7649265481b5ed0f6\
+    f2d3bba97be3217fe89299c315c348958565faffec279e7f882c0d52764754823364982ce8cc94b84b8ed760744e\
+    bb5302ca8856daa30d902e3b7d674857cb406a13a26b5c7e3a55\
+";
+
+/// Its private exponent.
+pub(crate) const PSS_BOUND_D: &str = "\
+    056f7d472b2c2da987c2edd27688c9cdef746146bfaa6c13b649bf765d331f2fd5e08c4e2c0ab628ea66f8d8c2cc\
+    d7b66fdc6c8e2d0f362abca995460225f1726be71fc5c2326208c29a7d27fb498c53226cdcc52c0df303400a34c9\
+    b3ae0baee3300b84c1c4f4ef34a700c7de06ab087fe1d88e8de51bb202be0b6a561e0d21b73ac7b7a1c4b3d8120b\
+    79e90d7f5d97123dbb62708fac27f97168855113bd7a7e19eed03d64dfe05a596bf54af229cb15df1b4950547b04\
+    80e10aac421b163b9db58226c6abba403b64b612bd3e525fda7df9d3b9b78200acfaa96dca4b3790ab7c4c7e6c03\
+    5267f810484e593c3d90755fd6fc043d0b1d9719624432d0d871\
+";
+
+/// Its self-signed certificate, `openssl req -x509` over the key.
+pub(crate) const PSS_BOUND_CERT: &str = "\
+    30820402308202b6a003020102020107304106092a864886f70d01010a3034a00f300d0609608648016503040201\
+    0500a11c301a06092a864886f70d010108300d06096086480165030402010500a203020120304c310b3009060355\
+    040613024445311d301b060355040a0c145465737420536368656d65204f70657261746f72311e301c0603550403\
+    0c15505353206c697374207369676e657220626f756e64301e170d3236313131333034313033315a170d33363131\
+    31303034313033315a304c310b3009060355040613024445311d301b060355040a0c145465737420536368656d65\
+    204f70657261746f72311e301c06035504030c15505353206c697374207369676e657220626f756e643082015630\
+    4106092a864886f70d01010a3034a00f300d06096086480165030402010500a11c301a06092a864886f70d010108\
+    300d06096086480165030402010500a2030201200382010f003082010a0282010100a49d6c341ae520612c88f105\
+    b87564a3e018b1589974604fc6ea70a26299d5c31556da7749733f5d495516356df8b9e1aa3769d4a8263cccc193\
+    64be283750f5bfd3f44644283fc7c3d0a6db9dc17df38c8a141d6f921b965d646a75688bfdbe90ac17481413b890\
+    fc79c8076e14f22dc599d75a32979c86340eeca4daa9ca08beac34f373f89649190451d634560247e445430338d1\
+    16761b8e6501e1ac6b7d98c7b9a23a65480df3820f4ccbd65af7649265481b5ed0f6f2d3bba97be3217fe89299c3\
+    15c348958565faffec279e7f882c0d52764754823364982ce8cc94b84b8ed760744ebb5302ca8856daa30d902e3b\
+    7d674857cb406a13a26b5c7e3a550203010001a3533051301d0603551d0e0416041494e5e37af85fc981e6305c92\
+    fe19020cd3b56c98301f0603551d2304183016801494e5e37af85fc981e6305c92fe19020cd3b56c98300f060355\
+    1d130101ff040530030101ff304106092a864886f70d01010a3034a00f300d06096086480165030402010500a11c\
+    301a06092a864886f70d010108300d06096086480165030402010500a20302012003820101006498e353cdf9ece2\
+    1a537ec833ea86e20e85651a16933705300e226fd69a496cd503fa8bf93c1552f3a8c78e4ad4eac0a1663b715275\
+    1231817a81473c29ccaaad0ed3881403cd7273293d72d5eddbdbef0e6ec34ddd97af822f68a7077d5825060d81c3\
+    d2ae9b611a6bdb1259484af6095cb752674b7e8f5316c9b510b2b6414a02ca3e26860ef2838bc2051f4a222c2fe4\
+    d056e888eac3e11b24cbe796db4ebd49cb62eeac88863e1269bb04171388e9dc6712390d7bccafd78c6ef0584c01\
+    c06607369cac85aabf99b6b31a8a8164c1631349d99a8d0824d2d78dc68bc68e8442d9f5de38b18eefd07b289ffc\
+    d65c710c34877f8ebb774576a6d33357bae1\
+";
+
 /// One of the two test keys.
 #[derive(Clone, Copy)]
 pub(crate) struct Key {
@@ -126,6 +219,20 @@ pub(crate) const MEMBER_KEY: Key = Key {
     n: MEMBER_N,
     d: MEMBER_D,
     certificate: MEMBER_CERT,
+};
+
+/// A list signer whose key is `id-RSASSA-PSS` with no parameters (RFC 4055 section 3.3's case 2).
+pub(crate) const PSS_OPEN_KEY: Key = Key {
+    n: PSS_OPEN_N,
+    d: PSS_OPEN_D,
+    certificate: PSS_OPEN_CERT,
+};
+
+/// A list signer whose key is restricted to SHA-256 parameters (section 3.3's case 3).
+pub(crate) const PSS_BOUND_KEY: Key = Key {
+    n: PSS_BOUND_N,
+    d: PSS_BOUND_D,
+    certificate: PSS_BOUND_CERT,
 };
 
 impl Key {
@@ -149,6 +256,20 @@ impl Key {
         let d = Integer::from_be_bytes(&hex(self.d)).expect("d");
         modpow(&m, &d, &modulus).be_bytes(k)
     }
+
+    /// RFC 8017 section 8.1.1 with `hash` for both the message and MGF1 and a salt as long as the
+    /// hash, which is what RFC 6931 section 2.3.10's `*-rsa-MGF1` methods fix: `EM` by section
+    /// 9.1.1's EMSA-PSS-ENCODE at `emBits = modBits - 1 = 2047`, then `s = m^d mod n`.
+    pub(crate) fn sign_pss(self, message: &[u8], hash: Digest) -> Vec<u8> {
+        let k: usize = 256;
+        let digest = hash.compute(&[message]);
+        let salt = vec![0x5A; digest.len()];
+        let encoded = pss::tests::emsa_pss_encode(hash, &digest, &salt, 2047);
+        let modulus = Modulus::new(&Integer::from_be_bytes(&hex(self.n)).expect("n")).expect("n");
+        let m = Integer::from_be_bytes(&encoded).expect("EM");
+        let d = Integer::from_be_bytes(&hex(self.d)).expect("d");
+        modpow(&m, &d, &modulus).be_bytes(k)
+    }
 }
 
 /// The root's start tag, in canonical form: its one namespace declaration, then its `Id`.
@@ -162,6 +283,8 @@ pub(crate) struct Shape<'a> {
     pub(crate) transforms: &'a [&'a str],
     pub(crate) canonicalization: &'a str,
     pub(crate) certificates: usize,
+    /// `None` for `rsa-sha256`'s PKCS #1 v1.5, or the hash of RFC 6931's `*-rsa-MGF1` method.
+    pub(crate) pss: Option<Digest>,
 }
 
 impl Shape<'static> {
@@ -170,6 +293,7 @@ impl Shape<'static> {
         transforms: &[ENVELOPED_SIGNATURE, EXC_C14N],
         canonicalization: EXC_C14N,
         certificates: 1,
+        pss: None,
     };
 }
 
@@ -186,10 +310,14 @@ pub(crate) fn signed_with(body: &str, key: Key, shape: Shape<'_>) -> String {
         .map(|uri| format!("<ds:Transform Algorithm=\"{uri}\"></ds:Transform>"))
         .collect::<Vec<_>>()
         .concat();
+    let method = match shape.pss {
+        None => "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
+        Some(Digest::Sha512) => "http://www.w3.org/2007/05/xmldsig-more#sha512-rsa-MGF1",
+        Some(_) => "http://www.w3.org/2007/05/xmldsig-more#sha256-rsa-MGF1",
+    };
     let inner = format!(
         "<ds:CanonicalizationMethod Algorithm=\"{}\"></ds:CanonicalizationMethod>\
-         <ds:SignatureMethod Algorithm=\"http://www.w3.org/2001/04/xmldsig-more#rsa-sha256\">\
-         </ds:SignatureMethod>\
+         <ds:SignatureMethod Algorithm=\"{method}\"></ds:SignatureMethod>\
          <ds:Reference URI=\"{}\"><ds:Transforms>{transforms}</ds:Transforms>\
          <ds:DigestMethod Algorithm=\"http://www.w3.org/2001/04/xmlenc#sha256\"></ds:DigestMethod>\
          <ds:DigestValue>{digest}</ds:DigestValue></ds:Reference>",
@@ -197,7 +325,10 @@ pub(crate) fn signed_with(body: &str, key: Key, shape: Shape<'_>) -> String {
     );
     // Exclusive canonicalisation renders on the apex the `ds` prefix it visibly utilizes.
     let canonical_info = format!("<ds:SignedInfo xmlns:ds=\"{DSIG}\">{inner}</ds:SignedInfo>");
-    let value = base64_of(&key.sign(canonical_info.as_bytes()));
+    let value = base64_of(&match shape.pss {
+        None => key.sign(canonical_info.as_bytes()),
+        Some(hash) => key.sign_pss(canonical_info.as_bytes(), hash),
+    });
     let certificate = format!(
         "<ds:X509Certificate>{}</ds:X509Certificate>",
         base64_of(&key.certificate())
@@ -400,4 +531,71 @@ fn an_ecdsa_value_is_the_concatenation_of_r_and_s() {
     plant[40] ^= 1;
     assert_eq!(ecdsa::verify_concatenated(key, &plant, &digest), Ok(false));
     assert!(ecdsa::verify_concatenated(key, &der, &digest).is_err());
+}
+
+/// RFC 4055 section 1.2: a certificate whose key is `id-RSASSA-PSS` carries an RSA key "the
+/// certificate user MUST only use ... for RSASSA-PSS operations". A list signed with RFC 6931
+/// section 2.3.10's `sha256-rsa-MGF1` under such a key with no parameters (section 3.3's second
+/// case, the shape of Germany's list signer) verifies, and a valid PKCS #1 v1.5 signature made with
+/// the same private key is refused, because the key's owner excluded that scheme.
+#[test]
+fn a_key_restricted_to_pss_verifies_pss_and_nothing_else() {
+    let pss = Shape {
+        pss: Some(Digest::Sha256),
+        ..Shape::ANNEX_B
+    };
+    assert_eq!(
+        verify(&signed_with(BODY, PSS_OPEN_KEY, pss)),
+        Ok(Verified {
+            signer: PSS_OPEN_KEY.certificate()
+        })
+    );
+    // The same key with RSASSA-PKCS1-v1_5: the arithmetic would pass, the restriction does not.
+    assert!(matches!(
+        verify(&signed(BODY, PSS_OPEN_KEY)),
+        Err(XmlSignatureError::Unsupported(_))
+    ));
+    // A PSS value over other octets is still the arithmetic saying no.
+    let mut changed = signed_with(BODY, PSS_OPEN_KEY, pss);
+    let at = changed.find("<ds:SignatureValue>").expect("a value") + "<ds:SignatureValue>".len();
+    changed.replace_range(
+        at..=at,
+        if changed[at..].starts_with('A') {
+            "B"
+        } else {
+            "A"
+        },
+    );
+    assert_eq!(verify(&changed), Err(XmlSignatureError::SignatureDiffers));
+}
+
+/// RFC 4055 section 3.3's third case: a key whose certificate states `RSASSA-PSS-params` admits a
+/// signature under those parameters — SHA-256, MGF1 over SHA-256, and a salt of at least 32 octets,
+/// which `sha256-rsa-MGF1`'s 32 meets — and refuses `sha512-rsa-MGF1` even when the arithmetic
+/// holds, because "all parameters in the signature structure algorithm identifier MUST match the
+/// parameters in the key structure algorithm identifier except the saltLength field".
+#[test]
+fn a_key_restricted_to_parameters_admits_those_and_refuses_others() {
+    let sha256 = Shape {
+        pss: Some(Digest::Sha256),
+        ..Shape::ANNEX_B
+    };
+    assert_eq!(
+        verify(&signed_with(BODY, PSS_BOUND_KEY, sha256)),
+        Ok(Verified {
+            signer: PSS_BOUND_KEY.certificate()
+        })
+    );
+    let sha512 = Shape {
+        pss: Some(Digest::Sha512),
+        ..Shape::ANNEX_B
+    };
+    let refused = verify(&signed_with(BODY, PSS_BOUND_KEY, sha512));
+    assert!(
+        matches!(&refused, Err(XmlSignatureError::Unsupported(why)) if why.contains("RFC 4055")),
+        "{refused:?}"
+    );
+    // And the unrestricted key of the same scheme verifies the SHA-512 method, so the refusal
+    // above is the restriction and not the method.
+    assert!(verify(&signed_with(BODY, PSS_OPEN_KEY, sha512)).is_ok());
 }

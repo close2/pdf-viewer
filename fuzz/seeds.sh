@@ -203,6 +203,16 @@ for territory in ("AT", "GB", "US"):
     open(sys.argv[1] + "/" + territory, "wb").write(struct.pack("<q", 1735689600) + xml.encode())' \
             "$root/$t" "$tree/crates/pdf-signature/src/x509_fixtures.rs"
         ;;
+    # ETSI EN 319 412-5's QC statements: the extension value `qc_statement/tests.rs` writes from
+    # the clauses' ASN.1 (clauses 4.2.1 to 4.2.3 and 4.3.3), and clause 4.2.4's countries.
+    qc_statement)
+        python3 -I -c 'import re, sys
+source = open(sys.argv[2]).read()
+stated = "".join(re.search(r"const STATED: &str = \"(.*?)\";", source, re.S).group(1).split()).replace("\\", "")
+open(sys.argv[1] + "/stated", "wb").write(bytes.fromhex(stated))
+open(sys.argv[1] + "/legislation", "wb").write(bytes.fromhex("3014301206060400" "8e46010730081302" "434813024e4f"))' \
+            "$root/$t" "$tree/crates/pdf-signature/src/qc_statement/tests.rs"
+        ;;
     # Every Rust source under `crates/` beside the documents, so that the fixture certificates are
     # found in whichever crate holds them; `tools/conformance/tests/fuzz_seeds.rs` counts them.
     x509)

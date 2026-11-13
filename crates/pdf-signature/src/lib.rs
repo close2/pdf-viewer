@@ -95,6 +95,7 @@ pub mod pkcs1;
 pub mod policy;
 pub mod policy_rules;
 pub mod pss;
+pub mod qc_statement;
 pub mod revision;
 pub mod revocation;
 pub mod signature;

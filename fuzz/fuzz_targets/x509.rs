@@ -84,6 +84,22 @@ fuzz_target!(|data: &[u8]| {
             inside(key.exponent);
             key
         }
+        // RFC 4055 section 1.2's restricted key: the same integers, and the parameters it states
+        // must be read to a verdict without panicking whatever they hold.
+        PublicKey::RsaPss { key, parameters } => {
+            inside(key.modulus);
+            inside(key.exponent);
+            if let Some(parameters) = parameters {
+                inside(parameters.contents);
+            }
+            let signed = pss::Parameters {
+                hash: Digest::Sha256,
+                mgf_hash: Digest::Sha256,
+                salt_length: 32,
+            };
+            let _ = pss::admitted_by_key(signed, certificate.public_key.pss_parameters());
+            key
+        }
         PublicKey::Dsa(key) => {
             inside(key.p);
             inside(key.q);

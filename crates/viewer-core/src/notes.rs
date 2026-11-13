@@ -2516,6 +2516,68 @@ fn listed_or_local(
     }
 }
 
+/// What the signer's certificate states under ETSI EN 319 412-5, named by the statements' own
+/// ASN.1 names and never as a level: those are the issuer's claims, which TS 119 615 clause 4.4
+/// weighs against the list and this build does not (ADR 2835, ADR 2853).
+fn statements_sentence(stated: &pdf_signature::qc_statement::Stated) -> String {
+    use pdf_signature::qc_statement::{QcType, Stated};
+    match stated {
+        Stated::Nothing => {
+            "The signer's certificate makes none of the statements of ETSI EN 319 412-5".to_owned()
+        }
+        Stated::Unreadable(error) => format!(
+            "The signer's certificate carries ETSI EN 319 412-5 statements that could not be read \
+             ({error})"
+        ),
+        Stated::Read(read) => {
+            let mut named = Vec::new();
+            if read.compliance {
+                named.push("QcCompliance (clause 4.2.1)".to_owned());
+            }
+            if read.sscd {
+                named.push("QcSSCD (clause 4.2.2)".to_owned());
+            }
+            if let Some(types) = &read.types {
+                let purposes: Vec<String> = types
+                    .iter()
+                    .map(|purpose| match purpose {
+                        QcType::Esign => "esign".to_owned(),
+                        QcType::Eseal => "eseal".to_owned(),
+                        QcType::Web => "web".to_owned(),
+                        QcType::Other(identifier) => identifier.clone(),
+                        // A purpose a later build names is said by its absence of a name.
+                        _ => "another purpose".to_owned(),
+                    })
+                    .collect();
+                named.push(format!("QcType {} (clause 4.2.3)", purposes.join(", ")));
+            }
+            if let Some(countries) = &read.legislation {
+                named.push(format!(
+                    "QcCClegislation {} (clause 4.2.4)",
+                    countries.join(", ")
+                ));
+            }
+            for other in &read.others {
+                named.push(format!("statement {other}"));
+            }
+            if named.is_empty() {
+                "The signer's certificate carries an empty set of ETSI EN 319 412-5 statements"
+                    .to_owned()
+            } else {
+                format!(
+                    "The signer's certificate states, under ETSI EN 319 412-5, {} — its issuer's \
+                     claims, which ETSI TS 119 615 clause 4.4 weighs against the list",
+                    named.join("; ")
+                )
+            }
+        }
+        // Any standing of the statements a later build adds is said in the words that claim least.
+        _ => "What the signer's certificate states under ETSI EN 319 412-5 is not said by this \
+              build"
+            .to_owned(),
+    }
+}
+
 /// The sentence for a [`pdf_signature::verdict::Valid`], which says whose anchor made it sayable.
 ///
 /// **Locally valid is said in those words** (`doc/questions/A800` item 3): a company's own
@@ -2554,14 +2616,15 @@ fn valid_sentence(valid: &pdf_signature::verdict::Valid, asked_at: &str) -> Stri
                 "that signature is valid under the trusted list of {} (sequence number {}): \
                  {reached} reaches the service \"{}\" of {}, which the list publishes as {} with \
                  the status {} when the signer's certificate was issued (ETSI TS 119 615 clause \
-                 4.3){asked_at}. {believed}, and whether this is a qualified electronic signature \
-                 or seal (QES, AdES/QC, AdES) is not determined by this build",
+                 4.3){asked_at}. {believed}. {}, and whether this is a qualified electronic \
+                 signature or seal (QES, AdES/QC, AdES) is not determined by this build",
                 listing.territory,
                 listing.sequence_number,
                 listing.service,
                 listing.provider,
                 listing.service_type,
-                listing.status_at_issue.as_deref().unwrap_or("none yet")
+                listing.status_at_issue.as_deref().unwrap_or("none yet"),
+                statements_sentence(&listing.statements)
             )
         }
         // Every other standing — the reader's own anchors, and any a later build adds — is said
@@ -4168,5 +4231,36 @@ mod tests {
             vouched.contains("at.xml is not a trusted list this reader can use"),
             "{vouched}"
         );
+    }
+
+    /// ETSI EN 319 412-5's statements are named by their own ASN.1 names with their clauses, as
+    /// the issuer's claims, and no level is worded from them (ADR 2835): none of "QES", "qualified
+    /// electronic signature" or "qualified certificate" appears in what they produce.
+    #[test]
+    fn a_certificates_statements_are_named_and_never_a_level() {
+        use pdf_signature::qc_statement::{QcStatements, QcType, Stated};
+        let read = Stated::Read(QcStatements {
+            compliance: true,
+            sscd: true,
+            types: Some(vec![QcType::Esign]),
+            legislation: Some(vec!["CH".to_owned()]),
+            others: vec!["0.4.0.1862.1.3".to_owned()],
+        });
+        let said = super::statements_sentence(&read);
+        for named in [
+            "QcCompliance (clause 4.2.1)",
+            "QcSSCD (clause 4.2.2)",
+            "QcType esign (clause 4.2.3)",
+            "QcCClegislation CH (clause 4.2.4)",
+            "statement 0.4.0.1862.1.3",
+            "its issuer's claims",
+        ] {
+            assert!(said.contains(named), "{named} in {said}");
+        }
+        for level in ["QES", "qualified"] {
+            assert!(!said.contains(level), "{level} in {said}");
+        }
+        let none = super::statements_sentence(&Stated::Nothing);
+        assert!(none.contains("makes none of the statements"), "{none}");
     }
 }

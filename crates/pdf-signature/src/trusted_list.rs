@@ -512,6 +512,16 @@ pub fn listed_anchors(
     signature: &Signature,
 ) -> Vec<(Listing, Vec<Vec<u8>>)> {
     let mut anchors = Vec::new();
+    // EN 319 412-5's statements are the signing certificate's, the same for every service that
+    // issued it, so they are read once.
+    let statements =
+        signature
+            .signer_certificate()
+            .map_or(crate::qc_statement::Stated::Nothing, |der| {
+                x509::parse(&der).map_or(crate::qc_statement::Stated::Nothing, |certificate| {
+                    crate::qc_statement::Stated::of(&certificate)
+                })
+            });
     for (list, found) in qualified_issuers(lists, signature) {
         if found.status != Status::Passed {
             continue;
@@ -526,6 +536,7 @@ pub fn listed_anchors(
                     service_type: matched.service.current.type_identifier.clone(),
                     status_at_issue: matched.at_date_time.map(|state| state.status.clone()),
                     authentication: list.authentication,
+                    statements: statements.clone(),
                 },
                 matched.service.current.certificates.clone(),
             ));
