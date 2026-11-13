@@ -817,7 +817,8 @@ fn compose_until_told_to_stop(
                 return;
             }
             // Woken so that the window takes the frame when it lands rather than at the next tick
-            // (ADR 1936).
+            // (ADR 1936) — and only after the send, never before it: a loop woken first would find
+            // the channel empty and rest until whatever woke it next (ADR 2854).
             wake();
             continue;
         }
@@ -952,8 +953,8 @@ fn draw_whole_page(page: &crate::stale::Placed) -> Option<crate::stale::Retained
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::mpsc::channel;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use pdf_render::{DisplayList, Interrupt, Size, TargetSpec, Transform};
@@ -962,19 +963,41 @@ mod tests {
     use super::{Finished, Job, compose_until_told_to_stop};
     use crate::stale::{Depicts, Picture, Placed};
 
-    /// A frame the composing thread finishes wakes the event loop, and the frame is already in the
-    /// channel when the wake comes, so the tick it wakes collects it (ADR 1936).
+    /// Every wake the composing thread sends comes after the news it wakes for is in the channel,
+    /// so a tick it wakes always finds something, and the wake for the frame finds the frame
+    /// (ADRs 1936, 2854).
+    ///
+    /// **Asked on the composing thread, at the moment of each wake**, because that is where the
+    /// order is decided: the wake here drains the channel before it returns, so a wake sent before
+    /// its news finds the channel empty whatever the scheduler does. Asked from this thread after
+    /// the first wake, the answer depended on *which* wake came first — a look
+    /// (`Finished::Partial`) is sent and woken for whenever the draw runs past
+    /// `viewer_host::drawing::GLIMPSE_AFTER`, which even an empty page does on a starved machine.
     #[test]
-    fn a_finished_frame_wakes_the_loop_after_it_is_sent() {
+    fn every_wake_comes_after_the_news_it_is_for_is_sent() {
         let (jobs, incoming) = channel::<Job>();
         let (outgoing, done) = channel::<Finished>();
-        let (woken, wakes) = channel::<()>();
-        let thread = std::thread::spawn(move || {
-            let wake = || {
-                let _ = woken.send(());
-            };
-            compose_until_told_to_stop(0, &wake, &incoming, &outgoing);
-        });
+        let done = Arc::new(Mutex::new(done));
+        let (woken, wakes) = channel::<Vec<&'static str>>();
+        let thread = {
+            let done = Arc::clone(&done);
+            std::thread::spawn(move || {
+                let wake = || {
+                    let found = done
+                        .lock()
+                        .expect("only the composing thread takes the channel")
+                        .try_iter()
+                        .map(|finished| match finished {
+                            Finished::Frame(_) => "frame",
+                            Finished::Partial(_) => "look",
+                            Finished::Page(_) => "page",
+                        })
+                        .collect();
+                    let _ = woken.send(found);
+                };
+                compose_until_told_to_stop(0, &wake, &incoming, &outgoing);
+            })
+        };
         let page = Placed {
             of: Picture::new(DocumentId(1), 0, 0),
             list: Arc::new(DisplayList::new(Size::new(595.0, 842.0))),
@@ -991,17 +1014,22 @@ mod tests {
             ahead: None,
         })
         .expect("the composing thread is running");
-        wakes
-            .recv_timeout(Duration::from_mins(1))
-            .expect("a frame was drawn and nothing woke the loop");
-        let frames = done
-            .try_iter()
-            .filter(|finished| matches!(finished, Finished::Frame(_)))
-            .count();
-        assert_eq!(
-            frames, 1,
-            "the wake came before the frame it is for was sent"
-        );
+        loop {
+            let found = wakes
+                .recv_timeout(Duration::from_mins(1))
+                .expect("a frame was drawn and nothing woke the loop");
+            assert!(
+                !found.is_empty(),
+                "a wake came before the news it is for was sent"
+            );
+            assert!(
+                !found.contains(&"page"),
+                "no whole page is drawn without proxy pages, found {found:?}"
+            );
+            if found.contains(&"frame") {
+                break;
+            }
+        }
         drop(jobs);
         thread
             .join()
