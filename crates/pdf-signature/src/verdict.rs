@@ -116,6 +116,10 @@ pub struct Listing {
     /// What the signing certificate's own `qcStatements` say, in ETSI EN 319 412-5 clause 4.2's
     /// terms — the issuer's claims that TS 119 615 clause 4.4 starts from, carried unweighed.
     pub statements: crate::qc_statement::Stated,
+    /// ETSI TS 119 615 clause 4.4's determination for the signing certificate at the best
+    /// signature time (ETSI TS 119 172-4 REQ-4.4.2-01): an indication about the certificate, never
+    /// the signature's level, which clause 4.5 and REQ-4.4.2-06 decide (ADR 2864).
+    pub qualification: crate::trusted_list::determination::Qualification,
 }
 
 impl Anchored {

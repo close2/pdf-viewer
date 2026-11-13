@@ -290,6 +290,16 @@ impl KeyUsage {
     pub const fn crl_sign(self) -> bool {
         self.bits & (1 << 6) != 0
     }
+
+    /// Whether bit `bit` of section 4.2.1.3's nine (`digitalSignature(0)` to `decipherOnly(8)`)
+    /// is asserted; `false` past the sixteen this word holds.
+    ///
+    /// ETSI TS 119 612 clause 5.5.9.2.2.1's `KeyUsage` criterion names any of the nine and asks
+    /// whether the certificate's bit has the value the list states, so it asks by number.
+    #[must_use]
+    pub const fn asserts(self, bit: u8) -> bool {
+        bit < 16 && self.bits & (1 << bit) != 0
+    }
 }
 
 /// What a certificate's extensions say, as far as a certification path reads them.

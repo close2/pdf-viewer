@@ -1,8 +1,8 @@
 # 77 — European signatures, their levels, and *locally valid*
 
 Status: **open** — locally valid, the list reader, the lists' authentication, RSASSA-PSS subject
-keys and the QC statements are built (ADRs 2834, 2835, 2842, 2843, 2852, 2853); section 2 is the
-order for the rest.
+keys, the QC statements and TS 119 615 clauses 4.4 and 4.5 are built (ADRs 2834, 2835, 2842, 2843,
+2852, 2853, 2864, 2865); section 2 is the order for the rest.
 Priority: the owner's, 2026-11-06, `doc/questions/A800` item 3: "we should be able to validate all
 european digital signatures and be able to tell the user the different levels of signatures QES,
 AES,..." and "We should have a local valid certificate setting as well."
@@ -46,13 +46,22 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
   `qc_statement` target. `verdict::Listing::statements` carries them and `viewer_core::notes`
   names them as the issuer's claims, never as a level.
 
+- **TS 119 615 clause 4.4** (ADR 2864). `trusted_list::qualifications`: TS 119 612 clause
+  5.5.9.2's `Qualifications` extension read, criteria lists (key usage, policy sets, clause
+  5.5.9.2.2.3's extended key usage and subject attributes, nesting) asked of a certificate in three
+  answers, a critical extension's undecidable criteria discarding the certificate.
+  `trusted_list::determination`: PRO-4.4.4-01 to -36 at the best signature time on the list of the
+  issuer's territory, Tables 1 to 5, the run at `notBefore`; `verdict::Listing::qualification`
+  carries it and `viewer_core::notes` says the clause's indications as being about the certificate.
+  No level is worded.
+- **TS 119 615 clause 4.5** (ADR 2865). `trusted_list::determination::qscd`: PRO-4.5.4-01 to -05
+  over clause 4.4's `CHECK_1_SET-OF_QE` and `CHECK_2_SET-OF_QE` and the certificate's `QcSSCD`,
+  Tables 6 and 7, unknown qualifiers refused under a critical extension; carried beside clause
+  4.4's outputs and said as `QSCD_YES` and its siblings, about the key.
+
 ## 2. What is left, in order
 
-2. **TS 119 615 clause 4.4** (EU qualified certificate determination at the best signature time):
-   the service's qualifications extension (TS 119 612 clause 5.5.9.2, `CriteriaList` and
-   `Qualifier`), additional service information, the status at the instant, the transition rules.
-   This is the long one — fourteen pages of processing — and a round of its own.
-3. **Clause 4.5** (QSCD determination), then **TS 119 172-4 REQ-4.4.2-06**'s join into a
+3. **TS 119 172-4 REQ-4.4.2-02 to -06**'s join into a
    `verdict::Level` beside `Standing`: qualified signature or seal, advanced on a qualified
    certificate, advanced, indeterminate, each with the requirement that decided it. Only then does
    any report say "qualified" (ADR 2835).

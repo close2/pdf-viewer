@@ -12,6 +12,11 @@
 //!   (`pdf_signature::xml_signature`, `Lists::read`, ADR 2842): the octets are offered as the list
 //!   of trusted lists and as a Member State's list at once, so the canonicaliser's subset, the
 //!   reference digests and the pointer reader all run on the fuzzer's XML.
+//! - **Clause 4.4 is a function of the bytes and answers inside its clause** (ADR 2864): each
+//!   identity is asked about as the certificate under TS 119 615 clause 4.4, twice, and a
+//!   determination never holds more than three results (one check per purpose, PRO-4.4.4-32 c)),
+//!   so TS 119 612 clause 5.5.9.2's qualifications reader and its recursive criteria run on the
+//!   fuzzer's XML.
 //! - **The search never reaches past a list's services**: every tuple clause 4.3 returns names a
 //!   service of the list it searched, with `SI-at-Date-time` the service's current information or
 //!   one of its own history instances, at any instant.
@@ -20,7 +25,7 @@
 
 use libfuzzer_sys::fuzz_target;
 use pdf_signature::trusted_list::{
-    Authentication, CA_QC, Lists, MAX_ENTRIES, TrustedList, matching,
+    Authentication, CA_QC, Lists, MAX_ENTRIES, TrustedList, determination, matching,
 };
 use pdf_signature::x509::{self, Instant};
 use pdf_signature::xml_signature;
@@ -76,6 +81,18 @@ fuzz_target!(|data: &[u8]| {
         let Ok(target) = x509::parse(der) else {
             continue;
         };
+        let asked = determination::determine(std::slice::from_ref(&list), &target, &[], at);
+        assert_eq!(
+            asked,
+            determination::determine(std::slice::from_ref(&list), &target, &[], at),
+            "clause 4.4 is a function of the bytes"
+        );
+        if let determination::Qualification::Determined { determination, .. } = &asked {
+            assert!(
+                determination.results.len() <= 3,
+                "at most one value per purpose: {determination:?}"
+            );
+        }
         let found = matching(&list, &target, &[], CA_QC, at);
         for matched in &found.results {
             assert!(

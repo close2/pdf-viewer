@@ -119,7 +119,7 @@ fn a_path_to_a_listed_service_carries_the_listing() {
     let list = TrustedList::read(list_xml("AT", &[("A provider", &[service])]).as_bytes())
         .expect("the written list reads");
     let lists = [list];
-    let found = listed_anchors(&lists, &signature);
+    let found = listed_anchors(&lists, &signature, AT);
     let [(listing, identities)] = found.as_slice() else {
         panic!("one service issued the signer: {found:?}");
     };
@@ -131,6 +131,12 @@ fn a_path_to_a_listed_service_carries_the_listing() {
     // ETSI EN 319 412-5: the fixture's signer carries no `qcStatements`, and a listing says so
     // rather than inventing a claim the certificate did not make.
     assert_eq!(listing.statements, crate::qc_statement::Stated::Nothing);
+    // ETSI TS 119 615 PRO-4.4.4-01: clause 4.4 starts from the issuer's countryName, which the
+    // fixture's root does not state, so no Member State's list is named and none is read.
+    assert_eq!(
+        listing.qualification,
+        crate::trusted_list::determination::Qualification::IssuerStatesNoCountry
+    );
 
     let parsed: Vec<_> = identities
         .iter()
@@ -158,7 +164,7 @@ fn a_path_to_a_listed_service_carries_the_listing() {
         TrustedList::read(list_xml("AT", &[("A provider", &[GRANTED_AT_LATER])]).as_bytes())
             .expect("the written list reads");
     assert!(
-        listed_anchors(&[elsewhere], &signature).is_empty(),
+        listed_anchors(&[elsewhere], &signature, AT).is_empty(),
         "a service whose identity issued nothing here is not the signer's"
     );
 }
@@ -181,7 +187,7 @@ fn a_listing_from_an_authenticated_list_carries_its_authentication() {
     };
     let reading = authenticated_reading(&[service]);
     assert!(reading.refused.is_empty(), "{:?}", reading.refused);
-    let found = listed_anchors(&reading.lists, &signature);
+    let found = listed_anchors(&reading.lists, &signature, AT);
     let [(listing, _)] = found.as_slice() else {
         panic!("one service issued the signer: {found:?}");
     };

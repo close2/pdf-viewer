@@ -2470,8 +2470,10 @@ fn listed_or_local(
 ) -> pdf_signature::verdict::Verdict {
     use pdf_signature::verdict::{Anchored, Verdict};
     let mut listed = None;
-    for (listing, identities) in pdf_signature::trusted_list::listed_anchors(asked.lists, signature)
-    {
+    // ETSI TS 119 172-4 REQ-4.4.2-01: clause 4.4 is asked at the best signature time.
+    let services =
+        pdf_signature::trusted_list::listed_anchors(asked.lists, signature, asked.when.at());
+    for (listing, identities) in services {
         let parsed: Vec<_> = identities
             .iter()
             .filter_map(|der| pdf_signature::x509::parse(der).ok())
@@ -2518,7 +2520,7 @@ fn listed_or_local(
 
 /// What the signer's certificate states under ETSI EN 319 412-5, named by the statements' own
 /// ASN.1 names and never as a level: those are the issuer's claims, which TS 119 615 clause 4.4
-/// weighs against the list and this build does not (ADR 2835, ADR 2853).
+/// weighs against the list ([`qualification_sentence`] says what it found; ADR 2835, ADR 2853).
 fn statements_sentence(stated: &pdf_signature::qc_statement::Stated) -> String {
     use pdf_signature::qc_statement::{QcType, Stated};
     match stated {
@@ -2578,6 +2580,88 @@ fn statements_sentence(stated: &pdf_signature::qc_statement::Stated) -> String {
     }
 }
 
+/// What ETSI TS 119 615 clauses 4.4 and 4.5 found for the signer's certificate, in the clauses'
+/// own indications and named as being about the certificate: a level of the signature also needs
+/// ETSI TS 119 172-4 REQ-4.4.2-06's join, which this build does not run (ADRs 2864, 2865).
+fn qualification_sentence(
+    qualification: &pdf_signature::trusted_list::determination::Qualification,
+) -> String {
+    use pdf_signature::trusted_list::determination::{QcStatus, Qualification};
+    match qualification {
+        Qualification::Determined {
+            territory,
+            sequence_number,
+            determination,
+            qscd,
+        } => {
+            let results: Vec<&str> = determination
+                .results
+                .iter()
+                .map(|indication| indication.name())
+                .collect();
+            let status = match determination.status {
+                QcStatus::Passed => "PROCESS_PASSED",
+                QcStatus::PassedWithWarning => "PROCESS_PASSED_WITH_WARNING",
+                QcStatus::Failed => "PROCESS_FAILED",
+            };
+            let found = if results.is_empty() {
+                "no indication".to_owned()
+            } else {
+                results.join(", ")
+            };
+            let mut sentence = format!(
+                "At the best signature time, ETSI TS 119 615 clause 4.4 over the trusted list of \
+                 {territory} (sequence number {sequence_number}) finds the signer's certificate \
+                 {found} ({status}"
+            );
+            if !determination.sub_status.is_empty() {
+                let said: Vec<String> = determination
+                    .sub_status
+                    .iter()
+                    .map(pdf_signature::trusted_list::determination::SubStatus::name)
+                    .collect();
+                sentence.push_str(": ");
+                sentence.push_str(&said.join("; "));
+            }
+            sentence.push(')');
+            // Clause 4.5's answer about the key, in its own indications (ADR 2865).
+            let qscd_status = match qscd.status {
+                QcStatus::Passed => "PROCESS_PASSED",
+                QcStatus::PassedWithWarning => "PROCESS_PASSED_WITH_WARNING",
+                QcStatus::Failed => "PROCESS_FAILED",
+            };
+            sentence.push_str(", and clause 4.5 finds its key ");
+            sentence.push_str(
+                qscd.result
+                    .map_or("with no indication", |result| result.name()),
+            );
+            sentence.push_str(" (");
+            sentence.push_str(qscd_status);
+            if !qscd.sub_status.is_empty() {
+                let said: Vec<String> = qscd
+                    .sub_status
+                    .iter()
+                    .map(pdf_signature::trusted_list::determination::qscd::QscdSubStatus::name)
+                    .collect();
+                sentence.push_str(": ");
+                sentence.push_str(&said.join("; "));
+            }
+            sentence.push_str(") — indications about the certificate, not the signature's level");
+            sentence
+        }
+        Qualification::NoListForTerritory(territory) => format!(
+            "No trusted list of {territory}, the territory the certificate's issuer names, was \
+             supplied, so ETSI TS 119 615 clause 4.4 had no list to read"
+        ),
+        Qualification::IssuerStatesNoCountry => "The certificate's issuer names no country, so \
+             ETSI TS 119 615 clause 4.4 names no list to read"
+            .to_owned(),
+        // The certificate not reading, and any answer a later build adds, is said in the words
+        // that claim least.
+        _ => "ETSI TS 119 615 clause 4.4 was not run for the signer's certificate".to_owned(),
+    }
+}
+
 /// The sentence for a [`pdf_signature::verdict::Valid`], which says whose anchor made it sayable.
 ///
 /// **Locally valid is said in those words** (`doc/questions/A800` item 3): a company's own
@@ -2616,7 +2700,7 @@ fn valid_sentence(valid: &pdf_signature::verdict::Valid, asked_at: &str) -> Stri
                 "that signature is valid under the trusted list of {} (sequence number {}): \
                  {reached} reaches the service \"{}\" of {}, which the list publishes as {} with \
                  the status {} when the signer's certificate was issued (ETSI TS 119 615 clause \
-                 4.3){asked_at}. {believed}. {}, and whether this is a qualified electronic \
+                 4.3){asked_at}. {believed}. {}. {}, and whether this is a qualified electronic \
                  signature or seal (QES, AdES/QC, AdES) is not determined by this build",
                 listing.territory,
                 listing.sequence_number,
@@ -2624,7 +2708,8 @@ fn valid_sentence(valid: &pdf_signature::verdict::Valid, asked_at: &str) -> Stri
                 listing.provider,
                 listing.service_type,
                 listing.status_at_issue.as_deref().unwrap_or("none yet"),
-                statements_sentence(&listing.statements)
+                statements_sentence(&listing.statements),
+                qualification_sentence(&listing.qualification)
             )
         }
         // Every other standing — the reader's own anchors, and any a later build adds — is said
@@ -4262,5 +4347,52 @@ mod tests {
         }
         let none = super::statements_sentence(&Stated::Nothing);
         assert!(none.contains("makes none of the statements"), "{none}");
+    }
+
+    /// ETSI TS 119 615 clause 4.4's outputs are said in the clause's own indications, with the
+    /// list they came from, and named as being about the certificate: no level of the signature
+    /// ("QES", "qualified electronic signature") is worded from them (ADR 2835, ADR 2864). A host
+    /// that supplied no list of the issuer's territory hears that, not `Not_Qualified`.
+    #[test]
+    fn a_certificates_qualification_is_said_in_the_clauses_indications_and_never_a_level() {
+        use pdf_signature::trusted_list::determination::qscd::{Qscd, QscdIndication};
+        use pdf_signature::trusted_list::determination::{
+            Determination, Indication, Purpose, QcStatus, Qualification, SubStatus,
+        };
+        let determined = Qualification::Determined {
+            territory: "AT".to_owned(),
+            sequence_number: 42,
+            determination: Determination {
+                status: QcStatus::PassedWithWarning,
+                sub_status: vec![SubStatus::NotEnoughInfoOnQcType(Purpose::ESig)],
+                results: vec![
+                    Indication::IndetQcForESig,
+                    Indication::NotQualifiedForESeal,
+                    Indication::NotQwac,
+                ],
+                sets_of_qe: [Vec::new(), Vec::new(), Vec::new()],
+            },
+            qscd: Qscd {
+                status: QcStatus::Passed,
+                sub_status: Vec::new(),
+                result: Some(QscdIndication::Indeterminate),
+            },
+        };
+        let said = super::qualification_sentence(&determined);
+        for named in [
+            "trusted list of AT (sequence number 42)",
+            "INDET_QC_For_eSig, Not_Qualified_For_eSeal, Not_QWAC",
+            "PROCESS_PASSED_WITH_WARNING: WARNING_T1_Not_Enough_Info_on_QC_Type",
+            "clause 4.5 finds its key QSCD_INDETERMINATE (PROCESS_PASSED)",
+            "not the signature's level",
+        ] {
+            assert!(said.contains(named), "{named} in {said}");
+        }
+        for level in ["QES", "qualified electronic signature"] {
+            assert!(!said.contains(level), "{level} in {said}");
+        }
+        let absent = super::qualification_sentence(&Qualification::NoListForTerritory("AT".into()));
+        assert!(absent.contains("No trusted list of AT"), "{absent}");
+        assert!(!absent.contains("Not_Qualified"), "{absent}");
     }
 }

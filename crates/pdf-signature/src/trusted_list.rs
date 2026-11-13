@@ -42,8 +42,11 @@ use crate::x509::{self, Certificate, Instant};
 use crate::xml::{self, Element, Tree, XmlError, base64, date_time};
 
 pub mod authentication;
+pub mod determination;
+pub mod qualifications;
 
 pub use authentication::Outcome;
+pub use qualifications::Qualifications;
 
 /// TS 119 612 Annex C's target namespace for the list's own elements.
 pub const NAMESPACE: &str = "http://uri.etsi.org/02231/v2#";
@@ -143,6 +146,8 @@ pub struct ServiceState {
     pub since: Instant,
     /// Clause 5.5.9.4's `additionalServiceInformation` URIs.
     pub additional_information: Vec<String>,
+    /// Clause 5.5.9.2's `Qualifications` extensions, each with its criticality.
+    pub qualifications: Vec<Qualifications>,
 }
 
 /// One listed service: its current status and, newest first as clause 5.5.10 orders them, the
@@ -162,6 +167,9 @@ pub struct Provider {
     pub name: String,
     /// Clause 5.4.2's TSP trade name, where the list states one.
     pub trade_name: Option<String>,
+    /// Every language's value of clause 5.4.1's TSP name and clause 5.4.2's trade name, in the
+    /// list's order — what TS 119 615 PRO-4.4.4-06 matches an issuer's name against.
+    pub names: Vec<String>,
     /// Clause 5.4.6's services.
     pub services: Vec<Service>,
 }
@@ -502,7 +510,8 @@ pub fn qualified_issuers<'l>(
 
 /// ETSI TS 119 172-4 REQ-4.2-03 a)'s anchors for one signature: per service clause 4.3 returned
 /// with `SI-Status` `PROCESS_PASSED`, the service's digital identity as DER and the
-/// [`Listing`] a verdict reached through it carries.
+/// [`Listing`] a verdict reached through it carries, with TS 119 615 clause 4.4's determination
+/// at `best_signature_time` (REQ-4.4.2-01).
 ///
 /// One entry per service rather than one set for all of them, so that the verdict can name the
 /// service whose identity the path ended at.
@@ -510,8 +519,12 @@ pub fn qualified_issuers<'l>(
 pub fn listed_anchors(
     lists: &[TrustedList],
     signature: &Signature,
+    best_signature_time: Instant,
 ) -> Vec<(Listing, Vec<Vec<u8>>)> {
     let mut anchors = Vec::new();
+    // Clause 4.4 is a question about the signing certificate and the list of its issuer's
+    // territory, the same whichever service's identity a path ends at, so it is asked once.
+    let qualification = determination::qualification(lists, signature, best_signature_time);
     // EN 319 412-5's statements are the signing certificate's, the same for every service that
     // issued it, so they are read once.
     let statements =
@@ -537,6 +550,7 @@ pub fn listed_anchors(
                     status_at_issue: matched.at_date_time.map(|state| state.status.clone()),
                     authentication: list.authentication,
                     statements: statements.clone(),
+                    qualification: qualification.clone(),
                 },
                 matched.service.current.certificates.clone(),
             ));
@@ -828,6 +842,14 @@ impl<'t> Reader<'t> {
             Some(_) => Some(self.name(information, "TSPTradeName")?),
             None => None,
         };
+        let mut names = Vec::new();
+        for local in ["TSPName", "TSPTradeName"] {
+            for list in self.all(information, local) {
+                for name in self.all(list, "Name") {
+                    names.push(name.text.trim().to_owned());
+                }
+            }
+        }
         let mut read = Vec::new();
         for service in self
             .first(provider, "TSPServices")
@@ -839,6 +861,7 @@ impl<'t> Reader<'t> {
         Ok(Provider {
             name: self.name(information, "TSPName")?,
             trade_name,
+            names,
             services: read,
         })
     }
@@ -876,11 +899,13 @@ impl<'t> Reader<'t> {
             }
         }
         let mut additional_information = Vec::new();
+        let mut qualifications = Vec::new();
         if let Some(extensions) = self.first(element, "ServiceInformationExtensions") {
             for extension in self.all(extensions, "Extension") {
                 for information in self.all(extension, "AdditionalServiceInformation") {
                     additional_information.push(self.text(information, "URI")?);
                 }
+                qualifications.extend(qualifications::read(self.tree, extension));
             }
         }
         Ok(ServiceState {
@@ -890,6 +915,7 @@ impl<'t> Reader<'t> {
             status: self.text(element, "ServiceStatus")?,
             since: self.instant(element, "StatusStartingTime")?,
             additional_information,
+            qualifications,
         })
     }
 }

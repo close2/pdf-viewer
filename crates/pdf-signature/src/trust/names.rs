@@ -726,6 +726,94 @@ pub fn names_of(
     Ok(names)
 }
 
+/// One attribute of a distinguished name, flattened out of its relative distinguished name: the
+/// type's dotted identifier and the value as text, where it is a string type section 7.1 compares.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamedAttribute {
+    /// The attribute type, dotted.
+    pub kind: String,
+    /// The value as text; `None` where it is not a string type this program decodes.
+    pub text: Option<String>,
+}
+
+/// The attributes of a `Name` given as a certificate's `issuer` or `subject` field holds it — the
+/// `RDNSequence`'s contents, its header taken off (`pdf_pki::x509::Certificate::issuer`).
+///
+/// # Errors
+///
+/// [`Unreadable`] where the contents are not an `RDNSequence`'s, or past the bound.
+pub fn attributes_of(contents: &[u8]) -> Result<Vec<NamedAttribute>, Unreadable> {
+    let rdns = directory(&single(&sequence_around(contents))?)?;
+    Ok(rdns
+        .iter()
+        .flat_map(|rdn| &rdn.0)
+        .map(|attribute| NamedAttribute {
+            kind: crate::x509::dotted(&attribute.kind).unwrap_or_default(),
+            text: attribute.text.clone(),
+        })
+        .collect())
+}
+
+/// Section 7.1's comparison of two attribute values held as text, after RFC 4518's preparation
+/// where it is exact (`prepared`); identical text matches whatever it holds, and text outside
+/// ASCII that differs is [`Match::Undecided`], because the case folding the preparation asks of it
+/// is not in this tree.
+#[must_use]
+pub fn texts_match(left: &str, right: &str) -> Match {
+    if left == right {
+        return Match::Yes;
+    }
+    match (prepared(left), prepared(right)) {
+        (Some(a), Some(b)) => Match::of(a == b),
+        _ => Match::Undecided,
+    }
+}
+
+/// Section 7.1's distinguished name match between two `Name`s given as a certificate's fields
+/// hold them (the `RDNSequence`'s contents): the same number of RDNs, each matching its peer in
+/// order.
+#[must_use]
+pub fn names_match(left: &[u8], right: &[u8]) -> Match {
+    let read =
+        |contents: &[u8]| single(&sequence_around(contents)).and_then(|value| directory(&value));
+    let (Ok(left), Ok(right)) = (read(left), read(right)) else {
+        return Match::Undecided;
+    };
+    if left.len() != right.len() {
+        return Match::No;
+    }
+    let mut answer = Match::Yes;
+    for (a, b) in left.iter().zip(&right) {
+        answer = match (answer, rdn_matches(a, b)) {
+            (_, Match::No) | (Match::No, _) => return Match::No,
+            (Match::Undecided, _) | (_, Match::Undecided) => Match::Undecided,
+            _ => Match::Yes,
+        };
+    }
+    answer
+}
+
+/// `contents` with a `SEQUENCE` header put back in front of them, in X.690 clause 8.1.3's
+/// definite form.
+fn sequence_around(contents: &[u8]) -> Vec<u8> {
+    let mut encoded = vec![SEQUENCE];
+    let length = contents.len();
+    if length < 0x80 {
+        // Below 0x80 the short form is the length itself, which fits an octet.
+        encoded.push(u8::try_from(length).unwrap_or(0));
+    } else {
+        let octets: Vec<u8> = length
+            .to_be_bytes()
+            .into_iter()
+            .skip_while(|&octet| octet == 0)
+            .collect();
+        encoded.push(0x80 | u8::try_from(octets.len()).unwrap_or(0));
+        encoded.extend_from_slice(&octets);
+    }
+    encoded.extend_from_slice(contents);
+    encoded
+}
+
 /// The one value `encoded` holds, with nothing after it.
 fn single(encoded: &[u8]) -> Result<Value<'_>, Unreadable> {
     let mut reader = Reader::new(encoded).map_err(|_| Unreadable::Malformed)?;
