@@ -541,11 +541,12 @@ pub mod ffi {
         /// repaint: rebuilding a window on every pointer move during a drag would churn the widget
         /// tree at pointer speed for a list that changes when a page turns.
         popups: bool,
-        /// The pointer crossed into or out of §12.5.6.5's activation region.
+        /// The pointer crossed into or out of §12.5.6.5's activation region or the page's text.
         ///
-        /// A flag beside `over_link` rather than the boolean itself, which is the shape `window`
-        /// and `clipboard` already have and is here for the reason this module's own documentation
-        /// gives: Rust never calls a Qt object, and `QWidget::setCursor` is one.
+        /// A flag beside `over_link` and `over_text` rather than the booleans themselves, which
+        /// is the shape `window` and `clipboard` already have and is here for the reason this
+        /// module's own documentation gives: Rust never calls a Qt object, and
+        /// `QWidget::setCursor` is one.
         cursor: bool,
         /// The title bar's text changed.
         title: bool,
@@ -1026,6 +1027,9 @@ pub mod ffi {
         /// reader sees over a link is a convention no clause states, and this is the one this
         /// program has had in `viewer-ui` since ADR 0166.
         fn over_link(self: &Host) -> bool;
+        /// Whether the pointer is over the page's text and no link, where a press starts a
+        /// selection: the text cursor's convention, asked beside `over_link` (ADR 2856).
+        fn over_text(self: &Host) -> bool;
         /// Every occurrence of the find bar's string on the page being shown.
         fn matches(self: &Host) -> Vec<QtQuad>;
         /// Annex O's `highlight`: what the URI's fragment asked to be shown highlighted.

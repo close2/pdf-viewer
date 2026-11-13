@@ -97,6 +97,10 @@ What follows is why each later addition passed the test.
   confined wire for a page the window drew from crossed marks (ADRs 2280, 2290); C sends it for a
   window raster with `quorra_raster_declined`, and a page the confined worker drew as pixels says it
   on its frame, which the confined window's title reads (ADR 2316).
+- **`Query::TextAt` and `Answer::OverText`** — whether a glyph is under a point, the second half of
+  choosing a cursor beside `Query::LinkAt`: the glyphs' boxes are this crate's, and a host asks at
+  pointer speed. `viewer_host::Under` decides link before text for every window; C asks
+  `quorra_text_at`, and the confined wire carries it as kind 39 both ways (ADR 2856).
 
 #### Shapes changed and fields added
 

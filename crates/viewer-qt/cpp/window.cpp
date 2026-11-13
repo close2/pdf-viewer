@@ -2720,9 +2720,12 @@ void MainWindow::applyUpdates()
         rebuildPopups();
     }
     if (update.cursor) {
-        // §12.5.6.5's activation region. The clause states no cursor at all, so this is a
-        // convention rather than a requirement — and it is the convention all three hosts keep.
-        page_->setCursor(host_->over_link() ? Qt::PointingHandCursor : Qt::ArrowCursor);
+        // ISO 32000-2 12.5.6.5's activation region, then the page's text. The standard states no
+        // cursor at all, so this is a convention rather than a requirement — and it is the
+        // convention all three hosts keep (ADR 2856).
+        page_->setCursor(host_->over_link()   ? Qt::PointingHandCursor
+                         : host_->over_text() ? Qt::IBeamCursor
+                                              : Qt::ArrowCursor);
     }
     if (update.title) {
         setWindowTitle(text(host_->title()));

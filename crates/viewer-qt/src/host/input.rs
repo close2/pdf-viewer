@@ -286,21 +286,18 @@ impl Host {
             return;
         }
         self.dispatch(Command::Pointer { at: (x, y), action });
-        // §12.5.6.5's activation region, asked at pointer speed — which is what makes
-        // `Query::LinkAt` a query rather than a command. The clause states no cursor at all, so
-        // what a reader sees over a link is a convention; this is the one all three hosts now
-        // keep, and the flag is how it reaches a Qt object without Rust calling one.
-        if let Answer::Link(over) = self.state.viewer.query(Query::LinkAt((x, y)))
-            && over != self.over_link
-        {
-            self.over_link = over;
+        // §12.5.6.5's activation region or the page's text, asked at pointer speed — which is
+        // what makes `Query::LinkAt` and `Query::TextAt` queries rather than commands. The
+        // standard states no cursor at all, so what a reader sees over either is a convention;
+        // which one the pointer is over is `viewer_host::Under`'s, the decision all three hosts
+        // keep, and the flag is how it reaches a Qt object without Rust calling one (ADR 2856).
+        let under = viewer_host::Under::at(&self.state.viewer, (x, y));
+        if under != self.under {
+            self.under = under;
             self.update.cursor = true;
             self.state.trace.say(
                 Topic::Pointer,
-                format_args!(
-                    "the pointer is {} §12.5.6.5's activation region",
-                    if over { "over" } else { "off" }
-                ),
+                format_args!("the pointer is over {under:?}"),
             );
         }
     }
@@ -387,7 +384,12 @@ impl Host {
 
     /// Whether the pointer is over §12.5.6.5's activation region.
     pub(crate) fn over_link(&self) -> bool {
-        self.over_link
+        self.under == viewer_host::Under::Link
+    }
+
+    /// Whether the pointer is over the page's text and no link (ADR 2856).
+    pub(crate) fn over_text(&self) -> bool {
+        self.under == viewer_host::Under::Text
     }
 }
 

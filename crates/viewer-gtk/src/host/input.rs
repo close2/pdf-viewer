@@ -434,43 +434,43 @@ impl Host {
         }
         self.tell_keys();
         self.dispatch(Command::Pointer { at, action });
-        self.show_whether_it_is_a_link(at);
+        self.show_what_is_under(at);
     }
 
-    /// §12.5.6.5's activation region under the pointer, as this platform's cursor.
+    /// §12.5.6.5's activation region or the page's text under the pointer, as this platform's
+    /// cursor.
     ///
     /// The clause makes a link annotation "either a hypertext link to a destination elsewhere in
     /// the document or an action to be performed", and states nothing at all about a pointer — so
-    /// what a reader sees over one is a **convention**, and this is GTK's name for it. It is
-    /// nevertheless the difference between a page whose links can be found and one where they can
-    /// only be discovered by clicking, which is why `viewer-ui` has had it since ADR 0166 and why
-    /// two windows of three having it was a debt rather than a platform difference.
+    /// what a reader sees over one, and over text a press would select, is a **convention**, and
+    /// these are GTK's names for it. Which of the two the pointer is over is
+    /// `viewer_host::Under`'s, so that the three windows cannot decide it differently; it is the
+    /// difference between a page whose links and text can be found and one where they can only be
+    /// discovered by pressing (ADRs 0166, 2856).
     ///
-    /// Asked at pointer speed, which is what makes `Query::LinkAt` a query rather than a command —
-    /// and set only when the answer *changes*, because `gdk_surface_set_cursor` reaches the
-    /// display server and a pointer sweeping a page of links would reach it on every motion event.
-    fn show_whether_it_is_a_link(&mut self, at: (f32, f32)) {
-        let Answer::Link(over) = self.state.viewer.query(Query::LinkAt(at)) else {
-            return;
-        };
-        if over == self.over_link {
+    /// Asked at pointer speed, which is what makes `Query::LinkAt` and `Query::TextAt` queries
+    /// rather than commands — and set only when the answer *changes*, because
+    /// `gdk_surface_set_cursor` reaches the display server and a pointer sweeping a page would
+    /// reach it on every motion event.
+    fn show_what_is_under(&mut self, at: (f32, f32)) {
+        let under = viewer_host::Under::at(&self.state.viewer, at);
+        if under == self.under {
             return;
         }
-        self.over_link = over;
+        self.under = under;
         self.state.trace.say(
             Topic::Pointer,
-            format_args!(
-                "the pointer is {} §12.5.6.5's activation region",
-                if over { "over" } else { "off" }
-            ),
+            format_args!("the pointer is over {under:?}"),
         );
         // The layer the pages are in rather than the toplevel: GTK takes the cursor from the
         // widget the pointer is *picked* on, so setting it on the window would override the text
         // cursor a `GtkEntry` over a §12.7 widget sets for itself, and setting it on the chrome
         // layer would set it on a widget `set_can_target(false)` means is never picked.
-        self.ui
-            .fixed
-            .set_cursor_from_name(over.then_some("pointer"));
+        self.ui.fixed.set_cursor_from_name(match under {
+            viewer_host::Under::Link => Some("pointer"),
+            viewer_host::Under::Text => Some("text"),
+            viewer_host::Under::Nothing => None,
+        });
     }
 }
 

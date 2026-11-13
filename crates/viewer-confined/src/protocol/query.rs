@@ -73,6 +73,9 @@ mod query_kind {
     // §9.10.1's text of the pages on the screen. It crosses because the worker holds the fonts
     // every code is mapped through (`doc/todo/63`, ADR 2836).
     pub(in crate::protocol) const TEXT: u8 = 38;
+    // Whether a glyph is under a point: the second half of choosing a cursor, beside `LINK_AT`.
+    // It crosses because the worker holds the interpretation the glyphs' boxes are in (ADR 2856).
+    pub(in crate::protocol) const TEXT_AT: u8 = 39;
 }
 
 /// Encodes one question.
@@ -114,6 +117,9 @@ pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
         }
         Query::LinkAt(at) => {
             writer.u8(k::LINK_AT).point(at);
+        }
+        Query::TextAt(at) => {
+            writer.u8(k::TEXT_AT).point(at);
         }
         Query::FieldAt(at) => {
             writer.u8(k::FIELD_AT).point(at);
@@ -253,6 +259,7 @@ pub(crate) enum PlainQuery {
     PageGeometry(usize),
     PageLabel(usize),
     LinkAt((f32, f32)),
+    TextAt((f32, f32)),
     FieldAt((f32, f32)),
     Caret {
         at: (f32, f32),
@@ -309,6 +316,7 @@ impl OwnedQuery {
                 PlainQuery::PageGeometry(index) => Query::PageGeometry(index),
                 PlainQuery::PageLabel(index) => Query::PageLabel(index),
                 PlainQuery::LinkAt(at) => Query::LinkAt(at),
+                PlainQuery::TextAt(at) => Query::TextAt(at),
                 PlainQuery::FieldAt(at) => Query::FieldAt(at),
                 PlainQuery::Caret { at, offset } => Query::Caret { at, offset },
                 PlainQuery::Offset { at, point } => Query::Offset { at, point },
@@ -366,6 +374,7 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<OwnedQuery, ProtocolError> {
         }
         k::PAGE_LABEL => OwnedQuery::Plain(PlainQuery::PageLabel(reader.usize("a page index")?)),
         k::LINK_AT => OwnedQuery::Plain(PlainQuery::LinkAt(reader.point("a point")?)),
+        k::TEXT_AT => OwnedQuery::Plain(PlainQuery::TextAt(reader.point("a point")?)),
         k::FIELD_AT => OwnedQuery::Plain(PlainQuery::FieldAt(reader.point("a point")?)),
         k::CARET => OwnedQuery::Plain(PlainQuery::Caret {
             at: reader.point("a point")?,

@@ -59,6 +59,12 @@ impl Open {
         crate::select::position_at(&interpreted.placed, point)
     }
 
+    /// Whether a point in one page's display-list coordinates is inside a glyph of its text.
+    pub(crate) fn text_at(&self, page: usize, point: (f32, f32)) -> bool {
+        self.interpretation(page)
+            .is_some_and(|interpreted| crate::select::over_text(&interpreted.placed, point))
+    }
+
     /// The page's extent in user space units, after §7.7.3.3's rotation and `/UserUnit`.
     ///
     /// Read from the page rather than from a display list, because the zoom has to be decided

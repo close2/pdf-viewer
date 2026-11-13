@@ -182,8 +182,14 @@ fn the_exemption_is_one_line_and_it_is_the_bridge() {
 /// `pdf-script-worker` each close the descriptors they inherited as `main`'s first statement,
 /// before a byte of input, in one `close_range` that only an `unsafe` call can make; each library
 /// still forbids the permission, and `pdf-sandbox`'s `tests/inherited_descriptors.rs` pins where
-/// the three lifts are. A seventh name appearing here is a change to a rule the project owner
-/// stated, and it belongs in an ADR rather than in a commit that widens this list.
+/// the three lifts are.
+///
+/// **The seventh name is `viewer-display-link`, and ADR 2857 is its record**: `CADisplayLink` is
+/// reached only by Objective-C messages, which are `unsafe` calls, so its `macos` module lifts the
+/// denial and the crate's root denies it everywhere else. It reads no PDF bytes — it counts the
+/// display's refreshes and wakes a window — so the rule above is untouched. An eighth name is a
+/// change to a rule the project owner stated, and it belongs in an ADR rather than in a commit
+/// that widens this list.
 #[test]
 fn only_the_named_crates_in_the_tree_lift_the_denial() {
     let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
@@ -234,9 +240,11 @@ fn only_the_named_crates_in_the_tree_lift_the_denial() {
             "pdf-script-worker".to_owned(),
             "pdf-vfs-ffi".to_owned(),
             "viewer-confined".to_owned(),
+            "viewer-display-link".to_owned(),
             "viewer-ffi".to_owned(),
             "viewer-qt".to_owned(),
         ],
-        "only the two C ABIs, the crate with the C++ bridge and the three workers' close lift it"
+        "only the two C ABIs, the crate with the C++ bridge, the three workers' close and the \
+         macOS display link lift it"
     );
 }

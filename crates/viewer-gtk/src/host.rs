@@ -378,12 +378,12 @@ pub struct Host {
     pressed_a_control: bool,
     /// Whether the page's drag began on such a control, and is therefore that control's press.
     dragging_a_control: bool,
-    /// Whether the pointer was last over §12.5.6.5's activation region.
+    /// What the pointer was last over: §12.5.6.5's activation region, the page's text, or neither.
     ///
-    /// Kept so that `Query::LinkAt` changes the cursor when the answer changes rather than on
-    /// every motion event: `gdk_surface_set_cursor` is a round trip to the display server and a
-    /// pointer moved across a page produces hundreds of them a second.
-    over_link: bool,
+    /// Kept so that the cursor changes when the answer changes rather than on every motion
+    /// event: `gdk_surface_set_cursor` is a round trip to the display server and a pointer moved
+    /// across a page produces hundreds of them a second.
+    under: viewer_host::Under,
     /// §14.7's tree on AT-SPI, brought up after the first frame and never before it.
     ///
     /// **`None` until [`Host::attend`] has run once**, which is `CLAUDE.md`'s startup rule: the
@@ -510,7 +510,7 @@ impl Host {
                 pressed_a_note: None,
                 pressed_a_control: false,
                 dragging_a_control: false,
-                over_link: false,
+                under: viewer_host::Under::Nothing,
                 accessibility: None,
                 spoken: None,
                 access_pending: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),

@@ -165,7 +165,7 @@ impl ZoomTravel {
         scale: f32,
         at: Option<(f32, f32)>,
     ) -> Vec<viewer_core::Command> {
-        use viewer_core::{Answer, Command, Query, Zoom};
+        use viewer_core::{Command, Zoom};
         match self {
             Self::Steps(steps) => {
                 let zoom = if steps > 0 { Zoom::In } else { Zoom::Out };
@@ -173,24 +173,36 @@ impl ZoomTravel {
                     .map(|_| Command::Zoom { zoom, at })
                     .collect()
             }
-            Self::Factor(factor) => {
-                let Answer::Page { index, .. } = viewer.query(Query::CurrentPage) else {
-                    return Vec::new();
-                };
-                let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(index)) else {
-                    return Vec::new();
-                };
-                // A scale that is not a positive number has no magnification to multiply.
-                if !scale.is_finite() || scale <= 0.0 {
-                    return Vec::new();
-                }
-                vec![Command::Zoom {
-                    zoom: Zoom::Scale(geometry.scale / scale * factor),
+            Self::Factor(factor) => magnification(viewer, scale)
+                .map(|showing| Command::Zoom {
+                    zoom: Zoom::Scale(showing * factor),
                     at,
-                }]
-            }
+                })
+                .into_iter()
+                .collect(),
         }
     }
+}
+
+/// The magnification the current page shows now, in [`viewer_core::Zoom::Scale`]'s unit —
+/// logical pixels per user space unit — at the window's `scale`.
+///
+/// Read back from the page's geometry, because a fit is a mode and only the geometry says what
+/// number it came to. `None` where no page is showing, and where the scale is not a positive
+/// number, which has no magnification to divide by.
+#[must_use]
+pub fn magnification(viewer: &viewer_core::Viewer, scale: f32) -> Option<f32> {
+    use viewer_core::{Answer, Query};
+    if !scale.is_finite() || scale <= 0.0 {
+        return None;
+    }
+    let Answer::Page { index, .. } = viewer.query(Query::CurrentPage) else {
+        return None;
+    };
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(index)) else {
+        return None;
+    };
+    Some(geometry.scale / scale)
 }
 
 /// A wheel's travel counted into whole notches, across and up and down, the way GTK's `DISCRETE`

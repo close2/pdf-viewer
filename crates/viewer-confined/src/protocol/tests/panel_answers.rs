@@ -1453,3 +1453,15 @@ fn a_located_point_crosses_in_every_display_shape() {
         );
     }
 }
+
+/// Whether text is under a point, both ways round: a host on this side of the pipe chooses its
+/// cursor from the same flag a host beside the viewer reads (ADR 2856).
+#[test]
+fn whether_text_is_under_a_point_crosses_both_ways() {
+    for over in [true, false] {
+        let Reply::OverText(read) = round_trip(&Answer::OverText(over)) else {
+            panic!("the flag comes back as itself");
+        };
+        assert_eq!(read, over, "the flag changed on the way through");
+    }
+}

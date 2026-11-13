@@ -138,11 +138,12 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // one for a transmitted submission that ended with no form data. The thumbnail page selection
     // and the permissions menu add four pointer-taking entry points, checked by the C driver, and
     // 2791 four for a drop-down list's opening and its display, each on a viewer and a window;
-    // 2822 one for §7.6.5.1's certificate and key, and 2844 three for §9.10.1's text of a page.
-    assert_eq!(no_mangle, 375, "one `#[unsafe(no_mangle)]` per entry point");
+    // 2822 one for §7.6.5.1's certificate and key, 2844 three for §9.10.1's text of a page, and
+    // 2856 one for whether text is under a point.
+    assert_eq!(no_mangle, 376, "one `#[unsafe(no_mangle)]` per entry point");
     assert_eq!(
-        signatures, 356,
-        "353 `unsafe` entry points and three helpers"
+        signatures, 357,
+        "354 `unsafe` entry points and three helpers"
     );
 }
 

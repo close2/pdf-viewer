@@ -159,6 +159,18 @@ impl Session {
         }
     }
 
+    /// Whether a glyph of the page's text is under this viewport point (ADR 2856).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused.
+    pub fn text_at(&self, at: (f32, f32)) -> Result<bool, Status> {
+        match self.viewer.query(Query::TextAt(at)) {
+            Answer::OverText(over) => Ok(over),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
     /// §12.4.4: the caller has entered or left presentation mode.
     #[must_use]
     pub fn present(&mut self, mode: viewer_core::PresentationMode) -> Events {

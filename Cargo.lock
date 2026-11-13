@@ -3276,6 +3276,7 @@ dependencies = [
  "objc2 0.6.4",
  "objc2-core-graphics",
  "objc2-foundation 0.3.2",
+ "objc2-quartz-core 0.3.2",
 ]
 
 [[package]]
@@ -5916,6 +5917,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "viewer-display-link"
+version = "0.1.0"
+dependencies = [
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "objc2-quartz-core 0.3.2",
+ "raw-window-handle",
+]
+
+[[package]]
 name = "viewer-ffi"
 version = "0.1.0"
 dependencies = [
@@ -6016,6 +6028,7 @@ dependencies = [
  "viewer-confined",
  "viewer-core",
  "viewer-device",
+ "viewer-display-link",
  "viewer-host",
  "winit",
 ]

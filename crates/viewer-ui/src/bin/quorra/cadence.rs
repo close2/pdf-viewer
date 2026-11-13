@@ -64,7 +64,7 @@ enum Source {
 }
 
 /// When this window may next present, and how often it may.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub(crate) struct Cadence {
     /// One refresh of the surface.
     period: Duration,
@@ -88,6 +88,36 @@ pub(crate) struct Cadence {
     /// faster than the display refreshes and every one of them became a present, so the window
     /// ran at the *input's* rate. `doc/todo/36` calls that a stutter machine and it is right.
     owing: bool,
+    /// The display's own refresh, where the platform tells this program when one is (ADR 2857).
+    ///
+    /// **While it runs, it is the clock and the timer above is not.** A present is allowed once in
+    /// each of the display's refreshes rather than once a timer period after the last, and a
+    /// frame owed waits for the next refresh the link wakes the window for rather than for a
+    /// timer tick at a phase of its own. Paused — a window nobody is touching — the timer
+    /// answers as it always did, which is what keeps the first frame after an input immediate.
+    ///
+    /// Nothing here knows which platform counts the refreshes, or where in a refresh the input
+    /// arrives: the rule is one present a refresh, with the refreshes the display's.
+    link: Option<viewer_display_link::DisplayLink>,
+    /// The link's count of refreshes at the last present.
+    presented_beat: u64,
+    /// The last refresh the window was woken for whose tick has been spent: a redraw ran for it,
+    /// or an obligation was deferred past it.
+    ///
+    /// **The link's counterpart of the timer's [`Self::due`] beside [`Self::presentable`]'s**
+    /// (ADR 1926): a tick whose redraw put nothing up has spent the tick and not the refresh, so
+    /// the loop waits for the next refresh while the frame the render thread wakes it with still
+    /// goes up when it lands. Without it a redraw that found nothing to show left the refresh
+    /// due, and the loop asked again at once, for ever, until the frame landed.
+    ticked_beat: u64,
+}
+
+/// Whether a link that is `running` says yes: its count of refreshes, `counted`, is past the one
+/// `spent` at — any refresh against the last present for [`Cadence::may_present`], a refresh the
+/// window was woken for against the last tick for [`Cadence::due`]. `None` where the link is
+/// paused and the timer decides.
+fn paced(running: bool, counted: u64, spent: u64) -> Option<bool> {
+    running.then_some(counted > spent)
 }
 
 /// A monitor's refresh rate as a period, or `None` where it states none.
@@ -123,6 +153,9 @@ impl Default for Cadence {
             due: Instant::now(),
             presentable: Instant::now(),
             owing: false,
+            link: None,
+            presented_beat: 0,
+            ticked_beat: 0,
         }
     }
 }
@@ -185,6 +218,40 @@ impl Cadence {
         true
     }
 
+    /// Takes the display's own refresh as this clock, where the platform has one to give.
+    pub(crate) fn pace_by(&mut self, link: viewer_display_link::DisplayLink) {
+        self.presented_beat = link.beats();
+        self.ticked_beat = link.beats();
+        self.link = Some(link);
+    }
+
+    /// Whether the refresh the link last woke the window for is past the tick spent at `spent`,
+    /// `None` where there is no running link.
+    fn beat(&self, spent: u64) -> Option<bool> {
+        let link = self.link.as_ref()?;
+        paced(link.running(), link.answered(), spent)
+    }
+
+    /// Whether any refresh has passed since the last present, `None` where there is no running
+    /// link.
+    ///
+    /// **Any refresh, and not only one the window was woken for.** An input that lands in a
+    /// refresh with no present yet draws now, and the frame the render thread lands goes up when
+    /// it lands — the renderer drops a finished frame of a view that has since moved, so holding
+    /// it for the next refresh shows nothing at all (ADR 2857, measured). One present a refresh
+    /// still holds.
+    fn refreshed(&self) -> Option<bool> {
+        let link = self.link.as_ref()?;
+        paced(link.running(), link.beats(), self.presented_beat)
+    }
+
+    /// Marks the refresh the link last woke the window for as ticked.
+    fn tick_spent(&mut self) {
+        if let Some(link) = self.link.as_ref() {
+            self.ticked_beat = link.answered();
+        }
+    }
+
     /// Whether the window's own output has stated its rate, so there is nothing left to ask.
     pub(crate) fn settled(&self) -> bool {
         self.source == Source::Window
@@ -203,6 +270,28 @@ impl Cadence {
     pub(crate) fn described(&self) -> String {
         let hertz = 1.0 / self.period.as_secs_f64();
         let milliseconds = self.period.as_secs_f64() * 1e3;
+        let rate = self.rate(hertz, milliseconds);
+        if let Some(link) = self.link.as_ref() {
+            let stated = link.period().map_or_else(
+                || "no refresh seen yet".to_owned(),
+                |period| {
+                    format!(
+                        "{:.3} ms a refresh, {} refreshes seen",
+                        period.as_secs_f64() * 1e3,
+                        link.beats()
+                    )
+                },
+            );
+            format!(
+                "{rate}; frames start on the display's own refresh (its display link: {stated})"
+            )
+        } else {
+            rate
+        }
+    }
+
+    /// The rate and where it came from, without saying what paces the frames.
+    fn rate(&self, hertz: f64, milliseconds: f64) -> String {
         match self.source {
             Source::Window => {
                 format!("{hertz:.1} Hz ({milliseconds:.3} ms), stated by the surface")
@@ -223,7 +312,7 @@ impl Cadence {
     /// True for a window that has been still longer than one refresh, which is every window
     /// answering its first input: the cadence spaces frames out and never holds one back.
     pub(crate) fn due(&self, now: Instant) -> bool {
-        now >= self.due
+        self.beat(self.ticked_beat).unwrap_or(now >= self.due)
     }
 
     /// Whether a frame may be presented now: no present has been made in this refresh.
@@ -232,11 +321,28 @@ impl Cadence {
     /// that owed a frame and put up nothing — page one not yet drawn, a turn whose stand-in was
     /// refused — which moved the tick on and left the refresh unspent (ADR 1926).
     pub(crate) fn may_present(&self, now: Instant) -> bool {
-        now >= self.presentable
+        self.refreshed().unwrap_or(now >= self.presentable)
     }
 
     /// When the next tick is, for `ControlFlow::WaitUntil`.
+    ///
+    /// **Asking is wanting, where there is a link**: the loop asks this only when it is about to
+    /// wait for a tick, so the link is told a frame is wanted at the next refresh — which starts
+    /// it if it had paused — and the refresh wakes the loop. The moment answered is then a
+    /// safety net four refreshes on rather than a tick, for a link that stops calling: a timer
+    /// tick inside the refresh would be the free-running present the link exists to replace.
     pub(crate) fn next(&self) -> Instant {
+        if let Some(link) = self.link.as_ref() {
+            link.want(true);
+            if link.running() {
+                let now = Instant::now();
+                return self
+                    .period
+                    .checked_mul(4)
+                    .and_then(|net| now.checked_add(net))
+                    .unwrap_or(now);
+            }
+        }
         self.due
     }
 
@@ -249,6 +355,16 @@ impl Cadence {
     pub(crate) fn presented(&mut self, now: Instant) {
         self.tick_past(now);
         self.presentable = self.due;
+        if let Some(link) = self.link.as_ref() {
+            self.presented_beat = link.beats();
+            // A present is activity: the first of a gesture is made on the timer, the link having
+            // paused while the window was still, and the gesture's next event can only be placed
+            // in its refresh by a link that is counting. And a window drawing on its input's
+            // events never *wants* a refresh, so without this the link would count those as idle
+            // and pause mid-gesture (ADR 2857, measured).
+            link.listen();
+        }
+        self.tick_spent();
     }
 
     /// Moves the tick on to the first one after `now`, keeping its phase.
@@ -283,6 +399,10 @@ impl Cadence {
     pub(crate) fn owed(&mut self, now: Instant) {
         self.owing = true;
         self.tick_past(now);
+        self.tick_spent();
+        if let Some(link) = self.link.as_ref() {
+            link.want(true);
+        }
     }
 
     /// Whether a frame asked for earlier has still not been drawn.
@@ -300,6 +420,12 @@ impl Cadence {
     /// every tick for ever.
     pub(crate) fn serviced(&mut self) {
         self.owing = false;
+        self.tick_spent();
+        // Nothing is wanted at the next refresh until something asks again; a link nobody asks
+        // pauses itself (`viewer_display_link::IDLE_BEATS`).
+        if let Some(link) = self.link.as_ref() {
+            link.want(false);
+        }
     }
 }
 
@@ -324,7 +450,27 @@ mod tests {
             due: now,
             presentable: now,
             owing: false,
+            link: None,
+            presented_beat: 0,
+            ticked_beat: 0,
         }
+    }
+
+    /// A running link lets one present through each refresh; a paused one leaves the timer to
+    /// answer (ADR 2857).
+    #[test]
+    fn a_running_link_lets_one_present_through_each_refresh() {
+        assert_eq!(super::paced(false, 9, 3), None, "paused: the timer decides");
+        assert_eq!(
+            super::paced(true, 4, 3),
+            Some(true),
+            "a refresh not yet presented in"
+        );
+        assert_eq!(
+            super::paced(true, 4, 4),
+            Some(false),
+            "its present was made, so an input waits for the next refresh"
+        );
     }
 
     /// The clock spaces presents out and never holds one back: a window that has been still is
