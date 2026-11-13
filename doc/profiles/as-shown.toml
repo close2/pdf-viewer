@@ -106,6 +106,15 @@ remedy = "preserve"
 # outside this profile's bound; it is kept and given the Print bit ISO 19005 section 6.3.2
 # requires, and nothing on the screen changes (ADR 1942).
 
+# An annotation stating no appearance whose /DA names a font the form's /DR does not define
+# (ISO 32000-2 12.7.4.3 says it "shall match a resource name" there) is drawn by the window in the
+# stand-in ADR 0112 makes for the name, which the converter can write under the loss
+# `stand-in-face` (ADR 2858). This profile does not take it: the stand-in is a font the file does
+# not embed and whose name no face matches, so the face the window draws it in is this machine's,
+# and embedding a face for it is `machine-face` and `layout-from-this-viewer`, at which the fonts row
+# below stops. Taking the appearance would leave an output that fails the fonts rows; the
+# appearance row asks for the loss instead.
+
 [site."annotations/appearance-dictionary-holds-only-normal"]
 remedy = "discard"
 # Rollover and pressed appearances never reached paper and never will reach an archive reader.

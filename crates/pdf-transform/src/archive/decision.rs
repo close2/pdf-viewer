@@ -559,11 +559,21 @@ pub enum Loss {
     /// when the program is unavailable: the output states that the text draws nothing, where the
     /// source left that to the reader (`doc/adr/2830`).
     UnreadableProgram,
+    /// ISO 19005-2 section 6.3.3, ISO 19005-4 section 6.3.3: an annotation whose `/DA` names a
+    /// font the interactive form dictionary's `/DR` does not define is given the appearance this
+    /// viewer draws for it, its text set in the stand-in ADR 0112 makes for that name.
+    ///
+    /// ISO 32000-2 §12.7.4.3 requires the name to "match a resource name in the Font entry of the
+    /// default resource dictionary", and the file breaks that `shall`; the standard states no
+    /// recovery, so the face is this viewer's choice and not the producer's. The appearance
+    /// written names the stand-in under the `/DA`'s own name, and the fonts row embeds the face
+    /// this viewer draws it in, which its own report names (`doc/adr/2858`).
+    StandInFace,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 36] = [
+    pub const ALL: [Self; 37] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -600,6 +610,7 @@ impl Loss {
         Self::ContentAsDrawn,
         Self::UndecodableStream,
         Self::UnreadableProgram,
+        Self::StandInFace,
     ];
 
     /// The word a caller authorises it by.
@@ -642,6 +653,7 @@ impl Loss {
             Self::ContentAsDrawn => "content-as-drawn",
             Self::UndecodableStream => "undecodable-stream",
             Self::UnreadableProgram => "unreadable-program",
+            Self::StandInFace => "stand-in-face",
         }
     }
 
@@ -924,6 +936,14 @@ impl Loss {
                  the producer's program is gone, and so is the substitute face another reader \
                  may have drawn the text in; the text stays text, and the report names each font"
             }
+            Self::StandInFace => {
+                "an annotation whose /DA names a font the form's /DR does not define is given \
+                 the appearance this viewer draws for it, its text set in the face this viewer \
+                 stands in for that name; which face the producer meant is unknown, and the \
+                 archive fixes this viewer's choice, so another reader may have set the text in \
+                 another face. The report names each annotation, its page and the font name, and \
+                 the face embedded for it"
+            }
         }
     }
 
@@ -1093,6 +1113,8 @@ pub struct Authorisations {
     pub undecodable_stream: bool,
     /// Whether [`Loss::UnreadableProgram`] was authorised.
     pub unreadable_program: bool,
+    /// Whether [`Loss::StandInFace`] was authorised.
+    pub stand_in_face: bool,
 }
 
 impl Authorisations {
@@ -1136,6 +1158,7 @@ impl Authorisations {
             Loss::ContentAsDrawn => self.content_as_drawn,
             Loss::UndecodableStream => self.undecodable_stream,
             Loss::UnreadableProgram => self.unreadable_program,
+            Loss::StandInFace => self.stand_in_face,
         }
     }
 
@@ -1186,6 +1209,7 @@ impl Authorisations {
             Loss::ContentAsDrawn => self.content_as_drawn = true,
             Loss::UndecodableStream => self.undecodable_stream = true,
             Loss::UnreadableProgram => self.unreadable_program = true,
+            Loss::StandInFace => self.stand_in_face = true,
         }
     }
 }
@@ -2201,6 +2225,47 @@ fn stated_where_free(
     }
 }
 
+/// The appearance rows' answer, which three facts about the prepared appearances route
+/// (`doc/adr/1105`, `doc/adr/2858`): see [`answer_of`]'s arm.
+fn appearance_answer(
+    reinterprets: &'static str,
+    authorised: Authorisations,
+    prepared: &Prepared,
+) -> Decision {
+    match &prepared.appearances {
+        Ok(appearances) if appearances.at.is_empty() && appearances.removed > 0 => answer_of(
+            Answer::Loses(
+                Loss::ForbiddenAnnotation,
+                Rewrite::ForbiddenAnnotationRemoved,
+            ),
+            authorised,
+            prepared,
+        ),
+        // An appearance set in ADR 0112's stand-in is the window's drawing and not one
+        // the clauses state, so the construction is the loss `stand-in-face` wherever one
+        // was written, as `CONDITIONAL` says (`doc/adr/2858`).
+        Ok(appearances)
+            if appearances
+                .constructed
+                .iter()
+                .any(|written| written.stood_in.is_some()) =>
+        {
+            answer_of(
+                Answer::Loses(Loss::StandInFace, Rewrite::AppearanceDictionary),
+                authorised,
+                prepared,
+            )
+        }
+        _ => prepared.obstacle(Rewrite::AppearanceDictionary).map_or(
+            Decision::Stated {
+                rewrite: Rewrite::AppearanceDictionary,
+                reinterprets,
+            },
+            Decision::Refused,
+        ),
+    }
+}
+
 /// A rewrite that loses `losses`: authorised where every one of them was, and the question a
 /// person has to answer otherwise.
 fn losing(losses: Losses, rewrite: Rewrite, authorised: Authorisations) -> Decision {
@@ -2277,25 +2342,7 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
         // nothing is constructed, nothing is `Stated`, and a caller who authorised nothing is
         // refused here exactly as they are at the section 6.3.1 row itself (ADR 1105).
         Answer::Stated(_, Rewrite::AppearanceDictionary, reinterprets) => {
-            match &prepared.appearances {
-                Ok(appearances) if appearances.at.is_empty() && appearances.removed > 0 => {
-                    answer_of(
-                        Answer::Loses(
-                            Loss::ForbiddenAnnotation,
-                            Rewrite::ForbiddenAnnotationRemoved,
-                        ),
-                        authorised,
-                        prepared,
-                    )
-                }
-                _ => prepared.obstacle(Rewrite::AppearanceDictionary).map_or(
-                    Decision::Stated {
-                        rewrite: Rewrite::AppearanceDictionary,
-                        reinterprets,
-                    },
-                    Decision::Refused,
-                ),
-            }
+            appearance_answer(reinterprets, authorised, prepared)
         }
         // The two `Stated` rows whose cost is a fact about the file: `stated_where_free` says
         // which (`doc/adr/1964`, `doc/adr/1978`).

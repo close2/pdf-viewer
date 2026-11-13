@@ -110,6 +110,10 @@ pub struct WrittenAppearance {
     pub page: usize,
     /// Its `/Subtype`, or `an annotation stating no subtype` where it states none.
     pub subtype: String,
+    /// The `/DA` font name the interactive form dictionary's `/DR` does not define, where the
+    /// appearance is set in ADR 0112's stand-in for it under the loss `stand-in-face`
+    /// (`doc/adr/2858`), as the name's bytes with §7.3.5's `#` escapes.
+    pub stood_in: Option<String>,
 }
 
 impl WrittenAppearance {
@@ -118,6 +122,10 @@ impl WrittenAppearance {
         Value::Object(vec![
             ("page".to_owned(), Value::count(self.page)),
             ("subtype".to_owned(), Value::text(self.subtype.clone())),
+            (
+                "stood_in".to_owned(),
+                self.stood_in.clone().map_or(Value::Null, Value::text),
+            ),
         ])
     }
 }
@@ -173,7 +181,11 @@ pub(super) fn prepare_appearances(
         // this program: a construction that put marks on the page and owes an entry beside them is
         // partial, and one that put none is a subtype whose clause states no artwork anywhere.
         // The sentence a person reads is the difference, and the second is ADR 0816's fence.
-        if built.owed.is_some() {
+        // ADR 0112's stand-in, where it is the whole of what is owed, is the one shortfall written
+        // all the same: the stream is the one this viewer draws, and the decision makes it the
+        // loss `stand-in-face`, which the caller authorises or is asked (`doc/adr/2858`).
+        let stood_in = built.stood_in.as_ref().map(pdf_syntax::Name::escaped);
+        if built.owed.is_some() && stood_in.is_none() {
             return Err(Because::TheFence(if built.drawn {
                 APPEARANCE_INCOMPLETE
             } else {
@@ -194,6 +206,7 @@ pub(super) fn prepare_appearances(
             subtype: missing
                 .subtype
                 .unwrap_or_else(|| "an annotation stating no subtype".to_owned()),
+            stood_in,
         });
     }
     Ok(Appearances {
@@ -290,6 +303,8 @@ pub(super) fn prepare_field_appearances(
         found.constructed.push(WrittenAppearance {
             page: widget.page,
             subtype: "Widget".to_owned(),
+            // A field's widget is written only where nothing is owed, so no stand-in reaches it.
+            stood_in: None,
         });
     }
     found.unconstructed.sort_unstable();

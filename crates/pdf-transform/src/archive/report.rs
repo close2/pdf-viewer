@@ -2037,11 +2037,18 @@ impl Conversion {
                 self.appearances.len()
             );
             for appearance in &self.appearances {
-                let _ = writeln!(
+                let _ =
+                    writeln!(
                     out,
-                    "      a {} annotation on page {}",
+                    "      a {} annotation on page {}{}",
                     appearance.subtype,
-                    appearance.page.saturating_add(1)
+                    appearance.page.saturating_add(1),
+                    appearance.stood_in.as_ref().map_or_else(String::new, |name| format!(
+                        ", its text set in this viewer's stand-in for /{name}, a font its /DA \
+                         names and the form's /DR does not define (loss {}; the face embedded \
+                         for it is named with the fonts below)",
+                        super::Loss::StandInFace.word()
+                    ))
                 );
             }
         }
@@ -2151,8 +2158,10 @@ impl Conversion {
         if !self.runs_written_as_drawn.is_empty() {
             let _ = writeln!(
                 out,
-                "  {} run(s) ISO 32000-2 \u{a7}7.3.3 spells as no number are written as the \
-                 number this viewer draws for each, losing content-as-drawn:",
+                "  {} run(s) ISO 32000-2 \u{a7}7.3.3 spells as no number, or lone delimiters \
+                 \u{a7}7.2.3 opens nothing with, are written as this viewer draws each \
+                 \u{2014} a run as its number, a delimiter as white space \u{2014} losing \
+                 content-as-drawn:",
                 self.runs_written_as_drawn.len()
             );
             for written in &self.runs_written_as_drawn {
@@ -2164,7 +2173,7 @@ impl Conversion {
                     written.object.number,
                     written.object.generation,
                     super::as_drawn::spelled(&written.run),
-                    super::as_drawn::spelled(&written.number)
+                    super::as_drawn::written_as(&written.number)
                 );
             }
         }

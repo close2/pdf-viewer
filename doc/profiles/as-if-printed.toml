@@ -116,6 +116,17 @@ remedy = "preserve"
 # profile's bound — but a profile is a lower bound on what may be lost, never an instruction to
 # lose it, and keeping it is the closer copy: nothing on the screen changes (ADR 1942).
 
+# An annotation stating no appearance whose /DA names a font the form's /DR does not define
+# (ISO 32000-2 12.7.4.3 says it "shall match a resource name" there) is drawn by the window, and
+# printed, in the stand-in ADR 0112 makes for the name. The converter writes that drawing as its
+# appearance, the loss `stand-in-face`, named in the report beside the face embedded for it
+# (ADR 2858).
+[site."annotations/appearance-dictionary-present"]
+remedy = "discard"
+
+[site."annotations/appearance-dictionary-present-from-base-standard"]
+remedy = "discard"
+
 [site."annotations/appearance-dictionary-holds-only-normal"]
 remedy = "discard"
 # Rollover and pressed appearances never reached paper and never will reach an archive reader.

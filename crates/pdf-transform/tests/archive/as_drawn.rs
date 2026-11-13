@@ -6,9 +6,14 @@
 //! real with one period, so that token is no number and the checker reads it as the operator
 //! §7.8.2 makes of a keyword (`doc/adr/2619`); and from this reader's salvage of the front of such
 //! a run (`doc/adr/1004`), which is what the window draws: `33600.272` from `33600.272.58` and
-//! `454` from `454` followed by the byte 85h. A run whose front is no number, or a delimiter
-//! standing where no object began, is not a run this reader draws, and its page keeps the fence's
-//! answer.
+//! `454` from `454` followed by the byte 85h. A run whose front is no number is not a run this
+//! reader draws, and its page keeps the fence's answer.
+//!
+//! A lone `>` or `)` is a delimiter (§7.2.3) that opens nothing, which this tree's lexer hands over
+//! as a keyword: the reader meets §7.8.2's error and clears the operands before it, so where none
+//! stands before it the page draws as though the byte were white space, and it is written as white
+//! space under the same loss (`doc/adr/2859`). After an operand its clearing changes the drawing,
+//! and it is left.
 use super::statement::{holds_fact, stated};
 use super::*;
 use pdf_archive::Flavour;
@@ -116,12 +121,13 @@ fn a_run_the_window_draws_as_a_number_is_written_as_that_number_and_the_page_sta
     }
 }
 
-// The plant: a `)` where no string began is a delimiter (§7.2.3), not a run this reader draws as a
-// number, so the page it stands on is photographed for the operator row as before — and the run
+// The plant: a `)` where no string began, standing after the operand `1`, which the reader's
+// clearing at the `)` discards; written as white space it would hand `1` to the `S` after it, so it
+// is left, and the page it stands on is photographed for the operator row as before — and the run
 // beside it is still written, because the photograph replaces only the page's own content.
 #[test]
-fn a_stray_delimiter_beside_a_run_keeps_its_page_photographed() {
-    let source = a_page_drawing(b"q 33600.272.58 0 m 10 10 l S Q )");
+fn a_stray_delimiter_after_an_operand_keeps_its_page_photographed() {
+    let source = a_page_drawing(b"q 33600.272.58 0 m 10 10 l 1 ) S Q");
     let target = Target::Two(Level::B);
     let (report, output) = convert_with_plan(&source, &under("as-if-printed", target));
     let Decision::Authorised { losses, .. } = decision(&report, OPERATORS) else {
@@ -141,6 +147,77 @@ fn a_stray_delimiter_beside_a_run_keeps_its_page_photographed() {
         panic!("one run: {:?}", conversion(&report).runs_written_as_drawn);
     };
     assert_eq!(written.run, b"33600.272.58");
+}
+
+// `hesr13613-sup-0001-Authormatrix.pdf`'s shape: `> Tj` after a string shown, a `>` that closes
+// nothing standing where no operand does. The reader clears nothing at it and the `Tj` after it
+// has no operand either way, so the stream is written with white space in the delimiter's place,
+// the producer's other bytes kept, and the page stays text.
+#[test]
+fn a_lone_delimiter_where_no_operand_stands_is_written_as_white_space() {
+    let source = a_page_drawing(b"BT /F1 12 Tf 10 80 Td (World) Tj > Tj ET");
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (report, output) = convert_with_plan(&source, &under("as-if-printed", target));
+        let Decision::Authorised { losses, .. } = decision(&report, OPERATORS) else {
+            panic!("{:?}", decision(&report, OPERATORS));
+        };
+        assert!(
+            losses.iter().eq([Loss::ContentAsDrawn]),
+            "{}",
+            losses.words()
+        );
+        let output = output.expect("a file is written");
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        let conversion = conversion(&report);
+        assert!(conversion.settled.is_empty(), "{:?}", conversion.settled);
+        assert!(conversion.photographed.is_empty());
+        let [written] = conversion.runs_written_as_drawn.as_slice() else {
+            panic!("one delimiter: {:?}", conversion.runs_written_as_drawn);
+        };
+        assert_eq!(written.run, b">");
+        assert!(written.number.is_empty());
+        let contents = decoded_contents(&output);
+        assert!(
+            holds_bytes(&contents, b"(World) Tj   Tj ET"),
+            "{}",
+            String::from_utf8_lossy(&contents)
+        );
+    }
+}
+
+// A lone `)` where no operand stands, beside an operator no write answers: the page is photographed
+// for the operator row either way, so the delimiter stays where it is, as it did before the
+// delimiter was ever written, and only the run is written.
+#[test]
+fn a_lone_delimiter_beside_an_unanswered_operator_is_left_with_its_page() {
+    let source = a_page_drawing(b"q 33600.272.58 0 m 10 10 l S Q ) Frobnicate");
+    let target = Target::Two(Level::B);
+    let (report, output) = convert_with_plan(&source, &under("as-if-printed", target));
+    let output = output.expect("a file is written");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let conversion = conversion(&report);
+    assert_eq!(conversion.photographed.len(), 1);
+    let [written] = conversion.runs_written_as_drawn.as_slice() else {
+        panic!("one run: {:?}", conversion.runs_written_as_drawn);
+    };
+    assert_eq!(written.run, b"33600.272.58");
+}
+
+// The control: a `>` after operands is where the reader's clearing discards them, so it is left
+// and `as-shown` keeps the fence's refusal.
+#[test]
+fn a_lone_delimiter_after_operands_keeps_the_fence_under_as_shown() {
+    let source = a_page_drawing(b"1 0 0 > rg 0 0 m 5 5 l S");
+    let (report, output) = convert_with_plan(&source, &under("as-shown", Target::Two(Level::B)));
+    assert!(
+        matches!(
+            decision(&report, OPERATORS),
+            Decision::Refused(Because::TheFence(_))
+        ),
+        "{:?}",
+        decision(&report, OPERATORS)
+    );
+    assert!(output.is_none());
 }
 
 // A FlateDecode stream cut inside its one stored block (RFC 1951 section 3.2.4) decodes to the

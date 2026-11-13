@@ -83,8 +83,7 @@ pub(super) fn pages(
             let unwritten = || {
                 survey.unlisted_operators().iter().filter(|unlisted| {
                     !drawn.is_some_and(|drawn| {
-                        super::as_drawn::is_drawn_as_a_number(&unlisted.spelling)
-                            && !drawn.left(document, unlisted)
+                        drawn.answers(&unlisted.spelling) && !drawn.left(document, unlisted)
                     })
                 })
             };

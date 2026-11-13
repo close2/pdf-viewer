@@ -132,7 +132,7 @@ def remedy(kind, site, why):
 STATUS = {
     "R01-recovered-structure": ("builds only", "built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence"),
     "R02-image-smoothing": ("built", "ADR 2498"),
-    "R03-photograph": ("builds only", "built under `as-if-printed`: A694, ADRs 2516, 2618, 2638, 2760, a Type 3 width on the pages reaching its font (ADR 2847); a font name with the program the conversion embeds (ADR 2846); left, a page this reader does not draw whole, by its cause (ADR 2760), a MediaBox outside part 2's range, a Private Use `ActualText`, an operator in an appearance, a transfer function, a name the file's own program carries; `as-shown` keeps ADR 2394's gate (A694 item 1)"),
+    "R03-photograph": ("builds only", "built under `as-if-printed`: A694, ADRs 2516, 2618, 2638, 2760, a Type 3 width on the pages reaching its font (ADR 2847); a font name with the program the conversion embeds (ADR 2846); a lone delimiter where no operand stands (ADR 2859); left, a page this reader does not draw whole, by its cause (ADR 2760), a MediaBox outside part 2's range, a Private Use `ActualText`, a transfer function, a name the file's own program carries; `as-shown` keeps ADR 2394's gate (A694 item 1)"),
     "R03a-notdef-named": ("builds only", "built: ADRs 2543, 2556, 2602, 2620, 2650, 2753; left, a code an embedded CMap reads as invalid in a CJK collection without ToUnicode"),
     "R04-absent-resource": ("builds only", "built: ADRs 2500, 2522, 2523, 2746; left, a Type 3 font read differently per page and a spacing a later glyph stands on"),
     "R05-press": ("builds only", "A694 item 2: (a) built, ADR 2518; (b) built, ADR 2747; (c) built, ADR 2750: overprint mode 1 on a DeviceCMYK mark is ADR 1978's loss under the two shipped profiles; left, a mark blended in four components, ADR 1978's refusal"),
@@ -147,7 +147,7 @@ STATUS = {
     "R13-jpx-transcode": ("built", "ADR 2694: the shipped profiles take ADR 1400's transcode; a bare codestream is kept in a JP2 file (ADR 2695); a space only the data states keeps its refusal"),
     "R14-appended-page-composition": ("builds only", "built: ADRs 2678, 2682"),
     "R15-embedded-files": ("builds only", "built: ADR 2536"),
-    "R16-annotations-and-forms": ("builds only", "built: a push button with no appearance dictionary (ADR 2751), an appearance dictionary stating no entry (ADR 2752), a signature widget answered as its rules were (ADR 2850), a hidden widget, a closed popup and an inert Invisible under the per-shape plan (ADR 2851); left, named per site"),
+    "R16-annotations-and-forms": ("builds only", "built: a push button with no appearance dictionary (ADR 2751), an appearance dictionary stating no entry (ADR 2752), a signature widget answered as its rules were (ADR 2850), a hidden widget, a closed popup and an inert Invisible under the per-shape plan (ADR 2851), an appearance set in the stand-in for a `/DA` font `/DR` does not define (ADR 2858); left, named per site"),
     "R17-press-statements": ("built", "ADR 2693: `as-if-printed` takes both discards `as-shown` takes, each named in the file's history"),
     "R18-piece-info": ("builds only", "built for one instant and under the three profiles taking the packet's date, ADR 2748; left, the stating profiles"),
     "X1-dynamic-xfa": ("exception", "CLAUDE.md's exclusion; §K.1"),

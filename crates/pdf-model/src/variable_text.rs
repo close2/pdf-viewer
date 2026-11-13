@@ -230,6 +230,9 @@ pub(crate) struct LayoutFonts<'d> {
     /// The interpreter's cache of the same document's fonts, where a layout is the
     /// interpreter's, which a `/DR` font named by reference is asked of and kept in (ADR 1974).
     across: Option<&'d crate::content::FontCache>,
+    /// Whether a stand-in is laid out without [`Owed::FontNotInResources`]: set only by
+    /// [`Self::without_the_stand_in_report`], whose caller asks what *else* a construction owes.
+    stand_in_unreported: bool,
 }
 
 /// One font a [`LayoutFonts`] holds: the key it was loaded from, and what the load answered.
@@ -254,6 +257,24 @@ impl<'d> LayoutFonts<'d> {
             document,
             kept: std::cell::RefCell::new(Vec::new()),
             across: None,
+            stand_in_unreported: false,
+        }
+    }
+
+    /// No font loaded yet, for a layout of `document` whose stand-in owes no report of its own.
+    ///
+    /// **One question, asked by one caller**: whether the stand-in is the *whole* of what a
+    /// construction owes. [`Owed::FontNotInResources`] is named ahead of a truncation, and a
+    /// construction's report ahead of its callout's and its border's, because one report is the
+    /// explanation a person reads (ADR 0112). A writer deciding whether to freeze the stream into a
+    /// file needs the rest, so it lays the annotation out again with this, and anything still owed
+    /// is something other than the stand-in (`crate::appearance::for_annotation_in`, ADR 2858).
+    /// The stand-in is still laid out, and still declines a value it cannot encode, exactly as
+    /// [`Self::new`]'s layout does.
+    pub(crate) fn without_the_stand_in_report(document: &'d Document) -> Self {
+        Self {
+            stand_in_unreported: true,
+            ..Self::new(document)
         }
     }
 
@@ -1753,7 +1774,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
             characters,
         });
     }
-    let mut owed = if resolution == Resolution::StoodIn {
+    let mut owed = if resolution == Resolution::StoodIn && !request.fonts.stand_in_unreported {
         // Named ahead of the two below: a value laid out in a font the document did not name
         // is a different statement from one whose length fell short, and it is the one that
         // explains the other when it follows from it.

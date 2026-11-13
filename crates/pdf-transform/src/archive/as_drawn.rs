@@ -25,6 +25,18 @@
 //! `super::hexadecimal` writes losing nothing. A run this reader does not draw as a number — one
 //! whose tail is an operator, or that opens with no number at all — is not touched, and its page
 //! keeps whatever answer the fence gives it.
+//!
+//! # A lone delimiter, which this reader reads as no operator
+//!
+//! §7.2.3 makes `>` and `)` delimiters, and one that closes nothing opens no object: this tree's
+//! lexer hands it over as a keyword, the checker reads it as an operator the base standard does
+//! not define, and the reader meets the error §7.8.2 states — "an error shall occur" — and clears
+//! the operands before it (`pdf_model::content::run`). Where no operand stands before it, that
+//! clearing clears nothing, and the page draws as though the byte were white space; so the byte is
+//! written as one white-space character, which §7.2.3 makes the separator it already was, under
+//! the same loss, the producer's byte gone (`doc/adr/2859`). One that stands after an operand, or
+//! inside an array or a dictionary, does change what the reader draws by being there, and is left
+//! where it is: its stream keeps the operator and the row its answer.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -83,7 +95,8 @@ pub struct WrittenRun {
     pub object: ObjectId,
     /// The run as the producer wrote it.
     pub run: Vec<u8>,
-    /// The number written in its place, in ISO 32000-2 §7.3.3's spelling.
+    /// The number written in its place, in ISO 32000-2 §7.3.3's spelling; empty where the run is
+    /// a lone delimiter, written as one white-space character (`doc/adr/2859`).
     pub number: Vec<u8>,
 }
 
@@ -103,9 +116,18 @@ pub(super) struct Drawn {
     /// The content streams the survey read whose filters do not decode whole, so that no run in
     /// them is written (ADR 2803).
     pub(super) unread: BTreeSet<ObjectId>,
+    /// Whether a lone delimiter stood where removing it would change what this reader draws —
+    /// after an operand, or inside an array or a dictionary — and so was left (`doc/adr/2859`).
+    pub(super) delimiter_left: bool,
 }
 
 impl Drawn {
+    /// Whether every operator the survey reports under `spelling` is one this write answers: a run
+    /// this reader draws as a number, or a lone delimiter where none was left.
+    pub(super) fn answers(&self, spelling: &[u8]) -> bool {
+        is_drawn_as_a_number(spelling) || (is_a_lone_delimiter(spelling) && !self.delimiter_left)
+    }
+
     /// Whether the stream an operator the survey found stood in is one this write could not read,
     /// so that the run in it is still in the output: the object the survey names, or for a page's
     /// own content, any stream its `/Contents` names.
@@ -134,6 +156,28 @@ pub(super) fn write(
     survey: Option<&Survey>,
     hexadecimal: Option<&hexadecimal::Completed>,
 ) -> Result<Drawn, Because> {
+    // A lone delimiter is written only where the write then answers every operator: where some
+    // other operator stays, the page keeps the answer it had without this write, the photograph's
+    // included, and the delimiter stays with it (`doc/adr/2859`).
+    match write_places(document, survey, hexadecimal, true) {
+        Ok(drawn)
+            if drawn.answers_every_operator
+                || drawn.runs.iter().all(|run| !run.number.is_empty()) =>
+        {
+            Ok(drawn)
+        }
+        _ => write_places(document, survey, hexadecimal, false),
+    }
+}
+
+/// [`write()`], with lone delimiters written where `delimiters` is set and every one of them left
+/// where it is not.
+fn write_places(
+    document: &Document,
+    survey: Option<&Survey>,
+    hexadecimal: Option<&hexadecimal::Completed>,
+    delimiters: bool,
+) -> Result<Drawn, Because> {
     let pages = Pages::new(document);
     let mut read_on: BTreeMap<&[u8], BTreeSet<usize>> = BTreeMap::new();
     for unlisted in survey.map_or(&[][..], Survey::unlisted_operators) {
@@ -144,10 +188,9 @@ pub(super) fn write(
     }
     let mut out = Drawn {
         answers_every_operator: survey.is_some_and(|survey| {
-            survey
-                .unlisted_operators()
-                .iter()
-                .all(|unlisted| is_drawn_as_a_number(&unlisted.spelling))
+            survey.unlisted_operators().iter().all(|unlisted| {
+                is_drawn_as_a_number(&unlisted.spelling) || is_a_lone_delimiter(&unlisted.spelling)
+            })
         }),
         ..Drawn::default()
     };
@@ -165,8 +208,9 @@ pub(super) fn write(
             continue;
         };
         let room = MOST_RUNS.saturating_sub(out.runs.len());
-        let places = salvaged_runs(document, &data, &resources, room)
+        let (places, delimiter_left) = salvaged_runs(document, &data, &resources, room, delimiters)
             .ok_or(Because::NotBuiltYet(TOO_MANY_RUNS))?;
+        out.delimiter_left |= delimiter_left;
         if places.is_empty() {
             continue;
         }
@@ -177,7 +221,13 @@ pub(super) fn write(
         let mut from = 0;
         for place in places {
             written.extend_from_slice(data.get(from..place.start).unwrap_or_default());
-            written.extend_from_slice(&place.number);
+            // A lone delimiter's place is written as the white space §7.2.3 already read it as,
+            // so the tokens either side of it stay apart.
+            if place.number.is_empty() {
+                written.push(b' ');
+            } else {
+                written.extend_from_slice(&place.number);
+            }
             from = place.end;
             let run = data
                 .get(place.start..place.end)
@@ -201,8 +251,9 @@ pub(super) fn write(
     if out.at.is_empty() {
         return Err(Because::NotBuiltYet(NO_STREAM_HOLDS_ONE));
     }
-    // A run left in a stream this write could not read is an operator the numbers do not answer.
-    out.answers_every_operator &= out.unread.is_empty();
+    // A run left in a stream this write could not read is an operator the numbers do not answer,
+    // and so is a delimiter left where it changes the drawing.
+    out.answers_every_operator &= out.unread.is_empty() && !out.delimiter_left;
     Ok(out)
 }
 
@@ -213,8 +264,9 @@ pub(super) fn write(
 /// written as `\xHH`.
 pub(super) fn history(drawn: &Drawn, citation: &str) -> String {
     let mut out = format!(
-        "{citation}: {} run(s) the base standard spells as no number were written as the number \
-         this reader draws; loss {}",
+        "{citation}: {} run(s) the base standard spells as no number, or lone delimiters it reads \
+         as no operator, were written as this reader draws them, a run as its number and a \
+         delimiter as white space; loss {}",
         drawn.runs.len(),
         super::Loss::ContentAsDrawn.word()
     );
@@ -233,7 +285,7 @@ pub(super) fn history(drawn: &Drawn, citation: &str) -> String {
             written.object.number,
             written.object.generation,
             spelled(&written.run),
-            spelled(&written.number)
+            written_as(&written.number)
         );
     }
     if drawn.runs.len() > MOST_NAMED {
@@ -244,6 +296,16 @@ pub(super) fn history(drawn: &Drawn, citation: &str) -> String {
         );
     }
     out
+}
+
+/// What was written in a run's place, for a person: the number, or that a lone delimiter was
+/// written as white space.
+pub(super) fn written_as(number: &[u8]) -> String {
+    if number.is_empty() {
+        "white space".to_owned()
+    } else {
+        spelled(number)
+    }
 }
 
 /// A run's bytes as text, each byte outside printable ASCII written as `\xHH`.
@@ -291,13 +353,19 @@ pub(super) fn is_drawn_as_a_number(spelling: &[u8]) -> bool {
         && lexer.salvaged().is_some_and(draws_the_salvage)
 }
 
+/// Whether a keyword the checker reports is a delimiter that closes nothing, which this tree's
+/// lexer hands over as a keyword of its own (§7.2.3's `>` and `)`).
+pub(super) fn is_a_lone_delimiter(spelling: &[u8]) -> bool {
+    matches!(spelling, b">" | b")")
+}
+
 /// A run's span in one decoded stream, and the number written for it.
 struct Place {
     /// The run's first byte.
     start: usize,
     /// One past its last byte.
     end: usize,
-    /// The number the reader draws, in §7.3.3's spelling.
+    /// The number the reader draws, in §7.3.3's spelling; empty for a lone delimiter.
     number: Vec<u8>,
 }
 
@@ -308,14 +376,24 @@ struct Place {
 /// passes it. Each run is at least two bytes — a digit and what the number leaves out — so the
 /// list is bounded by half the stream's length, and by `most`: `None` where the stream holds more
 /// than `most` runs.
+///
+/// A lone delimiter is a place too, with no number, where `delimiters` is set and nothing stands
+/// before it since the last operator and it is in no array or dictionary — the one place the
+/// reader's clearing of the operands clears nothing. The flag beside the list says whether one was
+/// left.
 fn salvaged_runs(
     document: &Document,
     data: &[u8],
     resources: &pdf_syntax::object::Dictionary,
     most: usize,
-) -> Option<Vec<Place>> {
+    delimiters: bool,
+) -> Option<(Vec<Place>, bool)> {
     let mut lexer = Lexer::new(data);
     let mut out = Vec::new();
+    let mut left = false;
+    // The operands since the last operator, and how deep in arrays and dictionaries the lexer is.
+    let mut pending = 0_usize;
+    let mut depth = 0_usize;
     loop {
         lexer.skip_whitespace();
         let start = lexer.position();
@@ -326,7 +404,34 @@ fn salvaged_runs(
             let scan =
                 pdf_model::inline_image::scan(document, data, lexer.position(), resources, true);
             lexer.seek(scan.resume);
+            pending = 0;
             continue;
+        }
+        match token {
+            Token::ArrayOpen | Token::DictOpen => depth = depth.saturating_add(1),
+            Token::ArrayClose | Token::DictClose => {
+                depth = depth.saturating_sub(1);
+                pending = pending.saturating_add(1);
+            }
+            Token::Keyword(word) if is_a_lone_delimiter(word) => {
+                if delimiters && depth == 0 && pending == 0 {
+                    if out.len() == most {
+                        return None;
+                    }
+                    out.push(Place {
+                        start,
+                        end: lexer.position(),
+                        number: Vec::new(),
+                    });
+                } else {
+                    left = true;
+                    pending = 0;
+                }
+                continue;
+            }
+            Token::Keyword(b"true" | b"false" | b"null") => pending = pending.saturating_add(1),
+            Token::Keyword(_) if depth == 0 && lexer.salvaged().is_none() => pending = 0,
+            _ => pending = pending.saturating_add(1),
         }
         let Some(salvage) = lexer.salvaged() else {
             continue;
@@ -354,7 +459,7 @@ fn salvaged_runs(
             number,
         });
     }
-    Some(out)
+    Some((out, left))
 }
 
 #[cfg(test)]

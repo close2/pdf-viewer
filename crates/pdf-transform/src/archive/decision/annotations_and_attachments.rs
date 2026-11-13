@@ -302,10 +302,23 @@ pub(super) const REMEDIES: &[Remedy] = &[
 ];
 
 /// This family's rows of [`super::CONDITIONAL`].
-pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[(
-    "forms/need-appearances-absent-or-false",
-    Conditional::PerConfiguration(Losses::one(Loss::FieldAppearances)),
-)];
+pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
+    (
+        "forms/need-appearances-absent-or-false",
+        Conditional::PerConfiguration(Losses::one(Loss::FieldAppearances)),
+    ),
+    // A construction is a statement where the clauses state the appearance, and the loss
+    // `stand-in-face` where its text is set in ADR 0112's stand-in for a `/DA` font `/DR` does not
+    // define: which is a fact about the file (`doc/adr/2858`).
+    (
+        "annotations/appearance-dictionary-present",
+        Conditional::PerDocument(Losses::one(Loss::StandInFace)),
+    ),
+    (
+        "annotations/appearance-dictionary-present-from-base-standard",
+        Conditional::PerDocument(Losses::one(Loss::StandInFace)),
+    ),
+];
 
 /// The three rows ISO 19005-2 section 6.4.3 and ISO 19005-4 section 6.5.1 ask again of a
 /// signature field's widget.

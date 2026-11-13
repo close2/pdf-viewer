@@ -184,6 +184,9 @@ pub(crate) struct Constructed {
     /// this annotation's subtype, carried beside the stream so that a caller holding the
     /// construction need not ask again.
     pub bounded: bool,
+    /// The `/DA` font name `/DR` does not define, where ADR 0112's stand-in is the report this
+    /// construction names — the report one person reads, which may stand ahead of others.
+    pub stood_in: Option<Name>,
 }
 
 /// The appearance stream an annotation stating none would be given, as a form `XObject`.
@@ -256,6 +259,24 @@ pub fn for_annotation_in(
             Ok(resources) => (resources, None),
             Err(sentence) => (built.resources, Some(sentence)),
         };
+    // ADR 0112's stand-in is named ahead of everything else a construction owes, so whether it
+    // is the *whole* of it is asked by laying the annotation out again with the stand-in
+    // unreported: what that layout still owes is something else, and a different stream would be
+    // a different drawing (ADR 2858).
+    let stood_in = match &built.stood_in {
+        Some(name) if unwritten.is_none() => {
+            let again = construct(
+                document,
+                annotation,
+                &subtype,
+                crate::view::AnnotationView::default(),
+                rect,
+                &LayoutFonts::without_the_stand_in_report(document),
+            );
+            (again.report.is_none() && again.content == built.content).then(|| name.clone())
+        }
+        _ => None,
+    };
     let owed = built.report.or(unwritten);
     Some(Written {
         // An annotation that draws nothing gets an empty stream rather than none: drawing
@@ -263,6 +284,7 @@ pub fn for_annotation_in(
         stream: form_xobject(rect, resources, built.content.unwrap_or_default()),
         drawn,
         owed,
+        stood_in,
     })
 }
 
@@ -388,6 +410,14 @@ pub struct Written {
     /// different thing from the appearance the clauses state — so a caller writing one into a
     /// file has a decision to take rather than a message to print.
     pub owed: Option<String>,
+    /// The `/DA` font name §12.7.4.3's `/DR` does not define, where ADR 0112's stand-in for it is
+    /// the whole of what [`Self::owed`] names.
+    ///
+    /// `Some` only where laying the annotation out again with the stand-in unreported owes
+    /// nothing and draws the same stream, so that a caller may write the stream as this viewer
+    /// draws it and name the stand-in as the one thing it departs by (ADR 2858). `None` wherever
+    /// anything else is owed, beside the stand-in or instead of it.
+    pub stood_in: Option<Name>,
 }
 
 /// One constructed appearance as the form `XObject` §12.5.5 makes it.
@@ -754,9 +784,14 @@ pub(crate) fn construct(
         },
     };
     let content = painted.drawn.then(|| stream.text.clone().into_bytes());
+    let stood_in = match &painted.report {
+        Some(Refusal::Text(Owed::FontNotInResources(name))) => Some(name.clone()),
+        _ => None,
+    };
     Constructed {
         content,
         report: painted.report.map(|refusal| refusal.detail()),
+        stood_in,
         resources: stream.finish(),
         bounded,
     }

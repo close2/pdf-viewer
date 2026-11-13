@@ -512,13 +512,20 @@ pub(super) fn runs_entry(
             out,
             "\n{}. Requirement: {} ({citation})\n   Asks: {asks}\n   Loss: content-as-drawn, \
              {RUN_LOSS}\n   Pages: {pages}\n   Object: content stream {} {}\n   Run as the producer \
-             wrote it: {}\n   Number written: {} (ISO 32000-2 7.3.3)\n",
+             wrote it: {}\n   {}\n",
             index.saturating_add(offset).saturating_add(1),
             super::config::STATED_RUNS,
             written.object.number,
             written.object.generation,
             super::as_drawn::spelled(&written.run),
-            super::as_drawn::spelled(&written.number),
+            if written.number.is_empty() {
+                "Written as: white space (ISO 32000-2 7.2.3)".to_owned()
+            } else {
+                format!(
+                    "Number written: {} (ISO 32000-2 7.3.3)",
+                    super::as_drawn::spelled(&written.number)
+                )
+            },
         );
     }
     if out.len() > MOST_STATEMENT_BYTES {

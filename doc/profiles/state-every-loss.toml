@@ -81,6 +81,15 @@ try = ["append-statement", "discard"]
 [site."annotations/printable-and-visible"]
 try = ["append-statement", "discard"]
 
+# An appearance set in this viewer's stand-in for a /DA font the form's /DR does not define, the
+# loss `stand-in-face` (ADR 2858); this version composes no page at this site, so the first step
+# is passed over with its sentence and the report names each annotation, its page and the font.
+[site."annotations/appearance-dictionary-present"]
+try = ["append-statement", "discard"]
+
+[site."annotations/appearance-dictionary-present-from-base-standard"]
+try = ["append-statement", "discard"]
+
 [site."annotations/appearance-dictionary-holds-only-normal"]
 try = ["append-statement", "discard"]
 
