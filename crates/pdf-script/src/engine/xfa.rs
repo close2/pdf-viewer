@@ -38,6 +38,8 @@
 //! argument can make large (ADR 1590), so a runaway script is stopped in the worker; past what a
 //! script was handed the run reports itself over, which ends the activation it belongs to (page
 //! 380). Global variables persist from one run to the next, which page 414 asks for.
+//! A script's promise reactions and `async` continuations run after it returns and before its
+//! value is read, under the same wall budget, as the document realm's do (ADR 2865).
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
@@ -57,7 +59,7 @@ use boa_engine::{
 };
 use pdf_model::xfa::{Occurrence, Scalar, Step};
 
-use super::{Hooks, SLICE, State, ending_of, too_deep};
+use super::{Hooks, SLICE, State, ending_of, jobs, too_deep};
 use crate::{Budget, Ending, Nobody};
 
 /// The most steps a SOM expression in a string may have, as a `FormCalc` path may (ADR 2524).
@@ -125,6 +127,8 @@ pub struct FormRealm {
     /// How long a run waited on a person, which is always nothing here: a form's script asks no
     /// question.
     waited: Rc<Cell<Duration>>,
+    /// The jobs the context has enqueued, run after each script (ADR 2865).
+    jobs: Rc<jobs::Jobs>,
 }
 
 /// What a run keeps in its context's host data: the host, and what it was told.
@@ -160,9 +164,11 @@ impl FormRealm {
             global_this: Some(Rc::clone(&slot)),
         };
         // Trap 118: the loader that reads no file system, as the document's realm has.
+        let jobs = Rc::new(jobs::Jobs::default());
         let mut context = Context::builder()
             .host_hooks(Rc::new(hooks))
             .module_loader(Rc::new(IdleModuleLoader))
+            .job_executor(Rc::clone(&jobs))
             .build()
             .map_err(|error| format!("the engine could not be constructed: {error}"))?;
         let limits = context.runtime_limits_mut();
@@ -199,6 +205,7 @@ impl FormRealm {
             budget,
             key,
             waited,
+            jobs,
         })
     }
 
@@ -228,7 +235,9 @@ impl FormRealm {
             refused: RefCell::new(None),
             key: self.key.clone(),
         });
+        self.jobs.clear();
         let ran = self.evaluate(script, here, steps_left);
+        self.jobs.clear();
         let recorded = State::take(&self.context);
         let first_refusal = self
             .context
@@ -282,16 +291,16 @@ impl FormRealm {
             let mut evaluation = pin!(parsed.evaluate_async_with_budget(&mut self.context, SLICE));
             loop {
                 match evaluation.as_mut().poll(&mut waker) {
-                    Poll::Ready(Ok(value)) => break value,
-                    Poll::Ready(Err(error)) => {
-                        return Err(match ending_of(&error, &budget) {
-                            Ending::Exceeded(exceeded) => (
+                    Poll::Ready(Ok(value)) => break Ok(value),
+                    Poll::Ready(Err(error)) => match ending_of(&error, &budget) {
+                        Ending::Exceeded(exceeded) => {
+                            return Err((
                                 over,
                                 format!("the script was stopped: {}", exceeded.sentence()),
-                            ),
-                            _ => (spent, format!("the script threw: {}", sentence(&error))),
-                        });
-                    }
+                            ));
+                        }
+                        _ => break Err((spent, format!("the script threw: {}", sentence(&error)))),
+                    },
                     Poll::Pending => {
                         spent = spent.saturating_add(u64::from(SLICE));
                         if spent > budget.steps {
@@ -316,6 +325,36 @@ impl FormRealm {
                 }
             }
         };
+        // ECMA-262 section 8.4: what the script enqueued is performed once no execution context
+        // is running, which is so once it has returned, normally or by a throw; the realm performs
+        // it then, under the same wall budget (ADR 2865).
+        let (settled, notes) = jobs::settle(
+            &self.jobs,
+            &mut self.context,
+            &budget,
+            started,
+            &self.waited,
+        );
+        match settled {
+            Ending::Finished => {}
+            Ending::Exceeded(exceeded) => {
+                return Err((
+                    over,
+                    format!("the script was stopped: {}", exceeded.sentence()),
+                ));
+            }
+            other => {
+                let why = other.sentence().unwrap_or_default();
+                return Err((spent, format!("a job the script enqueued ended it: {why}")));
+            }
+        }
+        // A job left unrun is work the script's value may rest on, reported as a refusal is
+        // (`Run::refused`): the run has no other place for a sentence beside its value.
+        if let (Some(note), Some(run)) = (notes.into_iter().next(), self.context.get_data::<Run>())
+        {
+            run.refused.borrow_mut().get_or_insert(note);
+        }
+        let completion = completion?;
         Ok((spent, scalar(&completion, &mut self.context)))
     }
 }
