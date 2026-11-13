@@ -1,18 +1,23 @@
 //! Confining the calling process, irreversibly — and saying so where a platform cannot.
 //!
-//! The mechanism is Linux's and lives in `crate::lockdown_linux`: resource limits, a
-//! Landlock domain that permits nothing, and a seccomp-BPF allow-list. This module is the
-//! front door: the vocabulary for *what was achieved*, and [`apply`], which on a platform
-//! with none of those three installs nothing and returns a [`Confinement`] that says so.
+//! Two platforms have a mechanism. Linux's lives in `crate::lockdown_linux`: resource limits, a
+//! Landlock domain that permits nothing, and a seccomp-BPF allow-list. macOS's lives in
+//! `crate::lockdown_macos`: a Seatbelt profile that denies every operation it does not name, the
+//! filesystem and the network included, with the memory ceiling held from outside by the process
+//! that started the worker (`crate::watch`, ADR 2864). This module is the front door: the
+//! vocabulary for *what was achieved*, and [`apply`], which on a platform with neither installs
+//! nothing and returns a [`Confinement`] that says so.
 //!
 //! # Why a platform without a filter still gets a worker
 //!
 //! Decided by the project owner (ADR 0194), and it is a narrowing of principle 3 rather than an
-//! abandonment of it. The crate's own documentation
+//! abandonment of it; since ADR 2864 the platform it describes is Windows alone. The crate's own
+//! documentation
 //! lists three reasons the boundary exists, and only the first two are about the isolation
 //! being *enforced by the kernel*:
 //!
-//! - **Resource exhaustion** — `RLIMIT_AS` is Linux's here. Off Linux the ceiling is gone, and
+//! - **Resource exhaustion** — `RLIMIT_AS` is Linux's here, and macOS's is the starting
+//!   process's watch. Where neither exists the ceiling is gone, and
 //!   what is left of it is `crate::decode`'s hand-placed `MAX_PIXELS` and `MAX_SAMPLES`, which
 //!   are a discipline rather than a fact.
 //! - **Panics** — this survives untouched, and it is a *process* property rather than a kernel
@@ -83,6 +88,61 @@ pub enum Profile {
     Script,
 }
 
+/// Ceiling on a decoder's address space, in bytes.
+///
+/// A bilevel page at 600 dpi is 35 megabytes as one byte per pixel and the decoders hold a
+/// handful of such planes at once, so a gigabyte is roughly thirty times the largest
+/// legitimate working set. It is a bound against a hostile file, not a budget anyone should
+/// ever reach: crossing it aborts the worker, which the parent reports as an undecodable
+/// image.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const ADDRESS_SPACE_LIMIT: u64 = 1 << 30;
+
+/// Ceiling on an interpreter's address space, in bytes.
+///
+/// Four times the decoder's, and the multiplier is derived rather than chosen. A rasteriser is
+/// asked for a whole page at a whole magnification, and `viewer_core`'s own `MAX_PIXELS` bounds
+/// one at 2²⁸ pixels — which is [`ADDRESS_SPACE_LIMIT`] exactly, in RGBA, for the raster alone.
+/// Beside it live the document's bytes, the display list, the glyph outlines and a rasteriser's
+/// scratch sheet on every core, so a ceiling equal to the pixel budget would refuse pages the
+/// viewer permits. Four gibibytes leaves room for all of that and is still a bound: a document
+/// that reaches it has asked for more than any page needs.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const INTERPRETER_ADDRESS_SPACE_LIMIT: u64 = 4 << 30;
+
+/// Ceiling on a script worker's address space, in bytes.
+///
+/// Sized from measurements rather than chosen (ADR 1609). What the worker may hold whatever it runs
+/// comes to about 43 MiB in a debug build: its image at start (17.6 MiB; 12.4 in release) and the
+/// engine one run constructs (0.4), as measured, and three bounds of the worker's own — the frames
+/// of one run and their decoded copies (8), the scripts it holds (8) and a main-thread stack grown
+/// to its 8 MiB. Beside that sits what a script makes:
+/// the largest allocation `pdf_script::Budget` admits at face value, a 16 MiB `ArrayBuffer`, and
+/// as much again for the script's own objects. Ninety-six mebibytes holds both. A call whose
+/// transient cost is many times the size its budget names — `padStart` at the string budget peaked
+/// 96 MiB above start, `join` at the element budget 150 — and growth through an operator, which no
+/// per-call budget sees, meet it here instead, and the worker aborts with the allocator's sentence
+/// on the pipe its host reads.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const SCRIPT_ADDRESS_SPACE_LIMIT: u64 = 96 << 20;
+
+/// The ceiling a profile's process is held to, in bytes: the profile's own, or `wider` where a
+/// caller sized one for a stated budget and it is the larger (`apply_for_decoder_within`).
+///
+/// One function for both platforms, because the number is a property of the *work* and not of the
+/// mechanism that holds a process to it: Linux installs it as `RLIMIT_AS` inside the worker, macOS
+/// has no ceiling a process can set on itself and is held to it by the process that started it
+/// (`crate::watch`, ADR 2864).
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) fn ceiling(profile: Profile, wider: Option<u64>) -> u64 {
+    let own = match profile {
+        Profile::Decoder => ADDRESS_SPACE_LIMIT,
+        Profile::Interpreter => INTERPRETER_ADDRESS_SPACE_LIMIT,
+        Profile::Script => SCRIPT_ADDRESS_SPACE_LIMIT,
+    };
+    wider.map_or(own, |wider| wider.max(own))
+}
+
 /// How thoroughly Landlock could be applied.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LandlockLevel {
@@ -107,9 +167,17 @@ pub enum SystemCalls {
     /// This is the layer that makes "no filesystem and no network" true irrespective of what
     /// any path or address would have permitted.
     Filtered,
+    /// A Seatbelt profile is in force: every operation it does not name is refused by the kernel.
+    ///
+    /// macOS's mechanism (ADR 2864). It is decided per *operation* — reading a file, opening a
+    /// socket, looking up a service — rather than per system-call number, so it says nothing about
+    /// threads or executable memory, which seccomp can refuse and a profile cannot; what it carries
+    /// is the property this crate exists for, no filesystem and no network, and the kernel answers
+    /// a refused operation with `EPERM` rather than killing the process.
+    Seatbelt,
     /// No filter. The worker may call anything the operating system offers it.
     ///
-    /// Off Linux, where seccomp-BPF does not exist. What remains is the process boundary
+    /// On Windows, where neither seccomp-BPF nor Seatbelt exists. What remains is the process boundary
     /// itself, which is not nothing — see this module's header — but it is not this.
     Unfiltered,
 }
@@ -122,7 +190,12 @@ pub enum SystemCalls {
 pub struct Confinement {
     /// How thoroughly Landlock could be applied.
     pub landlock: LandlockLevel,
-    /// The address-space ceiling that was installed, in bytes, or 0 where there is none.
+    /// The memory ceiling the worker is held to, in bytes, or 0 where there is none.
+    ///
+    /// On Linux the kernel holds it inside the worker as `RLIMIT_AS`, and an allocation past it
+    /// fails. On macOS no process can set one on itself, so the process that started the worker
+    /// samples its physical footprint and kills it past this number (`crate::watch`, ADR 2864):
+    /// the same bound, held from outside and a sampling interval late.
     pub address_space_limit: u64,
     /// Whether the system-call allow-list is in force.
     pub system_calls: SystemCalls,
@@ -131,12 +204,15 @@ pub struct Confinement {
 impl Confinement {
     /// Whether the kernel is enforcing the properties this crate exists to provide.
     ///
-    /// True only where the system-call filter is installed, because that is the layer the
-    /// no-filesystem, no-network property rests on. Landlock is defence in depth and its
-    /// absence weakens rather than removes; a missing filter removes.
+    /// True only where the system-call filter or the Seatbelt profile is installed, because that
+    /// is the layer the no-filesystem, no-network property rests on. Landlock is defence in depth
+    /// and its absence weakens rather than removes; a missing filter removes.
     #[must_use]
     pub fn is_enforced(&self) -> bool {
-        self.system_calls == SystemCalls::Filtered
+        matches!(
+            self.system_calls,
+            SystemCalls::Filtered | SystemCalls::Seatbelt
+        )
     }
 
     /// One sentence naming what is *not* enforced, or `None` where everything is.
@@ -154,7 +230,9 @@ impl Confinement {
                 "no address-space ceiling, so a decompression bomb is bounded only by this machine",
             );
         }
-        if self.landlock != LandlockLevel::Enforced {
+        // Landlock is a Linux mechanism and a layer *under* the filter: its absence is worth a
+        // word where seccomp is the filter, and none where Seatbelt is, which has no such layer.
+        if self.system_calls != SystemCalls::Seatbelt && self.landlock != LandlockLevel::Enforced {
             missing.push("no Landlock domain");
         }
         if missing.is_empty() {
@@ -167,7 +245,7 @@ impl Confinement {
         ))
     }
 
-    /// The confinement of a platform that has none of the three mechanisms.
+    /// The confinement of a platform that has no mechanism: Windows.
     pub(crate) const NONE: Self = Self {
         landlock: LandlockLevel::Unavailable,
         address_space_limit: 0,
@@ -177,9 +255,9 @@ impl Confinement {
 
 /// Why a process could not be confined.
 ///
-/// Every variant is Linux's, because Linux is where the mechanisms are. On another platform
-/// [`apply`] installs nothing and cannot fail, which is what an enum with no reachable
-/// variants says in the type system rather than in a comment.
+/// Every variant is Linux's or macOS's, because those are where the mechanisms are. On Windows
+/// [`apply`] installs nothing and cannot fail, which is what an enum with no reachable variants
+/// says in the type system rather than in a comment.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum LockdownError {
@@ -210,17 +288,21 @@ pub enum LockdownError {
     #[cfg(target_os = "linux")]
     #[error("installing the seccomp filter failed: {0}")]
     Seccomp(#[from] seccompiler::Error),
+    /// The Seatbelt profile was not accepted.
+    #[cfg(target_os = "macos")]
+    #[error("entering the Seatbelt profile failed: {0}")]
+    Seatbelt(#[from] darwin_sandbox::EnterError),
 }
 
 /// Whether this build has a confinement to install at all.
 ///
 /// A property of the *build* rather than of a worker, and therefore knowable before anything
 /// is spawned — which is what a host needs, because `CLAUDE.md`'s startup rules forbid starting
-/// a worker to find out. `false` off Linux, where [`apply`] installs nothing.
+/// a worker to find out. `false` on Windows, where [`apply`] installs nothing.
 ///
 /// [`Confinement::is_enforced`] is the same question asked of a worker that exists, and is the
 /// one to trust: a kernel can refuse what a build offers.
-pub const ENFORCED_BY_THIS_BUILD: bool = cfg!(target_os = "linux");
+pub const ENFORCED_BY_THIS_BUILD: bool = cfg!(any(target_os = "linux", target_os = "macos"));
 
 /// Confines the calling thread. There is no way to undo this.
 ///
@@ -231,7 +313,7 @@ pub const ENFORCED_BY_THIS_BUILD: bool = cfg!(target_os = "linux");
 /// platform with no confinement to install this cannot fail, and answers
 /// `Confinement::NONE`.
 ///
-/// `#[must_use]` because off Linux the error type has no reachable variants, so the compiler
+/// `#[must_use]` because on Windows the error type has no reachable variants, so the compiler
 /// would let a caller drop the whole answer — including the part that says what was *not*
 /// enforced, which is the one thing this crate promises never to lose quietly.
 #[must_use = "the confinement reached is what a host has to report"]
@@ -239,15 +321,18 @@ pub fn apply() -> Result<Confinement, LockdownError> {
     apply_for(Profile::Decoder)
 }
 
-/// Whether this process has installed its system-call filter.
+/// Whether this process has installed its system-call filter or entered its Seatbelt profile.
 ///
-/// Set once, by the confinement, and never cleared — the filter cannot be removed either. Read
-/// by [`crate::decode()`], whose in-process deadline starts a thread: a confined process must not
-/// take that path, because the filter kills it (ADR 1447).
+/// Set once, by the confinement, and never cleared — neither can be removed. Read by
+/// [`crate::decode()`], whose in-process deadline starts a thread: a confined process must not
+/// take that path, because the filter kills it (ADR 1447). A Seatbelt profile would let the thread
+/// start, and takes the same path anyway, so that a confined process decodes the same way on both
+/// platforms and its deadline is the one its starting process holds.
 pub(crate) static CONFINED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
-/// Whether this process is behind its own system-call filter ([`apply_for`] has succeeded).
+/// Whether this process is behind its own system-call filter or Seatbelt profile ([`apply_for`]
+/// has succeeded).
 #[must_use]
 pub fn is_confined() -> bool {
     CONFINED.load(std::sync::atomic::Ordering::Acquire)
@@ -264,7 +349,7 @@ pub fn is_confined() -> bool {
 /// that gets an error must not continue with the work it intended to confine. On a platform with
 /// no confinement to install this cannot fail, and answers `Confinement::NONE`.
 ///
-/// `#[must_use]` for [`apply`]'s reason: off Linux the error type has no reachable variants, so
+/// `#[must_use]` for [`apply`]'s reason: on Windows the error type has no reachable variants, so
 /// the compiler would let a caller drop the part of the answer that says what was *not* enforced.
 #[must_use = "the confinement reached is what a host has to report"]
 pub fn apply_for(profile: Profile) -> Result<Confinement, LockdownError> {
@@ -272,7 +357,11 @@ pub fn apply_for(profile: Profile) -> Result<Confinement, LockdownError> {
     {
         crate::lockdown_linux::apply(profile, None)
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        crate::lockdown_macos::apply(profile, None)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         let _ = profile;
         Ok(Confinement::NONE)
@@ -296,7 +385,11 @@ pub(crate) fn apply_for_decoder_within(address_space: u64) -> Result<Confinement
     {
         crate::lockdown_linux::apply(Profile::Decoder, Some(address_space))
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        crate::lockdown_macos::apply(Profile::Decoder, Some(address_space))
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         let _ = address_space;
         Ok(Confinement::NONE)
@@ -314,6 +407,19 @@ mod tests {
         assert!(sentence.contains("address-space"), "{sentence}");
         assert!(sentence.contains("Landlock"), "{sentence}");
         assert!(!Confinement::NONE.is_enforced());
+    }
+
+    /// A worker in a Seatbelt profile with its ceiling is enforced and owes no sentence: Landlock
+    /// is a layer under seccomp, and a platform with neither has nothing of it to report missing.
+    #[test]
+    fn seatbelt_with_a_ceiling_is_enforced_and_says_nothing() {
+        let seatbelt = Confinement {
+            landlock: LandlockLevel::Unavailable,
+            address_space_limit: 1 << 30,
+            system_calls: SystemCalls::Seatbelt,
+        };
+        assert!(seatbelt.is_enforced());
+        assert_eq!(seatbelt.shortfall(), None);
     }
 
     /// A worker with the filter and the ceiling is enforced whatever Landlock managed.

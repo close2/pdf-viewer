@@ -76,3 +76,6 @@ __pycache__/
 # it is fetched rather than tracked, and this tree carries only its provenance
 # (doc/gwg-output-suite-provenance.md, ADR 2728).
 /doc/corpora/gwg-output-suite
+
+# What macOS Finder writes into every folder it opens: view settings, never source.
+.DS_Store

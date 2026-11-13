@@ -102,6 +102,9 @@ pub struct Host {
     resources: Option<Broker>,
     /// What this host hands a notice to, if it listens at all.
     notices: Option<Listener>,
+    /// The worker's memory ceiling, held by this process where the worker cannot hold it on
+    /// itself — macOS (`pdf_sandbox::watch`, ADR 2864); `None` everywhere else.
+    watch: Option<pdf_sandbox::watch::Watch>,
 }
 
 /// Written by hand because a [`Broker`] and a [`Listener`] are closures and have nothing to print.
@@ -114,6 +117,7 @@ impl std::fmt::Debug for Host {
             .field("confinement", &self.confinement)
             .field("resources", &self.resources.as_ref().map(|_| "a broker"))
             .field("notices", &self.notices.as_ref().map(|_| "a listener"))
+            .field("watch", &self.watch)
             .finish()
     }
 }
@@ -184,6 +188,7 @@ impl Host {
         // Published before the blocking read below, so that a cancel arriving during the greeting
         // has something to signal — and re-checked after publishing, because one arriving between
         // the check above and this line would otherwise have found an empty slot and been lost.
+        let pid = child.id();
         let name = program.file_name().map_or_else(
             || String::from("the confined worker"),
             |name| name.to_string_lossy().into_owned(),
@@ -212,6 +217,17 @@ impl Host {
             });
         };
 
+        // Before the first message, so that nothing the worker is sent is read unwatched: the
+        // ceiling is the one it reported once confined, before it had read anything at all.
+        let watch = match pdf_sandbox::watch::Watch::start(pid, confinement.address_space_limit) {
+            Ok(watch) => watch,
+            Err(error) => {
+                canceller.kill();
+                let _ = canceller.reap();
+                return Err(TransportError::Spawn(error));
+            }
+        };
+
         Ok(Self {
             canceller: canceller.clone(),
             to_worker,
@@ -219,6 +235,7 @@ impl Host {
             confinement,
             resources: None,
             notices: None,
+            watch,
         })
     }
 
@@ -483,7 +500,22 @@ impl Host {
         if self.canceller.is_cancelled() {
             return TransportError::Cancelled;
         }
-        TransportError::WorkerDied { detail }
+        TransportError::WorkerDied {
+            detail: self.why_stopped(detail),
+        }
+    }
+
+    /// `detail`, with the watch's reason in front of it where the watch is what stopped the worker:
+    /// a `SIGKILL` alone does not say that the ceiling was the reason.
+    fn why_stopped(&self, detail: String) -> String {
+        match self
+            .watch
+            .as_ref()
+            .and_then(pdf_sandbox::watch::Watch::sentence)
+        {
+            Some(sentence) => format!("{sentence}; {detail}"),
+            None => detail,
+        }
     }
 
     /// Turns a pipe failure into the reason the worker is gone, when it is.
@@ -492,7 +524,9 @@ impl Host {
             return TransportError::Cancelled;
         }
         match self.canceller.ended() {
-            Some(detail) => TransportError::WorkerDied { detail },
+            Some(detail) => TransportError::WorkerDied {
+                detail: self.why_stopped(detail),
+            },
             None => TransportError::Connection(error),
         }
     }
@@ -505,6 +539,9 @@ impl Drop for Host {
     /// socket does — but a worker in the middle of the work would not notice for as long as that
     /// takes, and a host that has dropped its handle is not waiting for one.
     fn drop(&mut self) {
+        // The watch first, so that it is not reading an identifier the reap below gives back to
+        // the system (`pdf_sandbox::watch`).
+        self.watch = None;
         self.canceller.kill();
         let _ = self.canceller.reap();
     }

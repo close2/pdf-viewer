@@ -6,9 +6,11 @@
 //! receives one image's bytes at a time over a pipe and returns samples over another. It
 //! never learns which document they came from, and it cannot ask.
 //!
-//! **Those two mechanisms are Linux's, and this crate builds everywhere.** A platform without them
-//! gets the worker *process* and no kernel confinement, which keeps the second of the three reasons
-//! below and loses the first — and says which, in [`lockdown::Confinement::shortfall`], because the
+//! **Those two mechanisms are Linux's, and this crate builds everywhere.** macOS has its own: a
+//! Seatbelt profile that denies every operation, entered by the worker as Linux's filter is, and
+//! the memory ceiling held by the process that started it ([`watch`], ADR 2864). Windows gets the
+//! worker *process* and no kernel confinement, which keeps the second of the three reasons below
+//! and loses the first — and says which, in [`lockdown::Confinement::shortfall`], because the
 //! thing that must not happen is a caller believing itself confined when it is not. The decision
 //! and its argument are ADR 0194.
 //!
@@ -93,7 +95,10 @@ pub mod in_process;
 pub mod lockdown;
 #[cfg(target_os = "linux")]
 mod lockdown_linux;
+#[cfg(target_os = "macos")]
+mod lockdown_macos;
 mod protocol;
+pub mod watch;
 mod worker;
 
 pub use in_process::{decode_here, decode_here_within};
@@ -370,6 +375,9 @@ struct Connection {
     #[cfg(not(unix))]
     pending: Vec<u8>,
     confinement: Confinement,
+    /// The memory ceiling the worker reported, held by this process where the worker cannot hold
+    /// it on itself — macOS (`watch`, ADR 2864); `None` everywhere else.
+    watch: Option<watch::Watch>,
 }
 
 /// A handle to the sandboxed decoder.
@@ -504,6 +512,8 @@ impl Sandbox {
             // Any failure leaves the pipe at an unknown offset, so the worker is not reusable
             // even when it is still alive. Killing it is how the next request gets a clean
             // one; a worker already dead ignores this.
+            // The watch ends before the reap, as in `Drop`; its reason is already in `outcome`.
+            connection.watch = None;
             let _ = connection.child.kill();
             let _ = connection.child.wait();
             *guard = None;
@@ -579,6 +589,9 @@ pub fn encode_dct(samples: &[u8], parameters: DctParameters) -> Result<Vec<u8>, 
 /// collected, so the explicit reaps elsewhere in this file stay correct beside this one.
 impl Drop for Connection {
     fn drop(&mut self) {
+        // The watch first, so that it is not reading an identifier the reap below gives back to
+        // the system (`watch`).
+        self.watch = None;
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -617,6 +630,7 @@ impl Connection {
             to_worker,
             from_worker,
             confinement: Confinement::NONE,
+            watch: None,
         };
         // Windows: the pipe moves onto a thread that owns it, because a read has to be
         // interruptible and only a channel's own timeout can interrupt one here.
@@ -657,9 +671,17 @@ impl Connection {
                 from_worker: receiver,
                 pending: Vec::new(),
                 confinement: Confinement::NONE,
+                watch: None,
             }
         };
         connection.confinement = connection.read_handshake(&program)?;
+        // Before the first request, so that no decode runs unwatched: the ceiling is the one the
+        // worker reported once it was confined, and before it had read anything a document wrote.
+        connection.watch = watch::Watch::start(
+            connection.child.id(),
+            connection.confinement.address_space_limit,
+        )
+        .map_err(SandboxError::Spawn)?;
         Ok(connection)
     }
 
@@ -844,7 +866,18 @@ impl Connection {
             Ok(status) => describe_exit(status),
             Err(error) => format!("and its status could not be read: {error}"),
         };
-        SandboxError::WorkerDied { detail }
+        SandboxError::WorkerDied {
+            detail: self.why_stopped(detail),
+        }
+    }
+
+    /// `detail`, with the watch's reason in front of it where the watch is what stopped the worker:
+    /// a `SIGKILL` alone does not say that the ceiling was the reason.
+    fn why_stopped(&self, detail: String) -> String {
+        match self.watch.as_ref().and_then(watch::Watch::sentence) {
+            Some(sentence) => format!("{sentence}; {detail}"),
+            None => detail,
+        }
     }
 
     /// Turns a pipe failure into the reason the worker is gone, when it is.
@@ -855,7 +888,7 @@ impl Connection {
     fn explain(&mut self, error: std::io::Error) -> SandboxError {
         match self.child.try_wait() {
             Ok(Some(status)) => SandboxError::WorkerDied {
-                detail: describe_exit(status),
+                detail: self.why_stopped(describe_exit(status)),
             },
             // Still running, so the pipe failure is what it says it is.
             Ok(None) => SandboxError::Connection(error),

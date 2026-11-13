@@ -118,11 +118,14 @@ fn the_largest_grid_the_budget_admits_encodes_under_the_workers_ceiling() {
     };
     assert_eq!(frame(&jpeg).map(|frame| frame.1), Some(4729));
     let confinement = sandbox.confinement().unwrap();
-    if cfg!(target_os = "linux") {
+    if cfg!(any(target_os = "linux", target_os = "macos")) {
+        // Linux holds the gigabyte inside the worker; macOS holds the same number from this
+        // process, which watched this encode and let it finish under it (ADR 2864).
         assert!(confinement.is_enforced(), "{confinement:?}");
+        assert_eq!(confinement.address_space_limit, 1 << 30);
     } else {
-        // macOS and Windows still exercise the encoding budget, but this build installs
-        // neither Linux's system-call filter nor its address-space ceiling there.
+        // Windows still exercises the encoding budget, but this build installs neither a filter
+        // nor a ceiling there.
         assert!(!confinement.is_enforced(), "{confinement:?}");
         assert_eq!(confinement.address_space_limit, 0);
     }
