@@ -513,7 +513,7 @@ impl Sandbox {
             // even when it is still alive. Killing it is how the next request gets a clean
             // one; a worker already dead ignores this.
             // The watch ends before the reap, as in `Drop`; its reason is already in `outcome`.
-            drop(connection.watch.take());
+            connection.watch = None;
             let _ = connection.child.kill();
             let _ = connection.child.wait();
             *guard = None;
@@ -591,7 +591,7 @@ impl Drop for Connection {
     fn drop(&mut self) {
         // The watch first, so that it is not reading an identifier the reap below gives back to
         // the system (`watch`).
-        drop(self.watch.take());
+        self.watch = None;
         let _ = self.child.kill();
         let _ = self.child.wait();
     }

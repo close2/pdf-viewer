@@ -541,7 +541,7 @@ impl Drop for Host {
     fn drop(&mut self) {
         // The watch first, so that it is not reading an identifier the reap below gives back to
         // the system (`pdf_sandbox::watch`).
-        drop(self.watch.take());
+        self.watch = None;
         self.canceller.kill();
         let _ = self.canceller.reap();
     }
