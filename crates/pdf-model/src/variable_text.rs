@@ -1299,20 +1299,37 @@ impl SubsetNames {
 
     /// The name `subset` is written under: its own, or the next tag after it that no other
     /// subset in the file carries ([`retag`]), which is recorded as taken.
-    fn name(&mut self, subset: &mut Dictionary, document: Option<&Document>) {
+    ///
+    /// A subset is known by every tagged name it states — a Type 0 font's own `/BaseFont`, its
+    /// `CIDFont`'s and its descriptor's `/FontName` — because §9.9.2 names "the value of the
+    /// font's `BaseFont` entry and the font descriptor's `FontName` entry", and Table 119 lets a Type 0
+    /// font's `/BaseFont` carry a `CMap`'s name after the `CIDFont`'s, so its own name alone would
+    /// miss a `CIDFont` of the same subset name elsewhere in the file. Each taken name it meets
+    /// moves it one tag on, and each tag it moves to is one it has not held, so the names already
+    /// taken bound the steps.
+    pub(crate) fn name(&mut self, subset: &mut Dictionary, document: Option<&Document>) {
         let stated = self
             .stated
             .get_or_insert_with(|| document.map(stated_subset_names).unwrap_or_default());
-        while let Some(name) = subset_name(subset) {
-            let taken = match self.written.get(&name) {
+        let mut steps = self
+            .written
+            .len()
+            .saturating_add(stated.len())
+            .saturating_add(1);
+        loop {
+            let names = tagged_names(subset);
+            let taken = names.iter().any(|name| match self.written.get(name) {
                 Some(earlier) => earlier != subset,
-                None => stated.contains(&name),
-            };
-            if !taken {
-                self.written.insert(name, subset.clone());
+                None => stated.contains(name),
+            });
+            if !taken || steps == 0 {
+                for name in names {
+                    self.written.insert(name, subset.clone());
+                }
                 return;
             }
-            retag(subset, &name);
+            steps = steps.saturating_sub(1);
+            retag(subset);
         }
     }
 }
@@ -1404,7 +1421,36 @@ fn subset_name(font: &Dictionary) -> Option<Vec<u8>> {
     (name.get(6) == Some(&b'+')).then(|| name.to_vec())
 }
 
-/// Gives a written subset the next tag after `name`'s, wherever its name is stated.
+/// Every name carrying §9.9.2's tag that a font states for itself: its `/BaseFont`, its
+/// descriptor's `/FontName`, and the same two of each of a Type 0 font's descendants.
+fn tagged_names(font: &Dictionary) -> BTreeSet<Vec<u8>> {
+    let mut names = BTreeSet::new();
+    each_named(font, &mut |name| {
+        if is_subset_tagged(name) {
+            names.insert(name.to_vec());
+        }
+    });
+    names
+}
+
+/// Calls `visit` with every font name `font` states — `/BaseFont`, the descriptor's
+/// `/FontName`, and a Type 0 font's descendants' two — held directly, as a written font holds them.
+fn each_named(font: &Dictionary, visit: &mut impl FnMut(&[u8])) {
+    for (key, value) in font.iter() {
+        match (key.as_bytes(), value) {
+            (b"BaseFont" | b"FontName", Object::Name(name)) => visit(name.as_bytes()),
+            (b"FontDescriptor", Object::Dictionary(inner)) => each_named(inner, visit),
+            (b"DescendantFonts", Object::Array(items)) => {
+                for inner in items.iter().filter_map(Object::as_dict) {
+                    each_named(inner, visit);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Gives a written subset the next tag, wherever its name is stated.
 ///
 /// ISO 32000-2 §9.9.2:
 ///
@@ -1412,13 +1458,24 @@ fn subset_name(font: &Dictionary) -> Option<Vec<u8>> {
 /// > arbitrary, but different subsets of the same font in the same PDF file shall have different
 /// > tags.
 ///
-/// The letters are read as a number in base twenty-six and one is added, wrapping from `ZZZZZZ`
-/// to `AAAAAA`, so the result is still six uppercase letters and the same resources always come
-/// out with the same names. The name is `/BaseFont` of the Type 0 font and of its `CIDFont`, and
-/// the descriptor's `/FontName`, which Table 119 and §9.9.2 require to agree.
-fn retag(font: &mut Dictionary, name: &[u8]) {
-    let mut renamed = name.to_vec();
-    for letter in renamed.iter_mut().take(6).rev() {
+/// The letters of the first tagged name the font states are read as a number in base
+/// twenty-six and one is added, wrapping from `ZZZZZZ` to `AAAAAA`, so the result is still six
+/// uppercase letters and the same resources always come out with the same names. Every tagged
+/// name the font states takes the new tag, each keeping what follows its plus sign: the Type 0
+/// font's `/BaseFont`, which Table 119 lets carry a `CMap`'s name after the `CIDFont`'s, each
+/// `CIDFont`'s `/BaseFont` and each descriptor's `/FontName`, which §9.9.2 requires to agree.
+///
+/// The name lives in the program as well where the format states it there — Table 117's
+/// `/BaseFont` for a Type 0 `CIDFont` "shall be the value of the `CIDFontName` entry in the
+/// `CIDFont` program" — so each embedded program is restated through [`pdf_font::subset_tag`], which
+/// writes the new letters over the old in place.
+fn retag(font: &mut Dictionary) {
+    let Some(first) = tagged_names(font).into_iter().next() else {
+        return;
+    };
+    let mut to = [0u8; 6];
+    to.copy_from_slice(first.get(..6).unwrap_or(b"AAAAAA"));
+    for letter in to.iter_mut().rev() {
         if *letter == b'Z' {
             *letter = b'A';
         } else {
@@ -1426,29 +1483,124 @@ fn retag(font: &mut Dictionary, name: &[u8]) {
             break;
         }
     }
-    let renamed = Object::Name(pdf_syntax::Name::new(renamed));
-    let key = |value: &[u8]| pdf_syntax::Name::new(value.to_vec());
-    font.insert(key(b"BaseFont"), renamed.clone());
-    let Some(Object::Array(descendants)) = font.get("DescendantFonts").cloned() else {
-        return;
-    };
-    let descendants = descendants
-        .into_iter()
-        .map(|descendant| {
-            let Object::Dictionary(mut descendant) = descendant else {
-                return descendant;
-            };
-            descendant.insert(key(b"BaseFont"), renamed.clone());
-            if let Some(Object::Dictionary(mut descriptor)) =
-                descendant.get("FontDescriptor").cloned()
-            {
-                descriptor.insert(key(b"FontName"), renamed.clone());
-                descendant.insert(key(b"FontDescriptor"), Object::Dictionary(descriptor));
-            }
-            Object::Dictionary(descendant)
-        })
+    retagged_dictionary(font, to);
+}
+
+/// [`retag`]'s rewriting of one font, descriptor or `CIDFont` dictionary: each tagged name
+/// given the tag `to`, and each program it holds restated under it.
+fn retagged_dictionary(dict: &mut Dictionary, to: [u8; 6]) {
+    let entries: Vec<(pdf_syntax::Name, Object)> = dict
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
-    font.insert(key(b"DescendantFonts"), Object::Array(descendants));
+    for (key, value) in entries {
+        let rewritten = match (key.as_bytes(), value) {
+            (b"BaseFont" | b"FontName", Object::Name(name))
+                if is_subset_tagged(name.as_bytes()) =>
+            {
+                let mut renamed = name.as_bytes().to_vec();
+                if let Some(tag) = renamed.get_mut(..6) {
+                    tag.copy_from_slice(&to);
+                }
+                Object::Name(pdf_syntax::Name::new(renamed))
+            }
+            (b"FontDescriptor", Object::Dictionary(mut inner)) => {
+                let from = inner
+                    .get("FontName")
+                    .and_then(Object::as_name)
+                    .filter(|name| is_subset_tagged(name.as_bytes()))
+                    .and_then(|name| <[u8; 6]>::try_from(name.as_bytes().get(..6)?).ok());
+                if let Some(from) = from {
+                    retag_programs(&mut inner, from, to);
+                }
+                retagged_dictionary(&mut inner, to);
+                Object::Dictionary(inner)
+            }
+            (b"DescendantFonts", Object::Array(items)) => Object::Array(
+                items
+                    .into_iter()
+                    .map(|item| match item {
+                        Object::Dictionary(mut inner) => {
+                            retagged_dictionary(&mut inner, to);
+                            Object::Dictionary(inner)
+                        }
+                        other => other,
+                    })
+                    .collect(),
+            ),
+            _ => continue,
+        };
+        dict.insert(key, rewritten);
+    }
+}
+
+/// Each of Table 124's programs a descriptor holds directly, restated with the tag `from` moved
+/// to `to` wherever the program states it ([`pdf_font::subset_tag::retagged`]).
+///
+/// The program is decoded through its own `/Filter` chain and written back under `FlateDecode`
+/// alone; a program that does not decode, or that never states the tag, is kept as it is, since
+/// a name a reader cannot reach in it is no name the program states.
+fn retag_programs(descriptor: &mut Dictionary, from: [u8; 6], to: [u8; 6]) {
+    use pdf_font::subset_tag::ProgramFormat;
+    for key in [&b"FontFile"[..], b"FontFile2", b"FontFile3"] {
+        let key = std::str::from_utf8(key).unwrap_or_default();
+        let Some(Object::Stream(program)) = descriptor.get(key) else {
+            continue;
+        };
+        let format = match key {
+            "FontFile" => ProgramFormat::Type1,
+            "FontFile2" => ProgramFormat::TrueType,
+            _ if program
+                .dict
+                .get("Subtype")
+                .and_then(Object::as_name)
+                .is_some_and(|subtype| subtype.as_bytes() == b"OpenType") =>
+            {
+                ProgramFormat::OpenType
+            }
+            _ => ProgramFormat::Compact,
+        };
+        let Some(decoded) = decoded_program(program) else {
+            continue;
+        };
+        let Some(moved) = pdf_font::subset_tag::retagged(&decoded, format, from, to) else {
+            continue;
+        };
+        let mut dict = program.dict.clone();
+        dict.remove("Filter");
+        dict.remove("DecodeParms");
+        let restated = deflated(dict, &moved);
+        descriptor.insert(pdf_syntax::Name::new(key.as_bytes().to_vec()), restated);
+    }
+}
+
+/// A program stream's bytes through its own `/Filter` chain, each stage with its `/DecodeParms`.
+fn decoded_program(program: &pdf_syntax::Stream) -> Option<Vec<u8>> {
+    let filters: Vec<&[u8]> = match program.dict.get("Filter") {
+        None => Vec::new(),
+        Some(Object::Name(filter)) => vec![filter.as_bytes()],
+        Some(Object::Array(filters)) => filters
+            .iter()
+            .map(|filter| filter.as_name().map(pdf_syntax::Name::as_bytes))
+            .collect::<Option<_>>()?,
+        Some(_) => return None,
+    };
+    let parms = |stage: usize| match program.dict.get("DecodeParms") {
+        Some(Object::Dictionary(parms)) if stage == 0 => Some(parms),
+        Some(Object::Array(parms)) => parms.get(stage).and_then(Object::as_dict),
+        _ => None,
+    };
+    let mut data: Vec<u8> = program.data.to_vec();
+    for (stage, filter) in filters.into_iter().enumerate() {
+        data = pdf_syntax::filter::decode_with_parms(
+            filter,
+            &data,
+            parms(stage),
+            pdf_syntax::Limits::default(),
+        )?
+        .to_vec();
+    }
+    Some(data)
 }
 
 /// Whether a font dictionary is one [`machine_font`] wrote.
@@ -3950,3 +4102,6 @@ mod subset_collision_audit;
 #[cfg(test)]
 #[path = "variable_text_subset_names.rs"]
 mod subset_names_in_one_file;
+
+#[path = "variable_text_imported.rs"]
+mod imported;

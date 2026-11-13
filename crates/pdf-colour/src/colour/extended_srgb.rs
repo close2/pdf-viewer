@@ -23,6 +23,13 @@
 //!   n-bit e-sRGB integer and B11 is equation 4 again; that step is not taken here, because the
 //!   next step on this route is equation 5, which divides it out — what skipping it changes is
 //!   half an n-bit level of rounding, not the colour.
+//! - **sYCC**, Annex C.2, which T.801 Table M.25 calls enumerated colour space 18 and the annex
+//!   names "sRGB YCC". Equation C7 takes the m-bit luma to a fraction and C8 each m-bit chroma to
+//!   the same fraction less a half, halved — e-sYCC's chroma scale — and "equations B9 through
+//!   B11 are applied from Annex B", so from there it is e-sYCC's route. The annex's opening says
+//!   why it is drawn here rather than clipped into sRGB: the encoding "potentially spans a larger
+//!   gamut than sRGB", and C.2 is the direction in which "there will be an exact correspondence"
+//!   (ADRs 2794, 2863).
 //!
 //! **Which precisions are e-sRGB.** Section 4.1 defines three levels and names them e-sRGB10,
 //! e-sRGB12 and e-sRGB16, and equations 3 to 5 are written for those `n`. A codestream stating
@@ -79,6 +86,9 @@ pub enum ExtendedEncoding {
     Rgb,
     /// e-sYCC, T.801 Table M.25's 24: luma and two chromas over e-sRGB, PIMA 7667 Annex B.
     Ycc,
+    /// sYCC, T.801 Table M.25's 18: the sRGB-based BT.601 luma and chromas, which PIMA 7667's
+    /// normative Annex C converts to e-sRGB (ADRs 2794, 2863).
+    SrgbYcc,
 }
 
 /// One of PIMA 7667's encodings at one depth: what turns a pixel's three integers into a colour.
@@ -97,7 +107,7 @@ impl ExtendedSrgb {
     pub fn new(encoding: ExtendedEncoding, bits: u8) -> Option<Self> {
         let defined = match encoding {
             ExtendedEncoding::Rgb => E_SRGB_PRECISIONS.contains(&bits),
-            ExtendedEncoding::Ycc => (1..=DEEPEST).contains(&bits),
+            ExtendedEncoding::Ycc | ExtendedEncoding::SrgbYcc => (1..=DEEPEST).contains(&bits),
         };
         defined.then_some(Self { encoding, bits })
     }
@@ -109,7 +119,8 @@ impl ExtendedSrgb {
     }
 
     /// The components a pixel's three integers state: e-sRGB's nonlinear `R′`, `G′`, `B′` by
-    /// equation 5, or e-sYCC's `Y′`, `Cb′`, `Cr′` by equations B7 and B8.
+    /// equation 5, e-sYCC's `Y′`, `Cb′`, `Cr′` by equations B7 and B8, or sYCC's by Annex C's C7
+    /// and C8, which give the same e-sYCC components equation B9 reads.
     ///
     /// These are the values a colour component of this space *is* — black at zero in both, and
     /// e-sYCC's chromas centred on zero — so they are the ones §11.6.5.2's matte and Table 87's
@@ -128,6 +139,17 @@ impl ExtendedSrgb {
                     codes[0] / top,
                     (codes[1] - middle) / top,
                     (codes[2] - middle) / top,
+                ]
+            }
+            // PIMA 7667 C.2: "The conversion from m-bit sRGB YCC to n-bit e-sRGB shall be as
+            // follows" — C7 divides the luma by `2^m − 1`, and C8 takes each chroma to the same
+            // fraction less a half and halves it, which is e-sYCC's chroma scale; B9 follows.
+            ExtendedEncoding::SrgbYcc => {
+                let (top, _) = self.top_and_middle();
+                [
+                    codes[0] / top,
+                    (codes[1] / top - 0.5) / 2.0,
+                    (codes[2] / top - 0.5) / 2.0,
                 ]
             }
         }
@@ -150,15 +172,68 @@ impl ExtendedSrgb {
         )
     }
 
-    /// The linear e-sRGB components a colour states: equation B9 first for e-sYCC, then
-    /// equations 6a to 6c.
+    /// The nonlinear e-sRGB components `R′`, `G′`, `B′` a colour states: the components
+    /// themselves for e-sRGB, and equation B9's matrix applied to them for e-sYCC and for sYCC,
+    /// whose Annex C hands its C7 and C8 to "equations B9 through B11".
+    ///
+    /// A component outside 0 to 1 is a colour outside sRGB's gamut, which section 4.6 and
+    /// equations 2a to 2c extend to rather than clip.
+    #[must_use]
+    pub fn nonlinear(self, components: [f32; 3]) -> [f32; 3] {
+        match self.encoding {
+            ExtendedEncoding::Rgb => components,
+            ExtendedEncoding::Ycc | ExtendedEncoding::SrgbYcc => {
+                transform(&YCC_TO_NONLINEAR, components)
+            }
+        }
+    }
+
+    /// Whether a pixel's integers state a colour inside sRGB's gamut: every nonlinear component
+    /// [`Self::nonlinear`] gives within 0 to 1, as far as the encoding's own rounding can tell.
+    ///
+    /// The margin is the quantisation the integers carry, worked through the equations rather
+    /// than chosen. An integer is the value rounded to the nearest code, so each stands within
+    /// half a code of the colour encoded. For e-sYCC (B7, B8) and for sYCC (C7, C8) that is
+    /// `0.5 / (2^m − 1)` on the luma and on each chroma: B8's chroma is the code's own fraction,
+    /// and C8's is half of it, with C6's centre `2^(m−1)` and C8's `(2^m − 1) / 2` half a code
+    /// apart beside it (ADR 2794). Equation B9 then adds the luma's error and each chroma's times
+    /// its coefficient, so the margin on `R′`, `G′` and `B′` is `0.5 / (2^m − 1)` times one plus
+    /// the row's chroma coefficients. For e-sRGB it is equation 5's half code, `0.5 / (255 ×
+    /// 2^(n−9))`. A colour past the margin cannot be one inside the gamut that rounding moved.
+    #[must_use]
+    pub fn within_srgb(self, codes: [u32; 3]) -> bool {
+        let components = self.components(codes);
+        let nonlinear = self.nonlinear(components);
+        let margins: [f32; 3] = match self.encoding {
+            ExtendedEncoding::Rgb => {
+                let (_, scale) = self.offset_and_scale();
+                [0.5 / scale; 3]
+            }
+            ExtendedEncoding::Ycc | ExtendedEncoding::SrgbYcc => {
+                let (top, _) = self.top_and_middle();
+                let row = |at: usize| {
+                    let chroma: f32 = YCC_TO_NONLINEAR
+                        .get(
+                            at.saturating_mul(3).saturating_add(1)
+                                ..at.saturating_mul(3).saturating_add(3),
+                        )
+                        .map_or(0.0, |pair| pair.iter().map(|value| value.abs()).sum());
+                    0.5 * (1.0 + chroma) / top
+                };
+                [row(0), row(1), row(2)]
+            }
+        };
+        nonlinear
+            .iter()
+            .zip(margins)
+            .all(|(value, margin)| (-margin..=1.0 + margin).contains(value))
+    }
+
+    /// The linear e-sRGB components a colour states: [`Self::nonlinear`], then equations 6a to
+    /// 6c.
     #[must_use]
     pub fn linear(self, components: [f32; 3]) -> [f32; 3] {
-        let nonlinear = match self.encoding {
-            ExtendedEncoding::Rgb => components,
-            ExtendedEncoding::Ycc => transform(&YCC_TO_NONLINEAR, components),
-        };
-        nonlinear.map(linearised)
+        self.nonlinear(components).map(linearised)
     }
 
     /// The image tristimulus values a colour states, relative to section 4.3.1's reference white: equation 7
@@ -409,5 +484,50 @@ mod tests {
         let lab = space.lab_d50(space.components([57216; 3]));
         assert!((lab[0] - 100.0).abs() < 0.05, "{lab:?}");
         assert!(lab[1].abs() < 0.05 && lab[2].abs() < 0.05, "{lab:?}");
+    }
+
+    fn sycc(bits: u8) -> ExtendedSrgb {
+        ExtendedSrgb::new(ExtendedEncoding::SrgbYcc, bits)
+            .unwrap_or_else(|| panic!("Annex C places no limit on {bits} bits"))
+    }
+
+    /// sYCC (T.801's 18) reaches e-sRGB by PIMA 7667's Annex C.2, worked by hand at m = 8: C7's
+    /// `Y′ = Y″ / 255`, C8's `Cb′ = (Cb″ / 255 − 0.5) / 2`, and B9's matrix, unclipped.
+    ///
+    /// - (150, 150, 150): `Y′` = 0.588235, `Cb′` = `Cr′` = (0.588235 − 0.5) / 2 = 0.044118, so
+    ///   `R′` = 0.588235 + 2.804 × 0.044118 = 0.711942, `G′` = 0.588235 − (0.6882 + 1.4282) ×
+    ///   0.044118 = 0.494864 and `B′` = 0.588235 + (3.544 + 0.0003) × 0.044118 = 0.744601.
+    /// - (255, 128, 96): `Y′` = 1, `Cb′` = 0.000980, `Cr′` = (0.376471 − 0.5) / 2 = −0.061765,
+    ///   so `R′` = 1 − 2.804 × 0.061765 = 0.826812, `G′` = 1 − 0.6882 × 0.000980 + 1.4282 ×
+    ///   0.061765 = 1.087538 and `B′` = 1 + 3.544 × 0.000980 − 0.0003 × 0.061765 = 1.003456 — a
+    ///   colour past sRGB's gamut, which C.2 keeps and the screen alone clips.
+    #[test]
+    fn sycc_reaches_e_srgb_by_annex_c() {
+        let space = sycc(8);
+        for (codes, want) in [
+            ([150, 150, 150], [0.711_942, 0.494_864, 0.744_601]),
+            ([255, 128, 96], [0.826_812, 1.087_538, 1.003_456]),
+        ] {
+            let nonlinear = space.nonlinear(space.components(codes));
+            for (got, want) in nonlinear.iter().zip(want) {
+                assert!((got - want).abs() < 2e-6, "{codes:?}: {nonlinear:?}");
+            }
+        }
+    }
+
+    /// [`ExtendedSrgb::within_srgb`]'s margin is the rounding the integers carry: at m = 8 it is
+    /// 0.5 × (1 + 2.804) / 255 = 0.007459 on `R′`. White as C5 and C6 encode it, (255, 128, 128),
+    /// decodes by C8's centre to `R′` = 1 + 2.804 × 0.000980 = 1.002749, which is rounding and is
+    /// inside; (255, 128, 129) is a chroma one code from white at full luma, `R′` = 1 + 2.804 ×
+    /// 0.002941 = 1.008247, which no rounding of an sRGB colour reaches; and (255, 128, 96) is
+    /// [`sycc_reaches_e_srgb_by_annex_c`]'s green past 1.
+    #[test]
+    fn a_colour_outside_srgb_is_told_from_rounding() {
+        let space = sycc(8);
+        assert!(space.within_srgb([255, 128, 128]));
+        assert!(space.within_srgb([150, 150, 150]));
+        assert!(!space.within_srgb([255, 128, 129]));
+        assert!(!space.within_srgb([255, 128, 96]));
+        assert!(!space.within_srgb([0, 128, 96]));
     }
 }

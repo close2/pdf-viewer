@@ -498,7 +498,7 @@ fn sycc_with_no_chroma_is_neutral() {
 ///   (150.70), `G′` = 0.588235 − (0.6882 + 1.4282) × 0.000980 = 0.586160 (149.47), and `B′` =
 ///   0.588235 + (3.544 + 0.0003) × 0.000980 = 0.591710 (150.89). C8's centre is half a level below C6's
 ///   `2^(m−1)`, and the one-level tolerance holds either.
-/// - (150, 150, 150): `Cb′` = `Cr′` = 0.044118, so `R′` = 0.711942 (181.55), `G′` = 0.494873
+/// - (150, 150, 150): `Cb′` = `Cr′` = 0.044118, so `R′` = 0.711942 (181.55), `G′` = 0.494864
 ///   (126.19) and `B′` = 0.744601 (189.87) — where e-sYCC's undivided chroma draws (212, 103,
 ///   228), so the assertion tells the two encodings apart.
 /// - (200, 128, 80): `Cr′` = −0.093137, so `R′` = 0.523157 (133.40), `G′` = 0.916658 (233.75)
@@ -506,10 +506,14 @@ fn sycc_with_no_chroma_is_neutral() {
 /// - (128, 60, 128): `Cb′` = −0.132353, so `R′` = 0.504710 (128.70), `G′` = 0.591646 (150.87) and
 ///   `B′` = 0.032902 (8.39).
 ///
-/// And on [`THREE`]'s last two, which leave sRGB's gamut: (255, 128, 96) has `Cr′` = −0.061765,
-/// so `R′` = 0.826812 (210.84) and `G′` = 1.087538, past 1 and clipped to 255, with `B′` =
-/// 1.003456, clipped too; (0, 128, 96) has `R′` = −0.173188, clipped to 0, `G′` = 0.087538
-/// (22.32) and `B′` = 0.003456 (0.88).
+/// And on [`THREE`]'s last two, which leave sRGB's gamut. (255, 128, 96) has `Cr′` = −0.061765,
+/// so `R′` = 0.826812, `G′` = 1.087538 and `B′` = 1.003456: a luminance `Y` of 1.077 by equations
+/// 6a to 6c and 7, above the display white's that PIMA 7667 section 4.3.4 bounds an e-sRGB colour
+/// by. Annex C's colour is e-sRGB, so it takes ADR 2292's reading of that bound — `L*` held at 100
+/// by §8.6.5.4's range, from 102.79, with `a*` = −24.44 and `b*` = 3.11 kept — and on this screen
+/// that is (202.90, 255, 247.82), the green past 1 clipped (ADR 2863). Clipping each component
+/// before the bound, as the codec did, would draw (211, 255, 255). (0, 128, 96) has `R′` =
+/// −0.173188, clipped to 0, `G′` = 0.087538 (22.32) and `B′` = 0.003456 (0.88).
 #[test]
 fn sycc_is_drawn_as_pima_7667_annex_c_converts_it() {
     sandbox();
@@ -527,8 +531,8 @@ fn sycc_is_drawn_as_pima_7667_annex_c_converts_it() {
     let outside = drawn(4, &jpx(THREE, (4, 3), &[enumerated(0, 18, &[])]));
     assert_near(
         &outside[2..],
-        &[[211, 255, 255], [0, 22, 1]],
-        "sYCC outside sRGB's gamut, clipped on this screen",
+        &[[203, 255, 248], [0, 22, 1]],
+        "sYCC outside sRGB's gamut, held to section 4.3.4's bound and clipped on this screen",
     );
 }
 
@@ -801,8 +805,70 @@ fn a_writer_is_refused_e_srgb_samples_by_name() {
     assert!(refused.to_string().contains("e-sRGB"), "{refused}");
 }
 
+/// The samples a writer asks for from a one-row image whose codestream states sYCC (18).
+fn sycc_samples_for_a_writer(
+    codestream: &[u8],
+) -> Result<pdf_model::image::JpxSamples, pdf_model::image::ImageError> {
+    let bytes = image_page(4, &jpx(codestream, (4, 3), &[enumerated(0, 18, &[])]), "");
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let pdf_syntax::Object::Stream(image) = document.get(pdf_syntax::ObjectId::new(5, 0)) else {
+        return Err(pdf_model::image::ImageError::Malformed {
+            detail: "the fixture's object 5 is its image stream".to_owned(),
+        });
+    };
+    pdf_model::image::jpx_samples(
+        &document,
+        &image.dict,
+        &pdf_syntax::Dictionary::new(),
+        (&image.data, pdf_model::image::ORDINARY_JPX_SAMPLES),
+    )
+}
+
+/// A writer is handed an sYCC image whose every colour lies inside sRGB's gamut as RGB samples,
+/// and refused, by name, one with a colour outside it (ADR 2863).
+///
+/// PIMA 7667 Annex C's C.2 converts sYCC to e-sRGB, whose range runs past 0 and 1, and the annex
+/// says of that direction that "there will be an exact correspondence between the sRGB image data
+/// and the e-sRGB image data" where the gamut used is sRGB's. So [`E_SYCC_8`]'s four pixels, whose
+/// C.2 components [`sycc_is_drawn_as_pima_7667_annex_c_converts_it`] works by hand and finds
+/// inside 0 to 1, are carried as those components × 255 within a level. [`THREE`]'s third pixel,
+/// (255, 128, 96), has `G′` = 1.087538: past what a `DeviceRGB` sample states, so writing it as
+/// one would clip a colour the reader draws, and the writer is told why instead.
+#[test]
+fn a_writer_is_handed_sycc_inside_srgb_and_refused_it_outside() {
+    sandbox();
+    let carried = sycc_samples_for_a_writer(E_SYCC_8).expect("inside sRGB's gamut");
+    assert!(matches!(carried.space, pdf_model::image::JpxSpace::Rgb));
+    assert_eq!((carried.components, carried.precision), (3, 8));
+    let pixels: Vec<[u8; 3]> = carried
+        .colour
+        .chunks_exact(3)
+        .map(|pixel| [pixel[0], pixel[1], pixel[2]])
+        .collect();
+    assert_near(
+        &pixels,
+        &[
+            [151, 149, 151],
+            [182, 126, 190],
+            [133, 234, 201],
+            [129, 151, 8],
+        ],
+        "sYCC carried for a writer, against Annex C's C7, C8 and B9",
+    );
+    let refused = sycc_samples_for_a_writer(THREE)
+        .expect_err("a colour outside sRGB's gamut has no DeviceRGB sample to be carried in");
+    let sentence = refused.to_string();
+    assert!(
+        sentence.contains("sYCC") && sentence.contains("outside sRGB's gamut"),
+        "{sentence}"
+    );
+}
+
 /// Precedence ranks two specifications both drawn: sYCC at precedence 1 over sRGB at 0, so the
-/// first pixel, which is neutral in sYCC and pink in sRGB, is neutral.
+/// first pixel, (150, 128, 128), is sYCC's grey and not sRGB's pink. PIMA 7667's C8 centres a chroma
+/// on 127.5 where C6 encodes it about 128, so that grey is (150.70, 149.47, 150.89) by C7, C8 and
+/// B9 ([`sycc_is_drawn_as_pima_7667_annex_c_converts_it`] works it), and the pink is the samples
+/// themselves.
 #[test]
 fn the_higher_precedence_is_used() {
     sandbox();
@@ -814,7 +880,7 @@ fn the_higher_precedence_is_used() {
             &[enumerated(0, 16, &[]), enumerated(1, 18, &[])],
         ),
     );
-    assert!(neutral(pixels[0]), "drew {pixels:?}");
+    assert_near(&pixels[..1], &[[151, 149, 151]], "sYCC ranked over sRGB");
 }
 
 /// A stated `/ColorSpace` sets every specification in the data aside, the codec's conversions

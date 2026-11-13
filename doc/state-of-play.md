@@ -167,8 +167,8 @@ constants with no knob and a page of small text at a laptop's resolution can exc
 JBIG2 and
 JPEG 2000 in a confined worker — its colour specification chosen by §7.4.9's precedence rather
 than the codec's first box, every enumerated space of the JPX baseline that ITU-T T.801 M.9.2.4
-lists drawn as defined, CIE Lab under the white point of whichever illuminant it names, and PIMA 7667's e-sRGB and
-e-sYCC by that text's own equations into the connection space (ADR 2292), except CIEJab, whose
+lists drawn as defined, CIE Lab under the white point of whichever illuminant it names, and PIMA 7667's e-sRGB,
+e-sYCC and, by its Annex C, sYCC by that text's own equations into the connection space (ADRs 2292, 2863), except CIEJab, whose
 defining text is not held and which takes the clause's device fallback rather than a refusal (ADRs
 1383, 1713) — Group 3 and Group 4 fax there too through this tree's own ITU-T T.4
 and T.6 decoder, which conceals the damaged rows §7.4.6's `/DamagedRowsBeforeError` tolerates as the

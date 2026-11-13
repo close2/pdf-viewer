@@ -758,7 +758,11 @@ impl ViewState {
             let Some(mut dict) = update.current(document, *widget) else {
                 continue;
             };
-            let placed = promote_streams(update, Object::Dictionary(appearance.clone()));
+            // §9.9.2 reaches the producer's subsets once they are in this file (ADR 2862).
+            let named = update
+                .subset_names
+                .name_imported(document, Object::Dictionary(appearance.clone()));
+            let placed = promote_streams(update, named);
             dict.insert(Name::new(&b"AP"[..]), placed);
             update.stamp(&mut dict);
             update.put(*widget, Object::Dictionary(dict));
@@ -1460,7 +1464,9 @@ fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut D
     // is the line `CLAUDE.md`'s exclusion draws. The streams become objects here for
     // [`ViewState::write_imported_appearances`]'s reason: §7.3.8.1 requires it of a file.
     if let Some(stated) = dict.get("AP").cloned() {
-        dict.insert(Name::new(&b"AP"[..]), promote_streams(update, stated));
+        // Its subsets are named against the file's, as an imported field's are (ADR 2862).
+        let named = update.subset_names.name_imported(document, stated);
+        dict.insert(Name::new(&b"AP"[..]), promote_streams(update, named));
         return true;
     }
     let Some(subtype) = document

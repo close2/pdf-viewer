@@ -63,7 +63,7 @@ pub(super) fn decode_jpx(
         Some(crate::colour::ColourSpace::Indexed { .. })
     );
 
-    let choice = jpx_colour_choice(&source.data, declared_space.is_some());
+    let choice = jpx_colour_choice(&source.data, declared_space.is_some(), Sycc::ByAnnexC);
     let decoded = pdf_sandbox::decode(&Request::Jpx {
         data: &choice.data,
         indices,
@@ -270,26 +270,11 @@ pub fn jpx_samples(
         declared_space,
         Some(crate::colour::ColourSpace::Indexed { .. })
     );
-    let choice = jpx_colour_choice(data, declared_space.is_some());
-    let decoded = pdf_sandbox::decode(&Request::JpxWhole {
-        data: &choice.data,
-        indices,
-        samples,
-    })
-    .map_err(ImageError::from)?;
-    let Decoded::Raster(mut raster) = decoded else {
-        return Err(ImageError::Malformed {
-            detail: "JPEG 2000 did not decode to component samples".to_owned(),
-        });
+    let decoded = |choice: &JpxColourChoice<'_>| {
+        writer_raster(&choice.data, (indices, samples), (width, height))
     };
-    if (raster.stated_width, raster.stated_height) != (width, height) {
-        return Err(ImageError::Malformed {
-            detail: format!(
-                "JPEG 2000 data states {}x{} but the dictionary says {width}x{height}",
-                raster.stated_width, raster.stated_height
-            ),
-        });
-    }
+    let mut choice = jpx_colour_choice(data, declared_space.is_some(), Sycc::ByAnnexC);
+    let mut raster = decoded(&choice)?;
     let smask_in_data = document
         .get_key(dict, "SMaskInData")
         .as_integer()
@@ -301,13 +286,21 @@ pub fn jpx_samples(
     // curves can carry. Writing them as the device space of their channel count would recolour
     // an image this crate draws as its codestream states, so the samples are refused by name
     // (ADR 2292).
+    //
+    // sYCC is the one of them whose every colour inside sRGB's gamut is an sRGB colour: PIMA
+    // 7667's Annex C says of its C.2 that "there will be an exact correspondence between the sRGB
+    // image data and the e-sRGB image data", and the codec's matrix agrees with C.2 to a level
+    // there (ADR 2794). So an sYCC image all of whose pixels lie inside the gamut is handed on as
+    // the codec's RGB, as it was before C.2 drew it, and only one with a colour outside it is
+    // refused, since that colour is the one a `DeviceRGB` sample would clip (ADR 2863).
     if let Some(extended) = extended_on(choice.extended, &raster) {
-        return Err(ImageError::UnsupportedColourSpace {
-            space: format!(
-                "JPEG 2000 {}, which no PDF colour space restates for its samples to be carried in",
-                extended_name(extended.encoding())
-            ),
-        });
+        if !(extended.encoding() == ExtendedEncoding::SrgbYcc
+            && every_pixel_within_srgb(&raster, extended))
+        {
+            return Err(refused_for_a_writer(extended));
+        }
+        choice = jpx_colour_choice(data, declared_space.is_some(), Sycc::ByTheCodec);
+        raster = decoded(&choice)?;
     }
     let space = match declared_space.or(choice.space) {
         Some(space) => space,
@@ -828,14 +821,13 @@ struct JpxColourChoice<'a> {
 /// The enumerated colour spaces the codec draws as their definitions state, besides CIE Lab.
 ///
 /// Part 1 Table I-10's sRGB (16) and greyscale (17), and T.801 Table M.25's CMYK (12), sYCC (18)
-/// and ROMM-RGB (21). The last two are the codec's conversions, a YCbCr matrix and a ROMM-RGB
-/// profile. sYCC's is held to PIMA 7667's normative Annex C, which converts the same sRGB-based
-/// BT.601 YCbCr to e-sRGB, and on a screen of sRGB's primaries its clipped answer is the codec's
-/// (ADR 2794); ROMM-RGB's defining text, PIMA 7666, is not held, and
-/// `tests/jpx_enumerated_spaces.rs` pins what the held texts fix of it, that three equal
-/// components are a neutral colour. Two more T.801 Table M.25 lists are drawn by this
-/// crate instead, from the held PIMA 7667 (A348): e-sRGB ([`E_SRGB`]) and e-sYCC ([`E_SYCC`]),
-/// which [`jpx_drawn`] reads. CIE Jab (19) depends on the unheld CIE Publication 131, whose
+/// and ROMM-RGB (21). ROMM-RGB is the codec's own profile: its defining text, PIMA 7666, is not
+/// held, and `tests/jpx_enumerated_spaces.rs` pins what the held texts fix of it, that three equal
+/// components are a neutral colour. sYCC is drawn by this crate, by PIMA 7667's normative Annex C
+/// ([`SYCC`], ADR 2863), and is listed here for the one codestream Annex C does not describe —
+/// three components of differing depths — which the codec's matrix draws. Two more T.801 Table
+/// M.25 lists are drawn by this crate, from the held PIMA 7667 (A348): e-sRGB ([`E_SRGB`]) and
+/// e-sYCC ([`E_SYCC`]), which [`jpx_drawn`] reads. CIE Jab (19) depends on the unheld CIE Publication 131, whose
 /// purchase the owner declines, and takes §7.4.9's fallback (ADRs 1383, 2187, 2292).
 const JPX_ENUMERATED_DRAWN: [u32; 5] = [12, 16, 17, 18, 21];
 
@@ -845,12 +837,86 @@ const E_SRGB: u32 = 20;
 /// T.801 Table M.25's 24, e-sYCC, PIMA 7667's Annex B.
 const E_SYCC: u32 = 24;
 
+/// T.801 Table M.25's 18, sYCC, which PIMA 7667's Annex C converts to e-sRGB.
+const SYCC: u32 = 18;
+
 /// What an `EnumCS` of PIMA 7667's is called, for a sentence about it.
 fn extended_name(encoding: ExtendedEncoding) -> &'static str {
     match encoding {
         ExtendedEncoding::Rgb => "enumerated colour space 20 (e-sRGB, PIMA 7667)",
         ExtendedEncoding::Ycc => "enumerated colour space 24 (e-sYCC, PIMA 7667 Annex B)",
+        ExtendedEncoding::SrgbYcc => "enumerated colour space 18 (sYCC, PIMA 7667 Annex C)",
     }
+}
+
+/// Whether every pixel of a raster in one of PIMA 7667's encodings states a colour inside
+/// sRGB's gamut ([`ExtendedSrgb::within_srgb`]).
+fn every_pixel_within_srgb(raster: &pdf_sandbox::Raster, extended: ExtendedSrgb) -> bool {
+    let channels = raster.channels();
+    let pixels = (raster.width as usize).saturating_mul(raster.height as usize);
+    (0..pixels).all(|pixel| {
+        let base = pixel.saturating_mul(channels);
+        let codes =
+            [0, 1, 2].map(|component| raster.sample(base.saturating_add(component)).unwrap_or(0));
+        extended.within_srgb(codes)
+    })
+}
+
+/// A writer's whole-resolution raster of `data`, its stated size held to the dictionary's.
+///
+/// §7.4.9: "Width and Height shall match the corresponding width and height values in the JPEG
+/// 2000 data".
+fn writer_raster(
+    data: &[u8],
+    (indices, samples): (bool, u64),
+    (width, height): (u32, u32),
+) -> Result<pdf_sandbox::Raster, ImageError> {
+    let decoded = pdf_sandbox::decode(&Request::JpxWhole {
+        data,
+        indices,
+        samples,
+    })
+    .map_err(ImageError::from)?;
+    let Decoded::Raster(raster) = decoded else {
+        return Err(ImageError::Malformed {
+            detail: "JPEG 2000 did not decode to component samples".to_owned(),
+        });
+    };
+    if (raster.stated_width, raster.stated_height) != (width, height) {
+        return Err(ImageError::Malformed {
+            detail: format!(
+                "JPEG 2000 data states {}x{} but the dictionary says {width}x{height}",
+                raster.stated_width, raster.stated_height
+            ),
+        });
+    }
+    Ok(raster)
+}
+
+/// The refusal a writer is given for samples in one of PIMA 7667's encodings (ADRs 2293, 2863).
+fn refused_for_a_writer(extended: ExtendedSrgb) -> ImageError {
+    let outside = if extended.encoding() == ExtendedEncoding::SrgbYcc {
+        " with a colour outside sRGB's gamut"
+    } else {
+        ""
+    };
+    ImageError::UnsupportedColourSpace {
+        space: format!(
+            "JPEG 2000 {}{outside}, which no PDF colour space restates for its samples to be carried in",
+            extended_name(extended.encoding())
+        ),
+    }
+}
+
+/// Who turns an sYCC codestream's integers into colours.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Sycc {
+    /// PIMA 7667's Annex C, in this crate, so that a colour outside sRGB's gamut reaches the
+    /// destination as the encoding states it: the reader's choice.
+    ByAnnexC,
+    /// The codec's own matrix, clipped to sRGB: a writer's, once every pixel is known to lie
+    /// inside the gamut, where the two agree.
+    ByTheCodec,
 }
 
 /// The encoding a raster's integers are read by, where the choice kept one of PIMA 7667's and
@@ -906,7 +972,7 @@ fn shared_colour_depth(headers: &crate::jpeg2000::Headers<'_>) -> Option<u8> {
 /// 4 worst, and part 1's 0 — no statement — after those), then in file order, and the first this
 /// crate draws is kept. Where none is, none is kept, and the codec's own fallback is the one the
 /// third sentence names. ADR 1383.
-fn jpx_colour_choice(data: &[u8], declared: bool) -> JpxColourChoice<'_> {
+fn jpx_colour_choice(data: &[u8], declared: bool, sycc: Sycc) -> JpxColourChoice<'_> {
     let borrowed = || JpxColourChoice {
         data: std::borrow::Cow::Borrowed(data),
         space: None,
@@ -936,7 +1002,7 @@ fn jpx_colour_choice(data: &[u8], declared: bool) -> JpxColourChoice<'_> {
         (std::cmp::Reverse(colour.precedence), approximation, *index)
     });
     let kept = ranked.into_iter().find_map(|(index, colour)| {
-        jpx_drawn(colour, &headers).map(|drawn| (index, colour, drawn))
+        jpx_drawn(colour, &headers, sycc).map(|drawn| (index, colour, drawn))
     });
     let Some((index, colour, drawn)) = kept else {
         return JpxColourChoice {
@@ -994,12 +1060,23 @@ enum JpxDrawn {
 ///
 /// e-sRGB and e-sYCC are drawn where the codestream's first three components share a depth
 /// PIMA 7667 defines the encoding at — section 4.1's 10, 12 and 16 bits for e-sRGB, any depth for
-/// Annex B's e-sYCC — and the next specification is tried where they do not (ADR 2292).
+/// Annex B's e-sYCC — and the next specification is tried where they do not (ADR 2292). sYCC is
+/// drawn by Annex C where its three components share one unsigned depth, which is C7 and C8's `m`,
+/// and by the codec's matrix where they do not; a writer asks for the codec's matrix outright
+/// ([`Sycc::ByTheCodec`]), once it knows every pixel lies inside sRGB's gamut (ADR 2863).
 fn jpx_drawn(
     colour: &crate::jpeg2000::ColourSpecification<'_>,
     headers: &crate::jpeg2000::Headers<'_>,
+    sycc: Sycc,
 ) -> Option<JpxDrawn> {
     match (colour.method, colour.enumerated, colour.profile) {
+        (_, Some(SYCC), _) if sycc == Sycc::ByAnnexC => Some(
+            shared_colour_depth(headers)
+                .and_then(|bits| ExtendedSrgb::new(ExtendedEncoding::SrgbYcc, bits))
+                .map_or(JpxDrawn::ByTheCodec, |_| {
+                    JpxDrawn::Extended(ExtendedEncoding::SrgbYcc)
+                }),
+        ),
         (_, Some(code @ (E_SRGB | E_SYCC)), _) => {
             let encoding = if code == E_SRGB {
                 ExtendedEncoding::Rgb

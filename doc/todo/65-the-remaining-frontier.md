@@ -69,20 +69,6 @@ The reading is done; what is missing is a reviewed package on this tree's line, 
 project does not hold. **What would unblock them:** an upstream release (re-measurable, not
 permanent) or an owner decision to acquire a specification.
 
-- §7.4.9 — the one sentence of this clause addressed to a processor asks for *support* of the JPX
-  baseline enumerated colour spaces, which ITU-T T.801 M.9.2.4 lists — the held identical text of
-  ISO/IEC 15444-2 (`doc/questions/A169`, ADR 1383). CMYK, sRGB, its grey, sYCC, ROMM-RGB and CIE Lab
-  under every illuminant its `IL` field names — the white point §8.6.5.4's EXAMPLE, T.4 or the CIE's
-  free data states, and a colour temperature's Planckian radiator (ADRs 1712, 1713) — are drawn as
-  defined, and so are e-sRGB and e-sYCC, from the held PIMA 7667 bought under A348 (ADR 2292).
-  CIE Jab depends on unheld CIE Publication 131, whose purchase the owner declines; and sYCC's
-  colours outside sRGB's gamut are clipped by the codec before a destination other than the screen,
-  where PIMA 7667's Annex C keeps them — effort only, priced against a writer's refusal (ADRs 2793,
-  2794). ROMM-RGB is drawn by the codec and pinned for neutrals while PIMA 7666 is unheld (Q825).
-  Checking the restriction on a file is not a reader's job and is not counted as debt
-  (ADR 1184); `pdf-archive` checks all of M.9.2 for ISO 19005 (ADRs 1383, 1399). The thirteen
-  corpus codestreams a level off the reference software on the irreversible path are not debt:
-  ISO/IEC 15444-1 leaves that path's reconstruction and precision to the decoder (ADR 1574).
 - §12.8.3.4.4 — enforcing a signature policy's constraints. Everything the held texts define is read:
   ETSI EN 319 122-1 clause 5.2.9's attribute whole — which policy, its digest with the all-zero *not
   known* kept apart, the URL, the notice meant to be shown, the specification identifier — and clause
@@ -278,17 +264,17 @@ row is in this bucket when its note names none of those three.
   subsequent selections in the application user interface", and it is reported rather than obeyed.
   It is a document restriction, so it attaches to the reader's four-level policy; the build is that
   attachment, and `doc/questions/Q834` section 2 asks only for its default level (ADR 2814).
-- §9.9.2 — `partial`: a subset tag is a digest, and two different subsets of one face may digest
-  alike. A save names every subset it writes through one `variable_text::SubsetNames`, against the
-  other subsets of the save and the names the file already states (ADR 2832); the archive
-  conversion's writers do not yet share one record (`appearance::for_annotation_in` is the join), and
-  appearances imported whole from an FDF keep their producer's names unchecked.
 
 
-§7.4.9's buildable part is built but for one piece: e-sRGB and e-sYCC are drawn from the held PIMA
-7667 (A348), with extended-range and non-neutral fixtures (ADRs 2292, 2293), and sYCC is held to its
-Annex C (ADR 2794); drawing sYCC by that annex rather than the codec is owed (ADR 2793). Its CIEJab
-part remains in the unheld-text bucket.
+§9.9.2 was here, and is `implemented`, with §9.9 above it: a save names every subset it constructs or
+imports whole from an FDF, and an archive conversion every one it embeds or constructs, through one
+`variable_text::SubsetNames` against the file's own names, and a subset retagged is retagged in its
+program wherever the format states the name there (ADRs 2832, 2838, 2862).
+
+§7.4.9 was here and in the unheld-text bucket, and is `departed` on CIEJab (19) alone, whose CIE
+Publication 131 the owner declines to buy (A348): sYCC is drawn by PIMA 7667's Annex C, and a writer is
+refused only an sYCC image with a colour outside sRGB's gamut (ADRs 2793, 2863). §7.4 above it is
+`implemented` with it; ROMM-RGB stays drawn by the codec, PIMA 7666 declined (A825).
 
 §13.2.2 and §14.9.2.4 were here, and are `implemented`: `pdf_model::media` judges a rendition's
 viability by the clause's rules for the one player this program has — the hand-off, told nothing but
@@ -325,7 +311,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§7.4, §7.6, §7.6.5, §9.9, §12.8, §12.8.3, §12.8.3.4.
+§7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap
