@@ -159,19 +159,31 @@ fn a_redaction_ro_is_reported_while_removal_proceeds_without_composing_the_overl
     assert!(plain_report.refused.is_empty());
     assert!(plain_report.departures.is_empty(), "{plain_report:?}");
 
-    // RO is producer-written content independent of AP. This assertion records the current
-    // declined recommendation; it does not equate RO with invented overlay text/fill. The reader
-    // reports the declined overlay once. This checks the /RO-only detection path (the existing
-    // OverlayText test also states /IC and therefore cannot prove /RO is recognized).
+    // RO is producer-written content independent of AP. The owner's answer A842 (2026-11-13)
+    // replaced this test's earlier expectation: after the removal, the producer's /RO form is
+    // drawn with its origin on the annotation rectangle's lower-left corner (Table 195), so the
+    // removal is still proven and the green 10x10 form now covers (10..20, 40..50), with no
+    // departure, since /RO alone states no /IC or /OverlayText to decline.
     let with_ro = redaction_pdf(true);
     let parsed = Document::open(with_ro.clone()).expect("complete /RO redaction fixture");
     assert!(!parsed.was_recovered(), "the xref offsets are exact");
     let (report, out) = apply_redaction(&with_ro);
-    assert_redacted(&out);
+    assert!(!out.windows(6).any(|word| word == b"SECRET"));
+    assert!(!out.windows(7).any(|word| word == b"/Redact"));
+    let document = Document::open(out.clone()).expect("result reopens");
+    assert!(!document.was_recovered());
+    let page = Pages::new(&document).get(0).expect("result page retained");
+    let interpreted = pdf_model::interpret(&document, &page);
+    assert!(interpreted.is_complete(), "{:?}", interpreted.unsupported);
+    assert!(interpreted.text.contains("KEEP"), "unrelated text survives");
+    assert!(!interpreted.text.contains("SECRET"));
+    assert_eq!(
+        pixel(&interpreted, 15, 45),
+        [0, 255, 0, 255],
+        "RO is drawn after removal at its stated origin"
+    );
     assert!(report.refused.is_empty());
-    assert_eq!(report.departures.len(), 1, "{report:?}");
-    assert_eq!(report.departures[0].page, Some(1));
-    assert!(report.departures[0].detail.contains("overlay"));
+    assert!(report.departures.is_empty(), "{report:?}");
 }
 
 fn pixel(interpretation: &pdf_model::Interpretation, x: u32, y: u32) -> [u8; 4] {

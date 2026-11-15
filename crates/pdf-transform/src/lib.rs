@@ -905,9 +905,9 @@ pub struct Report {
     ///
     /// **The redaction rider's home** (`doc/questions/A64`), parallel to a `Warning` but not
     /// one: a warning is recoverable trouble met on the way, and a departure is a *choice* the
-    /// output embodies — §12.5.6.23's content was removed and its Table 195 overlay was not
-    /// composed, because composing the overlay is authoring a mark the document did not hold
-    /// (A65's provenance fence). It survives into RFC 0002 section 4.5's JSON so a caller reads
+    /// output embodies — §12.5.6.23's content was removed and Table 195's `/IC` fill or
+    /// `/OverlayText` was not composed, because composing it is authoring a mark the document
+    /// did not hold (A65's provenance fence; the producer's `/RO` form is drawn, ADR 2868). It survives into RFC 0002 section 4.5's JSON so a caller reads
     /// exactly which of the clause's semantics the file does and does not carry.
     pub departures: Vec<Departure>,
     /// External programs this plan needs run, which [`apply`] will not run itself.
@@ -1039,8 +1039,8 @@ pub enum Origin {
     ///
     /// ISO 32000-2 §12.5.6.23, `doc/questions/A64`. The counts are the summary parallel to
     /// [`Origin::Optimized`]'s [`optimize::Savings`]: how many annotations were applied and how
-    /// many glyphs, painted paths and images the removal reached. The per-page departure — content removed, overlay not
-    /// composed — is [`Report::departures`], because it exists for a page whose output carries no
+    /// many glyphs, painted paths and images the removal reached. The per-page departure — content removed, an overlay not
+    /// drawn — is [`Report::departures`], because it exists for a page whose output carries no
     /// distinct origin of its own.
     Redacted {
         /// Which source.
@@ -1105,8 +1105,8 @@ pub struct Warning {
 ///
 /// Not a [`Warning`] and not a [`Declined`]: the operation succeeded, and this says a part of
 /// the clause it implements was, by a documented choice, not carried into the result — the
-/// redaction whose content was removed but whose Table 195 overlay was not composed
-/// (§12.5.6.23, `doc/questions/A64`, A65's provenance fence).
+/// redaction whose content was removed but whose Table 195 `/IC` fill or `/OverlayText` was not
+/// composed (§12.5.6.23, `doc/questions/A64`, A65's provenance fence, ADR 2868).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Departure {
     /// Which source.

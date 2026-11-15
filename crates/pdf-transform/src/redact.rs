@@ -179,11 +179,14 @@
 //! nested form's `/Resources` — is copied with it, and everything that reaches nothing replaced is
 //! still shared.
 //!
-//! # What is a documented departure (A64/A65's fence)
+//! # The overlay, after the removal (ADR 2868)
 //!
-//! Table 195's `/OverlayText`, `/IC` and `/RO` describe the mark drawn *over* the region after
-//! removal, and composing them is composing content the document did not hold — the far side of
-//! `CLAUDE.md`'s authoring line. So the removal happens and the overlay is not drawn, reported
+//! Table 195's `/RO`, `/IC` and `/OverlayText` describe the mark drawn *over* the region after
+//! the removal. `/RO` is a form the producer wrote, and it is drawn — appended to the edited
+//! content, so strictly after the removal and never in its place — with its origin on the
+//! annotation rectangle's lower-left corner (`overlay`, `doc/questions/A842`). `/IC`'s fill and
+//! `/OverlayText` would be marks this program composes, the far side of `CLAUDE.md`'s authoring
+//! line, so where no `/RO` makes the table ignore them they are not drawn, and that is reported
 //! as a per-page [`crate::Departure`] from §12.5.6.23's full application semantics.
 //!
 //! # Where each concern lives (ADR 2032)
@@ -195,7 +198,7 @@
 //! `images` (the plans that clear an image's samples), `inline` (the inline image splice),
 //! `graphics_state` (`gs` and soft masks) and `regions` (the region in the stream's space);
 //! `forms`, `located`, `mesh`, `paths`, `shading` and `type3` are the constructions
-//! those concerns call.
+//! those concerns call, and `overlay` draws Table 195's `/RO` once they are done.
 
 mod deep;
 mod forms;
@@ -205,6 +208,7 @@ mod images;
 mod inline;
 mod located;
 mod mesh;
+mod overlay;
 mod painting;
 mod paths;
 mod regions;
@@ -305,7 +309,7 @@ pub(crate) fn run(
     let mut glyphs = 0usize;
     let mut inline_images = 0usize;
     let mut cut_paths = 0usize;
-    let mut departures: Vec<usize> = Vec::new();
+    let mut departures: Vec<(usize, String)> = Vec::new();
 
     for index in 0..pages.len() {
         let Some((page, page_id)) = pages
@@ -330,13 +334,16 @@ pub(crate) fn run(
                 cut_paths = cut_paths.saturating_add(edit.paths);
                 let pictures = images.iter().filter(|image| image.role == Role::Picture);
                 cleared_images = cleared_images.saturating_add(pictures.count());
-                if regions.iter().any(|region| region.has_overlay) {
-                    departures.push(index.saturating_add(1));
-                }
+                // Table 195's `/RO`, strictly after the removal: `edit.content` is the page with
+                // the region's content already gone, and the forms are drawn over it.
+                let stated = regions.iter().map(|region| &region.overlay);
+                let after = overlay::after_removal(document, &page.resources, edit.content, stated);
+                departures.extend(after.departure.map(|why| (index.saturating_add(1), why)));
                 applied.push(AppliedPage {
                     page_id,
                     placed: page_id,
-                    content: edit.content,
+                    content: after.content,
+                    overlays: after.named,
                     resources: (*page.resources).clone(),
                     images,
                     forms: edit.forms,
@@ -380,14 +387,11 @@ pub(crate) fn run(
             paths: cut_paths,
         },
     });
-    for page in departures {
+    for (page, reasons) in departures {
         report.departures.push(Departure {
             source: plan.source,
             page: Some(page),
-            detail: "§12.5.6.23: the content was removed; Table 195's overlay (/OverlayText, \
-                     /IC or /RO) was not composed, because it is a mark this program does not \
-                     author (doc/questions/A64, A65's provenance fence)"
-                .to_owned(),
+            detail: format!("§12.5.6.23: the content was removed; the overlay: {reasons}"),
         });
     }
     Ok(())
@@ -578,14 +582,17 @@ struct AppliedPage {
     states: Vec<(Vec<u8>, Dictionary)>,
     /// The new objects the edited content names.
     names: Names,
+    /// Each Table 195 `/RO` form the content draws after the removal, by the `/XObject` name the
+    /// page's resources gain for it.
+    overlays: Vec<(Vec<u8>, ObjectId)>,
 }
 
-/// One `/Redact` annotation's region and whether it states an overlay appearance.
+/// One `/Redact` annotation's region and what it states is drawn over the region afterwards.
 struct Redaction {
     /// The region to remove, as bounding boxes in default user space.
     boxes: Vec<[f32; 4]>,
-    /// Whether Table 195's `/OverlayText`, `/IC` or `/RO` is present — the departure's trigger.
-    has_overlay: bool,
+    /// Table 195's `/RO`, `/IC` and `/OverlayText`, read ([`overlay::stated`]).
+    overlay: overlay::Stated,
 }
 
 /// Every `/Redact` annotation on a page, with its region read from `/QuadPoints` or `/Rect`.
@@ -594,27 +601,45 @@ fn redactions(document: &Document, page: &Page) -> Vec<Redaction> {
     let Some(items) = annots.as_array() else {
         return Vec::new();
     };
+    let is_redaction = |dict: &Dictionary| {
+        document
+            .get_key(dict, "Subtype")
+            .as_name()
+            .is_some_and(|name| name.as_bytes() == b"Redact")
+    };
+    // What the written file must not carry, and so what an overlay's form may not reach: the
+    // page's original content streams, which the edited stream replaces, and the annotations
+    // §12.5.6.23 removes.
+    let mut removed: Vec<ObjectId> = Vec::new();
+    if let Some(contents) = page.dict.get("Contents") {
+        removed.extend(contents.as_reference());
+        let parts = document.resolve(contents);
+        if let Some(parts) = parts.as_array() {
+            removed.extend(parts.iter().filter_map(Object::as_reference));
+        }
+    }
+    for item in items {
+        if let Object::Reference(id) = item
+            && document.resolve(item).as_dict().is_some_and(is_redaction)
+        {
+            removed.push(*id);
+        }
+    }
     let mut out = Vec::new();
     for item in items {
         let resolved = document.resolve(item);
         let Some(dict) = resolved.as_dict() else {
             continue;
         };
-        if document
-            .get_key(dict, "Subtype")
-            .as_name()
-            .is_none_or(|name| name.as_bytes() != b"Redact")
-        {
+        if !is_redaction(dict) {
             continue;
         }
         let boxes = region_boxes(document, dict);
         if boxes.is_empty() {
             continue;
         }
-        let has_overlay = ["RO", "OverlayText", "IC"]
-            .iter()
-            .any(|key| !matches!(document.get_key(dict, key), Object::Null));
-        out.push(Redaction { boxes, has_overlay });
+        let overlay = overlay::stated(document, dict, &removed);
+        out.push(Redaction { boxes, overlay });
     }
     out
 }
@@ -3007,7 +3032,10 @@ fn build_page(
 
     let surviving = surviving_annotations(assembly, document, source);
     let mut dict = Dictionary::new();
-    let restated = !carried.private.is_empty() || !page.states.is_empty() || carried.names();
+    let restated = !carried.private.is_empty()
+        || !page.states.is_empty()
+        || !page.overlays.is_empty()
+        || carried.names();
     for (key, value) in source.iter() {
         let skipped = matches!(key.as_bytes(), b"Contents" | b"Annots")
             || (key.as_bytes() == b"Resources" && restated);
@@ -3023,6 +3051,7 @@ fn build_page(
         // the same resources the producer's page had, with the copied objects substituted and
         // any graphics state the edited content names added.
         let stated = with_states(document, &page.resources, &page.states);
+        let stated = overlay::with_overlays(document, stated, &page.overlays);
         let resources = carried.resources(assembly, document, &stated);
         dict.insert(Name::new(&b"Resources"[..]), resources);
     }

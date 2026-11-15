@@ -1,5 +1,7 @@
 # 2841 — A redaction is proven a removal by extraction, and `/RO` waits on the owner
 
+> **Its withdrawal of drawing `/RO` is superseded by ADR 2868 (session 2026), on the owner's answer `doc/questions/A842`.**
+
 Session 2011. Status: **accepted**; tests built (`crates/pdf-transform/tests/redaction_is_removal.rs`), no change
 to `pdf_transform::redact`. It answers `doc/questions/A834` item 3 as far as the owner's own words reach, and
 asks the rest as `doc/questions/Q842`. Clauses: ISO 32000-2 §12.5.6.23 (Table 195).

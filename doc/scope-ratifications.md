@@ -124,13 +124,29 @@ nothing a reader sees, and an appearance whose annotation a target will not admi
 onto its own page under §12.5.5's own matrix. It takes in later sites of the same shape, a
 flattened form field among them, and **stops where the marks become this program's
 invention**: the watermark
-stays on the far side, and so do the redaction's overlay and its fill — §12.5.6.23's `/RO`,
+stays on the far side, and so do the redaction's overlay text and its fill — §12.5.6.23's
 `/OverlayText` and `/IC` (`doc/questions/A64`). ADR 1123 is the construction — a `q` before
 the producer's operators and a closing stream after them, §8.4.2's balance kept across the
 `/Contents` array — with ADR 1099's appended page as the fallback for its two refusals, each
 stated in a sentence: a producer whose content stream pops further than it pushes, and a
 moved appearance a remaining, unhidden annotation would be drawn over. Ratified 2026-09-14
 (`doc/questions/Q65`, `A65`: "Rule provenance."); ADR 1120 is the argument.
+
+**A redaction's `/RO` is on the near side; its `/OverlayText` and `/IC` are not.** Table 195's
+`/RO` is "a form XObject specifying the overlay appearance for this redaction annotation", and
+"\[a]fter this redaction is applied and the affected content has been removed, the overlay
+appearance should be drawn such that its origin lines up with the lower-left corner of the
+annotation rectangle": the marks are the producer's own stream, and the clause both asks for
+the move and fixes the position, which is the two-part test above. `/OverlayText` is a string
+this program would set in type under `/DA` and `/Q`, and `/IC` a fill this program would paint
+— marks it composes, so "the redaction's overlay" the line excludes is read as those two. The
+owner declined drawing anything over content that is not gone (`doc/questions/A834`, item 3:
+"If a redaction only places something over someting else, it will lead to sensitive
+information exposure"), and agreed to draw `/RO` strictly after the removal
+(`doc/questions/Q842`, `A842`, 2026-11-13: "agreed"). So the form is appended after the content
+the removal wrote and is never walked by it, and a page whose removal is refused draws no
+overlay. ADR 2868 is the construction and ADR 2869 the reading of the line; this is reopened if
+a `/RO` is ever asked to be drawn where the removal did not run first.
 
 ### A page photographed as this reader draws it, where no reader could read its text
 
