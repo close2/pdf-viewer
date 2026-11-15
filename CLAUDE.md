@@ -58,16 +58,17 @@ section disagree about the machine, **this section is the machine**. The rules a
   still a reading, and nothing moves to the software adapter to avoid the device;
   `PDF_VIEWER_GPU_LOCK_LOG=<file>` makes every hold a line, and `tools/gpu-holds.sh <file>` sums them.
 - **Processor and memory**: CPUs `0-31` of one EPYC socket, NUMA node 0, in slice
-  `user-1001.slice` (`Delegate=yes`, nested cgroup v2 bounds work); memory capped at 92 GiB
-  (`MemoryHigh=88G`) with **no swap** — a walk past the cap is killed, not slowed.
-- **Storage — anything big goes under `~/scratch`, never on `/`.** `/` (NVMe, 250 GiB) is shared
-  with the other users and the system, and it holds the checkout and little else. `~/scratch`
-  (`/scratch/quorra`, a 1.5 TiB rotating disk) holds everything large or temporary: build
-  directories (`~/scratch/cargo-target`, which `~/.cargo/config.toml`'s `target-dir` names),
-  `~/scratch/sccache` (`$SCCACHE_DIR`, 50 GiB cap), worktrees, corpora and the corpus cache, fuzz
-  corpora, census and conversion outputs, arms exports, and `~/scratch/handover` (the notebook's
-  handover). A command that will write gigabytes is pointed at `~/scratch` before it starts;
-  `df -h / ~/scratch` is the check. Linking is `clang` + `mold` (`~/.cargo/config.toml`).
+  `user-1001.slice` (`Delegate=yes`, nested cgroup v2 bounds work); memory capped at 70 GiB
+  (`MemoryHigh=66G`) with **no swap** — a walk past the cap is killed, not slowed.
+- **Storage — hot builds on the fast disk, everything large and cold under `~/scratch`.** Both disks
+  carry a per-user quota (`quota -s` is the check; `df` shows the whole filesystem). `/` is NVMe, and
+  this user's share of it (350 GiB hard) holds the checkout, the worktrees and the build directories
+  (`tools/places.sh`'s `PDF_VIEWER_FAST`, default `~/fast`), and `sccache` (`~/.cache/sccache`, 50 GiB
+  cap): a build is many small random writes, which the slow disk serves worst. `~/scratch`
+  (`/scratch/quorra`, a single rotating SMR disk, 1.2 TiB hard) holds corpora and the corpus cache, fuzz
+  corpora, census and conversion outputs, logs, arms exports, the orchestration's files
+  (`~/scratch/agent`) and `~/scratch/handover`. A build directory past 100 GiB is pruned between rounds.
+  Linking is `clang` + `mold` (`~/.cargo/config.toml`).
 
 ## Non-negotiable principles
 

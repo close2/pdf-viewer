@@ -7,17 +7,24 @@
 # a user name: the two roots are the whole of what a new machine decides, and every other place is a
 # name under one of them.
 #
-#   PDF_VIEWER_SCRATCH  $HOME/scratch           the large, temporary disk: build directories
-#                                               (PDF_VIEWER_BUILDS) and worktrees
+#   PDF_VIEWER_FAST     $HOME/fast              the fast disk's room for hot work: build
+#                                               directories (PDF_VIEWER_BUILDS) and worktrees
+#   PDF_VIEWER_SCRATCH  $HOME/scratch           the large, slow disk: corpora, logs, census and
+#                                               conversion outputs, and the orchestration's files
 #   PDF_VIEWER_AGENT    $PDF_VIEWER_SCRATCH/agent   the orchestration's own files: the heavy-walk
 #                                               lock and its log, the gates log, the briefs, the
 #                                               arms, and the data no tree may carry
+#
+# Builds and worktrees are on the fast disk because a build is many small random writes, which the
+# slow disk serves worst: rounds waited on it at 95 % I/O pressure. What is large and read or written
+# once stays on the slow disk.
 #
 # Assigned with `:=` and not exported: a script that runs another runs one that sources this file
 # too, so both read the same answer, and a caller's override reaches both through the environment.
 
 : "${HOME:?the machine-local places are derived from HOME, and HOME is unset}"
 
+: "${PDF_VIEWER_FAST:=$HOME/fast}"
 : "${PDF_VIEWER_SCRATCH:=$HOME/scratch}"
 : "${PDF_VIEWER_AGENT:=$PDF_VIEWER_SCRATCH/agent}"
 
@@ -30,11 +37,11 @@
 
 # The root every build directory but the main checkout's is made under: a worktree's
 # (`tools/worktree.sh`), the batch's and each export's.
-: "${PDF_VIEWER_BUILDS:=$PDF_VIEWER_SCRATCH/cargo-target}"
+: "${PDF_VIEWER_BUILDS:=$PDF_VIEWER_FAST/cargo-target}"
 
 # The batch: its worktree, its build directory, the root each export's build directory is made
 # under, the root of each batch's `arms-<first>/`, and the merge's gate log (`tools/batch.sh`).
-: "${BATCH_WORKTREE:=$PDF_VIEWER_SCRATCH/worktrees/pdf-viewer-rounds}"
+: "${BATCH_WORKTREE:=$PDF_VIEWER_FAST/worktrees/pdf-viewer-rounds}"
 : "${BATCH_TARGET_DIR:=$PDF_VIEWER_BUILDS/pdf-viewer-batch}"
 : "${BATCH_EXPORT_TARGET_ROOT:=$PDF_VIEWER_BUILDS}"
 : "${BATCH_ARMS_ROOT:=$PDF_VIEWER_AGENT}"
