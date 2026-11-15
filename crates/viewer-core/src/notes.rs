@@ -2444,7 +2444,21 @@ fn verdicts(
         }
     );
     notes.push(match &verdict {
-        pdf_signature::verdict::Verdict::Valid(valid) => valid_sentence(valid, &asked_at),
+        pdf_signature::verdict::Verdict::Valid(valid) => {
+            // ETSI TS 119 172-4 clause 4.4.2's level, which only a listed path has (ADR 2866).
+            let level = pdf_signature::verdict::level::determine(
+                valid,
+                &pdf_signature::verdict::level::Asked {
+                    signature,
+                    integrity: &integrity,
+                    authenticity: &authenticity,
+                    lists: asked.lists,
+                    material: asked.material,
+                    timestamps: asked.timestamps,
+                },
+            );
+            valid_sentence(valid, level.as_ref(), &asked_at)
+        }
         pdf_signature::verdict::Verdict::Reserved(reservation) => format!(
             "that signature is not called valid here{asked_at}, and this is the first thing that \
              stopped it: {reservation}"
@@ -2581,8 +2595,9 @@ fn statements_sentence(stated: &pdf_signature::qc_statement::Stated) -> String {
 }
 
 /// What ETSI TS 119 615 clauses 4.4 and 4.5 found for the signer's certificate, in the clauses'
-/// own indications and named as being about the certificate: a level of the signature also needs
-/// ETSI TS 119 172-4 REQ-4.4.2-06's join, which this build does not run (ADRs 2864, 2865).
+/// own indications and named as being about the certificate: the signature's level is ETSI TS 119
+/// 172-4 clause 4.4.2's join of these with the validation, which [`level_sentence`] says (ADRs
+/// 2864, 2865, 2866).
 fn qualification_sentence(
     qualification: &pdf_signature::trusted_list::determination::Qualification,
 ) -> String {
@@ -2669,9 +2684,13 @@ fn qualification_sentence(
 /// reader is owed which of the two it is. A listed service is named with its list, and how far the
 /// list itself was authenticated is said: under the European Commission's list of trusted lists
 /// (TS 119 615 clauses 4.1 and 4.2, ADR 2842), or on the word of whoever supplied it. The eIDAS
-/// level (clauses 4.4 and 4.5, joined by TS 119 172-4 clause 4.4.2) is said to be undetermined, so
-/// that a listing is never read as a qualified signature (ADR 2835).
-fn valid_sentence(valid: &pdf_signature::verdict::Valid, asked_at: &str) -> String {
+/// level is said only from TS 119 172-4 clause 4.4.2's own output, `level` ([`level_sentence`]),
+/// so that a listing is never read as a qualified signature (ADRs 2835, 2866).
+fn valid_sentence(
+    valid: &pdf_signature::verdict::Valid,
+    level: Option<&pdf_signature::verdict::Level>,
+    asked_at: &str,
+) -> String {
     use pdf_signature::trusted_list::Authentication;
     use pdf_signature::verdict::Standing;
     let reached = format!(
@@ -2700,8 +2719,7 @@ fn valid_sentence(valid: &pdf_signature::verdict::Valid, asked_at: &str) -> Stri
                 "that signature is valid under the trusted list of {} (sequence number {}): \
                  {reached} reaches the service \"{}\" of {}, which the list publishes as {} with \
                  the status {} when the signer's certificate was issued (ETSI TS 119 615 clause \
-                 4.3){asked_at}. {believed}. {}. {}, and whether this is a qualified electronic \
-                 signature or seal (QES, AdES/QC, AdES) is not determined by this build",
+                 4.3){asked_at}. {believed}. {}. {}. {}",
                 listing.territory,
                 listing.sequence_number,
                 listing.service,
@@ -2709,7 +2727,8 @@ fn valid_sentence(valid: &pdf_signature::verdict::Valid, asked_at: &str) -> Stri
                 listing.service_type,
                 listing.status_at_issue.as_deref().unwrap_or("none yet"),
                 statements_sentence(&listing.statements),
-                qualification_sentence(&listing.qualification)
+                qualification_sentence(&listing.qualification),
+                level_sentence(level)
             )
         }
         // Every other standing — the reader's own anchors, and any a later build adds — is said
@@ -2721,6 +2740,80 @@ fn valid_sentence(valid: &pdf_signature::verdict::Valid, asked_at: &str) -> Stri
              your anchors that make the word sayable"
         ),
     }
+}
+
+/// ETSI TS 119 172-4 clause 4.4.2's answer for a listed valid signature, with the requirement that
+/// decided it and Annex A's type where the outputs support one — the only place a report says
+/// "qualified" about a signature (ADRs 2835, 2866).
+fn level_sentence(level: Option<&pdf_signature::verdict::Level>) -> String {
+    use pdf_signature::verdict::level::{Answer, Purpose, Requirement, Type};
+    let Some(level) = level else {
+        // A listed path whose service the level's run did not find again, or any answer a later
+        // build adds, is said in the words that claim least.
+        return "Whether this is a qualified electronic signature or seal was not determined"
+            .to_owned();
+    };
+    let of = |purpose| match purpose {
+        Purpose::Signature => "signatures",
+        Purpose::Seal => "seals",
+    };
+    let requirement = level.decided_by.name();
+    let mut sentence = match (level.answer, level.decided_by, level.certificate) {
+        (Answer::Qualified(Purpose::Signature), ..) => format!(
+            "ETSI TS 119 172-4 clause 4.4.2 determines this signature technically suitable to \
+             implement an EU qualified electronic signature (QES, {requirement})"
+        ),
+        (Answer::Qualified(Purpose::Seal), ..) => format!(
+            "ETSI TS 119 172-4 clause 4.4.2 determines this signature technically suitable to \
+             implement an EU qualified electronic seal ({requirement})"
+        ),
+        (Answer::NotQualified, _, certificate) => format!(
+            "The signer's certificate is an EU qualified certificate for electronic {} and its key \
+             is in a qualified creation device, but the validation under ETSI TS 119 172-4 \
+             REQ-4.2-03's constraints (revocation status checked, from information issued after \
+             the best signature time) did not pass, so this is not determined as an EU qualified \
+             electronic signature or seal ({requirement})",
+            certificate.map_or("signatures or seals", of)
+        ),
+        (_, Requirement::Device, Some(purpose)) => format!(
+            "The signer's certificate is an EU qualified certificate for electronic {} \
+             (REQ-4.4.2-02), but its key is not determined to be in a qualified creation device, \
+             so ETSI TS 119 172-4 determines the signature indeterminate — neither an EU qualified \
+             electronic signature nor seal ({requirement})",
+            of(purpose)
+        ),
+        // REQ-4.4.2-02 b), and any branch a later build adds.
+        _ => format!(
+            "The signer's certificate is not determined an EU qualified certificate for electronic \
+             signatures or seals at the best signature time, so ETSI TS 119 172-4 determines the \
+             signature indeterminate — neither an EU qualified electronic signature nor seal \
+             ({requirement})"
+        ),
+    };
+    if let Some(kind) = level.annex_a() {
+        let named = match kind {
+            Type::QualifiedSignature => "an EU qualified electronic signature",
+            Type::QualifiedSeal => "an EU qualified electronic seal",
+            Type::AdvancedSignatureOnQualifiedCertificate => {
+                "an advanced electronic signature supported by an EU qualified certificate \
+                 (AdES/QC)"
+            }
+            Type::AdvancedSealOnQualifiedCertificate => {
+                "an advanced electronic seal supported by an EU qualified certificate"
+            }
+            Type::Advanced => "an advanced electronic signature or seal (AdES)",
+        };
+        sentence.push_str("; its type is ");
+        sentence.push_str(named);
+        if let Some(identifier) = kind.identifier() {
+            sentence.push_str(" (Annex A, ");
+            sentence.push_str(identifier);
+            sentence.push(')');
+        } else {
+            sentence.push_str(" (Annex A)");
+        }
+    }
+    sentence
 }
 
 /// The trusted lists a host supplied: how many read, which did not, and on whose word they are
@@ -4394,5 +4487,66 @@ mod tests {
         let absent = super::qualification_sentence(&Qualification::NoListForTerritory("AT".into()));
         assert!(absent.contains("No trusted list of AT"), "{absent}");
         assert!(!absent.contains("Not_Qualified"), "{absent}");
+    }
+
+    /// ETSI TS 119 172-4 clause 4.4.2's answers worded (ADR 2866): "qualified" about the signature
+    /// only where REQ-4.4.2-06 holds, the requirement that decided every answer named, and Annex
+    /// A's type and identifier only where clause 4.2's validation passed.
+    #[test]
+    fn a_level_is_worded_from_the_joins_own_output() {
+        use pdf_signature::verdict::Level;
+        use pdf_signature::verdict::level::{Answer, Purpose, Requirement};
+        let qualified = super::level_sentence(Some(&Level {
+            answer: Answer::Qualified(Purpose::Signature),
+            decided_by: Requirement::Join,
+            certificate: Some(Purpose::Signature),
+            total_passed: true,
+        }));
+        for named in [
+            "technically suitable to implement an EU qualified electronic signature (QES, \
+             REQ-4.4.2-06)",
+            "0.4.0.191724.1.2.1",
+        ] {
+            assert!(qualified.contains(named), "{named} in {qualified}");
+        }
+        let on_no_device = super::level_sentence(Some(&Level {
+            answer: Answer::Indeterminate,
+            decided_by: Requirement::Device,
+            certificate: Some(Purpose::Seal),
+            total_passed: true,
+        }));
+        for named in [
+            "EU qualified certificate for electronic seals",
+            "indeterminate",
+            "REQ-4.4.2-05",
+            "advanced electronic seal supported by an EU qualified certificate",
+            "0.4.0.191724.1.2.5",
+        ] {
+            assert!(on_no_device.contains(named), "{named} in {on_no_device}");
+        }
+        assert!(!on_no_device.contains("suitable"), "{on_no_device}");
+        let not_qualified = super::level_sentence(Some(&Level {
+            answer: Answer::Indeterminate,
+            decided_by: Requirement::Certificate,
+            certificate: None,
+            total_passed: false,
+        }));
+        assert!(not_qualified.contains("REQ-4.4.2-02"), "{not_qualified}");
+        assert!(!not_qualified.contains("type"), "{not_qualified}");
+        let joined_without_validation = super::level_sentence(Some(&Level {
+            answer: Answer::NotQualified,
+            decided_by: Requirement::Join,
+            certificate: Some(Purpose::Signature),
+            total_passed: false,
+        }));
+        assert!(
+            joined_without_validation.contains("not determined as an EU qualified")
+                && joined_without_validation.contains("REQ-4.4.2-06"),
+            "{joined_without_validation}"
+        );
+        assert!(
+            super::level_sentence(None).contains("was not determined"),
+            "a listed path with no level claims nothing"
+        );
     }
 }

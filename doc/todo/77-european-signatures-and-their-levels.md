@@ -1,8 +1,9 @@
 # 77 — European signatures, their levels, and *locally valid*
 
 Status: **open** — locally valid, the list reader, the lists' authentication, RSASSA-PSS subject
-keys, the QC statements and TS 119 615 clauses 4.4 and 4.5 are built (ADRs 2834, 2835, 2842, 2843,
-2852, 2853, 2864, 2865); section 2 is the order for the rest.
+keys, the QC statements, TS 119 615 clauses 4.4 and 4.5 and TS 119 172-4 clause 4.4.2's level are
+built (ADRs 2834, 2835, 2842, 2843, 2852, 2853, 2864, 2865, 2866); section 2 is the order for the
+rest.
 Priority: the owner's, 2026-11-06, `doc/questions/A800` item 3: "we should be able to validate all
 european digital signatures and be able to tell the user the different levels of signatures QES,
 AES,..." and "We should have a local valid certificate setting as well."
@@ -58,13 +59,21 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
   over clause 4.4's `CHECK_1_SET-OF_QE` and `CHECK_2_SET-OF_QE` and the certificate's `QcSSCD`,
   Tables 6 and 7, unknown qualifiers refused under a critical extension; carried beside clause
   4.4's outputs and said as `QSCD_YES` and its siblings, about the key.
+- **TS 119 172-4 clause 4.4.2** (ADR 2866). `verdict::level`: REQ-4.4.2-02 to -06 over clauses 4.4
+  and 4.5's outputs and clause 4.2's validation, run again over the listed service under
+  REQ-4.2-03 c)'s constraints (status checked, none unknown accepted, information issued after the
+  best signature time: `trust::PathInputs::revocation_issuance`). A `Level` is qualified signature
+  or seal, indeterminate (stopped at -02 or -05) or not qualified (-06), with the requirement that
+  decided it and Annex A's type and identifier where the outputs support one; a locally valid path
+  has none. `viewer_core::notes` says "qualified" about a signature only from it. REQ-4.4.2-03
+  names no check; REQ-4.5-01's report contents beyond the level are not built.
 
 ## 2. What is left, in order
 
-3. **TS 119 172-4 REQ-4.4.2-02 to -06**'s join into a
-   `verdict::Level` beside `Standing`: qualified signature or seal, advanced on a qualified
-   certificate, advanced, indeterminate, each with the requirement that decided it. Only then does
-   any report say "qualified" (ADR 2835).
+3. **TS 119 172-4 REQ-4.5-01**'s report beyond the level: the scope text (a)), the signer's
+   subject and alternative names and any pseudonym (b), c)), the timing information with each
+   time's assurance (d)), the signed and unsigned attributes (f)) and the cryptographic suites
+   (h)), and REQ-4.2-03 d) and e)'s algorithm warnings.
 4. **The list of trusted lists fetched** by a host at A98's `Submissions` level through ADR 1728's
    port, `ask` by default — a transmission, never the confined worker's — keying each file by its
    URI as ADR 2842's names do, and persisting PRO-4.1.4-16 and -17's configuration updates.

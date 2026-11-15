@@ -25,7 +25,7 @@ use crate::trust::{Supply, Trust, TrustAnchors};
 use crate::x509::{Instant, parse};
 
 /// 2026-10-01T00:00:00Z — inside every fixture certificate's validity period.
-const AT: Instant = Instant::from_unix_seconds(1_790_812_800);
+pub(super) const AT: Instant = Instant::from_unix_seconds(1_790_812_800);
 
 /// Hexadecimal to bytes, as every fixture module in this crate spells it.
 fn hex(text: &str) -> Vec<u8> {
@@ -36,7 +36,7 @@ fn hex(text: &str) -> Vec<u8> {
 }
 
 /// The fixture document, opened, with its one signature.
-fn opened(bytes: Vec<u8>) -> (Document, Signature) {
+pub(super) fn opened(bytes: Vec<u8>) -> (Document, Signature) {
     let document = Document::open(bytes).expect("the fixture opens");
     let signature = signatures(&document)
         .into_iter()

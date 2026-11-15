@@ -531,6 +531,10 @@ pub struct PathInputs {
     pub inhibit_any_policy: Option<usize>,
     /// (h) and (i), `initial-permitted-subtrees` and `initial-excluded-subtrees`.
     pub name_constraints: Option<names::NameConstraints>,
+    /// When the material that answers section 6.1.3 (a)(3) for each certificate must have been
+    /// issued: none by default, and ETSI TS 119 172-4 REQ-4.2-03 c) ii)'s zero freshness for the
+    /// validation an EU qualified level rests on ([`crate::verdict::level`]).
+    pub revocation_issuance: revocation::Issuance,
 }
 
 /// What [`validate_constrained`] answers: the verdict, the path, and section 6.1.6's policy output.
@@ -879,7 +883,12 @@ impl<'p, 'c: 'p> Search<'p, 'c> {
                 };
                 revocation = revocation::worst(
                     revocation,
-                    revocation::status(&subject, self.material, self.at),
+                    revocation::status_within(
+                        &subject,
+                        self.material,
+                        self.at,
+                        self.inputs.revocation_issuance,
+                    ),
                 );
             }
             if index < last {

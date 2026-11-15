@@ -1482,6 +1482,30 @@ impl Signature {
         at: Instant,
         purpose: trust::Purpose,
     ) -> Trust {
+        self.trust_under(
+            anchors,
+            material,
+            at,
+            purpose,
+            &trust::PathInputs::default(),
+        )
+    }
+
+    /// [`Self::trust_for`] under RFC 5280 section 6.1.1's further inputs, and with the issuance
+    /// bound [`trust::PathInputs::revocation_issuance`] places on the revocation material.
+    ///
+    /// The caller with inputs of its own is ETSI TS 119 172-4 clause 4.2's validation, whose
+    /// REQ-4.2-03 c) constrains the revocation material an EU qualified level rests on
+    /// ([`crate::verdict::level`]).
+    #[must_use]
+    pub fn trust_under(
+        &self,
+        anchors: &TrustAnchors<'_>,
+        material: &crate::revocation::Material<'_>,
+        at: Instant,
+        purpose: trust::Purpose,
+        inputs: &trust::PathInputs,
+    ) -> Trust {
         if anchors.is_empty() {
             return Trust::NoAnchorSupplied;
         }
@@ -1492,12 +1516,12 @@ impl Signature {
         // the entry for a PAdES signature, which is why the two routes cannot be tried in turn:
         // the sub-filter decides which one a file meant.
         if self.sub_filter.as_deref() == Some("adbe.x509.rsa_sha1") {
-            return self.chain_trust(anchors, material, at, purpose);
+            return self.chain_trust(anchors, material, at, purpose, inputs);
         }
         let Ok(cms) = self.signed_data() else {
             return Trust::NoPathToAnyAnchor { examined: 0 };
         };
-        cms_trust(&cms, anchors, material, at, purpose)
+        cms_trust(&cms, anchors, material, at, purpose, inputs)
     }
 
     /// The signer's certificate as DER: `/Cert`'s first entry for §12.8.3.2's value, and for a CMS
@@ -1544,6 +1568,7 @@ impl Signature {
         material: &crate::revocation::Material<'_>,
         at: Instant,
         purpose: trust::Purpose,
+        inputs: &trust::PathInputs,
     ) -> Trust {
         let Some(first) = self.chain.first() else {
             return Trust::NoPathToAnyAnchor { examined: 0 };
@@ -1558,7 +1583,7 @@ impl Signature {
             .filter_map(|entry| x509::parse(entry).ok())
             .filter(|candidate| candidate.tbs != target.tbs)
             .collect();
-        trust::validate_for(&target, &others, anchors, material, at, purpose)
+        trust::validate_constrained(&target, &others, anchors, material, at, purpose, inputs).trust
     }
 
     /// **Has this document changed since it was signed?**, over the bytes of `file`.
@@ -2247,6 +2272,7 @@ pub(crate) fn cms_trust(
     material: &crate::revocation::Material<'_>,
     at: Instant,
     purpose: trust::Purpose,
+    inputs: &trust::PathInputs,
 ) -> Trust {
     // §12.8.4's store and §12.8.3.3.2's signed attribute are one supply, and §12.8.4.2 is
     // what puts the material in two places rather than one: "Some of this information, i.e.
@@ -2270,7 +2296,7 @@ pub(crate) fn cms_trust(
         .filter_map(|entry| x509::read(*entry).ok())
         .filter(|candidate| candidate.tbs != target.tbs)
         .collect();
-    trust::validate_for(&target, &others, anchors, &material, at, purpose)
+    trust::validate_constrained(&target, &others, anchors, &material, at, purpose, inputs).trust
 }
 
 /// Where the bytes a `SignerInfo` signed come from, when the CMS object does not carry them.

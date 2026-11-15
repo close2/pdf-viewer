@@ -446,6 +446,7 @@ pub fn signature_timestamp_established(
             material,
             asked_at.instant(),
             Purpose::TimeStamping,
+            &crate::trust::PathInputs::default(),
         ) {
             Trust::Anchored { revocation, .. } => Time::Established {
                 at: info.gen_time,

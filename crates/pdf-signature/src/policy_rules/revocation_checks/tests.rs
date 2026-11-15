@@ -820,3 +820,65 @@ fn a_bound_on_issuance_withdraws_no_revocation() {
     );
     assert_eq!(found[0].verdict(), Verdict::Broken);
 }
+
+/// ETSI TS 119 172-4 REQ-4.2-03 c) ii): with a freshness of zero, revocation information "is only
+/// accepted if it has been issued after the best signature time". The path walk takes the bound
+/// from `PathInputs::revocation_issuance`: the authority's path, over both lists, is good with no
+/// bound and with a best signature time one second before the lists' `thisUpdate`, and the
+/// status is unknown, stale, where the best signature time is that `thisUpdate` itself — issued
+/// at it is not issued after it.
+#[test]
+fn a_zero_freshness_on_the_path_admits_only_material_issued_after_the_instant() {
+    use crate::revocation::{Issuance, Revocation};
+    use crate::trust::{PathInputs, Purpose, Trust, TrustAnchors, validate_constrained};
+    let (root, intermediate, authority) = (
+        hex(fixtures::ROOT),
+        hex(fixtures::INTERMEDIATE),
+        hex(fixtures::AUTHORITY),
+    );
+    let parse = |der| crate::x509::parse(der).expect("a fixture parses");
+    let anchors = [parse(&root)];
+    let others = [parse(&intermediate)];
+    let target = parse(&authority);
+    let (root_crl, intermediate_crl) = (hex(fixtures::ROOT_CRL), hex(fixtures::INTERMEDIATE_CRL));
+    let lists = material(&[&root_crl, &intermediate_crl], &[]);
+    let revocation = |fresh_after: Option<Instant>| {
+        let inputs = PathInputs {
+            revocation_issuance: Issuance {
+                fresh_after,
+                issued_from: None,
+            },
+            ..PathInputs::default()
+        };
+        match validate_constrained(
+            &target,
+            &others,
+            &TrustAnchors::of(&anchors),
+            &lists,
+            AT,
+            Purpose::TimeStamping,
+            &inputs,
+        )
+        .trust
+        {
+            Trust::Anchored { revocation, .. } => revocation,
+            other => panic!("the authority's path validates: {other:?}"),
+        }
+    };
+    assert!(matches!(
+        revocation(None),
+        Revocation::Good { covered: 2, .. }
+    ));
+    let just_before = Instant::from_unix_seconds(LISTS_ISSUED.unix_seconds() - 1);
+    assert!(matches!(
+        revocation(Some(just_before)),
+        Revocation::Good { covered: 2, .. }
+    ));
+    assert!(matches!(
+        revocation(Some(LISTS_ISSUED)),
+        Revocation::Unknown {
+            why: Undetermined::Stale,
+            ..
+        }
+    ));
+}

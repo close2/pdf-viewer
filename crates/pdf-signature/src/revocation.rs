@@ -1375,6 +1375,22 @@ pub fn status(subject: &Subject<'_, '_>, material: &Material<'_>, at: Instant) -
     answer(subject, material, at, None, Issuance::default())
 }
 
+/// [`status`], with a good answer taken only from material whose issuance meets `issuance`.
+///
+/// Either kind of material answers, as in [`status`]: ETSI TS 119 172-4 REQ-4.2-03 c) i) sets the
+/// revocation checking constraint to `eitherCheck`, and its point ii) is the issuance bound — a
+/// freshness of zero, so that revocation information "is only accepted if it has been issued
+/// after the best signature time" ([`crate::verdict::level`]).
+#[must_use]
+pub fn status_within(
+    subject: &Subject<'_, '_>,
+    material: &Material<'_>,
+    at: Instant,
+    issuance: Issuance,
+) -> Revocation {
+    answer(subject, material, at, None, issuance)
+}
+
 /// [`status`] from one kind of material alone.
 ///
 /// A signature policy can mandate the *kind* of check made on a certificate — ETSI TR 102 272

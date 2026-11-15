@@ -68,6 +68,7 @@ fn run(id: &str, path: &[&str], runs: &[Run]) {
             inhibit_policy_mapping: flag(expected.mapping_inhibit),
             inhibit_any_policy: flag(expected.any_inhibit),
             name_constraints: None,
+            revocation_issuance: crate::revocation::Issuance::default(),
         };
         let validation = validate_constrained(
             target,
