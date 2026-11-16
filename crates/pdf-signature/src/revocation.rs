@@ -70,7 +70,7 @@
 
 use crate::cms::{ADBE_REVOCATION_INFO_ARCHIVAL, Digest, SignedData};
 use crate::der::{self, DerError, INTEGER, NotCanonical, OCTET_STRING, Reader, SEQUENCE, Value};
-use crate::x509::{self, Certificate, Instant, KeyUsage, PublicKey};
+use crate::x509::{self, Instant, KeyUsage, PublicKey};
 use crate::{dsa, ecdsa, eddsa, pkcs1, pss};
 
 /// X.690's `BIT STRING`, primitive and universal.
@@ -387,7 +387,7 @@ pub enum Revocation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CertificateList<'a> {
     /// `tbsCertList.issuer`'s contents — the encoded `Name`, compared and never decoded, exactly
-    /// as [`Certificate::issuer`] is.
+    /// as [`x509::Certificate::issuer`] is.
     pub issuer: &'a [u8],
     /// `tbsCertList.thisUpdate` — "the issue date of this CRL" (section 5.1.2.4).
     pub this_update: Instant,
@@ -1349,9 +1349,16 @@ pub const MAX_ARCHIVED: usize = 256;
 /// the one being validated — so it has been validated to the same anchor already, and what is left
 /// of the step is the `cRLSign` check.
 #[derive(Debug, Clone, Copy)]
-pub struct Subject<'a, 'c> {
-    /// The certificate whose status is asked about.
-    pub certificate: &'a Certificate<'c>,
+pub struct Subject<'c> {
+    /// The contents of the issuer's `Name` the certificate whose status is asked about states — a
+    /// public-key certificate's `issuer`, or an attribute certificate's `v2Form` name (RFC 5755
+    /// section 4.2.3) — which a CRL's issuer is compared with.
+    pub issuer: &'c [u8],
+    /// That certificate's serial number, as the file encodes the integer: what a CRL entry and an
+    /// OCSP `CertID` name it by. RFC 5280 section 5.2.5's `userCertificate` and RFC 6960 section
+    /// 4.1.1's `serialNumber` name an attribute certificate by the same pair of issuer and serial
+    /// (RFC 5755 section 6 leaves the source of its revocation status to the verifier).
+    pub serial_number: &'c [u8],
     /// The issuer's `Name` as encoded, header included — what RFC 6960's `issuerNameHash` hashes.
     pub issuer_name: &'c [u8],
     /// The issuer's `subjectPublicKey` octets, "excluding the tag and length fields" — what
@@ -1371,7 +1378,7 @@ pub struct Subject<'a, 'c> {
 /// Never [`Revocation::NotChecked`]: that variant is about a *caller* that asked nothing, and this
 /// function was asked. The answer for a path is the worst of these, which [`worst`] composes.
 #[must_use]
-pub fn status(subject: &Subject<'_, '_>, material: &Material<'_>, at: Instant) -> Revocation {
+pub fn status(subject: &Subject<'_>, material: &Material<'_>, at: Instant) -> Revocation {
     answer(subject, material, at, None, Issuance::default())
 }
 
@@ -1383,7 +1390,7 @@ pub fn status(subject: &Subject<'_, '_>, material: &Material<'_>, at: Instant) -
 /// after the best signature time" ([`crate::verdict::level`]).
 #[must_use]
 pub fn status_within(
-    subject: &Subject<'_, '_>,
+    subject: &Subject<'_>,
     material: &Material<'_>,
     at: Instant,
     issuance: Issuance,
@@ -1399,7 +1406,7 @@ pub fn status_within(
 /// kind would have answered too. This asks one kind and ignores the other.
 #[must_use]
 pub fn status_by(
-    subject: &Subject<'_, '_>,
+    subject: &Subject<'_>,
     material: &Material<'_>,
     at: Instant,
     evidence: Evidence,
@@ -1450,7 +1457,7 @@ impl Issuance {
 /// [`status_by`], with a good answer taken only from material whose issuance meets `issuance`.
 #[must_use]
 pub fn status_issued(
-    subject: &Subject<'_, '_>,
+    subject: &Subject<'_>,
     material: &Material<'_>,
     at: Instant,
     evidence: Evidence,
@@ -1461,7 +1468,7 @@ pub fn status_issued(
 
 /// [`status`], or [`status_issued`] where `only` names the kind of material asked.
 fn answer(
-    subject: &Subject<'_, '_>,
+    subject: &Subject<'_>,
     material: &Material<'_>,
     at: Instant,
     only: Option<Evidence>,
@@ -1534,14 +1541,14 @@ pub fn worst(left: Revocation, right: Revocation) -> Revocation {
 
 /// What one CRL says about one certificate, or `Ok(None)` where it says nothing about it.
 fn from_list(
-    subject: &Subject<'_, '_>,
+    subject: &Subject<'_>,
     list: &CertificateList<'_>,
     at: Instant,
     issuance: Issuance,
 ) -> Result<Option<Revocation>, Undetermined> {
     // Section 6.3.3 (b)(1), under the assumed distribution point: "verify that the CRL issuer
     // matches the certificate issuer."
-    if list.issuer != subject.certificate.issuer {
+    if list.issuer != subject.issuer {
         return Ok(None);
     }
     // Section 6.3.3 (f)'s second sentence: "If a key usage extension is present in the CRL
@@ -1567,12 +1574,12 @@ fn from_list(
     }
     // Section 6.3.3 (j), before the freshness test: a revocation is a statement its issuer made,
     // and the window on the *list* does not withdraw it. ADR 1067 section 3.
-    let entry =
-        list.entry_for(subject.certificate.serial_number)
-            .map_err(|refusal| match refusal {
-                MaterialRefusal::Unreadable(DerError::TooLarge) => Undetermined::TooLarge,
-                other => Undetermined::Unreadable(other),
-            })?;
+    let entry = list
+        .entry_for(subject.serial_number)
+        .map_err(|refusal| match refusal {
+            MaterialRefusal::Unreadable(DerError::TooLarge) => Undetermined::TooLarge,
+            other => Undetermined::Unreadable(other),
+        })?;
     if let Some(entry) = entry {
         // Section 6.3.3 (k): "If (cert_status is removeFromCRL), then set cert_status to
         // UNREVOKED." Which leaves this list saying nothing about the certificate — the entry
@@ -1631,7 +1638,7 @@ fn from_list(
 
 /// What one OCSP response says about one certificate, or `Ok(None)` where it says nothing.
 fn from_response(
-    subject: &Subject<'_, '_>,
+    subject: &Subject<'_>,
     response: &BasicResponse<'_>,
     material: &Material<'_>,
     at: Instant,
@@ -1720,7 +1727,7 @@ pub struct StatedRetention {
 ///
 /// [`Undetermined`], naming why no authorised response stated a cutoff.
 pub fn stated_retention(
-    subject: &Subject<'_, '_>,
+    subject: &Subject<'_>,
     material: &Material<'_>,
 ) -> Result<Vec<StatedRetention>, Undetermined> {
     let mut stated = Vec::new();
@@ -1756,8 +1763,8 @@ pub fn stated_retention(
 
 /// Whether a `SingleResponse`'s `CertID` names this certificate — RFC 6960 section 4.1.1's three
 /// fields, all three of them.
-fn names(single: &SingleResponse<'_>, subject: &Subject<'_, '_>) -> bool {
-    if single.serial_number != subject.certificate.serial_number {
+fn names(single: &SingleResponse<'_>, subject: &Subject<'_>) -> bool {
+    if single.serial_number != subject.serial_number {
         return false;
     }
     let Some(digest) = Digest::from_oid(single.hash_algorithm) else {
@@ -1769,7 +1776,7 @@ fn names(single: &SingleResponse<'_>, subject: &Subject<'_, '_>) -> bool {
 
 /// RFC 6960 section 4.2.2.2's authorisation check, and the signature that goes with it.
 fn authorised(
-    subject: &Subject<'_, '_>,
+    subject: &Subject<'_>,
     response: &BasicResponse<'_>,
     material: &Material<'_>,
 ) -> Result<(), Undetermined> {
@@ -1803,7 +1810,7 @@ fn authorised(
         let Ok(responder) = x509::read(*candidate) else {
             continue;
         };
-        if responder.indefinite_lengths || responder.issuer != subject.certificate.issuer {
+        if responder.indefinite_lengths || responder.issuer != subject.issuer {
             continue;
         }
         let Some(usage) = responder.extensions.extended_key_usage else {

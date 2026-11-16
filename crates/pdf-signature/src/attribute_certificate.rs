@@ -112,6 +112,9 @@ pub struct AttributeCertificate<'a> {
     pub types: Vec<&'a [u8]>,
     /// Whether section 4.3.2's target information extension is present.
     pub targeted: bool,
+    /// Whether section 4.3.6's `noRevAvail` extension is present: the issuer's statement that no
+    /// revocation information will be made available for this certificate.
+    pub no_revocation: bool,
     /// The identifier of the first critical extension this reader does not support, where one is
     /// present.
     pub unsupported_critical: Option<&'a [u8]>,
@@ -264,8 +267,9 @@ fn read_types<'a>(attributes: &Value<'a>) -> Result<Vec<&'a [u8]>, Unreadable> {
 
 /// `Extensions`: whether the certificate is targeted, and its first unsupported critical
 /// extension.
-fn read_extensions<'a>(extensions: &Value<'a>) -> Result<(bool, Option<&'a [u8]>), Unreadable> {
+fn read_extensions<'a>(extensions: &Value<'a>) -> Result<Extensions<'a>, Unreadable> {
     let mut targeted = false;
+    let mut no_revocation = false;
     let mut unsupported = None;
     for extension in entries(extensions, MAX_ENTRIES, "extensions")? {
         let mut members = (extension.identifier == SEQUENCE)
@@ -290,11 +294,26 @@ fn read_extensions<'a>(extensions: &Value<'a>) -> Result<(bool, Option<&'a [u8]>
         }
         if id == TARGET_INFORMATION {
             targeted = true;
-        } else if critical && !SUPPORTED.contains(&id) && unsupported.is_none() {
+        } else if id == NO_REVOCATION_AVAILABLE {
+            no_revocation = true;
+        }
+        if id != TARGET_INFORMATION && critical && !SUPPORTED.contains(&id) && unsupported.is_none()
+        {
             unsupported = Some(id);
         }
     }
-    Ok((targeted, unsupported))
+    Ok(Extensions {
+        targeted,
+        no_revocation,
+        unsupported,
+    })
+}
+
+/// What [`read_extensions`] found.
+struct Extensions<'a> {
+    targeted: bool,
+    no_revocation: bool,
+    unsupported: Option<&'a [u8]>,
 }
 
 /// Reads one `AttributeCertificate`, already read as a value of an enclosing structure.
@@ -362,6 +381,7 @@ pub fn read(certificate: Value<'_>) -> Result<AttributeCertificate<'_>, Unreadab
     };
     let types = read_types(&member(&mut members, SEQUENCE, "attributes")?)?;
     let mut targeted = false;
+    let mut no_revocation = false;
     let mut unsupported_critical = None;
     while let Some(optional) = members
         .next_value()
@@ -371,7 +391,11 @@ pub fn read(certificate: Value<'_>) -> Result<AttributeCertificate<'_>, Unreadab
             // `issuerUniqueID UniqueIdentifier` is a `BIT STRING`, carrying nothing a verifier
             // checks here; section 4.2.8 ties it to the issuer's certificate.
             0x03 => {}
-            SEQUENCE => (targeted, unsupported_critical) = read_extensions(&optional)?,
+            SEQUENCE => {
+                let read = read_extensions(&optional)?;
+                (targeted, no_revocation, unsupported_critical) =
+                    (read.targeted, read.no_revocation, read.unsupported);
+            }
             _ => return Err(Unreadable::Malformed("acinfo")),
         }
     }
@@ -384,6 +408,7 @@ pub fn read(certificate: Value<'_>) -> Result<AttributeCertificate<'_>, Unreadab
         validity,
         types,
         targeted,
+        no_revocation,
         unsupported_critical,
         signature_algorithm,
         signature_parameters,

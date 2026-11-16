@@ -1128,3 +1128,121 @@ fn a_value_constraint_without_an_identifier_or_an_unknown_level_is_refused() {
         );
     }
 }
+
+#[test]
+fn a_sets_revocation_trust_is_read_whole_and_its_retention_named() {
+    use crate::policy_rules::revocation_checks::{Check, Requirement};
+    use crate::policy_rules::signer_attributes::tests::{carrying, v2};
+    // Clause 4.26.2's `attrRevReq [1] CertificateRevTrust`, clause 4.23.3.2's syntax: clause
+    // 4.23.2's `ocspCheck` (1) on end certificates and `noCheck` (4) on CA certificates, and the
+    // retention of item 2, which clause 4.23.3.1 defines for the signing certificate alone (ADRs
+    // 2785, 2890).
+    let revocation_trust = |retention: bool| {
+        let mut members = vec![seq(&[enumeration(1), enumeration(4)])];
+        if retention {
+            members.push(tagged(1, &tlv(PRINTABLE_STRING, b"P10Y")));
+        }
+        tagged(1, &seq(&members))
+    };
+    let rule = |retention: bool| {
+        basic(
+            8,
+            &seq(&[
+                tlv(BOOLEAN, &[0x00]),
+                seq(&[seq(&[enumeration(1), revocation_trust(retention)])]),
+            ]),
+            None,
+        )
+    };
+    let octets = document(&[rule(false)]);
+    let parsed = PolicyDocument::parse(&octets).expect("a clause 4 document");
+    let sets = parsed.rules.iter().find_map(|scoped| match &scoped.rule {
+        PolicyRule::Basic(BasicRule::SignerAttributes { sets, .. }) => Some(sets),
+        _ => None,
+    });
+    assert_eq!(
+        sets.and_then(|sets| sets.first())
+            .map(|set| set.revocation.clone()),
+        Some(Some(Requirement {
+            end_entity: Check::Ocsp,
+            authorities: Check::NoCheck,
+            freshness: None,
+            retention: None,
+        }))
+    );
+    let attributes = v2(&[], 1, 0);
+    let signed = carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, &attributes);
+    let retention = |found: &[Finding]| {
+        verdict_of(found, |c| {
+            matches!(c, policy_rules::Constraint::ConditionMember { member, .. }
+                if *member == revocation_checks::RETENTION)
+        })
+    };
+    assert_eq!(
+        retention(&judged(&[rule(true)], &signed, &facts(None))),
+        [Verdict::NotEvaluated]
+    );
+    assert!(retention(&judged(&[rule(false)], &signed, &facts(None))).is_empty());
+}
+
+#[test]
+fn an_attribute_authority_is_held_to_the_suites_usage_for_attribute_certificates() {
+    use crate::attribute_certificate::tests::fixtures::AA;
+    use crate::policy_rules::certification_path::tests::{hex, value};
+    use crate::policy_rules::signer_attributes::tests::{carrying, v2};
+    use crate::policy_rules::tests::ECDSA_SHA256;
+    // TS 119 172-2 clause 4.29.1's usage for algorithms "used for generating attribute
+    // certificates", read by TS 119 172-3 clause 4.29 (ADR 2891): the fixture authority signs
+    // with `ecdsa-with-SHA256` under a P-256 key, 256 bits.
+    let authority = hex(AA);
+    let suites = |entries: &[Vec<u8>]| basic(11, &seq(entries), None);
+    let verdicts = |entries: &[Vec<u8>], certified: usize| {
+        let attributes = v2(&[], certified, 0);
+        let mut signed = carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, &attributes);
+        signed.certificates.push(value(&authority));
+        component_verdicts(&judged(&[suites(entries)], &signed, &facts(None)), |c| {
+            matches!(
+                c,
+                Constraint::SuiteAlgorithm {
+                    usage: Usage::AttributeCertificate(_),
+                    ..
+                }
+            )
+        })
+    };
+    assert_eq!(
+        verdicts(&[suite(ECDSA_SHA256, &[AA_CERT_USAGE], Some(256), None)], 1),
+        [Verdict::Met]
+    );
+    assert_eq!(
+        verdicts(&[suite(ECDSA_SHA256, &[AA_CERT_USAGE], Some(384), None)], 1),
+        [Verdict::Broken]
+    );
+    // Listed only for the signature, so not for attribute certificates.
+    assert_eq!(
+        verdicts(
+            &[
+                suite(SHA256_RSA, &[AA_CERT_USAGE], None, None),
+                suite(ECDSA_SHA256, &[SIGNATURE_USAGE], None, None),
+            ],
+            1
+        ),
+        [Verdict::Broken]
+    );
+    // No attribute certificate: nothing for the usage to constrain.
+    assert_eq!(
+        verdicts(&[suite(ECDSA_SHA256, &[AA_CERT_USAGE], None, None)], 0),
+        [Verdict::Met]
+    );
+    // A list whose entries name other usages only says nothing of attribute certificates.
+    assert!(verdicts(&[suite(ECDSA_SHA256, &[SIGNATURE_USAGE], None, None)], 1).is_empty());
+    // The usage is no longer among those named and not evaluated.
+    let attributes = v2(&[], 1, 0);
+    let signed = carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, &attributes);
+    let found = judged(
+        &[suites(&[suite(ECDSA_SHA256, &[AA_CERT_USAGE], None, None)])],
+        &signed,
+        &facts(None),
+    );
+    assert!(component_verdicts(&found, |c| matches!(c, Constraint::SuiteUsage(_))).is_empty());
+}

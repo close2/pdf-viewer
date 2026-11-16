@@ -247,6 +247,12 @@ pub enum Kind {
     EndEntity,
     /// Each CA certificate below the trust point.
     Authority,
+    /// An attribute certificate, at position 0 of its chain, and its attribute authority's
+    /// certificate, at position 1 where it is below the trust point: the two end-entity
+    /// certificates of [`attribute_checks`]'s chain.
+    AttributeEndEntities,
+    /// Each CA certificate below the trust point on the attribute authority's path.
+    AttributeAuthorities,
 }
 
 /// What one kind's check found.
@@ -366,8 +372,8 @@ fn kind_check(
     // certificates are every position between it and the trust point.
     let below = certificates.len().saturating_sub(1);
     let positions = match kind {
-        Kind::EndEntity => 0..below.min(1),
-        Kind::Authority => 1.min(below)..below,
+        Kind::EndEntity | Kind::AttributeEndEntities => 0..below.min(1),
+        Kind::Authority | Kind::AttributeAuthorities => 1.min(below)..below,
     };
     if positions.is_empty() {
         return Checked::NoCertificate;
@@ -387,7 +393,8 @@ fn kind_check(
             return Checked::NoPath;
         };
         let subject = Subject {
-            certificate: &certificate,
+            issuer: certificate.issuer,
+            serial_number: certificate.serial_number,
             issuer_name: issuer.subject_encoding,
             issuer_key_bits: issuer.public_key_bits,
             issuer_key: issuer.public_key,
@@ -404,10 +411,139 @@ fn kind_check(
     }
 }
 
+/// Each kind's check of an attribute authority's `requirement` — TR 102 272 clause 6.9's
+/// `attrRevReq`, TS 119 172-3 clause 4.26's, or TS 119 172-2 clause 4.26's
+/// `AttributeRevocationTrust` — over the attribute certificate of `issuer` and `serial_number` and
+/// the `path` its authority's certificate validated along, at `at`, from `material` issued within
+/// the bounds `requirement`'s freshness and `timing` place (ADR 2890).
+///
+/// The chain the requirement covers is the attribute certificate (position 0), the authority's
+/// certificate that signed it (position 1, the path's first), and the path's CA certificates up to
+/// its trust point. RFC 5755 section 5 condition 2 verifies the authority's whole path by RFC 5280,
+/// whose section 6.1.3 (a)(3) asks every certificate on it for its status, and the requirement is
+/// the policy's minimum for the material that answers. Clause 6.6.2 splits that minimum between end
+/// certificates and CA certificates; section 4.5 forbids the authority's certificate to be a CA's,
+/// so it is an end certificate beside the attribute certificate, and the end-entity check covers
+/// both. Material names an attribute certificate as it names any other — a CRL by its issuer and
+/// an entry's serial number, an OCSP `CertID` by hashes of its issuer's name and key and its serial
+/// — and RFC 5755 section 6 lets a verifier take its status "from any source". With no `path`, the
+/// authority's key is not one this program trusts, so neither kind is answered.
+#[must_use]
+pub fn attribute_checks(
+    requirement: &Requirement,
+    issuer: &[u8],
+    serial_number: &[u8],
+    path: Option<&Path>,
+    material: &Material<'_>,
+    at: Option<Instant>,
+    timing: Timing,
+) -> [KindCheck; 2] {
+    let issuance = at.map(|at| timing.issuance(requirement.freshness, at));
+    [
+        (Kind::AttributeEndEntities, requirement.end_entity),
+        (Kind::AttributeAuthorities, requirement.authorities),
+    ]
+    .map(|(kind, check)| KindCheck {
+        kind,
+        check,
+        issuance: issuance.flatten().unwrap_or_default(),
+        checked: attribute_kind_check(
+            kind,
+            check,
+            (issuer, serial_number),
+            path,
+            material,
+            at.zip(issuance),
+        ),
+    })
+}
+
+fn attribute_kind_check(
+    kind: Kind,
+    check: Check,
+    (issuer_name, serial_number): (&[u8], &[u8]),
+    path: Option<&Path>,
+    material: &Material<'_>,
+    at: Option<(Instant, Option<Issuance>)>,
+) -> Checked {
+    match check {
+        Check::NoCheck => return Checked::NotMandated,
+        Check::Other => return Checked::OtherMechanism,
+        _ => {}
+    }
+    let (Some(path), Some((at, issuance))) = (path, at) else {
+        return Checked::NoPath;
+    };
+    let Some(issuance) = issuance else {
+        return Checked::TimingUnplaced;
+    };
+    let certificates = path.certificates();
+    let below = certificates.len().saturating_sub(1);
+    // On the authority's path: its own certificate is position 0 and the CA certificates every
+    // position between it and the trust point; each is one further along the attribute
+    // certificate's chain.
+    let on_path = match kind {
+        Kind::AttributeEndEntities => 0..below.min(1),
+        _ => 1.min(below)..below,
+    };
+    let mut answered = 0_usize;
+    if kind == Kind::AttributeEndEntities {
+        // The attribute certificate, issued by the path's first certificate, which validated.
+        let Some(Ok(authority)) = certificates.first().map(|held| x509::parse(&held.encoding))
+        else {
+            return Checked::NoPath;
+        };
+        let subject = Subject {
+            issuer: issuer_name,
+            serial_number,
+            issuer_name: authority.subject_encoding,
+            issuer_key_bits: authority.public_key_bits,
+            issuer_key: authority.public_key,
+            issuer_key_usage: authority.extensions.key_usage,
+            position: 0,
+        };
+        match one(&subject, check, material, at, issuance) {
+            None => answered = answered.saturating_add(1),
+            Some(found) => return found,
+        }
+    } else if on_path.is_empty() {
+        return Checked::NoCertificate;
+    }
+    for position in on_path {
+        let (Some(held), Some(issuer)) = (
+            certificates.get(position),
+            certificates.get(position.saturating_add(1)),
+        ) else {
+            return Checked::NoPath;
+        };
+        let (Ok(certificate), Ok(issuer)) =
+            (x509::parse(&held.encoding), x509::parse(&issuer.encoding))
+        else {
+            return Checked::NoPath;
+        };
+        let subject = Subject {
+            issuer: certificate.issuer,
+            serial_number: certificate.serial_number,
+            issuer_name: issuer.subject_encoding,
+            issuer_key_bits: issuer.public_key_bits,
+            issuer_key: issuer.public_key,
+            issuer_key_usage: issuer.extensions.key_usage,
+            position: position.saturating_add(1),
+        };
+        match one(&subject, check, material, at, issuance) {
+            None => answered = answered.saturating_add(1),
+            Some(found) => return found,
+        }
+    }
+    Checked::Answered {
+        certificates: answered,
+    }
+}
+
 /// One certificate under one check: `None` where the check is answered and finds it not revoked at
 /// `at`, else what it found.
 fn one(
-    subject: &Subject<'_, '_>,
+    subject: &Subject<'_>,
     check: Check,
     material: &Material<'_>,
     at: Instant,
@@ -444,7 +580,7 @@ fn one(
 
 /// One kind of material's answer for one certificate, read against the instant.
 fn answer(
-    subject: &Subject<'_, '_>,
+    subject: &Subject<'_>,
     material: &Material<'_>,
     at: Instant,
     evidence: Evidence,
@@ -560,7 +696,8 @@ fn retention_found(
         return RetentionFound::NoPath;
     };
     let subject = Subject {
-        certificate: &certificate,
+        issuer: certificate.issuer,
+        serial_number: certificate.serial_number,
         issuer_name: issuer.subject_encoding,
         issuer_key_bits: issuer.public_key_bits,
         issuer_key: issuer.public_key,
@@ -652,6 +789,18 @@ pub(super) fn sentence(
     let whom = match check.kind {
         Kind::EndEntity => "the end certificate",
         Kind::Authority => "each CA certificate below the trust point",
+        Kind::AttributeEndEntities => {
+            "the attribute certificate and its attribute authority's certificate"
+        }
+        Kind::AttributeAuthorities => {
+            "each CA certificate below the trust point on the attribute authority's path"
+        }
+    };
+    let chain = match check.kind {
+        Kind::EndEntity | Kind::Authority => "the path",
+        Kind::AttributeEndEntities | Kind::AttributeAuthorities => {
+            "the attribute certificate's chain, where it is 0 and its authority's certificate 1"
+        }
     };
     write!(
         f,
@@ -678,7 +827,7 @@ pub(super) fn sentence(
         ),
         Checked::Revoked { position, from, .. } => write!(
             f,
-            "{} found the certificate at position {position} of the path revoked with effect before the instant validated at (RFC 5280 section 6.1.3 (a)(3))",
+            "{} found the certificate at position {position} of {chain} revoked with effect before the instant validated at (RFC 5280 section 6.1.3 (a)(3))",
             capitalised(from.name())
         ),
         Checked::Unanswered {
@@ -687,7 +836,7 @@ pub(super) fn sentence(
             why,
         } => write!(
             f,
-            "for the certificate at position {position} of the path the file carries no answer from {}: {why}; this program answers revocation only from the material the file carries",
+            "for the certificate at position {position} of {chain} the file carries no answer from {}: {why}; this program answers revocation only from the material the file carries",
             missing.name()
         ),
     }?;

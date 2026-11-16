@@ -42,9 +42,10 @@ fn certificate(bytes: &[u8]) -> Certificate<'_> {
 
 /// The subject one leaf makes, with the CA as its issuer — what [`crate::trust`] assembles as it
 /// walks a path, built by hand here so that one certificate can be asked about at a time.
-fn subject<'a>(leaf: &'a Certificate<'a>, ca: &'a Certificate<'a>) -> Subject<'a, 'a> {
+fn subject<'a>(leaf: &'a Certificate<'a>, ca: &'a Certificate<'a>) -> Subject<'a> {
     Subject {
-        certificate: leaf,
+        issuer: leaf.issuer,
+        serial_number: leaf.serial_number,
         issuer_name: ca.subject_encoding,
         issuer_key_bits: ca.public_key_bits,
         issuer_key: ca.public_key,

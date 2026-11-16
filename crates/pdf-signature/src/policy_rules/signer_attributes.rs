@@ -22,13 +22,14 @@
 //! claimed attribute is a plain `Attribute`, so its type is read and compared. An attribute
 //! certificate is read by [`crate::attribute_certificate`] for the types it carries, and judged
 //! by [`certified`] under RFC 5755 section 5 and the trust trees the policy states (ADR 2797); it
-//! certifies an attribute only where it is valid. Named as not evaluated: a signed assertion,
-//! which is counted and never opened; an attribute certificate's own revocation where the policy
-//! requires it; and every constraint on an attribute's *value*, because two values of one
+//! certifies an attribute only where it is valid, its chain's revocation checked where the policy
+//! requires it (ADR 2890). Named as not evaluated: a signed assertion, which is counted and never
+//! opened; and every constraint on an attribute's *value*, because two values of one
 //! attribute type are equal by that type's own matching rule (ITU-T X.501), which this program
 //! does not hold per type.
 
 use super::certification_path::{Search, TrustTrees};
+use super::revocation_checks::{Requirement, Timing};
 use super::ts_119_172_3::Identifier;
 use super::{Constraint, Finding, SignerFacts, Verdict};
 use crate::cms::{self, SignedData};
@@ -295,8 +296,9 @@ pub struct SetConstraints<'a> {
     pub accepted: Accepted,
     /// Item 2's trust trees, where stated.
     pub trust_trees: Option<TrustTrees<'a>>,
-    /// Whether item 3's revocation trust is stated.
-    pub revocation: bool,
+    /// Item 3's revocation trust, where stated: the checks an attribute certificate's chain is to
+    /// have (ADR 2890).
+    pub revocation: Option<Requirement>,
     /// Item 4's signer attribute identifiers.
     pub mandated: Vec<Mandated<'a>>,
 }
@@ -310,8 +312,9 @@ pub struct AttributeTrust<'a> {
     pub accepted: Accepted,
     /// `attrCertificateTrustTrees`, where stated.
     pub trust_trees: Option<TrustTrees<'a>>,
-    /// Whether `attrRevReq` is stated.
-    pub revocation: bool,
+    /// `attrRevReq`, where stated: the checks an attribute certificate's chain is to have (ADR
+    /// 2890).
+    pub revocation: Option<Requirement>,
     /// `attributeTypeConstraints`, where stated.
     pub types: Option<Vec<&'a [u8]>>,
     /// The type of each `attributeValueConstraints` entry, where stated.
@@ -466,6 +469,8 @@ pub(super) struct Context<'c> {
     pub signer_path: Option<&'c Search>,
     /// The signing-certificate condition's trust trees, where stated.
     pub signer_trees: Option<&'c TrustTrees<'c>>,
+    /// What places a revocation requirement's issuance bounds on the time line.
+    pub timing: Timing,
 }
 
 /// Each attribute certificate, judged under `trees` and `revocation`.
@@ -474,13 +479,15 @@ fn judge_certificates<'a>(
     cms: &SignedData<'a>,
     context: Context<'_>,
     trees: Option<&TrustTrees<'_>>,
-    revocation: bool,
+    revocation: Option<&Requirement>,
 ) -> Vec<certified::Judged<'a>> {
     let conditions = certified::Conditions {
         trees,
         signer_path: context.signer_path,
         at: super::certification_path::instant(context.facts),
         revocation,
+        material: &context.facts.material,
+        timing: context.timing,
         lists: context.facts.lists,
     };
     carried
@@ -545,7 +552,7 @@ pub(super) fn judge_condition(
             cms,
             context,
             condition.trust_trees.as_ref().or(context.signer_trees),
-            condition.revocation,
+            condition.revocation.as_ref(),
         )
     } else {
         Vec::new()
@@ -627,11 +634,26 @@ pub(super) fn judge_set(
             cms,
             context,
             set.trust_trees.as_ref(),
-            set.revocation,
+            set.revocation.as_ref(),
         )
     } else {
         Vec::new()
     };
+    // TS 119 172-2 clause 4.23.3.1 item 2 defines the retention for the signing certificate's
+    // revocation trust alone, so on a set's it names nothing this program can ask (ADR 2785).
+    if set
+        .revocation
+        .as_ref()
+        .is_some_and(|requirement| requirement.retention.is_some())
+    {
+        out.push(Finding {
+            verdict: Verdict::NotEvaluated,
+            constraint: Constraint::ConditionMember {
+                condition: super::ATTRIBUTE_TRUST,
+                member: super::revocation_checks::RETENTION,
+            },
+        });
+    }
     let assertions = if accepted.admits(Kind::SignedAssertion) {
         carried.assertions
     } else {

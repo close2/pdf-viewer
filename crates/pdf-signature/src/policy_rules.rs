@@ -36,12 +36,13 @@
 //! signature time-stamp delay of clause 6.8 is held against the claimed signing time (ADR 2775).
 //! A trust point's acceptable policy set, name constraints and policy constraints, and the
 //! authority's name constraints, are RFC 5280 section 6.1's processing (ADR 2724). Clause 6.9's
-//! attribute trust condition is evaluated as far as the presence and kind of the signer attributes
-//! decide it ([`signer_attributes`], ADR 2787). Named and not evaluated: that condition's
-//! certified attributes and clause 6.10's attribute-authority list, which concern attribute
-//! certificates this program does not read; the verifier rules of clause 6.5.2, which ask a
-//! verifier to *add* attributes and so are an augmentation this reader never performs; and every
-//! extension of clause 6.11, whose syntax is whatever its own identifier names.
+//! attribute trust condition is evaluated on the signer attributes' presence and kind (ADR 2787),
+//! each attribute certificate judged by RFC 5755 section 5 under the condition's trust trees (ADR
+//! 2797) and its chain under `attrRevReq` (ADR 2890), and clause 6.10's
+//! `aaCertAlgorithmConstraints` on the algorithm each certificate's authority signed it under (ADR
+//! 2891). Named and not evaluated: constraints on attribute values; the verifier rules of clause
+//! 6.5.2, which ask a verifier to *add* attributes and so are an augmentation this reader never
+//! performs; and every extension of clause 6.11, whose syntax is whatever its own identifier names.
 //!
 //! # Budgets, before the work
 //!
@@ -104,6 +105,8 @@ pub const END_ENTITY_ALGORITHMS: &str = "eeCertAlgorithmConstraints";
 pub const AUTHORITY_ALGORITHMS: &str = "caCertAlgorithmConstraints";
 /// Clause 6.10's list for the certificates of time-stamping authorities.
 pub const TSA_ALGORITHMS: &str = "tsaCertAlgorithmConstraints";
+/// Clause 6.10's list for attribute authorities.
+pub const AA_ALGORITHMS: &str = "aaCertAlgorithmConstraints";
 
 /// One rule of clause 6.3's placement: its name, whether a rule set states it, and whether it is
 /// one of the three that must be stated somewhere.
@@ -320,9 +323,9 @@ pub struct Rules<'a> {
     pub timestamp_trust: Option<TimestampTrust<'a>>,
     /// Clause 6.10's `tsaCertAlgorithmConstraints`, where stated.
     pub authority_certificate_algorithms: Option<Vec<AlgorithmAndLength<'a>>>,
-    /// Whether clause 6.10's `aaCertAlgorithmConstraints` is stated: it constrains attribute
-    /// certificates, which this program does not read.
-    pub attribute_algorithms: bool,
+    /// Clause 6.10's `aaCertAlgorithmConstraints`, where stated: the algorithms an attribute
+    /// authority may sign an attribute certificate under (ADR 2891).
+    pub attribute_algorithms: Option<Vec<AlgorithmAndLength<'a>>>,
 }
 
 /// Clause 6.7's `SigningCertTrustCondition`, as far as it is evaluated.
@@ -699,7 +702,7 @@ fn read_rules<'a>(
             }
             3 => {
                 rules.trust_conditions.push(ATTRIBUTE_TRUST);
-                rules.attribute_trust = Some(read_attribute_trust(&member, budget)?);
+                rules.attribute_trust = Some(read_attribute_trust(&member, extensions, budget)?);
             }
             4 => {
                 rules.algorithm_constraints = true;
@@ -710,42 +713,29 @@ fn read_rules<'a>(
                 )?;
                 let mut lists = set.children()?;
                 while let Some(list) = lists.next_value()? {
-                    match (list.class(), list.tag_number()) {
+                    let (slot, member) = match (list.class(), list.tag_number()) {
                         (der::Class::ContextSpecific, 0) => {
-                            rules.signer_algorithms = Some(read_algorithms(
-                                &explicit(&list, "signerAlgorithmConstraints")?,
-                                extensions,
-                                budget,
-                            )?);
+                            (&mut rules.signer_algorithms, "signerAlgorithmConstraints")
                         }
                         (der::Class::ContextSpecific, 1) => {
-                            rules.end_entity_algorithms = Some(read_algorithms(
-                                &explicit(&list, END_ENTITY_ALGORITHMS)?,
-                                extensions,
-                                budget,
-                            )?);
+                            (&mut rules.end_entity_algorithms, END_ENTITY_ALGORITHMS)
                         }
                         (der::Class::ContextSpecific, 2) => {
-                            rules.authority_algorithms = Some(read_algorithms(
-                                &explicit(&list, AUTHORITY_ALGORITHMS)?,
-                                extensions,
-                                budget,
-                            )?);
+                            (&mut rules.authority_algorithms, AUTHORITY_ALGORITHMS)
                         }
                         (der::Class::ContextSpecific, 3) => {
-                            let member = "aaCertAlgorithmConstraints";
-                            read_algorithms(&explicit(&list, member)?, extensions, budget)?;
-                            rules.attribute_algorithms = true;
+                            (&mut rules.attribute_algorithms, AA_ALGORITHMS)
                         }
                         (der::Class::ContextSpecific, 4) => {
-                            rules.authority_certificate_algorithms = Some(read_algorithms(
-                                &explicit(&list, TSA_ALGORITHMS)?,
-                                extensions,
-                                budget,
-                            )?);
+                            (&mut rules.authority_certificate_algorithms, TSA_ALGORITHMS)
                         }
                         _ => return Err(PolicyDocumentError::Malformed("algorithmConstraintSet")),
-                    }
+                    };
+                    *slot = Some(read_algorithms(
+                        &explicit(&list, member)?,
+                        extensions,
+                        budget,
+                    )?);
                 }
             }
             5 => read_extensions(&explicit(&member, "signPolExtensions")?, extensions, budget)?,
@@ -1090,6 +1080,7 @@ fn read_signer_rules<'a>(
 /// issuer is searched to, and whether `attrRevReq` is stated.
 fn read_attribute_trust<'a>(
     tagged: &Value<'a>,
+    extensions: &mut Vec<&'a [u8]>,
     budget: &mut Budget,
 ) -> Result<signer_attributes::AttributeTrust<'a>, PolicyDocumentError> {
     use signer_attributes::Accepted;
@@ -1119,7 +1110,7 @@ fn read_attribute_trust<'a>(
         mandated,
         accepted,
         trust_trees: None,
-        revocation: false,
+        revocation: None,
         types: None,
         value_types: None,
     };
@@ -1139,7 +1130,18 @@ fn read_attribute_trust<'a>(
                 )?;
                 out.trust_trees = Some(read_trust_trees(&trees, budget)?);
             }
-            1 => out.revocation = true,
+            1 => {
+                let requirement = expect(
+                    Some(explicit(&member, "attrRevReq")?),
+                    SEQUENCE,
+                    "attrRevReq",
+                )?;
+                out.revocation = Some(read_revocation_requirement(
+                    &requirement,
+                    extensions,
+                    budget,
+                )?);
+            }
             _ => {
                 let constraints = expect(
                     Some(explicit(&member, "attributeConstraints")?),
@@ -1157,27 +1159,7 @@ fn read_attribute_trust<'a>(
                             )?);
                         }
                         (der::Class::ContextSpecific, 1) if out.value_types.is_none() => {
-                            // `AttributeTypeAndValue ::= SEQUENCE { type, value }`: the type is
-                            // kept, the value is not compared (`signer_attributes`).
-                            let pairs = expect(
-                                Some(explicit(&list, "attributeValueConstraints")?),
-                                SEQUENCE,
-                                "attributeValueConstraints",
-                            )?;
-                            let mut types = Vec::new();
-                            let mut entries = pairs.children()?;
-                            while let Some(pair) = entries.next_value()? {
-                                budget.take()?;
-                                let kind = expect(Some(pair), SEQUENCE, "AttributeTypeAndValue")?
-                                    .children()?
-                                    .next_value()?
-                                    .and_then(|kind| kind.object_identifier())
-                                    .ok_or(PolicyDocumentError::Malformed(
-                                        "AttributeTypeAndValue.type",
-                                    ))?;
-                                types.push(kind);
-                            }
-                            out.value_types = Some(types);
+                            out.value_types = Some(read_value_types(&list, budget)?);
                         }
                         _ => return Err(PolicyDocumentError::Malformed("attributeConstraints")),
                     }
@@ -1186,6 +1168,31 @@ fn read_attribute_trust<'a>(
         }
     }
     Ok(out)
+}
+
+/// Clause 6.9's `attributeValueConstraints`: the type of each `AttributeTypeAndValue ::= SEQUENCE
+/// { type, value }`, kept; the value is not compared (`signer_attributes`).
+fn read_value_types<'a>(
+    list: &Value<'a>,
+    budget: &mut Budget,
+) -> Result<Vec<&'a [u8]>, PolicyDocumentError> {
+    let pairs = expect(
+        Some(explicit(list, "attributeValueConstraints")?),
+        SEQUENCE,
+        "attributeValueConstraints",
+    )?;
+    let mut types = Vec::new();
+    let mut entries = pairs.children()?;
+    while let Some(pair) = entries.next_value()? {
+        budget.take()?;
+        let kind = expect(Some(pair), SEQUENCE, "AttributeTypeAndValue")?
+            .children()?
+            .next_value()?
+            .and_then(|kind| kind.object_identifier())
+            .ok_or(PolicyDocumentError::Malformed("AttributeTypeAndValue.type"))?;
+        types.push(kind);
+    }
+    Ok(types)
 }
 
 /// A one-octet `ENUMERATED`, which is every enumeration clause 6 defines.
@@ -1518,8 +1525,8 @@ pub enum Constraint {
         /// The list's minimum key length for it.
         min_key_length: Option<u32>,
     },
-    /// One of clause 6.10's certificate-issuer constraint lists, named.
-    CertificateAlgorithms(&'static str),
+    /// One attribute certificate against clause 6.10's `aaCertAlgorithmConstraints` (ADR 2891).
+    AttributeAlgorithm(AttributeIssuance),
     /// A clause 6.11 extension, or a TS 119 172-3 `Other`, by its identifier.
     Extension(String),
     /// A constraint of TS 119 172-3's policy components with no counterpart in clause 6.
@@ -2008,11 +2015,8 @@ fn judge(
             });
         }
     }
-    if rules.attribute_algorithms {
-        out.push(Finding {
-            verdict: Verdict::NotEvaluated,
-            constraint: Constraint::CertificateAlgorithms("aaCertAlgorithmConstraints"),
-        });
+    if let Some(list) = &rules.attribute_algorithms {
+        attribute_authority_findings(list, cms, out);
     }
 }
 
@@ -2081,6 +2085,7 @@ fn judge_trust_conditions(
                     facts,
                     signer_path: paths.signer,
                     signer_trees: paths.signer_trees,
+                    timing,
                 };
                 signer_attributes::judge_condition(trust, cms, context, out);
             }
@@ -2268,6 +2273,132 @@ fn judge_issuers(
     }
 }
 
+/// What one attribute certificate's [`Constraint::AttributeAlgorithm`] judged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttributeIssuance {
+    /// The signature carries no attribute certificate, so the list constrains nothing.
+    NoneCarried,
+    /// The signature's signer attributes do not read, so which certificates it carries is not
+    /// known.
+    Unread,
+    /// One carried attribute certificate.
+    Certificate {
+        /// Its place among the signature's attribute certificates, from one.
+        ordinal: usize,
+        /// The algorithm its authority signed it under, dotted; `None` where it does not read.
+        algorithm: Option<String>,
+        /// The authority's key length in bits, where measured.
+        key_bits: Option<usize>,
+        /// Whether the list names the algorithm.
+        listed: bool,
+        /// The list's minimum key length for it, where stated.
+        min_key_length: Option<u32>,
+    },
+}
+
+impl AttributeIssuance {
+    fn sentence(&self, f: &mut std::fmt::Formatter<'_>, verdict: &str) -> std::fmt::Result {
+        write!(f, "the policy's {AA_ALGORITHMS} is {verdict}")?;
+        match self {
+            Self::NoneCarried => {
+                f.write_str(": the signature carries no attribute certificate for it to constrain")
+            }
+            Self::Unread => f.write_str(
+                ": the signature's signer attributes do not read, so its attribute certificates are not known",
+            ),
+            Self::Certificate {
+                ordinal,
+                algorithm: None,
+                ..
+            } => write!(
+                f,
+                " for the signature's attribute certificate {ordinal}: it does not read, so the algorithm its authority signed it under is not known"
+            ),
+            Self::Certificate {
+                ordinal,
+                algorithm: Some(algorithm),
+                key_bits,
+                listed,
+                min_key_length,
+            } => {
+                write!(
+                    f,
+                    " for the signature's attribute certificate {ordinal}, issued by its attribute authority under {}",
+                    certification_path::issued_words(algorithm, *key_bits)
+                )?;
+                if !listed {
+                    f.write_str(", an algorithm the list does not name")
+                } else if let Some(minimum) = min_key_length {
+                    match key_bits {
+                        Some(_) => write!(f, ", the list's minimum being {minimum} bits"),
+                        None => write!(
+                            f,
+                            ", the list's minimum being {minimum} bits, and no carried certificate of the authority's name both verifies its signature and has a key this program measures"
+                        ),
+                    }
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
+}
+
+/// TR 102 272 clause 6.10's `aaCertAlgorithmConstraints`, one finding per attribute certificate the
+/// signature carries: the algorithm its attribute authority signed it under must be listed, and
+/// the authority's key at least the list's minimum for it (ADR 2891). The member constrains the
+/// attribute authority as `signerAlgorithmConstraints` constrains the signer — in what it signs —
+/// and TS 119 172-2 clause 4.29, which carries clause 6.10's lists forward, says so outright with its
+/// usage for algorithms "used for generating attribute certificates".
+fn attribute_authority_findings(
+    list: &[AlgorithmAndLength<'_>],
+    cms: &SignedData<'_>,
+    out: &mut Vec<Finding>,
+) {
+    let Ok(made) = signer_attributes::certified::made(cms) else {
+        out.push(Finding {
+            verdict: Verdict::NotEvaluated,
+            constraint: Constraint::AttributeAlgorithm(AttributeIssuance::Unread),
+        });
+        return;
+    };
+    if made.is_empty() {
+        out.push(Finding {
+            verdict: Verdict::Met,
+            constraint: Constraint::AttributeAlgorithm(AttributeIssuance::NoneCarried),
+        });
+    }
+    for (index, one) in made.iter().enumerate() {
+        let entry = one.algorithm.as_ref().and_then(|algorithm| {
+            list.iter()
+                .find(|entry| entry.algorithm == algorithm.as_slice())
+        });
+        let min_key_length = entry.and_then(|entry| entry.min_key_length);
+        let verdict = match (&one.algorithm, entry, min_key_length, one.key_bits) {
+            (None, ..) | (Some(_), Some(_), Some(_), None) => Verdict::NotEvaluated,
+            (Some(_), None, ..) => Verdict::Broken,
+            (Some(_), Some(_), None, _) => Verdict::Met,
+            (Some(_), Some(_), Some(minimum), Some(bits)) => {
+                if usize::try_from(minimum).is_ok_and(|minimum| bits >= minimum) {
+                    Verdict::Met
+                } else {
+                    Verdict::Broken
+                }
+            }
+        };
+        out.push(Finding {
+            verdict,
+            constraint: Constraint::AttributeAlgorithm(AttributeIssuance::Certificate {
+                ordinal: index.saturating_add(1),
+                algorithm: one.algorithm.as_deref().map(name),
+                key_bits: one.key_bits,
+                listed: entry.is_some(),
+                min_key_length,
+            }),
+        });
+    }
+}
+
 /// One certificate on the path against one of clause 6.10's certificate-issuer lists: its
 /// algorithm must be listed, and the issuer's key must be at least the list's minimum for it.
 /// With no certificate, the list is met where a path validated and has none to judge, and not
@@ -2415,7 +2546,7 @@ impl std::fmt::Display for Finding {
             | Constraint::ConditionMember { .. }
             | Constraint::AuthorityName { .. }
             | Constraint::IssuerAlgorithm { .. }
-            | Constraint::CertificateAlgorithms(_) => self.constraint.path_sentence(f, verdict),
+            | Constraint::AttributeAlgorithm(_) => self.constraint.path_sentence(f, verdict),
             Constraint::Extension(oid) => write!(
                 f,
                 "the policy's extension {oid} is {verdict}: its syntax is whatever its identifier names"
@@ -2490,10 +2621,7 @@ impl Constraint {
                 *listed,
                 *min_key_length,
             ),
-            Self::CertificateAlgorithms(member) => write!(
-                f,
-                "the policy's {member} is {verdict}: it constrains attribute certificates, which this program does not read"
-            ),
+            Self::AttributeAlgorithm(issuance) => issuance.sentence(f, verdict),
             _ => Ok(()),
         }
     }

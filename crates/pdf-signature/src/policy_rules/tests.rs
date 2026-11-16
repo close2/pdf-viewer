@@ -960,3 +960,112 @@ fn a_certified_or_value_constrained_attribute_leaves_the_condition_not_evaluated
         "{found:?}"
     );
 }
+
+/// `ecdsa-with-SHA256`, RFC 5758 section 3.2: 1.2.840.10045.4.3.2, the algorithm every fixture
+/// attribute authority signs under.
+pub(super) const ECDSA_SHA256: &[u8] = &[0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02];
+
+#[test]
+fn an_attribute_authority_is_held_to_the_algorithms_clause_6_10_lists_for_it() {
+    use crate::attribute_certificate::tests::fixtures::AA;
+    use crate::policy_rules::certification_path::tests::{hex, value};
+    use signer_attributes::tests::{carrying, v2};
+    // TR 102 272 clause 6.10: `aaCertAlgorithmConstraints` lists the algorithms an attribute
+    // authority may sign under, each with an optional minimum key length in bits (ADR 2891). The
+    // fixture authority signs with `ecdsa-with-SHA256` under a P-256 key, 256 bits.
+    let authority = hex(AA);
+    let ecdsa = |bits: &[u8]| seq(&[oid(ECDSA_SHA256), tlv(der::INTEGER, bits)]);
+    let rsa = seq(&[oid(SHA256_RSA)]);
+    let judged = |entries: &[Vec<u8>], certified: usize, carries_authority: bool| {
+        let octets = Fixture {
+            issuer_algorithms: vec![tagged(3, &seq(entries))],
+            ..Fixture::default()
+        }
+        .octets();
+        let document = PolicyDocument::parse(&octets).expect("a clause 6 document");
+        let attributes = v2(&[], certified, 0);
+        let mut signed = carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, &attributes);
+        if carries_authority {
+            signed.certificates.push(value(&authority));
+        }
+        findings(&document, &signed, &facts(None))
+            .into_iter()
+            .filter(|finding| matches!(finding.constraint, Constraint::AttributeAlgorithm(_)))
+            .map(|finding| (finding.verdict, finding.to_string()))
+            .collect::<Vec<_>>()
+    };
+    let verdicts = |found: Vec<(Verdict, String)>| {
+        found
+            .into_iter()
+            .map(|(verdict, _)| verdict)
+            .collect::<Vec<_>>()
+    };
+    // Listed, and the authority's 256 bits meet a minimum of 256.
+    let met = judged(&[ecdsa(&[0x01, 0x00])], 1, true);
+    assert_eq!(verdicts(met.clone()), [Verdict::Met]);
+    assert!(met[0].1.contains("attribute certificate 1"), "{}", met[0].1);
+    // One attribute certificate, one finding, each judged.
+    assert_eq!(
+        verdicts(judged(&[ecdsa(&[0x01, 0x00])], 2, true)),
+        [Verdict::Met, Verdict::Met]
+    );
+    // A minimum of 384 bits the authority's key does not reach.
+    assert_eq!(
+        verdicts(judged(&[ecdsa(&[0x01, 0x80])], 1, true)),
+        [Verdict::Broken]
+    );
+    // A list that does not name the algorithm the authority signed under.
+    assert_eq!(verdicts(judged(&[rsa], 1, true)), [Verdict::Broken]);
+    // The authority's certificate is not carried: its key is not measured against the minimum.
+    assert_eq!(
+        verdicts(judged(&[ecdsa(&[0x01, 0x00])], 1, false)),
+        [Verdict::NotEvaluated]
+    );
+    // With no minimum stated, the algorithm alone decides, whatever key signed.
+    assert_eq!(
+        verdicts(judged(&[seq(&[oid(ECDSA_SHA256)])], 1, false)),
+        [Verdict::Met]
+    );
+    // No attribute certificate: nothing for the list to constrain.
+    let none = judged(&[ecdsa(&[0x01, 0x00])], 0, true);
+    assert_eq!(verdicts(none.clone()), [Verdict::Met]);
+    assert!(
+        none[0].1.contains("no attribute certificate"),
+        "{}",
+        none[0].1
+    );
+}
+
+#[test]
+fn the_attribute_trust_conditions_revocation_requirement_is_read_whole() {
+    // TR 102 272 clause 6.9's `attrRevReq [1] CertRevReq`, clause 6.6.2's syntax: an
+    // `eitherCheck` on end certificates and a `clrCheck` on CA certificates (ADR 2890).
+    let mut condition = attribute_condition(false, 1, None, None);
+    condition.push(tagged(
+        1,
+        &seq(&[
+            seq(&[tlv(ENUMERATED, &[3])]),
+            tagged(0, &seq(&[tlv(ENUMERATED, &[0])])),
+        ]),
+    ));
+    let octets = Fixture {
+        attribute_condition: Some(condition),
+        ..Fixture::default()
+    }
+    .octets();
+    let document = PolicyDocument::parse(&octets).expect("a clause 6 document");
+    let trust = document
+        .common
+        .attribute_trust
+        .as_ref()
+        .expect("the condition");
+    assert_eq!(
+        trust.revocation,
+        Some(revocation_checks::Requirement {
+            end_entity: revocation_checks::Check::Either,
+            authorities: revocation_checks::Check::Crl,
+            freshness: None,
+            retention: None,
+        })
+    );
+}

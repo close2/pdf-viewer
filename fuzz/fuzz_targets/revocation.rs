@@ -115,7 +115,8 @@ fuzz_target!(|data: &[u8]| {
             // can make verify, so `Good` stays the one answer that may not come back.
             let named = subject_certificate(list.issuer, serial);
             let subject = Subject {
-                certificate: &named,
+                issuer: named.issuer,
+                serial_number: named.serial_number,
                 issuer_name: named.subject_encoding,
                 issuer_key_bits: named.public_key_bits,
                 issuer_key: named.public_key,
@@ -170,7 +171,8 @@ fuzz_target!(|data: &[u8]| {
         if let Some(first) = response.responses.first() {
             let named = subject_certificate(&[], first.serial_number);
             let subject = Subject {
-                certificate: &named,
+                issuer: named.issuer,
+                serial_number: named.serial_number,
                 issuer_name: named.subject_encoding,
                 issuer_key_bits: named.public_key_bits,
                 issuer_key: named.public_key,
@@ -225,7 +227,8 @@ fuzz_target!(|data: &[u8]| {
     let ours = subject_certificate(NAME.get(2..).unwrap_or(&[]), SERIAL);
     let material = Material::read(&[data], &[data]);
     let subject = Subject {
-        certificate: &ours,
+        issuer: ours.issuer,
+        serial_number: ours.serial_number,
         issuer_name: ours.subject_encoding,
         issuer_key_bits: ours.public_key_bits,
         issuer_key: ours.public_key,

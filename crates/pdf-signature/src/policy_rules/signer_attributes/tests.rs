@@ -158,7 +158,7 @@ fn set(accepted: Accepted, mandated: &[(&'static [u8], usize)]) -> SetConstraint
     SetConstraints {
         accepted,
         trust_trees: None,
-        revocation: false,
+        revocation: None,
         mandated: mandated
             .iter()
             .map(|(kind, value_constraints)| Mandated {
@@ -177,6 +177,7 @@ fn judged(set: &SetConstraints<'_>, value: &[u8]) -> Vec<(Verdict, &'static str)
         facts: &facts,
         signer_path: None,
         signer_trees: None,
+        timing: Timing::default(),
     };
     let mut out = Vec::new();
     judge_set(
@@ -329,6 +330,7 @@ fn with_hierarchy(
         facts: &facts,
         signer_path: Some(&signer_path),
         signer_trees: Some(&signer_trees),
+        timing: Timing::default(),
     };
     let mut out = Vec::new();
     judge(&signature, context, &mut out);
@@ -374,7 +376,7 @@ fn a_condition_without_trees_of_its_own_takes_the_signing_certificates() {
         mandated: true,
         accepted: Accepted::Certified,
         trust_trees: None,
-        revocation: false,
+        revocation: None,
         types,
         value_types: None,
     };

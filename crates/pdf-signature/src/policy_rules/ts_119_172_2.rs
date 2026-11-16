@@ -486,7 +486,10 @@ impl<'t> Reader<'t> {
         Ok(SetConstraints {
             accepted,
             trust_trees,
-            revocation: self.optional(set, "AttributeRevocationTrust")?.is_some(),
+            revocation: match self.optional(set, "AttributeRevocationTrust")? {
+                Some(revocation) => Some(self.revocation_trust(revocation)?),
+                None => None,
+            },
             mandated,
         })
     }

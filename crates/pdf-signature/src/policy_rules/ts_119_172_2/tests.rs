@@ -1257,3 +1257,81 @@ fn a_signer_attribute_identified_by_its_urn_must_be_claimed_where_the_set_accept
         Err(PolicyDocumentError::ElementMalformed("HowCertAttribute"))
     );
 }
+
+#[test]
+fn a_sets_attribute_revocation_trust_is_read_whole() {
+    use crate::policy_rules::revocation_checks::{Check, Requirement};
+    use crate::policy_rules::ts_119_172_3::{BasicRule, PolicyRule};
+    // Clause 4.26.2's `AttributeRevocationTrust`, of clause 4.23.3.2's `CertificateRevTrustType`:
+    // clause 4.23.2's `eithercheck` on end certificates and `clrcheck` on CA certificates (ADR
+    // 2890).
+    let text = document_of(
+        &rule(
+            "<SignerAttributesConstraints><ConstraintsOnOneSetOfAttributes>\
+             <HowCertAttribute>CertifiedAttribute</HowCertAttribute>\
+             <AttributeRevocationTrust><CertificateRevReq><EndRevReq>eithercheck</EndRevReq>\
+             <CACerts>clrcheck</CACerts></CertificateRevReq></AttributeRevocationTrust>\
+             </ConstraintsOnOneSetOfAttributes></SignerAttributesConstraints>",
+            None,
+        ),
+        None,
+    );
+    let reading = Reading::parse(text.as_bytes()).expect("well-formed XML");
+    let document = reading.document().expect("a clause 4 document");
+    let revocation = document.rules.iter().find_map(|scoped| match &scoped.rule {
+        PolicyRule::Basic(BasicRule::SignerAttributes { sets, .. }) => {
+            sets.first().map(|set| set.revocation.clone())
+        }
+        _ => None,
+    });
+    assert_eq!(
+        revocation,
+        Some(Some(Requirement {
+            end_entity: Check::Either,
+            authorities: Check::Crl,
+            freshness: None,
+            retention: None,
+        }))
+    );
+}
+
+#[test]
+fn an_entry_naming_no_usage_constrains_the_attribute_authority_too() {
+    use crate::attribute_certificate::tests::fixtures::AA;
+    use crate::policy_rules::certification_path::tests::{hex, value};
+    use crate::policy_rules::signer_attributes::tests::{carrying, v2};
+    use crate::policy_rules::ts_119_172_3::Usage;
+    // Clause 4.29.1: an entry without `Usages` allows its algorithm "in all the possible usages",
+    // one of which is generating attribute certificates (ADR 2891). The fixture authority signs
+    // with ECDSA and SHA-256, the XML Signature URI below, under a 256-bit key.
+    const ECDSA_SHA256_URI: &str = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256";
+    let authority = hex(AA);
+    let verdicts = |entries: &[String], certified: usize| {
+        let attributes = v2(&[], certified, 0);
+        let mut signed = carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, &attributes);
+        signed.certificates.push(value(&authority));
+        component_verdicts(&judged(&[suites(entries)], &signed, &facts(None)), |c| {
+            matches!(
+                c,
+                Constraint::SuiteAlgorithm {
+                    usage: Usage::AttributeCertificate(_),
+                    ..
+                }
+            )
+        })
+    };
+    assert_eq!(
+        verdicts(&[suite(ECDSA_SHA256_URI, None, Some(256))], 1),
+        [Verdict::Met]
+    );
+    assert_eq!(
+        verdicts(&[suite(ECDSA_SHA256_URI, None, Some(384))], 1),
+        [Verdict::Broken]
+    );
+    assert_eq!(
+        verdicts(&[suite(RSA_SHA256, None, None)], 1),
+        [Verdict::Broken]
+    );
+    // No attribute certificate, and no entry naming the usage outright: nothing is said.
+    assert!(verdicts(&[suite(ECDSA_SHA256_URI, None, None)], 0).is_empty());
+}

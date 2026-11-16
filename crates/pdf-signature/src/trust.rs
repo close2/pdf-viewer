@@ -874,7 +874,8 @@ impl<'p, 'c: 'p> Search<'p, 'c> {
             // it.
             if !self.material.is_empty() {
                 let subject = Subject {
-                    certificate,
+                    issuer: certificate.issuer,
+                    serial_number: certificate.serial_number,
                     issuer_name: working_issuer_encoding,
                     issuer_key_bits: working_issuer_key_bits,
                     issuer_key: working_public_key,

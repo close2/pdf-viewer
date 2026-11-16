@@ -22,14 +22,20 @@
 //!    target could list, so whether it matches is not decided, and a targeted certificate is named.
 //! 7. No critical extension this reader does not support is present.
 //!
-//! Where the policy states a revocation requirement for attribute certificates, the certificate's
-//! own revocation is not yet checked, so a certificate the seven conditions accept is named not
-//! evaluated rather than valid.
+//! Where the policy states a revocation requirement for attribute certificates — TR 102 272 clause
+//! 6.9's `attrRevReq`, TS 119 172-2 clause 4.26's `AttributeRevocationTrust`, TS 119 172-3 clause
+//! 4.26's `attrRevReq` — the certificate's chain is checked by
+//! [`revocation_checks::attribute_checks`]: the certificate and its authority's by the end-entity
+//! check, the authority path's CA certificates by the CA check. RFC 5755 section 5's additional
+//! check 1 lets a verifier's configuration reject a certificate, and the policy is that
+//! configuration, so a check that finds one revoked makes the certificate invalid and one the file's
+//! material does not answer leaves it undecided (ADR 2890).
 
 use crate::attribute_certificate::{self, AttributeCertificate, Holder, Unreadable};
 use crate::cms::SignedData;
 use crate::der::{Reader, SEQUENCE, Value};
-use crate::policy_rules::certification_path::{self, Found, Search, TrustTrees};
+use crate::policy_rules::certification_path::{self, Found, Path, Search, TrustTrees};
+use crate::policy_rules::revocation_checks::{self, KindCheck, Requirement, Timing};
 use crate::policy_rules::{ATTRIBUTE_TRUST, Verdict};
 use crate::trust;
 use crate::x509::{self, Certificate, Instant};
@@ -58,6 +64,9 @@ pub enum Invalid {
     Outside,
     /// A critical extension this reader does not support (condition 7), as dotted decimal.
     UnsupportedCritical(String),
+    /// The policy's revocation check found a certificate of its chain revoked at or before the
+    /// instant. Boxed as [`Self::Path`] is.
+    Revoked(Box<KindCheck>),
 }
 
 /// Why an attribute certificate's validity is not decided.
@@ -83,8 +92,10 @@ pub enum Undecided {
     NoInstant,
     /// It is targeted (condition 6).
     Targeted,
-    /// The policy requires its revocation checked, which this program does not yet do.
-    Revocation,
+    /// The policy's revocation check is not answered for a certificate of its chain, and whether
+    /// the attribute certificate states `noRevAvail` (RFC 5755 section 4.3.6). Boxed as
+    /// [`Self::Path`] is.
+    Revocation(Box<KindCheck>, bool),
 }
 
 /// What section 5 found of one attribute certificate.
@@ -145,6 +156,9 @@ impl Outcome {
                     f,
                     "it carries critical extension {id}, which this program does not support, and RFC 5755 section 5 item 7 rejects it"
                 ),
+                Invalid::Revoked(check) => {
+                    revocation_checks::sentence(f, ATTRIBUTE_TRUST, check, Verdict::Broken.word())
+                }
             },
             Self::Undecided(why) => match why {
                 Undecided::TooMany(list) => {
@@ -178,9 +192,20 @@ impl Outcome {
                 Undecided::Targeted => f.write_str(
                     "it is targeted, and whether a signature's verifier is among its targets is not decided (RFC 5755 section 4.3.2)",
                 ),
-                Undecided::Revocation => f.write_str(
-                    "the policy requires its revocation status, which this program does not yet check",
-                ),
+                Undecided::Revocation(check, no_revocation) => {
+                    revocation_checks::sentence(
+                        f,
+                        ATTRIBUTE_TRUST,
+                        check,
+                        Verdict::NotEvaluated.word(),
+                    )?;
+                    if *no_revocation {
+                        f.write_str(
+                            "; the attribute certificate states noRevAvail, its issuer's word that no revocation information will be made available for it (RFC 5755 section 4.3.6)",
+                        )?;
+                    }
+                    Ok(())
+                }
             },
         }
     }
@@ -223,10 +248,55 @@ pub(crate) struct Conditions<'c> {
     pub signer_path: Option<&'c Search>,
     /// The instant evaluated at.
     pub at: Option<Instant>,
-    /// Whether the policy requires the certificate's revocation checked.
-    pub revocation: bool,
+    /// The policy's revocation requirement for attribute certificates, where it states one.
+    pub revocation: Option<&'c Requirement>,
+    /// The revocation material the requirement's checks are answered from.
+    pub material: &'c crate::revocation::Material<'c>,
+    /// What places the requirement's issuance bounds on the time line.
+    pub timing: Timing,
     /// The trusted lists a trust tree's references are determined from, where a host supplied any.
     pub lists: Option<crate::trusted_list::anchors::Supplied<'c>>,
+}
+
+/// What made one attribute certificate: the algorithm its issuer signed it under, and the length
+/// of the key that verified that signature — what TR 102 272 clause 6.10's
+/// `aaCertAlgorithmConstraints` and TS 119 172-2 clause 4.29's usage for "generating attribute
+/// certificates" constrain (ADR 2891).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Made {
+    /// `signatureAlgorithm`'s object identifier; `None` where the certificate does not read.
+    pub algorithm: Option<Vec<u8>>,
+    /// The issuer's key length in bits, where a carried certificate of the issuer's name verifies
+    /// the signature and this reader measures its family.
+    pub key_bits: Option<usize>,
+}
+
+/// [`Made`] for each attribute certificate the signature carries, in the order
+/// [`super::Carried::certified`] holds them.
+///
+/// # Errors
+///
+/// The signer attributes do not read, so which attribute certificates are carried is not known.
+pub(crate) fn made(cms: &SignedData<'_>) -> Result<Vec<Made>, super::Unreadable> {
+    let carried = super::carried(cms)?;
+    Ok(carried
+        .certified
+        .iter()
+        .map(
+            |certificate| match attribute_certificate::read(*certificate) {
+                Err(_) => Made {
+                    algorithm: None,
+                    key_bits: None,
+                },
+                Ok(read) => Made {
+                    algorithm: Some(read.signature_algorithm.to_vec()),
+                    key_bits: issuer(&read, cms)
+                        .ok()
+                        .and_then(|(_, issuer)| crate::policy_rules::key_bits(&issuer.public_key)),
+                },
+            },
+        )
+        .collect())
 }
 
 /// The types of an attribute certificate's attributes, where it reads.
@@ -282,6 +352,7 @@ fn outcome(
     if read.indefinite {
         return Outcome::Invalid(Invalid::Indefinite);
     }
+    let mut authority_path: Option<Path> = None;
     if let Some(invalid) = fail(holder_condition(&read.holder, cms, conditions.signer_path)) {
         return Outcome::Invalid(invalid);
     }
@@ -292,11 +363,16 @@ fn outcome(
             }
         }
         Ok((encoding, certificate)) => {
-            for result in [profile(&certificate), path(encoding, cms, conditions)] {
+            let searched = path(encoding, cms, conditions);
+            for result in [
+                profile(&certificate),
+                searched.as_ref().map(|_| ()).map_err(Clone::clone),
+            ] {
                 if let Some(invalid) = fail(result) {
                     return Outcome::Invalid(invalid);
                 }
             }
+            authority_path = searched.ok().flatten();
         }
     }
     let timely = match conditions.at {
@@ -321,10 +397,51 @@ fn outcome(
             return Outcome::Invalid(invalid);
         }
     }
-    if conditions.revocation {
-        undecided.get_or_insert(Undecided::Revocation);
+    if let Some(requirement) = conditions.revocation {
+        match revocation(read, requirement, authority_path.as_ref(), conditions) {
+            Ok(()) => {}
+            Err(Ok(invalid)) => return Outcome::Invalid(invalid),
+            Err(Err(why)) => {
+                undecided.get_or_insert(why);
+            }
+        }
     }
     undecided.map_or(Outcome::Valid, Outcome::Undecided)
+}
+
+/// The policy's revocation requirement over the certificate's chain: invalid where a check finds a
+/// certificate revoked, undecided where one is not answered, the end-entity check's finding first.
+fn revocation(
+    read: &AttributeCertificate<'_>,
+    requirement: &Requirement,
+    authority_path: Option<&Path>,
+    conditions: Conditions<'_>,
+) -> Result<(), Result<Invalid, Undecided>> {
+    let checks = revocation_checks::attribute_checks(
+        requirement,
+        read.issuer,
+        read.serial,
+        authority_path,
+        conditions.material,
+        conditions.at,
+        conditions.timing,
+    );
+    let mut unanswered = None;
+    for check in checks {
+        match check.verdict() {
+            Verdict::Met => {}
+            Verdict::Broken => return Err(Ok(Invalid::Revoked(Box::new(check)))),
+            Verdict::NotEvaluated => {
+                unanswered.get_or_insert(check);
+            }
+        }
+    }
+    unanswered.map_or(Ok(()), |check| {
+        Err(Err(Undecided::Revocation(
+            Box::new(check),
+            read.no_revocation,
+        )))
+    })
 }
 
 /// Condition 1: the holder is the signer, and the signer's path is verified.
@@ -481,17 +598,17 @@ fn profile(issuer: &Certificate<'_>) -> Result<(), Result<Invalid, Undecided>> {
     Ok(())
 }
 
-/// Conditions 2 and 4: the issuer's path to the trust trees.
+/// Conditions 2 and 4: the issuer's path to the trust trees, handed back where it validated.
 fn path(
     issuer: Value<'_>,
     cms: &SignedData<'_>,
     conditions: Conditions<'_>,
-) -> Result<(), Result<Invalid, Undecided>> {
+) -> Result<Option<Path>, Result<Invalid, Undecided>> {
     let trees = conditions.trees.ok_or(Err(Undecided::NoTrustTrees))?;
     let search =
         certification_path::search_certificate(trees, cms, issuer, conditions.at, conditions.lists);
     match search.verdict() {
-        Verdict::Met => Ok(()),
+        Verdict::Met => Ok(search.path),
         Verdict::Broken => Err(Ok(Invalid::Path(Box::new(search.found), search.unexamined))),
         Verdict::NotEvaluated => Err(Err(Undecided::Path(
             Box::new(search.found),

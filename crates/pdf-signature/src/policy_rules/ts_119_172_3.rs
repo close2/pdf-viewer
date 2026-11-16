@@ -103,6 +103,11 @@ pub const SIGNING_CERT_USAGE: [&str; 2] = [
 /// trust point, the signing certificate having a usage of its own.
 pub const PATH_CERT_USAGE: &str = "http://uri.etsi.org/19172/v1.1.1/Usage#PathCert";
 
+/// TS 119 172-2 clause 4.29.2's usage URI for algorithms that generate attribute certificates:
+/// here those the signature carries as certified signer attributes, each signed by its attribute
+/// authority (ADR 2891).
+pub const AA_CERT_USAGE: &str = "http://uri.etsi.org/19172/v1.1.1/Usage#AaCert";
+
 /// Clause 4.14.2's `SigPolicyScope`: where the policy recommends a rule be used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scope {
@@ -552,8 +557,17 @@ fn read_signer_trust<'a>(
         &need(members.next_value()?, SEQUENCE, "signerTrustTrees")?,
         budget,
     )?;
-    let revocation = need(members.next_value()?, SEQUENCE, "signerRevTrust")?;
-    let mut revocation = revocation.children()?;
+    let revocation =
+        read_revocation_trust(&need(members.next_value()?, SEQUENCE, "signerRevTrust")?)?;
+    Ok(SignerTrust { trees, revocation })
+}
+
+/// Clause 4.23.3.2's `CertificateRevTrust`: clause 4.23.2's requirement, its freshness and the
+/// issuer's retention of expired revocation notices, where stated.
+fn read_revocation_trust(
+    value: &Value<'_>,
+) -> Result<revocation_checks::Requirement, PolicyDocumentError> {
+    let mut revocation = value.children()?;
     let mut requirement = read_revocation_requirement(&need(
         revocation.next_value()?,
         SEQUENCE,
@@ -574,10 +588,7 @@ fn read_signer_trust<'a>(
             _ => return Err(malformed("CertificateRevTrust")),
         }
     }
-    Ok(SignerTrust {
-        trees,
-        revocation: requirement,
-    })
+    Ok(requirement)
 }
 
 /// Clause 4.23.3.2's `Freshness` choice, each alternative a `Duration`: a `PrintableString` in the
@@ -1148,8 +1159,8 @@ fn read_signer_attributes<'a>(
     })
 }
 
-/// Clause 4.26.2's `AttributeSetConstraints`: its `howCertAttribute`, its trust trees, whether its
-/// revocation trust is stated, and its `AttributeConstraints`, whose value constraints TS 119
+/// Clause 4.26.2's `AttributeSetConstraints`: its `howCertAttribute`, its trust trees, its revocation
+/// trust, and its `AttributeConstraints`, whose value constraints TS 119
 /// 172-2 clause 4.26.1 forbids without an identifier.
 fn read_attribute_set<'a>(
     set: &Value<'a>,
@@ -1169,7 +1180,7 @@ fn read_attribute_set<'a>(
     let mut out = SetConstraints {
         accepted,
         trust_trees: None,
-        revocation: false,
+        revocation: None,
         mandated: Vec::new(),
     };
     let mut previous = None;
@@ -1189,7 +1200,13 @@ fn read_attribute_set<'a>(
                     budget,
                 )?);
             }
-            1 => out.revocation = true,
+            1 => {
+                out.revocation = Some(read_revocation_trust(&need(
+                    Some(explicit(&member, "attrRevReq")?),
+                    SEQUENCE,
+                    "attrRevReq",
+                )?)?);
+            }
             _ => {
                 let constraints = need(
                     Some(explicit(&member, "AttributeConstraints")?),
@@ -1553,6 +1570,9 @@ pub enum Usage {
     SigningCertificate,
     /// [`PATH_CERT_USAGE`].
     PathCertificate,
+    /// [`AA_CERT_USAGE`]: the signature's attribute certificate of this ordinal, from one; `None`
+    /// where it carries none, or its signer attributes do not read.
+    AttributeCertificate(Option<usize>),
 }
 
 /// A constraint of TS 119 172-3 that TR 102 272's vocabulary has no counterpart for.
@@ -1816,6 +1836,7 @@ fn judge(
                 facts,
                 signer_path: paths.signer,
                 signer_trees: None,
+                timing: timing(facts),
             };
             for set in sets {
                 signer_attributes::judge_set(set, cms, context, out);
@@ -2074,6 +2095,7 @@ fn judge_suites(
         ));
     }
     judge_path_suites(list, path, out);
+    judge_attribute_suites(list, cms, out);
     for entry in list {
         if let Identifier::Uri(uri) = entry.algorithm {
             out.push(component(
@@ -2099,6 +2121,7 @@ fn judge_suites(
         for usage in &entry.usages {
             if *usage != SIGNATURE_USAGE
                 && *usage != PATH_CERT_USAGE
+                && *usage != AA_CERT_USAGE
                 && !SIGNING_CERT_USAGE.contains(usage)
             {
                 others.insert(*usage);
@@ -2187,6 +2210,65 @@ fn judge_path_suites(
                 &[PATH_CERT_USAGE],
             ));
         }
+    }
+}
+
+/// Clause 4.29's usage for algorithms that generate attribute certificates, over each attribute
+/// certificate the signature carries: the algorithm its authority signed it under, with the key
+/// that verified that signature (ADR 2891). An entry naming no usage names this one too (clause
+/// 4.29.1), so a list of such entries constrains every carried certificate; a signature carrying
+/// none is said only where an entry names the usage outright, since then there is nothing for an
+/// unnamed usage to constrain.
+fn judge_attribute_suites(
+    list: &[AlgorithmConstraint<'_>],
+    cms: &SignedData<'_>,
+    out: &mut Vec<Finding>,
+) {
+    if !list.iter().any(|entry| names(entry, &[AA_CERT_USAGE])) {
+        return;
+    }
+    let named = list
+        .iter()
+        .any(|entry| entry.usages.contains(&AA_CERT_USAGE));
+    let unknown = |verdict| {
+        component(
+            verdict,
+            Constraint::SuiteAlgorithm {
+                usage: Usage::AttributeCertificate(None),
+                algorithm: None,
+                listed: false,
+                min_key_length: None,
+                key_bits: None,
+                min_hash_length: None,
+                hash_bits: None,
+            },
+        )
+    };
+    let Ok(made) = signer_attributes::certified::made(cms) else {
+        out.push(unknown(Verdict::NotEvaluated));
+        return;
+    };
+    if made.is_empty() && named {
+        out.push(unknown(Verdict::Met));
+    }
+    for (index, one) in made.iter().enumerate() {
+        let used = one.algorithm.as_deref();
+        let entry = used.and_then(|used| {
+            list.iter()
+                .find(|entry| entry.algorithm.is(used) && names(entry, &[AA_CERT_USAGE]))
+        });
+        out.push(undecided(
+            list,
+            suite_finding(
+                Usage::AttributeCertificate(Some(index.saturating_add(1))),
+                used,
+                entry,
+                one.key_bits,
+                true,
+            ),
+            entry.is_some(),
+            &[AA_CERT_USAGE],
+        ));
     }
 }
 
@@ -2432,10 +2514,32 @@ fn suite_sentence(
     key: (Option<i64>, Option<usize>),
     hash: (Option<i64>, Option<usize>),
 ) -> std::fmt::Result {
+    let attribute;
     let usage = match usage {
         Usage::Signature => "the signature",
         Usage::SigningCertificate => "the signing certificate",
         Usage::PathCertificate => "a CA certificate on the path to the policy's trust point",
+        Usage::AttributeCertificate(ordinal) => {
+            let Some(ordinal) = ordinal else {
+                return write!(
+                    f,
+                    "the policy's cryptographic suite rules for attribute certificates are {verdict}: {}",
+                    if verdict == "met" {
+                        "the signature carries no attribute certificate"
+                    } else {
+                        "the signature's signer attributes do not read, so its attribute certificates are not known"
+                    }
+                );
+            };
+            attribute = format!("the signature's attribute certificate {ordinal}");
+            if algorithm.is_none() {
+                return write!(
+                    f,
+                    "the policy's cryptographic suite rules for {attribute} are {verdict}: it does not read, so the algorithm its authority signed it under is not known"
+                );
+            }
+            attribute.as_str()
+        }
     };
     let Some(algorithm) = algorithm else {
         if usage.starts_with("a CA") {

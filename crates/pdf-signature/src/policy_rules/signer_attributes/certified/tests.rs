@@ -9,7 +9,9 @@ use crate::attribute_certificate::tests::fixtures::{
 };
 use crate::policy_rules::certification_path::tests::{WITHIN, cms, hex, hierarchy, value};
 use crate::policy_rules::certification_path::{TrustPoint, search};
+use crate::policy_rules::revocation_checks::Check;
 use crate::policy_rules::tests::facts;
+use crate::revocation::Material;
 
 /// 2026-01-01, the first instant every fixture attribute certificate is valid at.
 const FIRST_DAY: Instant = Instant::from_unix_seconds(1_767_225_600);
@@ -36,16 +38,16 @@ pub(in crate::policy_rules) fn trees(certificates: &[&[u8]]) -> TrustTrees<'stat
 
 /// The certificates every judgement here reads: the signer's hierarchy, both authorities and
 /// their root.
-struct Held {
-    signer: Vec<u8>,
-    intermediate: Vec<u8>,
-    root: Vec<u8>,
-    authority: Vec<u8>,
-    authority_ca: Vec<u8>,
-    authority_root: Vec<u8>,
+pub(super) struct Held {
+    pub(super) signer: Vec<u8>,
+    pub(super) intermediate: Vec<u8>,
+    pub(super) root: Vec<u8>,
+    pub(super) authority: Vec<u8>,
+    pub(super) authority_ca: Vec<u8>,
+    pub(super) authority_root: Vec<u8>,
 }
 
-fn held() -> Held {
+pub(super) fn held() -> Held {
     let hierarchy = hierarchy();
     Held {
         signer: hierarchy.signer,
@@ -65,7 +67,28 @@ fn judged(
     carried: &[&[u8]],
     trees: Option<&TrustTrees<'_>>,
     at: Instant,
-    revocation: bool,
+    revocation: Option<&Requirement>,
+) -> Outcome {
+    judged_with(
+        certificate,
+        held,
+        carried,
+        trees,
+        at,
+        revocation,
+        &Material::none(),
+    )
+}
+
+/// [`judged`], with the revocation requirement answered from `material`.
+pub(super) fn judged_with(
+    certificate: &str,
+    held: &Held,
+    carried: &[&[u8]],
+    trees: Option<&TrustTrees<'_>>,
+    at: Instant,
+    revocation: Option<&Requirement>,
+    material: &Material<'_>,
 ) -> Outcome {
     let mut signature = cms(&held.signer, &held.intermediate);
     signature
@@ -80,6 +103,8 @@ fn judged(
         signer_path: Some(&signer_path),
         at: Some(at),
         revocation,
+        material,
+        timing: Timing::default(),
         lists: None,
     };
     judge(value(&bytes), &signature, conditions).outcome
@@ -101,7 +126,7 @@ fn a_certificate_meeting_every_condition_is_valid() {
                 &[&held.authority],
                 Some(&tree),
                 at,
-                false
+                None
             ),
             Outcome::Valid
         );
@@ -113,7 +138,7 @@ fn each_failed_condition_makes_the_certificate_invalid() {
     let held = held();
     let tree = trees(&[&held.authority_root]);
     let carried: &[&[u8]] = &[&held.authority, &held.authority_ca];
-    let outcome = |certificate, at| judged(certificate, &held, carried, Some(&tree), at, false);
+    let outcome = |certificate, at| judged(certificate, &held, carried, Some(&tree), at, None);
     // Item 1 and section 4.2.2: a `baseCertificateID` of another serial number is not the signer.
     assert_eq!(
         outcome(AC_OTHER_HOLDER, WITHIN),
@@ -160,12 +185,12 @@ fn what_this_program_cannot_decide_is_named_not_guessed() {
     let tree = trees(&[&held.authority_root]);
     // The authority's certificate is not carried, so neither its signature nor its path is known.
     assert_eq!(
-        judged(AC, &held, &[], Some(&tree), WITHIN, false),
+        judged(AC, &held, &[], Some(&tree), WITHIN, None),
         Outcome::Undecided(Undecided::NoIssuerCertificate)
     );
     // A set of constraints that states no trust trees names nothing to reach.
     assert_eq!(
-        judged(AC, &held, &[&held.authority], None, WITHIN, false),
+        judged(AC, &held, &[&held.authority], None, WITHIN, None),
         Outcome::Undecided(Undecided::NoTrustTrees)
     );
     // The signer's root is not the authority's: no chain, which EN 319 102-1 calls indeterminate.
@@ -177,19 +202,25 @@ fn what_this_program_cannot_decide_is_named_not_guessed() {
             &[&held.authority],
             Some(&elsewhere),
             WITHIN,
-            false
+            None
         ),
         Outcome::Undecided(Undecided::Path(found, 0)) if *found == Found::NoChain
     ));
-    // Every condition holds, and the policy requires a revocation check this program does not make.
-    assert_eq!(
-        judged(AC, &held, &[&held.authority], Some(&tree), WITHIN, true),
-        Outcome::Undecided(Undecided::Revocation)
-    );
     // A failed condition is decisive over an undecided one: the holder is somebody else's even
-    // where the authority's certificate is missing.
+    // where the authority's certificate is missing and the policy's revocation check is not
+    // answered.
+    let either = revocation_tests::requirement(Check::Either, Check::NoCheck);
     assert_eq!(
-        judged(AC_OTHER_HOLDER, &held, &[], Some(&tree), WITHIN, true),
+        judged(
+            AC_OTHER_HOLDER,
+            &held,
+            &[],
+            Some(&tree),
+            WITHIN,
+            Some(&either)
+        ),
         Outcome::Invalid(Invalid::NotTheSigners)
     );
 }
+
+mod revocation_tests;

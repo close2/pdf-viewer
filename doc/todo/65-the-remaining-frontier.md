@@ -87,10 +87,13 @@ permanent) or an owner decision to acquire a specification.
   TS 119 172-3's ASN.1 syntax is read by a second parser and enforced the same way (ADR 2580), and one
   in TS 119 172-2's XML by a third, bound by its octets' digest (ADR 2604) or by its own `Digest`
   over its components under inclusive Canonical XML 1.0, Exclusive XML Canonicalization 1.0 or
-  Canonical XML 1.1, which `policy_rules::canonical_xml` computes (ADRs 2644, 2710); what is left
-  is human-readable policies, a C caller's fetched copy, and the constraints that rest on the
-  certification path — a policy's trust conditions against its own trust points, its
-  certificate-issuer algorithm constraints and its full-path requirements (ADR 2711).
+  Canonical XML 1.1, which `policy_rules::canonical_xml` computes (ADRs 2644, 2710); the constraints
+  that rest on certification paths — the trust conditions against a policy's own trust points, the
+  certificate-issuer algorithm constraints, the full-path requirements, an attribute certificate's
+  chain and the algorithm its authority signed it under — are evaluated (ADRs 2711, 2714, 2720,
+  2797, 2890, 2891). What is left is human-readable policies, a C caller's fetched copy, signed
+  assertions, constraints on a signer attribute's value, and a trusted-list anchor whose list nobody
+  supplied (ADRs 2725, 2782).
 
 ISO/TS 32002's brainpoolP512r1 and Ed448 are not in this bucket: they are the tree's own under the
 owner's answer A170 (ADRs 1385 and 1386), so an upstream release is their *swap* condition rather
