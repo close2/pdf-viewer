@@ -11,16 +11,16 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (50)
+## Current checkpoint (51)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
-failure manifest contains **73 assertions**, grouped into behavior findings rather
-than 73 independent defects. All 72 failures from the prior audit pass at this baseline.
+failure manifest contains **74 assertions**, grouped into behavior findings rather
+than 74 independent defects. All 72 failures from the prior audit pass at this baseline.
 The latest broad run, wave38b, covered eleven crates: **7,158 tests ran, 7,096 passed,
 and exactly the 62 then-recorded in-scope assertions failed; 58 were skipped**.
 Exact identities matched the manifest; three GPU failures were recorded separately.
-Subsequent targeted runs add eight expected failures and fifteen passing tests. The current
-manifest therefore has 70 failures in those eleven crates and three GPU failures.
+Subsequent targeted runs add nine expected failures and eighteen passing tests. The current
+manifest therefore has 71 failures in those eleven crates and three GPU failures.
 A separate engine-enabled run adds **247 passing script/worker tests**, including
 two new string/stream execution controls; four ignored tests are separate.
 The subsequently selected corpus pair also passes across90,763 PDFs. Its counter
@@ -31,6 +31,12 @@ and TrueType dictionary encoding omits the final StandardEncoding fill. Five new
 controls pass; model/core Clippy passes. A detached-page hypothesis was withdrawn
 because page templates invalidate its premise. Script corpus throws are being
 classified against the admitted API surface and producer dependencies.
+
+Checkpoint51 confirms that VisiblePages omits groups on a second visible page.
+AllPages/collection-label and list-wide language-rendering controls pass. A real
+incremental save preserves the signed prefix and cryptographic evidence while
+reporting an unsigned tail. The tree-depth comment/completeness concern remains
+a qualified design finding; informative Annex C does not impose a new UI duty.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

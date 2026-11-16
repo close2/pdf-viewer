@@ -785,7 +785,8 @@
     "current_artifacts": [
       "prior-assertion-reviews.json",
       "shards/xref_streams/features.json",
-      "shards/file_structure_current/features.json"
+      "shards/file_structure_current/features.json",
+      "shards/transform_preservation_residual_current/features.json"
     ],
     "prior_artifacts": [
       "file_structure_audit"
@@ -1731,7 +1732,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/trees_strings_current/features.json"
+      "shards/trees_strings_current/features.json",
+      "shards/tree_consumer_limits_current/features.json"
     ],
     "prior_artifacts": [
       "trees_rectangles"
@@ -1746,7 +1748,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/trees_strings_current/features.json"
+      "shards/trees_strings_current/features.json",
+      "shards/tree_consumer_limits_current/features.json"
     ],
     "prior_artifacts": [
       "trees_rectangles"
@@ -3936,7 +3939,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/optional_content_current/features.json"
+      "shards/optional_content_current/features.json",
+      "shards/optional_content_ui_usage_residual_current/features.json"
     ],
     "prior_artifacts": [
       "optional_content_config_audit"
@@ -3951,7 +3955,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/optional_content_current/features.json"
+      "shards/optional_content_current/features.json",
+      "shards/optional_content_ui_usage_residual_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -3964,7 +3969,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/optional_content_current/features.json"
+      "shards/optional_content_current/features.json",
+      "shards/optional_content_ui_usage_residual_current/features.json"
     ],
     "prior_artifacts": [
       "optional_content_config_audit"
@@ -7298,7 +7304,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/actions_chains_current/features.json"
+      "shards/actions_chains_current/features.json",
+      "shards/optional_content_ui_usage_residual_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -7959,7 +7966,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/signatures_current/features.json"
+      "shards/signatures_current/features.json",
+      "shards/transform_preservation_residual_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."

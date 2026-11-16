@@ -1,0 +1,26 @@
+[
+  {
+    "adr": "1003 — The entire file is the file at the moment of signing",
+    "review_scope": "The prior signed revision under an actual incremental writer update",
+    "original_claim": "The digest and byte range belong to the revision that existed at signing; a later incremental update preserves the covered original bytes and the signature remains meaningful for that prior state.",
+    "current_evidence": "Primary §12.8.1 NOTE 1 says an incremental update preserves the data corresponding to the original signature's byte range so the state at signing can be recreated. `write.rs` appends without replacing the original bytes. Signature tests verify an unchanged digest after a synthetic comment tail and changed digest after a byte alteration inside the range.",
+    "decision": "Confirmed. No source conflict or production defect found in the inspected behavior. The test gap is composition: the current assertions do not pass a real signed PDF through `incremental_update` and then ask the signature consumer to verify integrity, authenticity and the unsigned-tail classification.",
+    "residuals": "The scratch draft uses a checked-in signed certification fixture and writes a valid standard catalog `/Lang` string. It deliberately does not assert the change is allowed by DocMDP, externally trusted, or non-revoked."
+  },
+  {
+    "adr": "1043 — An earlier revision is a prefix",
+    "review_scope": "Readback/comparison after append-only saving",
+    "original_claim": "A signed revision is a prefix of the current file, and `FileBytes::prefix` opens that earlier state for signature-change comparison.",
+    "current_evidence": "The comparison implementation opens the signed prefix and compares revisions. Existing signature and report tests cover this abstraction, but the proposed test starts one step earlier: it verifies the output from the actual incremental writer and its signature state.",
+    "decision": "Confirmed for the sampled contract. The proposed test complements, and does not replace, revision comparison tests.",
+    "residuals": "No whole ADR review; no DocMDP judgement is asserted in the proposed fixture."
+  },
+  {
+    "adr": "0129 — The cipher runs in both directions",
+    "review_scope": "Security boundaries relevant to replacement objects in an incremental update",
+    "original_claim": "The update writer encrypts every replacement object using its object identity while preserving the signature `/Contents` exception; cross-reference structures and trailer `/ID` are written clear as required.",
+    "current_evidence": "`Document::encrypt_for_update` mirrors the read-side exemptions; `incremental_update.rs` includes an encrypted-file round-trip test checking that plaintext does not appear in appended bytes and that the value reads back. `serialize_encrypted.rs::a_signature_contents_string_is_left_alone` checks the writer-side clear signature value in the whole-file serializer.",
+    "decision": "No defect found in this bounded sample. The actual signed-file append draft is intentionally separate from encrypted update coverage, because the checked-in signing fixture is not a combined encrypted-and-signed producer witness.",
+    "residuals": "No new combined encrypted-signed fixture is warranted here; cryptographic validity, public-key handler behavior, and all crypt-filter forms are outside this bounded feature."
+  }
+]

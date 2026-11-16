@@ -1912,5 +1912,49 @@
     "source": "Table112 and ordered dictionary mapping physical341/326; later discretionary fallback cannot override the earlier successful mapping.",
     "execution": "font-fill-wave51.log:1PASS1FAIL",
     "limits": "No-BaseEncoding default unresolved. Supplemental Differences SHOULD qualified. No full font-table certification."
+  },
+  {
+    "id": "2038-B51",
+    "kind": "visible-pages-layer-filter",
+    "clauses": [
+      "8.11.4.3"
+    ],
+    "summary": "VisiblePages layer query considers only the current page when multiple pages are visible.",
+    "evidence": "Exact-xref two-page OneColumn fixture; independent Accessibility query returns2pages, Layers returns First only instead of First,Second. AllPages and collection-label control PASS.",
+    "source": "Table99 physical301/286; current multi-page layout invalidates ADR0178 one-page assumption.",
+    "execution": "Final combined-wave51.log:targetFAIL, controlsPASS."
+  },
+  {
+    "id": "2038-T66",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "8.11.4.4",
+      "8.11.4.5"
+    ],
+    "summary": "Added public raster assertions for list-wide Language exact-match precedence and preferred partial ties.",
+    "evidence": "Five separately painted groups; exact set/case and partial set/default Preferred checked by independent interior pixels. PASS."
+  },
+  {
+    "id": "2038-T67",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "7.5.6",
+      "12.8.1"
+    ],
+    "summary": "Added real incremental writer composition with genuine signed input.",
+    "evidence": "Exact original prefix and changed Lang readback; prior signature integrity/key authenticity retained; unsigned tail reported. PASS.",
+    "limits": "No DocMDP edit permission, external trust or revocation claim."
+  },
+  {
+    "id": "2038-D41",
+    "kind": "tree-limit-contract-and-comment",
+    "clauses": [
+      "7.9.6",
+      "7.9.7",
+      "C"
+    ],
+    "summary": "Depth limit silently becomes normal absence/partial enumeration, and its cyclic-or-hostile-only rationale is too strong.",
+    "evidence": "Static lookup/collect boundary and caller contracts reviewed. A valid unary tree is not disallowed by node forms.",
+    "qualification": "AnnexC informative; finite limits retained. Design/documentation concern, no new normative diagnostic duty or runtime failure asserted."
   }
 ]

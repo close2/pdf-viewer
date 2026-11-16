@@ -1,0 +1,60 @@
+[
+  {
+    "feature": "Order tree and label reach the viewer's public layer query",
+    "clause": "\u00a78.11.4.3 Table 99",
+    "source_location": "EC3 primary layout, Table 99 and its two presentation examples, printed pp. 284\u2013287 (exact visible footers and table text in ec3-parent-layout.txt around lines 17292\u201317500). Order lists the group presentation order; nested arrays may be unlabeled real content nesting or labeled nonselectable collections; default configuration Order defaults to empty, and groups absent from it shall not be presented.",
+    "errata": "No EC3 semantic correction to Order identified. #225 pertains to RBGroups. The sampled current Order text is the effective primary wording.",
+    "ledger": "Rows 8.11.4.3 and 8.11.4 are implemented. Ledger and ADR 0143 promise `/Order` as an interactive layer tree; ADR 0246 carries that tree to native hosts.",
+    "code": "pdf-model/src/optional_content.rs::presentation/order_items/collection parses the distinct shapes and ignores undeclared groups. viewer-core/src/viewer/answers.rs::layers/build_layers maps it to public Layer recursively. viewer-host/src/panel.rs::layer_rows and viewer-ui's layer rows map that shape to host UI.",
+    "tests_assertions": "pdf-model/src/view.rs::the_order_array_keeps_a_label_apart_from_a_nesting asserts a valid PDF's Parsed `Presented` tree, its label, ordering, and ungrouped group; ::an_undeclared_group_is_not_presented checks group membership. viewer-ui/tests/panel.rs::a_layer_switch_throws_unless_the_document_locked_it tests presentation geometry from a hand-built Layer tree, not a parsed PDF. viewer-core/tests/headless.rs tests ListMode and Locked through a PDF but not nested `/Order` on the Query::Layers path.",
+    "verdict": "Parser behavior is directly asserted. The product's PDF-to-public-layer-query projection is straightforward but lacks a focused assertion preserving a nested collection/label from a valid source PDF. A narrow public query draft is included.",
+    "residuals": "No alternate-config selection UI is required merely because Table 98 allows optional Configs. This review sampled standard/default configuration and does not audit malformed Order recovery or every native GTK/Qt rendering state.",
+    "parent_result": "AllPages public query preserves both groups under Plans label; PASS."
+  },
+  {
+    "feature": "ListMode VisiblePages filtering and page-to-page update",
+    "clause": "\u00a78.11.4.3 Table 99; \u00a78.11.3.2\u2013.3 group-reference locations",
+    "source_location": "EC3 primary layout, Table 99 printed pp. 285\u2013286: ListMode defaults to AllPages; VisiblePages displays only Order groups referenced by one or more visible pages. Current viewer layouts include OneColumn and other arrangements that place multiple pages in one viewport (viewer-core/src/layout.rs; viewer-core/src/open.rs::Open::on_screen).",
+    "errata": "No semantic EC3 correction to ListMode identified.",
+    "ledger": "8.11.4.3 implemented; the row names the public layer query and page reachability. ADR 0178's one-page premise is stale under current multi-page OneColumn/two-page layout support.",
+    "code": "viewer-core/src/viewer/answers.rs::layers selects groups_referenced_by using only `open.shown_page()`, while Open stores all visible page indices in `open.visible` and viewer-core/src/viewer/navigation.rs::visibility_of updates that list from layout::place. Query::AccessibilityTree and PageGeometry answer per page in the arrangement. pdf-model/src/optional_content.rs::groups_referenced_by gathers Properties, XObjects and annotation OC references.",
+    "tests_assertions": "viewer-core/tests/headless.rs::a_visible_pages_list_mode_keeps_the_groups_the_page_reaches uses corpus `visibility_expressions.pdf` whose one page reaches all three groups; it asserts all three survive, so it is a positive no-loss control but cannot fail if the filter is bypassed. New scratch draft sets a 1x OneColumn two-page viewport, independently confirms two visible pages with Query::AccessibilityTree, and asks Query::Layers for both distinct groups, with an AllPages control.",
+    "verdict": "Confirmed defect candidate in current implementation: `/VisiblePages` filters from `open.shown_page()` (one current page) although the viewer's actual OneColumn arrangement may expose several pages simultaneously. Table 99 requires groups referenced by one or more visible pages. The scratch public-query regression is ready for parent execution.",
+    "residuals": "Draft execution is pending. Current code predicts the VisiblePages result omits the second page's group, while AllPages returns both. Do not call the candidate confirmed by execution until parent runs it. Other multi-page layout modes and page transitions are not certified by one fixture.",
+    "parent_result": "B51 confirmed: no-recovery two-page OneColumn at1x; Accessibility query independently returns2visible pages, but Layers VisiblePages gives only First. AllPages gives First,Second. Actual consumer uses shown_page only."
+  },
+  {
+    "feature": "Locked state flows from file to core command and host switch",
+    "clause": "\u00a78.11.4.3 Table 99 Locked",
+    "source_location": "EC3 primary layout, Table 99 printed pp. 285\u2013286. Locked groups cannot have their state changed through an interactive PDF processor's UI; the following sentence explicitly permits change by non-UI means such as ECMAScript and AS.",
+    "errata": "No applicable EC3 behavior correction identified.",
+    "ledger": "8.11.4.3 implemented; the layer-tree and set-group behavior are described in the row and ADR 0143/0246.",
+    "code": "OptionalContent::is_locked -> viewer-core Layer.locked -> host row action/GTK or Qt non-checkable switch; ViewState::set_group declines locked manual changes. Action::SetOCGState deliberately does not consult Locked, consistent with the source's explicit non-UI permission.",
+    "tests_assertions": "Current viewer-core/tests/headless.rs::a_locked_group_reaches_a_host_and_its_switch_is_refused loads a PDF with two ordered groups and one locked group, observes exact name/on/locked values from Query::Layers, sends SetGroup to both, and asserts only the unlocked group changes. It is a real file-to-host-state path and independent unlocked control. viewer-ui/tests/panel.rs::a_layer_switch_throws_unless_the_document_locked_it pins panel click/draw behavior from synthetic Layer rows; pdf-model/src/view.rs::a_locked_group_refuses_a_panel_and_not_an_action pins model policy and action exception.",
+    "verdict": "Current end-to-end evidence is strong for the Locked consumer contract; prior concern that only a synthetic panel test existed is resolved by headless test's public PDF-to-command path.",
+    "residuals": "Native GTK/Qt widget-specific behavior is represented by common viewer-ui panel behavior plus host model mappings; no need to demand duplicate platform screenshot tests for this sampled clause."
+  },
+  {
+    "feature": "RBGroups state transition through user switch and SetOCGState",
+    "clause": "\u00a78.11.4.3 Table 99 RBGroups; \u00a712.6.4.13 Table 217 PreserveRB",
+    "source_location": "EC3 primary layout, Table 99 printed pp. 285\u2013286: groups in each radio-button collection are intended to allow at most one ON; turning one ON turns the others OFF; turning one OFF does not turn another ON. Table 217's PreserveRB controls whether a SetOCGState action applies that exclusion.",
+    "errata": "EC3 #225 adds a producer constraint that no inner RBGroups array is empty. This is input validity, not a reader requirement to reject/repair an invalid array. No other sampled Table 99 semantic amendment.",
+    "ledger": "8.11.4.3 and action \u00a712.6.4.13 implemented; ledger describes preserve behavior and user-facing state changes.",
+    "code": "OptionalContent::apply/exclude_others; ViewState::set_group applies `preserve_radio_buttons=true` for panel state changes; action state uses Table 217's flag/default and can opt out.",
+    "tests_assertions": "pdf-model/src/view.rs::a_panel_keeps_a_radio_button_collection_to_one starts with one on and checks setting the other on turns its sibling off; `turning_a_radio_button_group_on_turns_its_siblings_off` exercises action default true, and `preserve_rb_false_ignores_the_collections` is an independent opt-out control. The assertions are over actual ViewState state. Current headless Locked command path exists, but no separate viewer-core command test for unlocked RBGroups was located.",
+    "verdict": "Model transition and action branches are directly asserted. No standards gap found; a public Viewer command-through-query integration would add boundary coverage but is lower priority than uncovered rendering behavior.",
+    "residuals": "Table 99 describes intended radio-button behavior and Table 217 defines action preservation. Initial conflicting ON values are not normalized by reader code; the initial ON/OFF rules in \u00a78.11.4.5 and producer-conformance wording do not establish a mandatory reader repair."
+  },
+  {
+    "feature": "Language exact-match set wins and all partial Preferred matches are considered together",
+    "clause": "\u00a78.11.4.4 Table 100 Language; Table 101 AS; \u00a714.9.2.2 language-tag case comparison",
+    "source_location": "Table100 physical303/288 supplies Lang/Preferred; list-wide recommendation algorithm physical305/290. Table101 supplies AS selector.",
+    "errata": "EC3 #567 adds a note clarifying that Usage/Language does not change the language of document content; it does not change this optional-content visibility algorithm. No other applicable semantic amendment found.",
+    "ledger": "8.11.4.4 and 8.11.4.5 implemented; the notes say language is supplied through Audience and the matching rule is list-wide.",
+    "code": "pdf-model/src/optional_content.rs::language_recommendations computes a set of exact matches first and returns it if nonempty; otherwise filters all primary-subtag partial matches with Preferred true. apply_event maps the full AS OCG list to ON/OFF recommendations. Audience is delivered through ViewState.",
+    "tests_assertions": "optional_content.rs::a_language_category_prefers_a_partial_match_that_says_it_is_preferred covers exact one-group state, case-insensitive exact match, partial Preferred ON, partial Preferred default OFF, no language match, and unknown host language. Its single-group helper cannot distinguish exact-set precedence against other partial groups, multiple exact matches all being ON, or multiple preferred partial matches all being ON in one AS list. A public pixel draft provides those controls.",
+    "verdict": "Single-group branches are directly supported; list-wide matching/tie behavior has a source-derived assertion gap even though implementation follows the stated set algorithm.",
+    "residuals": "This review does not test malformed/non-BCP47 tags in OCG Usage; \u00a714.9.2's producer validity and catalog-language recovery should not be transferred to a new reader error obligation without source support.",
+    "parent_result": "T66 PASS: exact set fr-CA/FR-ca suppresses preferred partials; no exact fr-MX enables both preferred partials and excludes unspecified Preferred. Separate interior alpha pixels through CPU renderer. Existing pixel helper explicitly takes PDF coordinates; y30 is correct. Exact-xref guard added."
+  }
+]

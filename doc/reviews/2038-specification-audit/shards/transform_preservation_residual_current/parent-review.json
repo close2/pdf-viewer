@@ -1,0 +1,6 @@
+{
+  "source": "Parent checked7.5.6 physical75/60 append/preserve rule and12.8.1 NOTE1 physical583/568 signed-range preservation. The note explains an effect, not permission for every edit.",
+  "fixture": "Existing genuine base-signed.pdf with exact xref. Original whole-file coverage, digest and key authenticity asserted. Lang edit first proves different value, actual public incremental writer runs, output starts with exact original bytes, fresh readback sees Lang, signature digest/key still verify and coverage is Unsigned with positive tail.",
+  "execution": "signed-save-wave52.log1PASS; final combined-wave51.log alsoPASS. quality-wave51f.log signature/model/core all-targets Clippy PASS.",
+  "limits": "Writer/readback share syntax parser, but exact prefix and real signature checks are separate oracles. No external trust/revocation/DocMDP-permission assertion. Existing signed fixture provenance retained; no new signature generated."
+}

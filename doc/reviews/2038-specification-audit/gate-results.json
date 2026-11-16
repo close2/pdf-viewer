@@ -1489,6 +1489,36 @@
       "failed": 2,
       "exit": 100,
       "scope": "Final B49/B50 fixtures after lint cleanup; exact same two expected failures."
+    },
+    {
+      "log": "optional-content-wave51b.log",
+      "run": 3,
+      "passed": 2,
+      "failed": 1,
+      "skipped": 3391,
+      "exit": 100,
+      "scope": "ListMode public query pair and Language raster test. Initial51 compile-only missing crate docs corrected."
+    },
+    {
+      "log": "signed-save-wave52.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Real incremental save of genuinely signed input."
+    },
+    {
+      "log": "combined-wave51.log",
+      "run": 4,
+      "passed": 3,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Final lint-adjusted optional-content and signed-save tests."
+    },
+    {
+      "log": "quality-wave51f.log",
+      "exit": 0,
+      "scope": "Model/core/signature all-targets Clippy PASS. Earlier51d/e rejected fixture string-building style and an unused lint expectation; corrected."
     }
   ],
   "prior_expected_failures": {

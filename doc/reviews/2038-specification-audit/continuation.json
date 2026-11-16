@@ -9,21 +9,25 @@
     "later_targets": "Latest broad38b eleven packages:7158run7096PASS62expectedFAIL58skip. Exact manifest identities match package scope;3GPU failures separately recorded. Wave39 then adds2PASS lexical tests; manifest65 unchanged. Wave40 adds one public accessibility-order failure; manifest 66. Broad38 predates this and the two lexical tests. Wave41 adds current-time CRL public report1PASS1FAIL; manifest67. Wave42 adds Type4 NUL1FAIL with4existingPASS; manifest68. Wave43 final4run3PASS1FAIL; manifest69. Broad38 predates waves39\u201343. Wave44 adds2PASS Type3 image controls; manifest69 unchanged. Wave46 adds public historical OCSP producedAt1PASS1FAIL; manifest70. Wave48 adds depth-boundary1PASS1FAIL; manifest71.",
     "quality": "Checkpoint48 model,46 core,43 transform,42 colour all-targets Clippy PASS; earlier scopes recorded.",
     "script_engine": "247PASS4ignored plus separate corpus2PASS249filtered. Corpus counters documented; semantic/error provenance follow-up active.",
-    "rendition_and_font": "B49/B50:7new tests,5PASS2FAIL;73total expected failures,70in eleven-crate scope+3GPU. Model/core Clippy PASS."
+    "rendition_and_font": "B49/B50:7new tests,5PASS2FAIL;73total expected failures,70in eleven-crate scope+3GPU. Model/core Clippy PASS.",
+    "optional_and_save": "Wave51 final4run3PASS1FAIL; manifest74 (71eleven-crate scope+3GPU). Model/core/signature Clippy PASS."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [
-      "optional_content_ui_usage_residual_current",
-      "tree_consumer_limits_current"
+      "appearance_state_residual_current",
+      "script_corpus_error_provenance_current"
     ],
     "active_shards": [
-      "appearance_state_residual_current",
-      "script_corpus_error_provenance_current",
-      "transform_preservation_residual_current"
+      "filter_assertion_residual_current",
+      "outline_assertion_residual_current",
+      "navigation_geometry_residual_current"
     ],
     "recorded_shards": [
+      "optional_content_ui_usage_residual_current",
+      "tree_consumer_limits_current",
+      "transform_preservation_residual_current",
       "rendition_preconditions_current",
       "simple_font_encoding_residual_current",
       "media_framing_current",
@@ -155,10 +159,10 @@
     "pending_current_rows": 0
   },
   "remaining": [
-    "All883 rows have partial review only; continue feature residuals and meaningful consumer/assertion review.",
-    "Review optional-content multi-visible-page UI and language tie tests; qualify tree-limit source/error-contract concerns.",
-    "Audit dominant script corpus exceptions and selected ADRs; continue appearance-state and transform-preservation residuals.",
-    "Stop new dispatch near81% weekly used; preserve15% reserve at85%."
+    "All883rows partial only: keep auditing feature residuals and assertion quality.",
+    "Review appearance-state raster composition and Matrix2D reference-library scope/provenance.",
+    "Continue filter, outline and navigation geometry residuals; refresh broad manifest comparison after the new test batch.",
+    "Stop new dispatch near81% weekly used; reserve15% at85%."
   ],
   "budget": {
     "weekly_used_at_start": 29,
@@ -166,6 +170,6 @@
     "ceiling": 85,
     "remaining_reserved": 15,
     "last_weekly_used_percent": 50,
-    "last_read_utc": "2026-11-16T17:45:33.018385+00:00"
+    "last_read_utc": "2026-11-16T17:51:34.762542+00:00"
   }
 }

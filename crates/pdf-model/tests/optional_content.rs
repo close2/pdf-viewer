@@ -1550,3 +1550,64 @@ fn a_group_the_base_state_turned_off_is_on_when_the_print_event_says_so() {
         "and the Print event sets it to ON for the paper"
     );
 }
+
+#[test]
+fn language_matching_turns_on_all_exact_or_all_preferred_partials_as_a_set() {
+    use pdf_model::optional_content::{Audience, Reader};
+    let groups = [
+        ("a", "fr-CA", None),
+        ("b", "FR-ca", None), // second case-insensitive exact match
+        ("c", "fr-FR", Some("ON")),
+        ("d", "fr-BE", Some("ON")),
+        ("e", "fr-CH", None), // Preferred defaults OFF
+    ];
+    let properties = String::from(
+        "/OCProperties << /OCGs [5 0 R 6 0 R 7 0 R 8 0 R 9 0 R] /D << /AS [<< /Event /View /Category [/Language] /OCGs [5 0 R 6 0 R 7 0 R 8 0 R 9 0 R] >>] >> >>",
+    );
+    let mut resources = String::from("/Properties <<");
+    let mut content = String::new();
+    let mut extra = String::new();
+    for (index, (property, lang, preferred)) in groups.iter().enumerate() {
+        let object = 5 + index;
+        let _ = write!(resources, " /{property} {object} 0 R");
+        let x = 5 + index * 19;
+        let _ = write!(content, "/OC /{property} BDC 0 g {x} 20 14 20 re f EMC ");
+        let preferred = preferred.map_or_else(String::new, |value| format!(" /Preferred /{value}"));
+        let _ = write!(
+            extra,
+            "{object} 0 obj\n<< /Type /OCG /Name ({property}) /Usage << /Language << /Lang ({lang}){preferred} >> >> >>\nendobj\n"
+        );
+    }
+    resources.push_str(" >>");
+    let fixture = pdf(&properties, &resources, &content, "", &extra);
+    assert!(
+        !Document::open(fixture.clone())
+            .expect("exact-xref fixture")
+            .was_recovered()
+    );
+    let speaking = |tag: &str| Audience {
+        reader: Reader::NONE,
+        language: Some(tag.to_owned()),
+    };
+
+    // The presence of an exact match suppresses otherwise-preferred partials, while both exact groups turn on.
+    let (exact, complete) = render_for(fixture.clone(), None, &speaking("fr-CA"));
+    assert!(complete);
+    assert!(
+        [10, 29].iter().all(|x| pixel(&exact, *x, 30)[3] > 0),
+        "all exact matches are ON"
+    );
+    assert!(
+        [48, 67, 86].iter().all(|x| pixel(&exact, *x, 30)[3] == 0),
+        "partials are ignored when an exact match exists"
+    );
+
+    // With no exact match, every preferred partial match turns on; an unspecified Preferred is OFF.
+    let (partial, complete) = render_for(fixture, None, &speaking("fr-MX"));
+    assert!(complete);
+    assert!([10, 29, 86].iter().all(|x| pixel(&partial, *x, 30)[3] == 0));
+    assert!(
+        [48, 67].iter().all(|x| pixel(&partial, *x, 30)[3] > 0),
+        "all preferred partial matches are ON"
+    );
+}

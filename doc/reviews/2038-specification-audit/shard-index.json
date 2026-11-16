@@ -3,6 +3,35 @@
   "numbering": "Logical content items use published ledger owners14.7.5.1.1/.2/.3/.4 for effective EC3 .2/.3/.4/.5; navigator owner12.3.6 maps effective12.3.5.3. JBIG2 external Annex D is not ISO PDF Annex D.",
   "shards": [
     {
+      "shard": "optional_content_ui_usage_residual_current",
+      "artifact": "shards/optional_content_ui_usage_residual_current/features.json",
+      "ledger_owners": [
+        "8.11.4.3",
+        "8.11.4.4",
+        "8.11.4.5",
+        "12.6.4.13"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "tree_consumer_limits_current",
+      "artifact": "shards/tree_consumer_limits_current/features.json",
+      "ledger_owners": [
+        "7.9.6",
+        "7.9.7"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "transform_preservation_residual_current",
+      "artifact": "shards/transform_preservation_residual_current/features.json",
+      "ledger_owners": [
+        "7.5.6",
+        "12.8.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
       "shard": "rendition_preconditions_current",
       "artifact": "shards/rendition_preconditions_current/features.json",
       "ledger_owners": [

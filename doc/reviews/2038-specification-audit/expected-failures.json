@@ -438,6 +438,12 @@
       "test": "explicit_macexpert_base_without_differences_fills_remaining_slot_from_standard",
       "finding": "2038-B50",
       "log": "font-fill-wave51.log"
+    },
+    {
+      "binary": "viewer-core::optional_content_visible_pages_spec_audit",
+      "test": "visible_pages_includes_every_page_in_the_current_arrangement",
+      "finding": "2038-B51",
+      "log": "combined-wave51.log"
     }
   ]
 }

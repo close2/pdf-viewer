@@ -1,0 +1,18 @@
+[
+  {
+    "adr": "0053 / 0054 / 0076 — shared tree traversal",
+    "review_scope": "Whether a shared depth limit can be treated as a conformance defect, and whether existing traversal evidence supports complete public enumeration",
+    "original_claim": "The common name/number tree reader supplies lookup and whole-tree enumeration for consumers; current comments characterize depth beyond 64 as evidence of a cycle or an attempted unbounded walk.",
+    "current_evidence": "The source allows an arbitrarily large collection and gives no maximum depth or balancing requirement in §§7.9.6/.7. Annex C.1 says processors have practical limits and that exceeding an internal limit causes an error; C.3 recommends balanced trees for portability. A valid deep chain can therefore meet the table's root/intermediate/leaf forms while still exceeding a processor's local limit. In code, depth>64 returns None from lookup and returns normally from collection, without preserving an incomplete/error state.",
+    "decision": "Keep the finite traversal bound as a defensible resource limit; do not call depth>64 malformed or cyclic by definition, and do not infer a mandatory numeric threshold. Qualify the current behavior as silent exhaustion: it collapses a processor-limit event into ordinary absence/partial success rather than an observable error/refusal. This is an API/reporting gap candidate, not yet a normative reader defect absent a selected public contract for limit disclosure.",
+    "residuals": "No runtime probe was drafted because all plausible current assertions either codify silent omission or invent a required UI/reporting behavior. A follow-up should define the model/host status for incomplete enumerations, then test a valid exact-xref depth-64 complete control against a valid beyond-limit case whose result explicitly reports truncation/refusal. Keep this distinct from page-tree ordering B48 and structure/DPart limits B03/B04/B36."
+  },
+  {
+    "adr": "2671 / 2672 — bounded number-tree extension",
+    "review_scope": "Only as a comparator for what explicit refusal looks like when a tree cannot be read for a writer operation",
+    "original_claim": "NumberTree extension validates a walk and refuses cycles/order/depth failures by named reasons.",
+    "current_evidence": "The relevant preservation path has a separate result/refusal contract for rewriting/extending a number tree. Generic `tree::number_pairs` used by PageLabels is not that path and cannot inherit the preservation error behavior by association.",
+    "decision": "No contradiction established in the extension feature. It demonstrates that the repository can report an unprocessable tree where the caller needs a safe write, while read-only enumeration currently has no analogous completeness state. Do not reuse its 64-bound as a source-mandated reader threshold.",
+    "residuals": "This audit did not re-review structural parent-tree bounds or the extension implementation beyond the ledger note."
+  }
+]

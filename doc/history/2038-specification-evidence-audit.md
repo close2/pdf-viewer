@@ -12,7 +12,7 @@ The report and machine-readable continuation are in
 `doc/reviews/2038-specification-audit.md` and its evidence directory.
 
 **Evidence so far.** All72 previous failing assertions pass. Current tests expose
-73 failing assertions, grouped by behavior and qualified where interpretation is
+74 failing assertions, grouped by behavior and qualified where interpretation is
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
 The shard index links partial reviews to all883 ledger rows, each still partial. Feature residuals remain
 inside reviewed rows. No entire clause is certified merely because referenced tests pass.
@@ -37,4 +37,4 @@ TSA keyCompromise time selection fails with genuine signed material; FieldMDP
 rename coverage fails under a qualified interpretation. Signature/core Clippy passes.
 Alpha, filtered-checksum and cross-Contents controls pass; archive path cap fails. Model/transform Clippy pass.
 Current CRL and historical OCSP applicability witnesses fail; both positive controls pass.
-Rendition JS priority and TrueType final encoding fill fail; five controls pass. Corpus counters pass.
+Rendition JS, TrueType fill and multi-visible-page layers fail; language and signed-save controls pass.
