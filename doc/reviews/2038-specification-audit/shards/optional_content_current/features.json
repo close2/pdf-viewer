@@ -1,0 +1,86 @@
+[
+  {
+    "feature": "Default group registry, states, and parent visibility",
+    "clause": "§8.11.2.1 Table 96; §8.11.4.2 Table 98; §8.11.4.3 Table 99; §8.11.4.5",
+    "source_location": "Processed EC3 markdown lines 6775-6810, 6995-7053, 7114-7150; printed source pages begin at p.276. Table 96 Type/Name required, Intent default View, Usage optional; a group must be represented in OCProperties/OCGs for valid optional content. Table 99 BaseState default ON with ON/OFF adjustments; default configuration and Intent producer validity conditions are separate from reader behavior. A child is visible only if it and all parent groups are visible.",
+    "errata": "No directly applicable §8.11.2.1 or Table 98/99 correction found in EC3 errata index. Issue #225 affects Table 99 RBGroups producer requirements only; it does not change state initialization.",
+    "ledger": "Rows 8.11.2.1, 8.11.4.2, 8.11.4.3, 8.11.4.5 (all currently marked implemented).",
+    "code": "pdf-model/src/optional_content.rs::OptionalContent::read/state_of/intents_of/covers; content/marked.rs hidden counter; content/xobject.rs checks existing hidden context before interpreting form.",
+    "tests": ["pdf-model/tests/optional_content.rs::a_marked_section_belonging_to_a_group_that_is_off_is_not_drawn", "::a_base_state_of_off_hides_the_groups_the_on_array_does_not_name", "::a_group_whose_intent_the_configuration_ignores_does_not_hide_anything", "::a_hidden_section_still_changes_the_graphics_state_it_leaves_behind", "::a_form_xobject_carrying_oc_is_skipped_when_its_group_is_off"],
+    "test_assertions": "Named tests assert visible/hidden alpha, BaseState behavior, and hidden graphics-state side effects. Existing form test checks the form's own OFF group but not an ON form nested within an outer hidden marked-content context. Scratch draft `drafts/nested_visibility.rs` covers that independent composition with left/right pixel controls; unrun.",
+    "verdict": "PARTIALLY SUPPORTED: base state and simple hidden behavior are directly asserted; nested group rule is implemented through inherited hidden context but lacks a focused ON-child-under-OFF-parent assertion.",
+    "residuals": "Run/repair nested_visibility.rs before treating parent composition as directly tested. The Table 99 requirement that default configuration Intent be View and default BaseState be ON constrains producers; it does not by itself require reader rejection or repair."
+  },
+  {
+    "feature": "OCMD membership policy and malformed/empty membership references",
+    "clause": "§8.11.2.2 Table 97 and following visibility-expression rules",
+    "source_location": "Processed EC3 markdown lines 6810-6880. Table 97 distinguishes dictionary-or-array OCGs, null/deleted refs ignored, no effect of P when OCGs absent/empty/all invalid, P default AnyOn with AllOn/AnyOn/AnyOff/AllOff meanings, and VE preference. Valid VE operators/arity are explicit.",
+    "errata": "§8.11.3.2 example corrections #686/#707 only add object wrappers; no normative effect on Table 97. No Table 97 semantic correction found.",
+    "ledger": "Row 8.11.2.2 (implemented).",
+    "code": "pdf-model/src/optional_content.rs::Visibility::membership/evaluate_expression/operand.",
+    "tests": ["pdf-model/tests/optional_content.rs::a_membership_dictionary_can_show_content_when_its_group_is_off", "::a_single_group_reference_is_read_without_losing_which_object_it_is", "::a_visibility_expression_outranks_the_policy_beside_it", "::a_visibility_expression_past_the_bound_is_reported_rather_than_recursed"],
+    "test_assertions": "Assertions directly cover AllOff inversion, single indirect OCG identity, VE precedence and nested evaluation, plus the implementation's reported depth cap. No fixture was found for null/deleted refs or for absent/empty/all-invalid OCGs neutralizing P. Draft `drafts/nested_visibility.rs::null_membership_references_make_policy_have_no_effect` pairs `[null] /P /AnyOn` with a real OFF OCG AnyOn control; unrun.",
+    "verdict": "PARTIALLY SUPPORTED: core policies/VE have adversarial public drawing tests; explicit Table 97 invalid-reference neutralization lacks assertion coverage.",
+    "residuals": "Run draft to confirm fixture/parser semantics. A recursion bound and reporting are local resource policy for over-deep input, not a normative required error behavior for otherwise valid VE."
+  },
+  {
+    "feature": "Intent selection and configuration default/empty Intent",
+    "clause": "§8.11.2.3; Tables 96 and 99",
+    "source_location": "Processed EC3 markdown lines 6882-6892 and 7007-7053. Group Intent default View; config Intent default View; a group with no matching intent has no effect; empty config Intent means all content visible; configuration /All has special coverage semantics.",
+    "errata": "No applicable EC3 semantic change found.",
+    "ledger": "Rows 8.11.2.1, 8.11.2.3, 8.11.4.3 (implemented).",
+    "code": "pdf-model/src/optional_content.rs::intents_of/covers and empty-intent handling.",
+    "tests": ["pdf-model/tests/optional_content.rs::a_group_whose_intent_the_configuration_ignores_does_not_hide_anything"],
+    "test_assertions": "That test contrasts ignored Design group with /All configuration. No separate fixture was found for an explicitly empty configuration Intent, multiple config intents, or a group with an Intent array; source says these are distinct branches.",
+    "verdict": "SUPPORTED for intent exclusion and /All; PARTIAL for explicit empty-config and array boundary assertions.",
+    "residuals": "Ledger note claims empty configuration intent behavior; current evidence inspected here does not show a named test for it. Group empty Intent behavior is a code policy based on source silence and should remain a documented interpretation rather than a hard conformance defect."
+  },
+  {
+    "feature": "Content-stream optionality, state side effects, DP references, and valid resource membership",
+    "clause": "§8.11.3.1-8.11.3.2",
+    "source_location": "Processed EC3 markdown lines 6894-6971. Hidden content is not drawn while graphics-state changes and drawing-operator side effects persist; whole form/image XObjects and annotations may be skipped. BDC/EMC with /OC is optional only for a valid declared OCG or valid OCMD; DP may force a reference. Nested marker recommendations do not create a distinct reader MUST.",
+    "errata": "Errata #686 and #707 wrap Example syntax in PDF object delimiters; they have no normative effect. `doc/errata-read.md` confirms these are example-only corrections.",
+    "ledger": "Rows 8.11.3.1 and 8.11.3.2 (implemented).",
+    "code": "pdf-model/src/content/marked.rs; content/run/marked_ops.rs; content/resources.rs; optional_content.rs::groups_referenced_by.",
+    "tests": ["pdf-model/tests/optional_content.rs::a_marked_section_belonging_to_a_group_that_is_off_is_not_drawn", "::a_hidden_section_still_changes_the_graphics_state_it_leaves_behind", "::a_group_missing_from_the_properties_dictionary_hides_nothing", "::a_document_with_no_properties_dictionary_draws_everything", "::a_group_named_only_by_a_marked_content_point_is_still_referenced"],
+    "test_assertions": "Public drawing controls cover hidden marked content, state persistence, undeclared groups and no OCProperties. DP test asserts reference enumeration rather than rendering. Search being allowed to process hidden text and the strategy recommended for mixing structure markup are not reader rendering obligations.",
+    "verdict": "SUPPORTED for the sampled renderer semantics and key validity gates; DP's reference-only contract is directly asserted in a different consumer.",
+    "residuals": "This sample does not exhaust hidden text advancement, clipping, text positioning, BX/EX, and every operator side effect; the ledger claim should be read as implementation coverage, not a single-test proof of all enumerated side effects."
+  },
+  {
+    "feature": "Form/image XObject and annotation optional-content composition",
+    "clause": "§8.11.3.3; Table 166 annotation OC; §12.5.3 flags",
+    "source_location": "Processed EC3 markdown lines 6973-6980 plus Table 166 at lines 11130-11150. XObject visibility combines with context at invocation; annotation visibility combines /OC with flags before drawing.",
+    "errata": "No applicable EC3 correction identified.",
+    "ledger": "Rows 8.11.3.3 and 8.11.3.1; annotation row 12.5.3 also owns the flag interaction.",
+    "code": "pdf-model/src/content/xobject.rs::draw_xobject; content/image.rs; content/annotations.rs; content/marked.rs::shows_optional_content.",
+    "tests": ["pdf-model/tests/optional_content.rs::a_form_xobject_carrying_oc_is_skipped_when_its_group_is_off", "::an_annotation_carrying_oc_is_not_drawn_when_its_group_is_off", "::a_hidden_base_image_shows_nothing_and_does_not_reach_its_alternates"],
+    "test_assertions": "Public pixels cover a form's own off group, an annotation's own off group, and hidden base image suppression. The nested-visible-form draft separately tests inherited hidden context. Existing direct form test does not assert either outer-hidden/inner-visible or outer-visible/inner-hidden cases.",
+    "verdict": "PARTIALLY SUPPORTED: direct own-/OC handling is asserted; context composition remains a draft-level gap.",
+    "residuals": "Nested content is also possible in image XObjects and annotation appearances; current sampled tests do not establish each route independently. The standard says processors may skip objects whose optional content is hidden; no requirement says malformed nested content must be reported if skipped."
+  },
+  {
+    "feature": "Usage categories, AS defaults, recommended-state combination, and event changes",
+    "clause": "§8.11.4.4 Tables 100-101; §8.11.4.5",
+    "source_location": "Processed EC3 markdown lines 7055-7113 and 7114-7155. Table 100 categories include View, Print, Export, Zoom, User, Language, CreatorInfo and PageElement; usage is descriptive unless applied. Table 101 Event required, OCGs defaults empty, Category required. No AS means no automatic adjustment. Matching categories within and across AS entries combine by all-ON; Print missing PrintState means unchanged; User/Language require available host inputs. §8.11.4.5 View reapplies on factors, manual change persists, Print/Export overlay only for operation duration.",
+    "errata": "Issue #567 adds a note that usage Language does not change the language of content; it does not alter optional-content state rule. Issue #225 constrains writer's RBGroups empty-inner-array construction. Neither creates a new reader state rule. No other relevant EC3 correction found.",
+    "ledger": "Rows 8.11.4.4 and 8.11.4.5 (implemented).",
+    "code": "pdf-model/src/optional_content.rs::Usage/apply_event/apply_view; view::ViewState::set_magnification/set_audience/set_purpose; content/image.rs printing purpose path.",
+    "tests": ["pdf-model/tests/optional_content.rs::a_usage_application_dictionary_turns_a_group_off", "::every_category_of_every_dictionary_has_to_agree", "::a_category_about_this_machine_is_reported_rather_than_guessed", "::a_zoom_category_is_answered_at_the_pages_stated_size", "::a_change_of_zoom_reapplies_the_view_usage_dictionaries", "::a_manual_change_is_not_readjusted_by_a_later_zoom", "::a_user_category_is_answered_where_a_host_says_who_is_reading", "::a_language_category_prefers_a_partial_match_that_says_it_is_preferred", "::a_print_event_turns_on_the_layer_the_view_event_turned_off", "::an_export_event_applies_only_to_an_export", "::an_events_changes_last_only_while_the_purpose_stands"],
+    "test_assertions": "A broad set directly checks state and rendered output, including conflicting event and reversion controls. The `CreatorInfo` and `PageElement` usage categories appear to be metadata-only in Table 100 and do not themselves define automatic state semantics; table coverage should not claim all Table 100 entries have a state evaluator. No explicit missing-AS test was identified from names, though default-open fixtures omit AS.",
+    "verdict": "SUPPORTED for the exercised state-changing categories and View/Print/Export lifecycle; partial granularity for language exact-vs-partial and Table 100 descriptive metadata.",
+    "residuals": "Read actual assertion bodies before claiming every input branch: exact Language-match, multiple groups with conflicting exact matches, missing AS and empty Category can be distinct. An AS `/Event`/Category writer-invalid value need not force reader failure."
+  },
+  {
+    "feature": "Interactive layer panel, Order/ListMode, RBGroups, Locked and alternate Configs",
+    "clause": "§8.11.4.3 Tables 98-99; §8.11.4.5; §6.3.2.2 interactive processor",
+    "source_location": "Processed EC3 markdown lines 6995-7053. OCProperties required when optional content exists; if absent, optional-content structures ignored. Default config D required. Table 99 Order governs UI presentation, ListMode filters list, RBGroups describes mutual exclusion on user changes, Locked prevents UI state change, Configs permits alternate configurations. Some are producer defaults/validity rules, not reader rejection rules.",
+    "errata": "Errata #225 adds producer rule for empty arrays within /RBGroups; no additional reader requirement. No other applicable correction found.",
+    "ledger": "Rows 8.11.4.2-8.11.4.5 and aggregate rows 8.11/8.11.4 (implemented).",
+    "code": "pdf-model/src/optional_content.rs::order/list_mode/locked/radio_buttons; viewer-ui layer presentation and viewer-core command dispatch.",
+    "tests": ["pdf-model/tests/optional_content.rs::a_page_names_the_groups_its_content_annotations_and_forms_reach", "pdf-model/tests/headless.rs::a_locked_group_reaches_a_host_and_its_switch_is_refused", "pdf-model/tests/optional_content.rs::a_group_missing_from_the_properties_dictionary_hides_nothing"],
+    "test_assertions": "Reviewed ledger claims cite panel tests/census and group-reference tests; this shard did not independently trace the UI assertions or exhaust each Table 99 control. Configs being optional is permission, not an obligation to offer selection. RBGroups constrains group state changes, not the initial BaseState calculation.",
+    "verdict": "NOT RE-AUDITED beyond checking the mapped current consumers and selected tests; existing implemented ledger claims are plausible but not certified by this bounded pass.",
+    "residuals": "Need a separate focused audit of ListMode/Order tree shape, radio-button group updates and UI refusal under multiple contexts before endorsing entire interactive layer-panel coverage."
+  }
+]

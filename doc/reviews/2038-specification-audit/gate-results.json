@@ -282,6 +282,47 @@
       "log": "wave11b-quality.log",
       "scope": "pdf-syntax,pdf-model,viewer-core all-targetsClippy-Dwarnings",
       "exit": 0
+    },
+    {
+      "log": "path-pixels-wave12.log",
+      "run": 38,
+      "passed": 38,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "optional-content-wave12.log",
+      "run": 46,
+      "passed": 46,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "media-selector-wave12b.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "wave12-quality.log",
+      "scope": "pdf-model all-targetsClippy",
+      "exit": 0
+    },
+    {
+      "log": "wave12b-quality.log",
+      "scope": "new test lint errors; corrected",
+      "exit": 101
+    },
+    {
+      "log": "wave12c-quality.log",
+      "scope": "pdf-model/viewer-core all-targetsClippy-Dwarnings",
+      "exit": 0
+    },
+    {
+      "scope": "AnnexD parent read-only full-table comparison",
+      "exit": 0,
+      "artifact": "shards/annex_d_encoding/parent-comparison.json"
     }
   ],
   "prior_expected_failures": {

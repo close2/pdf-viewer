@@ -14,7 +14,7 @@ The report and machine-readable continuation are in
 **Evidence so far.** All 72 previous failing assertions pass. Current tests expose
 22 failing assertions, grouped by behavior and qualified where interpretation is
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
-The shard index links partial reviews to 195 ledger rows; 688 remain pending in
+The shard index links partial reviews to 217 ledger rows; 666 remain pending in
 this round. No entire clause is certified merely because referenced tests pass.
 A shared-parser date mutation was killed and restored. Independent JP2 fixture
 regeneration matches the embedded hashes. Selected ADR conclusions are retained,
@@ -33,3 +33,6 @@ The new 11-test run has six passes and five expected failures; three-crate Clipp
 Further passing controls cover all four named actions, packed/16-bit PNG arithmetic,
 Type6 inherited edges, Type7 asymmetric control order and non-unit shading domains.
 Independent Bernstein inversion supports the tensor pixel; fresh PAdES regeneration passes.
+
+Clip timing/rules, optional-content composition and public media selection controls pass.
+Annex D comparisons are reproduced; EC3#549 rejects the preliminary path-error hypothesis.

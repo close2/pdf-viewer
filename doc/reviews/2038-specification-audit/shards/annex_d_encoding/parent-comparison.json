@@ -1,0 +1,15 @@
+{
+  "execution": "Parent independently reran script: all comparisons matched. Run from repository root; reads local licensed source without copying tables to output.",
+  "counts": {
+    "StandardEncoding": 149,
+    "MacRoman_body": 207,
+    "MacRoman_with_note6": 208,
+    "WinAnsi_body": 216,
+    "WinAnsi_with_notes3_4": 224,
+    "MacExpert": 165,
+    "Symbol": 189,
+    "Dingbats_names": 188,
+    "Dingbats_nonblank_CHAR": 187
+  },
+  "limits": "Script parses local converted source except D6 from primary physical pages890\u2013891; note additions explicitly entered from source notes. Guard requires locked read-fonts0.44.0; inspection not runtime font consumer proof. D3 has separate existing full-table test. Does not cure B15/B16 glyph-name-to-Unicode faults."
+}

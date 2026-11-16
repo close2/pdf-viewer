@@ -117,6 +117,14 @@ the MaxLen change is recorded in A834 and ADR 2840. Their changed assertions mus
 be assessed against those current decisions rather than treated as unauthorized
 weakening. Review of their behavior and evidence remains scoped and ongoing.
 
+Additional pixel controls pass for clip-rule differences, clip-after-stroke timing,
+graphics-state restoration, nested optional-content visibility and null membership.
+A public first-viable media handoff control passes. The MU/NU overlap remains an
+interpretation question. EC3#549 rejects a preliminary path-error hypothesis; stale
+test comments are corrected. Parent reproduction confirms the sampled Annex D
+full encoding tables, including note-defined assignments. The index now links
+partial evidence to 217 ledger rows; 666 remain pending in this round.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks

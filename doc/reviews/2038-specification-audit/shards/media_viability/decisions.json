@@ -1,0 +1,34 @@
+{
+  "decisions": [
+    {
+      "adr": "1960",
+      "review": "handoff framing supported; MU/NU overlap premise requires qualification",
+      "basis": "Table 301 says each NU-listed player is effectively removed from MU. However, §13.2.7.2.2(c) tests whether MU arrays are non-empty and Table 301's empty-array-as-absent text does not expressly say whether subtraction that empties a present MU array makes it absent. For an unnamed hand-off with MU=NU, the source leaves a semantic question: treat the effective MU set as absent, or preserve the present whitelist with no eligible player? The prior assertion that this is a confirmed defect/ADR error is withdrawn pending interpretation. The current code only tracks the presence of any viable MU entry, so it cannot itself demonstrate a source violation.",
+      "source": "doc/adr/1960-viability-is-judged-for-the-hand-off-and-a-form-xobject-clip-is-the-players.md §§1–2; ISO Table 301 printed p. 633; §13.2.7.2.2 printed pp. 633–634; crates/pdf-model/src/media.rs::players"
+    },
+    {
+      "adr": "2392",
+      "review": "handoff framing supported; MU/NU overlap premise requires qualification",
+      "basis": "Table 301 says each NU-listed player is effectively removed from MU. However, §13.2.7.2.2(c) tests whether MU arrays are non-empty and Table 301's empty-array-as-absent text does not expressly say whether subtraction that empties a present MU array makes it absent. For an unnamed hand-off with MU=NU, the source leaves a semantic question: treat the effective MU set as absent, or preserve the present whitelist with no eligible player? The prior assertion that this is a confirmed defect/ADR error is withdrawn pending interpretation. The current code only tracks the presence of any viable MU entry, so it cannot itself demonstrate a source violation.",
+      "source": "doc/adr/2392-a-player-info-is-judged-before-its-array-and-an-offset-over-a-still-image-is-ignored.md §§3, 6; ISO Table 301 printed p. 633 and player algorithm §13.2.7.2.2; crates/pdf-model/tests/media_viability.rs::the_media_player_algorithm_admits_the_hand_off_only_where_no_player_is_required"
+    },
+    {
+      "adr": "1946",
+      "review": "scope boundary confirmed for this shard",
+      "basis": "Current scope-ratification text says viability is computed and reported and the media file is saved or handed to the user's player under reader restrictions; decoding/presenting audio/video remains excluded until the specified trigger. This audit stays inside the in-scope viability and handoff obligations.",
+      "source": "CLAUDE.md clause 13 entry; doc/scope-ratifications.md clause 13 ratification; doc/adr/1946-the-clause-13-entry-excludes-the-player-and-admits-the-page.md"
+    },
+    {
+      "adr": "1961",
+      "review": "temporary-file policy boundary unchanged",
+      "basis": "The existing public rendition consumer tests separately verify restriction-level handoff and temporary-file permissions. The MU/NU and selected validity issues do not alter that policy contract.",
+      "source": "doc/adr/1961-table-286s-temporary-file-is-a-restriction-and-the-clip-is-handed-to-the-host.md; crates/viewer-core/tests/renditions.rs"
+    },
+    {
+      "adr": "2376",
+      "review": "ledger ownership structure confirmed; assertions do not cover all table owners",
+      "basis": "The explicit ledger rows assign the requested viability/table requirements to media.rs and identify separate tests. The model currently has a first-viable selector assertion and the viewer has a single-clip handoff assertion, and this shard drafts a public selector-plus-handoff test with an unambiguous MH-unknown first child and two viable controls. The draft is uncompiled/unrun. Table 293–295 coverage remains limited to two W cases.",
+      "source": "doc/adr/2376-the-seventh-sweep-reads-out-of-scope-rows-by-their-clause-number-and-the-media-family-is-read-into-the-ledger.md; doc/conformance/ledger.toml:4839–4990; crates/pdf-model/tests/media_viability.rs; crates/viewer-core/tests/renditions.rs"
+    }
+  ]
+}

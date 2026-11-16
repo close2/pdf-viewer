@@ -1,0 +1,40 @@
+{
+  "scope": "Bounded path construction, painting and clipping assertions; not all scan conversion or stroke geometry.",
+  "source": "\u00a78.4.2,\u00a78.4.3.6 printed163\u2013164,\u00a78.5.2.1\u2013.2,\u00a78.5.3.1/.3.1,\u00a78.5.4 printed176\u2013177; effective EC3#549 applied.",
+  "features": [
+    {
+      "feature": "Nonzero vs even-odd clipping",
+      "evidence": "New same-orientation nested rectangles: W center black, W* center white; both ring black and outside white. Pixel outputs independent of path evaluator. Existing rule enum inspection alone weaker.",
+      "test": "graphics_stack_paths_audit::clipping_rules_produce_distinct_pixels_for_same_orientation_nested_paths",
+      "verdict": "PASS"
+    },
+    {
+      "feature": "Pending clip takes effect after associated painting, q/Q restores clip",
+      "evidence": "Stroke around box retains outside half; subsequent blue fill clipped; after Q distant red square paints. New public pixel control agrees with explicit \u00a78.5.4 timing and intersection rules.",
+      "test": "graphics_stack_paths_audit::a_pending_clip_preserves_the_outside_half_of_its_stroke_and_q_restores_it",
+      "verdict": "PASS"
+    },
+    {
+      "feature": "Path construction/current path not saved with graphics state",
+      "evidence": "Existing graphics_stack_paths_audit literal coordinates, q/Q current path, nested clip parent/rule/transform and bezier pixels read. path_construction literals discriminate m/re/h/v/y; equivalence-only s vs hS supplemented by independent expected paths.",
+      "verdict": "Bounded assertion review, not all corner cases"
+    },
+    {
+      "feature": "Dash phase, duplication, defaults and restart",
+      "evidence": "line_dash literal expected arrays/phases: odd list duplication, negative phase, empty reset and ExtGState/D; invalid negative/all-zero fallback is policy. render-cpu dash_subpath_restart assertion read, not freshly executed in this gate.",
+      "correction": "[4 6] is a chosen valid fixture, not literal Table55 example; corrected test comment.",
+      "verdict": "Sampled valid obligations directly asserted; malformed fallback not normative MUST"
+    },
+    {
+      "feature": "Painting with undefined current path",
+      "evidence": "Rejected error hypothesis: EC3#549 changes generate error to be ignored. Local PDF StrikeOut/Caret and current official errata agree. Existing ignore test correct; updated stale error/policy test comments.",
+      "primary_url": "https://pdf-issues.pdfa.org/32000-2-2020/clause08.html",
+      "limit": "Production comment still quotes old premise; production/ADR edits outside audit scope."
+    }
+  ],
+  "execution": "path-pixels-wave12.log:38/38PASS; wave12-quality.log:pdf-model all-targetsClippyPASS.",
+  "residuals": [
+    "All cap/join/miter combinations and scan conversion \u00a710.7.4 remain pending.",
+    "No full path-family feature certification."
+  ]
+}

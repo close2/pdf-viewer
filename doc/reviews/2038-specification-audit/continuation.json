@@ -14,10 +14,9 @@
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
-      "media_viability",
-      "optional_content_current",
-      "signatures_transforms",
-      "annex_d_reproduction"
+      "page_resources_current",
+      "public_key_encryption_current",
+      "signatures_transforms"
     ],
     "recorded_shards": [
       "logical_structure",
@@ -38,10 +37,13 @@
       "shading_current",
       "signatures_current",
       "predictors_current",
-      "named_actions_current"
+      "named_actions_current",
+      "paths_current",
+      "optional_content_current",
+      "media_viability"
     ],
-    "partial_current_rows": 195,
-    "pending_current_rows": 688
+    "partial_current_rows": 217,
+    "pending_current_rows": 666
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",
@@ -54,7 +56,7 @@
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 33,
-    "last_read_utc": "2026-11-16T11:03:45Z"
+    "last_weekly_used_percent": 34,
+    "last_read_utc": "2026-11-16T11:18:24Z"
   }
 }
