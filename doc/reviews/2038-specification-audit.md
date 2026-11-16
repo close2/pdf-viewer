@@ -198,6 +198,14 @@ predates these three additions. The #309 errata description confuses Colorants w
 None; its physical-page locator is correct. Partial reviews reach 369 rows, with 514
 pending. No source or ledger status is changed.
 
+A valid composed-transform integration control passes, including CropBox offset,
+rotation, UserUnit and Q restoration. The earlier mid-path q/Q assertion remains
+as explicitly labelled robustness coverage. Image sample/coordinate tests have
+literal oracles; interpolation mixed-gray assertions check policy, not a required
+filter. Primary #79 annotations confirm the existing alternate-image branches.
+Partial evidence reaches 379 rows, with 504 pending; the failure manifest remains36.
+Current model all-targets Clippy and the12targeted path/state tests pass.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks

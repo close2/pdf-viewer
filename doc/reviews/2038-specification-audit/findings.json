@@ -889,5 +889,29 @@
     "source": "Primary Caret physical220/205 and StrikeOut221/206.",
     "qualification": "Clause and physical-page221 locator are correct. Historical untouched describes round418; no current-status defect claimed. Ledger description already reflects None amendment.",
     "limits": "Producer constraint does not imply mandatory reader rejection."
+  },
+  {
+    "id": "2038-T32",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "8.3.4",
+      "8.4.2",
+      "8.4.4"
+    ],
+    "summary": "Added public integration control for two noncommuting cm operations, page geometry and Q restoration.",
+    "execution": "PASS coordinates-wave21.log; independently derived matrices and literal raster interiors/outside.",
+    "limits": "One valid composite case; not all coordinates or state properties."
+  },
+  {
+    "id": "2038-T33",
+    "kind": "assertion-scope-correction",
+    "clauses": [
+      "8.2",
+      "8.4.2"
+    ],
+    "summary": "Mid-path q/Q test is robustness coverage for a producer-invalid graphics-object sequence.",
+    "source": "Figure9 physical163/148 and Note2.",
+    "action": "Preserved assertion; added explicit policy comment. Valid stack behavior has separate tests.",
+    "execution": "Existing assertion still PASS; its outcome is not a required conformance result."
   }
 ]

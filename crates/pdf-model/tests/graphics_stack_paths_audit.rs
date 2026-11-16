@@ -55,6 +55,9 @@ fn list(content: &str) -> pdf_render::DisplayList {
     interpretation.display_list
 }
 
+// Figure 9 (§8.2) excludes q/Q inside a path object. This intentionally malformed
+// sequence checks robustness policy, not valid-input conformance. The content-level
+// q/Q cases below separately check permitted stack and clipping behavior.
 #[test]
 fn q_and_q_operators_leave_the_current_path_outside_the_stack() {
     let display_list = list("10 10 m q 20 20 l Q 30 30 l S");

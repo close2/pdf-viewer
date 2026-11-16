@@ -798,6 +798,25 @@
       "log": "quality-wave20c.log",
       "exit": 0,
       "scope": "Final model/core all-targets Clippy -Dwarnings."
+    },
+    {
+      "log": "coordinates-wave21.log",
+      "run": 12,
+      "passed": 12,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "New composed page transform and existing path/stack assertions."
+    },
+    {
+      "log": "quality-wave21.log",
+      "exit": 101,
+      "scope": "Unused lint expectation in new draft; removed."
+    },
+    {
+      "log": "quality-wave21b.log",
+      "exit": 0,
+      "scope": "Current pdf-model all-targets Clippy -Dwarnings."
     }
   ],
   "prior_expected_failures": {

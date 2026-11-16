@@ -1,0 +1,7 @@
+{
+  "source": "Parent verified Figure9 physical163/printed148, Table56 physical179/164 and matrix discussion170\u2013171/155\u2013156. Table57 is ExtGState, not cm. Corrected draft rectangle extent to x70..190,y74..154; its tested interiors were already valid.",
+  "execution": "coordinates-wave21.log:12PASS, including new composition/rotation/CropBox/UserUnit/Q matrix and literal raster controls, plus11existing path/stack tests. Exact xref, no recovery, complete interpretation. Expected matrix independently [0,-4,6,0,10,194], restored [0,-2,2,0,-40,220].",
+  "assertion_correction": "Existing q_and_q_operators_leave_the_current_path_outside_the_stack is deliberately malformed graphics-object sequencing. Added comment identifying robustness policy. Figure9 Note2 permits readers to process such streams but this does not make the sequence producer-conforming or establish a required recovery result.",
+  "decisions": "Parent checked selected ADR0038 UserUnit rationale and0849 continued-table classification; retain with supported-range/device-dependent qualifications. No whole ADR endorsement. New test does not challenge singular-transform policy.",
+  "limits": "Other coordinate spaces, all graphics-state properties, every inverse consumer and all backend state paths remain outside this bounded review."
+}
