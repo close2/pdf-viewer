@@ -5,10 +5,9 @@
 //! # What each item is, and where it comes from
 //!
 //! - **a)**, the scope of the check, is a text the clause prints and requires; [`Scope`] names it
-//!   and `viewer_core::notes` words it. The text itself is not reproduced in this tree: ETSI's
-//!   notice permits no reproduction without its written permission (ADR 1085), so the words a
-//!   reader is shown are a paraphrase, said to be one, until the owner answers
-//!   `doc/questions/Q855` (ADR 2872).
+//!   and carries the clause's heading and sentence as printed ([`Scope::heading`],
+//!   [`Scope::text`]). They are the only ETSI words this tree carries as written: the owner read
+//!   the requirement to print them as the permission to (`doc/questions/A855`, ADR 2897).
 //! - **b)**, the signer as the signing certificate represents it: every attribute of its
 //!   `subject` field and, where present, every name of its `subjectAltName` extension
 //!   ([`Signer`]).
@@ -35,9 +34,10 @@
 //!   points at ([`SignatureAttribute`]).
 //! - **h)** and **REQ-4.2-03 d)**, the cryptographic suite the signature was made with: the digest,
 //!   the signature algorithm and the key's size ([`Cryptography::Suite`]). The clause also asks for
-//!   potential security issues "against either national rules or ETSI TS 119 312", with which was
-//!   used said; this tree holds neither, so [`SecurityRules::NoneHeld`] says that no assessment was
-//!   made and against nothing.
+//!   potential security issues against either national rules or ETSI TS 119 312, with which was
+//!   used said: [`Report::security`] is the assessment against TS 119 312 V2.1.1's tables, each
+//!   issue naming the table or clause it failed ([`ts_119_312`], ADR 2896). No national rules are
+//!   held, so the report never claims them.
 //! - **REQ-4.2-03 e)**: a suite this tree cannot verify does not invalidate the signature; the
 //!   result is indeterminate and a warning names the suite and says it is not supported
 //!   ([`Cryptography::NotSupported`]).
@@ -78,8 +78,8 @@ pub const MAX_ALTERNATIVE_NAMES: usize = 32;
 /// REQ-4.5-01 a)'s scope: the check run is the applicability rules checking for European qualified
 /// electronic signatures and seals using trusted lists.
 ///
-/// One variant, because this tree runs one such check; a type rather than a sentence so that a
-/// host words it in its own language and the verbatim text can arrive in one place (ADR 2872).
+/// One variant, because this tree runs one such check; a type, so that the clause's text is in
+/// one place and a host that words the rest of the report in another language still prints it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Scope {
@@ -87,6 +87,34 @@ pub enum Scope {
     /// EU Member States' trusted lists in the sense of the European legislation applicable at the
     /// time of signing — Directive 1999/93/EC or Regulation (EU) No 910/2014.
     EuQualifiedUsingTrustedLists,
+}
+
+impl Scope {
+    /// REQ-4.5-01 a)'s heading, as ETSI TS 119 172-4 V1.1.1 prints it (`doc/questions/A855`).
+    #[must_use]
+    pub const fn heading(self) -> &'static str {
+        match self {
+            Self::EuQualifiedUsingTrustedLists => {
+                "Signature applicability rules checking (validation rules) for European \
+                 qualified electronic signatures/seals using trusted lists"
+            }
+        }
+    }
+
+    /// REQ-4.5-01 a)'s sentence under the heading, as printed; the semicolon that closes the
+    /// item in the clause's list is the list's and is not carried.
+    #[must_use]
+    pub const fn text(self) -> &'static str {
+        match self {
+            Self::EuQualifiedUsingTrustedLists => {
+                "Validation of digital signature to identify whether it can be considered \
+                 technically suitable to implement a European qualified electronic \
+                 signature/seal using EUMS trusted lists in the sense of the applicable European \
+                 legislation at the time of signing, i.e. either Directive 1999/93/EC or \
+                 Regulation (EU) No 910/2014"
+            }
+        }
+    }
 }
 
 /// REQ-4.5-01 b) and c): the signer as its certificate represents it.
@@ -206,14 +234,6 @@ pub struct SignatureAttribute {
     pub commitment: Option<(String, Option<&'static str>)>,
 }
 
-/// Against what a suite's potential security issues were assessed (REQ-4.5-01 h)).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum SecurityRules {
-    /// Neither national rules nor ETSI TS 119 312 is held by this tree, so no assessment was made.
-    NoneHeld,
-}
-
 /// REQ-4.5-01 h) and REQ-4.2-03 d) and e): the cryptographic suite.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Cryptography {
@@ -225,8 +245,6 @@ pub enum Cryptography {
         family: Family,
         /// The key's size in bits.
         key_bits: usize,
-        /// Against what potential security issues were assessed.
-        rules: SecurityRules,
     },
     /// REQ-4.2-03 e): a suite this tree does not support — the result is indeterminate, never
     /// invalid, and this names the suite.
@@ -258,7 +276,6 @@ impl Cryptography {
                 digest: *digest,
                 family: *family,
                 key_bits: *key_bits,
-                rules: SecurityRules::NoneHeld,
             },
             Authenticity::KeyNotVerifiable { algorithm }
             | Authenticity::AlgorithmNotVerifiable { algorithm }
@@ -289,6 +306,9 @@ pub struct Report {
     pub attributes: Vec<SignatureAttribute>,
     /// h) and REQ-4.2-03 d) and e).
     pub cryptography: Cryptography,
+    /// h)'s potential security issues of [`Self::cryptography`]'s suite, against ETSI TS 119 312
+    /// at the best signature time and at [`Asked::now`]; `None` where no suite was reached.
+    pub security: Option<ts_119_312::Assessment>,
 }
 
 /// What [`Report::of`] reads.
@@ -344,12 +364,35 @@ impl Report {
             at: asked.when.at(),
             assurance: Assurance::Best(asked.when.proof()),
         });
+        let cryptography = Cryptography::of(asked.authenticity);
+        let security = match cryptography {
+            Cryptography::Suite {
+                digest,
+                family,
+                key_bits,
+            } => Some(ts_119_312::Assessment::of(&ts_119_312::Asked {
+                digest,
+                family,
+                key_bits,
+                subgroup_bits: match &parsed {
+                    Some(Ok(certificate)) => match certificate.public_key {
+                        x509::PublicKey::Dsa(key) => Some(key.subgroup_bits()),
+                        _ => None,
+                    },
+                    _ => None,
+                },
+                signed: asked.when.at(),
+                now: asked.now,
+            })),
+            _ => None,
+        };
         Self {
             scope: Scope::EuQualifiedUsingTrustedLists,
             signer,
             times,
             attributes: cms.as_ref().map(attributes).unwrap_or_default(),
-            cryptography: Cryptography::of(asked.authenticity),
+            cryptography,
+            security,
         }
     }
 }
@@ -628,6 +671,8 @@ pub fn attribute_name(kind: &[u8]) -> Option<&'static str> {
         _ => return None,
     })
 }
+
+pub mod ts_119_312;
 
 #[cfg(test)]
 mod tests;

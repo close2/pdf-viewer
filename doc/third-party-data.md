@@ -857,6 +857,23 @@ of the three appears between quotation marks or after a `>`**. ISO 32000-2's own
 quoted as always, because the conformance checker verifies those against `doc/md/`, and the two are
 kept visibly apart. ADR 1085 is the argument and what holding them bought.
 
+## ETSI TS 119 312 V2.1.1 (2026-06), the cryptographic suites — six tables as identifiers
+
+The owner placed it at `doc/ETSI_TS_119_312_v2.1.1.pdf` (`doc/questions/A856`; 303 240 bytes, 38 pages,
+SHA-256 `7d8428f6433221fae87525507ec204f39ef31a1d5547338444708a801ed18f72`), ignored by `/doc/*.pdf` and
+never committed; ETSI's server had refused the free download a round tried. Its notice is the one
+above, and it is held the same way. What the tree carries is
+`pdf_signature::verdict::applicability::ts_119_312`: its Tables 1, 2, 3, 4, 6 and 7, cell by cell —
+each cell an algorithm's, curve's or suite's identifier, a reference to the document that defines it,
+a key-size bound, an end date or an `R` or `L[yyyy]` class — and none of the prose around them, which
+the module paraphrases under clause numbers (ADR 2896). TS 119 172-4 REQ-4.5-01 h) is what asks for it.
+
+**One exception to "nothing appears as written", and the owner made it.** ETSI TS 119 172-4 V1.1.1
+REQ-4.5-01 a) requires the applicability report to print a scope text — a heading and one sentence —
+and the owner answered `doc/questions/Q855` by having the tree carry them as printed
+(`doc/questions/A855`): `verdict::applicability::Scope::heading` and `Scope::text`, and nowhere else
+(ADR 2897). No comment quotes them, and every other ETSI sentence stays paraphrased.
+
 ## veraPDF, and the difference between running a program and reading it
 
 The owner put a checkout of veraPDF in `doc/veraPDF-library` on 2026-09-07 and asked whether its

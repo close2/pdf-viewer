@@ -7,6 +7,7 @@
 //! "subjectAltName=email:fuchs42@example.org,URI:https://example.org/fuchs42"` on a P-256 key this
 //! tree made. Instants are the fixtures' stated times as seconds since the epoch.
 
+use super::ts_119_312::{Class, Issue, Rule};
 use super::*;
 use crate::revocation::tests::fixtures as revocation_fixtures;
 use crate::signature::Signed;
@@ -150,8 +151,8 @@ fn a_commitment_is_named_by_its_identifier() {
     assert_eq!(commitment(&value), Some(("1.2.3.4".to_owned(), None)));
 }
 
-/// h) and REQ-4.2-03 d): a computed signature's suite is its digest, algorithm and key size, and
-/// it says that no rules were assessed against. REQ-4.2-03 e): each kind of unsupported suite is
+/// h) and REQ-4.2-03 d): a computed signature's suite is its digest, algorithm and key size.
+/// REQ-4.2-03 e): each kind of unsupported suite is
 /// `NotSupported` naming what the file named; an answer that never reached a suite says so.
 #[test]
 fn the_suite_is_reported_and_an_unsupported_one_is_named() {
@@ -167,7 +168,6 @@ fn the_suite_is_reported_and_an_unsupported_one_is_named() {
             digest: Digest::Sha256,
             family: Family::Rsa,
             key_bits: 2048,
-            rules: SecurityRules::NoneHeld,
         }
     );
     for (authenticity, suite) in [
@@ -315,11 +315,55 @@ fn the_report_over_a_signature_holds_each_item_in_the_clauses_order() {
             digest: Digest::Sha256,
             family: Family::Rsa,
             key_bits: 2048,
-            rules: SecurityRules::NoneHeld,
         }
     );
     assert!(report.signer.is_ok());
     assert_eq!(report.attributes.len(), 4);
+    // h) against ETSI TS 119 312: SHA-256 is recommended (its Table 1), PKCS #1 v1.5 is a bare
+    // legacy `L` (its Table 2) and so is `sha256-with-rsa` (its Table 4), and a 2048-bit modulus
+    // is `L[2026]` (its Table 6) — not yet phased out at 2026-10-01, the best signature time and
+    // the instant of validation both.
+    let security = report.security.expect("a suite was reached");
+    assert_eq!(
+        security.issues,
+        [
+            Issue::Legacy {
+                rule: Rule::SignatureAlgorithms,
+                entry: "RSA-PKCS#1v1_5",
+                class: Class::LEGACY,
+            },
+            Issue::Legacy {
+                rule: Rule::SignatureSuites,
+                entry: "sha256-with-rsa",
+                class: Class::LEGACY,
+            },
+            Issue::Legacy {
+                rule: Rule::RsaKeySizes,
+                entry: "at least 1 900 and below 3 000 bits",
+                class: Class::legacy_until(2026),
+            },
+        ]
+    );
+}
+
+/// a): the scope text REQ-4.5-01 a) prints, carried as printed (`doc/questions/A855`). Each
+/// expected string is ETSI TS 119 172-4 V1.1.1 clause 4.5's item a), its heading and its sentence,
+/// with the item's closing semicolon left to the list it belongs to.
+#[test]
+fn the_scope_is_the_clauses_heading_and_sentence() {
+    let scope = Scope::EuQualifiedUsingTrustedLists;
+    assert_eq!(
+        scope.heading(),
+        "Signature applicability rules checking (validation rules) for European qualified \
+         electronic signatures/seals using trusted lists"
+    );
+    assert_eq!(
+        scope.text(),
+        "Validation of digital signature to identify whether it can be considered technically \
+         suitable to implement a European qualified electronic signature/seal using EUMS trusted \
+         lists in the sense of the applicable European legislation at the time of signing, i.e. \
+         either Directive 1999/93/EC or Regulation (EU) No 910/2014"
+    );
 }
 
 /// d) iii) 3) and d) i) for a token, end to end over the `openssl ts` token of

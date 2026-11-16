@@ -1763,11 +1763,12 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         // with the file set aside the census reads 893 again). 894 → 900 when the six ETSI texts
         // A713 placed in `doc/` joined it — TR 102 272, TS 119 172-1 to -4 and TS 119 172-4 v1.2.1,
         // each untagged; they are licensed and kept outside the tree like the other specifications
-        // here, so a clone without them reads 894 and this floor is skipped by name.
+        // here, so a clone without them reads 894 and this floor is skipped by name. 900 → 901 when
+        // `doc/ETSI_TS_119_312_v2.1.1.pdf`, which A856 placed and which is untagged, joined it.
         gate_ratchet::floor(
             "untagged pages answering honestly, whole population",
             census.untagged_honest,
-            900,
+            901,
         );
         // ADR 1369's two counts, new with it, over the whole population.
         gate_ratchet::floor(
@@ -1813,13 +1814,21 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
     }
 }
 
-/// The bought specifications the whole-population floors in `ratchet` were measured over.
+/// The specifications the whole-population floors in `ratchet` were measured over.
 ///
-/// `.gitignore` excludes every one of these — they are licensed to a single reader — so a clone
-/// has none of them and the second tier of floors is skipped there, by name and out loud. Adding a
-/// specification to `doc/` needs no change here: a floor is a lower bound and a new document can
-/// only raise it. Removing one does need a change, which is the point.
+/// `.gitignore` excludes every one of these — licensed to a single reader, or (ETSI's) carrying a
+/// notice that forbids reproducing them (ADR 1085) — so a clone has none of them and the second
+/// tier of floors is skipped there, by name and out loud. Adding a specification to `doc/` needs no
+/// change here: a floor is a lower bound and a new document can only raise it. Removing one does
+/// need a change, which is the point.
 const RATCHETED_SPECIFICATIONS: &[&str] = &[
+    "ETSI_TR_102_272_v1.1.1.pdf",
+    "ETSI_TS_119_172-1_v1.1.1.pdf",
+    "ETSI_TS_119_172-2_v1.1.1.pdf",
+    "ETSI_TS_119_172-3_v1.1.1.pdf",
+    "ETSI_TS_119_172-4_v1.1.1.pdf",
+    "ETSI_TS_119_172-4_v1.2.1.pdf",
+    "ETSI_TS_119_312_v2.1.1.pdf",
     "ICC-1_1998-09.pdf",
     "ICC.1-2022-05.pdf",
     "ICC.2-2023.pdf",

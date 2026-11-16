@@ -2919,27 +2919,17 @@ fn level_sentence(level: Option<&pdf_signature::verdict::Level>) -> String {
 /// ETSI TS 119 172-4 REQ-4.5-01's report beside a listed signature's level: a), b) with c), d), f)
 /// and h), each a sentence naming its item (ADR 2872).
 ///
-/// a)'s scope is said as a paraphrase and said to be one: the clause prints a text and requires
-/// it, and ETSI's notice forbids reproducing it without permission, which `doc/questions/Q855`
-/// asks the owner for (ADR 1085).
+/// a)'s scope is the clause's own heading and sentence, which the owner had carried as printed
+/// (`doc/questions/A855`, ADR 2897); h)'s potential security issues are the assessment against
+/// ETSI TS 119 312's tables, each naming the table or clause that failed (ADR 2896).
 fn applicability_sentences(report: &pdf_signature::verdict::applicability::Report) -> Vec<String> {
-    use pdf_signature::verdict::applicability::{Cryptography, Scope};
-    let mut sentences =
-        vec![match report.scope {
-        Scope::EuQualifiedUsingTrustedLists => {
-            "The level above comes from ETSI TS 119 172-4's applicability rules checking for \
-             European qualified electronic signatures and seals using trusted lists: whether this \
-             digital signature can be considered technically suitable to implement an EU \
-             qualified electronic signature or seal, judged with EU Member States' trusted lists \
-             under the European legislation that applied when it was signed — Directive \
-             1999/93/EC or Regulation (EU) No 910/2014 (REQ-4.5-01 a); these words paraphrase \
-             the scope text the clause prints)"
-        }
-        // Any scope a later build adds, in the words that claim least.
-        _ => "The level above comes from ETSI TS 119 172-4's applicability rules checking \
-              (REQ-4.5-01 a))",
-    }
-    .to_owned()];
+    use pdf_signature::verdict::applicability::Cryptography;
+    let mut sentences = vec![format!(
+        "The level above comes from the check ETSI TS 119 172-4 REQ-4.5-01 a) names, in its \
+         words: \"{}\" — \"{}\"",
+        report.scope.heading(),
+        report.scope.text()
+    )];
     sentences.push(signer_sentence(&report.signer));
     sentences.push(times_sentence(&report.times));
     sentences.push(attributes_sentence(&report.attributes));
@@ -2947,18 +2937,101 @@ fn applicability_sentences(report: &pdf_signature::verdict::applicability::Repor
         digest,
         family,
         key_bits,
-        ..
     } = &report.cryptography
     {
-        sentences.push(format!(
-            "It was made with {} under {} with a {key_bits}-bit key (REQ-4.5-01 h)). No \
-             potential security issue of that suite was assessed: that needs national rules or \
-             ETSI TS 119 312, and this program holds neither",
+        let mut sentence = format!(
+            "It was made with {} under {} with a {key_bits}-bit key (REQ-4.5-01 h))",
             digest.name(),
             family.name()
-        ));
+        );
+        if let Some(assessment) = &report.security {
+            sentence.push_str(". ");
+            sentence.push_str(&security_sentence(assessment));
+        }
+        sentences.push(sentence);
     }
     sentences
+}
+
+/// REQ-4.5-01 h)'s potential security issues, against ETSI TS 119 312, each naming the table or
+/// clause it failed — which the item asks to be indicated clearly.
+fn security_sentence(
+    assessment: &pdf_signature::verdict::applicability::ts_119_312::Assessment,
+) -> String {
+    use pdf_signature::verdict::applicability::ts_119_312::{Class, Issue, Moment, Rule, SOURCE};
+    let what = |rule: Rule| match rule {
+        Rule::HashFunctions => "digest",
+        Rule::SignatureAlgorithms => "signature algorithm",
+        Rule::Curves => "curve",
+        Rule::SignatureSuites | Rule::EqualLengths => "combination of digest and algorithm",
+        Rule::RsaKeySizes => "modulus's size",
+        Rule::DsaKeySizes => "key's sizes",
+    };
+    let phase_out = |class: Class| match class {
+        Class::Recommended => String::new(),
+        Class::Legacy {
+            year,
+            extendable: true,
+        } => format!("phased out on 31 December {year} unless a later release extends it"),
+        Class::Legacy {
+            year,
+            extendable: false,
+        } => format!("phased out no later than 31 December {year}"),
+    };
+    if assessment.issues.is_empty() {
+        return format!(
+            "Against {SOURCE}, every part of that suite is recommended and it raises no potential \
+             security issue"
+        );
+    }
+    let issues: Vec<String> = assessment
+        .issues
+        .iter()
+        .map(|issue| match *issue {
+            Issue::NotListed(rule) => format!(
+                "{} lists no row for its {}, so the document does not admit it",
+                rule.citation(),
+                what(rule)
+            ),
+            Issue::Legacy { rule, entry, class } => format!(
+                "{} lists its {} {entry} as legacy, {}",
+                rule.citation(),
+                what(rule),
+                phase_out(class)
+            ),
+            Issue::PhasedOut {
+                rule,
+                entry,
+                class,
+                by,
+            } => format!(
+                "{} lists its {} {entry} as legacy, {}, which had passed by {}",
+                rule.citation(),
+                what(rule),
+                phase_out(class),
+                match by {
+                    Moment::BestSignatureTime => "the best signature time",
+                    Moment::Validation => "this validation, though not by the best signature time",
+                }
+            ),
+            Issue::UnequalLengths {
+                hash_bits,
+                curve_bits,
+            } => format!(
+                "{} recommends an elliptic-curve suite only where the digest's output is as long \
+                 as the curve's key, and here it is {hash_bits} bits against {curve_bits}",
+                Rule::EqualLengths.citation()
+            ),
+            Issue::SubgroupNotMeasured => format!(
+                "{} was not asked, because the DSA key's q could not be measured",
+                Rule::DsaKeySizes.citation()
+            ),
+        })
+        .collect();
+    format!(
+        "Against {SOURCE}, its potential security issues: {}",
+        issues.join("; ")
+    )
 }
 
 /// REQ-4.5-01 b) and c): the signer as its certificate represents it, and whether it is a
@@ -5265,29 +5338,23 @@ mod tests {
         );
     }
 
-    /// ETSI TS 119 172-4 REQ-4.5-01: each item of the report is a sentence naming it — a)'s scope
-    /// said to be a paraphrase, b)'s subject and alternative names, c)'s pseudonym, d)'s times each
-    /// with its assurance (a claim as a claim, a token's policy and accuracy, its EU qualification
-    /// said as not determined), f)'s attributes by set with a commitment named, and h)'s suite with
-    /// the rules it was not assessed against. REQ-4.2-03 e)'s warning names the suite and says
-    /// INDETERMINATE, never invalid.
-    #[test]
-    fn the_applicability_report_says_each_item_of_req_4_5_01() {
+    /// A report holding one of each item, for the test below.
+    fn applicability_report() -> pdf_signature::verdict::applicability::Report {
         use pdf_signature::cms::Digest;
         use pdf_signature::signature::Family;
         use pdf_signature::timestamp::Accuracy;
         use pdf_signature::trust::names::Name;
         use pdf_signature::verdict::Proof;
         use pdf_signature::verdict::applicability::{
-            Assurance, ClaimedIn, Cryptography, EuQualified, Report, Scope, SecurityRules,
-            SignatureAttribute, Signer, TimeKind, Timing,
+            Assurance, ClaimedIn, Cryptography, EuQualified, Report, Scope, SignatureAttribute,
+            Signer, TimeKind, Timing, ts_119_312,
         };
         use pdf_signature::x509::Instant;
         let subject = pdf_signature::trust::names::attributes_of(&[
             0x31, 0x0B, 0x30, 0x09, 0x06, 0x03, 0x55, 0x04, 0x41, 0x0C, 0x02, 0x46, 0x34,
         ])
         .expect("a one-attribute name reads");
-        let report = Report {
+        Report {
             scope: Scope::EuQualifiedUsingTrustedLists,
             signer: Ok(Signer {
                 subject,
@@ -5341,14 +5408,38 @@ mod tests {
             cryptography: Cryptography::Suite {
                 digest: Digest::Sha256,
                 family: Family::Rsa,
-                key_bits: 3072,
-                rules: SecurityRules::NoneHeld,
+                key_bits: 2048,
             },
-        };
+            // ETSI TS 119 312 at a best signature time in 2026 and a validation in 2027:
+            // `RSA-PKCS#1v1_5` and `sha256-with-rsa` are a bare `L`, and a 2048-bit modulus is
+            // its Table 6's `L[2026]`, passed by the validation.
+            security: Some(ts_119_312::Assessment::of(&ts_119_312::Asked {
+                digest: Digest::Sha256,
+                family: Family::Rsa,
+                key_bits: 2048,
+                subgroup_bits: None,
+                signed: Instant::from_unix_seconds(1_790_812_800),
+                now: Instant::from_unix_seconds(1_798_761_600),
+            })),
+        }
+    }
+
+    /// ETSI TS 119 172-4 REQ-4.5-01: each item of the report is a sentence naming it — a)'s scope
+    /// in the clause's own words, b)'s subject and alternative names, c)'s pseudonym, d)'s times
+    /// each with its assurance (a claim as a claim, a token's policy and accuracy, its EU
+    /// qualification said as not determined), f)'s attributes by set with a commitment named, and
+    /// h)'s suite with its potential security issues against ETSI TS 119 312 — a legacy algorithm
+    /// and suite, a legacy modulus size, and a phase-out passed by validation. REQ-4.2-03 e)'s
+    /// warning names the suite and says INDETERMINATE, never invalid.
+    #[test]
+    fn the_applicability_report_says_each_item_of_req_4_5_01() {
+        let report = applicability_report();
         let said = super::applicability_sentences(&report).join(". ");
         for named in [
-            "REQ-4.5-01 a); these words paraphrase the scope text",
-            "Directive 1999/93/EC or Regulation (EU) No 910/2014",
+            "REQ-4.5-01 a) names, in its words: \"Signature applicability rules checking \
+             (validation rules) for European qualified electronic signatures/seals using trusted \
+             lists\" — \"Validation of digital signature",
+            "i.e. either Directive 1999/93/EC or Regulation (EU) No 910/2014\"",
             "the subject pseudonym=F4, and the subject alternative names rfc822Name f4@example.org \
              (REQ-4.5-01 b))",
             "The signer used a pseudonym, \"F4\"",
@@ -5360,8 +5451,15 @@ mod tests {
             "the best signature time 200 (fixed by this signature's timestamp attribute)",
             "signed — commitment-type-indication (ETSI EN 319 122-1), committing to proof of \
              origin; unsigned — 1.2.3.5",
-            "SHA256 under RSA (PKCS #1 v1.5) with a 3072-bit key (REQ-4.5-01 h))",
-            "national rules or ETSI TS 119 312, and this program holds neither",
+            "SHA256 under RSA (PKCS #1 v1.5) with a 2048-bit key (REQ-4.5-01 h)). Against ETSI TS \
+             119 312 V2.1.1 (2026-06), its potential security issues: ",
+            "Table 2, clause 6.2.1 lists its signature algorithm RSA-PKCS#1v1_5 as legacy, phased \
+             out on 31 December 2034 unless a later release extends it",
+            "Table 4, clause 7.3 lists its combination of digest and algorithm sha256-with-rsa as \
+             legacy",
+            "Table 6, clause 8.4 lists its modulus's size at least 1 900 and below 3 000 bits as \
+             legacy, phased out no later than 31 December 2026, which had passed by this \
+             validation, though not by the best signature time",
         ] {
             assert!(said.contains(named), "{named} in {said}");
         }

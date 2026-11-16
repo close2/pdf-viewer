@@ -2,9 +2,9 @@
 
 Status: **open** — locally valid, the list reader, the lists' authentication, RSASSA-PSS subject
 keys, the QC statements, TS 119 615 clauses 4.4 to 4.7, TS 119 172-4 clause 4.4.2's level, most of
-clause 4.5's report, a policy's trusted-list anchors, a C host's lists, the lists' fetch and the
+clause 4.5's report with a)'s text and h)'s TS 119 312 assessment, a policy's trusted-list anchors, a C host's lists, the lists' fetch and the
 window that asks for it are built (ADRs 2834, 2835, 2842, 2843, 2852, 2853, 2864, 2865, 2866, 2872,
-2874, 2878, 2879, 2882, 2886), and
+2874, 2878, 2879, 2882, 2886, 2896, 2897), and
 Annex A's time-stamp type is read as a silence (ADR 2883);
 section 2 is the order for the rest.
 Priority: the owner's, 2026-11-06, `doc/questions/A800` item 3: "we should be able to validate all
@@ -76,6 +76,11 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
   established or not), the material's revocation, issue and next-update times about the signer and
   the best signature time, f) every attribute by set with a commitment named, h) the suite;
   `Cryptography::of` is REQ-4.2-03 d) and e), an unsupported suite named and indeterminate.
+  a)'s heading and sentence are carried as printed (`Scope::heading`, `Scope::text`; A855, ADR
+  2897), and h)'s potential security issues are `applicability::ts_119_312`'s assessment against
+  TS 119 312 V2.1.1's Tables 1, 2, 3, 4, 6 and 7 and clause 7.3, transcribed cell by cell — a
+  component no row lists, a legacy one, a phase-out passed by the best signature time or by the
+  validation, each naming its table (A856, ADR 2896).
   `viewer_core::notes` says one sentence per item beside a listed signature's level, and e)'s
   warning wherever lists were given. `verdict::level`'s join is pinned end to end by a listed
   signer whose issuer's CRL was issued after the best signature time (`TOTAL-PASSED`), with the
@@ -128,10 +133,10 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
 
 ## 2. What is left, in order
 
-3. **TS 119 172-4 REQ-4.5-01**'s remainder: a)'s text verbatim, which waits on
-   `doc/questions/Q855` (ETSI's notice, ADR 1085); h)'s potential security issues, assessed against
-   ETSI TS 119 312's tables once they are fetched and transcribed (free from ETSI, never tracked;
-   the fetch answered 403 on 2026-11-15, and `doc/questions/Q856` asks the owner to supply it).
+3. **TS 119 172-4 REQ-4.5-01 h)**'s remainder (ADR 2896): Table 4's RSASSA-PSS row is chosen by
+   the message digest because `Authenticity` does not carry MGF1's hash; TS 119 312 clauses 9.3 and
+   9.5's key lifetimes over a certificate's validity and clause 9.2's time-stamp imprint rule are not
+   asked; no national rules are held.
 4. **The fetch's remainder.** GPR-4.0-03's *should* — go on past a failed `https` validation with
    a warning — is not taken: the client has no unvalidated mode, and a failed connection is said as
    the location not fetched (re-read 2026-11-16, ADR 2886). A list a policy's `TAsInTrustedList`
