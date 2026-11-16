@@ -6,17 +6,19 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "28run19pass9expectedfail; exact identities checked after restoring mutation",
-    "quality": "wave3 touched5crate Clippy/fmt pass; earlier4crate rustdoc/full conformance pass"
+    "later_targets": "28run19pass9expectedfail; wave4 40run39pass1expectedfail; wave5 4run3pass1expectedfail. Eleven unique expected failures currently.",
+    "quality": "6 touched crates all-targets Clippy pass; previous rustdoc/conformance gates precede newest tests."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
-    "new_shards_ready_for_parent_review": [],
+    "new_shards_ready_for_parent_review": [
+      "font_substitution_current"
+    ],
     "active_shards": [
-      "structure_types",
-      "xref_streams",
-      "navigation"
+      "functions_current",
+      "images_current",
+      "forms_current"
     ],
     "recorded_shards": [
       "logical_structure",
@@ -24,7 +26,10 @@
       "collections",
       "tagged_layout",
       "encryption",
-      "colour_conversion"
+      "colour_conversion",
+      "xref_streams",
+      "navigation",
+      "structure_types"
     ]
   },
   "remaining": [
@@ -38,7 +43,7 @@
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 31,
-    "last_read_utc": "2026-11-16T08:25:44Z"
+    "last_weekly_used_percent": 32,
+    "last_read_utc": "2026-11-16T08:45:34Z"
   }
 }

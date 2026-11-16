@@ -24,7 +24,7 @@ use pdf_syntax::{Document, Object, ObjectId};
 const SKELETON: [&str; 3] = [
     "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
     "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
-    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\nendobj\n",
+    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Resources << >> >>\nendobj\n",
 ];
 
 /// Object 4, which exists to be replaced, deleted or hidden by whichever rule is under test.
@@ -48,8 +48,13 @@ fn body(chunks: &[&str]) -> (String, Vec<usize>) {
 /// offset.
 fn subsection(out: &mut String, first: u32, entries: &[(usize, char)]) {
     let _ = writeln!(out, "{first} {}", entries.len());
-    for (field, kind) in entries {
-        let _ = writeln!(out, "{field:010} 00000 {kind} ");
+    for (index, (field, kind)) in entries.iter().enumerate() {
+        let generation = if first == 0 && index == 0 && *kind == 'f' {
+            65535
+        } else {
+            0
+        };
+        let _ = writeln!(out, "{field:010} {generation:05} {kind} ");
     }
 }
 
@@ -384,7 +389,7 @@ fn an_incremental_update_that_deletes_an_object_is_not_undone_by_the_older_secti
 fn an_object_stream_locates_its_objects_at_first_plus_their_own_offset() {
     let build = |padding: &str| {
         let pages = "<< /Type /Pages /Count 1 /Kids [4 0 R] >>";
-        let page = "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 10 10] >>";
+        let page = "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 10 10] /Resources << >> >>";
         let header = format!("3 0 4 {} ", pages.len() + 1);
         let data = format!("{header}{padding}{pages} {page}");
         let first = header.len() + padding.len();
@@ -743,12 +748,8 @@ fn an_entry_type_the_standard_does_not_define_is_the_null_object() {
 #[test]
 fn a_hybrid_reference_file_finds_through_xrefstm_what_a_previous_section_marks_free() {
     let (mut out, offsets) = body(&[SKELETON[0], SKELETON[1], SKELETON[2], SPARE]);
-
-    // The main section: everything in use.
     let main_at = out.len();
     classic_section(&mut out, &offsets, "");
-
-    // An update that hides object 4 from a reader predating PDF 1.5.
     let hidden_at = out.len();
     out.push_str("xref\n");
     subsection(&mut out, 4, &[(0, 'f')]);
@@ -757,28 +758,25 @@ fn a_hybrid_reference_file_finds_through_xrefstm_what_a_previous_section_marks_f
         "trailer\n<< /Size 5 /Root 1 0 R /Prev {main_at} >>\nstartxref\n{hidden_at}\n%%EOF\n"
     );
 
-    // …and the stream that says where it really is, named by the newest table's `/XRefStm`.
     let mut bytes = out.into_bytes();
     let stream_at = bytes.len();
-    let entries = [[1u64, offset_of(offsets[3]), 0]];
+    let entries = [
+        [1u64, offset_of(offsets[3]), 0], // object 4's live answer
+        [1, offset_of(stream_at), 0],     // object 5's required self-entry
+    ];
     bytes.extend_from_slice(&xref_stream_object(5, Some(4), &entries, "", [1, 4, 2]));
-
     let table_at = bytes.len();
-    let mut tail = String::from("xref\n");
-    subsection(&mut tail, 0, &[(0, 'f')]);
-    let _ = write!(
-        tail,
-        "trailer\n<< /Size 6 /Root 1 0 R /XRefStm {stream_at} /Prev {hidden_at} >>\n\
-         startxref\n{table_at}\n%%EOF\n"
+    let tail = format!(
+        "xref\n0 0\ntrailer\n<< /Size 6 /Root 1 0 R /XRefStm {stream_at} /Prev {hidden_at} >>\nstartxref\n{table_at}\n%%EOF\n"
     );
     bytes.extend_from_slice(tail.as_bytes());
 
     let document = open(bytes);
     assert_eq!(
         object(&document, 4).as_string().map(<[u8]>::to_vec),
-        Some(b"the original".to_vec()),
-        "the hybrid stream is searched before the section that marks the object free"
+        Some(b"the original".to_vec())
     );
+    assert!(document.get(ObjectId::new(5, 0)).as_stream().is_some());
 }
 
 /// The skeleton written with a cross-reference stream rather than a classic table.
@@ -1090,7 +1088,7 @@ fn a_trailer_further_back_than_the_window_is_still_the_files_trailer() {
 /// (uncompressed) object other than an object stream".
 fn packed_document(readable: bool, spare_at_top_level: bool, filter: &str) -> Vec<u8> {
     let pages = "<< /Type /Pages /Count 1 /Kids [4 0 R] >>";
-    let page = "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 10 10] >>";
+    let page = "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 10 10] /Resources << >> >>";
     let header = format!("3 0 4 {} ", pages.len() + 1);
     let first = header.len();
     let data = format!("{header}{pages} {page}");
@@ -1717,7 +1715,7 @@ fn linearized_with_a_previous_off_by(displacement: i64) -> Vec<u8> {
     let objects_at = first_at + section_len(0);
     let chunks = [
         "5 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n",
-        "6 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 10 10] >>\nendobj\n",
+        "6 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 10 10] /Resources << >> >>\nendobj\n",
         "1 0 obj\n<< /Type /Pages /Count 2 /Kids [6 0 R 2 0 R] >>\nendobj\n",
         "2 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 20 20] >>\nendobj\n",
     ];
@@ -1866,7 +1864,7 @@ fn a_previous_that_is_not_an_offset_is_an_unreachable_section_too() {
 /// `/Size` of 5 does not reach.
 fn compressed_behind_an_unreadable_previous(reuse_four: bool, second_member: u32) -> Vec<u8> {
     let pages = "<< /Type /Pages /Count 1 /Kids [4 0 R] >>";
-    let page = "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 10 10] >>";
+    let page = "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 10 10] /Resources << >> >>";
     let header = format!("3 0 {second_member} {} ", pages.len() + 1);
     let data = format!("{header}{pages} {page}");
     let (mut out, offsets) = body(&[
@@ -1954,4 +1952,83 @@ fn a_member_of_an_older_object_stream_beyond_size_is_not_entered() {
         object(&document, 9).as_dict().is_none(),
         "the member beyond /Size is not: no section describes a number the trailer does not state"
     );
+}
+
+#[test]
+fn object_stream_member_order_need_not_match_object_number_order() {
+    let catalog = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+    let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Resources << >> /Marker (page-three) >>";
+    let pages = "<< /Type /Pages /Kids [3 0 R] /Count 1 /Marker (pages-two) >>";
+    let header = format!("3 0 2 {} ", page.len() + 1);
+    let data = format!("{header}{page} {pages}");
+    let first = header.len();
+    let objstm = format!(
+        "4 0 obj\n<< /Type /ObjStm /N 2 /First {first} /Length {} >>\nstream\n{data}\nendstream\nendobj\n",
+        data.len()
+    );
+    let (body_bytes, offsets) = body(&[catalog, &objstm]);
+    let mut bytes = body_bytes.into_bytes();
+    let xref_at = bytes.len();
+    let entries = [
+        [0, 0, 65535],
+        [1, offset_of(offsets[0]), 0],
+        [2, 4, 1], // object 2 is second in the member sequence
+        [2, 4, 0], // object 3 is first
+        [1, offset_of(offsets[1]), 0],
+        [1, offset_of(xref_at), 0], // object 5 self-entry
+    ];
+    bytes.extend_from_slice(&xref_stream_object(
+        5,
+        Some(0),
+        &entries,
+        "/Root 1 0 R ",
+        [1, 4, 2],
+    ));
+    bytes.extend_from_slice(format!("startxref\n{xref_at}\n%%EOF\n").as_bytes());
+
+    let document = open(bytes);
+    let pages = object(&document, 2);
+    let page = object(&document, 3);
+    assert_eq!(
+        pages
+            .as_dict()
+            .and_then(|d| d.get("Marker"))
+            .and_then(Object::as_string),
+        Some(&b"pages-two"[..])
+    );
+    assert_eq!(
+        page.as_dict()
+            .and_then(|d| d.get("Marker"))
+            .and_then(Object::as_string),
+        Some(&b"page-three"[..])
+    );
+}
+
+#[test]
+fn a_zero_width_type_field_defaults_a_valid_incremental_entry_to_type_one() {
+    let (mut bytes, offsets) = body(&[SKELETON[0], SKELETON[1], SKELETON[2], SPARE]);
+    let previous = bytes.len();
+    classic_section(&mut bytes, &offsets, "");
+
+    let mut bytes = bytes.into_bytes();
+    let stream_at = bytes.len();
+    let mut data = Vec::new(); // W [0 4 2]: no type byte, four-byte offset, two-byte generation.
+    data.extend_from_slice(
+        &u32::try_from(stream_at)
+            .expect("small fixture")
+            .to_be_bytes(),
+    );
+    data.extend_from_slice(&0u16.to_be_bytes());
+    let dict = format!(
+        "5 0 obj\n<< /Type /XRef /Size 6 /Index [5 1] /W [0 4 2] /Root 1 0 R /Prev {previous} /Length {} >>\nstream\n",
+        data.len()
+    );
+    bytes.extend_from_slice(dict.as_bytes());
+    bytes.extend_from_slice(&data);
+    bytes.extend_from_slice(b"\nendstream\nendobj\n");
+    bytes.extend_from_slice(format!("startxref\n{stream_at}\n%%EOF\n").as_bytes());
+
+    let document = open(bytes);
+    assert!(object(&document, 5).as_stream().is_some());
+    assert!(document.catalog().is_ok());
 }

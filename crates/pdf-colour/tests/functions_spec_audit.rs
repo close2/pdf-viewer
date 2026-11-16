@@ -319,3 +319,53 @@ fn valid_fractional_and_negative_exponents_preserve_their_meaning() {
     assert_eq!(function(&reciprocal).eval(&[0.5]), vec![2.0]);
     assert_eq!(function(&reciprocal).eval(&[4.0]), vec![0.25]);
 }
+
+/// Section 7.10.4 uses numeric equality at the first degenerate endpoint.
+#[test]
+fn stitching_treats_signed_zero_domain_and_bound_as_the_same_degenerate_endpoint() {
+    let mut observed = Vec::new();
+    for (domain_low, bound) in [
+        ("0.0", "0.0"),
+        ("-0.0", "-0.0"),
+        ("-0.0", "0.0"),
+        ("0.0", "-0.0"),
+    ] {
+        let stitching = format!(
+            "<< /FunctionType 3 /Domain [{domain_low} 1] /Functions [6 0 R 7 0 R] /Bounds [{bound}] /Encode [0.75 0.25 0 1] >>"
+        );
+        let document = document_with_objects(&[
+            (5, &stitching),
+            (
+                6,
+                "<< /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >>",
+            ),
+            (
+                7,
+                "<< /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >>",
+            ),
+        ]);
+        let f = function(&document);
+        let domain_low_number = document
+            .get(ObjectId {
+                number: 5,
+                generation: 0,
+            })
+            .as_dict()
+            .and_then(|dict| dict.get("Domain"))
+            .and_then(Object::as_array)
+            .and_then(|domain| domain.first())
+            .and_then(Object::as_number)
+            .expect("Domain0 is a PDF number");
+        if domain_low == "-0.0" {
+            assert_eq!(domain_low_number.to_bits(), (-0.0_f64).to_bits());
+        } else {
+            assert_eq!(domain_low_number.to_bits(), 0.0_f64.to_bits());
+        }
+        let input = if domain_low == "-0.0" { -0.0 } else { 0.0 };
+        observed.push((domain_low, bound, f.eval(&[input])));
+    }
+    assert!(
+        observed.iter().all(|(_, _, values)| values == &[0.75]),
+        "{observed:?}"
+    );
+}

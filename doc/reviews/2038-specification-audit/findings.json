@@ -209,5 +209,72 @@
     "execution": "2 PASS black_generation_transfer_audit",
     "controls": "Independent arithmetic supplies explicit CMYK control; final channel complement tests transfer order; opaque 100x100 raster and complete interpretation checked.",
     "remaining": "Control shares downstream raster/profile path. Does not certify all ICC conversions or full clause10.5."
+  },
+  {
+    "id": "2038-B08",
+    "kind": "behavior-interpretation-mismatch",
+    "clauses": [
+      "12.3.2.4"
+    ],
+    "summary": "A byte-string destination resolves the Catalog/Dests dictionary target before the same-key Names/Dests name-tree target.",
+    "source": "Printed pp443–444 associates name objects with Catalog/Dests and strings with the name tree; Annex J.3.3/.4 specifies comparison, not merging both tables.",
+    "code": "crates/pdf-model/src/destination.rs::named",
+    "test": "viewer-core::named_destination_tables_audit::a_string_destination_uses_the_name_tree_even_when_the_dictionary_has_the_same_key",
+    "execution": "FAIL: string (chapter) selects dictionary page instead of tree page; wave4. Name and escaped-name cases pass.",
+    "controls": "Exact xref, both tables coexist; direct-array page/geometry controls pass before activation.",
+    "remaining": "The implementation deliberately interprets alternatively as allowing dictionary-first fallback for either object type. This finding uses the clause’s type-specific correspondence; there is no separately worded cross-table collision-priority sentence. Reconsider the interpretation explicitly. Remote destinations and all absent-table fallbacks are not adjudicated."
+  },
+  {
+    "id": "2038-B09",
+    "kind": "behavior-gap",
+    "clauses": [
+      "7.10.4"
+    ],
+    "summary": "A degenerate first stitching interval treats opposite signed zero endpoints as unequal.",
+    "source": "Printed pp129–130: when first Bound equals Domain minimum, the first interval maps to Encode[0]. Positive and negative numerical zero are equal.",
+    "code": "crates/pdf-colour/src/function.rs (stitching total_cmp endpoint selection)",
+    "test": "pdf-colour::functions_spec_audit::stitching_treats_signed_zero_domain_and_bound_as_the_same_degenerate_endpoint",
+    "execution": "FAIL: same-sign controls produce 0.75; opposite-sign pairs produce 0.0, wave5.",
+    "controls": "All four real +/-0.0 pairs evaluated; parser sign bits checked, exact xref; same-sign controls distinguish branch behavior.",
+    "remaining": "One first-bound degenerate interval; not all function arithmetic."
+  },
+  {
+    "id": "2038-T09",
+    "kind": "fixture-and-coverage-gap",
+    "clauses": [
+      "7.5.7",
+      "7.5.8.4"
+    ],
+    "summary": "Existing hybrid xref fixture omitted the xref stream’s own entry. Corrected it and added valid reversed object-number ordering and W[0 4 2] incremental-stream controls.",
+    "execution": "All cross_references tests pass, wave4.",
+    "change": "Hybrid /Index now covers the stream itself; classic helper object0 uses free generation65535; new fixtures have required Resources.",
+    "remaining": "Reversed member order is allowed by §7.5.7 Note6; offset order stays increasing. Existing intentional malformed/recovery fixtures remain separately scoped."
+  },
+  {
+    "id": "2038-T10",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "14.9.4"
+    ],
+    "summary": "Added public ordinary selection, logical selection and accessibility tests for structure-element ActualText.",
+    "execution": "3 PASS, wave5.",
+    "controls": "Visible fi ligature has ToUnicode U+FB01; structure ActualText fi supplies equivalent characters. Same raster without replacement; unmodified neighboring content and Formula Alt control. Explicit PDF2 namespace, ParentTree, exact xref.",
+    "remaining": "Direct MCID-to-element, one content item. Preliminary no-consumer inference was rejected after tracing content/marked.rs and these passing controls. Empty replacement of visible content is not promoted as a valid normative oracle."
+  },
+  {
+    "id": "2038-D03",
+    "kind": "decision-premise-correction",
+    "clauses": [
+      "12.4.2"
+    ],
+    "summary": "ADR0601’s page-label conflict premise misses the official withdrawal of #432 and resolution in #593; retain current repeated-letter behavior.",
+    "sources": [
+      "https://github.com/pdf-association/pdf-issues/issues/432",
+      "https://github.com/pdf-association/pdf-issues/issues/593",
+      "https://pdf-issues.pdfa.org/32000-2-2020/clause12.html"
+    ],
+    "basis": "#432 reopened2025-08-14 and lost ISO-approved status when closed duplicate2025-11-10. #593 agreed2025-10-23, completed2025-11-10. Current Table161 repeats letters. These dates predate ADR0601 (2026-08-25); the static PDF retains stale accepted overlay annotations.",
+    "execution": "PASS public QueryPageLabel→host PageEntry AA/BB assertion, wave4.",
+    "remaining": "Historical ADR and licensed source remain unchanged; primary issue pages checked by parent. No claim the resolution occurred after the ADR."
   }
 ]

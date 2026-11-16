@@ -10557,3 +10557,168 @@ fn table_380s_decoration_and_shift_reach_the_elements_own_text() {
         "a block inside the underlined Div is not underlined"
     );
 }
+
+// This fixture uses an explicit PDF 2.0
+// standard structure namespace on every element, an exact classic xref table, and the ParentTree
+// mapping required to associate each page MCID with its structure element.
+fn with_struct_element_text_replacements(replacements: bool) -> Vec<u8> {
+    let content = concat!(
+        "BT /F1 12 Tf 10 80 Td ",
+        "/Formula <</MCID 0>> BDC (A) Tj EMC 40 0 Td ",
+        "/P <</MCID 1>> BDC (9) Tj EMC 40 0 Td ",
+        "/P <</MCID 2>> BDC (plain) Tj EMC 40 0 Td ",
+        "/Formula <</MCID 3>> BDC (x2) Tj EMC ET\n",
+    );
+    let replacement = if replacements {
+        " /ActualText (fi)"
+    } else {
+        ""
+    };
+    let cmap = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def /CMapName /Audit def /CMapType 2 def 1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfchar <41> <FB01> endbfchar endcmap CMapName currentdict /CMap defineresource pop end end";
+    let body = format!(
+        concat!(
+            "1 0 obj\n<< /Type /Catalog /Version /2.0 /Pages 2 0 R /StructTreeRoot 6 0 R ",
+            "/MarkInfo << /Marked true >> >>\nendobj\n",
+            "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R ",
+            "/Resources << /Font << /F1 5 0 R >> >> /StructParents 0 >>\nendobj\n",
+            "4 0 obj\n<< /Length {} >>\nstream\n{content}endstream\nendobj\n",
+            "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding << /BaseEncoding /WinAnsiEncoding /Differences [65 /fi] >> /ToUnicode 14 0 R >>\nendobj\n",
+            "6 0 obj\n<< /Type /StructTreeRoot /K 13 0 R ",
+            "/ParentTree 11 0 R /ParentTreeNextKey 1 /Namespaces [12 0 R] >>\nendobj\n",
+            "7 0 obj\n<< /Type /StructElem /S /Formula /NS 12 0 R /P 13 0 R /Pg 3 0 R /K [0]{replacement} >>\nendobj\n",
+            "8 0 obj\n<< /Type /StructElem /S /P /NS 12 0 R /P 13 0 R /Pg 3 0 R /K [1] ",
+            ">>\nendobj\n",
+            "9 0 obj\n<< /Type /StructElem /S /P /NS 12 0 R /P 13 0 R /Pg 3 0 R /K [2] >>\nendobj\n",
+            "10 0 obj\n<< /Type /StructElem /S /Formula /NS 12 0 R /P 13 0 R /Pg 3 0 R /K [3] ",
+            "/Alt (x squared) >>\nendobj\n",
+            "11 0 obj\n<< /Nums [0 [7 0 R 8 0 R 9 0 R 10 0 R]] >>\nendobj\n",
+            "12 0 obj\n<< /Type /Namespace /NS (http://iso.org/pdf2/ssn) >>\nendobj\n",
+            "13 0 obj\n<< /Type /StructElem /S /Document /NS 12 0 R /P 6 0 R /K [7 0 R 8 0 R 9 0 R 10 0 R] >>\nendobj\n",
+            "14 0 obj\n<< /Length {cmap_length} >>\nstream\n{cmap}\nendstream\nendobj\n",
+        ),
+        content.len(),
+        content = content,
+        replacement = replacement,
+        cmap = cmap,
+        cmap_length = cmap.len()
+    );
+
+    let mut out = String::from("%PDF-2.0\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+fn open_for_actualtext_test(bytes: Vec<u8>) -> (Viewer, pdf_render::Raster) {
+    let parsed = pdf_syntax::Document::open(bytes.clone()).expect("exact fixture");
+    assert!(!parsed.was_recovered());
+    let page = pdf_model::Pages::new(&parsed).get(0).expect("one page");
+    let interpretation = pdf_model::interpret(&parsed, &page);
+    assert!(
+        interpretation.is_complete(),
+        "{:?}",
+        interpretation.unsupported
+    );
+    assert!(interpretation.glyphs > 0);
+    let mut viewer = Viewer::new(400, 300, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.into(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let request = request(&events).clone();
+    let raster = CpuRasterizer::new()
+        .rasterize(&request.list, request.target)
+        .expect("the CPU backend draws this page");
+    viewer
+        .handle(Command::RenderReady {
+            token: request.token,
+            rendered: Rendered::Raster(raster.clone()),
+        })
+        .for_each(drop);
+    (viewer, raster)
+}
+
+fn actualtext_words(text: &str) -> Vec<&str> {
+    text.split_whitespace().collect()
+}
+
+/// The visible ligature maps to U+FB01; `ActualText` supplies the equivalent two characters fi.
+/// Formula Alt remains a separate accessibility description, not a character substitution.
+fn checked_structure_actualtext_viewer() -> Viewer {
+    let (mut raw, raw_raster) =
+        open_for_actualtext_test(with_struct_element_text_replacements(false));
+    let (mut viewer, raster) =
+        open_for_actualtext_test(with_struct_element_text_replacements(true));
+    assert_eq!(raster.data, raw_raster.data);
+    raw.handle(Command::Select(Selection::All)).for_each(drop);
+    let Answer::Selected(selected) = raw.query(Query::Selection) else {
+        panic!("raw text is selectable");
+    };
+    assert_eq!(actualtext_words(&selected.text), ["ﬁ", "9", "plain", "x2"]);
+    let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
+        panic!("accessibility query");
+    };
+    let nodes = on_one_page(pages);
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.role == "Formula" && node.name == "x squared" && node.substituted),
+        "Alt control: {nodes:?}"
+    );
+    viewer
+        .handle(Command::Select(Selection::All))
+        .for_each(drop);
+    viewer
+}
+
+#[test]
+fn structure_actualtext_replaces_a_ligature_in_ordinary_selection() {
+    let viewer = checked_structure_actualtext_viewer();
+    let Answer::Selected(selected) = viewer.query(Query::Selection) else {
+        panic!("selected text");
+    };
+    assert_eq!(actualtext_words(&selected.text), ["fi", "9", "plain", "x2"]);
+}
+
+#[test]
+fn structure_actualtext_replaces_a_ligature_in_logical_selection() {
+    let viewer = checked_structure_actualtext_viewer();
+    let Answer::LogicalSelection(text) = viewer.query(Query::LogicalSelection) else {
+        panic!("logical selection");
+    };
+    assert_eq!(actualtext_words(&text), ["fi", "9", "plain", "x2"]);
+}
+
+#[test]
+fn structure_actualtext_replaces_a_ligature_in_accessibility() {
+    let viewer = checked_structure_actualtext_viewer();
+    let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
+        panic!("accessibility query");
+    };
+    let nodes = on_one_page(pages);
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.role == "Formula" && node.name == "fi"),
+        "{nodes:?}"
+    );
+}

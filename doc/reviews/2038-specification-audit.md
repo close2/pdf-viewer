@@ -57,6 +57,19 @@ the two added colour arithmetic/transfer controls pass. A shared-date-parser
 mutation is killed by both strengthened invalid-input tests, while valid controls
 pass; the source was restored and all date targets then passed.
 
+The next controls expose two additional failures: same-key string destinations prefer
+the catalog dictionary over the name tree, and stitching uses signed-zero ordering
+where the degenerate endpoint needs numeric equality. The destination finding states
+the competing interpretation explicitly. There are eleven expected failing assertions.
+Cross-reference fixture repairs and additional ordering/default-width controls pass.
+Three public structure-element `ActualText` ligature tests pass; a preliminary
+missing-consumer claim was rejected.
+
+Review of ADR0601 supports the existing repeated-letter page labels but revises its
+conflict premise: official issue #432 was withdrawn in favor of #593 before the ADR
+was written. The static PDF retains stale accepted annotations. Source links and
+chronology are recorded in finding D03; the added public AA/BB label control passes.
+
 The owner-authorized redaction-overlay change is recorded in A842 and ADR 2868;
 the MaxLen change is recorded in A834 and ADR 2840. Their changed assertions must
 be assessed against those current decisions rather than treated as unauthorized

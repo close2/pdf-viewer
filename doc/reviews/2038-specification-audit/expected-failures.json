@@ -54,6 +54,18 @@
       "test": "a_cf_entry_named_identity_is_ignored_even_if_its_cfm_is_unknown",
       "finding": "2038-B07",
       "log": "round2-targets-wave3-rerun.log"
+    },
+    {
+      "binary": "viewer-core::named_destination_tables_audit",
+      "test": "a_string_destination_uses_the_name_tree_even_when_the_dictionary_has_the_same_key",
+      "finding": "2038-B08",
+      "log": "round2-targets-wave4.log"
+    },
+    {
+      "binary": "pdf-colour::functions_spec_audit",
+      "test": "stitching_treats_signed_zero_domain_and_bound_as_the_same_degenerate_endpoint",
+      "finding": "2038-B09",
+      "log": "round2-targets-wave5.log"
     }
   ]
 }
