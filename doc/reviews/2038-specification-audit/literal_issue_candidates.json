@@ -2,10 +2,10 @@
   "source": "doc/ISO_32000-2_sponsored_EC3.pdf",
   "source_sha256": "c7d4ec236794558d48205394d499a9791575b5f5794e39377382e633846a6f80",
   "method": "Issue IDs in annotation Subj; exact literal #ID absent from selected current shard prose filenames. This can miss semantic ownership, numeric JSON issue fields, alternative citation styles and prior-round evidence. It is not a count of unimplemented or unreviewed features.",
-  "selected_prose_files": 534,
-  "selected_prose_sha256": "c073b16330b55c93e498578eb6716febcd93297927b7c76f5a9335765ef258f8",
+  "selected_prose_files": 541,
+  "selected_prose_sha256": "23fbba49b175e6d7cd715a564b1405a3f957a133cbba01ac39f79cc11bce44cf",
   "unique_issue_ids": 360,
-  "candidate_count": 110,
+  "candidate_count": 86,
   "candidates": [
     {
       "issue": 4,
@@ -37,130 +37,6 @@
         ],
         [
           13844,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 13,
-      "physical_pages": [
-        274,
-        275
-      ],
-      "annotation_objects": [
-        [
-          3610,
-          0
-        ],
-        [
-          3614,
-          0
-        ],
-        [
-          3649,
-          0
-        ],
-        [
-          3653,
-          0
-        ],
-        [
-          3657,
-          0
-        ],
-        [
-          3661,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 14,
-      "physical_pages": [
-        274,
-        453,
-        454,
-        855
-      ],
-      "annotation_objects": [
-        [
-          3602,
-          0
-        ],
-        [
-          3604,
-          0
-        ],
-        [
-          4696,
-          0
-        ],
-        [
-          4698,
-          0
-        ],
-        [
-          4704,
-          0
-        ],
-        [
-          4706,
-          0
-        ],
-        [
-          8135,
-          0
-        ],
-        [
-          8137,
-          0
-        ],
-        [
-          12861,
-          0
-        ],
-        [
-          12863,
-          0
-        ],
-        [
-          12869,
-          0
-        ],
-        [
-          12871,
-          0
-        ],
-        [
-          12877,
-          0
-        ],
-        [
-          12879,
-          0
-        ],
-        [
-          12885,
-          0
-        ],
-        [
-          12887,
-          0
-        ],
-        [
-          12893,
-          0
-        ],
-        [
-          12895,
-          0
-        ],
-        [
-          12901,
-          0
-        ],
-        [
-          12903,
           0
         ]
       ]
@@ -319,43 +195,6 @@
       ]
     },
     {
-      "issue": 53,
-      "physical_pages": [
-        96,
-        97
-      ],
-      "annotation_objects": [
-        [
-          2037,
-          0
-        ],
-        [
-          2041,
-          0
-        ],
-        [
-          2045,
-          0
-        ],
-        [
-          2063,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 57,
-      "physical_pages": [
-        17
-      ],
-      "annotation_objects": [
-        [
-          1211,
-          0
-        ]
-      ]
-    },
-    {
       "issue": 62,
       "physical_pages": [
         940
@@ -467,51 +306,6 @@
         ],
         [
           14663,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 96,
-      "physical_pages": [
-        131,
-        132
-      ],
-      "annotation_objects": [
-        [
-          2824,
-          0
-        ],
-        [
-          10566,
-          0
-        ],
-        [
-          10568,
-          0
-        ],
-        [
-          10574,
-          0
-        ],
-        [
-          10578,
-          0
-        ],
-        [
-          10582,
-          0
-        ],
-        [
-          10586,
-          0
-        ],
-        [
-          10588,
-          0
-        ],
-        [
-          10594,
           0
         ]
       ]
@@ -810,18 +604,6 @@
       ]
     },
     {
-      "issue": 211,
-      "physical_pages": [
-        86
-      ],
-      "annotation_objects": [
-        [
-          9951,
-          0
-        ]
-      ]
-    },
-    {
       "issue": 216,
       "physical_pages": [
         49,
@@ -909,38 +691,6 @@
       ]
     },
     {
-      "issue": 242,
-      "physical_pages": [
-        114
-      ],
-      "annotation_objects": [
-        [
-          10209,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 251,
-      "physical_pages": [
-        133
-      ],
-      "annotation_objects": [
-        [
-          2867,
-          0
-        ],
-        [
-          2869,
-          0
-        ],
-        [
-          2882,
-          0
-        ]
-      ]
-    },
-    {
       "issue": 254,
       "physical_pages": [
         753
@@ -965,18 +715,6 @@
       ]
     },
     {
-      "issue": 259,
-      "physical_pages": [
-        10
-      ],
-      "annotation_objects": [
-        [
-          1186,
-          0
-        ]
-      ]
-    },
-    {
       "issue": 264,
       "physical_pages": [
         576
@@ -984,58 +722,6 @@
       "annotation_objects": [
         [
           5874,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 271,
-      "physical_pages": [
-        118
-      ],
-      "annotation_objects": [
-        [
-          2281,
-          0
-        ],
-        [
-          2285,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 276,
-      "physical_pages": [
-        132
-      ],
-      "annotation_objects": [
-        [
-          2832,
-          0
-        ],
-        [
-          2834,
-          0
-        ],
-        [
-          2840,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 280,
-      "physical_pages": [
-        128
-      ],
-      "annotation_objects": [
-        [
-          2450,
-          0
-        ],
-        [
-          2452,
           0
         ]
       ]
@@ -1064,35 +750,6 @@
       "annotation_objects": [
         [
           7607,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 291,
-      "physical_pages": [
-        128,
-        287
-      ],
-      "annotation_objects": [
-        [
-          2442,
-          0
-        ],
-        [
-          3782,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 294,
-      "physical_pages": [
-        236
-      ],
-      "annotation_objects": [
-        [
-          3482,
           0
         ]
       ]
@@ -1246,22 +903,6 @@
       ]
     },
     {
-      "issue": 341,
-      "physical_pages": [
-        75
-      ],
-      "annotation_objects": [
-        [
-          1851,
-          0
-        ],
-        [
-          1853,
-          0
-        ]
-      ]
-    },
-    {
       "issue": 347,
       "physical_pages": [
         809
@@ -1269,18 +910,6 @@
       "annotation_objects": [
         [
           7805,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 348,
-      "physical_pages": [
-        116
-      ],
-      "annotation_objects": [
-        [
-          2228,
           0
         ]
       ]
@@ -1418,18 +1047,6 @@
       ]
     },
     {
-      "issue": 397,
-      "physical_pages": [
-        31
-      ],
-      "annotation_objects": [
-        [
-          1424,
-          0
-        ]
-      ]
-    },
-    {
       "issue": 402,
       "physical_pages": [
         922,
@@ -1507,38 +1124,6 @@
       ]
     },
     {
-      "issue": 475,
-      "physical_pages": [
-        103
-      ],
-      "annotation_objects": [
-        [
-          2143,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 519,
-      "physical_pages": [
-        18
-      ],
-      "annotation_objects": [
-        [
-          1235,
-          0
-        ],
-        [
-          1236,
-          0
-        ],
-        [
-          1239,
-          0
-        ]
-      ]
-    },
-    {
       "issue": 529,
       "physical_pages": [
         110
@@ -1558,22 +1143,6 @@
       "annotation_objects": [
         [
           4738,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 541,
-      "physical_pages": [
-        859
-      ],
-      "annotation_objects": [
-        [
-          8254,
-          0
-        ],
-        [
-          8255,
           0
         ]
       ]
@@ -1636,22 +1205,6 @@
       ]
     },
     {
-      "issue": 594,
-      "physical_pages": [
-        78
-      ],
-      "annotation_objects": [
-        [
-          1909,
-          0
-        ],
-        [
-          1910,
-          0
-        ]
-      ]
-    },
-    {
       "issue": 618,
       "physical_pages": [
         546
@@ -1659,50 +1212,6 @@
       "annotation_objects": [
         [
           5609,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 623,
-      "physical_pages": [
-        22
-      ],
-      "annotation_objects": [
-        [
-          1285,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 627,
-      "physical_pages": [
-        27
-      ],
-      "annotation_objects": [
-        [
-          1384,
-          0
-        ],
-        [
-          1385,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 638,
-      "physical_pages": [
-        79
-      ],
-      "annotation_objects": [
-        [
-          1917,
-          0
-        ],
-        [
-          1918,
           0
         ]
       ]

@@ -1,0 +1,33 @@
+{
+  "source": "Freshly enumerated all selected primary annotation groups with pikepdf and read surrounding page text. Used bbox coordinates for #13 targets. Checked Table 143 restrictions on physical 435\u2013436 and appended Table 24 reserved-bit row on 1021. Corrected draft physical-page offsets, algorithm owners, table numbers and inappropriate dismissal of Text notes.",
+  "assertions": [
+    {
+      "issue": 96,
+      "file": "crates/pdf-syntax/src/text_string.rs",
+      "tests": [
+        "a_string_with_no_prefix_is_pdfdocencoded",
+        "a_utf16be_marker_selects_utf16be",
+        "a_surrogate_pair_is_one_character"
+      ],
+      "assessment": "Read literal assertions for octal-213/PDFDocEncoding, corrected Cyrillic UTF-16 bytes and a supplementary code point."
+    },
+    {
+      "issue": 251,
+      "file": "crates/pdf-syntax/src/date.rs",
+      "tests": [
+        "dates_order_by_the_instant_rather_than_by_the_string"
+      ],
+      "assessment": "Read bare 07:00 versus 12:00+05:00 instant equality. Optional suffix tests alone are not this omitted-timezone assertion."
+    },
+    {
+      "issue": 594,
+      "file": "crates/pdf-syntax/tests/cross_references.rs",
+      "tests": [
+        "object_stream_dictionary_values_may_reference_uncompressed_objects"
+      ],
+      "assessment": "Exact xref fixture has no ordinary body reference to ObjStm 2. Membership entries locate it, and assertions read three members including a literal endstream inside Title. This control already passed in wave54 and broad59."
+    }
+  ],
+  "implementation": "Read colour/parsing.rs::by_name: parameterless Pattern returns a pattern space, device families and resource names are separate. Read soft_mask.rs::soft_mask_entry restrictions; generic mask tests are not exhaustive Table 143 coverage.",
+  "limits": "Fifteen selected issue groups, not full clauses. No new behavior failure, new test or newly claimed execution. Existing source/comment locators in older images_current used processed Table 87 numbering; actual primary image table is 89. Earlier parent image behavior evidence is unchanged."
+}

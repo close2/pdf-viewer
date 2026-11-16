@@ -1,0 +1,40 @@
+{
+  "decisions": [
+    {
+      "topic": "producer syntax versus reader obligation",
+      "ids": [
+        242,
+        271,
+        348,
+        475
+      ],
+      "assessment": "The effective edits constrain well-formed producer output (direct /Extensions, nonempty/non-null /Kids and positive /Count, indirect /StructTreeRoot, reserved encryption permission bits). They do not by themselves require a reader to reject legacy or malformed forms. For #475, adjacent Table 24 prose explicitly says processors ignore all flags outside named positions. Existing targeted tests provide evidence for select paths; do not infer exhaustive support from them.",
+      "reconsideration": "No owner-policy change proposed. Preserve reader recovery policy as separately scoped."
+    },
+    {
+      "topic": "errata annotation versus effective source",
+      "ids": [
+        13,
+        211,
+        475
+      ],
+      "assessment": "#13 Text annotations point at the ImageMask, Alternates, SMask, StructParent, ID and OPI entries and add an informative cross-reference to \u00a711.6.5.2; treat as a note directing readers to existing restrictions. #211 is an informative NOTE 1 adjacent to \u00a77.6.2\u2019s signature-Contents encryption exception and clarifies its relation to signature representation in \u00a77.9.2.4/Table 255. It does not add a new mandatory parser rejection rule. #475 adds the reserved permission-bit row in the errata appendix; the operative Table 24 prose tells processors to ignore flags outside the listed positions.",
+      "reconsideration": "None."
+    },
+    {
+      "topic": "dates",
+      "ids": [
+        251
+      ],
+      "assessment": "Issue #251 replaces the sentence that says an absent timezone has GMT relation with equivalent wording (+0'00), and separately strikes the sentence saying the remaining date fields are specified in local time. Existing `date.rs` notes the first is semantically equivalent; the date grammar supports field interpretation after the second is removed. The implementation stores fields and derives UTC instants. This does not settle calendar validity of all numeric date combinations.",
+      "reconsideration": "No separate date-policy ADR change proposed."
+    },
+    {
+      "topic": "neighboring \u00a77.3 syntax clauses",
+      "ids": [],
+      "assessment": "\u00a77.3.9 physical48/printed33 contains undefined-reference-as-null and null-dictionary-value-as-omission. \u00a77.3.10 physical49/printed34 repeats undefined-reference-as-null and direct/indirect equivalence; it does not contain the dictionary omission rule.",
+      "reconsideration": "Prior scratch locator/content conflation corrected; no ADR scope change."
+    }
+  ],
+  "adr_limit": "This batch did not reopen unrelated or already completed owner ADRs; it reviewed whether these source edits contradicted the nearby test/consumer claims. No new decision requested."
+}

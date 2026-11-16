@@ -31,7 +31,7 @@ composites overlapping same-object geometry twice. Literal measurement, join/fil
 WritingMode and new-file ID controls pass. The stroke failure also reaches PDF and three GPU lanes; CMYK-image OP passes.
 Embedded-font, Type3 image and corrected FDF controls pass. Next scopes cover
 indirect-value equivalence and remaining consumer assertions.
-UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage53%;ceiling85%.
+UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage54%;ceiling85%.
 
 TSA keyCompromise time selection fails with genuine signed material; FieldMDP
 rename coverage fails under a qualified interpretation. Signature/core Clippy passes.

@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (59)
+## Current checkpoint (60)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **78 assertions**, grouped into behavior findings rather
@@ -86,6 +86,12 @@ Checkpoint59 adds two passing font metric tests. The simple-font control uses th
 public metrics-only consumer so a program fallback cannot mask ignored Widths.
 CID controls use exact embedded-program widths and literal vertical metrics.
 Font Clippy passes. The refreshed broad run matches every in-scope failure identity.
+
+Checkpoint60 reconciles 24 selected errata issue groups with their primary targets.
+It corrects draft source ownership and distinguishes informative notes, producer
+constraints and reference-version rules. Existing literal assertions support selected
+encoding, timezone, object-stream and metadata paths. No new failure or execution is
+claimed; full soft-mask restrictions and linearization resources remain partial.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

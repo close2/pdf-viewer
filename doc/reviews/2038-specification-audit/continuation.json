@@ -18,13 +18,14 @@
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
-      "errata_numeric_syntax_batch_current",
       "errata_interactive_batch_current",
       "errata_graphics_security_batch_current",
       "errata_structure_metadata_batch_current",
       "errata_font_text_batch_current"
     ],
     "recorded_shards": [
+      "errata_numeric_syntax_batch_current",
+      "errata_reference_editorial_current",
       "indirect_font_values_current",
       "indirect_graphics_state_current",
       "indirect_annotation_parameters_current",
@@ -186,7 +187,7 @@
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 53,
-    "last_read_utc": "2026-11-16T19:41:51.435402+00:00"
+    "last_weekly_used_percent": 54,
+    "last_read_utc": "2026-11-16T19:47:13.985042+00:00"
   }
 }
