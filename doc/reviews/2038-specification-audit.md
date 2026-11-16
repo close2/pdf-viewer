@@ -11,9 +11,9 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (37)
+## Current checkpoint (38)
 
-Partial reviews now cover **629 of 883 ledger rows**, with 254 pending. The current
+Partial reviews now cover **642 of 883 ledger rows**, with 241 pending. The current
 failure manifest contains **65 assertions**, grouped into behavior findings rather
 than 65 independent defects. All 72 failures from the prior audit pass at this baseline.
 The latest broad run, wave31, covered eleven crates: **7,142 tests ran, 7,087 passed,
@@ -57,6 +57,11 @@ verified keyCompromise on the TSA path. Genuine CMS/token/CRL artifacts and clea
 and damaged-signature controls distinguish this from untrusted input. A separate
 FieldMDP rename regression fails at the comparison API; the cross-revision identity
 reading remains qualified, and its minimal fixture does not certify signature validity.
+
+Checkpoint38 adds passing public-PDF controls for an empty Alpha soft-mask group
+and its transfer function, including the outside-BBox value. All21soft-mask tests
+pass. Coordinate foundations and group algebra retain explicit precision, shape,
+backend, and arbitrary-stack residuals. The failure manifest remains65.
 
 These are partial feature reviews, not whole-clause certification. The paragraphs
 below preserve earlier checkpoint evidence. Weekly usage was45% at the latest check;

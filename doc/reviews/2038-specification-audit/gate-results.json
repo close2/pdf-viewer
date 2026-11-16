@@ -1293,6 +1293,19 @@
       "log": "quality-wave37b.log",
       "exit": 0,
       "scope": "Signature/core all-targets Clippy -Dwarnings PASS. Initial quality run required a justified too-many-lines expectation around signed controls."
+    },
+    {
+      "log": "alpha-mask-wave38.log",
+      "run": 21,
+      "passed": 21,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Whole public soft_masks binary;2new Alpha tests and19existing controls."
+    },
+    {
+      "log": "quality-wave38.log",
+      "exit": 0,
+      "scope": "Model all-targets Clippy -Dwarnings PASS; final changes after run are comments only."
     }
   ],
   "prior_expected_failures": {

@@ -1084,3 +1084,68 @@ fn a_mask_group_stating_no_resources_is_read_against_the_pages_dictionary() {
         "outside the box the mask is /BC's luminosity, 0",
     );
 }
+
+/// ISO 32000-2 §11.5.2 NOTE 2 fixes an empty group’s shape and alpha at zero.
+#[test]
+fn an_empty_alpha_mask_group_has_zero_alpha() {
+    let masked_bytes = page(
+        "/SMask << /Type /Mask /S /Alpha /G 6 0 R >>",
+        "/GS gs 0 g 0 0 40 40 re f",
+        "",
+    );
+    let parsed = Document::open(masked_bytes.clone()).expect("the exact-xref fixture opens");
+    assert!(!parsed.was_recovered(), "the fixture has an exact xref");
+    let masked = render(masked_bytes);
+
+    // The form helper's empty content stream creates a real empty Transparency group. Its
+    // /BBox is the left half of the page; the alpha derivation is zero inside and outside.
+    // Drawing black through zero alpha leaves the white page unchanged.
+    for (x, y) in [(5, 20), (15, 20), (25, 20), (35, 20)] {
+        assert_eq!(
+            pixel(&masked, x, y),
+            [255, 255, 255, 255],
+            "an empty alpha group contributes zero at ({x}, {y})",
+        );
+    }
+
+    // Control: identical page and black fill without an active mask must paint black. This
+    // ensures that the empty target group did not cause the test to observe a blank page.
+    let control_bytes = page("", "/GS gs 0 g 0 0 40 40 re f", "");
+    let control_doc = Document::open(control_bytes.clone()).expect("the exact-xref control opens");
+    assert!(
+        !control_doc.was_recovered(),
+        "the control has an exact xref"
+    );
+    let control = render(control_bytes);
+    assert_eq!(pixel(&control, 5, 20), [0, 0, 0, 255]);
+    assert_eq!(pixel(&control, 35, 20), [0, 0, 0, 255]);
+}
+
+#[test]
+fn an_alpha_mask_transfer_function_is_applied_to_group_alpha_in_the_pdf_path() {
+    let bytes = page_with_group_resources(
+        "/DeviceGray",
+        "/SMask << /Type /Mask /S /Alpha /G 6 0 R \
+         /TR << /FunctionType 2 /Domain [0 1] /Range [0 1] /N 1 /C0 [1] /C1 [0] >> >>",
+        "/GS gs 0 g 0 0 40 40 re f",
+        "<< /ExtGState << /GA 7 0 R >> >>",
+        "/GA gs 0 g 0 0 20 40 re f",
+        &[b"7 0 obj\n<< /Type /ExtGState /ca 0.25 >>\nendobj\n".to_vec()],
+    );
+    let document = Document::open(bytes.clone()).expect("the exact-xref PDF opens");
+    assert!(
+        !document.was_recovered(),
+        "the fixture has exact xref offsets"
+    );
+    let raster = render(bytes);
+
+    // §11.5.2 supplies alpha 0.25 from the group. The valid type-2 function C0=1, C1=0,
+    // N=1 maps it to 0.75. Black at mask opacity 0.75 over white leaves 0.25, rounded to
+    // level 64. Section 11.6.5.1 requires the outside-BBox mask to be TR(0), here 1.
+    let inside = pixel(&raster, 5, 20);
+    for channel in &inside[..3] {
+        near(i32::from(*channel), 64, "inverse alpha mask");
+    }
+    assert_eq!(inside[3], 255);
+    assert_eq!(pixel(&raster, 25, 20), [0, 0, 0, 255]);
+}

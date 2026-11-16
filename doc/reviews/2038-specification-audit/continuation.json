@@ -6,8 +6,8 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "Latest broad refresh wave31: eleven crates,7142run7087PASS55expectedFAIL58skip; exact binary/test identity equality. Wave32 adds four passing tests and three expected failing assertions, manifest58. Broad run predates those seven new tests. Wave33 adds one passing script dispatch test; expected manifest remains58. Media BE diagnostic draft passed but was discarded as redundant. Wave34 adds1PASS and4FAIL; manifest62. Three GPU failures are outside the eleven-crate broad-run package scope. Wave35 adds1PASS glyphpixel testandreruns1PASS canonicalFDFfixture; manifest62unchanged. Wave36 adds one adopted-policy failure (SHOULD-qualified B40); manifest63. Transform comment edits have no behavior change. Wave37 adds two failures; manifest65. TSA selector confirmed, FieldMDP qualified interpretation.",
-    "quality": "Checkpoint37 signature/core all-targets Clippy PASS; previous model/GPU checks retain their scope."
+    "later_targets": "Latest broad refresh wave31: eleven crates,7142run7087PASS55expectedFAIL58skip; exact binary/test identity equality. Wave32 adds four passing tests and three expected failing assertions, manifest58. Broad run predates those seven new tests. Wave33 adds one passing script dispatch test; expected manifest remains58. Media BE diagnostic draft passed but was discarded as redundant. Wave34 adds1PASS and4FAIL; manifest62. Three GPU failures are outside the eleven-crate broad-run package scope. Wave35 adds1PASS glyphpixel testandreruns1PASS canonicalFDFfixture; manifest62unchanged. Wave36 adds one adopted-policy failure (SHOULD-qualified B40); manifest63. Transform comment edits have no behavior change. Wave37 adds two failures; manifest65. TSA selector confirmed, FieldMDP qualified interpretation. Wave38 soft_masks21PASS includes2new Alpha assertions. Manifest65 unchanged.",
+    "quality": "Checkpoint38 model all-targets Clippy PASS;37 signature/core PASS. Previous GPU checks retain scope."
   },
   "review": {
     "prior_failure_assertions": 72,
@@ -15,10 +15,12 @@
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
       "signature_crl_current",
-      "coordinate_foundations_current",
-      "transparency_foundations_current"
+      "structure_layout_remaining_current",
+      "three_d_scope_current"
     ],
     "recorded_shards": [
+      "transparency_foundations_current",
+      "coordinate_foundations_current",
       "signature_revocation_current",
       "signature_revocation_crosscheck",
       "field_mdp_identity_current",
@@ -121,8 +123,8 @@
       "font_substitution_current",
       "tagged_layout"
     ],
-    "partial_current_rows": 629,
-    "pending_current_rows": 254
+    "partial_current_rows": 642,
+    "pending_current_rows": 241
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",

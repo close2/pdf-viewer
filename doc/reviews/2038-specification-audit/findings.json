@@ -1641,5 +1641,17 @@
     "execution": "signature-time-field-wave37b.log:1FAIL",
     "scope": "Comparison API only. Placeholder CMS and minimal widget fixture do not establish signature validity, full PDF conformance, or viewer enforcement.",
     "adr": "1096"
+  },
+  {
+    "id": "2038-T60",
+    "kind": "strengthened-public-assertions",
+    "clauses": [
+      "11.5.2",
+      "11.6.5.1"
+    ],
+    "summary": "Empty Alpha-group and Alpha transfer behavior now have public PDF pixel controls.",
+    "evidence": "Empty mask leaves four samples white, unmasked control paints black. Type2 inverse maps group alpha0.25 to0.75 and outside alpha0 to1; resulting pixels satisfy independent arithmetic.",
+    "execution": "alpha-mask-wave38.log:21PASS, including2new tests. Model all-targets Clippy PASS.",
+    "limits": "CPU PDF path only; does not certify every group formula or all backends. Existing luminosity-empty and luminosity-transfer tests were not counted as this Alpha evidence."
   }
 ]

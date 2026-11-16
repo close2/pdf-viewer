@@ -1,0 +1,46 @@
+{
+  "review_status": "selected ADR reconsideration; bounded audit",
+  "decisions": [
+    {
+      "adr": "ADR 1461",
+      "decision_review": "retain",
+      "basis": "§11.3.2 and §11.4.2 each state a processor obligation, not just variable naming. The zero-alpha and recurrence fixture checks formula consequences at rendered pixels rather than relying on API shape or cross-renderer agreement.",
+      "limit": "The current fixture does not cover every arbitrary undefined color or every device/backend arithmetic path."
+    },
+    {
+      "adr": "ADR 0026",
+      "decision_review": "retain with current-evidence scope",
+      "basis": "One group command maps to one collected stack and one later compositing event. Current valid PDF tests compare overlap pixels against a non-grouped control and distinguish isolated/non-isolated execution.",
+      "limit": "No claim that the cited representative raster assertion proves all §11.4.1 attributes. Shape is independently observable only in knockout consumers; the related tests should support that narrower obligation."
+    },
+    {
+      "adr": "ADR 0027",
+      "decision_review": "retain",
+      "basis": "Evaluating the mask group at backend resolution is consistent with position-dependent per-pixel mask values and the group-derived alpha/luminosity rules. Tests include source-derived fractional values and a valid public PDF alpha group that proves color is ignored.",
+      "limit": "Current public PDF alpha fixture tests identity transfer; generic transfer is tested publicly for Luminosity and at the pdf-render SoftMask API for Alpha. Draft adds the missing PDF alpha-transfer path control."
+    },
+    {
+      "adr": "ADR 0237",
+      "decision_review": "retain only under its derived conditions",
+      "basis": "Its cancellation argument applies to the non-isolated, non-knockout, Normal result with unit shape/opacity at the group result. It algebraically reduces the result to `(1−w)B + wE(B)`, including alpha. The current `groups.rs` path checks those assumptions and routes non-Normal or knockout cases separately.",
+      "limit": "Do not treat that optimized interpolation as a general implementation of §11.4.2's accumulators or the general §11.4.4 equations."
+    },
+    {
+      "adr": "ADR 1340",
+      "decision_review": "retain with narrow shape consumer",
+      "basis": "It ties the separate group shape requirement to its actual observable knockout consumer; tests assert nested group opacity is not mistaken for shape and that stated shape removes the lower element.",
+      "limit": "A generic group pixel test that only observes alpha cannot establish the distinct shape channel."
+    },
+    {
+      "adr": "ADR 1535",
+      "decision_review": "retain",
+      "basis": "§11.3.1 and §11.6.1 are introductory prose with no independent SHALL/SHOULD. `implemented` is the ledger's no-requirement convention, not a conclusion derived by certifying every child from one test."
+    },
+    {
+      "adr": "ADR 0255",
+      "decision_review": "retain as fixture-quality rule",
+      "basis": "Group resources must define every named graphics state used by a mask stream; undefined ExtGState lookups are surfaced and cannot be treated as opaque controls. The current alpha mask fixture explicitly maps /GA and /GB and uses exact offsets."
+    }
+  ],
+  "errata_decision": "No directly indexed errata alter the assigned clauses. EC3 #688 is a notation correction to the later §11.4.8 summary, so any reference to that summary must use α in the two initialization positions. EC3 #345 concerns illustrative blend figures, not formula-derived pixel oracles. Neither issue is evidence against the assigned equations."
+}

@@ -1,0 +1,8 @@
+{
+  "source": "Parent read primary164,165,167 and ADR0057/0189 decision slices. \u00a78.3.2.1 and .4 contain actual SHALL obligations; broad introductory language must not obscure those.",
+  "assertions": "Cross-references current noncommuting page CTM, literal3x2 image-space, text/glyph, Form and pattern-space controls. No redundant general coordinate test added. No new runtime failure found.",
+  "decision": "Retain form invocation space and deterministic length construction. ADR0189 does not establish a universal f32 precision tolerance. Device-specific origin/resolution are variable by design; no fixed device convention inferred.",
+  "residual": "Precision envelope, arbitrary transform combinations and 3D projection remain partial, not conformance failures or certified limits.",
+  "baseline": "b901326c",
+  "scope": "Partial feature review only; no entire clause certified."
+}
