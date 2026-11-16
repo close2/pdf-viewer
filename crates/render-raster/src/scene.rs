@@ -56,10 +56,10 @@ pub(crate) struct Encoder<'a> {
     /// every viewport and survives view changes (ADR 0702); one that did is rebuilt
     /// per view, exactly as every scene was before that ADR.
     consumed_view: bool,
-    /// The round dots this scene drew as lines, each true at another view only where that view
-    /// would draw it as a line too ([`crate::stroke::DotAsLine`], ADR 1877) — the one question a
-    /// scene of lines still asks of the view.
-    dots: Vec<crate::stroke::DotAsLine>,
+    /// The questions this scene answered at its view without consuming it — the round dots it
+    /// drew as lines (ADR 1877) and the marks §8.5.3.2's splits stated (ADR 2884) — each true at
+    /// another view only where that view answers it the same ([`crate::stroke::KeptMark`]).
+    marks: Vec<crate::stroke::KeptMark>,
     /// Whether the scene is built in page space (ADR 0702): geometry placed without
     /// the target, the viewport carrying it — and the one behavioural fork, §14.11.2.1's
     /// crop, emitted unconditionally because its early-out reads the view.
@@ -241,7 +241,7 @@ impl<'a> Encoder<'a> {
                 target.transform
             },
             consumed_view: false,
-            dots: Vec::new(),
+            marks: Vec::new(),
             page_space,
             caches,
             transient,
@@ -263,14 +263,16 @@ impl<'a> Encoder<'a> {
         self.consumed_view
     }
 
-    /// The round dots this scene drew as lines (ADR 1877), handed to the scene that keeps them.
-    pub(crate) fn take_dots(&mut self) -> Vec<crate::stroke::DotAsLine> {
-        std::mem::take(&mut self.dots)
+    /// The questions this scene answered at its view (ADRs 1877, 2884), handed to the scene that
+    /// keeps them.
+    pub(crate) fn take_marks(&mut self) -> Vec<crate::stroke::KeptMark> {
+        std::mem::take(&mut self.marks)
     }
 
-    /// Notes a round dot drawn as a line, which a later view asks again before it keeps the scene.
-    pub(crate) fn keep_dot(&mut self, dot: crate::stroke::DotAsLine) {
-        self.dots.push(dot);
+    /// Notes a question answered at this view, which a later view asks again before it keeps the
+    /// scene.
+    pub(crate) fn keep_mark(&mut self, mark: crate::stroke::KeptMark) {
+        self.marks.push(mark);
     }
 
     /// Translates one command list into the builder — the page's, a window's selection of it

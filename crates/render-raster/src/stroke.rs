@@ -114,18 +114,8 @@ pub(crate) fn encode(
     let crate::scene::Admitted::Chain(clip) = enc.clip_chain(builder, clip, reach)? else {
         return Ok(()); // the clip admits nothing
     };
-    if !dots.is_empty() || coverage < 1.0 {
-        // §8.5.3.2's dots and zero-length dash marks are sized — and §10.7.4's
-        // substitution for them decided — on this view's pixel grid, so a scene
-        // holding any is true only here (ADR 0702). **The splits alone are not that**
-        // (ADR 0705): which subpaths are degenerate is the path's own geometry, the
-        // dash pattern cuts in path space with no width in the arithmetic, and the
-        // stroke that survives both carries its scene-space width to raster, which
-        // resolves §8.4.3.2 and §10.7.5 per placement (ADR 0701). So a dashed table
-        // border or a stroke that merely *lost* its degenerate subpaths keeps its
-        // scene across every zoom, and only marks actually made consume the view.
-        enc.consume_view();
-    }
+    let site = (path, transform, s, paint, blend);
+    keep_marks(enc, site, (path_width, substitute), (&dots, coverage));
     let solid: &Path = dashed.as_ref().unwrap_or(geometry);
 
     let at = enc.placed(transform);
@@ -281,7 +271,7 @@ fn thin_line(
         if !dot.is_line_at(enc.target().transform) {
             return Ok(false);
         }
-        enc.keep_dot(dot);
+        enc.keep_mark(KeptMark::Line(dot));
     }
     let mask = enc.mask_id(builder, mask)?;
     let reach = reach(path, transform, s, (&Path::new(), 1.0));
@@ -301,6 +291,131 @@ fn thin_line(
         mask,
     )?;
     Ok(true)
+}
+
+/// Keeps the answers §8.5.3.2's dots and zero-length-dash marks were stated by, or consumes the
+/// view where no other view can give them again; a stroke that made no mark asks nothing.
+///
+/// The marks are stated by two answers this view gives — the width §8.4.3.2 and §10.7.5 resolve
+/// to, and §10.7.4's [`pdf_render::stated_point_mark`] at it — and by nothing else of it: which
+/// subpaths are degenerate is the path's own geometry and the dash pattern cuts in path space with
+/// no width in the arithmetic (ADR 0705). So the scene keeps the answers and another view asks
+/// them again before it keeps the scene (ADR 2884). A mark stated as the device pixel its centre
+/// lies in is this grid's pixel, which no other placement names, so that answer alone still
+/// consumes the view.
+fn keep_marks(
+    enc: &mut Encoder<'_>,
+    (path, transform, s, paint, blend): (&Arc<Path>, Transform, &Stroke, &Paint, BlendMode),
+    (width, substitute): (f32, Option<Transform>),
+    (dots, coverage): (&Path, f32),
+) {
+    if dots.is_empty() && coverage >= 1.0 {
+        return;
+    }
+    let marks = StatedMarks {
+        transform,
+        stroke: s.clone(),
+        substitute: substitute.is_some(),
+        width,
+        mark: pdf_render::stated_point_mark(s.cap, width, substitute),
+        lone_dot: lone_dot(path, transform, s, paint, blend),
+    };
+    if marks.mark.in_its_pixel {
+        enc.consume_view();
+    } else {
+        enc.keep_mark(KeptMark::Stated(marks));
+    }
+}
+
+/// A question a scene answered at the view it was built at, kept so that another view asks it
+/// again before it keeps the scene (ADRs 1877, 2884).
+#[derive(Debug, Clone)]
+pub(crate) enum KeptMark {
+    /// A round dot the scene drew as a line.
+    Line(DotAsLine),
+    /// The marks §8.5.3.2's splits made, as the scene stated them.
+    Stated(StatedMarks),
+}
+
+impl KeptMark {
+    /// Whether a build at a view placing the page by `view` makes this mark as the kept scene
+    /// holds it.
+    pub(crate) fn holds_at(&self, view: Transform) -> bool {
+        match self {
+            Self::Line(dot) => dot.is_line_at(view),
+            Self::Stated(marks) => marks.holds_at(view),
+        }
+    }
+}
+
+/// The marks one stroke's §8.5.3.2 splits made, kept with the two answers they were stated by
+/// (ADR 2884).
+///
+/// [`pdf_render::split_degenerate`] and [`pdf_render::split_dash_marks`] read the view through
+/// two values and nothing else: the width [`Stroke::device_width`] resolves (§8.4.3.2's zero and
+/// §10.7.5's adjustment) and the [`pdf_render::PointMark`] [`pdf_render::stated_point_mark`]
+/// decides at it (§10.7.4). Where a view gives both again, the marks a build there makes are
+/// these marks to the bit — the circles and squares are the path's own points at that width, the
+/// coverage the mark's — so the kept scene is that build.
+///
+/// **What keeping them buys** (`examples/dotted_zoom`, ADR 2884): on a page of 150 dotted leaders,
+/// 27 750 marks, a zoom step kept its scene at 10.7–19.8 ms a frame where the same step rebuilt it
+/// at 31.7–42.1 ms, the scene phase 0.01 ms against 7.5–11.9 (release, five rounds, minimum of
+/// each, on the software adapter). The cost is this record per stroke that made marks, and asking it again at each view.
+#[derive(Debug, Clone)]
+pub(crate) struct StatedMarks {
+    transform: Transform,
+    /// The command's stroke, whose width and flag the view resolves.
+    stroke: Stroke,
+    /// Whether the encode handed the splits the transform, which is a property of the paint and
+    /// the group and not of the view.
+    substitute: bool,
+    /// The width the marks were stated at, in the path's own space.
+    width: f32,
+    mark: pdf_render::PointMark,
+    /// The stroke as [`thin_line`] would take it, where it is a lone round dot the build's view
+    /// left to the splits: another view that draws it as a line draws something else.
+    lone_dot: Option<DotAsLine>,
+}
+
+impl StatedMarks {
+    /// Whether a build at a view placing the page by `view` states these marks.
+    fn holds_at(&self, view: Transform) -> bool {
+        let to_device = self.transform.then(view);
+        let width = self.stroke.device_width(to_device);
+        width.to_bits() == self.width.to_bits()
+            && pdf_render::stated_point_mark(
+                self.stroke.cap,
+                width,
+                self.substitute.then_some(to_device),
+            ) == self.mark
+            && !self
+                .lone_dot
+                .as_ref()
+                .is_some_and(|dot| dot.is_line_at(view))
+    }
+}
+
+/// The stroke as a [`DotAsLine`], where [`thin_line`] would take it at a view that draws it as a
+/// line: a lone round dot of a solid paint, under the conditions every line keeps.
+fn lone_dot(
+    path: &Arc<Path>,
+    transform: Transform,
+    s: &Stroke,
+    paint: &Paint,
+    blend: BlendMode,
+) -> Option<DotAsLine> {
+    let (from, to) = pdf_render::segment_ends(path)?;
+    (matches!(paint, Paint::Solid(_))
+        && s.cap == LineCap::Round
+        && from == to
+        && is_view_free_line(transform, s, blend, (from, to)))
+    .then(|| DotAsLine {
+        path: Arc::clone(path),
+        transform,
+        stroke: s.clone(),
+        paint: paint.clone(),
+    })
 }
 
 /// A round dot a scene drew as a line, kept so that another view can ask whether it would draw

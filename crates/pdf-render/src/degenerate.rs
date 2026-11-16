@@ -104,13 +104,22 @@ const CIRCLE: f32 = core::f32::consts::PI / 4.0;
 /// See [`CIRCLE`]: a square of the line's width covers the width squared.
 const SQUARE: f32 = 1.0;
 
-/// How the marks of one stroke are stated, decided once for all of them.
+/// How the marks of one stroke are stated, decided once for all of them — ISO 32000-2 §8.5.3.2's
+/// dots and zero-length-dash marks under §10.7.4.
 ///
 /// `to_device` is `Some` where the caller can carry a mark's coverage in the paint's alpha —
 /// §11.3.7.1 makes shape and opacity one product, which is [`crate::sub_pixel`]'s whole warrant —
 /// and `None` where it cannot: an aliased raster, or §11.4.6's knockout, where a scaled alpha
 /// would leave a partly transparent pixel where a partly covered one is meant.
-fn stated(cap: LineCap, width: f32, to_device: Option<Transform>) -> PointMark {
+///
+/// [`split_degenerate`] and [`split_dash_marks`] state their marks by this answer and by nothing
+/// else of the view, so a caller that asks it again at another placement — with the width
+/// [`Stroke::device_width`] gives there — learns whether the marks a build made are the marks a
+/// build at that placement would make (ADR 2884).
+///
+/// [`Stroke::device_width`]: crate::paint::Stroke::device_width
+#[must_use]
+pub fn stated_point_mark(cap: LineCap, width: f32, to_device: Option<Transform>) -> PointMark {
     // Under a projecting square cap the only mark either rule makes is Table 53's square. The
     // direction-less case §8.4.3.4 leaves to the implementation is drawn as a circle by
     // [`dash_mark`] — one shape for every orientation it could have had — and is measured here as
@@ -157,8 +166,8 @@ pub(crate) const KAPPA: f32 = 0.552_284_8;
 /// decides a line's thickness: `0 w 1 J` at a single point is a one-device-pixel dot.
 ///
 /// `to_device` maps the path's own space onto the device pixel grid, and is `Some` where the
-/// caller can carry a mark's coverage in the paint's alpha — see `stated`. Where it is,
-/// §10.7.4's substitution for a mark too small for the raster to hold is applied here, and
+/// caller can carry a mark's coverage in the paint's alpha — see [`stated_point_mark`]. Where it
+/// is, §10.7.4's substitution for a mark too small for the raster to hold is applied here, and
 /// [`DegenerateStroke::coverage`] is what the alpha is to be multiplied by; where it is not, the
 /// dots are the clause's own circles at the document's own width.
 ///
@@ -184,7 +193,7 @@ pub fn split_degenerate(
         return None;
     }
 
-    let mark = stated(cap, width, to_device);
+    let mark = stated_point_mark(cap, width, to_device);
     let mut stroked = Path::new();
     let mut dots = Path::new();
     for subpath in subpaths(path) {
@@ -276,7 +285,7 @@ pub fn split_dash_marks(
     width: f32,
     to_device: Option<Transform>,
 ) -> DegenerateStroke {
-    let mark = stated(cap, width, to_device);
+    let mark = stated_point_mark(cap, width, to_device);
     let mut stroked = Path::new();
     let mut dots = Path::new();
     for subpath in subpaths(dashed) {

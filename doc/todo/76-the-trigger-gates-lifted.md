@@ -1,6 +1,6 @@
 # 76 — The trigger gates, audited and lifted
 
-Status: **open** — the audit is done, rows 1, 4 and 5 are built (ADRs 2799, 2805, 2836) and row
+Status: **open** — the audit is done, rows 1, 4, 5 and 8 are built (ADRs 2799, 2805, 2836, 2884) and row
 10's measurement is taken (`doc/todo/78`, `doc/questions/Q840`); the rest of section 2 is the order. ADR 2800 is the decision this file carries out.
 Priority: the owner's, 2026-11-06, `doc/questions/A800` item 2: "build now and revisit all 'wait for
 a trigger' gates".
@@ -37,7 +37,7 @@ a test's timing are not work held back and are not here.
 | 5 | `doc/todo/63` "what is left" | one `Query` for a page's text on the confined pipe | `viewer-core` vocabulary | **built** (ADRs 2836, 2844): `Query::Text`, the pages on the screen, a reading at every restriction level, and the C ABI's `quorra_page_text` |
 | 6 | `doc/todo/65` section 1's host rows | per-host reads of print and collection entries | rows needing a host | effort only |
 | 7 | ADR 2137 | the records the WinUI window declines in the library's terms | WinUI host | effort only |
-| 8 | ADR 0705 | the dot-pattern splits | §10.7.4 | effort only |
+| 8 | ADR 0705 | the dot-pattern splits | §10.7.4 | **built** (ADR 2884): a scene keeps the marks §8.5.3.2's splits stated and another view asks their two answers again; the shader mirror of `point_mark` is declined there, because the oracle's answer for a dot inside a path depends on its neighbours |
 | 9 | RFC 0009 (CMYK spool through BToA) | a print spool that converts through the intent's `BToA` | §14.11.5 on paper | effort only, after the spool path it names |
 | 10 | `CLAUDE.md`; `doc/scope-ratifications.md`; A639, A633 | XFA's dynamic half: the measurement round that prices page one of the `/NeedsRendering` documents | Annex K | effort only for the measurement; the build stays a scope exclusion |
 | 11 | `doc/questions/A270`, `A595`; ADRs 1585, 2299 | the launcher's two Vulkan variables | GPU selection | owner-blocked: "until a launcher exists" is the owner's packaging decision |
@@ -65,7 +65,7 @@ a test's timing are not work held back and are not here.
 Row 1 first, because it is the one whose shape the owner had already given (A45's second paragraph)
 and whose only gate was "when the attachments panel is designed" — and the panel is
 `Query::Attachments` in four windows. Then rows 4 and 5, each one `Query` or one host history and
-a test; row 21's ramp in the oracle; row 6's host reads by `doc/todo/30`–`38`; row 8 by `doc/todo/_scan-conversion.md`; row 10's
+a test; row 21's ramp in the oracle; row 6's host reads by `doc/todo/30`–`38`; row 10's
 measurement as its own measure round, whose result goes to the owner with the near-side
 construction RFC 0011 section 7 asks for. Rows 2, 3, 28 and 29 are the other lanes' and are listed so
 that this file is the whole population.

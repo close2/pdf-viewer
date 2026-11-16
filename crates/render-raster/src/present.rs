@@ -284,9 +284,10 @@ struct Retained {
     /// true at every viewport, and [`Retained::draws`] then ignores the placement and
     /// the frame's extent — the scene survives every zoom, scroll and resize.
     view_free: bool,
-    /// The round dots the scene drew as lines, by the page each is on: a view-free scene is kept at
-    /// another view only where every one is a line there too (ADR 1877).
-    dots: Vec<(usize, crate::stroke::DotAsLine)>,
+    /// The questions the scene answered at its view, by the page each is on — the round dots it
+    /// drew as lines and the marks §8.5.3.2's splits stated: a view-free scene is kept at another
+    /// view only where that view answers every one the same (ADRs 1877, 2884).
+    marks: Vec<(usize, crate::stroke::KeptMark)>,
     /// The pages this scene was built from — **the identities, and the pins that make them ones**.
     ///
     /// Their addresses are what [`Self::draws`] compares, and holding the `Arc`s is what stops the
@@ -341,12 +342,13 @@ impl Retained {
                 && self.key.raster.is_none()
                 && key.raster.is_none()
                 && self.key.pages.len() == key.pages.len()
-                // … and every dot it drew as a line is one at this view too (ADR 1877).
-                && self.dots.iter().all(|(page, dot)| {
+                // … and every question it answered at its view is answered the same at this one:
+                // its dots drawn as lines (ADR 1877), its split marks as stated (ADR 2884).
+                && self.marks.iter().all(|(page, mark)| {
                     frame
                         .pages
                         .get(*page)
-                        .is_some_and(|(_, target)| dot.is_line_at(target.transform))
+                        .is_some_and(|(_, target)| mark.holds_at(target.transform))
                 }));
         keyed
             && self
@@ -562,7 +564,7 @@ impl FrameSlot {
                 cost.uploads = caches
                     .stored()
                     .saturating_add(u32::try_from(transient.len()).unwrap_or(u32::MAX));
-                let (consumed_view, dots) = match built {
+                let (consumed_view, marks) = match built {
                     Ok(built) => built,
                     Err(problem) => {
                         // Nothing will draw this scene, so its resources go back now rather
@@ -575,7 +577,7 @@ impl FrameSlot {
                     key,
                     page_space,
                     view_free: page_space && !consumed_view,
-                    dots,
+                    marks,
                     pages: frame
                         .pages
                         .iter()
@@ -1475,8 +1477,9 @@ fn page_space(medium: Option<Medium>, frame: &PresentFrame<'_>) -> bool {
 /// surround is one rectangle over the whole frame and 𝑊 is one rectangle per placed page, at that
 /// page's own boundary — which is what makes the gap between two pages of a column visible at all.
 ///
-/// Answers whether the build read the view (ADR 0702), and the round dots it drew as lines by
-/// page, which another view asks again before it keeps the scene (ADR 1877).
+/// Answers whether the build read the view (ADR 0702), and the questions it answered at the view
+/// by page — its dots drawn as lines and its split marks as stated — which another view asks
+/// again before it keeps the scene (ADRs 1877, 2884).
 pub(crate) fn build(
     device: &mut raster_gpu::Device,
     caches: &mut crate::cache::ResourceCaches,
@@ -1485,7 +1488,7 @@ pub(crate) fn build(
     frame: &PresentFrame<'_>,
     transient: &mut Vec<ResourceId>,
     functions: &mut FunctionPaints,
-) -> Result<(bool, Vec<(usize, crate::stroke::DotAsLine)>), QuorraRasterError> {
+) -> Result<(bool, Vec<(usize, crate::stroke::KeptMark)>), QuorraRasterError> {
     let page_space = page_space(medium, frame);
     // The surround first, where there is one: a window frame has no compositor behind it to
     // impose on, so what lies outside every page is the bottom of the scene itself.
@@ -1503,7 +1506,7 @@ pub(crate) fn build(
     }
 
     let mut consumed_view = false;
-    let mut dots = Vec::new();
+    let mut marks = Vec::new();
     // One encoder per page, in the order the arrangement placed them. Table 29's `SinglePage` is
     // the one-element case and is what this loop was before ADR 0442; the pages of a column do
     // not overlap, so the order is the arrangement's rather than a compositing decision.
@@ -1553,7 +1556,7 @@ pub(crate) fn build(
             encoder.consume_view();
         }
         consumed_view |= encoder.consumed_view();
-        dots.extend(encoder.take_dots().into_iter().map(|dot| (page, dot)));
+        marks.extend(encoder.take_marks().into_iter().map(|mark| (page, mark)));
     }
     if let Some(raster) = frame.raster {
         // Through the same clock as every other upload (`Encoder::handing_over`): a fallback
@@ -1602,7 +1605,7 @@ pub(crate) fn build(
         Encoder::new(device, list, spec, caches, transient, functions)
             .commands(builder, list.commands())?;
     }
-    Ok((consumed_view, dots))
+    Ok((consumed_view, marks))
 }
 
 /// One flat rectangle in window pixels, which is what both halves of the medium are.
