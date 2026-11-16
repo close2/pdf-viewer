@@ -1,0 +1,112 @@
+[
+  {
+    "ledger_clause": "7.6",
+    "title": "Encryption",
+    "status": "partial",
+    "feature": "Heading-only aggregate; no independent normative prose before 7.6.1.",
+    "source_location": "Primary physical86/printed71, heading immediately followed by7.6.1; ADR1599 leaf-derived status.",
+    "ledger_and_assertions": "Ledger note explicitly derives status from child rows. Its listed tests cover password/encryption revisions but are not exhaustive encryption certification.",
+    "current_evidence": "Keep as aggregate partial because child 7.6.5.3 remains partial; this row itself has no additional implementation obligation.",
+    "decision": "Retain partial; do not treat this as a second independent defect or as a completed clause based on its listed tests.",
+    "residuals": "Child coverage and decryption branches remain subject to their own rows; exact full 7.6 source coverage was outside this status-only decision."
+  },
+  {
+    "ledger_clause": "7.6.5",
+    "title": "Public-key security handlers",
+    "status": "partial",
+    "feature": "Heading-only aggregate; it introduces child subsections and adds no separate behavior before 7.6.5.1.",
+    "source_location": "ISO primary \u00a77.6.5 heading followed by \u00a77.6.5.1; ADR 1599.",
+    "ledger_and_assertions": "The aggregate row says it derives from child statuses. One end-to-end witness test is listed, but child rows carry the algorithm and permissions evidence.",
+    "current_evidence": "Public-key handler construction, key agreement and recipient opening are implemented for supported mechanisms. Child 7.6.5.3 retains explicit unsupported mechanisms.",
+    "decision": "Retain partial as a faithful aggregate; no independent aggregate-level gap identified.",
+    "residuals": "Do not infer that one witness test alone covers all public-key handler branches."
+  },
+  {
+    "ledger_clause": "7.6.5.3",
+    "title": "Public-key encryption algorithms",
+    "status": "partial",
+    "feature": "The actual incomplete child: advertised recipient encryption/decryption algorithms, including agreement and key-wrap paths.",
+    "source_location": "ISO primary \u00a77.6.5.3 physical pp. 103\u2013105 / printed pp. 88\u201390; EC3 #196 inserts a new permissions subsection before the algorithm subsection, but published clause numbering remains used by the citation gate.",
+    "ledger_and_assertions": "Numerous source-specific known-answer, generated-envelope and PDF witness assertions are cited in the ledger; `crates/pdf-pki/src/enveloped/agreement/tests.rs::what_is_not_run_is_refused_by_name` explicitly names unsupported curves/algorithms.",
+    "current_evidence": "ADR 2821/2827 document support for specified EC key-agreement curves and the remaining 1-Pass ECMQV and brainpoolP512r1 limits; current implementation still refuses those by identifier/curve. RFC 5753 \u00a73.2 makes 1-Pass ECMQV an optional scheme. This review found no basis to silently call that code complete. The already-drafted `table24_permissions_unit.rs` is helper-level and unrun; it is not needed to justify partial status.",
+    "decision": "Retain partial, with the caveat that optionality of a mechanism is relevant to the strength of any conformance claim; the row accurately discloses implementation limits rather than claiming every optional mechanism is mandatory-reader behavior.",
+    "residuals": "The Table 24 permission-bit mapping is not directly exercised end to end by a public-key PDF witness; existing unit/test evidence is broad elsewhere. Do not duplicate the public-key shard's pending test."
+  },
+  {
+    "ledger_clause": "7.6.7",
+    "title": "Unencrypted wrapper document",
+    "status": "writer-side",
+    "feature": "Custom-security-handler wrapper construction rules are expressly producer-directed; reader prose describes rendering an unencrypted wrapper while payload remains attached.",
+    "source_location": "ISO primary \u00a77.6.7 physical pp. 109\u2013110 / printed pp. 94\u201395.",
+    "ledger_and_assertions": "Ledger accurately quotes producer `shall` obligations (Collection and AFRelationship). `EncryptedPayload::read` parses the payload metadata; ordinary unencrypted wrapper pages render. Writers either preserve an existing document during incremental update or serialize plaintext/standard encryption.",
+    "current_evidence": "No current writer generates a custom-security-handler encrypted payload wrapper. No reader failure identified within this narrow feature.",
+    "decision": "Retain writer-side; the producer constraint does not by itself require rejection or automatic payload opening by a reader.",
+    "residuals": "No test is needed absent a writer that emits this construct. Full collection presentation and custom handler support are other feature scopes."
+  },
+  {
+    "ledger_clause": "12.2",
+    "title": "Viewer preferences",
+    "status": "partial",
+    "feature": "Table 147 preference behavior, with an incomplete cross-host `/Enforce` UI hold; `/HideMenubar` is separately recorded as a ratified departure.",
+    "source_location": "ISO primary Table 147 physical p. 455 / printed p. 440; `/Enforce` paragraph states processor enforcement must not be overridden by subsequent application-UI selections.",
+    "ledger_and_assertions": "`viewer_preferences_layout_current/findings.txt` inventories Table 147 evidence. Core restriction tests cover default/on/off/ask and the Qt host locks scaling; GTK and FFI report the restriction but leave their print dialogs able to change it. GTK `printing.rs` around 66\u201375 and FFI `window.rs` around 1089\u20131110 show the actual caller behavior.",
+    "current_evidence": "The incomplete `/Enforce` behavior is real in GTK and C-hosted dialogs, while other preference routes have coverage. ADR 2840 establishes restriction semantics and ADR 2301 records host-specific residual/policy. `/HideMenubar` remains its own departure, not the justification for this partial status.",
+    "decision": "Retain partial. Qualify the residual as a host-dialog enforcement limitation: those integrations can announce but cannot lock the external/native control; Qt's in-app control is locked.",
+    "residuals": "Existing tests establish core restriction state and some host propagation; the specific native GTK/C dialog override path is primarily established by code inspection, not a discriminating end-user dialog test."
+  },
+  {
+    "ledger_clause": "12.8",
+    "title": "Digital signatures",
+    "status": "partial",
+    "feature": "Heading/aggregate over signature subclauses; no separate unique behavior is established here beyond child obligations.",
+    "source_location": "ISO primary \u00a712.8 begins with subsections; ledger status follows child work under ADR 1599.",
+    "ledger_and_assertions": "The large ledger entry catalogs child features and many tests; test count/presence alone does not independently certify the aggregate.",
+    "current_evidence": "The profile subtree includes a correctly partial \u00a712.8.3.4.4. Separately, child \u00a712.8.3.4.5 and \u00a712.8.3.4.8 are marked implemented; current source/tests indicate candidate overclaims: \u00a712.8.3.4.5 verification currently occurs through report/about paths rather than on document open, and the confirmed B47 failure is a response whose producedAt is before the trusted historical instant; its later-issued control passes. These do not invalidate the aggregate partial status, but mean the aggregate note must not be read as proof every implemented child is complete.",
+    "decision": "Retain partial; audit does not certify child completeness. Flag the cited child assertion/status issues for reconciliation against parent findings before treating the aggregate as reconciled.",
+    "residuals": "Use parent findings/gates for current execution state; this artifact does not propose duplicate tests or reclassify child rows."
+  },
+  {
+    "ledger_clause": "12.8.3",
+    "title": "Signature interoperability",
+    "status": "partial",
+    "feature": "Aggregate over formats/profile interoperability clauses; no separate implementation behavior identified in heading prose.",
+    "source_location": "ISO primary \u00a712.8.3 heading and child structure; aggregate policy in ADR 1599.",
+    "ledger_and_assertions": "Ledger entry is extensive but largely inherits from children. It must not be accepted solely because many listed tests pass.",
+    "current_evidence": "12.8.3.4.4 remains partial; other child concerns above are tracked as current parent findings. No independent 12.8.3-only gap observed.",
+    "decision": "Retain partial as aggregate; preserve explicit child-level residuals.",
+    "residuals": "Do not claim full 12.8.3 certification from this bounded status review."
+  },
+  {
+    "ledger_clause": "12.8.3.4",
+    "title": "CAdES signatures as used in PDF",
+    "status": "partial",
+    "feature": "Aggregate over the CAdES/PAdES requirements; no separate unique mechanism beyond children identified.",
+    "source_location": "ISO primary \u00a712.8.3.4 heading/child sequence; ADR 1599.",
+    "ledger_and_assertions": "Rows .1\u2013.3 and .5\u2013.8 are marked implemented; .4.4 profiles is partial. This aggregate therefore should stay partial even if every other child passed.",
+    "current_evidence": "The .4.4 row states residual profile/policy constraints and required external trust-list inputs. Current child verification also contains potential stale status/assertion issues: .4.5 open-trigger and .4.8 producedAt findings noted above.",
+    "decision": "Retain partial; the status is supported by .4.4, but child `implemented` markers are not thereby validated.",
+    "residuals": "Parent should decide child status updates from already collected evidence; no duplicate test proposed."
+  },
+  {
+    "ledger_clause": "12.8.3.4.4",
+    "title": "Profiles of ETSI.CAdES.detached",
+    "status": "partial",
+    "feature": "PAdES-E-BES and PAdES-E-EPES profile rules and their compatible ETSI EN 319 122-2 profile constraints.",
+    "source_location": "ISO primary \u00a712.8.3.4.4 physical p. 596 / printed p. 581; source states the profiles and their compatibility conditions.",
+    "ledger_and_assertions": "Ledger maps signed attributes, profile distinction, policy syntax and source-held policy constraints to current code and tests. Relevant successor ADRs include 2560, 2580, 2604, 2624, 2644, 2710, 2725 and 2782.",
+    "current_evidence": "XML/ASN.1 syntax, policy digest binding, fetched-policy binding, and the evaluated portions of constraints have since been added; older ADRs describing those items as absent are superseded. Current row still names work remaining: human-readable policy interpretation, policy-defined `other` revocation mechanisms, signed assertions/attribute-value constraints, and trusted-list inputs the host has not supplied/fetched. This is a substantive, qualified partial rather than a broad unsupported claim.",
+    "decision": "Retain partial. Reconcile the long note with the successor ADRs; do not repeat superseded gaps as open work.",
+    "residuals": "No test draft: the remaining items are accurately described as policy/host-input or unevaluated constraints, not a single missing behavior with a small discriminating fixture."
+  },
+  {
+    "ledger_clause": "E.2",
+    "title": "Classes of PDF names",
+    "status": "writer-side",
+    "feature": "Extension-name class selection rules address extension authors choosing names for their developer-specific additions.",
+    "source_location": "ISO primary Annex E.2 physical pp. 892\u2013893 / printed pp. 877\u2013878.",
+    "ledger_and_assertions": "Ledger note identifies the writer's only non-standard-looking key as an archive content-stream resource name, which is not a developer-specific extension name. ADR 1461 is the current applicability rationale.",
+    "current_evidence": "No writer path located that emits a developer-specific extension key/value requiring class allocation; standard names and ordinary resource names are used. Reader treatment of unknown extensions is outside the writer choice governed by E.2.",
+    "decision": "Retain writer-side; no reader conformance failure or new writer omission identified.",
+    "residuals": "This is a bounded writer inventory, not a guarantee about future serializer features. Revisit if a writer starts emitting developer-specific extensions."
+  }
+]

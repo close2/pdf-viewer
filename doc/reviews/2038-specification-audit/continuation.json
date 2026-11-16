@@ -11,18 +11,22 @@
     "script_engine": "247PASS4ignored plus separate corpus2PASS249filtered. Corpus counters documented; semantic/error provenance follow-up active.",
     "rendition_and_font": "B49/B50:7new tests,5PASS2FAIL;73total expected failures,70in eleven-crate scope+3GPU. Model/core Clippy PASS.",
     "optional_and_save": "Wave51 final4run3PASS1FAIL; manifest74 (71eleven-crate scope+3GPU). Model/core/signature Clippy PASS.",
-    "residual_consumers": "Wave52:Matrix2D1engineFAIL; appearance1PASS, navigation3PASS, outlineUI1PASS; existingLZWtest extended andPASS. Manifest75=71eleven-crate+3GPU+1engine. FivecrateClippyPASS. Wave54 adds2syntaxPASS after broad53, strengthens existingBMtestPASS; syntax/modelClippyPASS. Manifest75unchanged."
+    "residual_consumers": "Wave52:Matrix2D1engineFAIL; appearance1PASS, navigation3PASS, outlineUI1PASS; existingLZWtest extended andPASS. Manifest75=71eleven-crate+3GPU+1engine. FivecrateClippyPASS. Wave54 adds2syntaxPASS after broad53, strengthens existingBMtestPASS; syntax/modelClippyPASS. Manifest75unchanged. Wave55newcore4run3PASS1FAIL;manifest76=72broadscope+3GPU+1engine. Broad53 predates this newfailure; no newbroadrun claimed. Core/syntaxClippyPASS."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
-      "errata_early_behavior_current",
-      "errata_late_behavior_current",
-      "partial_writer_decisions_current"
+      "indirect_filter_parameters_current",
+      "indirect_annotation_parameters_current",
+      "indirect_font_values_current",
+      "indirect_function_colour_current"
     ],
     "recorded_shards": [
+      "errata_early_behavior_current",
+      "errata_late_behavior_current",
+      "partial_writer_decisions_current",
       "errata_early_residual_current",
       "departure_decisions_residual_current",
       "stored_ap_blend_residual_current",
@@ -166,9 +170,9 @@
     "pending_current_rows": 0
   },
   "remaining": [
-    "All883rows remain partial. Early/late operativecorrections,8partial+2writer rows under deeper review.",
-    "#200 conflictingScope implicitheadersearch lead under source/fixture review; corrected algorithm is MAY andskipguidance SHOULD, not mandatory universalalgorithm.",
-    "No new stale redactionfinding: current24bit wording alreadycorrect. No newBMgap: priorT26 alreadycovered; outsideRect strengthened.",
+    "All883rows remain partial. Continue cross-cutting indirectrepresentation tests and substantive assertion review.",
+    "B53 optionalimplicitheadersearch recommendationgap confirmed;NamedID contribution/downstreamTD state unresolved.",
+    "AnnexL source paraphrases corrected:#83P\u2192Table and#440WP\u2192Figure are directed; fullmatrix residual.",
     "Stop new dispatch near81%; preserve15% weekly at85%."
   ],
   "budget": {
@@ -176,7 +180,7 @@
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 51,
-    "last_read_utc": "2026-11-16T18:17:54.016730+00:00"
+    "last_weekly_used_percent": 52,
+    "last_read_utc": "2026-11-16T18:36:37.822239+00:00"
   }
 }

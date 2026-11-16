@@ -1,0 +1,30 @@
+{
+  "reconsiderations": [
+    {
+      "topic": "Errata census count semantics",
+      "decision": "Treat the 516 records as issue-marked annotations, not root annotations. The broader /Subj, /Contents, /T scan found the same 165 IDs with no multi-ID annotations or markers outside /Subj, but 144 issue-marked annotations have /IRT.",
+      "consequence": "Keep citation counts as triage metadata only; do not infer feature coverage or its absence from an Issue # reference count."
+    },
+    {
+      "topic": "Issue #500 no-default xref offset",
+      "decision": "Retain the field-absence behavior, but qualify the fixture: /W [1 0 1] is expressly prohibited by Table 17. The test confirms a safe recovery choice for malformed producer input, not valid-file conformance.",
+      "consequence": "No valid-input red finding or new test is proposed."
+    },
+    {
+      "topic": "ADR 1004's characterization of Issue #500",
+      "decision": "The accepted code path is justified in not inventing an offset default after the Table 18 sentence is struck. However, ADR 1004 calls this a demonstrated implementation defect and a test failure without distinguishing that Table 17 forbids a zero second /W element. The current source-supported conclusion is narrower: no default exists; the shipped refusal/rebuild is a conservative policy for prohibited input.",
+      "consequence": "Keep the code/test behavior but avoid citing the malformed fixture as proof of a valid-PDF conformance failure."
+    },
+    {
+      "topic": "Issue #146 hybrid /XRefStm location",
+      "decision": "The offset correction is operational: it addresses the stream object from file start. Existing fixtures assert that target and also exercise the stream-before-/Prev precedence rule.",
+      "consequence": "Retain the current coverage, with filtered-stream details outside this selected review."
+    },
+    {
+      "topic": "Issues #95 and #87",
+      "decision": "Do not treat a deleted redundant AES sentence as deletion of the separate padding formula. Do not turn the corrected ToUnicode example label into a new general requirement beyond the existing UTF-16BE surrogate handling.",
+      "consequence": "No test or behavior change proposed from these examples alone."
+    }
+  ],
+  "test_drafts": []
+}

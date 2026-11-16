@@ -1,0 +1,18 @@
+{
+  "scope": "Exact set of8partial+2writer-side rows:5aggregates,3partial leaves,2writer rows. Retain statuses; no ledger mutation.",
+  "source_start_physical": {
+    "7.6": 86,
+    "7.6.5": 101,
+    "7.6.5.3": 103,
+    "7.6.7": 109,
+    "12.2": 452,
+    "12.8": 582,
+    "12.8.3": 592,
+    "12.8.3.4": 595,
+    "12.8.3.4.4": 596,
+    "E.2": 892
+  },
+  "source": "Parent read relevant primary headings, Enforce455/440, profile596/581, wrapper109/94 and nameclasses892/877; inspected ADR1599 and current ledger. Other mechanism evidence retains previous bounded provenance.",
+  "host": "GTK printing explicitly cannot lock native scale, FFI announces hold; no new native-dialog execution. Qt lock retains earlier static review provenance.",
+  "qualification": "B17 owns the open-trigger issue; B47 is producedAt BEFORE trusted historical instant, with later controlPASS. No duplicate defect. Superseded signature policy gaps not reintroduced. No new tests required merely for aggregate headings or a writer feature not emitted."
+}

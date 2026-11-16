@@ -1599,6 +1599,19 @@
       "log": "quality-model-wave54.log",
       "exit": 0,
       "scope": "ModelalltargetsPASS."
+    },
+    {
+      "log": "table-scope-wave55c.log",
+      "run": 4,
+      "passed": 3,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Final qualifiedB53 fixture; earlier namewhitespace guard failures rejected."
+    },
+    {
+      "log": "quality-core-syntax-wave55b.log",
+      "exit": 0,
+      "scope": "Bothcrates alltargetsClippyPASS after justified testfixture arithmetic expect."
     }
   ],
   "prior_expected_failures": {

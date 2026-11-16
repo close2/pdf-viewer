@@ -2026,5 +2026,26 @@
     "summary": "Pinned explicit currentxref entry retention above understated Size, distinct from older compressed-member recovery bound.",
     "execution": "NewtestPASS including normalSizecontrol; existingolder-recovery-boundtestPASS.",
     "limits": "ADR2346 productdeparture on malformedSize; not ISOconformance."
+  },
+  {
+    "id": "2038-B53",
+    "kind": "adopted-algorithm-recommendation-gap",
+    "clauses": [
+      "14.8.4.8.3"
+    ],
+    "summary": "Conflicting Row-scope TH with Headers terminates adopted column-header search, missing eligible Middle/Far headers beyond it.",
+    "source": "EC3#200 optional may algorithm, inserted should-not-terminate correction; ADR0312 adopted algorithm.",
+    "execution": "4run3PASS1FAIL; publicAccessibilityTree actual[Named], expectedcontinuation includesMiddle/Far.",
+    "limits": "No universal must-use algorithm claim. Does not settle NamedID contribution or downstreamTD stoppingstate."
+  },
+  {
+    "id": "2038-D42",
+    "kind": "test-claim-qualification",
+    "clauses": [
+      "7.5.8.2",
+      "7.5.8.3"
+    ],
+    "summary": "Cross-reference module claimed all cases required by valid PDFs despite malformed W and deliberate recovery/departure fixtures.",
+    "resolution": "Module comment corrected. #500 zero-second-W witness is conservative recovery policy; Table17 forbids that producer representation. No productiondefect claimed."
   }
 ]

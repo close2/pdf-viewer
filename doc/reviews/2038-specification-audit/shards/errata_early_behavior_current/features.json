@@ -1,0 +1,51 @@
+{
+  "scope": "Five bounded checks of operative or explanatory corrections attached to physical pages 1\u2013450. The page range identifies annotation placement, not issue-number range. This is not a census of all semantic changes and does not certify full clauses.",
+  "source": "doc/ISO_32000-2_sponsored_EC3.pdf, inspected with annotation overlays and page footer; source text extracted only to locate surrounding clauses.",
+  "features": [
+    {
+      "issue": 10,
+      "source_location": "Physical p.47, printed p.32, \u00a77.3.8.1 / Table 5, row /F. The caret adds 'shall' to the sentence that the embedded stream bytes are ignored when /F is present.",
+      "behavior": "A stream with an external-file /F names external data; embedded bytes cannot be returned as that stream's decoded content. Table 5 assigns FFilter/FDecodeParms to the external data.",
+      "code": "crates/pdf-syntax/src/document.rs external-stream source selection; the public stream-source result distinguishes StreamRefusal::External from an ordinary decoded stream.",
+      "assertions": "crates/pdf-syntax/tests/spec_stream_objects_audit.rs::an_external_stream_is_refused_while_the_same_embedded_filter_decodes_without_f constructs a complete exact-classic-xref PDF. The no-/F ASCIIHex control decodes known path bytes; the /F + /FFilter arm asserts External, decoded data None, and nested-content refusal. This is a direct assertion of the corrected Table 5 behavior, though it does not retrieve external-file bytes from a host path.",
+      "verdict": "Behavior covered for a reader that refuses unsupported external data without misrepresenting embedded bytes. No valid-input defect established; host-side external file loading is a separately scoped capability."
+    },
+    {
+      "issue": 500,
+      "source_location": "Physical p.83, printed p.68, \u00a77.5.8.3 / Table 18, Type 1 Field 2. The actual red strikeout removes 'Default value: 0' from the byte offset field. This annotation sits beside issue #146 on the same page and is a separate erratum.",
+      "behavior": "The type-1 offset has no stated default after the correction. A zero-width second /W field therefore cannot supply the location of an uncompressed object. However, \u00a77.5.8.2 Table 17 explicitly says a zero second /W value shall not be used; [1 0 1] is malformed producer input, not a valid conformance witness.",
+      "code": "crates/pdf-syntax/src/xref.rs::entry_location returns no location for Type 1 when field 2 is absent; section parsing declines the unusable table and can proceed through recovery.",
+      "assertions": "crates/pdf-syntax/tests/cross_references.rs::a_type_1_entry_with_no_offset_field_locates_nothing explicitly cites #500. It asserts recovery/body reconstruction for the prohibited [1 0 1] case and contrasts a stated offset. This is a conservative malformed-input guard, not proof that a conforming PDF requires such recovery or rejection.",
+      "verdict": "Implementation and test match the corrected no-default interpretation while staying within a producer-invalid fixture. No valid-input failure established."
+    },
+    {
+      "issue": 146,
+      "source_location": "Physical p.83, printed p.68, \u00a77.5.8.4 / Table 19 /XRefStm. The blue strikeout and caret replace 'byte offset in the decoded stream from the beginning of the PDF file' with 'byte offset to the cross-reference stream, calculated from the beginning of the PDF file'.",
+      "behavior": "A hybrid trailer's /XRefStm locates the cross-reference stream object by its file byte offset. The cross-reference stream is consulted before /Prev when an entry is absent from the current table.",
+      "code": "crates/pdf-syntax/src/xref.rs reads the /XRefStm offset as a file location and lays the stream section over the companion table before older sections.",
+      "assertions": "crates/pdf-syntax/tests/cross_references.rs::a_hybrid_reference_file_finds_through_xrefstm_what_a_previous_section_marks_free and crates/pdf-syntax/tests/spec_objxref_audit.rs::hybrid_xref_stream_entry_precedes_an_older_free_entry build exact-offset hybrid files and assert the stream's live entry wins over an older free entry. The current fixtures use unfiltered cross-reference streams; they prove the corrected file-offset target and precedence together, not every /XRefStm encoding.",
+      "verdict": "The directly relevant public parser behavior has a discriminating assertion. No new test draft needed for this correction."
+    },
+    {
+      "issue": 95,
+      "source_location": "Physical p.89, printed p.74, \u00a77.6.3.1. The annotation visibly strikes the repeated description that AES's block cipher uses the same algorithm both ways and rounds encrypted length to a 16-byte multiple. The following effective paragraph separately specifies the required 16-byte padding, including a full block when M is divisible by 16.",
+      "behavior": "This deletion does not remove the padding rule. It is not evidence that AES ciphertext length or padding behavior is optional.",
+      "code": "crates/pdf-syntax encryption/decryption uses AES-CBC plus PKCS-style block padding; the test fixture helper `aes_cbc` constructs the padding described by the retained paragraph.",
+      "assertions": "`crates/pdf-syntax/tests/encryption_fixtures.rs::aes_cbc` directly encodes pad length and bytes, and encrypted-document tests exercise decryption of AESV2/AESV3 witnesses. The helper is fixture construction, not an independent standalone expected ciphertext vector for every boundary length. Since #95 removes redundant explanatory wording while retaining the normative pad formula, this audit found no specific behavior gap attributable to the erratum.",
+      "verdict": "Editorial clarification/deletion with the operative padding text retained; no defect or extra test promoted."
+    },
+    {
+      "issue": 87,
+      "source_location": "Physical p.373, printed p.358, \u00a79.10.3 Example 1. The annotation changes the description of the final ToUnicode destination to CJK UNIFIED IDEOGRAPH-2003E; the shown mapping remains <3A51> to UTF-16BE <D840DC3E>.",
+      "behavior": "The example names one supplementary-plane Unicode scalar encoded by a surrogate pair. This is an example correction, not a separate rule changing all ToUnicode parsing.",
+      "code": "crates/pdf-font/src/tounicode.rs parses UTF-16BE destinations and appends Unicode strings to extraction output.",
+      "assertions": "`crates/pdf-font/src/tounicode.rs::surrogate_pairs_decode_to_one_character` directly asserts an independently literal surrogate pair maps to U+1F600; this is a positive supplementary scalar control, but does not use the example's <3A51>/<D840DC3E> pair through a public PDF consumer. The parser coverage supports the general representation; the precise example mapping is not separately asserted.",
+      "verdict": "The corrected example agrees with the supported surrogate-pair mechanism. No normative gap established; no draft added because testing the example alone would add traceability rather than establish an unmet reader obligation."
+    }
+  ],
+  "explicit_limits": [
+    "The physical-page window includes annotations for issue numbers outside 1\u2013450 (for example #500 on physical p.83).",
+    "Issue #500's [1 0 1] test uses input Table 17 says producers shall not use; do not label its recovery path a normative requirement.",
+    "Findings are limited to these five corrections and their inspected assertions; no claim is made that all early-page annotations or all affected clauses are covered."
+  ]
+}

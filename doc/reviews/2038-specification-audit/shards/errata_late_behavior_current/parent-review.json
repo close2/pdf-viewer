@@ -1,0 +1,9 @@
+{
+  "source": "Parent read primary physical783/768 \u00a714.8.4.8.3 and annotation7498 may insertion,7505 should correction. Text7505 has no State/IRT; do not infer Completed. Table384 definitions are elsewhere.",
+  "fixture": "Four tracked tests use exactxref objects1\u201320, validParentTree/IDTree, consecutive eligibleheaders without interveningTD. Public render thenAccessibilityTree, all five labels guarded, only surrounding layoutwhitespace trimmed.",
+  "result": "RowwithoutHeadersPASS; ColumnwithoutHeadersPASS; ColumnwithHeadersPASS; RowwithHeadersFAIL actual[Named], lacks Middle/Far. Initial whitespace guard failures rejected. Original malformed xref and ambiguous interveningTD draft were corrected before final witness.",
+  "strength": "B53: adopted optional algorithm / recommended SHOULD correction gap. No mandatory universal implicit-search requirement. Named-ID contribution and downstreamTD state left unresolved.",
+  "prior_correction": "Supersedes structure_types claim that #200 concerns Caption and its claim the ledger discloses the limitation. Actualclause14.8.4.8.3 claims implemented search conditions without this exception. ADR0312 adoption retained; loop-order decision should be revisited.",
+  "annex_l": "Fresh #83 object8676 describes P parent\u2192Table child only. Parent also extracted July2024 embeddedxlsx: columns areParent, rowsChild; M33=0..n, AH10=forbidden. #440 physical979/964 and985/970 changes WP parent\u2192Figure child only: AC41=0..n, AP28=forbidden. Both prior bidirectional paraphrases are incorrect. GeneratedDocumentwrapper tests do not depend on these edges; no new implementation finding from correcting audit prose.",
+  "limits": "Selected #200/#83/#256 only; no full matrix, table-grid or relativeURI consumer coverage."
+}

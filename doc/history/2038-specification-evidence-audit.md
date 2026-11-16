@@ -30,11 +30,11 @@ versions affect neither reports nor processing restrictions. A transparent strok
 composites overlapping same-object geometry twice. Literal measurement, join/fill,
 WritingMode and new-file ID controls pass. The stroke failure also reaches PDF and three GPU lanes; CMYK-image OP passes.
 Embedded-font, Type3 image and corrected FDF controls pass. Next scopes cover
-operative EC3 corrections and partial/writer-row ADR residuals.
+indirect-value equivalence and remaining consumer assertions.
 UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage51%;ceiling85%.
 
 TSA keyCompromise time selection fails with genuine signed material; FieldMDP
 rename coverage fails under a qualified interpretation. Signature/core Clippy passes.
 Alpha, filtered-checksum and cross-Contents controls pass; archive path cap fails. Model/transform Clippy pass.
 Current CRL and historical OCSP applicability witnesses fail; both positive controls pass.
-Matrix2D missing under A193; indirectObjStm/Size controls pass; existing BM outside-pixel strengthened.
+Matrix2D missing under A193; conflictingScope prematurely stops adopted header search; controls pass.

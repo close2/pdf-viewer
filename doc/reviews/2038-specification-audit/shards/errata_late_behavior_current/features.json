@@ -1,0 +1,60 @@
+{
+  "baseline": "b901326c",
+  "scope": "A bounded late-EC3 correction pass. I used errata_late_residual_current/issue_coverage.json to select structure/navigation candidates and freshly inspected the relevant primary annotations and local source pages for #200, #83, and #256. This is not a full audit of pages 451\u20131023 or of the selected clauses.",
+  "features": [
+    {
+      "issue": 200,
+      "feature": "Conflicting Scope in the adopted implicit table-header search",
+      "source": {
+        "clause": "14.8.4.8.3",
+        "physical_page": 783,
+        "printed_page": 768,
+        "context": "The paragraph says that when Headers is unspecified, an implicit search algorithm may be used. Its bullets include stopping at a data cell after a header and at a header with Headers; a following sentence filters headers by Scope.",
+        "annotation": {
+          "object": "7505 0 R",
+          "subtype": "Text",
+          "contents_paraphrase": "Insert text saying a cell whose Scope conflicts with the search direction should neither terminate the search nor be added to its header list, irrespective of that cell's Headers; example: a Row-scoped cell seen while searching up a column should not terminate the search.",
+          "IRT": null,
+          "RT": null,
+          "State": null,
+          "StateModel": null,
+          "M": "D:20260522170304-05'00'"
+        },
+        "strength": "The source permits use of the implicit algorithm ('may be used'); the inserted correction says conflicting-Scope cells 'should not' terminate or contribute. The finding is against this implementation's adopted algorithm and project claim, not a universal requirement that every reader use implicit search."
+      },
+      "ledger": "\u00a714.8.4.8.3 is marked implemented. Its note claims that the edge, data-after-header, header-with-Headers termination, and Scope filter are implemented. It does not mention the #200 conflicting-Scope exception.",
+      "implementation": "crates/pdf-model/src/structure.rs::TableStack::search. The loop sets after_a_header for every TH and resolves/returns on any TH with stated Headers before checking whether Scope matches the axis. The clear correction mismatch is that a conflicting-Scope TH carrying /Headers causes an immediate return; #200 says that cell should not terminate the search and should not itself be added. The code also resolves its /Headers IDs, but whether those separately named IDs remain contributors after the search continues is not fully explicit in the overlay.",
+      "tests_and_consumer": "The public consumer is Query::AccessibilityTree, whose AccessibilityNode.headers indexes nodes on the same page. Existing viewer-core/tests/headless.rs::a_cell_is_given_the_header_cells_that_describe_it checks ordinary Scope filtering (South stepped over for a column search) and a regular header run, but not a conflicting-Scope cell with or without Headers.",
+      "draft": "drafts/table_header_conflicting_scope.rs",
+      "expected_observation": "The scratch fixture has a conflicting Row TH followed by two eligible Column headers Middle and Far, with no intervening TD. Without /Headers, the expected public answer is Middle, Far. With /Headers, the assertion requires that Middle, Far are still found and that the conflicting cell itself (Conflict) is absent, while deliberately not asserting whether the separately named ID Named appears. A matching-scope /Headers control expects Conflict, Named and stops.",
+      "execution": "Parent tracked derivative table_header_conflicting_scope_spec_audit:4run3PASS1FAIL in table-scope-wave55c.log. Exactxref and public-name guards pass. Row+Headers returns Named and fails continuation to Middle/Far; the subsequent Conflict-exclusion assertion is not reached. No claim about Named contribution or later TD stopping state.",
+      "residual": "The direct failure is failure to continue past a conflicting-Scope cell that carries /Headers. Whether that cell's separately named IDs also contribute remains unresolved: #200 bars the conflicting cell itself and its termination, but does not plainly say whether the named IDs are discarded. The independent downstream-TD consequence of a mismatched TH without /Headers is also unresolved and is not promoted as a test. This is not complete Table 384 certification."
+    },
+    {
+      "issue": 83,
+      "feature": "Annex L admits P parent \u2192 Table child in the PDF 2.0 structure namespace",
+      "source": {
+        "clause": "Annex L, Table L.2",
+        "physical_page": 962,
+        "printed_page": 947,
+        "annotation": "Text 8676 0 R inserts NOTE 2 that Table is permitted as a child of P and the matrix marks Table as a child of P and P as a parent of Table, both views of the same directed relationship; accompanying attachment/correction annotation identifies the changed Annex L matrix."
+      },
+      "assessment": "This is an operative producer-containment correction. The existing annex_l_structure_relationships_current review directly read the primary annotation and replacement matrix, and correctly confines conformance checks to PDF 2.0 structure trees this writer creates. It found no reader rejection obligation and no gap in its bounded multi-Document merge cases. I do not duplicate that review or infer that every transform path/full Annex L matrix was tested.",
+      "related_review": "doc/reviews/2038-specification-audit/shards/annex_l_structure_relationships_current/findings.txt",
+      "residual": "The prior shard explicitly leaves the full Annex L matrix and all transform paths unreviewed. This correction does not justify rejecting an incoming reader tree whose source relationships violate the producer rule."
+    },
+    {
+      "issue": 256,
+      "feature": "Base URI clarification applies beyond URI actions",
+      "source": {
+        "clause": "12.6.4.8, Table 211 and surrounding URI-reference text",
+        "physical_page": 534,
+        "printed_page": 519,
+        "annotation": "Text 5423 0 R is an Editor Note stating that the existing Base/URI-dictionary material applies to all relative URIs in a PDF, not only URI actions, and is intended to move in a future edition."
+      },
+      "assessment": "This is an editor clarification of existing text, not a newly inserted action-specific rule. The issue index links it to the prior actions_chains_current source and public-handoff review. That review is the relevant owner; this shard does not repeat its tests or claim resolved URI normalization beyond the consumer boundary it inspected.",
+      "related_review": "doc/reviews/2038-specification-audit/shards/actions_chains_current/findings.txt",
+      "residual": "The clarification has broad relative-URI reach. Any future audit of URI-bearing fields outside /URI actions should return to the actual owning clauses and host resolution contract rather than extrapolating from this annotation alone."
+    }
+  ]
+}

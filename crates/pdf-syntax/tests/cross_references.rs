@@ -4,10 +4,10 @@
 //! why they are right here. A corpus finds what documents *contain*: the pdf.js corpus has three
 //! documents that delete an object and none that deletes one still referenced, no document whose
 //! `/W` array starts with a zero, and none that writes an entry type ISO 32000-2 does not define.
-//! Every rule below is required of any valid PDF and reachable by no file anybody has. Each is
-//! written as a comparison where one can be — the same document assembled two ways, differing
-//! only in the rule under test — because an assertion about one file passes for a reader that
-//! never applies the rule at all.
+//! The tests distinguish valid-file requirements from explicitly identified recovery choices
+//! for malformed files and recorded departures. Each uses a comparison where one can be — the
+//! same document assembled two ways, differing only in the rule under test — because an
+//! assertion about one file can pass for a reader that never applies the rule at all.
 
 #![expect(
     clippy::expect_used,

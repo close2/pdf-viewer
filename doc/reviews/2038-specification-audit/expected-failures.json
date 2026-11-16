@@ -451,6 +451,12 @@
       "finding": "2038-B52",
       "log": "appearance-matrix-wave52.log",
       "requires": "pdf-script/engine"
+    },
+    {
+      "binary": "viewer-core::table_header_conflicting_scope_spec_audit",
+      "test": "conflicting_scope_with_headers_does_not_terminate_the_adopted_column_search",
+      "finding": "2038-B53",
+      "log": "table-scope-wave55c.log"
     }
   ]
 }

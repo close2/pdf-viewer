@@ -1,0 +1,6 @@
+{
+  "source": "Parent freshly read primary annotations for #10 physical47/32;#500 and#146 physical83/68;#95 physical89/74;#87 physical373/358. Table17 physical82/67 expressly forbids zero second W value. #146 and#500 are separate corrections; draft conflation removed.",
+  "assertion_review": "ExternalF refusal has a matching embedded decode control. Hybrid witnesses use exact file offsets and entry precedence, but unfiltered xref streams. The AES fixture helper is not an independent known-answer vector for every padding boundary. The supplementary Unicode literal tests mechanism, not the exact corrected example.",
+  "correction": "Cross-reference test module no longer claims all its fixtures express requirements for valid PDFs: [1,0,1] is producer-invalid; the test pins recovery policy. ADR1004 is historical rationale, not evidence of valid-input conformance.",
+  "limits": "Five selected corrections only. No new behavior failure or execution claimed."
+}
