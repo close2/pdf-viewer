@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (53)
+## Current checkpoint (54)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **75 assertions**, grouped into behavior findings rather
@@ -50,6 +50,13 @@ Four selected overlays add excluded runtime behavior, an explanatory namespace n
 and a bibliography entry; none establishes a new supported-reader defect. The issue
 index is a discovery aid, not certification of every correction. An earlier namespace
 source-page locator is corrected in the parent review.
+
+Checkpoint54 adds two passing syntax assertions: permitted indirect object-stream
+dictionary values and the documented current-entry `/Size` departure. An existing
+stored-appearance blend test gains an outside-region control and still passes.
+All ten departed rows were reconsidered; the current redaction limit is already
+accurate, and stale scan-conversion wording is the existing D13 finding. The early
+errata index covers source locations, not a verdict on every correction.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

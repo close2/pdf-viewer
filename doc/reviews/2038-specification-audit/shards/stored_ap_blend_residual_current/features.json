@@ -1,0 +1,16 @@
+{
+  "baseline": "b901326c",
+  "scope": "Stored annotation appearance /BM behavior only. Review is not a full §12.5.5 certificate and does not adjudicate /ca or /CA.",
+  "features": [
+    {
+      "clause": "12.5.2 / Table 166; §12.5.5",
+      "feature": "Annotation /BM is applied when a stored appearance is composited with page content",
+      "source": "Primary EC3 source checked in ec3-parent-layout.txt: Table 166 is printed p.470 / physical p.485; it defines /BM as the mode used when painting an annotation onto the page and defaults to Normal. The preceding reader paragraph's ignore list historically included BM, but EC3 #23/#34 remove BM and #56 adds MK. §12.5.5's composition paragraph is printed p.475 / physical p.490 and names BM, ca, and CA. Effective annotation history is summarized in doc/errata-read.md (section on #23/#34/#56).",
+      "implementation": "annotation.rs::blend_mode supplies the annotation mode to the stored-appearance path; content/annotations.rs installs it in the graphics state for the appearance group. No internal ExtGState is needed for the test to distinguish the annotation dictionary's BM.",
+      "existing_assertions": "crates/pdf-model/tests/stored_annotation_blend_spec_audit.rs (present in the active worktree) asserts Multiply black, Normal red, and default Normal red from a stored AP. Its exact-xref fixture has valid page/Form resources, a transparency group, trailer ID, no-recovery check, complete-interpretation assertion, and opaque colors. This already exercises the core test proposition. The scratch draft adds an untouched-blue outside-region control to catch page/coordinate mistakes.",
+      "source_interpretation": "The implementation test concerns BM, not the ca/CA opacity dispute: the appearance is opaque and no opacity constants are present. The primary source gives two direct supports for BM (Table 166 and §12.5.5); EC3 removes the broad ignore instruction that previously contradicted that behavior. The ca/CA tension does not affect these expectations.",
+      "verdict": "Current code and existing exact-xref CPU-pixel assertion support the chosen stored-AP BM behavior. This is a regression-coverage completion, not a newly discovered behavior defect.",
+      "residuals": ["No test result was run in this read-only shard; parent owns execution.", "The test does not resolve other annotation ignore-list keys or /ca and /CA interpretation.", "No conformance conclusion follows for malformed annotations or unsupported blend modes."]
+    }
+  ]
+}

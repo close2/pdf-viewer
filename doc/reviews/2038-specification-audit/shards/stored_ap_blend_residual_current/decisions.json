@@ -1,0 +1,14 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "id": "stored-appearance-BM-test",
+      "decision": "Keep /BM active for stored AP compositing under the effective Table 166 plus EC3 reading. Use an isolated exact-xref pixel regression with opaque colors so the unresolved ca/CA text does not enter the oracle.",
+      "evidence": "Table 166 directly says /BM is used when painting the annotation onto the page and defaults to Normal. EC3 #23/#34 remove BM from the reader ignore list; #56 adds MK. §12.5.5 repeats BM in the composition sentence. Current code passes the annotation blend mode into the AP compositing state.",
+      "assertion": "An opaque red AP Multiply-composited over an opaque blue page must be black by Table 134's componentwise multiply; Normal and absent /BM (Table 166 default) are red. A pixel outside the annotation remains blue. These literal expected values are independent of the renderer.",
+      "classification": "Implementation regression for an effective behavior already present in the worktree, not a newly found failure. It does not settle the separate /ca and /CA opacity tension.",
+      "existing_test": "crates/pdf-model/tests/stored_annotation_blend_spec_audit.rs already has the main target and Normal/default controls. Scratch draft adds outside-page control and explicit alpha assertions; parent should avoid promoting a duplicate if the existing test has already passed.",
+      "confidence": "high"
+    }
+  ]
+}

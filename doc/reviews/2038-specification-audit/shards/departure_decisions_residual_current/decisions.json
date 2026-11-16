@@ -1,0 +1,60 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "id": "redaction-17-to-24-bit-premise",
+      "rows": [
+        "12.5.6.23"
+      ],
+      "decision": "Historical ADR wording describing a >16-bit limitation is superseded; no current-file instance of that obsolete ceiling was found. The current ledger already records the >24-bit and separately described unsupported-shape refusals.",
+      "evidence": "ADR 2480 records implementation; current redaction integration tests include a >24-bit exact refusal and a 16\u201324-bit deep JPX writeback/readback. ADR 2868 restores valid /RO drawing after removal. The current annotation_types_current shard limits the separate overlay departure to /OverlayText and /IC.",
+      "action_for_parent": "No current-file defect found and no historicalADRrewrite. Retain narrower current departure and correctly read superseded history.",
+      "confidence": "high"
+    },
+    {
+      "id": "scan-conversion-interpretive-note",
+      "rows": [
+        "10.7.4"
+      ],
+      "decision": "The \u00a710.7.4 departure remains, but family language saying \u00a710.7.1 NOTE licenses it is stale and contradicted by the explicit \u00a710.7.4 shall rules and ADR 1560.",
+      "evidence": "scan_conversion_current/findings.txt differentiates the informative algorithm NOTE from the mandatory result rules. That shard separately identifies the stale \u00a710.7.5 family statement that predates A714/ADR 2553; this does not undo the \u00a710.7.4 departure.",
+      "action_for_parent": "Correct summary wording only; do not change \u00a710.7.4 departure status based on the NOTE.",
+      "confidence": "high"
+    },
+    {
+      "id": "appearance-opacity-and-blend",
+      "rows": [
+        "12.5.5"
+      ],
+      "decision": "Keep the narrow stored-AP opacity departure, while making the general \u00a712.5.5 composition sentence versus Table 166/EC3 reading tension explicit. Existing ca test is not evidence about BM; a BM discriminator is a useful optional test of current behavior.",
+      "evidence": "annotation_common_current checks Table 166 and EC3 #23/#34/#56, and actual annotations.rs opacity assertions. Current implementation applies BM; no direct stored-AP BM pixel test was found.",
+      "action_for_parent": "T26 already supplied directBMcoverage; checkpoint54 strengthens outside-region control. Both source passages supportBM; opacity tension does not weaken its requirement.",
+      "confidence": "medium"
+    },
+    {
+      "id": "xref-size-regression-specificity",
+      "rows": [
+        "7.5.5"
+      ],
+      "decision": "ADR 2346 still owns the deliberate departure. Parent subsequently added and ran an exact current-entry-above-/Size regression; the older-object-stream boundary remains a distinct behavior.",
+      "evidence": "Table 15 is printed p.58 / physical p.73. Parent reports the direct current-entry regression passes; the older-object-stream boundary test is only a qualifier.",
+      "action_for_parent": "New focused current-entry retention and existing older-object-stream recovery-bound test bothPASS. Label the former deliberate departure, not conformance.",
+      "confidence": "medium"
+    },
+    {
+      "id": "other-departures-retained",
+      "rows": [
+        "7.4.9",
+        "11.5.3",
+        "12.5.2",
+        "12.6.4.6",
+        "12.7.8.3.3",
+        "12.10.2"
+      ],
+      "decision": "No current source, owner policy, or code evidence found that reverses these narrow departures. Do not upgrade their status because tests exercise adjacent or chosen behavior.",
+      "evidence": "See per-feature evidence and residual limits in features.json; source/ADR chains are referenced by each entry.",
+      "action_for_parent": "Retain statuses; keep writer, renderer, and host-policy departures distinct from reader duties.",
+      "confidence": "medium-high"
+    }
+  ]
+}

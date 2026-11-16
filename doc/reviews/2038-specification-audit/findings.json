@@ -728,7 +728,8 @@
     "summary": "Added stored-appearance annotation BM pixel test; existing internal ExtGState blend tests do not isolate this dictionary key.",
     "execution": "PASS annotation-blend-wave17.log: Multiply black, explicit Normal red, absent Normal red, opaque alpha255.",
     "source": "Table166 BM and EC3#23/#34 remove BM from stored-appearance ignore list.",
-    "limits": "No new opacity interpretation; existing recorded departure about CA/ca is outside this test."
+    "limits": "No new opacity interpretation; existing recorded departure about CA/ca is outside this test.",
+    "checkpoint54_extension": "Existingtest strengthened with outside-Rect bluepixel;1PASS. No newtest counted. New departure review initially missed earlier addedtest; corrected."
   },
   {
     "id": "2038-B23",
@@ -2005,5 +2006,25 @@
     ],
     "summary": "Added source-to-panel raster proof of explicit outline colour and actual default-black title ink.",
     "execution": "1PASS outside eleven-crate broad scope; style-bit visual effects remain unverified."
+  },
+  {
+    "id": "2038-T72",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "7.5.7"
+    ],
+    "summary": "EC3 #114 valid indirect-uncompressed ObjStm N/First/Length now has a focused positive assertion.",
+    "execution": "NewtestPASS and existingdirectcontrolPASS; embedded endstream marker in compressed literal string discriminates Length resolution.",
+    "limits": "No reader-rejection mandate for invalid producer forms."
+  },
+  {
+    "id": "2038-T73",
+    "kind": "deliberate-departure-test-specificity",
+    "clauses": [
+      "7.5.5"
+    ],
+    "summary": "Pinned explicit currentxref entry retention above understated Size, distinct from older compressed-member recovery bound.",
+    "execution": "NewtestPASS including normalSizecontrol; existingolder-recovery-boundtestPASS.",
+    "limits": "ADR2346 productdeparture on malformedSize; not ISOconformance."
   }
 ]

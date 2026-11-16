@@ -2032,3 +2032,128 @@ fn a_zero_width_type_field_defaults_a_valid_incremental_entry_to_type_one() {
     assert!(object(&document, 5).as_stream().is_some());
     assert!(document.catalog().is_ok());
 }
+
+/// ISO 32000-2 §7.5.7, EC3 #114 permits indirect uncompressed dictionary values.
+/// `/N`, `/First` and `/Length` are ordinary integer objects outside the `ObjStm`.
+/// The existing direct-value object-stream test supplies the complementary control.
+#[test]
+fn object_stream_dictionary_values_may_reference_uncompressed_objects() {
+    let pages = "<< /Type /Pages /Count 1 /Kids [4 0 R] >>";
+    let page = "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 10 10] /Resources << >> >>";
+    // The title contains the stream terminator bytes *inside a literal string*. Reading
+    // until the first textual endstream instead of resolving /Length loses this member.
+    let info = "<< /Title (before\nendstream\nafter) >>";
+    let header = format!(
+        "3 0 4 {} 8 {} ",
+        pages.len() + 1,
+        pages.len() + page.len() + 2
+    );
+    let data = format!("{header}{pages} {page} {info}");
+
+    let mut bytes = b"%PDF-2.0\n".to_vec();
+    let catalog_at = bytes.len();
+    bytes.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 3 0 R >>\nendobj\n");
+    let stream_at = bytes.len();
+    bytes.extend_from_slice(
+        format!(
+            "2 0 obj\n<< /Type /ObjStm /N 5 0 R /First 6 0 R /Length 7 0 R >>\nstream\n{data}\n\
+             endstream\nendobj\n"
+        )
+        .as_bytes(),
+    );
+    let n_at = bytes.len();
+    bytes.extend_from_slice(b"5 0 obj\n3\nendobj\n");
+    let first_at = bytes.len();
+    bytes.extend_from_slice(format!("6 0 obj\n{}\nendobj\n", header.len()).as_bytes());
+    let length_at = bytes.len();
+    bytes.extend_from_slice(format!("7 0 obj\n{}\nendobj\n", data.len()).as_bytes());
+
+    let xref_at = bytes.len();
+    let entries: [[u64; 3]; 10] = [
+        [0, 0, 65535],
+        [1, offset_of(catalog_at), 0],
+        [1, offset_of(stream_at), 0],
+        [2, 2, 0], // object 3 is member 0 of ObjStm 2
+        [2, 2, 1], // object 4 is member 1 of ObjStm 2
+        [1, offset_of(n_at), 0],
+        [1, offset_of(first_at), 0],
+        [1, offset_of(length_at), 0],
+        [2, 2, 2], // object 8 is member 2 of ObjStm 2
+        [1, offset_of(xref_at), 0],
+    ];
+    bytes.extend_from_slice(&xref_stream_object(
+        9,
+        Some(0),
+        &entries,
+        "/Root 1 0 R /Info 8 0 R ",
+        [1, 4, 2],
+    ));
+    bytes.extend_from_slice(format!("startxref\n{xref_at}\n%%EOF\n").as_bytes());
+
+    let document = open(bytes);
+    assert!(
+        !document.was_recovered(),
+        "the exact xref stream remains authoritative"
+    );
+    let tree = document.get(ObjectId::new(3, 0));
+    let tree = tree
+        .as_dict()
+        .expect("/N and /First references locate member 3");
+    assert_eq!(
+        tree.get("Type")
+            .and_then(Object::as_name)
+            .map(pdf_syntax::Name::as_bytes),
+        Some(&b"Pages"[..])
+    );
+    assert_eq!(tree.get("Count").and_then(Object::as_integer), Some(1));
+    let page = document.get(ObjectId::new(4, 0));
+    let page = page
+        .as_dict()
+        .expect("the second compressed member is a page");
+    assert_eq!(
+        page.get("Type")
+            .and_then(Object::as_name)
+            .map(pdf_syntax::Name::as_bytes),
+        Some(&b"Page"[..])
+    );
+    assert_eq!(
+        page.get("Parent").and_then(Object::as_reference),
+        Some(ObjectId::new(3, 0))
+    );
+    let info = document.get(ObjectId::new(8, 0));
+    assert_eq!(
+        info.as_dict()
+            .and_then(|d| d.get("Title"))
+            .and_then(Object::as_string),
+        Some(&b"before\nendstream\nafter"[..]),
+        "indirect /Length includes the entire literal string rather than stopping at its embedded marker"
+    );
+}
+
+/// ADR 2346's deliberate Table 15 departure: stated entries are retained past `/Size`.
+/// The smaller-size fixture violates the producer's size rule. This pins the chosen
+/// recovery behavior; it is not an assertion of ISO conformance. Unlike the older-object
+/// stream recovery test, object 5 has an explicit entry in an intact current section.
+#[test]
+fn an_explicit_current_entry_past_size_is_retained_by_the_chosen_departure() {
+    let (mut out, offsets) = body(&[
+        SKELETON[0],
+        SKELETON[1],
+        SKELETON[2],
+        SPARE,
+        "5 0 obj\n(the high object)\nendobj\n",
+    ]);
+    classic_section(&mut out, &offsets, "");
+    assert!(out.contains("/Size 6 "));
+    for bytes in [
+        out.as_bytes().to_vec(),
+        out.replace("/Size 6 ", "/Size 4 ").into_bytes(),
+    ] {
+        let document = open(bytes);
+        assert_eq!(
+            object(&document, 5).as_string().map(<[u8]>::to_vec),
+            Some(b"the high object".to_vec()),
+            "the explicit entry is retained even when its number exceeds the stated size"
+        );
+    }
+}

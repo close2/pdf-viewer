@@ -48,7 +48,7 @@ fn pdf(mode: Option<&str>) -> Vec<u8> {
     out
 }
 
-fn centre(mode: Option<&str>) -> (u8, u8, u8) {
+fn pixel(mode: Option<&str>, x: u32, y: u32) -> (u8, u8, u8) {
     let document = Document::open(pdf(mode)).expect("generated PDF parses");
     assert!(!document.was_recovered(), "exact xref offsets");
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
@@ -63,8 +63,8 @@ fn centre(mode: Option<&str>) -> (u8, u8, u8) {
         .with_medium(pdf_render::Medium::NONE)
         .rasterize(&interpretation.display_list, target)
         .expect("supported raster");
-    let row = raster.height - 1 - 50;
-    let index = ((row * raster.width + 50) as usize) * 4;
+    let row = raster.height - 1 - y;
+    let index = ((row * raster.width + x) as usize) * 4;
     assert_eq!(raster.data[index + 3], 255, "opaque page and appearance");
     (
         raster.data[index],
@@ -76,11 +76,16 @@ fn centre(mode: Option<&str>) -> (u8, u8, u8) {
 #[test]
 fn stored_annotation_bm_changes_group_composite_without_an_internal_bm() {
     // Independent source-over calculation: opaque red Multiply blue is black; Normal is red.
-    assert_eq!(centre(Some("Multiply")), (0, 0, 0));
-    assert_eq!(centre(Some("Normal")), (255, 0, 0));
+    assert_eq!(pixel(Some("Multiply"), 50, 50), (0, 0, 0));
+    assert_eq!(pixel(Some("Normal"), 50, 50), (255, 0, 0));
     assert_eq!(
-        centre(None),
+        pixel(None, 50, 50),
         (255, 0, 0),
         "Table 166 defaults the mode to Normal"
+    );
+    assert_eq!(
+        pixel(Some("Multiply"), 5, 5),
+        (0, 0, 255),
+        "outside the annotation rectangle the page remains blue"
     );
 }

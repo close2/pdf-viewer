@@ -1,0 +1,7 @@
+{
+  "source": "Parent read Table166 BMphysical485/470 and explicit storedgroup composition490/475 plus actual relevant overlay objects. Both supportBM independent of ca/CA tension.",
+  "correction": "Initial noBMtestclaim was stale: T26/commit9547c9aa already added stored_annotation_blend_spec_audit.rs. Do not add a duplicate draft or count a newtest.",
+  "change": "Added blueoutside-Rect pixel to existing Multiply/Normal/default test; its independent literal centrepixels and opaquealpha retained.",
+  "execution": "stored-blend-wave54.log1PASS; modelalltargetsClippyPASS.",
+  "limits": "CPU lane only; no new opacityadjudication or everyannotationtypecertificate."
+}
