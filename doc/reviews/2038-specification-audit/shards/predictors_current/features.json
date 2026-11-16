@@ -1,0 +1,35 @@
+{
+  "scope": "Bounded §7.4.4.4/Tables8–10 source and assertion review, not whole filter-family certification.",
+  "source": "Effective ISO PDF printed41–42; PNG 2003 §9.2 byte reconstruction; source-local errata index has no identified §7.4.4.4 amendment.",
+  "primary_url": "https://www.w3.org/TR/2003/REC-PNG-20031110/#9Filters",
+  "features": [
+    {
+      "feature": "Predictor selection/defaults and per-row PNG tags",
+      "ledger": [
+        "7.4.4.3",
+        "7.4.4.4"
+      ],
+      "code": "filter::decode_with_parms_reported/apply_predictor",
+      "assertions": "flate_lzw_spec_audit table8_defaults_and_png_row_tags_reach_both_decoders: no prediction default, omitted Colors/BPC/Columns defaults, mixed tags under Predictor10 for both filters; filters each_png_row_carries_its_own_filter_type checks None/Sub/Up/Average; Paeth test independently exercises each neighbor answer.",
+      "verdict": "Discriminating literal output assertions, not decoder/encoder round trips. PNG selection values10–15 share path, but no exhaustive six-value matrix claimed."
+    },
+    {
+      "feature": "TIFF component arithmetic and PNG byte arithmetic",
+      "ledger": [
+        "7.4.4.4"
+      ],
+      "code": "filter::apply_predictor/tiff_predictor",
+      "assertions": "Existing TIFF8 multiro w, TIFF16 two-color carry and modulo wrap, TIFF2-bit padding/wrap literal outputs. New PNG16 RGB six-byte stride and packed2bit rows independently calculate outputs; both pass.",
+      "verdict": "Source distinguishes arithmetic units explicitly. New tests discriminate wrong component carry, wrong color stride and cross-row carry. TIFF1/4-bit and all PNG filter/depth combinations remain pending."
+    },
+    {
+      "feature": "Undefined predictor/depth and short-row recovery",
+      "ledger": [
+        "7.4.4.4"
+      ],
+      "assertions": "Existing undefined predictor/depth refusal controls and trailing type byte recovery have exact output/presence checks.",
+      "verdict": "Malformed-input policy evidence, not mandatory ISO rejection or universal conformance. Preserve distinction from valid feature controls."
+    }
+  ],
+  "execution": "predictors-wave11.log16/16PASS includes filters, prior Flate/LZW defaults and full-table reset tests. Execution of LZW reset does not constitute renewed complete §7.4.4.2 review."
+}

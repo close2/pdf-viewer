@@ -420,3 +420,34 @@ fn ascii85(data: &[u8]) -> Vec<u8> {
     out.extend_from_slice(b"~>");
     out
 }
+
+/// §7.4.4.4 and PNG §9.2 filter bytes independently even for sixteen-bit RGB samples.
+#[test]
+fn png_sub_uses_the_same_byte_of_the_previous_rgb16_pixel() {
+    // First pixel RGB16 = 00ff,0102,ff00; second = 0101,0204,0100.
+    // Sub's six-byte stride and byte-wise modulo sums differ from TIFF's component sums:
+    // the red low byte is ff+02 -> 01 without a carry into red's high byte.
+    let data = [
+        1, 0x00, 0xff, 0x01, 0x02, 0xff, 0x00, 0x01, 0x02, 0x01, 0x02, 0x02, 0x00,
+    ];
+    let undone = pdf_syntax::filter::apply_predictor(&data, 11, 3, 16, 2)
+        .expect("PNG Sub at sixteen bits and three colors");
+    assert_eq!(
+        &*undone,
+        &[
+            0x00, 0xff, 0x01, 0x02, 0xff, 0x00, 0x01, 0x01, 0x02, 0x04, 0x01, 0x00
+        ]
+    );
+}
+
+/// §7.4.4.4 and PNG §9.2 predict packed bytes, with left neighbors reset at each row.
+#[test]
+fn png_sub_predicts_packed_bytes_and_restarts_after_row_padding() {
+    // Five two-bit samples occupy two bytes per row. First row: 0,1,2,3,3;
+    // second: 3,2,1,0,1. Low six bits of each final byte are row padding.
+    // Source bytes: 1b c0 / e4 40. Sub deltas: 1b a5 / e4 5c (modulo256).
+    let data = [1, 0x1b, 0xa5, 1, 0xe4, 0x5c];
+    let undone = pdf_syntax::filter::apply_predictor(&data, 11, 1, 2, 5)
+        .expect("packed PNG Sub with independently padded rows");
+    assert_eq!(&*undone, &[0x1b, 0xc0, 0xe4, 0x40]);
+}

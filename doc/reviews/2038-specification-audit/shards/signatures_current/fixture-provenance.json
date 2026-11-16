@@ -31,5 +31,7 @@
   ],
   "test_clock_unix": 1800000000,
   "time_limit": "Tests inject fixed clock inside immutable certificate validity; no wall-clock expiry dependency. Regenerated certificate/CMS bytes need not be identical.",
-  "scope": "Positive local host-anchor validation with explicit UnknownRevocationAccepted; not revocation-good evidence or automatic Open verification evidence."
+  "scope": "Positive local host-anchor validation with explicit UnknownRevocationAccepted; not revocation-good evidence or automatic Open verification evidence.",
+  "semantic_regenerator": "generate_fixture.sh creates fresh test-only credentials in caller-supplied output directory; generator-notes.txt specifies fixed immutable-fixture clock vs regenerated clock.",
+  "parent_generator_validation": "PASS: fresh generation, qpdf syntax checks on both files, OpenSSL positive/tamper controls; pades-parent-regeneration.log. Fresh CMS/certificate bytes intentionally differ."
 }

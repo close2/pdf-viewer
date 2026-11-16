@@ -106,6 +106,12 @@ and same-range-tampered public Report controls pass, with an explicit host ancho
 and unknown-revocation policy. They establish later verification, not Open-time
 execution. No missing UI note is presented as proof of an unperformed check.
 
+Further controls pass for all four named actions, packed and 16-bit PNG byte
+prediction, Type6 inherited edges, Type7 asymmetric control ordering, and non-unit
+axial/radial domains. Independent Bernstein inversion supports the tensor pixel.
+A fresh PAdES generator run passes syntax and signature/tamper controls. The full
+font suite has 397 passes and exactly the three recorded font failures.
+
 The owner-authorized redaction-overlay change is recorded in A842 and ADR 2868;
 the MaxLen change is recorded in A834 and ADR 2840. Their changed assertions must
 be assessed against those current decisions rather than treated as unauthorized

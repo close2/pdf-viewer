@@ -14,7 +14,7 @@ The report and machine-readable continuation are in
 **Evidence so far.** All 72 previous failing assertions pass. Current tests expose
 22 failing assertions, grouped by behavior and qualified where interpretation is
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
-The shard index links partial reviews to 189 ledger rows; 694 remain pending in
+The shard index links partial reviews to 195 ledger rows; 688 remain pending in
 this round. No entire clause is certified merely because referenced tests pass.
 A shared-parser date mutation was killed and restored. Independent JP2 fixture
 regeneration matches the embedded hashes. Selected ADR conclusions are retained,
@@ -30,3 +30,6 @@ The next checkpoint adds AGL sequence/unknown-component failures and public text
 controls, four passing mesh pixel assertions, and genuine PAdES report/tamper tests.
 The PAdES Open-trigger finding is static: no verifier execution seam is exposed.
 The new 11-test run has six passes and five expected failures; three-crate Clippy passes.
+Further passing controls cover all four named actions, packed/16-bit PNG arithmetic,
+Type6 inherited edges, Type7 asymmetric control order and non-unit shading domains.
+Independent Bernstein inversion supports the tensor pixel; fresh PAdES regeneration passes.

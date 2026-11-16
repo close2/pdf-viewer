@@ -240,6 +240,48 @@
       "log": "wave10c-quality.log",
       "scope": "pdf-font,pdf-model,viewer-core all-targets Clippy-Dwarnings",
       "exit": 0
+    },
+    {
+      "log": "pdf-font-full-wave10.log",
+      "scope": "full pdf-font suite",
+      "run": 400,
+      "passed": 397,
+      "failed": 3,
+      "skipped": 0,
+      "exit": 100,
+      "expected_failures": 3,
+      "unexpected_failures": 0
+    },
+    {
+      "log": "named-actions-wave11.log",
+      "run": 4,
+      "passed": 4,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "predictors-wave11.log",
+      "run": 16,
+      "passed": 16,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "shading-extension-wave11.log",
+      "run": 3,
+      "passed": 3,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "wave11-quality.log",
+      "scope": "unfulfilled panic lint expectation in draft; removed",
+      "exit": 101
+    },
+    {
+      "log": "wave11b-quality.log",
+      "scope": "pdf-syntax,pdf-model,viewer-core all-targetsClippy-Dwarnings",
+      "exit": 0
     }
   ],
   "prior_expected_failures": {

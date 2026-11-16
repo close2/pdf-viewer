@@ -15,9 +15,9 @@
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
       "media_viability",
-      "shading_current_extension",
-      "signatures_current",
-      "signatures_transforms"
+      "optional_content_current",
+      "signatures_transforms",
+      "annex_d_reproduction"
     ],
     "recorded_shards": [
       "logical_structure",
@@ -36,10 +36,12 @@
       "annex_f_linearization",
       "annex_d_encoding",
       "shading_current",
-      "signatures_current"
+      "signatures_current",
+      "predictors_current",
+      "named_actions_current"
     ],
-    "partial_current_rows": 189,
-    "pending_current_rows": 694
+    "partial_current_rows": 195,
+    "pending_current_rows": 688
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",
@@ -53,6 +55,6 @@
     "ceiling": 85,
     "remaining_reserved": 15,
     "last_weekly_used_percent": 33,
-    "last_read_utc": "2026-11-16T10:54:02Z"
+    "last_read_utc": "2026-11-16T11:03:45Z"
   }
 }

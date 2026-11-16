@@ -1,0 +1,6 @@
+{
+  "tests": "crates/pdf-model/tests/shading_continuations_spec_audit.rs",
+  "execution": "3PASS shading-extension-wave11.log",
+  "independent_tensor_oracle": "tensor_oracle.py uses Bernstein basis and multi-seed Newton inversion at page39.5,48.5. Correct net unique found rootu=.4423884454,v=.5544815207 gives red78.3997; swappingp11/p12 rootv=.7956797521 gives161.4421. No renderer dependency. Numerical root search is not a global uniqueness proof.",
+  "scope": "Type6flags1/2/3 inherited control points and2sharedcolors direct display-list assertions; Type7asymmetric interior placement plus public pixel; Type2/3nonunitDomain publicpixels. Type7continuation remains untested here."
+}

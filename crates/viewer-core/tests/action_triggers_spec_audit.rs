@@ -298,3 +298,49 @@ fn entering_a_nested_annotation_exits_the_outer_annotation_first() {
         "the fourth mouse-event constraint requires X for the first active annotation"
     );
 }
+
+fn three_page_named_action(name: &str) -> Vec<u8> {
+    // Three pages discriminate Next from Last and Previous from First.
+    assemble(&[
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> /Annots [7 0 R] >>"
+            .to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> /Annots [8 0 R] >>"
+            .to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> /Annots [9 0 R] >>"
+            .to_vec(),
+        format!("<< /S /Named /N /{name} >>").into_bytes(),
+        b"<< /Type /Annot /Subtype /Link /Rect [10 10 30 30] /P 3 0 R /A 6 0 R >>".to_vec(),
+        b"<< /Type /Annot /Subtype /Link /Rect [10 10 30 30] /P 4 0 R /A 6 0 R >>".to_vec(),
+        b"<< /Type /Annot /Subtype /Link /Rect [10 10 30 30] /P 5 0 R /A 6 0 R >>".to_vec(),
+    ])
+}
+
+#[test]
+fn all_four_named_actions_reach_their_distinct_public_page_targets() {
+    // §12.6.4.12 Tables 215/216 require the four named actions. The following
+    // paragraph requires no action for an unrecognized name, tested from the middle page.
+    let cases = [
+        ("NextPage", 0, 7, 1),
+        ("LastPage", 0, 7, 2),
+        ("PrevPage", 2, 9, 1),
+        ("FirstPage", 2, 9, 0),
+        ("UnrecognizedAuditAction", 1, 8, 1),
+    ];
+    let actual = cases.map(|(name, start, annotation, expected)| {
+        let (mut viewer, _) = open(three_page_named_action(name));
+        viewer
+            .handle(Command::GoTo(PageTarget::Index(start)))
+            .for_each(drop);
+        assert_eq!(current_page(&viewer), start, "starting page for {name}");
+        viewer
+            .handle(Command::Activate(pdf_syntax::ObjectId::new(annotation, 0)))
+            .for_each(drop);
+        (name, current_page(&viewer), expected)
+    });
+    assert!(
+        actual.iter().all(|(_, page, expected)| page == expected),
+        "{actual:?}"
+    );
+}

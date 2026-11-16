@@ -1,0 +1,64 @@
+{
+  "review_scope": "Partial extension; parent extension-execution.json supersedes draft residuals for non-unit Domain. Source printed-page citations corrected against primary PDF.",
+  "reviewer_record": [
+    {
+      "feature": "Type 2 axial shading parameters, defaults, and paint bounds",
+      "clause": "§§8.7.4.3, 8.7.4.5.3; Table 77 and Table 79",
+      "source_location": "Processed EC3 md:5831-5852 (Table 77 Background/BBox), 5884-5915 (Type 2 and Table 79); source PDF printed pp. 233-234. Table 79 Domain default [0 1], Extend default [false false]; Domain maps axis fraction into Function input; each Extend boolean independently admits t outside [0,1]. Table 77 BBox is an additional temporary clip in target space; Background fills pattern area outside shading bounds only when used by a shading pattern, and is ignored by sh.",
+      "errata": "Effective ISO 32000-2:2020(E) consolidated with EC3 checked; no Type 2/Table 77 amendment identified in the errata index. EC3 consolidated source retains these defaults and separate producer constraints.",
+      "ledger": "§8.7.4.3; §8.7.4.5.3; §8.7.4.2 (sh operator); §11.6.7 (pattern transparency group).",
+      "code": "pdf-colour/src/shading.rs::domain/extend/ramp/axial; pdf-render/src/shading.rs::Ramp/axial bounds/painting_bounds; render backend ramp paths and shading clip.",
+      "tests": [
+        "pdf-model/tests/shadings.rs::an_axial_shading_runs_from_its_first_colour_to_its_second",
+        "::a_shading_that_does_not_extend_paints_nothing_beyond_its_ends",
+        "::a_shadings_bbox_clips_what_it_paints",
+        "::an_axial_shadings_background_washes_the_area_beyond_its_ends",
+        "::the_sh_operator_ignores_a_background_and_owes_no_report",
+        "render-cpu/tests/a_level_where_the_paint_is_the_pixel.rs::a_ramps_cell_is_its_colour_at_the_pixels_own_t",
+        "render-cpu/tests/shading_placement.rs",
+        "drafts/continuation_and_tensor_order.rs::axial_and_radial_nonunit_domains_map_geometry_fraction_into_function_input (axial half; unrun)"
+      ],
+      "test_assertions": "Public pixels prove endpoint/midpoint ramp, perpendicular invariance, explicit false-vs-true extension, axial BBox clipping, and pattern-only Background with/without entry. Default Domain [0,1] and default Extend [false,false] are used by fixtures that omit those keys. Ramp sampling has an independent pixel-center oracle. Scratch exact-xref draft uses Domain [0.2,0.8] and predicts the quarter-axis linear ramp is about 89/255, distinguishing ignored Domain (~64); unrun.",
+      "verdict": "SUPPORTED for standard default axial Domain/Extend, independent endpoint extension, common BBox clip, and pattern Background condition.",
+      "residuals": "No promoted axial pixel oracle uses non-unit shading Domain. The scratch draft adds an axial non-unit Domain pixel control but is unrun. Type 2 indexed color-space prohibition is a producer constraint, not an automatic reader-error assertion."
+    },
+    {
+      "feature": "Type 3 radial shading parameters, defaults, and paint bounds",
+      "clause": "§§8.7.4.3, 8.7.4.5.4; Table 77 and Table 80",
+      "source_location": "Processed EC3 md:5831-5852 (Table 77), 5917-5975 (Type 3, Table 80 and Notes 1-3); source PDF printed pp. 235-237. Table 80 Domain default [0,1], Extend default [false,false]; radii shall be nonnegative; zero radii are points and both zero means nothing paints. A smaller extended end stops at radius zero; a larger extended end continues until it covers BBox. The pixel color is the greatest admissible s among enclosing circles.",
+      "errata": "Effective ISO 32000-2:2020(E) consolidated with EC3 checked; no Type 3/Table 80 amendment identified in the errata index.",
+      "ledger": "§8.7.4.3; §8.7.4.5.4; §8.7.4.2; §11.6.7.",
+      "code": "pdf-colour/src/shading.rs::domain/extend/radial/ramp; pdf-render/src/shading.rs::blend_parameter/RadialRaster/fill_with_background; render backend radial paths.",
+      "tests": [
+        "pdf-model/tests/shadings.rs::a_radial_shading_grades_between_its_two_circles",
+        "::a_radial_shadings_background_washes_the_area_no_blend_circle_reaches",
+        "pdf-render/src/shading.rs::the_greatest_root_a_cone_admits_is_not_always_the_greater_root",
+        "render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_a_radial_cone",
+        "render-raster/tests/headless_quorra.rs::cpu_and_quorra_agree_on_a_radial_cone",
+        "drafts/continuation_and_tensor_order.rs::axial_and_radial_nonunit_domains_map_geometry_fraction_into_function_input (radial half; unrun)"
+      ],
+      "test_assertions": "Public pixels check the ramp between concentric circles, non-extended outside transparency, equal-radius symmetry, pattern Background for nested-circle and cone cases, plus direct greatest-root/cone and backend agreement assertions. Default Domain/Extend are omitted in the radial pixel fixtures. Scratch exact-xref draft uses the same non-unit Domain at radial s≈0.25 and predicts about 89/255, distinguishing ignored Domain (~64); unrun.",
+      "verdict": "SUPPORTED for sampled concentric shading, default non-extension, nested/cone Background bounds, and greatest-admissible-root logic.",
+      "residuals": "No promoted radial pixel oracle uses non-unit shading Domain or asymmetric Extend combinations at both ends. Scratch adds the non-unit Domain radial pixel control but it is unrun. Radius-zero termination, both-zero no-paint, BBox-capped large-end extension, and anti-aliased zero-area BBox are not covered by sampled tests. Indexed color-space prohibition is producer-facing."
+    },
+    {
+      "feature": "Common shading BBox and pattern-only Background",
+      "clause": "§8.7.4.3 Table 77; §8.7.4.2; §11.6.7",
+      "source_location": "Processed EC3 md:5831-5852; source PDF printed pp. 230-234. BBox is a target-space temporary clip in addition to current and other clips; zero height/width still paints one pixel (cross-reference §10.7.4). Background is applied before pattern shading, only for shading-pattern use, and must be an appropriate color-space component array.",
+      "errata": "No applicable EC3 correction to Table 77 identified; effective consolidated source reviewed.",
+      "ledger": "§8.7.4.3 and common behavior at §8.7.4.2/§11.6.7.",
+      "code": "pdf-colour/src/shading.rs::background; pdf-model/src/content/pattern/shading.rs; pdf-render/src/shading.rs::Shading::painting_bounds/ShadingRaster; pdf-render/src/crop.rs.",
+      "tests": [
+        "pdf-model/tests/shadings.rs::a_shadings_bbox_clips_what_it_paints",
+        "::an_axial_shadings_background_washes_the_area_beyond_its_ends",
+        "::a_radial_shadings_background_washes_the_area_no_blend_circle_reaches",
+        "::a_mesh_shadings_background_washes_the_area_its_triangles_do_not_cover",
+        "::a_function_based_shadings_background_fills_its_bounding_box_outside_the_domain",
+        "::the_sh_operator_ignores_a_background_and_owes_no_report"
+      ],
+      "test_assertions": "BBox uses public alpha pixels for inside/outside and path intersection. Pattern Background tests compare the same in-area/out-of-bounds point with and without Background; separate sh test confirms ignored entry and no report. Axial/radial bound semantics determine outside points separately from shared BBox clipping.",
+      "verdict": "SUPPORTED for ordinary nondegenerate BBox clip and Background routing in sampled geometry types.",
+      "residuals": "No sampled zero-width/height BBox one-pixel fixture; mesh-specific BBox and all backend implementations are not independently established by the cited axial BBox assertion alone."
+    }
+  ]
+}
