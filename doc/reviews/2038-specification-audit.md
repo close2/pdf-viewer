@@ -11,6 +11,24 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
+## Current checkpoint (31)
+
+Partial reviews now cover **520 of 883 ledger rows**, with 363 pending. The current
+failure manifest contains **55 assertions**; these are grouped behavior findings,
+not 55 independent defects. All 72 failures from the prior audit pass at this baseline.
+The latest completed broad run is wave27 (nine crates); an expanded eleven-crate
+refresh is running. Later focused runs and quality checks are recorded separately.
+The paragraphs below preserve the evidence accumulated at earlier checkpoints.
+
+The newest regressions expose two limits whose consequences are hidden: an attachment
+below the DPart depth ceiling disappears without a partial-result notice, and archive
+validation can report a transparency requirement as met after its survey stopped early.
+Four archive cases cover PDF/A2 and4 at depth and stream-count boundaries. The tests
+accept disclosed incompleteness; they do not demand unlimited processing. Eight
+WritingMode allocation controls pass. Model/core/archive all-targets Clippy passes.
+Clause6 review distinguishes producer obligations and optional external-suite evidence
+from executed reader tests. Weekly usage was 44% at the latest check; the ceiling is85%.
+
 ## Method and current work
 
 Recheck all 72 previously failing assertions against the updated code and the

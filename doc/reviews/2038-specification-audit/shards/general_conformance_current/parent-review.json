@@ -1,0 +1,7 @@
+{
+  "source": "Parent-owned review of primary33\u201334, eight current clause6rows, ADR0984/1461/1225/1622 and selected public restriction/foreign-reader assertion bodies.",
+  "assertions": "All8rows exist. Independent foreign-corpus suite is ignored under normal nextest and can skip without tools/corpus; prior broadcounts do not prove it executed. Copy-restriction assertions discriminate policy levels but can skip if corpusabsent.",
+  "limits": "Aggregate evidence only for explicitly reviewed obligations and source/actor distinctions. Does not certify all delegated features, historical performance, all external normative references, or every writer output.",
+  "baseline": "b901326c",
+  "scope": "Partial feature/assertion review; parent qualifications supersede draft wording."
+}

@@ -1,0 +1,7 @@
+{
+  "source": "Parent traced Survey bounds, bool membership, stopped_short and graphics consumer to judge empty-findings\u2192Met. Read held PDF/A2section6.2.10 andPDF/A4section6.2.9 from main checkout, plus primaryAnnexCphysical865/850 and AnnexQ997\u2013998.",
+  "assertions": "Four independent failures: PDF/A2 and4 each at formdepth9 andstreamcount4097. Depth8/count4096 controls report transparency and Failed. Over-limit surveys report stopped=true, transparency=false and affected publicrowMet. Headers match targets1.7/2.0; exactxref, IDs, valid form resources/content lengths. These are deliberately nonconforming transparency examples, not fully conforming PDF/A files.",
+  "qualification": "Final oracle accepts any nonMet result and also allows raising the ceiling; it does not require the detector to stop at these constants. Existing guards in initialrun established truncation cause. Token/observation caps and other consumers remain residual. No production changes.",
+  "baseline": "b901326c",
+  "scope": "Partial feature/assertion review; parent qualifications supersede draft wording."
+}

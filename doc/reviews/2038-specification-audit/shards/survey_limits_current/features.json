@@ -1,0 +1,66 @@
+{
+  "scope": "Bounded content Survey traversal and archive consumers of Survey::stopped_short, focused on whether an incomplete Annex Q transparency walk can be reported as a checked PDF/A requirement.",
+  "source": {
+    "base_standard": "ISO 32000-2:2020, owned local copy doc/md/ISO_32000-2_2020.md; Annex C (informative), printed pp. 849-852; Annex Q (normative), printed pp. 981-983.",
+    "subsets": "PDF/A-2 §6.2.10 and PDF/A-4 §6.2.9. The held PDF/A-2 text permits transparency, says the Annex A determination method should be used, then requires a Group/CS on every transparent page when no document output intent is present. PDF/A-4 likewise permits transparency and requires an output intent or page Group/CS. The ledger adopts Annex Q for the archive conversion. The PDF/A-2 row graphics/a-transparent-page-has-a-blending-space is distinct from the PDF/A-4 row graphics/a-transparent-page-has-a-blending-space-or-an-output-intent.",
+    "source_reading": "Annex C recognizes practical processor limits and says exceeding one causes an error; its NOTE says subset standards may set limits. It does not require unbounded processing. Annex Q's normative method inspects rendered elements, forms, images, text and annotation appearances to determine page transparency; its NOTE says the base PDF standard does not require the method but subset standards may choose to mandate it. The PDF/A clauses make page-level transparency classification relevant to their file requirements, and PDF/A-2 explicitly points to its Annex A method. A bounded processor may stop, but must not turn missing observations into evidence that the relevant requirement was met."
+  },
+  "features": [
+    {
+      "id": "survey.form_depth_cutoff",
+      "source_requirement": "The Annex Q transparency method follows Form XObject contents recursively; the archive survey has a local nesting cap of 8. No claim is made that PDF requires supporting arbitrary depth.",
+      "implementation": "crates/pdf-archive/src/survey.rs:184; crates/pdf-archive/src/survey/xobjects.rs:134-135. On a further nested stream, stopped_short is set and that stream is not inspected.",
+      "actual_assertions": "Existing Annex Q tests exercise the semantic conditions and state transitions, but the reviewed tests do not hold the public archive requirement result against a valid acyclic chain at the cap and one level beyond it. cross_check.rs documents that streams past the survey bound are outside its paired comparison; this is not a conformance-result assertion.",
+      "consumer": "crates/pdf-archive/src/table/graphics.rs:4899-4910 filters only page_is_transparent and does not consult stopped_short. The bool accessor returns false for an unobserved page. The PDF/A-2 and PDF/A-4 transparency rows therefore can return Outcome::Met on a truncated prefix.",
+      "verdict": "Defect: a bounded walk can be permitted, but the current conformance consumer silently treats an unknown transparency result as a negative result. The result for a requirement whose population may be incomplete must be explicitly unchecked/refused or otherwise prevent a Met outcome."
+    },
+    {
+      "id": "survey.nested_stream_count_cutoff",
+      "source_requirement": "Same Annex Q and PDF/A requirement; processor may use an internal resource limit under informative Annex C, but incomplete coverage is not proof of absence.",
+      "implementation": "crates/pdf-archive/src/survey.rs:187; crates/pdf-archive/src/survey/xobjects.rs:134-135. MAX_STREAMS is 4096 opened nested streams per Survey walk; reaching the bound sets stopped_short and declines the next stream.",
+      "actual_assertions": "No reviewed assertion pairs 4096 and 4097 valid sibling Forms and then examines the conformance row. The proposed draft isolates stream count from depth and token volume.",
+      "consumer": "Same transparent_pages_without_a_blending_space consumer does not branch on stopped_short.",
+      "verdict": "Same defect class; finite cap is not itself a nonconformance, but using its incomplete false result as a checked pass is unsound."
+    },
+    {
+      "id": "survey.content_token_budget",
+      "source_requirement": "Annex Q requires inspection of the relevant rendered content; Annex C permits practical internal limits and an error on excess. No general unlimited-work requirement.",
+      "implementation": "crates/pdf-archive/src/survey.rs:181; crates/pdf-archive/src/survey/operators.rs:60-64. The shared per-document budget is 20,000,000 Steps. When exhausted the current stream loop sets stopped_short, restores the marked-content stack base, and returns.",
+      "actual_assertions": "No feasible small boundary fixture was drafted: a faithful valid test must consume over twenty million parser Steps before placing a transparent painted element, which would impose avoidable runtime and memory cost. The source path and shared consumer establish the same unhandled incompleteness risk by inspection.",
+      "consumer": "The archive transparency row has no stopped_short handling. Other transformation consumers explicitly refuse or broaden handling after a short survey (see findings.txt).",
+      "verdict": "Static gap within the same defect class; not independently exercised. Do not lower the resource limit solely to make a test cheap."
+    },
+    {
+      "id": "survey.observation_population_cutoff",
+      "source_requirement": "Not a PDF source feature; it is another local survey bound that can truncate data consumed by checks.",
+      "implementation": "crates/pdf-archive/src/survey.rs: MAX_OBSERVATIONS is 100,000; survey/records.rs:197 sets stopped_short and declines a new record at the bound.",
+      "actual_assertions": "Not independently fixture-tested in this shard. No finding that every check consuming observations mishandles this bound is made.",
+      "consumer": "Specific audit scope was Annex Q and transparency page classification; further observation consumers need a separate dependency audit.",
+      "verdict": "Residual: the report should audit requirement-by-requirement which collected populations can be truncated and refuse only checks whose input is incomplete. This shard does not certify those consumers."
+    },
+    {
+      "id": "report.dynamic_incomplete_input",
+      "source_requirement": "A validation result cannot count a requirement as checked when its evidence source stopped before covering the relevant population; general Annex C processing limits permit an error/refusal rather than a false pass.",
+      "implementation": "Report::judge calls each implemented predicate and records Met when that predicate yields no findings. Outcome supports static Unchecked but there is no dynamic incomplete/survey-stopped outcome. Report::checked counts Met and Failed as checked; Report::unchecked only lists stored Unchecked/Processor/OutsideValidation outcomes.",
+      "actual_assertions": "The current report unit tests assert the static verdict/unchecked discipline, but not a requirement that becomes incomplete at runtime due to a content walk cap.",
+      "consumer": "The public `pdf_archive::check(document, Target::Two(Level::B))` route exposes the affected row as Met. The draft asserts only `not Met` for a stopped walk, leaving the implementation free to return a clear Unchecked/refusal; it does not demand support beyond the cap.",
+      "verdict": "Defect is observable at the public report boundary, not just in Survey's low-level bool."
+    },
+    {
+      "id": "ledger.annex_q_rows",
+      "source_requirement": "ISO 32000-2 Annex Q Q.1-Q.5 is normative; its note says PDF 2.0 does not itself require this method, while subset standards may choose to mandate it. PDF/A-2 §6.2.10 points to the part's own Annex A method (as a 'should') and then makes the no-output-intent Group/CS condition mandatory. PDF/A-4 §6.2.9 has the corresponding file condition.",
+      "implementation": "doc/conformance/ledger.toml records the Annex Q aggregate and Q.1 through Q.5 as implemented, under ADR 1461; it says the archive conversion invokes the method for PDF/A validation and conversion.",
+      "actual_assertions": "The ledger lists semantic tests for Q.1-Q.5: painted transparency state, forms, image masks, Type 3 glyphs, annotation appearance, patterns, and current state/restoration. It lists no bound-boundary test and no report-row outcome test on an incomplete walk.",
+      "verdict": "The status describes implementation of bounded semantic detection; it does not demonstrate complete coverage when local limits stop traversal. Preserve the implemented semantic rows but disclose/refuse a dependent conformance judgement after truncation."
+    }
+  ],
+  "drafts": [
+    "drafts/incomplete_transparency_report.rs: valid exact-xref eight/nine nested-Form boundary and 4096/4097 sibling-Form boundary, each with a within-limit transparency-detected control and an over-limit assertion that the public PDF/A transparency row is not Met. Both current over-limit assertions are expected to fail until the result can represent incomplete evidence."
+  ],
+  "not_claimed": [
+    "No requirement for infinite or unbounded PDF processing.",
+    "No claim that every `stopped_short` event affects every archive row; the dependency is specific to the Annex Q page-transparency population here.",
+    "No malformed/recovery behavior finding; proposed fixtures use exact xref tables and assert the parser did not recover.",
+    "No execution claim; the test draft was not compiled or run in this read-only audit."
+  ]
+}

@@ -12,9 +12,9 @@ The report and machine-readable continuation are in
 `doc/reviews/2038-specification-audit.md` and its evidence directory.
 
 **Evidence so far.** All 72 previous failing assertions pass. Current tests expose
-50 failing assertions, grouped by behavior and qualified where interpretation is
+55 failing assertions, grouped by behavior and qualified where interpretation is
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
-The shard index links partial reviews to 509 ledger rows; 374 remain pending in
+The shard index links partial reviews to 520 ledger rows; 363 remain pending in
 this round. No entire clause is certified merely because referenced tests pass.
 A shared-parser date mutation was killed and restored. Independent JP2 fixture
 regeneration matches the embedded hashes. Selected ADR conclusions are retained,
@@ -22,7 +22,8 @@ qualified, or reconsidered with primary-source reasoning.
 
 **Gates.** Wave27, nine crates: nextest 6,723 run, 6,679 pass, exactly the 44 expected
 failures by binary/test identity, 55 skipped. No missing or additional failures.
-Waves28–30 add ten passing controls and six expected failures. Clippy passes.
+Waves28–31 add twelve passing tests and eleven expected failures. Clippy passes.
+An eleven-crate broad refresh is running; its result remains pending.
 Earlier rustdoc/conformance,
 baseline and GTK runs retain their recorded scope and do not certify later changes.
 

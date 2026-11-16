@@ -300,6 +300,36 @@
       "test": "annotation_ca_does_not_override_an_explicit_opaque_appearance",
       "finding": "2038-B35",
       "log": "transparency-final-wave30d.log"
+    },
+    {
+      "binary": "viewer-core::dpart_depth_spec_audit",
+      "test": "dpart_af_beyond_the_limit_is_listed_or_disclosed_as_incomplete",
+      "finding": "2038-B36",
+      "log": "dpart-limits-wave31b.log"
+    },
+    {
+      "binary": "pdf-archive::incomplete_transparency_spec_audit",
+      "test": "pdf_a2_stopped_depth_is_not_certified_met",
+      "finding": "2038-B37",
+      "log": "survey-limits-wave31d.log"
+    },
+    {
+      "binary": "pdf-archive::incomplete_transparency_spec_audit",
+      "test": "pdf_a4_stopped_depth_is_not_certified_met",
+      "finding": "2038-B37",
+      "log": "survey-limits-wave31d.log"
+    },
+    {
+      "binary": "pdf-archive::incomplete_transparency_spec_audit",
+      "test": "pdf_a2_stopped_stream_count_is_not_certified_met",
+      "finding": "2038-B37",
+      "log": "survey-limits-wave31d.log"
+    },
+    {
+      "binary": "pdf-archive::incomplete_transparency_spec_audit",
+      "test": "pdf_a4_stopped_stream_count_is_not_certified_met",
+      "finding": "2038-B37",
+      "log": "survey-limits-wave31d.log"
     }
   ]
 }

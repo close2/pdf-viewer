@@ -1,0 +1,16 @@
+{
+  "reviews": [
+    {
+      "adr": "0984",
+      "verdict": "Retain source-derived population and separate actor obligations. Its top-level shall census and clause-heading inventory are structural safeguards, not a feature inventory or assertion-quality audit. Clause4 notation/reference bindings remain interpreted context rather than executable feature rows; this pass does not resolve all external normative references."
+    },
+    {
+      "adr": "1461",
+      "verdict": "Retain distinction between reader behavior and obligations on newly written output. Revisit an inapplicability claim when an actual reader/writer/print consumer exists. Later implemented aggregates do not erase residual evidence limits."
+    },
+    {
+      "adr": "1225,1622",
+      "verdict": "Retain explicit recommendation-level choice for linearized reading in the measured full-file architecture. The historical measurements are not rerun or claimed current. A SHOULD recommendation declined for a reason remains a recorded choice, not a substitute for correctness of the chosen reading path."
+    }
+  ]
+}

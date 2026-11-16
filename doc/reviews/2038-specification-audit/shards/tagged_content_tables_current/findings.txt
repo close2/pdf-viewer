@@ -1,0 +1,11 @@
+The reviewed source locators are §14.8.3.3 at primary physical 768 / printed 753; §14.8.5.4.2 at physical 790 / printed 775; and Table 378 at physical 791–792 / printed 776–777. The eight-value continuation is on physical 792, so the earlier feature file's physical 791-only locator was too narrow; it is corrected.
+
+The only new concrete test gap I found is small: the code maps all eight Table 378 WritingMode values, but its current allocation tests cover LrTb and TbRl, not BottomToTop or LeftToRight, and there is no table-driven check over all eight names. I drafted a model-level test with literal coordinates, so the oracle is the source-defined before/after edge mapping rather than the renderer. The coordinate expectation uses PDF default user space with y increasing upward: top-to-bottom expands to `[10,17,30,42]`; bottom-to-top expands to `[10,18,30,43]` for before 2 and after 3.
+
+Table 384 was out of the bounded scope and is not indexed as a feature in this shard. Its prior `structure_attributes_remaining_current` audit remains the evidence source; I do not recertify it here.
+
+Artifact classification has a narrower evidence boundary. `pdf-model` interprets it and `viewer-accessibility::tree::artifact` formats a description; a test checks that description on the raw AccessKit `TreeUpdate`. But Artifact maps to `GenericContainer`, which the adapter's common filter may remove. No bus-level test shows that an assistive client receives the Type/Subtype. §14.8.2.2.1 gives a text-to-speech engine permission to omit running heads or page numbers, not an obligation to provide a user control or to speak them. I therefore record consumer visibility as a product/API question and do not call this an ISO conformance failure.
+
+Whitespace and hyphenation are accounted for by the existing `tagged_layout` shard, which has a dedicated effective-source review. I did not duplicate its tests or re-audit its assertion bodies here.
+
+Scope limitations: This shard indexes only §14.8.3.3, §14.8.5.4.2, §14.8.5.4.5 and the prior partial artifact-consumer question. I did not audit other Table 378–381 entries, Table 384, all platform bus behavior, or complete layout/reflow. The proposed WritingMode test was not executed; the parent may promote and run it.

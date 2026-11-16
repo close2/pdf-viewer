@@ -1333,5 +1333,61 @@
     "summary": "Survey counts a soft-mask group when state is set but no graphical element is painted.",
     "evidence": "Scratch probe fails after painted-positive and opaque-negative controls pass. The current walk enters G immediately at gs.",
     "disposition": "Unresolved: rendered-element population versus otherwise-involved transparency and mask evaluation. Not added to the expected-failure manifest; no normative defect claim. Retain probe and next step in the shard."
+  },
+  {
+    "id": "2038-B36",
+    "kind": "incomplete-result-disclosure-gap",
+    "clauses": [
+      "14.12.2",
+      "14.13.8"
+    ],
+    "summary": "A valid attachment below DPart level64 disappears from the public list without a partial-result notice.",
+    "evidence": "Depth64 positive passes; depth65 returns only the independent catalog attachment and its ordinary report note. Public test accepts either listing or a specific incomplete-DPart notice.",
+    "qualification": "Product evidence/disclosure requirement, not a claim ISO requires arbitrary depth. Distinct streams prevent deduplication from invalidating the control."
+  },
+  {
+    "id": "2038-B37",
+    "kind": "false-validation-result",
+    "clauses": [
+      "Q.2",
+      "Q.3"
+    ],
+    "summary": "An incomplete transparency survey can yield Met for an archive requirement that depends on the omitted content.",
+    "evidence": "Four independent public report failures: PDF/A2 and4, depth9 and4097streams. Adjacent controls identify transparency and fail the blending-space requirement; beyond limits Survey stops, misses transparency and reports Met.",
+    "qualification": "Any explicit nonMet result is accepted. No obligation to remove safeguards or handle unlimited input. Full PDF/A conformance is not asserted; the affected row alone is tested."
+  },
+  {
+    "id": "2038-T51",
+    "kind": "assertion-coverage-gap",
+    "clauses": [
+      "14.8.3.3",
+      "14.8.5.4.2",
+      "14.8.5.4.5"
+    ],
+    "summary": "Selected allocation tests covered only two block directions despite eight supported WritingMode values.",
+    "change": "One combined public-model test checks all eight source names against literal default-user-space allocation edges in four directions.",
+    "execution": "1 PASS. Parent corrected a draft y-direction mistake before executing; no production defect inferred."
+  },
+  {
+    "id": "2038-D25",
+    "kind": "resource-limit-rationale-gap",
+    "clauses": [
+      "14.12.2",
+      "14.12.3"
+    ],
+    "summary": "DPart comments treat chains longer than64 as necessarily cyclic; that is not a consequence of the tree rules.",
+    "evidence": "A valid acyclic unary hierarchy has no source-defined depth maximum. The reference seen set is bypassed for flat children because they are resolved before testing identity; nested-array children differ.",
+    "disposition": "Keep safeguards, correct their rationale, and disclose partial results. The count ceiling is inspected, not independently reproduced."
+  },
+  {
+    "id": "2038-D26",
+    "kind": "consumer-evidence-boundary",
+    "clauses": [
+      "14.8.2.2.1",
+      "14.8.5.8"
+    ],
+    "summary": "Artifact classification assertions reach a raw accessibility update, not the final platform bus.",
+    "evidence": "Artifact uses GenericContainer, which platform filtering may omit. Existing description assertions do not establish assistive-client access.",
+    "disposition": "Unresolved product/API visibility question; no requirement to speak artifacts inferred. Keep explicit scope rather than treating raw-tree tests as end-to-end proof."
   }
 ]

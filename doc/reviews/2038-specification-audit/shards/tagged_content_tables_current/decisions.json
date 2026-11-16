@@ -1,0 +1,34 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "id": "all-writing-mode-values",
+      "source": "§14.8.3.3 and Table 378, primary physical 790–791 / printed 775–776",
+      "decision": "Add a compact model test for all eight valid WritingMode names, their four block-progression mappings, invalid-name fallback, and exact before/after allocation edges in BottomToTop and LeftToRight. This closes a narrow, observable test gap without claiming a complete reflow implementation.",
+      "reasoning": "Current code explicitly maps all eight values but committed tests exercise only LrTb and TbRl outcomes. Two missing cardinal directions are an easy high-signal regression target with independent expected coordinates.",
+      "status": "drafted",
+      "related_adrs": ["ADR 1535"]
+    },
+    {
+      "id": "table-grid-consumer",
+      "source": "Table 384, primary physical 807–808 / printed 792–793",
+      "decision": "Do not file a new defect. Existing table tests substantively cover spans, header association and public descriptions; AccessKit row/column/span metadata is retained in viewer-core and the confined protocol. Native AT-SPI table navigation is a documented adapter limitation in ADR 0300/0312 and doc/todo/31.",
+      "reasoning": "Table grid reachability and headers were already deeply reviewed in the prior table-attribute shard. Repeating those tests would not establish a new failure. Keep the platform limitation explicit, rather than mislabeling it as a newly discovered reader bug.",
+      "status": "prior_evidence_reused_with_explicit_scope"
+    },
+    {
+      "id": "artifact-classification-endpoint",
+      "source": "§14.8.2.2.1 and Table 385, primary physical 808–809 / printed 793–794",
+      "decision": "Treat final assistive-consumer visibility as an unresolved product/API question, not a standards failure. Existing raw TreeUpdate tests do not prove that a screen reader can receive the classification, and GenericContainer is subject to the adapter's common filter. The source gives a consumer a may-decide example, not a MUST speak or MUST expose instruction.",
+      "reasoning": "The implementation parses and formats Type/Subtype, but the role mapping uses GenericContainer and adapter filtering may remove it from the actual bus. No end-to-end assertion currently demonstrates the metadata reaching an AT-SPI client. A decision is needed only if the product intends the TTS policy to be user-controllable.",
+      "status": "policy_question_no_normative_failure"
+    },
+    {
+      "id": "whitespace-hyphen-coverage",
+      "source": "§§14.8.2.4–.5",
+      "decision": "No duplicate tests in this shard; refer to the existing tagged_layout audit and its source-derived assertions.",
+      "reasoning": "The shard index has a dedicated prior review for whitespace, soft hyphen and line-break reconstruction; these topics are covered rather than absent.",
+      "status": "covered_in_prior_shard"
+    }
+  ]
+}

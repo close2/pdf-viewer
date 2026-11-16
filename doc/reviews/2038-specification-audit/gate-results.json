@@ -1101,6 +1101,45 @@
       "failed": 1,
       "exit": 101,
       "scope": "Final committed detector tests: exactly B35 CA failure; BM and nested legacy-resource controls pass."
+    },
+    {
+      "log": "dpart-limits-wave31.log",
+      "exit": 101,
+      "scope": "Rejected draft: both cases shared an embedded stream and triggered legitimate attachment deduplication."
+    },
+    {
+      "log": "dpart-limits-wave31b.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 101,
+      "scope": "Distinct embedded streams: depth64 passes, depth65 silently omitted (B36)."
+    },
+    {
+      "log": "writing-mode-wave31c.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Eight WritingMode names against literal allocation rectangles."
+    },
+    {
+      "log": "survey-limits-wave31d.log",
+      "run": 4,
+      "passed": 0,
+      "failed": 4,
+      "exit": 101,
+      "scope": "PDF/A2 and4 each falsely Met beyond depth/stream-count limits, after adjacent controls. Final test allows increased ceilings."
+    },
+    {
+      "log": "quality-wave31g.log",
+      "exit": 0,
+      "scope": "Final model/core/archive all-targets Clippy -Dwarnings; earlier e/f draft lint failures corrected."
+    },
+    {
+      "log": "eleven-crate-wave31.log",
+      "status": "running",
+      "scope": "Expanded broad refresh including archive/accessibility; result pending at checkpoint31."
     }
   ],
   "prior_expected_failures": {

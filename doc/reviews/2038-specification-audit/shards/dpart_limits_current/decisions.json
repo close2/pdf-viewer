@@ -1,0 +1,23 @@
+{
+  "scope": "Reconsideration of decisions that justify or consume DPart walking; no general status change proposed.",
+  "decisions": [
+    {
+      "adr": "ADR 1040",
+      "topic": "DPart AF reachability and cycle/depth rationale",
+      "existing_claim": "The ADR says §14.12.2's no-multiple-parent rule bounds the walk and makes a cycle finite without a second guard.",
+      "review": "The no-multiple-parent rule is relevant to malformed cycles through indirect child refs, but it does not state or entail a 64-level maximum. document_part.rs tracks seen ObjectIds, but the check is shape-dependent: under effective flat #612 `/DParts`, each child is resolved before the reference check and reaches recursion as a dictionary. Refs in the nested-array compatibility path still reach the guard. A valid finite unary chain can exceed 64 while respecting one-parent ownership. The ADR's 'what bounds the walk is the clause' framing should not be used to justify MAX_DEPTH=64. A separate resource limit may be a defensible implementation policy, but truncating without a completeness signal is the identified product/API gap."
+    },
+    {
+      "adr": "ADR 1461",
+      "topic": "§14.12 ledger status and processor scope",
+      "existing_claim": "The ADR treats §14.12.2/.3 as implemented writer-side duties for split/merge/update; the aggregate is not a declaration of every reader edge case.",
+      "review": "No change to the writer-side evidence is implied by this audit. The read-path consumers are distinct: §12.6.4.5 GoToDp uses a DPart to choose a page, and §14.13.8 permits per-DPart AF. Those consumers make silent omission observable, but the located prose does not itself define an unbounded resource obligation. Keep ledger status and the read-path disclosure decision separate."
+    },
+    {
+      "adr": "ADR 0732 / EC3 #612 (shape context)",
+      "topic": "Effective Table 409 DParts syntax",
+      "review": "The review must use EC3 #612's annotated replacement on physical p.851, which specifies one array of indirect references to immediate descendants, rather than the original array-of-arrays text retained by some text extraction. The current exact-xref DPart AF fixture uses the corrected flat form. Existing document_part.rs comments and some old fixtures still narrate the superseded form and should not be cited as effective syntax evidence."
+    }
+  ],
+  "decision_needed": "Whether to retain hard resource ceilings as-is, raise them, or propagate a completeness/limit outcome to consumers. This audit recommends against describing depth>64 as necessarily cyclic. It does not recommend claiming mandatory unbounded processing absent stronger authority."
+}
