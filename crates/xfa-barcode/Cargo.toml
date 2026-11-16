@@ -13,7 +13,7 @@ repository.workspace = true
 [dev-dependencies]
 # An independent decoder, as evidence that a symbol this crate writes is read back as its data —
 # never as the definition of the symbology, which is the public source each module cites (ADR 2877).
-rxing = { version = "0.9.4", default-features = false, features = ["oned", "decoders", "encoding_rs"] }
+rxing = { version = "0.9.4", default-features = false, features = ["oned", "datamatrix", "pdf417", "decoders", "encoding_rs"] }
 
 [lints]
 workspace = true

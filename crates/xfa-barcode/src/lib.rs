@@ -26,11 +26,24 @@
 //! each module rests on is in its own comment, and what its source leaves open is written there
 //! too, under `CLAUDE.md` principle 5.
 //!
-//! - [`code39`]: Code 39 (`code3Of9`, and `logmars`, the Department of Defense's name for it) from MIL-STD-1189A.
+//! - [`code39`]: Code 39 (`code3Of9`, and `logmars`, the Department of Defense's name for it) from
+//!   MIL-STD-1189A, and its check character and full-ASCII extended set (`code3Of9extended`) from
+//!   open source under the owner's answer A857.
+//! - [`data_matrix`]: Data Matrix ECC 200 (`dataMatrix`) from open source under A857, every symbol
+//!   read back by an independent decoder.
+//! - [`pdf417`]: PDF417 (`pdf417`) from ISO/IEC 15438:2006 as Public.Resource.Org publishes it,
+//!   under A857, Compact PDF417 included.
+//!
+//! A linear symbol is [`encode`]d from the field's characters; a two-dimensional one is
+//! [`encode_matrix`]ed from bytes, because XFA 3.3 page 424 serialises a barcode's data as bytes
+//! (UTF-8 unless `charEncoding` says otherwise) before it is placed, and the serialisation is the
+//! caller's.
 
 #![forbid(unsafe_code)]
 
 pub mod code39;
+pub mod data_matrix;
+pub mod pdf417;
 
 use std::fmt;
 
@@ -128,7 +141,7 @@ impl Symbology {
     /// Whether this crate encodes the symbology.
     #[must_use]
     pub fn is_built(self) -> bool {
-        code39::serves(self)
+        code39::serves(self) || matches!(self.0, "dataMatrix" | "pdf417")
     }
 }
 
@@ -201,6 +214,15 @@ pub enum Refusal {
         /// The checksum asked for.
         checksum: Checksum,
     },
+    /// A message longer than the largest symbol holds.
+    Capacity {
+        /// The symbology.
+        symbology: Symbology,
+        /// The codewords the message needs.
+        codewords: usize,
+    },
+    /// A linear symbology asked for as a matrix, or a two-dimensional one as a linear symbol.
+    Dimension(Symbology),
     /// A module width or a wide-to-narrow ratio outside the limits XFA 3.3 page 440 gives the
     /// symbology.
     Geometry {
@@ -234,6 +256,17 @@ impl fmt::Display for Refusal {
                 formatter,
                 "{symbology} is not drawn with the checksum {}",
                 checksum.keyword()
+            ),
+            Self::Capacity {
+                symbology,
+                codewords,
+            } => write!(
+                formatter,
+                "{symbology} cannot hold a message of {codewords} codewords"
+            ),
+            Self::Dimension(symbology) => write!(
+                formatter,
+                "{symbology} was asked for in the wrong number of dimensions"
             ),
             Self::Geometry { symbology, limit } => {
                 write!(
@@ -301,15 +334,67 @@ impl Linear {
     }
 }
 
-/// Encode a field's data as the symbol its template's `barcode` element types.
+/// A two-dimensional symbol: rows of square modules, top row first, the quiet zone not in it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Matrix {
+    /// Modules per row.
+    pub width: usize,
+    /// Rows.
+    pub height: usize,
+    /// Whether each module is dark, row by row.
+    pub dark: Vec<bool>,
+}
+
+impl Matrix {
+    /// Whether the module in `row` and `column` is dark; a module outside the symbol is not.
+    #[must_use]
+    pub fn is_dark(&self, row: usize, column: usize) -> bool {
+        column < self.width
+            && row
+                .checked_mul(self.width)
+                .and_then(|start| start.checked_add(column))
+                .and_then(|index| self.dark.get(index))
+                .copied()
+                .unwrap_or(false)
+    }
+}
+
+/// Encode a field's data as the linear symbol its template's `barcode` element types.
 ///
 /// # Errors
 ///
-/// [`Refusal::NotBuilt`] for a symbology this crate does not build, and the symbology's own
-/// refusals for data or a checksum it cannot carry.
+/// [`Refusal::NotBuilt`] for a symbology this crate does not build, [`Refusal::Dimension`] for a
+/// two-dimensional one, and the symbology's own refusals for data or a checksum it cannot carry.
 pub fn encode(symbology: Symbology, checksum: Checksum, data: &str) -> Result<Linear, Refusal> {
     if code39::serves(symbology) {
         return code39::encode(symbology, checksum, data);
     }
+    if symbology.is_built() {
+        return Err(Refusal::Dimension(symbology));
+    }
     Err(Refusal::NotBuilt(symbology))
+}
+
+/// Encode a field's data, already serialised as bytes (XFA 3.3 page 424), as the two-dimensional
+/// symbol its template's `barcode` element types. `checksum` is not asked for: page 614 says a
+/// type that takes `errorCorrectionLevel` ignores it. `options` carries the template's
+/// two-dimensional properties; PDF417 takes them all, and Data Matrix none, its size fixed by the
+/// payload (page 442).
+///
+/// # Errors
+///
+/// [`Refusal::NotBuilt`] for a symbology this crate does not build, [`Refusal::Dimension`] for a
+/// linear one, and [`Refusal::Capacity`] for data the largest symbol, or the asked-for matrix,
+/// cannot hold.
+pub fn encode_matrix(
+    symbology: Symbology,
+    data: &[u8],
+    options: pdf417::Options,
+) -> Result<Matrix, Refusal> {
+    match symbology.0 {
+        "dataMatrix" => data_matrix::encode(data),
+        "pdf417" => pdf417::encode(data, options).map(|(matrix, _)| matrix),
+        _ if symbology.is_built() => Err(Refusal::Dimension(symbology)),
+        _ => Err(Refusal::NotBuilt(symbology)),
+    }
 }

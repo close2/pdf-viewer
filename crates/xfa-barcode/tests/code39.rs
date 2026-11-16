@@ -106,25 +106,86 @@ fn a_character_outside_the_set_is_refused_by_name() {
     }
 }
 
-/// XFA 3.3 page 613 lists `none` (the default) and `auto`; MIL-STD-1189A states no check
-/// character, so `auto` is refused rather than reconstructed.
+/// XFA 3.3 page 613 lists the keywords; page 440 ticks `auto` and `none` for `code3of9` and
+/// `code3of9extended` and no other, so `1mod10` is refused for Code 39.
 #[test]
-fn a_checksum_the_source_does_not_define_is_refused() {
+fn a_checksum_page_440_does_not_tick_is_refused() {
     assert_eq!(Checksum::from_keyword("none"), Some(Checksum::None));
     assert_eq!(Checksum::from_keyword("auto"), Some(Checksum::Auto));
     assert_eq!(Checksum::from_keyword("mod43"), None);
     assert_eq!(
-        xfa_barcode::encode(code3of9(), Checksum::Auto, "A"),
+        xfa_barcode::encode(code3of9(), Checksum::OneModTen, "A"),
         Err(Refusal::Checksum {
             symbology: code3of9(),
-            checksum: Checksum::Auto
+            checksum: Checksum::OneModTen
+        })
+    );
+}
+
+/// The modulo-43 check character (A857's source, `rxing`'s `ALPHABET_STRING`): each character's
+/// value is its position among the 43, and the check is their sum modulo 43. "CODE39": C 12, O 24,
+/// D 13, E 14, 3 3, 9 9 — 75, which is 32 modulo 43, the letter W.
+#[test]
+fn the_check_character_is_the_sum_modulo_43() {
+    assert_eq!(code39::VALUES.len(), 43);
+    assert_eq!(code39::check_character("CODE39"), Some('W'));
+    assert_eq!(code39::check_character(""), Some('0'));
+    // "%%": 42 + 42 = 84, 41 modulo 43, the character `+`.
+    assert_eq!(code39::check_character("%%"), Some('+'));
+    assert_eq!(code39::check_character("a"), None);
+    let with = xfa_barcode::encode(code3of9(), Checksum::Auto, "CODE39").expect("held");
+    let without = xfa_barcode::encode(code3of9(), Checksum::None, "CODE39W").expect("held");
+    assert_eq!(with, without, "`auto` appends W before the stop delimiter");
+}
+
+/// Page 440 ticks no checksum for `logmars`, and page 613 says the attribute is then ignored: a
+/// `logmars` symbol is the same whatever `checksum` says.
+#[test]
+fn logmars_ignores_the_checksum() {
+    let logmars = Symbology::from_type("logmars").expect("a defined type");
+    let none = xfa_barcode::encode(logmars, Checksum::None, "CODE39").expect("held");
+    for checksum in [Checksum::Auto, Checksum::OneModTen] {
+        assert_eq!(
+            xfa_barcode::encode(logmars, checksum, "CODE39").as_ref(),
+            Ok(&none)
+        );
+    }
+}
+
+/// The full-ASCII set: every one of the 128 characters is one base character or a shift and a
+/// letter, the 43 base data characters but `$`, `/`, `+` and `%` stand for themselves, and no two
+/// characters share an entry.
+#[test]
+fn the_extended_set_writes_every_ascii_character_once() {
+    let mut seen = std::collections::BTreeSet::new();
+    for (ascii, written) in code39::EXTENDED.iter().enumerate() {
+        assert!(seen.insert(*written), "{ascii} repeats {written:?}");
+        let character = char::from(u8::try_from(ascii).expect("128 entries"));
+        if written.len() == 1 {
+            assert_eq!(written.chars().next(), Some(character));
+            assert!(code39::VALUES.contains(character) && !"$/+%".contains(character));
+        } else {
+            let mut pair = written.chars();
+            assert!(
+                matches!(pair.next(), Some('$' | '%' | '/' | '+')),
+                "{ascii}"
+            );
+            assert!(matches!(pair.next(), Some('A'..='Z')), "{ascii}");
+        }
+    }
+    let extended = Symbology::from_type("code3Of9extended").expect("defined");
+    assert_eq!(
+        xfa_barcode::encode(extended, Checksum::None, "é"),
+        Err(Refusal::Unencodable {
+            symbology: extended,
+            character: 'é'
         })
     );
 }
 
 /// XFA 3.3 page 421: the `type` value is case-insensitive; pages 616–620 define 62 identifiers.
-/// `logmars` is Code 39 by MIL-STD-1189B (page 1565); `code3Of9extended` has no official
-/// standard (page 617) and the symbologies whose texts are not held are refused by name.
+/// `logmars` is Code 39 by MIL-STD-1189B (page 1565); the symbologies not built are refused by
+/// name.
 #[test]
 fn the_type_is_matched_without_case_and_unbuilt_types_are_refused_by_name() {
     assert_eq!(Symbology::from_type("CODE3OF9"), Some(code3of9()));
@@ -133,9 +194,13 @@ fn the_type_is_matched_without_case_and_unbuilt_types_are_refused_by_name() {
         Some("pdf417")
     );
     assert_eq!(Symbology::from_type("myInHouseCode"), None);
-    let logmars = Symbology::from_type("LOGMARS").expect("page 618 defines logmars");
-    assert!(logmars.is_built());
-    for name in ["pdf417", "dataMatrix", "code3Of9extended", "QRCode"] {
+    for name in ["LOGMARS", "code3Of9extended", "dataMatrix", "pdf417"] {
+        assert!(
+            Symbology::from_type(name).is_some_and(Symbology::is_built),
+            "{name}"
+        );
+    }
+    for name in ["QRCode", "aztec", "code128"] {
         let symbology = Symbology::from_type(name).expect("a defined type");
         assert!(!symbology.is_built(), "{name}");
         assert_eq!(
@@ -162,7 +227,12 @@ fn the_widths_are_held_to_xfa_3_3_page_440() {
 
 /// The symbol drawn as one scan line — `narrow` pixels to a narrow element, a quiet zone of ten
 /// narrow elements each side (MIL-STD-1189A paragraph 5.2.3's minimum) — and read by `rxing`.
-fn read_back(symbol: &Linear, narrow: usize, ratio_numerator: usize) -> Option<String> {
+fn read_back(
+    symbol: &Linear,
+    narrow: usize,
+    ratio_numerator: usize,
+    mut reader: Code39Reader,
+) -> Option<String> {
     let quiet = narrow * 10;
     let wide = narrow * ratio_numerator / 2;
     let width = quiet * 2
@@ -182,7 +252,7 @@ fn read_back(symbol: &Linear, narrow: usize, ratio_numerator: usize) -> Option<S
         }
         x += run;
     }
-    Code39Reader::new()
+    reader
         .decode_row(0, &row, &DecodeHints::default())
         .ok()
         .map(|result| result.getText().to_owned())
@@ -202,9 +272,34 @@ fn every_symbol_reads_back_as_its_data() {
         // Ratios 2.0, 2.5 and 3.0: the two ends of MIL-STD-1189A paragraph 5.2's range and a middle.
         for ratio_numerator in [4, 5, 6] {
             assert_eq!(
-                read_back(&symbol, 4, ratio_numerator).as_deref(),
+                read_back(&symbol, 4, ratio_numerator, Code39Reader::new()).as_deref(),
                 Some(data),
                 "{data:?} at a ratio of {ratio_numerator}/2"
+            );
+        }
+    }
+}
+
+/// A symbol with its check character is read back by a reader that checks it and strips it, and
+/// an extended symbol by a reader in full-ASCII mode, as every ASCII character.
+#[test]
+fn checked_and_extended_symbols_read_back_as_their_data() {
+    let every_ascii: String = (0_u8..128).map(char::from).collect();
+    let extended = Symbology::from_type("code3Of9extended").expect("defined");
+    for (symbology, data) in [
+        (code3of9(), "CODE39"),
+        (code3of9(), "HELLO WORLD $/+%."),
+        (extended, "Hello, World! {x|y} @`~"),
+        (extended, every_ascii.as_str()),
+    ] {
+        for (checksum, checking) in [(Checksum::None, false), (Checksum::Auto, true)] {
+            let symbol = xfa_barcode::encode(symbology, checksum, data).expect("held");
+            let reader = Code39Reader::with_all_config(checking, symbology == extended);
+            assert_eq!(
+                read_back(&symbol, 4, 5, reader).as_deref(),
+                Some(data),
+                "{symbology} {data:?} with {}",
+                checksum.keyword()
             );
         }
     }

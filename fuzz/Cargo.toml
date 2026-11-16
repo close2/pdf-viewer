@@ -66,6 +66,7 @@ pdf-jpx-write = { path = "../crates/pdf-jpx-write" }
 pdf-sandbox = { path = "../crates/pdf-sandbox" }
 # RFC 0003's write side over a document in memory, through the in-process worker (`vfs_write`).
 pdf-vfs = { path = "../crates/pdf-vfs" }
+xfa-barcode = { path = "../crates/xfa-barcode" }
 # The meet's polygon arithmetic, through `raster_gpu::intersection` (`meet`, ADR 1495).
 raster-gpu = { path = "../raster/crates/raster-gpu" }
 # A document's scripts: the engine, which `script` runs as the confined worker does, and the
@@ -389,6 +390,13 @@ bench = false
 [[bin]]
 name = "qc_statement"
 path = "fuzz_targets/qc_statement.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xfa_barcode"
+path = "fuzz_targets/xfa_barcode.rs"
 test = false
 doc = false
 bench = false

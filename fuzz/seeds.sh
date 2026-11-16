@@ -248,6 +248,23 @@ vectors = {
 for name, text in vectors.items():
     open(sys.argv[1] + "/" + name, "wb").write(bytes.fromhex(text))' "$root/$t"
         ;;
+    # A selector byte (the PDF417 shape, level and compactness) before a field's data: the worked
+    # examples the crate's tests pin, ISO/IEC 15438 Table 6 and Annexes C and D, and one of each
+    # Data Matrix encodation's sets.
+    xfa_barcode)
+        python3 -I -c 'import sys
+seeds = {
+    "table-6": b"\x00PDF417",
+    "annex-c": b"\x01" + bytes([231, 101, 11, 97, 205, 2]),
+    "annex-d": b"\x02000213298174000",
+    "mixed": b"\x07Order 00012345678901234 shipped; ref 98765432109876.",
+    "x12": b"\x0bX12*DATA>0123 \r",
+    "edifact": b"\x0eEDIFACT:+?^ 0123@",
+    "high": b"\x13\x00\x01\xfe\xff binary \x80",
+}
+for name, data in seeds.items():
+    open(sys.argv[1] + "/" + name, "wb").write(data)' "$root/$t"
+        ;;
     # Annex O's fragments arrive with a request, never in a file, so the seeds are the fragments
     # this tree's own reader and its tests state.
     fragment)

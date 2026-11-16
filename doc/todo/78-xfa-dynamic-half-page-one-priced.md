@@ -85,7 +85,7 @@ break, an overflow or the end of the content. So:
   (`exData`, chapter 27), borders, fills, lines, arcs and images; fonts named by typeface, which a
   shell PDF is to carry in `/AcroForm /DR` (page 21) and which may be absent; and barcodes — 14 of
   the 53 fetched forms state one (`pdf417` 24 times, `code3Of9` 7, `dataMatrix` 4), each a
-  symbology standard this tree does not hold.
+  symbology `crates/xfa-barcode` encodes (ADRs 2877, 2900, 2901).
 
 Read per document (the sample is the held dynamic documents and four fetched ones of each shape):
 
@@ -155,10 +155,12 @@ past the first content area, one or two rounds.
   one, and `only`/`last` page areas and `pageCount` scripts reach past it; *nothing eager* still
   binds, so the first implementation round measures page one's cost on the sample before anything
   else.
-- **Barcodes.** PDF417, Code 39 and Data Matrix are ISO/IEC 15438, 16388 and 16022, none held. A840
-  item 3 has them built from public sources where that is reasonable and bought only where it is not;
-  `crates/xfa-barcode` is where the drawing piece above finds them, and ADR 2877 says which are built
-  and which wait.
+- **Barcodes.** The three a census of the fetched forms found are built in `crates/xfa-barcode`, where the
+  drawing piece above finds them: Code 39 with its check character and extended set, Data Matrix ECC 200 and
+  PDF417 with Compact PDF417 (ADRs 2877, 2900, 2901; A857 had the texts not held derived from open source).
+  What the drawing piece still owes them: serialising the field's value by `charEncoding` (page 611) and
+  `dataPrep` (page 614), choosing PDF417's column count from the field's width (page 438), and drawing the
+  modules and the legend. `pdf417macro`, QR Code and the other identifiers are refused by name.
 - **Resource budgets.** A layout loop — an overflow leader that never fits, a `keep` chain longer
   than a content area — needs a budget, and the fuzzer a new target.
 

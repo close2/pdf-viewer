@@ -878,6 +878,8 @@ cd fuzz && cargo +nightly fuzz run ec_private_key -- -runs=1000000  # RFC 5915's
   # all three encodings, and SEC 1's Diffie-Hellman primitive under whatever key the input reads as (ADR 2821)
 cd fuzz && cargo +nightly fuzz run key_unwrap   -- -runs=1000000  # RFC 3394's AES key unwrap under
   # keys of all three widths cut from the input (ADR 2821)
+cd fuzz && cargo +nightly fuzz run xfa_barcode  -- -runs=1000000  # every symbology `xfa-barcode`
+  # builds, Code 39, Data Matrix and PDF417, under data and options cut from the input (ADR 2900)
 cd fuzz && cargo +nightly fuzz run x509         -- -runs=1000000  # the signer's certificate and
   # the verifications that run on the key inside it: `pdf_signature::x509` walks RFC 5280's
   # structure and `pdf_signature::pkcs1`, `pss` and `dsa` run the tree's only loops whose trip

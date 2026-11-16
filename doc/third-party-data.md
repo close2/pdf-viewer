@@ -1155,5 +1155,52 @@ Information Center published as ADA180561 and the Internet Archive hosts at
 `0414fc4889d59ff5c02566a5985e7f72a1bb6d83caeec99995be84f8f61446e3`, 208 pages); it is not committed.
 What the tree carries of it is Table E.1, *Code Configuration* (printed page 188), as
 `xfa_barcode::code39::TABLE`: 44 rows of binary digits, read from the scan's text layer and checked
-row by row against the page image. It prints no check character and no full-ASCII table, which is why
-`checksum="auto"` and `code3Of9extended` are refused (ADR 2877, `doc/questions/Q857`).
+row by row against the page image. It prints no check character and no full-ASCII table; those two come
+from `rxing`, the entry below, under the owner's answer A857 (ADR 2900).
+
+## `rxing` 0.9.4 — Data Matrix ECC 200, and Code 39's check values and full-ASCII set, for `xfa-barcode`
+
+The owner's answer A857 lifts principle 5 for XFA's barcodes alone: their tables and algorithms may be derived from
+permissively licensed implementations where no held public text prints them (ISO/IEC 16022 for Data Matrix,
+ISO/IEC 16388 or MIL-STD-1189B for Code 39's check character and extended set). **`rxing` 0.9.4**, licensed
+**Apache-2.0** (its `Cargo.toml` and `LICENSE`; it ships no NOTICE file), a Rust port of `ZXing` whose Data Matrix
+encoder is Jeremias Maerki's (copyright 2006, Apache-2.0, in each file's header), is the source read, from the copy
+cargo keeps under `~/.cargo/registry/src/*/rxing-0.9.4/`; it is already this crate's dev-dependency (ADR 2877).
+What the tree carries from it, each beside the file it was read from:
+
+- `xfa_barcode::code39::VALUES`, the 43 characters in check-value order (`src/oned/oned_constants.rs`'s
+  `ALPHABET_STRING`), and `xfa_barcode::code39::EXTENDED`, the 128-entry full-ASCII table, transcribed from the
+  rule in `src/oned/code_39_writer.rs`'s `tryToConvertToExtendedMode`;
+- `xfa_barcode::data_matrix::SIZES`, the 24 square rows of `src/datamatrix/encoder/symbol_info.rs`'s
+  `PROD_SYMBOLS`; the encodations' value tables and end-of-data rules (`ascii_encoder.rs`, `c40_encoder.rs`,
+  `text_encoder.rs`, `x12_encoder.rs`, `edifact_encoder.rs`, `base256_encoder.rs`); the pad and Base 256
+  randomisations (`high_level_encoder.rs`, `base256_encoder.rs`); the field polynomial `0x12D`, the generator's
+  roots and the interleaving (`error_correction.rs`); the placement walk and its four corner shapes
+  (`default_placement.rs`); and the finder pattern (`src/datamatrix/data_matrix_writer.rs`).
+
+The rules are re-expressed in this tree's code, not copied as source text; the tables are facts transcribed with
+their file named in a comment. Every symbol is read back by `rxing`'s decoder, which shares no code with its
+encoder, and ISO/IEC 16022:2000 Annex R's error codewords, as `rxing`'s `error_correction.rs` test carries them,
+are a fixed vector (ADR 2900). Other permissive projects named by A857 (zint, bwipp, pdfium's fxbarcode,
+datamatrix-rs, barcoders) were not read.
+
+## ISO/IEC 15438:2006 — PDF417, for `xfa-barcode`
+
+**ISO/IEC 15438:2006**, *Bar code symbology specifications — PDF417*, as Public.Resource.Org publishes it at
+`https://law.resource.org/pub/us/cfr/ibr/inc/iec/iec.15438.2006.pdf` (SHA-256
+`5aa7d91ce9b333b5ed254feee9f5aa70f9ab0aa65c9230b66d3a7c70da470d5f`, 112 pages), incorporated by reference into US
+federal regulation and stamped "Edict of government"; its pages also carry ISO's copyright notice, and it is not
+committed. The owner's answer A857 has PDF417 built from this copy, its
+tables carried as data and its text cited and paraphrased, never quoted. What the tree carries of it:
+
+- **Annex A**, the bar-space sequences of the 929 codewords in clusters 0, 3 and 6, as
+  `xfa_barcode::pdf417::ANNEX_A`: parsed from the text layer row by row (929 rows, none missing or conflicting),
+  and held by `crates/xfa-barcode/tests/pdf417.rs` to clause 5.3.1 — eight widths of one to six modules summing to
+  17, each in the cluster its bars compute, the 2 787 entries all distinct;
+- **Table 5**, Text Compaction's four sub-modes, as `pdf417.rs`'s value rules and its `MIXED` and `PUNCTUATION`
+  tables, read from the page image (printed page 14 has no text layer);
+- **Table 1**'s start and stop sequences.
+
+Annex F's coefficients are not carried: they are computed from clause 5.10's generator and compared with Annex F's
+first three tables in a test (ADR 2901).
+

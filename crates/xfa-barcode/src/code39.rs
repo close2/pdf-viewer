@@ -29,15 +29,31 @@
 //!   1.25 mm, ratio 2.0 to 3.0); [`Geometry::check`] holds a template to those, which is what the
 //!   template's grammar admits.
 //!
-//! # What it leaves open, written down under principle 5
+//! # The check character and the extended set, from open source under A857
 //!
-//! - **The check character.** MIL-STD-1189A states no check character. ISO/IEC 16388 and
-//!   MIL-STD-1189B are said to define an optional modulo-43 one, and XFA 3.3 page 440 allows
-//!   `checksum` `auto` for `code3of9`; neither text is held, so `auto` is
-//!   [`Refusal::Checksum`] rather than a rule reconstructed from memory or another program.
-//!   `none`, page 613's default, is built.
-//! - **The extended set.** `code3Of9extended` has "no official standard" (page 617) and
-//!   MIL-STD-1189A prints no full-ASCII table, so it is not built.
+//! MIL-STD-1189A states neither, and the texts that do (ISO/IEC 16388, MIL-STD-1189B) are not
+//! held. The owner's answer A857 lifts principle 5 for this symbology alone: its tables may be
+//! derived from permissively licensed implementations. Both below are derived from `rxing` 0.9.4
+//! (Apache-2.0, a port of `ZXing`), `src/oned/oned_constants.rs` and `src/oned/code_39_writer.rs`,
+//! and `doc/third-party-data.md` records the copy.
+//!
+//! - **The check character.** Each of the 43 data characters has a value, its position in
+//!   [`VALUES`]; the check character is the one whose value is the sum of the message's values
+//!   modulo 43, placed after the last data character and before the stop delimiter. XFA 3.3 page
+//!   440 ticks `auto` and `none` for `code3of9` and `code3of9extended`, and page 613 defines `auto`
+//!   as the format's default checksum, so `auto` writes it and `none` does not; the other keywords
+//!   are not ticked and are [`Refusal::Checksum`].
+//! - **The extended set.** `code3Of9extended` has "no official standard" (page 617); the
+//!   convention every implementation shares writes each of the 128 ASCII characters as one or two
+//!   Code 39 characters, a shift (`$`, `%`, `/`, `+`) before a letter for those outside the base
+//!   set, and [`EXTENDED`] is that table. The check character of an extended symbol is computed
+//!   over the characters written, shifts included.
+//! - **`logmars`.** Page 440 ticks no checksum column for it, and page 613 says the attribute is
+//!   ignored for some types: a `logmars` symbol carries no check character whatever `checksum`
+//!   says.
+//!
+//! # What is still open
+//!
 //! - **The upper bound on module width.** MIL-STD-1189A stops at 1.016 mm where XFA 3.3 page 440
 //!   allows 1.25 mm; the template's limit is the one held, and a symbol between the two is wider
 //!   than the 1984 standard describes.
@@ -96,11 +112,55 @@ pub const TABLE: [(char, &str, &str); 44] = [
 /// The start and stop delimiter, MIL-STD-1189A paragraph 3.22 and table E.1's note.
 pub const DELIMITER: char = '*';
 
-/// Whether this module encodes the symbology: `code3Of9`, and `logmars`, which names the same
-/// symbology by the standard that defines it (XFA 3.3 page 1565).
+/// The 43 data characters in the order of their check values, 0 to 42: `rxing` 0.9.4's
+/// `ALPHABET_STRING` (`src/oned/oned_constants.rs`, Apache-2.0), under A857.
+pub const VALUES: &str = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%";
+
+/// The full-ASCII set `code3Of9extended` writes: entry *n* is ASCII character *n* as one or two
+/// base characters. Derived from `rxing` 0.9.4's `tryToConvertToExtendedMode`
+/// (`src/oned/code_39_writer.rs`, Apache-2.0), under A857, and transcribed row by row.
+pub const EXTENDED: [&str; 128] = [
+    "%U", "$A", "$B", "$C", "$D", "$E", "$F", "$G", // 0-7
+    "$H", "$I", "$J", "$K", "$L", "$M", "$N", "$O", // 8-15
+    "$P", "$Q", "$R", "$S", "$T", "$U", "$V", "$W", // 16-23
+    "$X", "$Y", "$Z", "%A", "%B", "%C", "%D", "%E", // 24-31
+    " ", "/A", "/B", "/C", "/D", "/E", "/F", "/G", // 32-39
+    "/H", "/I", "/J", "/K", "/L", "-", ".", "/O", // 40-47
+    "0", "1", "2", "3", "4", "5", "6", "7", // 48-55
+    "8", "9", "/Z", "%F", "%G", "%H", "%I", "%J", // 56-63
+    "%V", "A", "B", "C", "D", "E", "F", "G", // 64-71
+    "H", "I", "J", "K", "L", "M", "N", "O", // 72-79
+    "P", "Q", "R", "S", "T", "U", "V", "W", // 80-87
+    "X", "Y", "Z", "%K", "%L", "%M", "%N", "%O", // 88-95
+    "%W", "+A", "+B", "+C", "+D", "+E", "+F", "+G", // 96-103
+    "+H", "+I", "+J", "+K", "+L", "+M", "+N", "+O", // 104-111
+    "+P", "+Q", "+R", "+S", "+T", "+U", "+V", "+W", // 112-119
+    "+X", "+Y", "+Z", "%P", "%Q", "%R", "%S", "%T", // 120-127
+];
+
+/// Whether this module encodes the symbology: `code3Of9`, `code3Of9extended`, and `logmars`,
+/// which names Code 39 by the standard that defines it (XFA 3.3 page 1565).
 #[must_use]
 pub fn serves(symbology: Symbology) -> bool {
-    matches!(symbology.name(), "code3Of9" | "logmars")
+    matches!(
+        symbology.name(),
+        "code3Of9" | "code3Of9extended" | "logmars"
+    )
+}
+
+/// The modulo-43 check character of a message of base characters, or `None` if one of them is
+/// not among the 43 data characters ([`VALUES`]).
+#[must_use]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "the sum is reduced modulo 43 at every step, so it never passes 84"
+)]
+pub fn check_character(message: &str) -> Option<char> {
+    let mut sum = 0_usize;
+    for held in message.chars() {
+        sum = (sum + VALUES.find(held)?) % 43;
+    }
+    VALUES.chars().nth(sum)
 }
 
 /// One character's nine elements, from [`TABLE`], or `None` for a character it does not hold.
@@ -127,38 +187,64 @@ pub fn character(character: char) -> Option<[Element; 9]> {
     Some(elements)
 }
 
+/// The base characters a symbology writes for `data`: the data itself for `code3Of9` and
+/// `logmars`, each character's [`EXTENDED`] entry for `code3Of9extended`.
+fn base_characters(symbology: Symbology, data: &str) -> Result<String, Refusal> {
+    let extended = symbology.name() == "code3Of9extended";
+    let unencodable = |character| Refusal::Unencodable {
+        symbology,
+        character,
+    };
+    let mut message = String::with_capacity(data.len());
+    for held in data.chars() {
+        if extended {
+            let written = u8::try_from(held)
+                .ok()
+                .and_then(|ascii| EXTENDED.get(usize::from(ascii)))
+                .ok_or_else(|| unencodable(held))?;
+            message.push_str(written);
+        } else if held != DELIMITER && character(held).is_some() {
+            message.push(held);
+        } else {
+            return Err(unencodable(held));
+        }
+    }
+    Ok(message)
+}
+
 /// Encode `data` between start and stop delimiters, a narrow space between characters.
 ///
 /// # Errors
 ///
 /// [`Refusal::Unencodable`] for a character outside MIL-STD-1189A paragraph 4.1's set (the delimiter
-/// included, which may not appear in the message), [`Refusal::Checksum`] for any `checksum` but
-/// `none` (the module comment says why `auto` waits), and [`Refusal::NotBuilt`] for a symbology
-/// this module does not serve.
+/// included, which may not appear in the message), or for `code3Of9extended` outside ASCII;
+/// [`Refusal::Checksum`] for a `checksum` page 440 does not tick for `code3Of9` or
+/// `code3Of9extended`; and [`Refusal::NotBuilt`] for a symbology this module does not serve.
 pub fn encode(symbology: Symbology, checksum: Checksum, data: &str) -> Result<Linear, Refusal> {
     if !serves(symbology) {
         return Err(Refusal::NotBuilt(symbology));
     }
-    if checksum != Checksum::None {
-        return Err(Refusal::Checksum {
-            symbology,
-            checksum,
-        });
+    let with_check = match (symbology.name(), checksum) {
+        // Page 440 ticks no checksum column for logmars: the attribute is ignored (page 613).
+        ("logmars", _) | (_, Checksum::None) => false,
+        (_, Checksum::Auto) => true,
+        _ => {
+            return Err(Refusal::Checksum {
+                symbology,
+                checksum,
+            });
+        }
+    };
+    let mut message = base_characters(symbology, data)?;
+    if with_check {
+        // Every base character was checked against the table, whose 43 data characters are VALUES.
+        message.extend(check_character(&message));
     }
-    if let Some(character) = data
-        .chars()
-        .find(|held| *held == DELIMITER || character(*held).is_none())
-    {
-        return Err(Refusal::Unencodable {
-            symbology,
-            character,
-        });
-    }
-    let message = std::iter::once(DELIMITER)
-        .chain(data.chars())
+    let framed = std::iter::once(DELIMITER)
+        .chain(message.chars())
         .chain(std::iter::once(DELIMITER));
     let mut elements = Vec::new();
-    for (position, held) in message.enumerate() {
+    for (position, held) in framed.enumerate() {
         if position > 0 {
             elements.push(Element {
                 bar: false,
@@ -182,8 +268,8 @@ pub struct Geometry {
 }
 
 impl Geometry {
-    /// Hold the widths to XFA 3.3 page 440's limits for the symbology: `code3of9` 0.191 mm to
-    /// 1.25 mm and a ratio of 2.2 to 3.0, `logmars` 0.125 mm to 1.25 mm and 2.0 to 3.0.
+    /// Hold the widths to XFA 3.3 page 440's limits for the symbology: `code3of9` and
+    /// `code3of9extended` 0.191 mm to 1.25 mm and a ratio of 2.2 to 3.0, `logmars` 0.125 mm to 1.25 mm and 2.0 to 3.0.
     ///
     /// # Errors
     ///
@@ -191,7 +277,7 @@ impl Geometry {
     /// this module does not serve.
     pub fn check(self, symbology: Symbology) -> Result<Self, Refusal> {
         let (least_width, least_ratio) = match symbology.name() {
-            "code3Of9" => (0.191, 2.2),
+            "code3Of9" | "code3Of9extended" => (0.191, 2.2),
             "logmars" => (0.125, 2.0),
             _ => return Err(Refusal::NotBuilt(symbology)),
         };
