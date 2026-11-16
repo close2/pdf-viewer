@@ -36,5 +36,5 @@ UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Late
 TSA keyCompromise time selection fails with genuine signed material; FieldMDP
 rename coverage is an unresolved policy probe. Independent colour/annotation tests pass.
 Alpha, filtered-checksum and cross-Contents controls pass; archive path cap fails. Model/transform Clippy pass.
-Current CRL and historical OCSP applicability witnesses fail; both positive controls pass.
+Revocation findings survive second review; older indexes omit four grouped errata IDs.
 Matrix2D/header search/old-version linearization fail; two fixture skips hide behind PASS.

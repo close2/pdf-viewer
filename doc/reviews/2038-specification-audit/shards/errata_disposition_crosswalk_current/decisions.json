@@ -1,0 +1,14 @@
+[
+  {
+    "decision": "Retain historical inventories as snapshots, record their omissions explicitly.",
+    "reason": "All-marker claims do not match the generated rows. A new independent primary scan supplies the missing grouped markers without rewriting evidence history."
+  },
+  {
+    "decision": "Do not convert automated field-shape classes into feature-completion percentages.",
+    "reason": "Structured records and citations can be inaccurate or narrower than the feature. Each still needs primary/source/assertion review."
+  },
+  {
+    "decision": "Continue AnnexL matrix review.",
+    "reason": "Grouped#336 attachment provenance is established; cell-by-cell corrected relationship coverage remains incomplete."
+  }
+]

@@ -1,0 +1,6 @@
+{
+  "reconciliation": "Independently read early generator regex and primary#288 annotation objects. Generated crosswalk reads primary source directly and verifies360IDs vs356oldunion with intersection16.",
+  "builder_changes": "Removed stale unpromoted scratch batch (already promoted63); output is adjacent to script; exclude this crosswalk shard to avoid self-reference. Only source annotation metadata and prior audit paraphrases are included.",
+  "source_review": "Read primary459/444 grouped#162/#288 overlay, current ledger, resolver and actual literal assertions. No new runtime defect established.",
+  "limits": "Nine priority entries mostly reconcile previously verified source evidence. #336cell mapping and#71assertion-depth remain residuals. Crosswalk source-field shapes are not semantic coverage. No tests run for this metadata-only change."
+}

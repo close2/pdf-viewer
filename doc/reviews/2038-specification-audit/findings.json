@@ -2251,5 +2251,19 @@
     "summary": "Combined NoZoom/NoRotate with rotating AP Matrix and nonzero BBox now has independent literal pixel extents.",
     "execution": "New test PASS; model all-targets Clippy PASS.",
     "limits": "Fresh interpretation only; not annotation replacement/cache or print certification."
+  },
+  {
+    "id": "2038-D46",
+    "kind": "errata-inventory-gap",
+    "clauses": [
+      "9.6.2.1",
+      "12.3.2.4",
+      "14.8.4.8.3",
+      "L"
+    ],
+    "summary": "Two older per-issue indexes omit four later markers in grouped EC3 subjects.",
+    "evidence": "Early165 + late207 - overlap16 =356; direct primary/Subj360. Missing48,71,288,336. Current360census is correct.",
+    "disposition": "New reproducible crosswalk records all primary/Subj IDs; preserve historical snapshots and explicitly qualify their all-marker claims.",
+    "limits": "An index omission is not a missing implementation feature. Grouped source dispositions exist for48/71 and now explicitly288;336matrix coverage remains partial."
   }
 ]

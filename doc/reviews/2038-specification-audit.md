@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (65)
+## Current checkpoint (66)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **80 assertions**, grouped into behavior findings rather
@@ -130,6 +130,14 @@ mutation survives the old CalRGB identity oracle, but both an existing CalGray t
 and the new pixel test catch it. Exact source restoration and all three passing
 checks are recorded. Model Clippy passes. Second review keeps B08/B42 explicitly
 unresolved, B40 an adopted SHOULD policy, and B24 narrowly about centering.
+
+Checkpoint66 reconciles the errata inventories: the two older per-issue indexes
+omit four later markers in grouped subjects, while the current 360-ID census is
+correct. A reproducible crosswalk records source locations and evidence pointers,
+with automated record shapes explicitly separated from semantic coverage. The
+named-destination grouped correction now has an explicit bounded disposition.
+Second review retains the three revocation findings with their existing consumer,
+current-versus-historical-time and capture-provenance limits. No new failures.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 
