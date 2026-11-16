@@ -1178,6 +1178,32 @@
       "log": "quality-wave32g.log",
       "exit": 0,
       "scope": "Final syntax/render-cpu/viewer-core all-targets Clippy -Dwarnings. Earlier e/f draft lint failures corrected."
+    },
+    {
+      "log": "media-be-wave33.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Proposed diagnostic test passed, then was rejected as redundant with existing BE/MH/missing-PID controls. Removed from committed suite."
+    },
+    {
+      "log": "text-stream-wave33b.log",
+      "exit": 101,
+      "scope": "Draft compile failed on Vec/Arc comparison and unused import; corrected before behavior evaluation."
+    },
+    {
+      "log": "text-stream-wave33c.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Final filtered UTF8 Table32 script dispatch and equivalent-string controls."
+    },
+    {
+      "log": "quality-wave33e.log",
+      "exit": 0,
+      "scope": "Final model/viewer-core all-targets Clippy -Dwarnings. Prior d failed on two doc backticks; corrected. Dependency future-incompatibility notice is recorded, not a current warning failure."
     }
   ],
   "prior_expected_failures": {

@@ -1,0 +1,9 @@
+{
+  "source": "Parent read Table146 physical447/432 and spot/simulation context; sampled code and assertion bodies for pattern backdrop and combined fill/stroke.",
+  "assertions": "Pattern inner blending gives literal160 versus nonblending192; combined B stroke/fill band has onealpha red255/127/127 and independent interiorcontrol. The latter does not cover same-Stroke degenerate splitting, whose newB39 counterexample remains. OPM source types and component routes have selected controls; not every Table146cell certified.",
+  "correction": "Public Type5/6 halftone override consumer gap is already closed bycheckpoint23/T35 four CPU tests; raw sibling drafts are not current residual evidence.",
+  "decision": "Retain optional special overprint mode choice and tested conditional constructions. Do not infer RGB-device no-op proves four-component or spot output.",
+  "residual": "All combined operators/textmode6, unequal alpha, additional soft-mask combinations and every backend remain pending.",
+  "baseline": "b901326c",
+  "scope": "Partial source/assertion review. Parent corrections supersede reviewer drafts."
+}

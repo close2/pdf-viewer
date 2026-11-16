@@ -14,7 +14,7 @@ The report and machine-readable continuation are in
 **Evidence so far.** All72 previous failing assertions pass. Current tests expose
 58 failing assertions, grouped by behavior and qualified where interpretation is
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
-The shard index links partial reviews to541 ledger rows;342 remain pending in
+The shard index links partial reviews to578 ledger rows;305 remain pending in
 this round. No entire clause is certified merely because referenced tests pass.
 A shared-parser date mutation was killed and restored. Independent JP2 fixture
 regeneration matches embedded hashes. Selected ADR conclusions are retained,
@@ -22,8 +22,8 @@ qualified, or reconsidered with primary-source reasoning.
 
 **Gates.** Wave31, eleven crates: nextest7,142 run,7,087 pass, exactly55 expected
 failures by binary/test identity,58 skipped. No missing or additional failures.
-Wave32 adds four passing tests and three expected failing assertions. Final
-syntax/render-cpu/viewer-core all-targets Clippy passes. Earlier gates retain their
+Waves32–33 add five passing tests and three expected failing assertions. Final
+model/core and syntax/render-cpu all-targets Clippy pass. Earlier gates retain their
 recorded scope and do not certify subsequent changes.
 
 **Latest findings.** Incomplete transparency surveys can yield false Met archive
@@ -31,4 +31,4 @@ results; valid deep DPart attachments can disappear without disclosure. Requirem
 versions affect neither reports nor processing restrictions. A transparent stroke
 composites overlapping same-object geometry twice. Literal measurement, join/fill,
 WritingMode and new-file ID controls pass. The next scopes cover remaining media,
-default colour/BPC, text streams and rectangles. Latest weekly usage44%;ceiling85%.
+default colour/BPC, text streams and rectangles. Latest weekly usage45%;ceiling85%.

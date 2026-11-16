@@ -11,14 +11,14 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (32)
+## Current checkpoint (33)
 
-Partial reviews now cover **541 of 883 ledger rows**, with 342 pending. The current
+Partial reviews now cover **578 of 883 ledger rows**, with 305 pending. The current
 failure manifest contains **58 assertions**, grouped into behavior findings rather
 than 58 independent defects. All 72 failures from the prior audit pass at this baseline.
 The latest broad run, wave31, covered eleven crates: **7,142 tests ran, 7,087 passed,
 and exactly the 55 then-recorded assertions failed; 58 were skipped**. Exact test
-identities matched. Wave32 adds four passing tests and three expected failures.
+identities matched. Waves32–33 add five passing tests and three expected failures.
 
 The latest failures concern ignored minimum requirement versions (both reporting and
 processing restrictions) and double compositing of overlapping portions of one
@@ -27,8 +27,15 @@ controls pass. Syntax/render-cpu/viewer-core all-targets Clippy passes. The prev
 checkpoint records silent DPart truncation and false archive validation after an
 incomplete transparency survey. Tests accept truthful bounded processing.
 
+The latest review retains the conditional halftone and media handoff scopes, separates
+viability from playback/version matching, and finds an obsolete partial-status rationale
+in the implemented separation-simulation row. A filtered UTF-8 script dispatch control
+passes. RichMedia Assets fixtures are now explicitly documented as partial consumer
+probes. A preliminary claim that the current ledger called Configurations optional was
+checked against the exact note and withdrawn; no such wording is present.
+
 These are partial feature reviews, not whole-clause certification. The paragraphs
-below preserve earlier checkpoint evidence. Weekly usage was44% at the latest check;
+below preserve earlier checkpoint evidence. Weekly usage was45% at the latest check;
 the ceiling is85%, preserving the requested15% reserve.
 
 ## Method and current work

@@ -11,6 +11,12 @@
 //!
 //! No corpus document on this disk carries a rich media annotation, so the fixture is written
 //! here from the clause's own EXAMPLE (trap 8).
+//!
+//! This is a narrow Assets consumer fixture, not a producer-conforming `RichMedia` file.
+//! It omits the normal appearance and the nonempty `/Configurations` required by EC3 #166,
+//! as well as a PDF 2.0 file ID, and its embedded bytes are placeholders. The assertions
+//! establish listing, extraction, page scoping and diagnostics; they do not validate media
+//! formats or active `RichMedia` presentation.
 
 #![expect(
     clippy::panic,

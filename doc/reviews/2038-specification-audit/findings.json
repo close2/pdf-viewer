@@ -1474,5 +1474,52 @@
     ],
     "summary": "ADR0420 assumes existing stroke handling already preserves one-object transparency afterEC3#103.",
     "disposition": "Reconsider for overlapping degenerate parts: new CPU counterexample B39. Retain separate opaque geometry and subpixel arguments pending their own evidence."
+  },
+  {
+    "id": "2038-D30",
+    "kind": "contradictory-ledger-rationale",
+    "clauses": [
+      "10.8.3"
+    ],
+    "summary": "The implemented separation-simulation row retains an obsolete explanation of why it is partial.",
+    "evidence": "The same note later records the plane-model implementation and met SeparationSimulation requirement. Current code consumes a four-channel output-intent profile or assumed press; no ColorantTable reader was found.",
+    "disposition": "Reconcile current rationale. Keep ColorantTable as a SHOULD recommendation residual, not a mandatory behavior failure. No ledger or historical ADR edits."
+  },
+  {
+    "id": "2038-T55",
+    "kind": "fixture-evidence-boundary",
+    "clauses": [
+      "13.6.2",
+      "13.7.2.1",
+      "13.7.2.3.1",
+      "13.7.2.3.2"
+    ],
+    "summary": "RichMedia Assets tests use partial dictionaries and placeholder media; they establish consumer behavior rather than producer conformance.",
+    "change": "Clarified public test module documentation: no normal AP, required nonempty Configurations, PDF2ID or valid media payload. Listing and extraction assertions remain useful within that scope.",
+    "qualification": "The alleged ledger optionality contradiction was independently checked and withdrawn. Current note does not call Configurations optional. No runtime defect inferred."
+  },
+  {
+    "id": "2038-T56",
+    "kind": "assertion-coverage-gap",
+    "clauses": [
+      "7.9.3",
+      "7.7.4"
+    ],
+    "summary": "Filtered UTF-8 text stream decoding lacked a combined Table32 script-library dispatch assertion.",
+    "change": "Added exact decoded bytes and captured Unicode script, with equivalent string, exact xref, one-invocation and no-report controls.",
+    "execution": "1 PASS. This checks dispatch to a mock runner, not language execution."
+  },
+  {
+    "id": "2038-D31",
+    "kind": "scoped-implementation-boundary",
+    "clauses": [
+      "13.2.7.4.1",
+      "13.2.7.4.2",
+      "13.2.7.4.3",
+      "13.2.7.4.4"
+    ],
+    "summary": "Software identifier implementation is scoped to viability of a handoff with no player identity.",
+    "evidence": "Negative version values and unknown identifier keys affect viability, but URI/OS/version-range matching is not implemented for a named/versioned player.",
+    "disposition": "Retain explicit handoff boundary. Do not present implemented status as certification of the complete comparison algorithms or external playback."
   }
 ]

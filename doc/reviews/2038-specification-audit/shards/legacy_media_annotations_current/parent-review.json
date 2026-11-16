@@ -1,0 +1,9 @@
+{
+  "source": "Parent inspected primary724/709 and annotations#166: Configurations required andnonempty. Read exact currentledger13.7.2.3.1 and publicrich_media_assetsfixture.",
+  "correction": "Reviewer initially alleged the ledger calls Configurations optional. Exact note does not; candidate withdrawn and all three reviewer files corrected before promotion. The current Assets-only boundary remains valid.",
+  "assertions": "Assets fixture lacks required normalAP/nonemptyConfigurations/PDF2ID and uses placeholderFWS/FLV bytes. Clarified testmodule documentation: it is a narrow listing/extraction/diagnostic consumer probe, not producer-conforming media. GenericAP and selfgolden evidence do not prove independent subtype-specific positive appearance conformance.",
+  "decision": "Retain owner-ratified static appearance and file handoff scope; no new playback or malformed-input rejection requirement. No production defect established.",
+  "residual": "Independent valid3D/RichMedia appearance fixture and activeformat behavior remain outside this sampled evidence.",
+  "baseline": "b901326c",
+  "scope": "Partial source/assertion review. Parent corrections supersede reviewer drafts."
+}

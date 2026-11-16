@@ -1,0 +1,8 @@
+{
+  "source": "Parent corrected source locators from primary: textstreams133/118, rectangles134/119; Name dictionary introduction123/108, Table32 spans124\u2013125/109\u2013110. Effective#214removes namestring terminology and#672marks IDS/URLSdeprecated.",
+  "assertions": "New exactxref/PDF2ID/emptyResources fixture sends filteredUTF8BOM script cafe-accent through Table32 library to mockrunner and compares exactUnicode text with equivalentstring; decodedbytesandoneinvocation/noreports controls.1PASS. Parent fixed draftArc lifetime, Vec/Arc comparison andunusedimport before execution.",
+  "decision": "Retain name-tree reuse with feature-specific consumers. Generic AP name-tree enumeration is not permission for appearance-by-name references. Rectangle tests already discriminate sampled corner/zero-area rules.",
+  "residual": "Mockrunner dispatch only, not ECMAScript semantics or fullhost/VM integration. No all Table32 consumer certification.",
+  "baseline": "b901326c",
+  "scope": "Partial source/assertion review. Parent corrections supersede reviewer drafts."
+}

@@ -1,0 +1,41 @@
+{
+  "scope": "Reconsider only decisions bearing on §10.6 screen inapplicability/transfer-function support and §10.8 simulated separations. Detailed subclause transfer-function mapping is cross-referenced to rendering_intent_transfer_current.",
+  "decisions": [
+    {
+      "adr": "ADR 1535",
+      "topic": "inapplicable status and optional §10.6 screen generation",
+      "review": "The device premise is stated, not inferred from the product label: §10.1 conditions halftoning on output-device capability, and §10.6.1 exempts continuous-tone output while still requiring transfer-corrected values to reach the device. RFC 0009 §2.4 rechecks this for the active print routes: this application gives an 8-bit RGB raster to the toolkit/spool and delegates physical printer screening downstream; it does not drive a one-bit/low-bit-depth output device. The parent row names the route that would flip the premise. The `inapplicable` disposition is scoped and retains a revisit trigger. §10.6.5.1's permission to ignore screens must remain separate from §10.5's transfer mapping and HT TransferFunction entries."
+    },
+    {
+      "adr": "ADR 0204",
+      "topic": "halftone dictionary as TransferFunction carrier",
+      "review": "The distinction remains correct: the halftone screen is optional/inapplicable for this continuous-tone raster, but §10.5's component mapping remains active. EC3 #310/#12 producer-side table changes and #311's struck Type 5 paragraph do not add a screen-generation duty. The prior rendering_intent_transfer_current draft addresses stronger public-raster coverage for HT overrides; this shard does not duplicate it."
+    },
+    {
+      "adr": "ADR 0505",
+      "topic": "Type 5 vs non-Type-5 transfer override selection",
+      "review": "The existing reasoning is source-qualified and should retain its current limits: Table 132 identifies Type 5 entries per colourant/component plus Default, while #311 deleted the contrast paragraph formerly used to generalize non-Type-5 screens. The surviving Table 52 state and Type 5 purpose support the chosen display transfer route. This review does not certify CMYK-native or nonprimary-colourant screen behavior."
+    },
+    {
+      "adr": "ADR 1228",
+      "topic": "separation simulation is a reader preference",
+      "review": "Supported. §10.8.3's opening condition is whether closer matching is important, and §10.8.1 expressly leaves whether to produce separations to the processing software. The default-off ViewState preference is distinct from Table 275's requirement that a processor be capable of separation simulation; a document's capability declaration is not an instruction to turn the user's view setting on."
+    },
+    {
+      "adr": "ADR 1229",
+      "topic": "four-step simulation and multiply unit",
+      "review": "The test oracles reviewed are stronger than implementation self-comparison: neutral sRGB 0.5 is converted to flat linear 0.214041, two separations multiply to 0.045814, then return to about 60/255; zero tint is the white-matte identity control. The implementation's white-normalized XYZ product has an explicit rationale from Table 136 Note 3. This supports the sampled numeric paths, not every ICC profile or operation type."
+    },
+    {
+      "adr": "ADRs 1281, 1311, 1317, 1329, 1338, 2736",
+      "topic": "colourant discovery, planes, groups and fallbacks",
+      "review": "The source-oriented separation tests sample plane discovery, process/spot membership, `/None`, `All`, unpainted planes, per-component NChannel paths, spot pass-through across groups, and hand-computed press pixels. The 16-spot-plane cap is explicitly an implementation budget with an observable report/reversion path, not an ISO numeric limit. No plane-count or group defect was established here. Full coverage of every group/soft-mask/colour-space combination remains outside this bounded shard."
+    },
+    {
+      "adr": "ADR 1535 / §10.8.3 ledger note",
+      "topic": "status rationale consistency",
+      "review": "The ledger's §10.8.3 note now claims the implementation is complete, says Table 275 SeparationSimulation is met, describes the plane stages and final render resolution as built, but retains older paragraphs titled `What keeps this row partial` and saying ColorantTable is unread. The implementation does not read ColorantTable values, so preserve that fact as a SHOULD-level recommendation/residual; remove or rewrite the stale `partial` rationale if the current `implemented` status is retained."
+    }
+  ],
+  "partial_scope": "No comprehensive audit of §8.6.7, §11.7 overprint/transparency, every ICC profile or ColorantTable encoding, all RGB/CMYK raster backends, or all Type 1/6/10/16/5 screen entries was attempted. No tests were executed or drafted; existing direct transfer and spot-plane tests were reviewed and the prior shard already owns missing HT consumer drafts."
+}

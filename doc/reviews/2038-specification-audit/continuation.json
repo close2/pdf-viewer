@@ -6,23 +6,26 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "Latest broad refresh wave31: eleven crates,7142run7087PASS55expectedFAIL58skip; exact binary/test identity equality. Wave32 adds four passing tests and three expected failing assertions, manifest58. Broad run predates those seven new tests.",
-    "quality": "Checkpoint32 syntax/render-cpu/viewer-core all-targets Clippy -Dwarnings PASS. Checkpoint31 model/archive and checkpoint30 accessibility remain passing at their scoped revisions."
+    "later_targets": "Latest broad refresh wave31: eleven crates,7142run7087PASS55expectedFAIL58skip; exact binary/test identity equality. Wave32 adds four passing tests and three expected failing assertions, manifest58. Broad run predates those seven new tests. Wave33 adds one passing script dispatch test; expected manifest remains58. Media BE diagnostic draft passed but was discarded as redundant.",
+    "quality": "Checkpoint33 model/viewer-core all-targets Clippy -Dwarnings PASS; checkpoint32 syntax/render-cpu PASS. Earlier archive/accessibility gates retain their scope."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [
-      "halftones_separations_current",
-      "overprint_transparency_current",
-      "multimedia_data_current"
+      "default_colour_bpc_current"
     ],
     "active_shards": [
-      "text_streams_rectangles_current",
-      "default_colour_bpc_current",
-      "legacy_media_annotations_current"
+      "stroke_composition_consumers_current",
+      "font_basics_graphical_effects_current",
+      "signature_revocation_current"
     ],
     "recorded_shards": [
+      "halftones_separations_current",
+      "overprint_transparency_current",
+      "multimedia_data_current",
+      "legacy_media_annotations_current",
+      "text_streams_rectangles_current",
       "document_requirements_current",
       "stroke_fill_geometry_current",
       "measurement_geospatial_current",
@@ -109,8 +112,8 @@
       "font_substitution_current",
       "tagged_layout"
     ],
-    "partial_current_rows": 541,
-    "pending_current_rows": 342
+    "partial_current_rows": 578,
+    "pending_current_rows": 305
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",
@@ -123,7 +126,7 @@
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 44,
-    "last_read_utc": "2026-11-16T15:29:12.422760+00:00"
+    "last_weekly_used_percent": 45,
+    "last_read_utc": "2026-11-16T15:38:55.702434+00:00"
   }
 }

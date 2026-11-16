@@ -1,0 +1,8 @@
+{
+  "source": "Parent read primary649/634 Table302, software_identifier and player filtering, plus actual existing media_viability assertion bodies.",
+  "assertions": "Existing unknownBE nonviable result versus unknownMH/missingPID viable controls already distinguishes retention from removal for the no-name player. Parent ran proposed diagnosticduplicate1PASS then removed it; no new assertiongap or committedtest claimed.",
+  "decision": "Retain no-name handoff viability boundary. No claim of playback, seeking or actual software URI/OS/version-range comparison. RFC2045CT syntax is a producer constraint; no malformed-reader rejection mandate inferred.",
+  "residual": "Supported container/timespan subset only; external player identity and complete comparison algorithms are unimplemented, with explicitly scoped ledger rationale.",
+  "baseline": "b901326c",
+  "scope": "Partial source/assertion review. Parent corrections supersede reviewer drafts."
+}
