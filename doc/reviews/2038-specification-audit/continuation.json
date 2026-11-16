@@ -6,15 +6,13 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "33 expected failing assertions. Wave18 adds GoToR/GoToE2, FitR/FitB3, ICC fallback1. Whole-page Fit and DeviceRGB reset pass. Broad refresh pending; earlier wave13 covers23failures.",
+    "later_targets": "Eight-crate wave18:6415run,6382PASS,33expectedFAIL,55skip. Exact failure identities equal all33manifest entries. Wave19fouraction/URI assertions PASS.",
     "quality": "Current pdf-syntax/pdf-model/viewer-core all-targets Clippy passes. Broader/docs/conformance gates retain recorded scope."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
-    "new_shards_ready_for_parent_review": [
-      "actions_chains_current"
-    ],
+    "new_shards_ready_for_parent_review": [],
     "active_shards": [
       "special_colour_spaces_current",
       "text_extraction_cmaps_current",
@@ -67,10 +65,11 @@
       "annotation_common_current",
       "destinations_current_followup",
       "colour_spaces_current",
-      "font_descriptors_current"
+      "font_descriptors_current",
+      "actions_chains_current"
     ],
-    "partial_current_rows": 356,
-    "pending_current_rows": 527
+    "partial_current_rows": 360,
+    "pending_current_rows": 523
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",

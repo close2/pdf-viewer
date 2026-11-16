@@ -1,0 +1,9 @@
+{
+  "source_corrections": "Table210 and IsMap coordinate formula are physical534/printed519, not the shard draft\u2019s printed518 (which starts URI prose). Table196 physical521/506; cycle recommendation continues522/507. Parent read both; #256 Base clarification confirmed in physical534 annotation Contents.",
+  "execution": "4PASS actions-wave19b.log: sibling repeated indirect action executes twice; separate-object control agrees; path cycle executes root/leaf once. IsMap clicked coordinates/default/false, fractional rounding on both sides and catalog OpenAction ignore control pass.",
+  "fixture": "Exactxref PDF1.7, explicit Resources, Link appearance optional. Script runner records dispatch, not JavaScript engine semantics; parent replaced bare identifier payloads with valid literal-expression scripts. No actual URI or file is opened.",
+  "existing_assertions": "Parent read model Hide/show command-count controls with page-content companion, SetOCGState fresh-state and toggle assertions, current Walk recursion-path handling and viewer click coordinate forwarding. Existing constructed Square appearances are recovery-policy witnesses, not full stored-appearance native pixel validation.",
+  "decisions": "ADR2814 repeated-sibling interpretation consistent with Table196; initial-open timing remains separate B22. ADR1155/1079 host policy and document-location division are retained in this bounded review. ADR2171 corrects obsolete ADR1358 premise that every non-PDF is a program; classification remains explicit host policy, not an ISO mandate.",
+  "unadjudicated": "Multiple remote/embedded replacement requests collapse in resolve; source note allows termination if an action makes later ones impossible. No behavioral defect asserted without adjudicating this boundary.",
+  "limits": "No full trigger/event matrix, JavaScript engine, native host/browser, URI rotation/UserUnit matrix or archive-action transformation certification."
+}

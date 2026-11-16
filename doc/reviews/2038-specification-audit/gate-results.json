@@ -718,6 +718,38 @@
       "log": "wave18b-quality.log",
       "exit": 0,
       "scope": "Current pdf-model/viewer-core all-targets Clippy -Dwarnings."
+    },
+    {
+      "log": "eight-crate-wave18.log",
+      "scope": "Eight crates pdf-syntax/font/model/signature/transform/colour and viewer-core/host; no-fail-fast; warnings denied",
+      "exit": 100,
+      "run": 6415,
+      "passed": 6382,
+      "failed": 33,
+      "skipped": 55,
+      "expected_failures": 33,
+      "unexpected_failures": 0,
+      "comparison": "Exact binary/test failure identities equal all33 current manifest entries; no missing or additional failures."
+    },
+    {
+      "log": "actions-wave19.log",
+      "exit": 0,
+      "scope": "Initial2public action/URI tests pass."
+    },
+    {
+      "log": "actions-wave19b.log",
+      "exit": 0,
+      "scope": "Final4PASS with fractional IsMap and catalog ignore controls."
+    },
+    {
+      "log": "wave19-quality.log",
+      "exit": 101,
+      "scope": "Draft doc-markdown lint corrected."
+    },
+    {
+      "log": "wave19b-quality.log",
+      "exit": 0,
+      "scope": "Current viewer-core all-targets Clippy -Dwarnings."
     }
   ],
   "prior_expected_failures": {

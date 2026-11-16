@@ -181,6 +181,14 @@ passes, and the MissingWidth erratum omission is recorded as a ledger-descriptio
 gap, not a rendering defect. Partial evidence reaches 356 rows; 527 remain pending.
 Current model/core all-targets Clippy passes. The broad run will be refreshed.
 
+The refreshed eight-crate run has 6,382 passes, exactly the 33 manifest failures,
+and 55 skips. Identity reconciliation found no additional or missing failures.
+Four new public action/URI assertions pass: repeated siblings, cycle termination,
+click offsets and rounding, default/false and catalog-open IsMap behavior. Partial
+reviews now reach 360 rows, with 523 pending. Viewer-core Clippy passes. The next
+text-extraction drafts are withheld pending source-valid embedded-font fixtures;
+a custom encoding with a nonembedded Type2 descendant violates Table 119.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks

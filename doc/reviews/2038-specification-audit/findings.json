@@ -6,7 +6,7 @@
       "7.9.4"
     ],
     "summary": "Date producer regressions shared Date::parse with the updated writer, allowing a common parser regression to validate both sides.",
-    "source": "ISO §7.9.4, printed p118; month range and complete ordered fields.",
+    "source": "ISO \u00a77.9.4, printed p118; month range and complete ordered fields.",
     "code": "crates/pdf-transform/src/update.rs:1572; crates/pdf-transform/tests/date_spec_audit.rs:42",
     "change": "Classify valid fixtures independently and require successful output to differ from each known-invalid input. Retain valid-input identity controls and parsed output validity.",
     "execution": "3 date assertions PASS, round2-targets-wave1.log",
@@ -19,7 +19,7 @@
       "12.7.8.3.1"
     ],
     "summary": "FDF script test observed callbacks and field values without explicitly comparing Before/After and After/AfterPermsReady positions.",
-    "source": "Table248, printed p563; ADR2816 §5 chooses After before AfterPermsReady when rights are already determined.",
+    "source": "Table248, printed p563; ADR2816 \u00a75 chooses After before AfterPermsReady when rights are already determined.",
     "code": "crates/viewer-core/tests/fdf_script_order_audit.rs:229; crates/pdf-model/src/view/fields.rs:31",
     "change": "Added direct order comparisons using the existing shared callback log. Labeled the second comparison as ADR2816 policy.",
     "execution": "PASS, round2-targets-wave1.log",
@@ -33,7 +33,7 @@
       "14.9.4"
     ],
     "summary": "ADR2812 says mid-string language changes are not split, but current ActualText code preserves and consumes multiple offset runs.",
-    "source": "§7.9.2.2.2; §14.9.4 printed p801; EC3 changes on nearby pages do not remove language overrides.",
+    "source": "\u00a77.9.2.2.2; \u00a714.9.4 printed p801; EC3 changes on nearby pages do not remove language overrides.",
     "code": "crates/pdf-model/src/content/run/marked_ops.rs:177,247",
     "change": "Added a speech assertion for three languages within one ActualText string, with non-ASCII characters before boundaries and an unescaped control. Historical ADR remains unchanged.",
     "execution": "PASS, actual_text_language_changes_split_the_spoken_runs_inside_one_string",
@@ -47,7 +47,7 @@
       "14.9.3"
     ],
     "summary": "An Alt Unicode language escape is stripped from spoken text but does not override the property-list Lang.",
-    "source": "§7.9.2.2.2; §14.9.3 printed p800; §14.9.4 printed p801 explicitly treats alternate descriptions as other language-escaped text strings. Nearby EC3 issues483/364/356 concern other ActualText provisions.",
+    "source": "\u00a77.9.2.2.2; \u00a714.9.3 printed p800; \u00a714.9.4 printed p801 explicitly treats alternate descriptions as other language-escaped text strings. Nearby EC3 issues483/364/356 concern other ActualText provisions.",
     "code": "crates/pdf-model/src/content/marked.rs:472; crates/pdf-model/src/accessibility.rs:182",
     "test": "pdf-model::text_strings_spec_audit::an_alternate_description_language_escape_overrides_the_property_language",
     "execution": "FAIL: en-US instead of es; round2-targets-wave1.log",
@@ -62,7 +62,7 @@
       "14.9.5"
     ],
     "summary": "An expansion E Unicode language escape does not override the property-list Lang.",
-    "source": "§14.9.5 printed p802 expressly requires the Unicode escape to override prevailing Lang; applicable page annotations checked.",
+    "source": "\u00a714.9.5 printed p802 expressly requires the Unicode escape to override prevailing Lang; applicable page annotations checked.",
     "code": "crates/pdf-model/src/content/marked.rs:473; crates/pdf-model/src/accessibility.rs:182",
     "test": "pdf-model::text_strings_spec_audit::an_expansion_language_escape_overrides_the_property_language",
     "execution": "FAIL: en-US instead of es; round2-targets-wave1.log",
@@ -205,7 +205,7 @@
       "10.5",
       "11.7.5.3"
     ],
-    "summary": "Added negative UCR/final clamp and combined BG/UCR→CMYK group→native RGB transfer assertions.",
+    "summary": "Added negative UCR/final clamp and combined BG/UCR\u2192CMYK group\u2192native RGB transfer assertions.",
     "execution": "2 PASS black_generation_transfer_audit",
     "controls": "Independent arithmetic supplies explicit CMYK control; final channel complement tests transfer order; opaque 100x100 raster and complete interpretation checked.",
     "remaining": "Control shares downstream raster/profile path. Does not certify all ICC conversions or full clause10.5."
@@ -217,12 +217,12 @@
       "12.3.2.4"
     ],
     "summary": "A byte-string destination resolves the Catalog/Dests dictionary target before the same-key Names/Dests name-tree target.",
-    "source": "Printed pp443–444 associates name objects with Catalog/Dests and strings with the name tree; Annex J.3.3/.4 specifies comparison, not merging both tables.",
+    "source": "Printed pp443\u2013444 associates name objects with Catalog/Dests and strings with the name tree; Annex J.3.3/.4 specifies comparison, not merging both tables.",
     "code": "crates/pdf-model/src/destination.rs::named",
     "test": "viewer-core::named_destination_tables_audit::a_string_destination_uses_the_name_tree_even_when_the_dictionary_has_the_same_key",
     "execution": "FAIL: string (chapter) selects dictionary page instead of tree page; wave4. Name and escaped-name cases pass.",
     "controls": "Exact xref, both tables coexist; direct-array page/geometry controls pass before activation.",
-    "remaining": "The implementation deliberately interprets alternatively as allowing dictionary-first fallback for either object type. This finding uses the clause’s type-specific correspondence; there is no separately worded cross-table collision-priority sentence. Reconsider the interpretation explicitly. Remote destinations and all absent-table fallbacks are not adjudicated."
+    "remaining": "The implementation deliberately interprets alternatively as allowing dictionary-first fallback for either object type. This finding uses the clause\u2019s type-specific correspondence; there is no separately worded cross-table collision-priority sentence. Reconsider the interpretation explicitly. Remote destinations and all absent-table fallbacks are not adjudicated."
   },
   {
     "id": "2038-B09",
@@ -231,7 +231,7 @@
       "7.10.4"
     ],
     "summary": "A degenerate first stitching interval treats opposite signed zero endpoints as unequal.",
-    "source": "Printed pp129–130: when first Bound equals Domain minimum, the first interval maps to Encode[0]. Positive and negative numerical zero are equal.",
+    "source": "Printed pp129\u2013130: when first Bound equals Domain minimum, the first interval maps to Encode[0]. Positive and negative numerical zero are equal.",
     "code": "crates/pdf-colour/src/function.rs (stitching total_cmp endpoint selection)",
     "test": "pdf-colour::functions_spec_audit::stitching_treats_signed_zero_domain_and_bound_as_the_same_degenerate_endpoint",
     "execution": "FAIL: same-sign controls produce 0.75; opposite-sign pairs produce 0.0, wave5.",
@@ -245,10 +245,10 @@
       "7.5.7",
       "7.5.8.4"
     ],
-    "summary": "Existing hybrid xref fixture omitted the xref stream’s own entry. Corrected it and added valid reversed object-number ordering and W[0 4 2] incremental-stream controls.",
+    "summary": "Existing hybrid xref fixture omitted the xref stream\u2019s own entry. Corrected it and added valid reversed object-number ordering and W[0 4 2] incremental-stream controls.",
     "execution": "All cross_references tests pass, wave4.",
     "change": "Hybrid /Index now covers the stream itself; classic helper object0 uses free generation65535; new fixtures have required Resources.",
-    "remaining": "Reversed member order is allowed by §7.5.7 Note6; offset order stays increasing. Existing intentional malformed/recovery fixtures remain separately scoped."
+    "remaining": "Reversed member order is allowed by \u00a77.5.7 Note6; offset order stays increasing. Existing intentional malformed/recovery fixtures remain separately scoped."
   },
   {
     "id": "2038-T10",
@@ -267,14 +267,14 @@
     "clauses": [
       "12.4.2"
     ],
-    "summary": "ADR0601’s page-label conflict premise misses the official withdrawal of #432 and resolution in #593; retain current repeated-letter behavior.",
+    "summary": "ADR0601\u2019s page-label conflict premise misses the official withdrawal of #432 and resolution in #593; retain current repeated-letter behavior.",
     "sources": [
       "https://github.com/pdf-association/pdf-issues/issues/432",
       "https://github.com/pdf-association/pdf-issues/issues/593",
       "https://pdf-issues.pdfa.org/32000-2-2020/clause12.html"
     ],
     "basis": "#432 reopened2025-08-14 and lost ISO-approved status when closed duplicate2025-11-10. #593 agreed2025-10-23, completed2025-11-10. Current Table161 repeats letters. These dates predate ADR0601 (2026-08-25); the static PDF retains stale accepted overlay annotations.",
-    "execution": "PASS public QueryPageLabel→host PageEntry AA/BB assertion, wave4.",
+    "execution": "PASS public QueryPageLabel\u2192host PageEntry AA/BB assertion, wave4.",
     "remaining": "Historical ADR and licensed source remain unchanged; primary issue pages checked by parent. No claim the resolution occurred after the ADR."
   },
   {
@@ -285,7 +285,7 @@
       "7.10.2"
     ],
     "summary": "Sampled-function interpolation collapses small nonzero domains to the low endpoint.",
-    "source": "§7.10.1 affine interpolation formula; §7.10.2 sample coordinate encoding, printed pp123–127. No epsilon-based degeneracy rule.",
+    "source": "\u00a77.10.1 affine interpolation formula; \u00a77.10.2 sample coordinate encoding, printed pp123\u2013127. No epsilon-based degeneracy rule.",
     "code": "crates/pdf-colour/src/function.rs::interpolate:1326",
     "test": "pdf-colour::sampled_functions_spec_audit::sampled_interpolation_preserves_a_small_but_nonzero_domain_span",
     "execution": "FAIL: Domain[0,1e-8] yields [0,0,0] at start/mid/end, instead of independently specified samples [0,100,200]. Normal Domain[0,1] control passes; wave8.",
@@ -300,7 +300,7 @@
       "8.9.5.2"
     ],
     "summary": "Base image Decode array accepts a nonnumeric element when its raw array length has the expected pair count.",
-    "source": "Table87 requires numeric Decode entries; §8.9.5.1 expressly requires errors for inconsistent base image entries. Not a generic claim that every malformed PDF must be rejected.",
+    "source": "Table87 requires numeric Decode entries; \u00a78.9.5.1 expressly requires errors for inconsistent base image entries. Not a generic claim that every malformed PDF must be rejected.",
     "code": "crates/pdf-model/src/image/dispatch.rs::inconsistent_entries; image/space.rs::Decode::read",
     "test": "pdf-model::decode_element_types_audit::decode_pairs_must_each_be_numbers",
     "execution": "FAIL: [0 1 null 1 0 1] is reported complete with no unsupported entries; waves6/8.",
@@ -315,7 +315,7 @@
       "14.7.2"
     ],
     "summary": "Structure ActualText is applied per directly owned MCID instead of once over all content enclosed by the element.",
-    "source": "§14.9.4 printed p801: character substitution for the content enclosed by the structure element. EC3 #483 permits Artifact property lists; #364 adds a spacing example; neither narrows structure replacement to one direct item.",
+    "source": "\u00a714.9.4 printed p801: character substitution for the content enclosed by the structure element. EC3 #483 permits Artifact property lists; #364 adds a spacing example; neither narrows structure replacement to one direct item.",
     "code": "crates/pdf-model/src/content/marked.rs::accessibility; content/run/marked_ops.rs",
     "tests": [
       "viewer-core::headless::structure_actualtext_replaces_two_owned_content_items_once",
@@ -345,7 +345,7 @@
       "7.10.5.2"
     ],
     "summary": "ADR2811 and the earlier current-round decision record overstate PLRM3 as universally requiring 32-bit bitshift arithmetic.",
-    "source": "PLRM3 §8.2 bitshift p539 requires zero-fill and integer operands; §3.3.1 p38 and AppendixB.1 pp738–739 describe architecture-dependent/typical limits.",
+    "source": "PLRM3 \u00a78.2 bitshift p539 requires zero-fill and integer operands; \u00a73.3.1 p38 and AppendixB.1 pp738\u2013739 describe architecture-dependent/typical limits.",
     "assessment": "Keep logical shifts. Qualify exact i32 results and shift>=32 behavior as local implementation width; original current-round decision record corrected.",
     "remaining": "Real bitshift operands are typecheck in PLRM3 but truncated by current evaluator; malformed-input recovery is not valid operator semantics. No production change."
   },
@@ -367,8 +367,8 @@
       "12.7.4.1",
       "12.7.6.3"
     ],
-    "summary": "Saving a reset overwrites the shared ancestor V with one terminal child’s default, losing its sibling’s distinct effective value.",
-    "source": "Table226 V/DV inheritance and §12.7.6.3 field-specific reset semantics. Two terminal fields, each with a widget, share a nonterminal ancestor V; one overrides DV locally.",
+    "summary": "Saving a reset overwrites the shared ancestor V with one terminal child\u2019s default, losing its sibling\u2019s distinct effective value.",
+    "source": "Table226 V/DV inheritance and \u00a712.7.6.3 field-specific reset semantics. Two terminal fields, each with a widget, share a nonterminal ancestor V; one overrides DV locally.",
     "code": "crates/pdf-model/src/view/writing.rs::write_resets and holder",
     "test": "pdf-model::inherited_reset_defaults_audit::reset_saves_each_terminal_fields_effective_default",
     "execution": "FAIL wave9: reopened group.first is local-default instead of shared-default. Separate runtime values and appearance test PASS.",
@@ -384,7 +384,7 @@
       "11.6.5.2"
     ],
     "summary": "A valid JP2 premultiplied-opacity channel is counted as ordinary color, refusing RGB SMaskInData2 before rendering.",
-    "source": "ISO32000-2 §7.4.9, Table87; ISO/IEC15444-1 I.5.3.6 TableI-16 type2 defines premultiplied opacity, association0 whole image.",
+    "source": "ISO32000-2 \u00a77.4.9, Table87; ISO/IEC15444-1 I.5.3.6 TableI-16 type2 defines premultiplied opacity, association0 whole image.",
     "primary_url": "https://www.itu.int/rec/dologin_pub.asp?id=T-REC-T.800-201511-S%21%21PDF-E&lang=e&type=items",
     "code": "pinned hayro-jpeg20007e39af4 jp2/cdef.rs::ChannelType::from_raw accepts only0/1; lib.rs derives has_alpha; pdf-sandbox/src/decode.rs trusts it; pdf-model/src/image/jpx.rs rejects count mismatch.",
     "test": "pdf-model::jpx_ordinary_opacity_audit::ordinary_rgb_jpx_smask_in_data_two_unpremultiplies_color",
@@ -399,7 +399,7 @@
       "9.10.2"
     ],
     "summary": "Named glyph extraction loses multi-scalar AGL rows and multi-group uni names; public text falls back to the byte character and search misses the sequence.",
-    "source": "ISO §9.10.2 and Adobe AGL Specification v2.9 §2: component mappings are strings, concatenated after suffix removal. Adobe glyphlist maps dalethatafpatah and dalethatafpatahhebrew to U+05D3 U+05B2.",
+    "source": "ISO \u00a79.10.2 and Adobe AGL Specification v2.9 \u00a72: component mappings are strings, concatenated after suffix removal. Adobe glyphlist maps dalethatafpatah and dalethatafpatahhebrew to U+05D3 U+05B2.",
     "primary_urls": [
       "https://github.com/adobe-type-tools/agl-specification",
       "https://raw.githubusercontent.com/adobe-type-tools/agl-aglfn/master/glyphlist.txt"
@@ -416,7 +416,7 @@
       "9.10.2"
     ],
     "summary": "A deliberately rejected unknown glyph-name component discards known components, contrary to AGL empty-string concatenation.",
-    "source": "Adobe AGL Specification v2.9 §2 step3 maps unrecognized components to empty string; step4 concatenates component strings.",
+    "source": "Adobe AGL Specification v2.9 \u00a72 step3 maps unrecognized components to empty string; step4 concatenates component strings.",
     "primary_url": "https://github.com/adobe-type-tools/agl-specification",
     "code": "encoding::text_for character_for(component)? rejects the whole name; its documentation claims the AGL algorithm while justifying the different policy. ADR2540 also calls this the specification algorithm.",
     "execution": "an_unrecognized_component_contributes_an_empty_string FAIL: A_notaglyph returns None instead of A.",
@@ -429,8 +429,8 @@
     "clauses": [
       "12.8.3.4.5"
     ],
-    "summary": "The automatic Open path defers PAdES signature verification despite the clause’s explicit open-or-request trigger.",
-    "source": "Effective ISO §12.8.3.4.5 printed582–583 applies to ETSI.CAdES.detached and requires checks a–d when opening or requesting verification. No reviewed erratum removes the trigger.",
+    "summary": "The automatic Open path defers PAdES signature verification despite the clause\u2019s explicit open-or-request trigger.",
+    "source": "Effective ISO \u00a712.8.3.4.5 printed582\u2013583 applies to ETSI.CAdES.detached and requires checks a\u2013d when opening or requesting verification. No reviewed erratum removes the trigger.",
     "code": "viewer/opening.rs explicitly defers notes::about; open/deferred.rs lazily initializes it; notes::signatures performs verification. Report and PolicyCopy can call about later.",
     "evidence": "Parent-reviewed call graph and source; genuine PAdES public Report positive/tamper tests PASS. Existing no-open-note fixture is adbe.pkcs7.detached and outside this PAdES trigger.",
     "controls": "Fixture has ESSCertIDv2 matching signer, exact whole-file ByteRange excluding Contents, fixed valid certificate/time, injected host anchor. Parent independently extracts actual PDF ranges/CMS: OpenSSL passes valid and rejects one-byte same-range tamper.",
@@ -458,7 +458,7 @@
       "12.8.5.3"
     ],
     "summary": "A genuine timestamp-only incremental update is unclassified under DocMDP P1 rather than disregarded.",
-    "source": "Table 257 printed p574; §12.8.5.3 printed p591. An incremental update containing only the data needed for DTS/DSS does not count as a document change.",
+    "source": "Table 257 printed p574; \u00a712.8.5.3 printed p591. An incremental update containing only the data needed for DTS/DSS does not count as a document change.",
     "code": "pdf-signature/revision.rs classify_one/dispositions recognizes the timestamp dictionary and DSS, but not its required field/page/catalog registration. viewer-core notes::modifications consumes the comparison.",
     "evidence": "docmdp_dts_carveout::valid_docmdp_p1_and_dts_only_revision_are_within_the_carveout fails with NotClassified for 7 objects. The genuine timestamp plus page-change control passes. Both signatures pass Rust integrity/authenticity; parent extraction and OpenSSL verification of the actual ranges also pass.",
     "decision": "ADR 0907 explains the restriction path; that argument does not establish correctness of the separate comparison consumer.",
@@ -473,7 +473,7 @@
       "12.2"
     ],
     "summary": "Present nondegenerate page boundaries wholly outside MediaBox fall back to a larger box, revealing content instead of retaining the empty intersection.",
-    "source": "§14.11.2.1 printed816/physical831 requires intersection. Table31/§14.11.2.1 absence defaults do not state recovery for an empty intersection.",
+    "source": "\u00a714.11.2.1 printed816/physical831 requires intersection. Table31/\u00a714.11.2.1 absence defaults do not state recovery for an empty intersection.",
     "code": "crates/pdf-model/src/page.rs:build_page crop_box and production_box fallbacks",
     "test": "pdf-model::page_geometry::a_disjoint_page_boundary_clips_all_content_instead_of_defaulting_to_the_medium",
     "execution": "FAIL for all four boxes; partial-overlap controls pass, exact xrefs/no recovery, complete interpretation.",
@@ -544,9 +544,9 @@
       "14.3.4"
     ],
     "summary": "Properties tests lacked conflicting Info/XMP values through the host panel.",
-    "change": "Literal distinct dictionary/packet titles survive Query::Properties→property_rows with separate labels; no-packet control does not synthesize XMP.",
+    "change": "Literal distinct dictionary/packet titles survive Query::Properties\u2192property_rows with separate labels; no-packet control does not synthesize XMP.",
     "execution": "PASS in metadata-wave14.log.",
-    "remaining": "Product presentation policy only. §14.3.4 gives discretion for inconsistent dates and does not require general title reconciliation."
+    "remaining": "Product presentation policy only. \u00a714.3.4 gives discretion for inconsistent dates and does not require general title reconciliation."
   },
   {
     "id": "2038-B20",
@@ -556,7 +556,7 @@
       "10.7.4"
     ],
     "summary": "A zero-height tiling BBox is dropped, leaving the cell unclipped and painting distant pixels.",
-    "source": "Table74 physical236/printed221; scan-conversion/clipping §10.7.4 physical399/printed384. Zero-width/height boundary remains a scan-converted clip.",
+    "source": "Table74 physical236/printed221; scan-conversion/clipping \u00a710.7.4 physical399/printed384. Zero-width/height boundary remains a scan-converted clip.",
     "decision": "ADR0056 treats the one-pixel note as grounds to omit clipping; this does not follow from the defining clipping rule.",
     "test": "pdf-model::degenerate_tiling_bbox_clip_spec_audit::a_zero_height_pattern_bbox_clips_distant_cell_marks_but_scan_converts_its_boundary",
     "execution": "FAIL: distant pixel opaque red vs transparent; ordinary-box and near-boundary controls pass. pattern-syntax-wave15.log",
@@ -595,7 +595,7 @@
       "7.3.4.3"
     ],
     "summary": "lexer::read_hex_string says ignoring all non-hex bytes is required by the specification; the clause requires ignoring whitespace only.",
-    "source": "§7.3.4.3 and EC3#731: comments are prohibited within hex strings.",
+    "source": "\u00a77.3.4.3 and EC3#731: comments are prohibited within hex strings.",
     "code": "crates/pdf-syntax/src/lexer.rs:643",
     "limits": "Existing stray-byte recovery/provenance is not identified as a valid-file behavior failure. No producer-error rejection duty inferred."
   },
@@ -633,7 +633,7 @@
       "9.4.1",
       "9.4.2"
     ],
-    "summary": "§9.3.2 says no writing mode1 exists despite implemented vertical spacing; matrix-positioning rows omit focused tests discussed by their notes.",
+    "summary": "\u00a79.3.2 says no writing mode1 exists despite implemented vertical spacing; matrix-positioning rows omit focused tests discussed by their notes.",
     "evidence": "text_state_residual_audit verticalTc/Tw/Tz and currentverticalTJtest; text_state q/Q and text_positioning_audit line-matrix restoration.",
     "limits": "No current behavior failure established; ledger unchanged within audit scope."
   },
@@ -765,7 +765,7 @@
       "8.6.5.5"
     ],
     "summary": "Unsupported ICC profile fallback omits ICC Range clipping before the Alternate colour space.",
-    "source": "Table65 physical206/printed191; later-version fallback and Table67/68 physical207–208.",
+    "source": "Table65 physical206/printed191; later-version fallback and Table67/68 physical207\u2013208.",
     "code": "pdf-colour colour/parsing.rs::parse_icc_based returns Alternate directly when Profile parsing fails, losing ICC Range.",
     "execution": "FAIL validated ICC2 v5 Lab profile input a150: RGB[255,0,128] instead of clamped direct-Lab[255,0,126]. Controls distinguish clamp before expected failure.",
     "fixture": "Synthetic528-byte profile independently accepted by official ICC iccDEV2.3.2.5; generator reproduced byte-for-byte; provenance and hashes committed.",
@@ -791,5 +791,26 @@
     "summary": "Added public DeviceRGB selection/reset pixel control with red and explicit-black companions.",
     "execution": "PASS fit-page-rgb-wave18.log. Nonstroking current components reset to literal zero; exactxref and complete interpretation guards.",
     "limits": "No added stroking reset matrix."
+  },
+  {
+    "id": "2038-T28",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "12.6.2"
+    ],
+    "summary": "Added public action-dispatch control for repeated indirect siblings versus path cycle and equivalent distinct objects.",
+    "execution": "PASS actions-wave19b.log. Literal root/leaf script payloads are recorded through ScriptRunner; repeated sibling is dispatched twice, cycle only once per path.",
+    "limits": "No JavaScript engine correctness or whole chain-type matrix claimed."
+  },
+  {
+    "id": "2038-T29",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "12.6.4.8"
+    ],
+    "summary": "Added public click-to-URI IsMap controls, fractional rounding, false/default and catalog OpenAction ignore.",
+    "source": "Table210 physical534/printed519; #256 checked separately as relative-URI scope clarification.",
+    "execution": "3PASS actions-wave19b.log, exactURI strings and pointer link-hit checks.",
+    "limits": "No external handler invoked; rotation, UserUnit and outline-specific ignore are residuals."
   }
 ]
