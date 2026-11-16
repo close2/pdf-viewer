@@ -578,20 +578,15 @@ pub fn create_instance_with(backends: wgpu::Backends) -> wgpu::Instance {
 /// with it. Debug builds keep the build's other validation, which is the build's choice and
 /// not a bring-up figure.
 ///
-/// **`DEBUG` is the one flag whose calls a Vulkan loader cannot take beside another thread's
-/// device.** It enables `VK_EXT_debug_utils`, and through it `wgpu` names every object it makes
-/// — a bind group, a pipeline, each command buffer it opens — with `vkSetDebugUtilsObjectNameEXT`.
-/// The Khronos loader (1.4.309 here, and its `main` as read) answers that call by walking every
-/// instance's list of logical devices under its instance-list lock, while `vkCreateDevice` and
-/// `vkDestroyDevice` on another thread add to and remove from that list without taking it. A test
-/// binary holding devices on parallel threads died of it with `SIGSEGV` inside `libvulkan` on the
-/// RX 580, with no test failing: each core held one thread naming an object and another inside
-/// `vkCreateDevice` or `vkDestroyDevice`. A release build sets no `DEBUG`, so this costs a debug
-/// build only its object names, and the validation layer's messages their route through `wgpu`'s
-/// log: the layer still validates, and reports on its own default output (the caller's ADR 2903).
+/// **`DEBUG` stays as the build sets it.** It enables `VK_EXT_debug_utils`, through which `wgpu`
+/// names every object it makes, and a Khronos loader names an object by walking every instance's
+/// list of logical devices. From 1.4.345 on that walk holds the lock `vkCreateDevice` and
+/// `vkDestroyDevice` hold, so a test binary bringing devices up and down on parallel threads may
+/// name objects beside them; an older loader races there and crashes inside `libvulkan` (ADR
+/// 2911).
 fn instance_flags() -> wgpu::InstanceFlags {
     wgpu::InstanceFlags::from_build_config()
-        .difference(wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL | wgpu::InstanceFlags::DEBUG)
+        .difference(wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL)
 }
 
 /// The instance a launch brings its device up on: the platform's primary backends, and
@@ -999,7 +994,10 @@ mod tests {
         let woken = super::render_nodes_awake(&dri, &class);
         std::fs::remove_dir_all(&root).unwrap();
         assert_eq!(woken, vec![dri.join("renderD128"), dri.join("renderD130")]);
-        assert!(super::render_nodes_awake(&root.join("absent"), &class).is_empty());
+        assert_eq!(
+            super::render_nodes_awake(&root.join("absent"), &class),
+            [] as [std::path::PathBuf; 0]
+        );
     }
 
     /// Every `.rs` file under `directory`, with its text.
