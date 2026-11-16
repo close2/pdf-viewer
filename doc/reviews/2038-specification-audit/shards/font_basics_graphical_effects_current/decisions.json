@@ -1,0 +1,29 @@
+{
+  "review_scope": "Selected ADR reconsideration for the overview, text-effect, CID-keyed architecture, and aggregate text-extraction features sampled in features.json.",
+  "decisions": [
+    {
+      "adrs": ["0022"],
+      "topic": "Text rendering modes",
+      "review": "The existing decision is borne out by mode-specific command, color, clip timing/lifetime, and Type 3 exception tests. The new raster draft adds downstream clip-consumer evidence without replacing those lower-level assertions.",
+      "scope_limit": "No claim about every Table 104 case at pixel level."
+    },
+    {
+      "adrs": ["0133"],
+      "topic": "Standard 14 font availability",
+      "review": "The existing compiled-in Standard 14 route removes host-font dependence. The proposed PDF 1.7 clipping regression uses this route within the version range where a standard font may be referenced without embedded metrics; it does not claim to exercise arbitrary external font acquisition.",
+      "scope_limit": "No review of font fallback policy."
+    },
+    {
+      "adrs": ["1461"],
+      "topic": "CID-keyed overview and one descendant",
+      "review": "The CID architecture's code-to-CID-to-glyph route is now tested through actual fixtures and independent width/program evidence. The overview's single-descendant and Type 0 representation align with current code; no new incompatible premise found.",
+      "scope_limit": "Detailed CMap, CIDSystemInfo, descendant metrics, and glyph-index rules stay with their specialized features."
+    },
+    {
+      "adrs": ["0250", "0256", "0311"],
+      "topic": "Extraction as rendered text readback",
+      "review": "The existing decision to accumulate extraction with shown glyphs is supported by public extraction comparisons, including an independent extractor and frozen PDFBox results. Search and readback budgets are consumer policy, separate from the Unicode/content distinction §9.10 introduces.",
+      "scope_limit": "This review does not certify every Unicode fallback or layout-analysis behavior."
+    }
+  ]
+}

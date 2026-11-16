@@ -14,7 +14,7 @@ The report and machine-readable continuation are in
 **Evidence so far.** All72 previous failing assertions pass. Current tests expose
 62 failing assertions, grouped by behavior and qualified where interpretation is
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
-The shard index links partial reviews to582 ledger rows;301 remain pending in
+The shard index links partial reviews to597 ledger rows;286 remain pending in
 this round. No entire clause is certified merely because referenced tests pass.
 A shared-parser date mutation was killed and restored. Independent JP2 fixture
 regeneration matches embedded hashes. Selected ADR conclusions are retained,
@@ -31,4 +31,5 @@ results; valid deep DPart attachments can disappear without disclosure. Requirem
 versions affect neither reports nor processing restrictions. A transparent stroke
 composites overlapping same-object geometry twice. Literal measurement, join/fill,
 WritingMode and new-file ID controls pass. The stroke failure also reaches PDF and three GPU lanes; CMYK-image OP passes.
-Next scopes cover signature revocation, remaining font basics and FDF forms. Latest weekly usage45%;ceiling85%.
+Embedded-font clipping and corrected FDF import controls pass. Next scopes cover
+signature revocation, layout attributes, and deprecated web/prepress features. Latest weekly usage45%;ceiling85%.

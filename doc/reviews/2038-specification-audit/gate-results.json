@@ -1225,6 +1225,48 @@
       "log": "quality-wave34e.log",
       "exit": 0,
       "scope": "Final model/render-raster/render-gpu all-targets Clippy -Dwarnings; c/d rejected crate-specific lint expectations, corrected."
+    },
+    {
+      "log": "font-clip-wave35.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Rejectedinitialdraft samplex8 landedonantialiasededge; notexpectedfailuremanifest."
+    },
+    {
+      "log": "font-clip-wave35b.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Correctedinsidepixel beforefontpinning."
+    },
+    {
+      "log": "font-clip-wave35c.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Finalembeddedfont andindependentoutlinepixel oracle."
+    },
+    {
+      "log": "fdf-header-wave35d.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "ExistingpublicFDFimportfixture aftercanonicalheader/catalogversioncorrection."
+    },
+    {
+      "log": "quality-wave35.log",
+      "exit": 0,
+      "scope": "ModelalltargetsClippy-DwarningsPASS."
+    },
+    {
+      "log": "quality-wave35e.log",
+      "exit": 0,
+      "scope": "Viewer-corealltargetsClippy-DwarningsPASS."
     }
   ],
   "prior_expected_failures": {

@@ -1079,7 +1079,8 @@
     "summary": "Flattened form Role, Checked and Desc are parsed but disappear before the public accessibility consumer.",
     "source": "Table383 primary physical805\u2013806/printed790\u2013791; ADR0085 rationale; todo31 acknowledges no consumer.",
     "evidence": "Three public semantic-difference regressions fail with identical complete AccessibilityNode vectors; title control passes. Static call search shows parser test only.",
-    "remaining": "Choose noninteractive platform representation without inventing widget actions; strengthen exact consumer assertions when API exists. Ledger implemented claim exceeds delivered behavior."
+    "remaining": "Choose noninteractive platform representation without inventing widget actions; strengthen exact consumer assertions when API exists. Ledger implemented claim exceeds delivered behavior.",
+    "related_noninteractive_forms": "Checkpoint35 source12.7.9 explicitly depends on PrintField forrepurposing/accessibility. Same existingthreefailureassertions; no duplicatecount. ADR0085 modelaccessor alone doesnotdeliverpublicsemantics."
   },
   {
     "id": "2038-D16",
@@ -1533,5 +1534,27 @@
     "summary": "Sampled DeviceCMYK images lacked an independent comparison against direct-colour OPM1 zero retention.",
     "change": "Added sampled OPtrue/false equality, direct OPM1 contrast and ordinary direct cyan equality control; exact-xref PDF and complete interpretation.",
     "execution": "1PASS. Controlled screen/press-group behavior only; not all Table146 combinations."
+  },
+  {
+    "id": "2038-T58",
+    "kind": "assertion-coverage-gap",
+    "clauses": [
+      "9.2.3",
+      "9.3.6"
+    ],
+    "summary": "Glyph clipping was inspected as internal commands; an independent downstreampixel control was missing from selectedtests.",
+    "change": "Embeddedchecked-inLiberationSans, independentlyinspectedHoutline, literalinside/outsidepixels andnonclippingcontrol throughPDFtoCPU; exactxref/completeinterpretation/opaquealpha.",
+    "execution": "Final1PASS. Initialdraftedgepixel failed antialiasing andwasrejected asinvalidoracle, notproductdefect."
+  },
+  {
+    "id": "2038-T59",
+    "kind": "fixture-evidence-boundary",
+    "clauses": [
+      "12.7.8.2.2",
+      "12.7.8.3.1"
+    ],
+    "summary": "EarlierauditFDFpageimportfixture usednoncanonicalheader1.3.",
+    "change": "Canonical%FDF-1.2 pluscatalogVersion/1.4 avoidsheaderwording ambiguity andrespectsVersionentryintroduction. Publicimport/count/navigation/render stillPASS.",
+    "qualification": "No malformedreaderrejection mandate orproductionfailure inferred. Table245higherheaderwording remainsasourcequalification."
   }
 ]

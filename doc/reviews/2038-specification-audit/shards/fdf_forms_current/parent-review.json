@@ -1,0 +1,9 @@
+{
+  "source": "Parent read primary572\u2013574 and581\u2013582. Table254 is582/567; intro581. Actual#54 removes typo, #176 changesMIME toapplication/fdf or deprecatedalias. Header573says%FDF-1.2; Table245574 describes higherheader/catalogversion selection, a source tension avoided bycanonicalfixture.",
+  "assertions": "Corrected earlier audit publicFDF importfixture fromheader1.3/catalog1.3 toheader1.2/catalog1.4 (Version entryintroduced1.4). Existing publiccount/navigation/pixel assertion1PASS aftercorrection. No productionreader change or malformedrefusal requirement. PositiveannotationPage0 and optionalxref/model/writer assertions inspected.",
+  "corrections": "Reviewer initiallycalled B29printfield testunrun; parentrequiredcrosscheck againstcheckpoint26 and filescorrected. Role/Checked/Desc threeFAILwithtitlePASS were alreadyconfirmed. No newdefect/test count forduplicate.",
+  "decision": "Retain FDF structure andannotationpageconsumer design, qualifyproducerconstraints. ADR0085 parser-only accessibility premise doesnotdeliverPrintFieldsemantics topublicconsumer; existingB29 nowalsolinks12.7.9.",
+  "residual": "No allFDF fields/pages/annotations/serializationcertification; parserrecoveryfixture vsvalidproducer distinguished.",
+  "baseline": "b901326c",
+  "scope": "Partial source/assertion review; parent corrections supersede raw reviewer draft descriptions."
+}

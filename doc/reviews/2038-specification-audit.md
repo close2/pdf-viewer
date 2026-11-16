@@ -11,9 +11,9 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (34)
+## Current checkpoint (35)
 
-Partial reviews now cover **582 of 883 ledger rows**, with 301 pending. The current
+Partial reviews now cover **597 of 883 ledger rows**, with 286 pending. The current
 failure manifest contains **62 assertions**, grouped into behavior findings rather
 than 62 independent defects. All 72 failures from the prior audit pass at this baseline.
 The latest broad run, wave31, covered eleven crates: **7,142 tests ran, 7,087 passed,
@@ -38,6 +38,12 @@ Checkpoint34 reproduces the same-stroke failure through a PDF and three hardware
 lanes: direct Vello, raster GPU and raster Compute. Ordinary-line controls pass.
 A sampled-CMYK-image overprint exclusion control passes. Model and both GPU
 backend all-targets Clippy passes. The broad run above predates these five tests.
+
+Checkpoint35 adds a passing glyph-clipping pixel control with an embedded font
+and independently inspected outline. The existing FDF import test still passes
+with its header corrected to the canonical form. Non-interactive forms share the
+already-confirmed PrintField consumer gap; no duplicate failures are counted.
+The custom-encryption-wrapper writer boundary is retained with explicit fixture limits.
 
 These are partial feature reviews, not whole-clause certification. The paragraphs
 below preserve earlier checkpoint evidence. Weekly usage was45% at the latest check;
