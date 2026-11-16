@@ -78,6 +78,8 @@ pub struct Launch {
     anticipated: crate::Loading<(Viewer, Vec<Event>)>,
     /// The conversion `--archive` chose, kept for the window's archive key (ADR 1954).
     archive: Option<viewer_core::Archiving>,
+    /// The reader's words for whom it believes, kept for the trusted lists' fetch (ADR 2886).
+    trusting: crate::Trusting,
 }
 
 impl Launch {
@@ -115,6 +117,7 @@ impl Launch {
         let ahead = crate::Ahead::page_sized();
         let drawing_ahead = ahead.clone();
         let archive = reader.archive.clone();
+        let trusting = reader.trusting();
         let anticipated = crate::Loading::start(move || {
             // No viewport: the window does not exist yet, and the core renders nothing into one
             // with no extent.
@@ -150,6 +153,7 @@ impl Launch {
             ahead,
             anticipated,
             archive,
+            trusting,
         }
     }
 
@@ -172,6 +176,7 @@ impl Launch {
             self.settings,
         )
         .archiving(self.archive)
+        .trusting(self.trusting)
         .opening(self.anticipated)
     }
 }

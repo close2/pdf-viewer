@@ -785,6 +785,8 @@ impl App {
                 self.dispatch(Command::Guidelines(self.guidelines));
                 println!("note: {}", viewer_host::guidelines_note(self.guidelines));
             }
+            // The trusted lists' fetch, under the level the menu holds (ADR 2886).
+            viewer_host::WindowAct::TrustedLists => self.fetch_trusted_lists(),
             viewer_host::WindowAct::FreeText => {
                 self.drawing = if self.drawing.is_some() {
                     println!("note: not drawing a free text annotation after all");

@@ -2,8 +2,9 @@
 
 Status: **open** — locally valid, the list reader, the lists' authentication, RSASSA-PSS subject
 keys, the QC statements, TS 119 615 clauses 4.4 to 4.7, TS 119 172-4 clause 4.4.2's level, most of
-clause 4.5's report, a policy's trusted-list anchors, a C host's lists and the lists' fetch are
-built (ADRs 2834, 2835, 2842, 2843, 2852, 2853, 2864, 2865, 2866, 2872, 2874, 2878, 2879, 2882), and
+clause 4.5's report, a policy's trusted-list anchors, a C host's lists, the lists' fetch and the
+window that asks for it are built (ADRs 2834, 2835, 2842, 2843, 2852, 2853, 2864, 2865, 2866, 2872,
+2874, 2878, 2879, 2882, 2886), and
 Annex A's time-stamp type is read as a silence (ADR 2883);
 section 2 is the order for the rest.
 Priority: the owner's, 2026-11-06, `doc/questions/A800` item 3: "we should be able to validate all
@@ -109,6 +110,14 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
   `submit::fetch`; each file written and renamed into place. Over the evidence of 2026-11-12 it
   authenticates the LOTL through five pivots, Austria's and Germany's lists, moves `OJEU-Loc` to the
   2026 publication with pivot 378's six certificates, and the next run passes with no pivot.
+- **The window that asks for the fetch** (ADR 2886). Shift + T is `WindowAct::TrustedLists` in
+  every window, `QUORRA_ACT_TRUSTED_LISTS` 23 in the C ABI (carried out inside the library, so a C
+  caller is owed a question or a sentence, never the act). `may_fetch_trusted_lists` is asked; at
+  `ask` the question names the directory (`Subject::TrustedLists`); the refresh runs on a
+  `trusted_list_fetch::Refresher` thread — never the event thread, never the confined worker — at
+  this machine's clock, and reads both directories again there through `reader::Trusting`, so the
+  window says what became of each list and hands the core `Command::Trust`, which forgets every
+  report worded under the old lists. One refresh at a time; a `no` and a refusal are said.
 - **Annex A's `id-etsi-dst-euqtst`, read** (ADR 2883): TS 119 172-4 states no process that gives a
   time-stamp token a type — clause 4's processes are a signature's or a seal's, and REQ-4.5-02's
   identifiers are a "may" — so a document timestamp is reported by TS 119 615 clause 4.7's answer
@@ -123,10 +132,7 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
    `doc/questions/Q855` (ETSI's notice, ADR 1085); h)'s potential security issues, assessed against
    ETSI TS 119 312's tables once they are fetched and transcribed (free from ETSI, never tracked;
    the fetch answered 403 on 2026-11-15, and `doc/questions/Q856` asks the owner to supply it).
-4. **A window that asks for the fetch.** `viewer_host::trusted_list_fetch` is built and no window
-   calls it: the remainder is a window act (a key in `keys.rs`, the `WindowAct` every host and the
-   C ABI's keyboard enum match on), the question at `Ask`, the refresh on a thread of its own, and
-   the directory read again and handed to the core as `Command::Trust`, so the verdicts are worded
-   from the new lists. Effort only; `doc/todo/38`'s interface deferral was lifted 2026-09-16.
-   GPR-4.0-03's *should* — go on past a failed `https` validation with a warning — is not taken:
-   the client has no unvalidated mode, and a failed connection is said as the location not fetched.
+4. **The fetch's remainder.** GPR-4.0-03's *should* — go on past a failed `https` validation with
+   a warning — is not taken: the client has no unvalidated mode, and a failed connection is said as
+   the location not fetched (re-read 2026-11-16, ADR 2886). A list a policy's `TAsInTrustedList`
+   references outside the LOTL's tree is fetched by nothing.

@@ -466,6 +466,69 @@ impl App {
         }
     }
 
+    /// The European Union's trusted lists, fetched into the directory the reader named under the
+    /// level the menu holds — `viewer_host::trusted_list_fetch::may_fetch_trusted_lists`'s one
+    /// answer (ADR 2886).
+    ///
+    /// **One question at a time**, for [`Self::fetch_policy`]'s reason.
+    pub(crate) fn fetch_trusted_lists(&mut self) {
+        use viewer_host::trusted_list_fetch::{may_fetch_trusted_lists, trusted_lists_declined};
+        let directory = self.trusting.trusted_lists.clone();
+        match may_fetch_trusted_lists(directory.as_deref(), self.restrictions.submissions()) {
+            viewer_host::Sending::Send => self.start_refresh(None),
+            viewer_host::Sending::Warn(note) => self.start_refresh(Some(note)),
+            viewer_host::Sending::Ask(_) if self.asked.is_some() => println!(
+                "{}",
+                trusted_lists_declined("another question was already waiting for your answer")
+            ),
+            viewer_host::Sending::Ask(words) => {
+                self.put_a_question(crate::app::Pending::TrustedLists, &words);
+            }
+            viewer_host::Sending::Refuse(why) => println!("{}", trusted_lists_declined(&why)),
+        }
+    }
+
+    /// The answer to [`Self::fetch_trusted_lists`]' question: a yes fetches, and a `no` fetches
+    /// nothing and says the lists held stay (ADR 2886).
+    fn trusted_lists_answered(&mut self, proceed: bool) {
+        if proceed {
+            self.start_refresh(None);
+        } else {
+            println!(
+                "{}",
+                viewer_host::trusted_list_fetch::trusted_lists_declined(&format!(
+                    "you answered \"{}\"",
+                    viewer_host::restriction::DO_NOT
+                ))
+            );
+        }
+    }
+
+    /// Puts the refresh on a `fetch-trusted-lists` thread of its own, woken and collected as a
+    /// submission is, at this machine's clock.
+    fn start_refresh(&mut self, warned: Option<String>) {
+        if let Some(directory) = &self.trusting.trusted_lists {
+            println!(
+                "{}",
+                viewer_host::trusted_list_fetch::refresh_note(directory)
+            );
+        }
+        let wake = self.waker.clone().map(|waker| -> Box<dyn Fn() + Send> {
+            Box::new(move || {
+                // A loop that has already exited has nobody to wake.
+                let _ = waker.send_event(());
+            })
+        });
+        if let Err(sentence) = self.refresher.start(
+            self.trusting.clone(),
+            viewer_host::policy::now(),
+            warned,
+            wake,
+        ) {
+            println!("{sentence}");
+        }
+    }
+
     /// Puts the GET on a `fetch-import` thread of its own, woken and collected as a submission is.
     fn start_fetch(
         &mut self,
@@ -535,6 +598,14 @@ impl App {
             if let Some(command) = follow_up {
                 self.dispatch(command);
             }
+        }
+        // The trusted lists' refresh: what became of them said, then the policy read again handed
+        // to the core, which words every verdict from it afresh (ADR 2886).
+        if let Some(refreshed) = self.refresher.collect() {
+            for line in &refreshed.said {
+                println!("{line}");
+            }
+            self.dispatch(Command::Trust(refreshed.trust));
         }
     }
 
@@ -1099,6 +1170,7 @@ impl App {
             crate::app::Pending::Policy { document, policy } => {
                 self.policy_answered(document, *policy, proceed);
             }
+            crate::app::Pending::TrustedLists => self.trusted_lists_answered(proceed),
             // Table Annex O.4's `fdf` from a server: a `no` fetches nothing, and the core is told
             // so the import says it declined (ADR 1527).
             crate::app::Pending::Fetch { document, url } => {

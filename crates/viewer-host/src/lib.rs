@@ -223,7 +223,7 @@ pub use popup::Window;
 pub use presentation::{Chrome, Placing, Presenting, centred, fitted};
 pub use presentation_pump::{PresentationPump, Turned};
 pub use printing::Defaults as PrintDefaults;
-pub use reader::{ReaderSupply, ReaderWords};
+pub use reader::{ReaderSupply, ReaderWords, Trusting};
 pub use restriction::{
     Act, ActEntry, ActLevel, Chose, Entry, Question, Restrictions, Row, Scope, Subject, act_chosen,
     asked, chosen, declined, told,

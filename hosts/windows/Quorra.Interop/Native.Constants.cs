@@ -241,7 +241,8 @@ internal static partial class Native
     internal const uint QUORRA_ACT_OPEN_DOCUMENT = 20;
     internal const uint QUORRA_ACT_SEPARATIONS = 21;
     internal const uint QUORRA_ACT_GUIDELINES = 22;
-    internal const uint QUORRA_ACT_COUNT = 23;
+    internal const uint QUORRA_ACT_TRUSTED_LISTS = 23;
+    internal const uint QUORRA_ACT_COUNT = 24;
 
     internal const uint QUORRA_CONTROL_ENTRY = 0;
     internal const uint QUORRA_CONTROL_CHECK = 1;

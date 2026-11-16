@@ -10,6 +10,12 @@
 //!
 //! The server is a `std::net::TcpListener` bound to `127.0.0.1:0` and read by hand, as
 //! `signature_policy.rs`'s is.
+//!
+//! **A window's refresh** ([`Refresher`], ADR 2886) is held to what it hands the core: the lists in
+//! `trusted_lists/` were written by `pdf-signature`'s own fixture generator with the test keys that
+//! crate generates — a list of trusted lists whose certificate is the Official Journal's set, and
+//! `AT`'s and `BE`'s lists, each signed by the certificate the LOTL's pointer names, and a second
+//! `BE` signed by another — and served by a transport at the locations the LOTL names.
 
 #![expect(
     clippy::expect_used,
@@ -22,13 +28,15 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 
 use pdf_signature::trusted_list::Outcome;
+use pdf_signature::trusted_list::authentication::OJEU_LOTL_LOC_AT_PUBLICATION;
 use pdf_signature::trusted_list::authentication::{OJEU_LOTL_LOC, stored_name};
 use pdf_signature::trusted_list::refresh::Refresh;
 use pdf_signature::x509::Instant;
 use viewer_host::trusted_list_fetch::{
-    fetch_trusted_lists, may_fetch_trusted_lists, persist, refresh_trusted_lists,
+    Refreshed, Refresher, Transport, fetch_trusted_lists, may_fetch_trusted_lists, persist,
+    refresh_trusted_lists,
 };
-use viewer_host::{Sending, Submissions};
+use viewer_host::{Sending, Submissions, Trusting};
 
 /// 2026-11-16T00:00:00Z.
 const NOW: i64 = 1_794_787_200;
@@ -260,4 +268,178 @@ fn a_refresh_is_persisted_file_by_file() {
             .join("escape")
             .exists()
     );
+}
+
+/// The Member State lists the LOTL in `trusted_lists/` points at.
+const AT_TSL: &str = "https://example.at/tsl.xml";
+const BE_TSL: &str = "https://example.be/tsl.xml";
+
+/// One of `trusted_lists/`'s files.
+fn fixture(name: &str) -> Vec<u8> {
+    std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/trusted_lists")
+            .join(name),
+    )
+    .expect("the fixture reads")
+}
+
+/// A directory holding the Official Journal's certificate alone, as a reader who has fetched
+/// nothing yet holds it, and the words naming it.
+fn trusting(name: &str) -> (PathBuf, Trusting) {
+    let directory = directory(name);
+    std::fs::write(
+        directory.join("OJEU-LOTL-Certs-Set.cer"),
+        fixture("OJEU-LOTL-Certs-Set.cer"),
+    )
+    .expect("the certificate file");
+    let trusting = Trusting {
+        trusted_lists: Some(directory.clone()),
+        ..Trusting::default()
+    };
+    (directory, trusting)
+}
+
+/// A transport serving the LOTL, `AT`'s list, and `be` as `BE`'s.
+fn serving(be: &'static str) -> Transport {
+    Box::new(move |uri: &str| match uri {
+        OJEU_LOTL_LOC_AT_PUBLICATION => Ok(fixture("eu-lotl.xml")),
+        AT_TSL => Ok(fixture("at-tsl.xml")),
+        BE_TSL => Ok(fixture(be)),
+        other => Err(format!("{other} answered 404")),
+    })
+}
+
+/// The refresh's answer, waited for as a window's timer looks for it.
+fn collected(out: &mut Refresher) -> Refreshed {
+    for _ in 0..400 {
+        if let Some(refreshed) = out.collect() {
+            assert!(out.interval().is_none(), "nothing is out once it is in");
+            return refreshed;
+        }
+        assert!(out.interval().is_some(), "the refresh is out");
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    out.collect()
+        .expect("the refresh came back inside ten seconds")
+}
+
+/// The names of the lists a policy carries.
+fn names(trust: &viewer_core::TrustPolicy) -> Vec<String> {
+    trust
+        .lists
+        .lists()
+        .iter()
+        .map(|(name, _)| name.clone())
+        .collect()
+}
+
+/// TS 119 615 PRO-4.1.4-01 and PRO-4.2.4-03 through a window's refresh: what clauses 4.1 and 4.2
+/// authenticate is kept, and the policy that crosses back to the core as `Command::Trust` is read
+/// from the directory afterwards, so it carries the LOTL and both Member States' lists the reader
+/// did not hold before.
+#[test]
+fn a_refresh_hands_the_core_the_lists_it_kept() {
+    let (directory, trusting) = trusting("window-kept");
+    let (before, _) = trusting.policy();
+    assert_eq!(names(&before), ["OJEU-LOTL-Certs-Set.cer"]);
+    let mut out = Refresher::new();
+    out.start_with(
+        trusting,
+        Instant::from_unix_seconds(NOW),
+        None,
+        serving("be-tsl.xml"),
+        None,
+    )
+    .expect("a refresh starts");
+    let refreshed = collected(&mut out);
+    assert!(
+        refreshed
+            .said
+            .iter()
+            .any(|line| line.contains("LOTL_VERIFICATION_PASSED")),
+        "{:?}",
+        refreshed.said
+    );
+    let after = names(&refreshed.trust);
+    for uri in [OJEU_LOTL_LOC_AT_PUBLICATION, AT_TSL, BE_TSL] {
+        assert!(after.contains(&stored_name(uri)), "{uri} in {after:?}");
+    }
+    assert_eq!(
+        refreshed
+            .trust
+            .lists
+            .lists()
+            .iter()
+            .find(|(name, _)| name == &stored_name(AT_TSL))
+            .map(|(_, octets)| octets.clone()),
+        Some(fixture("at-tsl.xml"))
+    );
+    assert_eq!(
+        refreshed.trust.lists.source(),
+        format!("{} (--trusted-lists)", directory.display())
+    );
+}
+
+/// PRO-4.2.4-07: a Member State's list its pointer's certificate did not sign is not kept, so the
+/// core is not handed it — `BE`'s alone differs from the test above, and `AT`'s still crosses.
+#[test]
+fn a_list_clause_4_2_refuses_is_not_handed_to_the_core() {
+    let (_, trusting) = trusting("window-refused");
+    let mut out = Refresher::new();
+    out.start_with(
+        trusting,
+        Instant::from_unix_seconds(NOW),
+        None,
+        serving("be-tsl-other-signer.xml"),
+        None,
+    )
+    .expect("a refresh starts");
+    let refreshed = collected(&mut out);
+    let after = names(&refreshed.trust);
+    assert!(after.contains(&stored_name(AT_TSL)), "{after:?}");
+    assert!(!after.contains(&stored_name(BE_TSL)), "{after:?}");
+}
+
+/// One refresh at a time — two would write one directory — and none without a directory to write.
+#[test]
+fn a_second_refresh_and_one_with_no_directory_are_declined() {
+    let (_, trusting) = trusting("window-second");
+    let mut out = Refresher::new();
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let held = std::sync::Mutex::new(held);
+    let transport: Transport = Box::new(move |_: &str| {
+        // Held until the test has pressed twice; a dropped sender also lets it go.
+        let _ = held.lock().map(|held| held.recv());
+        Err("held".to_owned())
+    });
+    out.start_with(
+        trusting.clone(),
+        Instant::from_unix_seconds(NOW),
+        None,
+        transport,
+        None,
+    )
+    .expect("the first starts");
+    let second = out
+        .start_with(
+            trusting,
+            Instant::from_unix_seconds(NOW),
+            None,
+            serving("be-tsl.xml"),
+            None,
+        )
+        .expect_err("the second is declined");
+    assert!(second.contains("already under way"), "{second}");
+    release.send(()).expect("the transport is waiting");
+    collected(&mut out);
+    let none = Refresher::new()
+        .start(
+            Trusting::default(),
+            Instant::from_unix_seconds(NOW),
+            None,
+            None,
+        )
+        .expect_err("nowhere to keep them");
+    assert!(none.contains("--trusted-lists"), "{none}");
 }

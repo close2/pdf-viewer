@@ -396,7 +396,8 @@ extern "C" {
 #define QUORRA_ACT_OPEN_DOCUMENT      20u
 #define QUORRA_ACT_SEPARATIONS        21u
 #define QUORRA_ACT_GUIDELINES         22u
-#define QUORRA_ACT_COUNT 23u
+#define QUORRA_ACT_TRUSTED_LISTS      23u
+#define QUORRA_ACT_COUNT 24u
 
 /*
  * Which platform control a §12.7 field is — `viewer_host::ControlKind`, which is one variant per

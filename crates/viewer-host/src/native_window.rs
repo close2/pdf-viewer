@@ -334,6 +334,12 @@ pub struct WindowState {
     /// The conversions running, each on an `archive` thread of its own, looked for on the timer
     /// that looks for a server's answers (ADR 1954).
     pub converter: crate::archiving::Converter,
+    /// The reader's words for whom this reader believes, which the trusted lists' fetch writes
+    /// into and reads again (ADR 2886).
+    pub trusting: crate::Trusting,
+    /// The trusted lists' refresh, on a `fetch-trusted-lists` thread of its own while one is out,
+    /// looked for on the timer that looks for a server's answers (ADR 2886).
+    pub refresher: crate::trusted_list_fetch::Refresher,
     /// §6.3.2.2: who draws §12.7's widgets — the toolkit's controls, or the document's own
     /// pictures.
     ///
@@ -464,6 +470,8 @@ impl WindowState {
             archive: None,
             kept: crate::password::Kept::new(),
             converter: crate::archiving::Converter::new(),
+            trusting: crate::Trusting::default(),
+            refresher: crate::trusted_list_fetch::Refresher::new(),
             widget_appearances,
             restrictions: standing(settings),
             separations: settings.separations,
@@ -479,6 +487,13 @@ impl WindowState {
         Self { archive, ..self }
     }
 
+    /// The same state, with the reader's words for whom it believes, which the trusted lists'
+    /// fetch reads (ADR 2886).
+    #[must_use]
+    pub fn trusting(self, trusting: crate::Trusting) -> Self {
+        Self { trusting, ..self }
+    }
+
     /// The same state, with the document opening on its own thread (ADR 1811).
     #[must_use]
     pub fn opening(self, anticipated: crate::Loading<(Viewer, Vec<Event>)>) -> Self {
@@ -489,10 +504,23 @@ impl WindowState {
     }
 
     /// Whether anything this window runs on a thread of its own is still out, so that the
-    /// timer looking for it keeps running: a server's answer, or a conversion.
+    /// timer looking for it keeps running: a server's answer, a conversion, or the trusted lists'
+    /// refresh.
     #[must_use]
     pub const fn looking(&self) -> bool {
-        self.submitter.interval().is_some() || self.converter.interval().is_some()
+        self.submitter.interval().is_some()
+            || self.converter.interval().is_some()
+            || self.refresher.interval().is_some()
+    }
+
+    /// How long a window's timer waits before [`NativeWindow::take_the_answers`] looks again: the
+    /// interval of whichever of [`Self::looking`]'s three is out, or `None` where none is.
+    #[must_use]
+    pub fn answers_interval(&self) -> Option<std::time::Duration> {
+        self.submitter
+            .interval()
+            .or(self.converter.interval())
+            .or(self.refresher.interval())
     }
 
     /// When the window should look at its pages again: the drawing thread's interval or the
@@ -593,6 +621,15 @@ pub trait NativeWindow {
     /// fetched, its answer is looked for as a submission's is and a bound PDF opens beside.
     fn fetch_policy(&mut self, document: DocumentId, policy: crate::PublishedPolicy) {
         requests::fetch_policy(self, document, policy);
+    }
+
+    /// [`crate::WindowAct::TrustedLists`]: the European Union's trusted lists fetched into the
+    /// directory the reader named, under the level the menu holds — the one answer
+    /// `crate::trusted_list_fetch::may_fetch_trusted_lists` gives. Declined, it is said; fetched,
+    /// its answer is looked for as a submission's is, said, and the directories read again go to
+    /// the core as `Command::Trust` (ADR 2886).
+    fn fetch_trusted_lists(&mut self) {
+        requests::trusted_lists(self);
     }
 
     /// §7.11.4's file, or §O.2.1's, taken out of the document: written, or opened beside it.
@@ -2134,6 +2171,14 @@ pub trait NativeWindow {
             if let Some(command) = follow_up {
                 self.dispatch(command);
             }
+        }
+        // The trusted lists' refresh: what became of them said, then the policy read again
+        // handed to the core, which words every verdict from it afresh (ADR 2886).
+        if let Some(refreshed) = self.state_mut().refresher.collect() {
+            for line in &refreshed.said {
+                self.say(line);
+            }
+            self.dispatch(Command::Trust(refreshed.trust));
         }
         self.take_the_conversions();
     }

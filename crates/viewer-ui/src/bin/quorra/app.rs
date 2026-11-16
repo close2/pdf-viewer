@@ -60,6 +60,9 @@ pub(crate) enum Pending {
         /// The URL, the identifier and the digest the signer committed to.
         policy: Box<viewer_host::PublishedPolicy>,
     },
+    /// The European Union's trusted lists, answered by fetching them into the directory the
+    /// reader named (ADR 2886). No document asked, so none is carried.
+    TrustedLists,
     /// A file a document named, answered by reading it and supplying it (ADRs 1227, 1239).
     RemoteDocument {
         /// Which of the three purposes asked, so that the answer goes back to the right one.
@@ -475,6 +478,12 @@ pub(crate) struct App {
     /// The conversions running, each on an `archive` thread of its own that wakes this loop when
     /// it is done — collected where a server's answer is (ADR 1954).
     pub(crate) converter: viewer_host::archiving::Converter,
+    /// The reader's words for whom this reader believes, which the trusted lists' fetch writes
+    /// into and reads again (ADR 2886).
+    pub(crate) trusting: viewer_host::Trusting,
+    /// The trusted lists' refresh, on a thread of its own that wakes this loop when it is done —
+    /// collected where a server's answer is (ADR 2886).
+    pub(crate) refresher: viewer_host::trusted_list_fetch::Refresher,
     /// What the standing question is about.
     ///
     /// Kept for [`App::locked`]'s reason one field down — the card is answered on a later turn of

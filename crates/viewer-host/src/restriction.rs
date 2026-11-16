@@ -83,6 +83,9 @@ pub enum Subject {
     /// A signature policy's published copy, which would be fetched from the server the signature
     /// names (ADR 1738).
     Policy,
+    /// The European Union's trusted lists, which would be fetched from the servers that publish
+    /// them (ADR 2886).
+    TrustedLists,
     /// §O.2.1's `ef`, which would open a file carried inside the document.
     Embedded,
     /// A document's scripts, which would run in a confined worker (RFC 0008 section 6.3).
@@ -100,6 +103,7 @@ impl Subject {
             Self::Submission => "Send this form?",
             Self::Fetch => "Fetch this form data?",
             Self::Policy => "Fetch this signature policy?",
+            Self::TrustedLists => "Update the trusted lists?",
             Self::Embedded => "Open this embedded document?",
             Self::Scripts => "Run this document's scripts?",
         }

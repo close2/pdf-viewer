@@ -776,6 +776,7 @@ fn the_keyboard(expected: &mut BTreeMap<String, i64>) {
         ("OPEN_DOCUMENT", ActKind::OpenDocument),
         ("SEPARATIONS", ActKind::Separations),
         ("GUIDELINES", ActKind::Guidelines),
+        ("TRUSTED_LISTS", ActKind::TrustedLists),
     ] {
         expected.insert(format!("QUORRA_ACT_{name}"), i64::from(kind.code()));
     }

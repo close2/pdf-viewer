@@ -20,8 +20,15 @@
 //! **TS 119 615 PRO-4.1.4-16 and -17's updates are persisted** as the files the configuration is
 //! read from (`OJEU-LOTL-Loc`, `OJEU-Loc`, `OJEU-LOTL-Certs-Set-<n>.der`), so the next reading and
 //! the next fetch start from them.
+//!
+//! **A window asks for it with a key** ([`crate::WindowAct::TrustedLists`], ADR 2886): the level is
+//! asked, the question put at `ask`, the refresh run on a [`Refresher`] thread of its own — never
+//! the event thread, and never the confined worker — and the directory read again there, so that
+//! what crosses back is the [`viewer_core::Command::Trust`] the core words its verdicts from.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Receiver, Sender, channel};
+use std::time::Duration;
 
 use pdf_signature::trusted_list::refresh::{self, Fate, Refresh, RefreshRefusal};
 use pdf_signature::x509::Instant;
@@ -235,4 +242,162 @@ pub fn persist(directory: &Path, refreshed: &Refresh) -> Vec<String> {
         }
     }
     said
+}
+
+/// What a window says where the fetch was refused or declined: why, and that the lists in the
+/// directory are as they were.
+#[must_use]
+pub fn trusted_lists_declined(why: &str) -> String {
+    format!("trusted lists: not fetched — {why}; the lists held are as they were")
+}
+
+/// What a window says as the refresh starts, so that the minutes a fetch of some thirty lists can
+/// take are not silent (trap 5).
+#[must_use]
+pub fn refresh_note(directory: &Path) -> String {
+    format!(
+        "trusted lists: fetching the list of trusted lists and the Member States' lists into {}",
+        directory.display()
+    )
+}
+
+/// The transport a [`Refresher`] hands the procedure: a location in, octets or a sentence out.
+pub type Transport = Box<dyn FnMut(&str) -> Result<Vec<u8>, String> + Send>;
+
+/// One refresh's end, as it crosses back to the window.
+#[derive(Debug)]
+pub struct Refreshed {
+    /// What became of the lists, one sentence a line, and each file in either directory that did
+    /// not take when they were read again.
+    pub said: Vec<String>,
+    /// The policy read from the directories after the refresh, which the window hands the core as
+    /// [`viewer_core::Command::Trust`] so that every verdict is worded from the lists now held.
+    pub trust: viewer_core::TrustPolicy,
+}
+
+/// The refresh a window has out, and its answer once it has come back.
+///
+/// [`crate::submit::Submitter`]'s shape — a thread, a channel, a count the window's timer reads
+/// through [`Self::interval`] — with **one refresh at a time**: two would write one directory, and
+/// the second's question is the first's.
+#[derive(Debug)]
+pub struct Refresher {
+    /// Where the thread puts its [`Refreshed`].
+    sender: Sender<Refreshed>,
+    /// Where the window takes it from.
+    receiver: Receiver<Refreshed>,
+    /// Whether a refresh has not answered yet.
+    outstanding: bool,
+}
+
+impl Default for Refresher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Refresher {
+    /// A window with no refresh out.
+    #[must_use]
+    pub fn new() -> Self {
+        let (sender, receiver) = channel();
+        Self {
+            sender,
+            receiver,
+            outstanding: false,
+        }
+    }
+
+    /// Refreshes the lists in `trusting`'s directory over the network on a `fetch-trusted-lists`
+    /// thread of its own, at `at`, then reads both directories again there.
+    ///
+    /// Asked first, as [`fetch_trusted_lists`] is; `wake` is [`crate::submit::Submitter::send`]'s.
+    ///
+    /// # Errors
+    ///
+    /// [`Self::start_with`]'s.
+    pub fn start(
+        &mut self,
+        trusting: crate::Trusting,
+        at: Instant,
+        warned: Option<String>,
+        wake: Option<Box<dyn Fn() + Send>>,
+    ) -> Result<(), String> {
+        let transport: Transport = Box::new(|uri: &str| obtained(crate::submit::fetch(uri)));
+        self.start_with(trusting, at, warned, transport, wake)
+    }
+
+    /// [`Self::start`] through `transport` rather than [`crate::submit::fetch`], which is how a
+    /// test serves lists signed with its own keys at the locations they name.
+    ///
+    /// # Errors
+    ///
+    /// The sentence to say where a refresh is already out, where `trusting` names no directory of
+    /// trusted lists, or where no thread could be started; nothing was fetched.
+    pub fn start_with(
+        &mut self,
+        trusting: crate::Trusting,
+        at: Instant,
+        warned: Option<String>,
+        mut transport: Transport,
+        wake: Option<Box<dyn Fn() + Send>>,
+    ) -> Result<(), String> {
+        if self.outstanding {
+            return Err(trusted_lists_declined(
+                "a fetch of them is already under way, and its answer is still to come",
+            ));
+        }
+        let Some(directory): Option<PathBuf> = trusting.trusted_lists.clone() else {
+            return Err(trusted_lists_declined(&format!(
+                "no directory of trusted lists was named ({})",
+                crate::policy::TRUSTED_LISTS
+            )));
+        };
+        let sender = self.sender.clone();
+        std::thread::Builder::new()
+            .name("fetch-trusted-lists".to_owned())
+            .spawn(move || {
+                let mut said = refresh_trusted_lists(&directory, at, &mut *transport);
+                if let Some(warned) = warned {
+                    said.insert(0, format!("trusted lists: {warned}"));
+                }
+                let (trust, refused) = trusting.policy();
+                said.extend(
+                    refused
+                        .into_iter()
+                        .map(|refusal| format!("trusted lists: read again: {refusal}")),
+                );
+                // A window that has closed has no receiver, and `crate::submit::Submitter::send`'s
+                // reason holds: an answer nobody can read is one nobody is owed.
+                let _ = sender.send(Refreshed { said, trust });
+                if let Some(wake) = wake {
+                    wake();
+                }
+            })
+            .map_err(|error| {
+                trusted_lists_declined(&format!("no thread to fetch them on: {error}"))
+            })?;
+        self.outstanding = true;
+        Ok(())
+    }
+
+    /// The refresh's answer, where it has arrived since the last look.
+    pub fn collect(&mut self) -> Option<Refreshed> {
+        let arrived = self.receiver.try_recv().ok();
+        if arrived.is_some() {
+            self.outstanding = false;
+        }
+        arrived
+    }
+
+    /// How long to wait before looking again, or `None` where no refresh is out — which is what
+    /// stops a window's timer, as [`crate::submit::Submitter::interval`]'s does.
+    #[must_use]
+    pub const fn interval(&self) -> Option<Duration> {
+        if self.outstanding {
+            Some(crate::submit::LOOK)
+        } else {
+            None
+        }
+    }
 }

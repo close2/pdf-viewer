@@ -47,6 +47,8 @@ mod repainted;
 mod restrictions;
 mod shown;
 #[cfg(test)]
+mod trusted_list_tests;
+#[cfg(test)]
 mod turn_tests;
 mod wheel;
 
@@ -302,11 +304,7 @@ impl Window {
     /// it is running — so a window showing a drawn page wakes for it exactly never.
     #[must_use]
     pub fn interval(&self) -> Option<u32> {
-        let looking = self
-            .state
-            .submitter
-            .interval()
-            .or(self.state.converter.interval());
+        let looking = self.state.answers_interval();
         let mut interval = match (self.state.drawing_interval(), looking) {
             (Some(drawing), Some(looking)) => Some(drawing.min(looking)),
             (drawing, looking) => drawing.or(looking),
@@ -855,6 +853,9 @@ impl Window {
             WindowAct::Archive => self.ask_to_archive(),
             WindowAct::ChooseArchive => self.choose_the_archive_again(),
             WindowAct::AbortDrawing => self.stop_the_long_draw(),
+            // The level, the question and the refresh's thread are the shared trait's, so the
+            // caller is owed a question or a sentence and never the act (ADR 2886).
+            WindowAct::TrustedLists => self.fetch_trusted_lists(),
             // What `w` sends is what this page's controls measured, so the window carries it out
             // from the caller's last measure, as `viewer-qt` does from its own (ADR 2169).
             WindowAct::FitControls => self.fit_the_controls(),

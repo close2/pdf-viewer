@@ -63,6 +63,51 @@ pub struct ReaderWords {
     pub recipient_key: Option<PathBuf>,
 }
 
+/// The reader's words that decide whom this reader believes: [`TRUST_ANCHORS`],
+/// [`TRUSTED_LISTS`] and [`ACCEPT_UNKNOWN_REVOCATION`].
+///
+/// **Apart from [`ReaderWords`] because a window keeps them after its first document**: the
+/// directory [`TRUSTED_LISTS`] names is one a window may fetch into (`doc/todo/77` item 4, ADR
+/// 2886), and [`Command::Trust`] read from it again is how the verdicts come to be worded from the
+/// lists fetched rather than from the ones the window started with.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Trusting {
+    /// The directory [`TRUST_ANCHORS`] named.
+    pub trust_anchors: Option<PathBuf>,
+    /// The directory [`TRUSTED_LISTS`] named.
+    pub trusted_lists: Option<PathBuf>,
+    /// Whether [`ACCEPT_UNKNOWN_REVOCATION`] was typed.
+    pub accept_unknown_revocation: bool,
+}
+
+impl Trusting {
+    /// The policy [`Command::Trust`] carries, read from the two directories now, and one sentence
+    /// per file in either that did not take.
+    ///
+    /// Reads the disk, so a window calls it off its event thread.
+    #[must_use]
+    pub fn policy(&self) -> (viewer_core::TrustPolicy, Vec<String>) {
+        let (mut trust, anchors_refused) = trust_anchors(
+            self.trust_anchors.as_deref(),
+            self.accept_unknown_revocation,
+        );
+        let (lists, lists_refused) = trusted_lists(self.trusted_lists.as_deref());
+        // A verdict through a list, and ETSI TS 119 615 clause 4.1's "has passed", are asked at
+        // the instant the anchors carry; with no anchor directory named the anchors carry none,
+        // so the lists bring this machine's clock with them.
+        if trust.anchors.is_empty() && !lists.is_empty() {
+            trust.anchors = pdf_signature::trust::Supply::of(Vec::new(), String::new(), now());
+        }
+        trust.lists = lists;
+        let refused = anchors_refused
+            .iter()
+            .chain(lists_refused.iter())
+            .map(ToString::to_string)
+            .collect();
+        (trust, refused)
+    }
+}
+
 /// The five commands the words became, and every file a person named that did not take.
 #[derive(Debug)]
 pub struct ReaderSupply {
@@ -180,6 +225,17 @@ impl ReaderWords {
         Ok(true)
     }
 
+    /// The three words [`Command::Trust`] is read from, kept by a window that reads them again:
+    /// once its trusted lists have been fetched ([`crate::trusted_list_fetch::Refresher`]).
+    #[must_use]
+    pub fn trusting(&self) -> Trusting {
+        Trusting {
+            trust_anchors: self.trust_anchors.clone(),
+            trusted_lists: self.trusted_lists.clone(),
+            accept_unknown_revocation: self.accept_unknown_revocation,
+        }
+    }
+
     /// What the words become: reads the two directories and the two recipient files, and builds
     /// the five commands.
     ///
@@ -190,18 +246,7 @@ impl ReaderWords {
     /// each applies to every document opened afterwards.
     #[must_use]
     pub fn commands(&self) -> ReaderSupply {
-        let (mut trust, anchors_refused) = trust_anchors(
-            self.trust_anchors.as_deref(),
-            self.accept_unknown_revocation,
-        );
-        let (lists, lists_refused) = trusted_lists(self.trusted_lists.as_deref());
-        // A verdict through a list, and ETSI TS 119 615 clause 4.1's "has passed", are asked at
-        // the instant the anchors carry; with no anchor directory named the anchors carry none,
-        // so the lists bring this machine's clock with them.
-        if trust.anchors.is_empty() && !lists.is_empty() {
-            trust.anchors = pdf_signature::trust::Supply::of(Vec::new(), String::new(), now());
-        }
-        trust.lists = lists;
+        let (trust, trust_refused) = self.trusting().policy();
         let (files, files_refused) = reference_files(self.reference_files.as_deref());
         // §7.6.5.1's two files, read on this side of the confinement and carried as bytes (ADR
         // 2822); nothing is read where neither word was typed.
@@ -209,10 +254,8 @@ impl ReaderWords {
             self.recipient_certificate.as_deref(),
             self.recipient_key.as_deref(),
         );
-        let refused = anchors_refused
-            .iter()
-            .map(ToString::to_string)
-            .chain(lists_refused.iter().map(ToString::to_string))
+        let refused = trust_refused
+            .into_iter()
             .chain(files_refused.iter().map(ToString::to_string))
             .chain(recipient_refused.iter().map(ToString::to_string))
             .collect();

@@ -322,6 +322,8 @@ impl Host {
             viewer_host::WindowAct::Archive => self.ask_to_archive(),
             viewer_host::WindowAct::ChooseArchive => self.choose_the_archive_again(),
             viewer_host::WindowAct::AbortDrawing => self.stop_the_long_draw(),
+            // The level, the question and the refresh's thread are the shared trait's (ADR 2886).
+            viewer_host::WindowAct::TrustedLists => self.fetch_trusted_lists(),
         }
     }
 

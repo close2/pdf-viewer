@@ -87,6 +87,8 @@
 //! - **Shift with the left or the right arrow steps back or forward along the window's history of
 //!   views** ([`viewer_core::Command::History`]), the arrows a page is turned on with the one
 //!   modifier this table reads; the standard names no key for it and keeps no history (ADR 2805).
+//! - **Shift with `t` fetches the European Union's trusted lists** ([`WindowAct::TrustedLists`]),
+//!   on the letter they are named after; `t` alone stays §12.5.6.6's free text (ADR 2886).
 //! - **While a presentation is running, the three keys that ask for chrome mean nothing.** §7.7.2's
 //!   Table 29 states `FullScreen` as
 //!
@@ -447,6 +449,16 @@ pub enum WindowAct {
     /// asked for is the window's state, and what crosses is
     /// [`viewer_core::Command::Guidelines`] with the answer. ADR 2440.
     Guidelines,
+    /// Fetch the European Union's trusted lists into the directory [`crate::policy::TRUSTED_LISTS`]
+    /// named, at the reader's network level, and word every verdict from what is kept
+    /// ([`crate::trusted_list_fetch`], ETSI TS 119 615 clauses 4.1 and 4.2).
+    ///
+    /// **A window act rather than a [`Command`] although it ends in one**, for
+    /// [`Self::OpenDocument`]'s reason: the transmission is a host's and never the core's or the
+    /// confined worker's (`CLAUDE.md` principle 3), the question at `ask` is a window's dialogue,
+    /// and what crosses the boundary is [`viewer_core::Command::Trust`] read again from the
+    /// directory once the refresh is in. ADR 2886.
+    TrustedLists,
 }
 
 /// Whether a draw the window has already warned about is still running.
@@ -604,6 +616,10 @@ pub fn meaning(key: Key, held: Modifiers, mode: Mode, waiting: Waiting) -> Optio
         Key::P if shift => Meaning::Window(WindowAct::Print),
         Key::P => Meaning::Window(WindowAct::Present),
         Key::L => Meaning::Window(WindowAct::NextLayout),
+        // The trusted lists fetched, on Shift for `Print`'s reason: `t` unshifted arms
+        // §12.5.6.6's free text, and no clause names a key for either. A question this asks is
+        // held while a presentation runs (ADR 2309), so the row stays then (ADR 2886).
+        Key::T if shift => Meaning::Window(WindowAct::TrustedLists),
         Key::T => Meaning::Window(WindowAct::FreeText),
         // §12.9's measuring, on the letter it is named after and on no modifier: the clause
         // names no key, and the three letters a measurement could be called after — `m`, `d` for
@@ -1252,12 +1268,13 @@ mod tests {
     /// for both, so the modifier is the only thing separating them. The second is `P`, where the
     /// letter a print job is named after was already §12.4.4's presentation — the argument is at
     /// the binding and in ADR 1180. The third is `S`, where §10.8.3's simulation meets
-    /// `Command::Save` on the same letter (ADR 1228). The arrows that turn pages step along the
+    /// `Command::Save` on the same letter (ADR 1228), and `T`, where the trusted lists' fetch meets
+    /// §12.5.6.6's free text (ADR 2886). The arrows that turn pages step along the
     /// window's history of views when shifted (ADR 2805). Every other key means one thing, and the
     /// loop below is what keeps that true: a row that started reading Shift without saying so
     /// fails here.
     #[test]
-    fn shift_separates_the_tab_key_the_print_job_and_the_separation_simulation() {
+    fn shift_separates_the_tab_key_the_print_job_the_separation_simulation_and_the_lists() {
         assert!(matches!(
             meaning(Key::Tab, Modifiers::NONE, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Send(Command::Focused(
@@ -1301,6 +1318,18 @@ mod tests {
             meaning(Key::A, Modifiers::SHIFT, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Window(WindowAct::Archive))
         ));
+        // The trusted lists' fetch on Shift + T, in both modes, and §12.5.6.6's free text on `t`
+        // alone (ADR 2886).
+        for mode in [Mode::Reading, Mode::Presenting] {
+            assert!(matches!(
+                meaning(Key::T, Modifiers::NONE, mode, Waiting::Nothing),
+                Some(Meaning::Window(WindowAct::FreeText))
+            ));
+            assert!(matches!(
+                meaning(Key::T, Modifiers::SHIFT, mode, Waiting::Nothing),
+                Some(Meaning::Window(WindowAct::TrustedLists))
+            ));
+        }
         // The window's history of views on the shifted arrows that turn pages, in both modes
         // (ADR 2805).
         for mode in [Mode::Reading, Mode::Presenting] {
@@ -1316,7 +1345,7 @@ mod tests {
         for key in Key::ALL {
             if matches!(
                 key,
-                Key::Tab | Key::P | Key::S | Key::A | Key::Left | Key::Right
+                Key::Tab | Key::P | Key::S | Key::A | Key::T | Key::Left | Key::Right
             ) {
                 continue;
             }

@@ -325,6 +325,7 @@ fn main() {
         .with(viewer_host::ActLevel::Scripts(reader.scripts))
         .with(viewer_host::ActLevel::LaunchedDocuments(launched_documents));
     let archive = reader.archive.clone();
+    let trusting = reader.trusting();
     let policies = Policies {
         restrictions,
         reader,
@@ -478,6 +479,8 @@ fn main() {
         archive_card: viewer_ui::chrome::ArchiveCard::default(),
         kept: viewer_host::password::Kept::new(),
         converter: viewer_host::archiving::Converter::new(),
+        trusting,
+        refresher: viewer_host::trusted_list_fetch::Refresher::new(),
         asked: None,
         held: std::collections::VecDeque::new(),
         script_wait: None,

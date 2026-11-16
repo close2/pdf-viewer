@@ -295,12 +295,14 @@ pub enum ActKind {
     Separations = 21,
     /// Show §14.11.2.2's guidelines for the page boundaries, or stop showing them.
     Guidelines = 22,
+    /// Fetch the European Union's trusted lists into the directory the reader named.
+    TrustedLists = 23,
 }
 
 impl ActKind {
     /// How many acts this build answers with: `QUORRA_ACT_COUNT`. Not part of `quorra_abi_check`,
     /// for [`KeyKind::COUNT`]'s reason; `quorra_act_name` names one a caller has no arm for.
-    pub const COUNT: u32 = 23;
+    pub const COUNT: u32 = 24;
 
     /// The act a window act is, and the distance [`WindowAct::ScrollBy`] carries (zero for every
     /// other). Exhaustive with no catch-all arm.
@@ -328,6 +330,7 @@ impl ActKind {
             WindowAct::OpenDocument => Self::OpenDocument,
             WindowAct::Separations => Self::Separations,
             WindowAct::Guidelines => Self::Guidelines,
+            WindowAct::TrustedLists => Self::TrustedLists,
         };
         (kind, 0.0)
     }
@@ -359,6 +362,7 @@ impl ActKind {
             20 => Self::OpenDocument,
             21 => Self::Separations,
             22 => Self::Guidelines,
+            23 => Self::TrustedLists,
             _ => return None,
         })
     }
@@ -390,6 +394,7 @@ impl ActKind {
             Self::OpenDocument => "OpenDocument\0",
             Self::Separations => "Separations\0",
             Self::Guidelines => "Guidelines\0",
+            Self::TrustedLists => "TrustedLists\0",
         }
     }
 
