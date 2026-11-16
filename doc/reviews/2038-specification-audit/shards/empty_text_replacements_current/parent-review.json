@@ -1,0 +1,8 @@
+{
+  "source": "Parent read physical815\u2013816 and annotations #483/#356/#364. A present empty text string is distinct from an absent key; ActualText is character replacement. Alt/E semantics remain separate.",
+  "assertions": "Three independent public regressions fail with co-operate instead of cooperate after whitespace normalization: Span property, Artifact property and structure element. Absent and explicit-hyphen controls and equal interpreted glyph counts pass before each failure. Rejected initial Visible-to-empty witness in favor of a discretionary line-end hyphen. Removed misleading Footer artifact type and MarkInfo claim on partial structure; property fixtures have no structure/MCID. Structure owns one marked content item.",
+  "execution": "empty-actualtext-wave29c.log:3expectedFAIL. No new whole-element cardinality, language-escape or accessibility-phrase claim.",
+  "limits": "Whitespace inserted from text positioning is not standardized by the replacement assertion, so it is normalized. Glyph counts do not constitute a raster comparison.",
+  "baseline": "b901326c",
+  "limit": "Partial source/assertion review, not whole-clause certification; parent qualifications govern draft assertions."
+}

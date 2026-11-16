@@ -1213,5 +1213,61 @@
     "evidence": "Primary page 65 strike/caret and page 67 support bullet; T.801 baseline includes enum19. PDF 2.0 enum19 fixtures are recovery/override controls. The declared departure refers to owner A348.",
     "disposition": "Retain producer-constraint versus reader-rejection distinction. Do not infer a reader-duty exception from the producer exclusion or a new defect from fallback alone. A valid unsupported ICC.1 lower-choice scenario remains unproven.",
     "rejected": "The preliminary claim that ADR 1184 discusses #29 and the module falsely calls CIEJab baseline was withdrawn after direct source review."
+  },
+  {
+    "id": "2038-B33",
+    "kind": "implementation-scope-gap",
+    "clauses": [
+      "14.11.5"
+    ],
+    "summary": "A valid page-level output condition without an embedded profile is replaced by the catalog\u2019s different press.",
+    "evidence": "Two public regressions fail: gray[96,97,97] instead of page-only[64,64,64], and Catalog GRACoL reported in force. Catalog-only and valid registered-condition controls distinguish profile parsing from priority.",
+    "source": "Primary839/824 page-level precedence;837/822 profile optionality for registered condition;839 Example1 CGATS TR001.",
+    "remaining": "Suppress unrelated catalog selection; no automatic lookup or invented page transform required."
+  },
+  {
+    "id": "2038-B34",
+    "kind": "implementation-empty-value-gap",
+    "clauses": [
+      "14.9.4"
+    ],
+    "summary": "Explicit empty ActualText is discarded as absent, leaving a discretionary hyphen in extracted text.",
+    "evidence": "Three independent Span/Artifact/structure regressions return co-operate versus cooperate; absence, explicit-hyphen and interpreted glyph-count controls pass.",
+    "source": "Primary815\u2013816; #483 adds Artifact route. Empty text is still a present replacement value.",
+    "remaining": "Keep empty values distinct from absence. This does not adjudicate empty Alt/E or duplicate whole-element replacement."
+  },
+  {
+    "id": "2038-T47",
+    "kind": "assertion-coverage-gap",
+    "clauses": [
+      "7.8.2"
+    ],
+    "summary": "Existing compatibility test claimed surrounding drawing survived but checked reports only.",
+    "change": "Added full-raster equality and independent opaque black interior control around BX/unknown/EX.",
+    "execution": "1PASS."
+  },
+  {
+    "id": "2038-T48",
+    "kind": "fixture-and-route-evidence-gap",
+    "clauses": [
+      "14.12.4.1",
+      "14.13.8",
+      "14.13.9"
+    ],
+    "summary": "DPart positive fixtures used retired nested arrays; annotation AF fixture lacked explicit recovery evidence and complete appearance setup.",
+    "change": "New current-shape DPart payload test plus repaired existing public annotation click fixture and neighboring-annotation negative control.",
+    "execution": "2PASS.",
+    "qualification": "Absent Params omitted a SHOULD, not a mandatory producer rule; the repaired fixture follows that recommendation. Text MIME matches actual payload bytes."
+  },
+  {
+    "id": "2038-D21",
+    "kind": "source-errata-and-rationale-gap",
+    "clauses": [
+      "14.12.4.1",
+      "14.13.5"
+    ],
+    "summary": "The #612 inventory misses its flat DParts-array correction; current comments still call nested arrays normative.",
+    "evidence": "Primary851 #612 and current document_part.rs; reader already accepts flat references. Table409a is also held at appended primary1015, so historical unavailable-table reasoning is no longer current.",
+    "disposition": "Correct present rationale and classify legacy positive fixtures accurately; no production behavior defect or mandatory old-shape rejection inferred."
   }
 ]

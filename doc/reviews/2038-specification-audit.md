@@ -278,6 +278,18 @@ reviewed as assertions. A valid unsupported-ICC JPX fallback witness remains mis
 Partial reviews reach 477 rows, with 406 pending; the failure manifest remains 44.
 Model/core all-targets Clippy passes. The broad wave27 run predates these four tests.
 
+The output-intent/empty-text checkpoint raises the manifest to 49 assertions.
+A valid page output condition without an embedded profile incorrectly borrows the
+catalog's different press: both public pixels and the in-force report fail.
+Three present-empty ActualText routes preserve a discretionary hyphen instead of
+removing it; absent and explicit-hyphen controls distinguish empty from missing.
+Balanced BX/EX pixels, current-shape DPart attachments, and a strengthened public
+annotation click all pass. Effective #612 uses flat child references; Table409a is
+held on appended primary page1015 despite a historical ADR's unavailable-table premise.
+The current evidence records that correction without rewriting the historical ADR.
+Partial reviews now reach 497 rows, with 386 pending. Final model/core all-targets
+Clippy passes. The nine-crate wave27 run predates these changes.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks

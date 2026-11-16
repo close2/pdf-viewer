@@ -1,0 +1,20 @@
+{
+  "shard": "compatibility_extensions_current",
+  "decisions": [
+    {
+      "adr": "ADR 0041 — Five widths and two spellings",
+      "selected_review": "Retain its selected BX/EX implementation as a nesting depth. Section depth produces the source-required nested behavior, and current tests distinguish nesting, inside/outside silence, and resumption after a matched EX. Its historical note that there were no pixel tests remains accurate for the current test file; this shard supplies a scratch-only independent raster assertion draft. No malformed unmatched-pair policy is attributed to the ADR or ISO.",
+      "evidence": "§7.8.2 physical p.126 / printed p.111 and Table 33 physical p.127 / printed p.112; ADR 0041; code in run.rs and Machine.compatibility; tests in content_streams.rs."
+    },
+    {
+      "adr": "Annex E / §7.12 selected rationale",
+      "selected_review": "The existing producer-side classification remains appropriate. EC3 #732 makes URL a required producer entry, but does not turn omission into a required reader refusal. Keeping an extension with no URL while representing `url: None` is an explicit tolerance policy; the current test fixture verifies the extension-array parser still reads that item. #399's BaseVersion comparison is likewise a producer constraint not checked by this parser. #239 demotes time-order monotonicity to should. No writer currently emits extensions, so no claim of producer conformance is grounded.",
+      "evidence": "§7.12.1–.6 physical pp.156–158 / printed pp.141–143, primary annotation images for pages157–158; Annex E physical pp.892–893 / printed pp.877–878 with #229/#340; requirements.rs and its unit assertions; prior Annex E feature-ledger review."
+    },
+    {
+      "adr": "Annex I compatibility handoff",
+      "selected_review": "Annex E.1 routes unsupported developer-feature handling to Annex I; no reader must reject a file solely because the prefix is unrecognized. Existing viewer assertions show a limited feature-by-feature distinction for unknown dictionary entries and unsupported objects. The broader Annex I first-error recommendation and all object classes remain outside this bounded pass.",
+      "evidence": "Annex E.1 physical p.892 / printed p.877; Annex I.1–I.3; objects_not_understood.rs."
+    }
+  ]
+}

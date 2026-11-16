@@ -1,0 +1,26 @@
+{
+  "scope": "Selected effective EC3 section 14.11.5 and Tables 401\u2013402; not a full PDF/X, PDF/A or PDF/E conformance audit.",
+  "source": "Physical pages 835\u2013839, printed 820\u2013824. The page-priority requirement and registered-condition example are on physical839/printed824; Table401 profile optionality is on837/822. #482 on839 corrects the URL file-specification description.",
+  "features": [
+    {
+      "feature": "Page versus catalog scope",
+      "rule": "Once a processor respects output intents, a page-level intent takes priority. A registered condition may omit DestOutputProfile.",
+      "code": "output_intent::selected and in_force_on_pages both use first_usable on the page and fall back to the catalog when no embedded profile parses.",
+      "evidence": "New public rendering and intent-report tests use registered CGATS TR001 on the page, no embedded page profile, and a different catalog GRACoL profile. Catalog-only is a positive profile control; page-only establishes the same page without the unrelated press. Both tests fail: [96,97,97,255] versus [64,64,64,255], and Catalog GRACoL is reported in force.",
+      "boundary": "No registry fetch, invented ICC transform or rejection of a valid omitted profile is required. Declining an unavailable transform does not authorize borrowing another scope\u2019s press."
+    },
+    {
+      "feature": "Profile direction and selection policy",
+      "rule": "Table401 permits AToB for preview/proofing. NOTE1 leaves workflow selection among multiple intents outside the specification.",
+      "evidence": "Current first-usable choice and preview direction are product choices; default spaces remain nearer source-color definitions. Existing tests cover color routes, page-intent names and print warnings.",
+      "boundary": "The old page-selection unit test uses one profile for both scopes and asserts names; it does not independently prove different pixel transformations. Several naming-only fixtures omit required intent fields and are parser-policy evidence."
+    },
+    {
+      "feature": "Optional spectral data and external profile references",
+      "rule": "MixingHints and SpectralData may explicitly be ignored. Table402 describes referenced ICC profile metadata; #482 clarifies URL file specifications.",
+      "evidence": "No automatic profile fetch is performed. ADR1932 records the unavailable-reference reporting boundary.",
+      "boundary": "No mandatory fetch or complete spot-color/prepress workflow inferred. This pass does not certify all external profile combinations."
+    }
+  ],
+  "profile_provenance": "Unmodified shipped GRACoL2006_Coated1v2.icc, 2747956bytes, SHA2567f822b354f3f4081e3b1dadd381c9f16d583257d1574e583be7d0e3433a6b45b; header v2/prtr/CMYK/Lab; independently opened with Pillow ImageCms/LittleCMS and description verified. data/icc/PROVENANCE.md records ICC registry origin."
+}

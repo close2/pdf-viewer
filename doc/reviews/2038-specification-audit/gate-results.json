@@ -1016,6 +1016,54 @@
       "log": "quality-wave28c.log",
       "exit": 0,
       "scope": "Final pdf-model/viewer-core all-targets Clippy -Dwarnings."
+    },
+    {
+      "log": "output-intents-wave29.log",
+      "run": 2,
+      "passed": 0,
+      "failed": 2,
+      "exit": 101,
+      "scope": "B33 page intent public pixels and in-force reporting, with catalog-only positive controls."
+    },
+    {
+      "log": "compatibility-wave29b.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Balanced BX/EX unknown operator full-raster and literal pixel control."
+    },
+    {
+      "log": "empty-actualtext-wave29c.log",
+      "run": 3,
+      "passed": 0,
+      "failed": 3,
+      "exit": 101,
+      "scope": "B34 present-empty replacement through Span, Artifact and structure; discretionary hyphen controls."
+    },
+    {
+      "log": "dpart-af-wave29d.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 151,
+      "exit": 0,
+      "scope": "Current DPart shape and repaired public annotation attachment click."
+    },
+    {
+      "log": "quality-wave29a.log",
+      "exit": 0,
+      "scope": "Output-intent test all-targets lint at that point."
+    },
+    {
+      "log": "quality-wave29e.log,quality-wave29f.log,quality-wave29g.log",
+      "exit": 101,
+      "scope": "Draft test documentation/arithmetic/clone lint corrections; no production changes."
+    },
+    {
+      "log": "quality-wave29h.log",
+      "exit": 0,
+      "scope": "Final model/core all-targets Clippy -Dwarnings."
     }
   ],
   "prior_expected_failures": {

@@ -1,0 +1,16 @@
+{
+  "reviews": [
+    {
+      "adr": "0821",
+      "verdict": "Retain page-level precedence. Its intended behavior is not upheld when the page profile cannot be parsed or is validly omitted."
+    },
+    {
+      "adr": "0009,0272,1932",
+      "verdict": "Retain optional AToB preview versus print-system output distinction and reporting the absence of BToA press conversion. The new failure concerns selection scope, not adding a color-management dependency."
+    },
+    {
+      "topic": "Subtype handling",
+      "verdict": "Table401 says S determines format/meaning and associated standards can add semantics. Interpreting a usable embedded profile across subtypes is the chosen preview behavior, not proof of all subtype standards."
+    }
+  ]
+}

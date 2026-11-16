@@ -3,6 +3,59 @@
   "numbering": "Logical content items use published ledger owners14.7.5.1.1/.2/.3/.4 for effective EC3 .2/.3/.4/.5; navigator owner12.3.6 maps effective12.3.5.3. JBIG2 external Annex D is not ISO PDF Annex D.",
   "shards": [
     {
+      "shard": "output_intents_current",
+      "artifact": "shards/output_intents_current/features.json",
+      "ledger_owners": [
+        "14.11.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "empty_text_replacements_current",
+      "artifact": "shards/empty_text_replacements_current/features.json",
+      "ledger_owners": [
+        "14.9.3",
+        "14.9.4",
+        "14.9.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "compatibility_extensions_current",
+      "artifact": "shards/compatibility_extensions_current/features.json",
+      "ledger_owners": [
+        "7.8.2",
+        "7.12",
+        "7.12.1",
+        "7.12.2",
+        "7.12.3",
+        "7.12.4",
+        "7.12.5",
+        "7.12.6",
+        "E",
+        "E.1",
+        "E.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "dpart_associated_files_current",
+      "artifact": "shards/dpart_associated_files_current/features.json",
+      "ledger_owners": [
+        "14.12",
+        "14.12.1",
+        "14.12.2",
+        "14.12.3",
+        "14.12.4",
+        "14.12.4.1",
+        "14.12.4.2",
+        "14.13.8",
+        "14.13.9",
+        "14.13.10"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
       "shard": "image_filters_remaining_current",
       "artifact": "shards/image_filters_remaining_current/features.json",
       "ledger_owners": [

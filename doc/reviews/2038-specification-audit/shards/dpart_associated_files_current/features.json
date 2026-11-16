@@ -1,0 +1,93 @@
+{
+  "scope": "Bounded review of effective EC3 §14.12.1–.4.2 and §14.13.9–.10, including only necessary links to Table 29, Table 31, §12.5.1, §14.13.1–.2, .8 and prior GoToDp work. No re-certification of §12.6.4.5, the marked-content MCAF reader, attachment panel, or all DPart transform paths.",
+  "features": [
+    {
+      "clause": "14.12.1",
+      "title": "Document-parts purpose and scope",
+      "source_location": "Primary printed p.835 / physical p.850. Introduces a second page-range hierarchy for job tickets in production workflows, printing devices or other messaging channels. NOTE 1 says processors can also access pages through the DPart hierarchy for structured presentation; it is informative context rather than an independent MUST to present pages.",
+      "errata": "No direct requirement-changing EC3 erratum found in this subclause. Effective Table 408/409 and §14.12.2 corrections are mapped separately below.",
+      "ledger": "doc/conformance/ledger.toml §14.12.1 marks the introduction implemented as stating no independent requirement; §14.12 aggregate ties actual behavior to GoToDp and DPart-associated files. ADR 1461 makes generator obligations active where split/merge/update writes or preserves DPart objects.",
+      "code": "No §14.12.1 semantic parser is needed. Reader uses document_part::hierarchy/first_page only where another feature requests a page or associated files. pdf-transform split/merge remove the second hierarchy when they create a new page list; update refuses changes that would invalidate an extant hierarchy.",
+      "assertions": "Transform tests assert the output's DPartRoot/page DPart status and named refusals for invalidating page edits. This is evidence for writer behavior attached to §14.12.2/.3, not a requirement created by the introductory purpose statement.",
+      "verdict": "No independent reader gap identified. The scope remains a production/job-ticket data model; NOTE 1 does not imply a general DPart presentation UI.",
+      "residuals": "No production system consumes a JDF job ticket, so no DPart metadata UI or print-purposing semantics are claimed.",
+      "related_adrs": ["ADR 1461", "ADR 0108", "ADR 1040"]
+    },
+    {
+      "clause": "14.12.2",
+      "title": "Tree cardinality, parent links, range partition and child shape",
+      "source_location": "Primary printed pp.835–836 / physical pp.850–851. Tree/page-range requirements include non-overlapping ranges, every page in exactly one leaf range, child DParts referenced by at most one parent, and each page range matching a tree traversal. Table 409 is printed pp.836–837 / physical pp.851–852.",
+      "errata": "EC3 #609 corrects the catalog's DPartRoot/DPartRootNode relationship to the two-hop Table 408 shape; #614 requires catalog /DPartRoot to be an indirect reference. EC3 #612 at physical p.851 replaces Table 409 /DParts' array-of-arrays text with an array of indirect references to immediate child DParts and says empty arrays shall not be present. The current doc/errata-read.md #612 summary mentions only the empty-array rule and omits the changed array shape. #610 adds a Table 408 note referring to ISO 16612-2; no reader processing rule is added.",
+      "ledger": "doc/conformance/ledger.toml §14.12.2 marks implemented through split/merge/update writer behavior; §14.12.4.1 owns dictionary reading. Producer rules do not imply that a reader must reject a malformed hierarchy.",
+      "code": "pdf-model/src/document_part.rs::collect currently accepts the EC3-current direct child-ref array and the retired nested form; it also states in comments that Table 409 requires nested arrays, now stale. `first_page_at` has the same permissive treatment. `hierarchy` uses identity/cycle and resource bounds, not a full structural validator.",
+      "assertions": "Current hierarchy unit test `the_whole_hierarchy_is_enumerated_from_the_catalogs_root` uses the superseded nested `/DParts [[7 0 R 8 0 R]]`, lacks page `/DPart` links and does not assert range/page order. The §14.13.8 `a_file_associated_with_a_document_part_is_listed` fixture likewise nests its child array and has no page back-pointer. Transform tests cover writer-side invalidation, not valid reader hierarchy. Draft `dpart_af_current_shape.rs` uses direct refs, correct parents, page back-pointers, singleton page ranges, depth-first/page-tree agreement, exact xref and PDF2 ID; a separate catalog-associated file controls general attachment reading.",
+      "verdict": "Current reader accepts the effective direct-ref shape, so the stale nested-array code comment/test premises are not evidence of a read failure. The reader does not validate all producer constraints; no normative reader-rejection obligation was found. Draft provides a valid-feature regression for DPart traversal plus §14.13.8 AF discovery.",
+      "residuals": "Draft unrun. A cross-check of every transform edit path and the full hierarchy partition remains outside this bounded audit. Correct or qualify the errata inventory and DPart comments when integrating; do not describe permissive legacy-shape acceptance as mandatory.",
+      "related_adrs": ["ADR 1461", "ADR 1040"]
+    },
+    {
+      "clause": "14.12.3",
+      "title": "Connecting leaf ranges to page objects",
+      "source_location": "Primary printed pp.835–836 / physical pp.850–851. A page in a leaf's Start/End range shall carry an indirect /DPart ref to that leaf; range page numbers are monotonically increasing in page-tree order; depth-first leaf page order shall agree with the ordinary page tree. NOTE 2 explains this means either hierarchy enumerates the same page order.",
+      "errata": "EC3 #612 changes the child list used to enumerate the hierarchy; #609/#614 correct the root references. No direct change to the page-to-leaf /DPart rule was found.",
+      "ledger": "doc/conformance/ledger.toml §14.12.3 records output-page-list obligations for split/merge/update. The page /DPart and range ordering clauses constrain conforming files/writers; the reader code does not report or reject a mismatch.",
+      "code": "`document_part::Part` retains Start/End refs and the DPart dictionary; `Page` reads the dictionary on the page. The DPart helper enumerates DPart leaves but does not cross-check each page's /DPart ref against ranges or compare hierarchy order with page-tree order. Existing tests largely exercise transform writer effects and hierarchy enumeration, not an explicit conforming page-link fixture.",
+      "assertions": "Draft dpart_af_current_shape.rs includes two singleton leaves, each with the exact page /DPart ref, correct parent, and same page/depth-first order; asserts the decoded DPart-only files appear. This is a valid positive reader example, not an invalid-file rejection test.",
+      "verdict": "No mandatory reader validator is inferred from producer-facing MUSTs. A valid reader fixture should nevertheless use the effective connection rule; draft supplies one for the DPart/AF consumer path.",
+      "residuals": "No required diagnostics for malformed range overlap, missing page back-pointer, ordering mismatch, or duplicated parent were identified for this reader. Such reporting would be an API policy if desired.",
+      "related_adrs": ["ADR 1461", "ADR 1040"]
+    },
+    {
+      "clause": "14.12.4.1; Tables 408–409",
+      "title": "DPartRoot and DPart dictionary fields",
+      "source_location": "Primary Tables 408/409 printed pp.836–837 / physical pp.851–852; Table 409's DPM /AF entries and metadata note continue onto physical p.852 (printed p.837). Table 408 /DPartRootNode, /RecordLevel, /NodeNameList and Table 409 /Parent, /DParts, /Start, /End, /DPM, /AF are distinct fields.",
+      "errata": "#609 makes DPartRoot an intermediate catalog dictionary and points to Table 408; #614 makes catalog /DPartRoot indirect. #610 adds a reference note for RecordLevel. #612 changes /DParts to direct child refs and prohibits empty arrays. #290 withdraws Table 409 /Metadata and replaces it with: XMP metadata streams shall not be used in DPart dictionaries; a note says earlier PDF 2.0 editions allowed Metadata. This prohibition binds file authors, not reader-side rejection.",
+      "ledger": "§14.12.4.1 is implemented for hierarchy fields. §14.12.4.2 is separately marked inapplicable on its downstream production-workflow audience. Table 409 /AF is separately handled by §14.13.8 and attachments::attachments.",
+      "code": "document_part::hierarchy reads RecordLevel and NodeNameList and returns all Part dictionaries with Start/End refs. It carries the original DPM dictionary in Part.dictionary but exposes no DPM semantic model or print-workflow consumer. Table 409 Metadata is not read. attachments::attachments walks every reachable Part dictionary for /AF.",
+      "assertions": "The whole-hierarchy unit test asserts RecordLevel, NodeNameList, levels, Start/End, but uses old nested DParts and omits page back-pointers. The current DPart AF unit fixture is likewise nested. No Metadata-stream consumer assertion is owed. The proposed valid DPart AF test asserts child refs, page links, AF relationship and actual decoded payload, while also verifying raw DPM remains on the returned dictionary without interpreting it.",
+      "verdict": "Core Table 408 fields and DPart AF are concretely consumed. EC3 #612 comments and fixtures need source correction. DPM is retained opaquely but not interpreted; no reader-facing DPM requirement was located. Table 409 /Metadata removal concerns producer validity, not an absent metadata reader behavior.",
+      "residuals": "Whether callers need a typed DPM API or production workflow is not a conformance claim. Reader-side rejection/reporting of prohibited Metadata streams is not required by the erratum wording. The full serialization-preservation policy for DPM fields is not newly certified here.",
+      "related_adrs": ["ADR 1461", "ADR 1040"]
+    },
+    {
+      "clause": "14.12.4.2",
+      "title": "DPart metadata dictionary (DPM)",
+      "source_location": "Primary printed pp.837–838 / physical pp.852–853. DPM communicates application-specific information from a PDF creator to a receiving system in a downstream production workflow. Its dictionary keys (including nested dictionaries) must satisfy XML Name-token and PDF Name syntax; values are limited to text/date strings, array, dictionary, boolean, integer or real. A DPM applies only to the DPart where it occurs.",
+      "errata": "EC3 #290 removes the adjacent Table 409 /Metadata stream entry, not the DPM dictionary feature. #610's Table 408 reference note does not add DPM interpretation duties.",
+      "ledger": "doc/conformance/ledger.toml §14.12.4.2 is inapplicable by the clause's own production workflow condition. The row explicitly says current code neither parses DPM nor writes a job ticket; the original dictionary is retained as a raw field on each enumerated Part.",
+      "code": "No DPM schema interpreter, JDF job ticket generation/consumption, or downstream print-purposing adapter is present. `Part.dictionary` keeps the source dictionary accessible; no client uses DPM values as reading/display instructions.",
+      "assertions": "No DPM semantic-consumer test was found or inferred as owed. Draft checks only that a valid opaque DPM remains accessible on its Part while DPart traversal runs; it does not claim the XML-name/value constraints are reader refusal rules.",
+      "verdict": "No reader behavior gap established. The strict names/value domain is a file-conformance constraint for producers and is conditioned on an external DPM consumer. Opaque preservation is the current API behavior.",
+      "residuals": "If a production/JDF workflow is added, it would need a parser and validation against the source constraints. No typed DPM semantics are currently promised by the API.",
+      "related_adrs": ["ADR 1461"]
+    },
+    {
+      "clause": "14.13.9; §12.5.1; Table 166",
+      "title": "Associated files on an annotation and activation route",
+      "source_location": "Primary §14.13.9 printed p.841 / physical p.856. Annotation /AF is an array of file specifications; EC3 #568 at physical p.853 / printed p.838 requires each associated file specification to contain /AFRelationship stating its relationship to the annotation. The NOTE gives rich-media dynamic data as motivation. §12.5.1 supplies the interactive activation context.",
+      "errata": "EC3 #568 at physical p.853 / printed p.838 makes /AFRelationship required for associated file specifications and clarifies the object-dictionary /AF array + marked-content AF-tag split; it does not directly amend §14.13.9. Issue #374 is specific to graphics marked-content property lists, not annotation dictionaries. Issue #637 corrects EXAMPLE 3's MathML media type only.",
+      "ledger": "§14.13.9 implemented; code spans pdf-model attachment parsing and viewer-core pointer activation. It is separate from FileAttachment annotation /FS under §12.5.6.15.",
+      "code": "`viewer_core::viewer::pointer::attached_files` reads /AF from the clicked annotation and emits Event::Extracted for embedded file bytes. It does not require subtype /FileAttachment, consistent with §14.13.9's generic annotation wording.",
+      "assertions": "`headless.rs::a_click_on_an_annotation_produces_the_files_it_associates` checks one clicked Square with /AF yields the expected filename and literal payload; clicking elsewhere yields no Extracted event. Its builder calculates xref offsets, but the test does not open through Document to assert `was_recovered == false`, and its associated EmbeddedFile has no Params dictionary (which §14.13.2 says should be present, so its absence alone is not a mandatory failure); the draft supplies Params with ModDate and Size as a stronger producer-valid fixture. Draft annotation_af_valid_public_route.rs makes the embedded AF fixture producer-valid, adds PDF 2 ID and explicit no-recovery check, keeps an independent neighboring Square without /AF, and checks the extracted bytes.",
+      "verdict": "The public consumer route is tested; no missing route is claimed. The draft strengthens the fixture's normative premises and recovery proof rather than alleging an implementation failure.",
+      "residuals": "Draft unrun. Do not confuse §14.13.9's generic /AF with §12.5.6.15 /FS or demand that activating every annotation subtype open a rich-media player; the existing interaction is file extraction/reporting.",
+      "related_adrs": ["ADR 0295", "ADR 1065", "ADR 1461"]
+    },
+    {
+      "clause": "14.13.10; Examples 1–3",
+      "title": "Worked catalog, marked-content and Form XObject associations",
+      "source_location": "Primary printed pp.841–843 / physical pp.856–858. EXAMPLE 1 associates a presentation with Catalog /AF; EXAMPLE 2 maps a named property resource directly to a file-spec array and encloses literal text with BDC/EMC; EXAMPLE 3 associates MathML with a Form XObject stream.",
+      "errata": "EC3 #637 at physical p.858 / printed p.843 changes EXAMPLE 3 `/application#2Fxhtml+xml` to `/application#2Fmathml+xml`. EC3 #374 at physical pp.854–855 changes §14.13.5's marked-content property-list requirements to the MCAF form. The printed Example 2 still uses `/AF /NamedAF BDC` and a direct array resource; do not assume it certifies every post-#374 dictionary-property-list form. ADR 0253’s claim that Table 409a is not held is stale: the table is at appended physical p.1015. Its note 4 makes a named property resource required for MCAF because content streams cannot contain indirect refs. The direct-array `/AF` EXAMPLE 2 remains a distinct example form; do not convert this source correction into a reader requirement to reject legacy `/AF`.",
+      "ledger": "§14.13.10 implemented as examples run as fixtures; its own requirements are not expanded to all object-site readers. The separately audited §14.13.5 MCAF route is not recertified here.",
+      "code": "`associated_file_examples.rs` builds three sample documents and checks catalog attachment name/relationship/MIME, marked-content association range/file fields, and Form XObject association with corrected MathML MIME.",
+      "assertions": "The existing three test bodies use named literal values, including `Hello` as the marked section's range; EX2 and EX3 have independent association-site controls at model level. The builder writes sparse exact xref subsections but does not assert recovery status. No duplicate example draft is needed. These tests demonstrate example interpretation, not viewer-panel behavior for the examples.",
+      "verdict": "The three example paths are concrete and the #637 correction is reflected. EX2 remains a useful test of the printed example's direct-array resource form; MCAF table-row semantics remain a selected unresolved erratum question in the neighboring marked-content review.",
+      "residuals": "No whole-clause certification from the three examples. The direct-array EX2 and corrected dictionary/MCAF property-list variants must remain distinguishable in evidence; no claim is made that the example resolves Issue #374's `/AF` versus `/MCAF` precedence.",
+      "related_adrs": ["ADR 1461", "ADR 0253", "ADR 0295"]
+    }
+  ],
+  "drafts": [
+    "drafts/dpart_af_current_shape.rs",
+    "drafts/annotation_af_valid_public_route.rs"
+  ]
+}

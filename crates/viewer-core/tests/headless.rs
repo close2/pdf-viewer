@@ -6219,41 +6219,34 @@ fn a_click_on_a_file_attachment_annotation_extracts_its_file() {
 /// `FileAttachment`, because §14.13.9 puts no condition on the subtype and §12.5.6.15's own `/FS`
 /// is the other route.
 fn with_an_associated_file() -> Vec<u8> {
-    use std::fmt::Write as _;
-    const PAYLOAD: &str = "the formula behind the box";
-    let body = format!(
-        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
-         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
-         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> \
-          /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
-         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
-         5 0 obj\n<< /Type /Annot /Subtype /Square /Rect [20 20 80 80] /F 4 \
-          /AF [6 0 R] /AP << /N 8 0 R >> >>\nendobj\n\
-         6 0 obj\n<< /Type /Filespec /F (formula.mml) /UF (formula.mml) \
-          /AFRelationship /Supplement /EF << /F 7 0 R >> >>\nendobj\n\
-         7 0 obj\n<< /Type /EmbeddedFile /Subtype /application#2Fmathml+xml /Length {} >>\n\
-         stream\n{PAYLOAD}\nendstream\nendobj\n\
-         8 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 60 60] /Length 24 >>\n\
-         stream\n0 0 1 rg 0 0 60 60 re f\nendstream\nendobj\n",
-        PAYLOAD.len(),
-    );
-
+    let payload = "formula data";
+    let appearance = "0 0 1 rg 0 0 60 60 re f";
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> /Contents 4 0 R /Annots [5 0 R 9 0 R] >>".to_owned(),
+        "<< /Length 0 >>\nstream\n\nendstream".to_owned(),
+        "<< /Type /Annot /Subtype /Square /P 3 0 R /Rect [20 20 80 80] /F 4 /AF [6 0 R] /AP << /N 8 0 R >> >>".to_owned(),
+        "<< /Type /Filespec /F (formula.txt) /UF (formula.txt) /AFRelationship /Supplement /EF << /F 7 0 R >> >>".to_owned(),
+        format!("<< /Type /EmbeddedFile /Subtype /text#2Fplain /Params << /ModDate (D:20260501000000Z) /Size {} >> /Length {} >>\nstream\n{payload}\nendstream", payload.len(), payload.len()),
+        format!("<< /Type /XObject /Subtype /Form /BBox [0 0 60 60] /Resources << >> /Length {} >>\nstream\n{appearance}\nendstream", appearance.len()),
+        "<< /Type /Annot /Subtype /Square /P 3 0 R /Rect [120 20 180 80] /F 4 /AP << /N 8 0 R >> >>".to_owned(),
+    ];
     let mut out = String::from("%PDF-2.0\n");
     let mut offsets = Vec::new();
-    for object in body.split_inclusive("endobj\n") {
+    for (i, body) in bodies.iter().enumerate() {
         offsets.push(out.len());
-        out.push_str(object);
+        let _ = writeln!(out, "{} 0 obj\n{body}\nendobj", i.saturating_add(1));
     }
-    let xref_at = out.len();
-    let size = offsets.len().saturating_add(1);
-    let _ = writeln!(out, "xref\n0 {size}");
-    out.push_str("0000000000 65535 f \n");
-    for offset in &offsets {
+    let xref = out.len();
+    let size = bodies.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}\n0000000000 65535 f ");
+    for offset in offsets {
         let _ = writeln!(out, "{offset:010} 00000 n ");
     }
     let _ = write!(
         out,
-        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+        "trailer\n<< /Size {size} /Root 1 0 R /ID [<0123456789abcdef0123456789abcdef> <fedcba9876543210fedcba9876543210>] >>\nstartxref\n{xref}\n%%EOF\n"
     );
     out.into_bytes()
 }
@@ -6269,16 +6262,19 @@ fn with_an_associated_file() -> Vec<u8> {
 /// annotation (ADR 1065): otherwise a document whose only route to a payload is an annotation's
 /// `/AF` carries a file no host can reach.
 ///
-/// A click somewhere else on the page is the control, because a file that crossed because the
+/// A click on a neighboring annotation without AF is the control, because a file that crossed because the
 /// document carries it rather than because the annotation was activated would pass the first half
 /// of this on its own.
 #[test]
 fn a_click_on_an_annotation_produces_the_files_it_associates() {
+    let bytes = with_an_associated_file();
+    let syntax = pdf_syntax::Document::open(bytes.clone()).expect("exact-xref PDF 2.0 fixture");
+    assert!(!syntax.was_recovered());
     let mut viewer = Viewer::new(400, 300, 1.0);
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_an_associated_file().into(),
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -6304,13 +6300,11 @@ fn a_click_on_an_annotation_produces_the_files_it_associates() {
         })
         .collect();
     assert_eq!(extracted.len(), 1, "one /AF entry, one file: {events:?}");
-    assert_eq!(extracted[0].0, "formula.mml", "§7.11.3's own name for it");
-    assert_eq!(
-        String::from_utf8_lossy(&extracted[0].1),
-        "the formula behind the box"
-    );
+    assert_eq!(extracted[0].0, "formula.txt", "§7.11.3's own name for it");
+    assert_eq!(String::from_utf8_lossy(&extracted[0].1), "formula data");
 
-    let elsewhere = (5.0, 5.0);
+    // A second real annotation has no AF, so hit testing alone cannot cause extraction.
+    let elsewhere = device_point(&viewer, [120.0, 20.0, 180.0, 80.0], 100.0);
     viewer
         .handle(Command::Pointer {
             at: elsewhere,

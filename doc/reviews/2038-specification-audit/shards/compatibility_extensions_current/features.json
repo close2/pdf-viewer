@@ -1,0 +1,52 @@
+{
+  "shard": "compatibility_extensions_current",
+  "baseline": "b901326c",
+  "scope": "Effective EC3 review of §7.8.2 compatibility operators, §7.12 Extensions and developer-extension declarations, Annex E name classes, and the relevant Annex I compatibility handoff. §7.7.4 is the Name dictionary and is not the Extensions dictionary; catalog /Extensions is described by §7.12 and catalog context in §7.7.2.",
+  "source_locations": {
+    "compatibility_operators": "§7.8.2 physical PDF p.126 / printed p.111; Table 33 physical p.127 / printed p.112.",
+    "extension_tables": "§7.12.1–.3 physical PDF pp.156–157 / printed pp.141–142; §7.12.4–.6 physical p.158 / printed p.143.",
+    "annex_e": "Annex E.1 physical p.892 / printed p.877; E.2 physical p.893 / printed p.878. EC3 #229 and #340 annotate physical p.893.",
+    "annex_i": "Annex I.1–I.3 (PDF versions and compatibility) delegates feature-by-feature ignore/report handling; reviewed here only where E.1 points to it, not as a complete Annex I audit."
+  },
+  "features": [
+    {
+      "feature": "Unknown content-stream operators outside and inside BX/EX",
+      "requirement": "§7.8.2 ordinarily says an unknown operator causes an error. Balanced, nestable BX/EX compatibility sections cause unknown operators and their operands to be ignored without error. BX/EX are not graphics objects or graphics state.",
+      "code": ["crates/pdf-model/src/content/run.rs::run_from", "crates/pdf-model/src/content/run/compat_type3_ops.rs::run_compatibility_op", "crates/pdf-model/src/content/run/machine.rs::Machine.compatibility"],
+      "assertions": ["crates/pdf-model/tests/content_streams.rs::an_unrecognised_operator_is_reported", "crates/pdf-model/tests/content_streams.rs::a_compatibility_section_silences_an_unrecognised_operator", "crates/pdf-model/tests/content_streams.rs::the_silence_stops_at_the_matching_ex", "crates/pdf-model/tests/content_streams.rs::compatibility_sections_nest"],
+      "assessment": "Direct assertion bodies distinguish unknown operator outside (reported), inside (suppressed), after the close (reported again), and nested sections (inner close does not end outer silence). The implementation depth-counts sections and clears unknown operands. Existing tests assert reports but do not assert that valid surrounding artwork is unchanged; a standalone public-raster draft supplies that independent visible control. Existing stray test actually has a balanced BX/EX followed by an unknown operator; it does not test unmatched EX or an unclosed BX. Those are invalid producer input because the pair shall occur; the source does not prescribe recovery, so current saturating/no-report behavior is recorded as policy rather than a conformance defect."
+    },
+    {
+      "feature": "§7.12 Extensions dictionary structure and ExtensionRevision",
+      "requirement": "Catalog /Extensions is a direct dictionary. Prefix entries must be registered developer-prefix names and values are direct developer-extension dictionaries, or PDF 2.0 arrays of them. Table 49 fields and direct-object constraints are producer rules. BaseVersion and ExtensionLevel are required; URL is required by EC3 #732; ExtensionRevision is optional. #239 changes the ExtensionLevel monotonic-over-time wording from shall to should.",
+      "errata": "Primary page images primary-0157.png and primary-0158.png show #732 replacing Table 49 URL's old Optional wording with Required, #399 amending the BaseVersion comparison sentence, and #239 demoting the over-time ExtensionLevel sequence to should. `doc/errata-read.md` records the same issue locators. `doc/md/` remains base-text transcription and retains the pre-#732 optional text.",
+      "code": ["crates/pdf-model/src/requirements.rs::Extensions::read", "crates/pdf-model/src/requirements.rs::DeveloperExtension::read"],
+      "assertions": ["crates/pdf-model/src/requirements.rs::extensions_are_read_under_their_registered_prefixes", "crates/pdf-model/src/requirements.rs::an_extension_without_a_level_is_not_read"],
+      "assessment": "The first test reads two prefixes and the PDF 2.0 extension array form; its second ISO item omits the now-required URL yet is still parsed and retained, which is a reader-tolerance choice rather than producer conformance. It tests the positive URL field on the first entry and demonstrates reading an extension without URL. The negative test only covers missing ExtensionLevel; no assertion isolates missing BaseVersion. The code parses BaseVersion and level but does not enforce BaseVersion <= document version; it retains URL as Option and ExtensionRevision as optional text. Those omitted validity checks are producer constraints; no reader rejection obligation was found. `Extensions::read` is public but had no production caller in the searched workspace; it is not a user-facing compatibility warning path by itself."
+    },
+    {
+      "feature": "Annex E name classes and unknown extension data",
+      "requirement": "Annex E.1 requires developers to conform when adding extension data and delegates processors that lack a developer-specific feature to Annex I. E.2 defines first-class, registered-prefix second-class, and private `XX` third-class names. #229 refines the second-class exception to ‘except where otherwise stated in this specification’; #340 changes third-class registration from not necessary to explicitly prohibited. Annex I.3 says unknown dictionary entries behave as absent; unknown features are handled feature by feature. These rules do not require a reader to reject unfamiliar key names or validate a producer's registered prefix.",
+      "errata": "No direct E.1 change found. On physical p.893 / printed p.878, #229 amends the second-class exception; #340 makes private third-class names unregistrable while retaining the `XX` prefix.",
+      "code": ["crates/pdf-model/src/requirements.rs::Extensions::read", "crates/pdf-model/src/content/run.rs::unknown operator reporting", "crates/viewer-core/src/notes.rs::about"],
+      "assertions": ["crates/viewer-core/tests/objects_not_understood.rs::an_entry_not_understood_is_passed_over_in_silence", "crates/viewer-core/tests/objects_not_understood.rs::an_object_not_understood_is_said_and_what_is_understood_is_still_drawn"],
+      "assessment": "The E audit inventory is already parent-reviewed for conditional writer scope: no production writer emits developer extensions or private `XX` names, so no current producer output can certify those Annex E obligations. Reader tests demonstrate the Annex I distinction for one unknown dictionary entry versus one unsupported object while supported content continues. The extension parser accepts arbitrary prefix keys and does not validate public registry membership, consistent with a producer-side name rule, but this is not a test of all unknown-feature handling."
+    },
+    {
+      "feature": "Catalog Extensions versus §7.7.4 Name dictionary",
+      "requirement": "§7.12 defines catalog /Extensions and points to Annex E. §7.7.4 defines the unrelated Name dictionary/name trees (located via catalog /Names).",
+      "assessment": "No §7.7.4 behavior is needed for extension declarations in this assigned scope; do not merge name-tree requirements into the extension registry audit."
+    }
+  ],
+  "ledger_map": {
+    "clause_inventory": "§7.12 and §§7.12.1–.6 are each marked implemented, with no prior review artifacts.",
+    "durable_feature_ledger": "Existing Annex E and §7.8.2 compatibility feature rows exist. No dedicated §7.12.1–.6 feature rows were found in doc/reviews/1983-specification-audit/features.json; the §7.12 clause inventory status therefore lacks a feature-by-feature row map in that ledger. This is a traceability gap, not proof of missing implementation.",
+    "selected_adr": "ADR 0041 is the current compatibility-operator decision; its nesting-depth rationale and current tests still align with §7.8.2. Annex E/Extensions behavior is primarily recorded in the prior parent-reviewed feature rows and requirements.rs source rationale; no dedicated Annex E ADR was found."
+  },
+  "explicit_residuals": [
+    "No run was performed. Existing test bodies and implementation were read; one pixel-level draft is unexecuted and parent-owned.",
+    "No current producer writes a developer extension, so Annex E producer-name obligations are conditional and not exercised by output tests.",
+    "No normative recovery is assigned for unmatched BX/EX. Current implementation silently tolerates an unclosed BX and stray EX; this is a product-policy boundary only.",
+    "No full Annex I unknown-feature or first-error recommendation review is repeated here."
+  ]
+}

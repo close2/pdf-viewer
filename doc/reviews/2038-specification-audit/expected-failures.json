@@ -264,6 +264,36 @@
       "test": "a_present_page_label_beyond_the_search_bound_is_not_reported_as_a_missing_page",
       "finding": "2038-B32",
       "log": "reference-wave27f.log"
+    },
+    {
+      "binary": "pdf-model::output_intent_page_scope_spec_audit",
+      "test": "a_registered_page_intent_without_embedded_profile_does_not_borrow_the_catalog_press",
+      "finding": "2038-B33",
+      "log": "output-intents-wave29.log"
+    },
+    {
+      "binary": "pdf-model::output_intent_page_scope_spec_audit",
+      "test": "an_unavailable_page_profile_is_not_reported_as_the_catalogs_output_condition",
+      "finding": "2038-B33",
+      "log": "output-intents-wave29.log"
+    },
+    {
+      "binary": "pdf-model::empty_actualtext_spec_audit",
+      "test": "empty_span_property_actualtext_suppresses_only_discretionary_hyphen",
+      "finding": "2038-B34",
+      "log": "empty-actualtext-wave29c.log"
+    },
+    {
+      "binary": "pdf-model::empty_actualtext_spec_audit",
+      "test": "empty_artifact_property_actualtext_suppresses_only_discretionary_hyphen",
+      "finding": "2038-B34",
+      "log": "empty-actualtext-wave29c.log"
+    },
+    {
+      "binary": "pdf-model::empty_actualtext_spec_audit",
+      "test": "empty_structure_actualtext_suppresses_only_discretionary_hyphen",
+      "finding": "2038-B34",
+      "log": "empty-actualtext-wave29c.log"
     }
   ]
 }
