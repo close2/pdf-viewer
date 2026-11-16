@@ -1,0 +1,126 @@
+{
+  "review_scope": "Bounded source/assertion review. Parent findings/gate-results supersede draft/run status. Not whole-clause certification.",
+  "parent_notes": "AGL draft controls corrected against primary source; five promoted assertions fail. Four initial mesh controls pass; Type6 corner source is Figure45/prose, not dictionary Table83. Further mesh review remains pending.",
+  "reviewer_record": [
+    {
+      "feature": "Common shading object and color-space interpolation",
+      "clause": "§§8.7.4.3-.4; Tables 77-83; §10.7.3",
+      "source_location": "Processed EC3 md:5820-5978, 5979-6237. Table 77 defines common ShadingType/ColorSpace; §8.7.4.4 differentiates Device, CIE, Separation/DeviceN, Indexed interpolation.",
+      "errata": "EC3-consolidated source; no relevant mesh erratum found. Producer constraints alone do not imply a reader error requirement.",
+      "ledger": "§8.7.4.3/.4, .5.5-.8; §10.7.3.",
+      "code": "pdf-colour/src/shading.rs::kind_of; pdf-colour/src/mesh.rs::read/Corner; pdf-render/src/shading.rs MeshRaster/SurfacePatch.",
+      "tests": [
+        "pdf-model/tests/shadings.rs::a_mesh_in_a_separation_space_interpolates_the_tint_before_converting",
+        "::a_patch_in_a_separation_space_converts_its_grid_after_interpolating",
+        "::a_patch_whose_conversion_bends_travels_with_a_lattice",
+        "pdf-model/tests/colour_paths.rs::an_output_intent_reaches_an_image_an_inline_image_a_shading_and_a_mesh"
+      ],
+      "test_assertions": "Independent pixel oracles distinguish source component/tint interpolation then conversion from converting corners first. Output-intent fixture includes mesh consumer.",
+      "verdict": "SUPPORTED for sampled RGB/Separation nonlinear color and output-intent cases.",
+      "residuals": "Full color-space matrix and malformed Decode exact-shape behavior are not established by those samples."
+    },
+    {
+      "feature": "Type 4 free-form mesh / Table 81",
+      "clause": "§8.7.4.5.5; Table 81; §8.9.5.2 cross-reference",
+      "source_location": "Processed EC3 md:5979-6046. Widths, Decode pairs, optional Function, vertex order, flag meanings, byte padding per vertex, whole-triangle input.",
+      "errata": "No relevant EC3 change found. Reader tolerance for malformed producer values must be distinguished from required valid output.",
+      "ledger": "§8.7.4.5.5; §7.10.5.3; §10.7.3.",
+      "code": "pdf-colour/src/mesh.rs::bits/decode_ranges/read_vertex/free_form; pdf-render/src/shading.rs::MeshRaster.",
+      "tests": [
+        "pdf-model/tests/shadings.rs::a_triangle_mesh_puts_its_corner_colours_at_its_corners",
+        "::a_mesh_with_a_function_interpolates_the_parameter",
+        "::a_truncated_mesh_is_reported",
+        "pdf-model/tests/function_faults.rs::a_mesh_shadings_function_that_errs_across_its_parameter_is_said",
+        "drafts/patch_corners_and_functions.rs::type4_one_bit_samples_align_each_vertex_to_its_byte"
+      ],
+      "test_assertions": "Public pixel checks all flag-0 triangle corner colors, inside/outside alpha; nonlinear function test independently calculates t=0.505 then t²; truncation reports, runtime-function fault has a valid control. Draft adds valid one-bit coordinate/component records with two-bit flags and independently encoded 7-bit vertex+ignored-pad bytes, checking three public corner pixels; unrun.",
+      "verdict": "SUPPORTED for flag 0, nonlinear t/function order, and truncation.",
+      "residuals": "No focused type-4 continuation flag 1/2 fixture, valid 2/4-bit component/coordinate widths beyond the one-bit draft, or non-byte record integration assertion run."
+    },
+    {
+      "feature": "Type 5 lattice / Table 82",
+      "clause": "§8.7.4.5.6; Table 82; inherited §8.7.4.5.5 data rules",
+      "source_location": "Processed EC3 md:6047-6085. VerticesPerRow >=2, row-major vertices, prescribed two triangles per cell; no flags; Function carries one t.",
+      "errata": "No relevant EC3 change found.",
+      "ledger": "§8.7.4.5.6 and .5.5.",
+      "code": "pdf-colour/src/mesh.rs::lattice/read_vertex.",
+      "tests": [
+        "pdf-model/tests/shadings.rs::a_lattice_mesh_triangulates_between_its_rows"
+      ],
+      "test_assertions": "2×2 independent RGB corner values and coverage assertion prove both triangles of the cell are painted.",
+      "verdict": "SUPPORTED for 2×2 RGB lattice geometry.",
+      "residuals": "No lattice Function oracle, >2 rows/columns, or low-bit sample integration case found."
+    },
+    {
+      "feature": "Type 6 Coons patches / Tables 83-84",
+      "clause": "§8.7.4.5.7; Tables 83-84; §10.7.2/.3",
+      "source_location": "Processed EC3 md:6086-6178. Twelve boundary controls then four corners in p00,p03,p33,p30 order; f=0/1/2/3 continuation maps inherited points/colors; implied Coons interior.",
+      "errata": "No relevant EC3 change found. Type 6 says patch controls precede corner values, unlike vertex encoding. It contains no explicit per-patch byte padding statement; the prior implementation comment says ordinary corpus widths are byte aligned under either interpretation.",
+      "ledger": "§8.7.4.5.7; §§8.7.4.4, 10.7.2/.3.",
+      "code": "pdf-colour/src/mesh.rs::patches/shared_edge/control_grid; pdf-render/src/shading.rs::SurfacePatch.",
+      "tests": [
+        "pdf-model/tests/shadings.rs::a_folded_patchs_overlap_is_resolved_by_the_larger_parameter_v",
+        "::a_coons_patch_reaches_the_display_list_as_a_patch",
+        "::a_patch_in_a_separation_space_converts_its_grid_after_interpolating",
+        "::a_mesh_the_patch_bound_cuts_short_is_reported",
+        "pdf-render/src/shading.rs::a_patchs_cells_are_emitted_in_v_then_u_order",
+        "drafts/patch_corners_and_functions.rs::type6_paints_each_table83_corner_colour_at_its_named_corner"
+      ],
+      "test_assertions": "Foldover oracle distinguishes max-v from max-u; display-list test checks p00 geometry; conversion test checks nonlinear source-space color. coons_strip exercises f=1 during bound construction but does not independently assert its inherited fields.",
+      "verdict": "SUPPORTED for fold-over priority, one Coons point, color conversion and limits; PARTIAL for Table 83/84 stream fields.",
+      "residuals": "No all-four corner color consumer oracle or per-flag inherited point/color test. 2-bit patch alignment remains an unresolved source interpretation, called out by code comment; no corpus witness. The draft provides all-four-color pixel assertions but is unrun."
+    },
+    {
+      "feature": "Type 7 tensor patches / Table 85",
+      "clause": "§8.7.4.5.8; Table 85; inherited Table 84 flags",
+      "source_location": "Processed EC3 md:6179-6237. Sixteen control points: 12 boundary then p11,p12,p22,p21; four corner colors; same continuation and rendering rules as type 6.",
+      "errata": "No relevant EC3 change found; coordinate order is explicit.",
+      "ledger": "§8.7.4.5.8 and .5.7.",
+      "code": "pdf-colour/src/mesh.rs::patches/control_grid; pdf-render/src/shading.rs SurfacePatch/PatchCorners.",
+      "tests": [
+        "pdf-model/tests/shadings.rs::a_folded_patchs_overlap_is_resolved_by_the_larger_parameter_v",
+        "::a_patch_whose_conversion_bends_travels_with_a_lattice",
+        "::a_lattice_patchs_silhouette_follows_the_device",
+        "render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_a_patch_mesh",
+        "render-raster/tests/headless_quorra.rs::cpu_and_quorra_agree_on_a_patch_mesh",
+        "drafts/patch_corners_and_functions.rs::type6_calls_function_with_interpolated_patch_parameter",
+        "drafts/patch_corners_and_functions.rs::type7_calls_function_with_interpolated_patch_parameter"
+      ],
+      "test_assertions": "Common patch raster and backend comparison give indirect support; no independent model fixture asserts Table 85's interior-control order. Drafts add the missing Type 6/7 center-pixel t² checks with exact xref and no-recovery.",
+      "verdict": "PARTIAL: common geometry path is exercised, Type 7-specific stream input weakly covered.",
+      "residuals": "No Type 7 interior-coordinate/corner-value oracle, no Type 7 /Function consumer; draft tests Type 7 parametric-function center value."
+    },
+    {
+      "feature": "Mesh /Function interactions for Types 4-7",
+      "clause": "§§8.7.4.5.5-.8; §7.10.5.3",
+      "source_location": "Processed EC3 md:6028-6046, 6075-6085, 6135-6155, 6222ff. Decode one t per vertex/corner, interpolate then call function; input forced to Decode component interval, domain is superset, output clamped; not with Indexed.",
+      "errata": "No relevant EC3 change found. The no-Indexed rule is a producer constraint; runtime errors in §7.10.5.3 have separate reader/report semantics.",
+      "ledger": "§8.7.4.5.5-.8 and §7.10.5.3.",
+      "code": "pdf-colour/src/mesh.rs::Corner for f32/fraction_of_range/ramp; pdf-render/src/shading.rs::PatchCorners::Parameters/bilinear.",
+      "tests": [
+        "pdf-model/tests/shadings.rs::a_mesh_with_a_function_interpolates_the_parameter (Type 4 only)",
+        "pdf-model/tests/function_faults.rs::a_mesh_shadings_function_that_errs_across_its_parameter_is_said (Type 4 only)",
+        "drafts/patch_corners_and_functions.rs::type6_calls_function_with_interpolated_patch_parameter",
+        "drafts/patch_corners_and_functions.rs::type7_calls_function_with_interpolated_patch_parameter"
+      ],
+      "test_assertions": "Existing type4 test calculates nonlinear t² independently; the drafts use t=0.5 at the center and predict t²≈0.25, red≈64 vs wrong corner-color interpolation≈128 for Type 6 and 7.",
+      "verdict": "PARTIAL: strong Type 4 oracle, but Type 5–7 Function consumer routes lack direct pixel evidence.",
+      "residuals": "No focused mesh-function boundary-clamp oracle or function fault Type 5–7 consumer check. Draft unrun."
+    },
+    {
+      "feature": "Changed since 4015a9ae: Type 4 runtime errors captured through mesh sampling",
+      "clause": "§7.10.5.3 with §§8.7.4.5.5-.8",
+      "source_location": "Diff adds function fault cells/watch/reporting; mesh::read samples MeshReader::ramp while parsing function meshes. Function watchers report sampled errors after interpretation; Type 1 deferred grid separately checks after device sampling.",
+      "errata": "Changed behavior compared with baseline; verify public report consumer, not just presence of fault cell.",
+      "ledger": "§7.10.5.3; each mesh type row.",
+      "code": "pdf-colour/src/mesh.rs::MeshReader::ramp/read; pdf-colour/src/function.rs::Function::evaluation_fault; pdf-model/src/content.rs::report_function_faults.",
+      "tests": [
+        "pdf-model/tests/function_faults.rs::a_mesh_shadings_function_that_errs_across_its_parameter_is_said (Type 4 only)",
+        "pdf-model/tests/shadings.rs::a_mesh_with_a_function_interpolates_the_parameter (Type 4 only)"
+      ],
+      "test_assertions": "Valid and faulting Type 4 mesh functions are compared through interpretation reports; no direct patch/lattice failing consumer path.",
+      "verdict": "PARTIAL; no changed-code defect established.",
+      "residuals": "Type 5–7 function fault behavior depends on the same sampled ramp but is not directly asserted."
+    }
+  ]
+}

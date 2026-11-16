@@ -91,6 +91,21 @@ The six-crate checkpoint ran 5,358 tests: 5,341 passed, exactly the 17 recorded
 assertions failed, and 50 were skipped. Clippy, formatting, rustdoc with warnings
 denied, and the full conformance-tool package pass.
 
+Five further assertions expose named-glyph mapping gaps: multi-scalar AGL rows,
+multi-group uni names, and known components beside an unknown component are lost.
+The sequence defect reaches public extraction and search, with real Type3 raster
+and single-character controls. These bring the manifest to 22 failing assertions.
+Four source-derived mesh pixel tests pass, including patch-function interpolation.
+The [table coverage index](2038-specification-audit/table-coverage-index.json)
+records 411 structural owners and 63 missing literal table citations; those are
+triage locations, not 63 missing features. Per-entry review remains necessary.
+
+A separate static finding concerns PAdES verification: the initial Open path
+defers checks required by the clause’s open-or-request trigger. Genuine signed
+and same-range-tampered public Report controls pass, with an explicit host anchor
+and unknown-revocation policy. They establish later verification, not Open-time
+execution. No missing UI note is presented as proof of an unperformed check.
+
 The owner-authorized redaction-overlay change is recorded in A842 and ADR 2868;
 the MaxLen change is recorded in A834 and ADR 2840. Their changed assertions must
 be assessed against those current decisions rather than treated as unauthorized

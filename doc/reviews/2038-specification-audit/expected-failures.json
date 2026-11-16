@@ -102,6 +102,36 @@
       "test": "ordinary_rgb_jpx_smask_in_data_two_unpremultiplies_color",
       "finding": "2038-B14",
       "log": "round2-targets-wave9.log"
+    },
+    {
+      "binary": "pdf-font::agl_sequences_spec_audit",
+      "test": "an_agl_table_row_keeps_all_its_unicode_scalars",
+      "finding": "2038-B15",
+      "log": "round2-targets-wave10c.log"
+    },
+    {
+      "binary": "pdf-font::agl_sequences_spec_audit",
+      "test": "a_uni_name_keeps_every_four_digit_group",
+      "finding": "2038-B15",
+      "log": "round2-targets-wave10c.log"
+    },
+    {
+      "binary": "pdf-font::agl_sequences_spec_audit",
+      "test": "an_unrecognized_component_contributes_an_empty_string",
+      "finding": "2038-B16",
+      "log": "round2-targets-wave10c.log"
+    },
+    {
+      "binary": "viewer-core::agl_sequences_spec_audit",
+      "test": "query_text_keeps_the_full_agl_string_for_one_glyph",
+      "finding": "2038-B15",
+      "log": "round2-targets-wave10c.log"
+    },
+    {
+      "binary": "viewer-core::agl_sequences_spec_audit",
+      "test": "find_matches_the_full_agl_string_for_one_glyph",
+      "finding": "2038-B15",
+      "log": "round2-targets-wave10c.log"
     }
   ]
 }

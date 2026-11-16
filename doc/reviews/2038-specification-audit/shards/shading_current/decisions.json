@@ -1,0 +1,48 @@
+{
+  "review_scope": "Bounded source/assertion review. Parent findings/gate-results supersede draft/run status. Not whole-clause certification.",
+  "parent_notes": "AGL draft controls corrected against primary source; five promoted assertions fail. Four initial mesh controls pass; Type6 corner source is Figure45/prose, not dictionary Table83. Further mesh review remains pending.",
+  "reviewer_record": [
+    {
+      "decision": "Correct clause location",
+      "question": "Does the requested §8.8 identify shading requirements?",
+      "primary_evidence": "In the effective ISO 32000-2, §8.8 is External objects. Shading types are in §8.7.4.5.5-.8 and Tables 81-85.",
+      "current_scope": "This shard follows the requested Type 4-7 shading topics and records their actual clause numbers; it also reviews §8.7.4.4 color-interpolation and §7.10.5.3 function interactions.",
+      "disposition": "Treat the request as shading mesh review; do not cite the mesh obligations as §8.8."
+    },
+    {
+      "decision": "Patch byte alignment at non-byte BitsPerFlag widths",
+      "question": "Must each Type 6/7 patch record be padded to a byte, as Type 4/5 vertices are?",
+      "primary_evidence": "Type 4/5 text expressly says each set of vertex data occupies a whole number of bytes and pad bits are ignored. Type 6/7 instead say controls then corner colors, distinguish that from per-vertex format, and refer to Type 4 for further details; they do not restate a patch-alignment rule. Code currently does not align after a patch and comments this as an interpretation; existing corpus values (BitsPerFlag 8 with byte-wide coordinate/component fields) do not discriminate.",
+      "current_code_and_tests": "pdf-colour/src/mesh.rs::patches reads flag, points, and colors continuously; code comment documents the source ambiguity and lack of corpus witness. No current integration test uses a BitsPerFlag 2 patch continuation.",
+      "disposition": "Plausible textual reading supports no patch-record padding, but the cross-reference leaves scope debatable. Keep as an explicit interpretation residual; do not report a definite conformance failure without settling the clause reading. A future exact valid two-patch fixture with 2-bit flags could pin the chosen reading."
+    },
+    {
+      "decision": "Patch corner order and stream field coverage",
+      "question": "Does the current test suite independently prove patch color corner order?",
+      "primary_evidence": "Table 83 explicitly maps c1/c2/c3/c4 to p1/p4/p7/p10 (p00,p03,p33,p30); Table 85 has analogous four corners after the 16-control net. Table 84/85 explicitly maps continuation flags and inherited colors.",
+      "current_code_and_tests": "The folded Type 6 fixture uses colors [red, blue, blue, red] and independently tests v-over-u fold precedence; it cannot distinguish every corner permutation. The patch display-list test asserts only the first control point. coons_strip exercises f=1 while counting the bound but does not assert the new geometry/colors. Current headless backend tests mostly establish common raster behavior.",
+      "disposition": "Partial current evidence. Draft adds unique red/green/blue/yellow colors at all four Type 6 corners and a Type 7 non-linear function pixel check. Continuation mappings remain a precise gap."
+    },
+    {
+      "decision": "Type 6/7 Function interaction coverage",
+      "question": "Do Type 4 /Function tests establish patch mesh parameter interpolation?",
+      "primary_evidence": "Tables 83 and 85 require one t per corner and function evaluation after interpolation; the same ordering appears in §8.7.4.5.5, and §8.7.4.5.8 says Type 7 is otherwise identical to Type 6.",
+      "current_code_and_tests": "The only independent non-linear Function output oracle is Type 4. MeshReader::read routes all 4-7 through Corner<f32> and MeshReader::ramp, then patch raster bilinearly interpolates parameter corners. No Type 5-7 function-pixel consumer was located.",
+      "disposition": "This is a real test coverage gap, not a demonstrated implementation bug. Drafts test Type 6 and 7 at a square center: t=0.5 then t^2=0.25 gives red≈64, while function-at-corners then color interpolation yields≈128."
+    },
+    {
+      "decision": "Changed Type 4 runtime function fault path",
+      "question": "Does the 4015a9ae→b901326c Type 4 watch/report change have patch-specific failure evidence?",
+      "primary_evidence": "§7.10.5.3 defines runtime Type 4 output count/type/stack errors. Changed code adds shared fault cells/watch scopes; mesh sampling evaluates ramp during interpretation and watcher reports faults. A Type 1 shading is device-sampled later and has a separate post-draw API.",
+      "current_code_and_tests": "function_faults.rs tests a bad and valid Type 4 mesh function, but the mesh fixture is Type 4. No Type 5-7 faulting consumer was found. The new patch drafts use a conforming Type 2 function and do not probe report behavior.",
+      "disposition": "Existing test supports the changed Type 4 mesh route. Same shared sampling path makes patch behavior plausible; no failure established. Mark Type 5-7 fault reporting unverified rather than infer a defect from lack of a distinct test."
+    },
+    {
+      "decision": "Selected ADR conclusions",
+      "question": "Do the current patch/mesh implementation choices match the effective source and evidence?",
+      "primary_evidence": "ADR 0292 explains and tests t-before-function; ADR 0778 derives max-v/max-u fold-over precedence and current symmetric patch pixel oracle; ADR 1217 places patch tessellation in device space; ADR 2546 supersedes fixed-fineness patch conversion with bounded color lattices; ADR 2848 adds Type 4 runtime function watches and explicitly documents post-device sampling limits.",
+      "current_code_and_tests": "Read current mesh.rs, pdf-render shading tessellation, `shadings.rs`, `function_faults.rs`, and cited ADRs against primary clause language. The current code retains those choices; the narrow gaps above remain outside their covered assertions.",
+      "disposition": "No ADR conclusion was shown superseded by the current code. These ADRs support selected paths only and do not certify every legal bit width, patch flag, corner order, or function route."
+    }
+  ]
+}

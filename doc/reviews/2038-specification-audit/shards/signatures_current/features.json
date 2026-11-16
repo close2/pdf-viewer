@@ -1,0 +1,130 @@
+{
+  "review_scope": "Bounded source/assertion review. Parent B17 and gate-results supersede draft status. No full §12.8/AnnexL certification.",
+  "reviewer_record": {
+    "baseline": "b901326c",
+    "review_scope": "ISO 32000-2 §12.8 digital-signature processing/reporting, with Annex L considered separately because it is structural-tree conformance rather than a signature method",
+    "features": [
+      {
+        "id": "sig-pades-validation-trigger",
+        "clause": "12.8.3.4.5",
+        "subfeatures": [
+          {
+            "id": "a",
+            "requirement": "compare signer-certificate hash to signing-certificate or signing-certificate-v2 and verify document digest with that certificate public key"
+          },
+          {
+            "id": "b",
+            "requirement": "validate signer certificate path under RFC 5280 using selected validation parameters and applicable established time"
+          },
+          {
+            "id": "c",
+            "requirement": "when verifying at a document-timestamp time, validate the timestamp authority certificate path"
+          },
+          {
+            "id": "d",
+            "requirement": "check certification-path revocation under §§12.8.3.4.6–.8"
+          },
+          {
+            "id": "trigger",
+            "requirement": "perform these steps for ETSI.CAdES.detached signatures when the user opens a signed document or requests verification"
+          }
+        ],
+        "ledger": {
+          "status": "implemented",
+          "note_claim": "all four steps executed"
+        },
+        "code_path": [
+          "crates/viewer-core/src/viewer/opening.rs:237-242",
+          "crates/viewer-core/src/viewer/navigation.rs:49-70",
+          "crates/viewer-core/src/open/deferred.rs:48-58",
+          "crates/viewer-core/src/notes.rs:83-85,743-754,2453-2454",
+          "crates/viewer-core/src/viewer/navigation.rs:92-123 (PolicyCopy also recomputes about; the initial Open path is the target gap)",
+          "crates/viewer-core/src/viewer/navigation.rs:92-123 (PolicyCopy also recomputes about; the initial Open path is the target gap)"
+        ],
+        "test_path": "crates/viewer-core/tests/headless.rs:1438-1479::what_a_signature_covers_is_said_when_the_document_is_asked_and_not_when_it_opens; `drafts/pades_report_fixture.rs` now adds genuine PAdES report positive/tamper controls but does not test Open-time execution; `drafts/pades_report_fixture.rs` adds genuine PAdES report positive/tamper controls but does not test Open-time execution",
+        "verdict": "gap: validation is only reached via Command::Report, after open; the existing open-path test uses adbe.pkcs7.detached and does not test §12.8.3.4.5's ETSI.CAdES.detached scope",
+        "confidence": "high for static call-graph gap; not directly execution-instrumented by an integration test"
+      },
+      {
+        "id": "sig-pades-validation-steps-on-report",
+        "clause": "12.8.3.4.5(a-d)",
+        "ledger": {
+          "status": "implemented"
+        },
+        "code_path": [
+          "crates/viewer-core/src/notes.rs:743-823",
+          "crates/viewer-core/src/notes.rs:1467-1680",
+          "crates/viewer-core/src/notes.rs:2453-2454",
+          "crates/pdf-signature/src/ess.rs:102-215",
+          "crates/pdf-signature/src/signature.rs:1606-1706",
+          "crates/pdf-signature/src/trust.rs",
+          "crates/pdf-signature/src/timestamp.rs",
+          "crates/pdf-signature/src/revocation.rs"
+        ],
+        "assertion_evidence": [
+          "crates/pdf-signature/tests/signatures.rs::every_corpus_signature_is_asked_whether_it_names_the_certificate_it_used",
+          "crates/pdf-signature/src/signature.rs::a_signature_naming_a_certificate_it_did_not_use_is_refused_before_any_arithmetic",
+          "crates/pdf-signature/src/trust/tests.rs::a_chain_to_a_supplied_anchor_validates",
+          "crates/pdf-signature/src/timestamp/tests.rs::a_token_that_chains_to_a_supplied_anchor_states_its_instant",
+          "crates/pdf-signature/src/revocation/tests.rs::a_validated_path_carries_what_the_documents_material_said_about_it",
+          "scratchpad/r2038/spec-audit/signatures_current/drafts/pades_report_fixture.rs::pades_report_checks_certificate_binding_signature_and_document_integrity (draft, not executed)",
+          "scratchpad/r2038/spec-audit/signatures_current/drafts/pades_report_fixture.rs::pades_same_range_tamper_withholds_validity_and_reports_changed_signed_bytes (draft, not executed)",
+          "scratchpad/r2038/spec-audit/signatures_current/drafts/pades_report_fixture.rs::pades_report_checks_certificate_binding_signature_and_document_integrity (draft, not executed)",
+          "scratchpad/r2038/spec-audit/signatures_current/drafts/pades_report_fixture.rs::pades_same_range_tamper_withholds_validity_and_reports_changed_signed_bytes (draft, not executed)"
+        ],
+        "verdict": "a genuine deterministic PAdES fixture and public Report assertion draft now cover positive ESS binding, cryptographic signature, host-anchored local path, unchanged bytes, and a same-ByteRange tamper negative control; tests are not executed. Revocation is intentionally absent and policy explicitly accepts unknown status, so this draft is not evidence of §12.8.3.4.6 behavior."
+      },
+      {
+        "id": "sig-verdict-and-host-policy-separation",
+        "clause": "12.8.1; 12.8.3.4.5(b,d)",
+        "ledger": {
+          "status": "implemented"
+        },
+        "code_path": [
+          "crates/pdf-signature/src/verdict.rs",
+          "crates/pdf-signature/src/trust.rs",
+          "crates/viewer-core/src/notes.rs:826-859,2440-2454"
+        ],
+        "assertion_evidence": [
+          "crates/pdf-signature/src/verdict/tests.rs::a_signature_whose_path_reaches_a_supplied_anchor_is_valid",
+          "crates/pdf-signature/src/verdict/tests.rs::the_default_acceptance_will_not_have_an_unchecked_revocation",
+          "crates/viewer-core/src/notes.rs::an_anchor_a_host_supplies_changes_what_the_third_question_is_answered_with"
+        ],
+        "verdict": "no defect found in the reviewed type/report separation: a key-verifying signature is not labeled valid without the host policy input; trust and revocation are distinguished"
+      },
+      {
+        "id": "annex-l-table-l2-writer-constraints",
+        "clause": "L",
+        "subfeatures": [
+          {
+            "id": "L2-p-table",
+            "requirement": "EC3 issue #83 adds Table as a permitted P child and P as a permitted Table parent, both 0..n"
+          },
+          {
+            "id": "L2-wp-figure",
+            "requirement": "EC3 issue #440 replaces undefined c cells with 0..n in both directions"
+          }
+        ],
+        "ledger": {
+          "status": "implemented",
+          "scope": "writer-side"
+        },
+        "code_path": [
+          "crates/pdf-transform/src/structure/hierarchy.rs",
+          "crates/pdf-transform/src/structure/write.rs",
+          "crates/pdf-transform/src/structure/reconcile.rs"
+        ],
+        "test_path": "crates/pdf-transform/tests/merge.rs::two_pdf_2_0_documents_are_written_inside_one",
+        "verdict": "separate from §12.8 and not a signature-processing method; errata correction and cited writer witness are specifically accounted for in the ledger"
+      }
+    ],
+    "unreviewed": [
+      "all individual signature dictionary key/recovery cases outside the assigned prior-failure shard",
+      "the full corpus of PAdES profiles and validation policy constraints",
+      "all §§12.8.4–12.8.7 subrequirements",
+      "the full Annex L Table L.2 matrix and every writer output shape",
+      "execution-observable initial Open verification behavior; public Report drafts do not prove it",
+      "execution-observable initial Open verification behavior; public Report drafts do not prove it"
+    ]
+  }
+}

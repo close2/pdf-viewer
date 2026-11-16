@@ -391,5 +391,50 @@
     "execution": "FAIL wave9: RGB3 vs codestream4 components. Code0 ignore-opacity and code1 straight-alpha public pixels PASS.",
     "controls": "Independently generated lossless2x1 JP2; correct ihdr, sRGB, cdef0/1/2 with whole-image opacity; exact PDF xref; no SMask conflict. Parent regenerated both embedded arrays byte-for-byte, hashes in generator provenance.",
     "remaining": "Code2 test stops at interpretation; downstream unpremultiply pixels are not reached. No claim about all JPEG2000 variants."
+  },
+  {
+    "id": "2038-B15",
+    "kind": "behavior-gap",
+    "clauses": [
+      "9.10.2"
+    ],
+    "summary": "Named glyph extraction loses multi-scalar AGL rows and multi-group uni names; public text falls back to the byte character and search misses the sequence.",
+    "source": "ISO §9.10.2 and Adobe AGL Specification v2.9 §2: component mappings are strings, concatenated after suffix removal. Adobe glyphlist maps dalethatafpatah and dalethatafpatahhebrew to U+05D3 U+05B2.",
+    "primary_urls": [
+      "https://github.com/adobe-type-tools/agl-specification",
+      "https://raw.githubusercontent.com/adobe-type-tools/agl-aglfn/master/glyphlist.txt"
+    ],
+    "code": "crates/pdf-font/src/encoding.rs::text_for uses character_for per component; single-character Option cannot preserve an AGL sequence. Type3Font::text propagates fallback to viewer.",
+    "execution": "Four tests FAIL: table rows return None; uni00420043 returns None; public text is AB instead of A plus Hebrew sequence; Find misses sequence.",
+    "controls": "Direct A, A.sc, f_f_i, uni0042 and invalid surrogate controls precede failures. Viewer exact xref/no recovery, complete interpretation, actual filled Type3 paths versus blank frame, single A extraction/search controls pass.",
+    "remaining": "No claim about all fonts, ToUnicode or ActualText paths."
+  },
+  {
+    "id": "2038-B16",
+    "kind": "behavior-policy-conflict",
+    "clauses": [
+      "9.10.2"
+    ],
+    "summary": "A deliberately rejected unknown glyph-name component discards known components, contrary to AGL empty-string concatenation.",
+    "source": "Adobe AGL Specification v2.9 §2 step3 maps unrecognized components to empty string; step4 concatenates component strings.",
+    "primary_url": "https://github.com/adobe-type-tools/agl-specification",
+    "code": "encoding::text_for character_for(component)? rejects the whole name; its documentation claims the AGL algorithm while justifying the different policy. ADR2540 also calls this the specification algorithm.",
+    "execution": "an_unrecognized_component_contributes_an_empty_string FAIL: A_notaglyph returns None instead of A.",
+    "controls": "Same independently expected direct API controls as B15; no assertion about Option representation of an entirely empty result.",
+    "remaining": "Direct API evidence only for mixed unknown component; public multi-scalar consumers are separately B15."
+  },
+  {
+    "id": "2038-B17",
+    "kind": "static-behavior-gap",
+    "clauses": [
+      "12.8.3.4.5"
+    ],
+    "summary": "The automatic Open path defers PAdES signature verification despite the clause’s explicit open-or-request trigger.",
+    "source": "Effective ISO §12.8.3.4.5 printed582–583 applies to ETSI.CAdES.detached and requires checks a–d when opening or requesting verification. No reviewed erratum removes the trigger.",
+    "code": "viewer/opening.rs explicitly defers notes::about; open/deferred.rs lazily initializes it; notes::signatures performs verification. Report and PolicyCopy can call about later.",
+    "evidence": "Parent-reviewed call graph and source; genuine PAdES public Report positive/tamper tests PASS. Existing no-open-note fixture is adbe.pkcs7.detached and outside this PAdES trigger.",
+    "controls": "Fixture has ESSCertIDv2 matching signer, exact whole-file ByteRange excluding Contents, fixed valid certificate/time, injected host anchor. Parent independently extracts actual PDF ranges/CMS: OpenSSL passes valid and rejects one-byte same-range tamper.",
+    "limits": "No failing Open-execution test: public API has no verifier-call counter, and absence of a note does not itself prove checks were not run. Tests establish Report behavior only. Unknown revocation is explicitly accepted and asserted, not claimed good.",
+    "decision": "ADRs1044/0215 explain startup deferral but do not waive this normative trigger; performance and source obligations require reconciliation. Host-owned trust anchors remain a valid policy boundary."
   }
 ]

@@ -1,0 +1,154 @@
+{
+  "review_scope": "Bounded source/assertion review. Parent findings/gate-results supersede draft/run status. Not whole-clause certification.",
+  "parent_notes": "AGL draft controls corrected against primary source; five promoted assertions fail. Four initial mesh controls pass; Type6 corner source is Figure45/prose, not dictionary Table83. Further mesh review remains pending.",
+  "reviewer_record": {
+    "shard": "ISO 32000-2 Annex D and focused §9.10 text-mapping audit",
+    "baseline": "b901326c; source/code/assertion review only; no Cargo execution",
+    "scope": "Annex D.1–D.6 predefined encodings and character sets; PDFDocEncoding Table D.3; named-glyph extraction and downstream page-text/search consumers. This is not a full review of all font encodings or all §9.10.2/9.10.3 behavior.",
+    "source": [
+      "ISO 32000-2:2020(E), Annex D, printed pp. 872–876, especially D.1–D.6 and Tables D.2–D.6; source PDF doc/ISO_32000-2_sponsored_EC3.pdf and extracted text doc/md/ISO_32000-2_sponsored_EC3.md",
+      "ISO 32000-2:2020(E), §9.10.1–§9.10.3, printed pp. 356–357 (exact printed page checked against PDF footer); §9.10.2 mapping priority and exception",
+      "EC3 Table D.3 errata #285, #461, #562 as analyzed in doc/errata-read.md; no Annex D.1/.2/.4/.5/.6 or §9.10.2 erratum identified in the reviewed index",
+      "Adobe Glyph List Specification v2.9, §§1–3, primary Adobe Type Tools repository: https://github.com/adobe-type-tools/agl-specification"
+    ],
+    "table_comparison": {
+      "method": "Read-only full mapping comparisons against the local primary-standard PDF extracted with pdftotext -layout and the checked-in markdown extraction; only aggregate counts and differences are retained here, not table contents.",
+      "results": [
+        "Table D.2: parsed primary markdown body has 207 MacRoman and 216 WinAnsi assignments; all body assignments match code/name in implementation. The additional 1 MacRoman assignment is note 6 (space at octal 312). The additional 8 WinAnsi assignments are note-derived (six bullet codes, note 5 hyphen at 255 octal, note 6 space at 240 octal).",
+        "Table D.4: direct PDF text extraction has 165 assignments; all 165 code/name assignments match MAC_EXPERT, with no extra implementation assignments.",
+        "Table D.5: direct PDF text extraction has 189 assignments; all 189 code/name assignments match SYMBOL, with no extra implementation assignments. Every extracted name is covered by the existing AGL-mapping gate; that gate checks mappability, not full CHAR-column equality.",
+        "Table D.6: direct PDF text extraction has 188 assignments; all 188 code/name assignments match ZAPF_DINGBATS, with no extra implementation assignments. The 187 non-space CHAR entries match ZAPF_DINGBATS_CHARACTERS. The source leaves the CHAR cell blank for the row named space; implementation supplies U+0020 through the AGL name `space` mapping."
+      ],
+      "limits": [
+        "StandardEncoding is delegated to read-fonts' CFF predefined encoding rather than locally transcribed; the existing Annex D tests spot-check code 39, 96, 0 and 128, but this shard did not perform an exhaustive independent D.2-vs-CFF comparison.",
+        "D.3's 256 Unicode values are compared at test runtime against the local standard markdown conversion, using independent code/Unicode cells rather than a round trip. I reviewed the parser and relevant errata; I did not independently transcribe the full table from the PDF in this shard."
+      ]
+    },
+    "features": [
+      {
+        "id": "annex-d-predefined-latin-and-expert-encodings",
+        "clauses": [
+          "D.1",
+          "D.2",
+          "D.4",
+          "9.6.5.1",
+          "9.6.5.4"
+        ],
+        "source_location": "Annex D.1–D.2 printed p. 872; D.4 printed pp. 874–875; D.2 notes 1–6 immediately after Table D.2",
+        "ledger": [
+          "doc/conformance/ledger.toml:6568",
+          "doc/conformance/ledger.toml:6576",
+          "doc/conformance/ledger.toml:6584",
+          "doc/conformance/ledger.toml:6600"
+        ],
+        "code": [
+          "crates/pdf-font/src/encoding.rs::BaseEncoding",
+          "crates/pdf-font/src/encoding.rs::WIN_ANSI",
+          "crates/pdf-font/src/encoding.rs::MAC_ROMAN",
+          "crates/pdf-font/src/encoding.rs::MAC_EXPERT",
+          "crates/pdf-font/src/loading/codes.rs::LoadedFont::text"
+        ],
+        "assertions": [
+          "crates/pdf-font/src/encoding.rs unit tests: every_glyph_name_is_one_the_cff_specification_knows; the_tables_encode_the_number_of_codes_the_specification_defines; the_assignments_made_only_in_the_notes_are_present; the_encodings_differ_where_they_are_known_to_differ; table_113_adds_fifteen_codes_and_replaces_one",
+          "crates/pdf-font/src/name_keyed.rs encoding-name support assertion",
+          "crates/pdf-font/src/loading.rs and model extraction tests for name-based mapping"
+        ],
+        "verdict": "full Annex D.2 and D.4 code/name source comparisons reviewed; focused meaningful assertions cover notes, key divergences, and counts. No mapping mismatch found. StandardEncoding's exhaustive cross-check remains unreviewed.",
+        "residuals": [
+          "Some current unit checks compare counts or relationships between implementation tables; those alone are not mapping oracles. D.4's historical direct-source comparison is durable in ADR 0286, but no persistent test reads every D.4 row against source.",
+          "Annex D.2 note 5/6 mappings remain glyph names hyphen/space. Their optional semantic refinement uses Differences when a producer intends soft hyphen/nonbreaking-space; ADR 2723 is a conversion-specific PDF/A transformation and does not redefine the base table."
+        ]
+      },
+      {
+        "id": "annex-d-symbol-and-dingbats-sets",
+        "clauses": [
+          "D.1",
+          "D.5",
+          "D.6",
+          "9.6.2.2",
+          "9.6.5.1",
+          "9.10.2"
+        ],
+        "source_location": "Annex D.1 and D.5 printed p. 875; D.6 printed pp. 875–876; D.1 states predefined sets and code ordering for ZapfDingbats",
+        "ledger": [
+          "doc/conformance/ledger.toml:6576",
+          "doc/conformance/ledger.toml:6608",
+          "doc/conformance/ledger.toml:6616"
+        ],
+        "code": [
+          "crates/pdf-font/src/encoding.rs::SYMBOL",
+          "crates/pdf-font/src/encoding.rs::ZAPF_DINGBATS",
+          "crates/pdf-font/src/encoding.rs::ZAPF_DINGBATS_CHARACTERS",
+          "crates/pdf-font/src/loading/codes.rs::LoadedFont::text",
+          "crates/pdf-font/src/standard.rs::every_name_annex_d_states_has_a_glyph_in_the_face_carried_for_it"
+        ],
+        "assertions": [
+          "crates/pdf-font/src/encoding.rs unit tests: the_dingbats_names_and_characters_describe_the_same_codes; the_dingbats_set_is_annex_d6s_own_table; the_symbol_sets_names_are_all_in_the_list_the_clause_names",
+          "crates/pdf-font/src/standard.rs::every_name_annex_d_states_has_a_glyph_in_the_face_carried_for_it",
+          "crates/pdf-model/tests/silent_fonts.rs::a_dingbats_page_reads_back_the_characters_annex_d6_states"
+        ],
+        "verdict": "independent direct-PDF code/name comparisons match all rows for both sets; D.6's source CHAR values match all non-space rows. Fixture-driven Dingbats extraction tests use the specimen's printed names/scalars as controls, while the source table supplies authority. No Annex D table mapping mismatch found.",
+        "residuals": [
+          "The paired-array cardinality assertion is not by itself a table oracle; source comparison here was read-only and no full licensed table was copied into this scratch artifact.",
+          "No standalone source-driven full-table regression test was drafted; current D.6 integration coverage uses exact expected specimen values for three glyphs plus a no-ASCII control."
+        ]
+      },
+      {
+        "id": "pdfdocencoding-table-d3",
+        "clause": "D.3",
+        "source_location": "Table D.3 printed pp. 873–874; Unicode column is the effective code-point source; Annex D errata #285/#461/#562 affect aliases/glyph cells and Undefined rows, not implemented character mappings",
+        "ledger": [
+          "doc/conformance/ledger.toml:6592",
+          "doc/conformance/ledger.toml:912"
+        ],
+        "code": [
+          "crates/pdf-syntax/src/text_string.rs::PDF_DOC_ENCODING",
+          "crates/pdf-syntax/tests/pdf_doc_encoding.rs::table_d3"
+        ],
+        "assertions": [
+          "every_code_decodes_to_the_character_annex_d3_gives_it; every_character_annex_d3_names_encodes_back_to_its_code; every_text_string_survives_the_round_trip"
+        ],
+        "verdict": "meaningful independent oracle: each test parses code and Unicode cells from the standard markdown, checks all 256 mappings in the forward direction, checks all defined characters in reverse, and asserts 24 undefined entries to prevent vacuous parsing. The test is not a shared-array round trip.",
+        "residuals": [
+          "Errata #285/#461/#562 and the test's distinction between Unicode and display glyph columns are documented; no D.3 mapping defect found in this bounded review."
+        ]
+      },
+      {
+        "id": "aglfn-name-to-unicode-sequences",
+        "clause": "9.10.2",
+        "source_location": "ISO §9.10.2 printed p. 356, second method for simple fonts; Adobe Glyph List Specification v2.9 §§1–2 explicitly maps glyph names to Unicode character strings and concatenates component strings",
+        "ledger": [
+          "doc/conformance/ledger.toml:2731",
+          "doc/conformance/ledger.toml:2739"
+        ],
+        "code": [
+          "crates/pdf-font/src/encoding.rs::text_for",
+          "crates/pdf-font/src/loading/codes.rs::LoadedFont::text",
+          "crates/pdf-model/src/type3.rs::Type3Font::text"
+        ],
+        "assertions": [
+          "crates/pdf-font/src/encoding.rs unit test a_composed_glyph_name_reads_back_as_its_components tests f_f_i, T_h, suffix, and malformed-name behavior, but expects `uni00420043` to return None; `a_name_is_listed_only_where_the_2002_table_has_its_row` tests that dalethatafpatah is listed but does not test its mapped string",
+          "The implementation comment deliberately declines a whole underscore name if any component is not mapped; the mixed-component consequence is not tested against AGL's empty-string rule",
+          "crates/viewer-core/tests/page_text.rs proves Query::Text and Query::Find consume the same extracted text for a single-scalar eacute control"
+        ],
+        "verdict": "defect in valid named-glyph extraction: `text_for` returns None for single AGL glyph names whose AGL value is a multi-scalar string and for multi-scalar `uni` components; it also rejects the entire underscore name when an unknown component should map to an empty string and be concatenated per AGL §2. Adobe AGL primary source requires character strings, component concatenation, and empty-string fallback for unrecognised components.",
+        "residuals": [
+          "Draft direct API and public viewer-consumer regressions are under drafts/; neither compiled nor run.",
+          "The existing whole-name rejection is a deliberate implementation policy, but it conflicts with Adobe AGL Specification §2's explicit mapping rule; the mixed case `A_notaglyph` distinguishes this from the question of how an Option API should represent a wholly empty result.",
+          "The D.5 and D.4 Annex table names checked here do not include `dalethatafpatah`; this is an adjacent §9.10.2 extraction gap included because the user requested Unicode sequence oracles and actual text consumers.",
+          "No conclusion about arbitrary non-AGL glyph-name fallbacks beyond AGL §2, composite-font extraction, ActualText, or ToUnicode parsing beyond the reviewed priority path."
+        ]
+      }
+    ],
+    "current_viewer_consumers": [
+      "viewer-core Query::Text reads page Interpretation::text (ADR 2836); Query::Find searches the same text. crates/viewer-core/tests/page_text.rs verifies both against a source-derived eacute fixture.",
+      "viewer-ffi exposes page text through quorra_text_pages/quorra_text_page/quorra_page_text per ADR 2844; this shard did not trace every ABI caller."
+    ],
+    "notes_and_errata": [
+      "Annex D is normative per D.1. D.1 has the processor shall-predefine requirements for WinAnsiEncoding and MacExpertEncoding; its listed table also explains PDFDocEncoding is not a predefined font encoding.",
+      "D.2 notes 3, 5, 6 supply codes not fully shown by the table body; implementation tests assert bullet, hyphen, space and Mac currency/Euro cases.",
+      "D.4 warns built-in expert encoding can differ from MacExpertEncoding; BaseEncoding::MacExpert does not decide which program encoding wins; §9.6.5.1 does.",
+      "Errata #285/#461/#562 are the relevant D.3 corrections reviewed; they do not change the implemented Unicode column entries. No Annex D.2/.4/.5/.6 or §9.10.2 errata were found in doc/errata-read.md."
+    ]
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "fixture_path": "crates/viewer-core/tests/fixtures/pades_audit",
+  "fixtures": {
+    "pades-valid.pdf": {
+      "sha256": "03f56de547039b7e2fec16593ff36d0c083fd1a380664cce1837353e2bea9ea9",
+      "length": 17129,
+      "byte_range": [
+        0,
+        443,
+        16829,
+        300
+      ],
+      "openssl_detached_digest_verification_exit": 0
+    },
+    "pades-tampered.pdf": {
+      "sha256": "5ffe34faa8130de90fb8806df342b948aac2ada5f5310eaaeddfabc176074637",
+      "length": 17129,
+      "byte_range": [
+        0,
+        443,
+        16829,
+        300
+      ],
+      "openssl_detached_digest_verification_exit": 4
+    }
+  },
+  "generator": "OpenSSL cms -sign -binary -cades -md sha256 with ephemeral test-only RSA2048 key/certificate. No real identity or credential.",
+  "certificate_validity_utc": [
+    "2026-11-16T10:45:42Z",
+    "2036-11-13T10:45:42Z"
+  ],
+  "test_clock_unix": 1800000000,
+  "time_limit": "Tests inject fixed clock inside immutable certificate validity; no wall-clock expiry dependency. Regenerated certificate/CMS bytes need not be identical.",
+  "scope": "Positive local host-anchor validation with explicit UnknownRevocationAccepted; not revocation-good evidence or automatic Open verification evidence."
+}

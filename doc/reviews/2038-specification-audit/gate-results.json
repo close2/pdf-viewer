@@ -199,6 +199,47 @@
       "expected_failures": 17,
       "unexpected_failures": 0,
       "comparison": "Exact binary/test identities equal the17-entry expected-failures manifest; no missing or additional failures."
+    },
+    {
+      "log": "round2-targets-wave10.log",
+      "scope": "initial AGL and mesh controls",
+      "run": 8,
+      "passed": 4,
+      "failed": 4,
+      "exit": 100
+    },
+    {
+      "log": "wave10-quality.log",
+      "scope": "new viewer test panic lint; corrected before checkpoint",
+      "exit": 101
+    },
+    {
+      "log": "round2-targets-wave10b.log",
+      "scope": "AGL5, mesh4, PAdES2; PAdES positive draft expected wrong RSA report substring, corrected; not a production finding",
+      "run": 11,
+      "passed": 5,
+      "failed": 6,
+      "exit": 100
+    },
+    {
+      "log": "round2-targets-wave10c.log",
+      "scope": "AGL5, mesh4, PAdES2",
+      "run": 11,
+      "passed": 6,
+      "failed": 5,
+      "exit": 100,
+      "expected_failures": 5,
+      "unexpected_failures": 0
+    },
+    {
+      "log": "wave10b-quality.log",
+      "scope": "PAdES doc-markdown lint corrected",
+      "exit": 101
+    },
+    {
+      "log": "wave10c-quality.log",
+      "scope": "pdf-font,pdf-model,viewer-core all-targets Clippy-Dwarnings",
+      "exit": 0
     }
   ],
   "prior_expected_failures": {
