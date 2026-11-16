@@ -1,0 +1,140 @@
+{
+  "baseline": "b901326c",
+  "primary_source": "doc/ISO_32000-2_sponsored_EC3.pdf",
+  "locator_convention": "Physical pages are one-based PDF page numbers; printed pages are the page footers. Annotation subjects locate groups; their text and rectangles must be read against the primary body.",
+  "items": [
+    {
+      "issue": 4,
+      "effective_clause": "12.7.5.5 Table 237 NOTE 3; 12.8.1 Table 255; 12.8.3.1 Table 260",
+      "source_location": "Physical 563 / printed 548, Table 237 continuation; physical 585 / printed 570, Table 255; physical 593 / printed 578, Table 260.",
+      "annotation_evidence": "The two replacement groups at physical 563 change the two SubFilter names in NOTE 3: the effective deprecated pair is adbe.x509.rsa_sha1 and adbe.pkcs7.sha1. They do not edit the AddRevInfo condition above. Physical 585 adds the same deprecation note; physical 593 adds a footnote c marker to the table.",
+      "classification": "signature-creation/deprecation clarification",
+      "effective_change": "Correct the deprecation note, not the AddRevInfo signing condition. Existing legacy reading is not rendered forbidden by this correction.",
+      "implementation_and_assertions": "Parent read signature::an_encapsulating_signature_is_checked_against_its_content_and_not_its_attribute (literal integrity answer plus malformed detached control), a_pkcs1_signature_names_the_key_rather_than_the_encoding, and a_pkcs1_signature_verifies_against_the_certificate_in_its_cert_entry (real certificate/signature verification and changed-message negative). These are distinct checks; the first alone is not cryptographic authenticity.",
+      "verdict": "No reader defect established. Preserve legacy reading; do not convert PDF 2.0 signing deprecation into a prohibition on parsing or validating such signatures.",
+      "residuals": "No signing producer is in scope for this tree. This is not a recertification of all Table 260 algorithms or all signature validation behavior."
+    },
+    {
+      "issue": 122,
+      "effective_clause": "\u00a712.7.6.2, Table 239 SubmitForm action",
+      "source_location": "physical 567 / printed 552",
+      "annotation_evidence": "Two StrikeOut annotations remove the word inheritable from the Flags and CharSet rows in Table 239. The row's corrected scope is action-local; the original table marks are visibly struck through in the primary PDF.",
+      "classification": "operative dictionary-scope correction",
+      "effective_change": "Flags and CharSet are optional properties of the SubmitForm action dictionary and are not inherited. This corrects the table's scope label; it does not change the meaning of a value present on the action itself.",
+      "implementation_and_assertions": "crates/pdf-model/src/action.rs::submit_form reads Flags and CharSet directly from the passed action dictionary. The unit test each_of_the_three_form_action_types_reaches_its_own_answer supplies action-local /Flags 5 and /CharSet (utf-8), then asserts both decoded values. No field-parent inheritance is consulted.",
+      "verdict": "Implementation matches the corrected scope. Existing test proves action-local values are consumed; a distinct absent-action-key versus same-named enclosing-field control would add little because action dictionaries have no inheritance chain in this API. No draft warranted.",
+      "residuals": "I did not find a reader path that looks up either property outside the SubmitForm action dictionary."
+    },
+    {
+      "issue": 173,
+      "effective_clause": "12.7.8.3.1, FDF catalog General, paragraph above Table 247",
+      "source_location": "physical 576 / printed 561",
+      "annotation_evidence": "StrikeOut/Caret replaces the opening of the paragraph at physical 576 with a qualification naming FDF file encryption specifically. Table 247 follows on physical 577; it is not a paragraph following that table.",
+      "classification": "editorial clarification of a deprecated legacy mechanism",
+      "effective_change": "Deprecation attaches to encryption, not all embedded FDF files. The current ledger already explicitly cites #173 and retains ordinary embedded FDF import while ignoring encrypted embedded FDF with a report.",
+      "implementation_and_assertions": "Current implemented ledger row 12.7.8.3.1 cites ADRs 1185/1622. forms_data resolves EncryptionRevision and skips the encrypted stream with a named owed message. Parent read an_encrypted_embedded_fdf_is_refused_by_name: it asserts no imported embedded data and the exact report.",
+      "verdict": "No new gap. The draft statement that no dedicated consumer claim was found was incomplete; current code and ledger explicitly implement the deprecated-encryption refusal policy.",
+      "residuals": "The test proves named refusal, not encryption/decryption interoperability. No full FDF import certificate."
+    },
+    {
+      "issue": 264,
+      "effective_clause": "12.7.8.3.1, FDF catalog General, paragraph above Table 247",
+      "source_location": "physical 576 / printed 561",
+      "annotation_evidence": "The Caret contents explicitly say \u2018, (insert COMMA)\u2019 at the computation sentence in the same paragraph as #173.",
+      "classification": "punctuation/editorial correction",
+      "effective_change": "The comma clarifies sentence punctuation around the key-derivation steps; it does not change the named algorithm or byte range used as the key.",
+      "implementation_and_assertions": "No runtime behavior depends on the corrected punctuation. The operative computation is already expressed in the paragraph and refers to steps (a) and (b) of Algorithm 2.",
+      "verdict": "No behavior gap or test warranted.",
+      "residuals": "None within this correction."
+    },
+    {
+      "issue": 393,
+      "effective_clause": "12.7.4.3, Variable text",
+      "source_location": "physical 549 / printed 534",
+      "annotation_evidence": "A StrikeOut/Caret pair at the appearance-update paragraph replaces a long cross-reference to an earlier example with \u2018Example above\u2019. The affected text is in an illustrative instruction about replacing marked content in an appearance stream.",
+      "classification": "example-reference correction",
+      "effective_change": "The edit repairs the example pointer. The operative shall statements around the example still state which resources are copied and which marked-content range is replaced; no algorithmic requirement is added by the reference wording.",
+      "implementation_and_assertions": "The variable-text appearance path has source-derived tests for regeneration and preserved stream resources in the forms/font shards. This erratum itself supplies no new distinct behavior to assert.",
+      "verdict": "No new gap identified from #393.",
+      "residuals": "The current source's example locator is editorial; this finding does not certify every appearance-update branch."
+    },
+    {
+      "issue": 649,
+      "effective_clause": "\u00a712.8.3.4.4, Profiles of ETSI.CAdES.detached",
+      "source_location": "physical 596 / printed 581",
+      "annotation_evidence": "A Text annotation says to insert an empty placeholder NOTE 1 so later NOTE 2 and NOTE 3 retain their numbering. The primary text at this location is profile compatibility prose; the note marker is editorial numbering.",
+      "classification": "editorial note numbering",
+      "effective_change": "The placeholder carries no normative text and changes no signature-profile rule.",
+      "implementation_and_assertions": "No reader behavior should be inferred from note numbering. Profile-specific signature checks are covered separately; this issue has no independent executable consequence.",
+      "verdict": "No behavior gap or test warranted.",
+      "residuals": "None."
+    },
+    {
+      "issue": 655,
+      "effective_clause": "\u00a712.9.1, Measurement properties\u2014General",
+      "source_location": "physical 610 / printed 595",
+      "annotation_evidence": "A Text annotation requests an empty placeholder NOTE 1 so later notes preserve their numbering. It sits beside the start of \u00a712.9.1 and does not alter the measurement definitions or equations.",
+      "classification": "editorial note numbering",
+      "effective_change": "No normative or informative text is supplied by the placeholder.",
+      "implementation_and_assertions": "The measurement consumer is audited separately; there is no new runtime behavior from an empty note.",
+      "verdict": "No behavior gap or test warranted.",
+      "residuals": "None."
+    },
+    {
+      "issue": 661,
+      "effective_clause": "\u00a712.8.4.4, VRI examples",
+      "source_location": "physical 602 / printed 587",
+      "annotation_evidence": "A Text annotation says both examples omit endobj after several objects. It is anchored beside Table 262 and the examples' surrounding VRI material; the primary overlay was read directly.",
+      "classification": "example-syntax correction",
+      "effective_change": "The added endobj tokens make the illustrative incremental PDF object snippets syntactically complete. This does not change VRI lookup, binding, or validation semantics.",
+      "implementation_and_assertions": "VRI parsing and signature binding are separately reviewed; no parser behavior should depend on the examples' omitted delimiters.",
+      "verdict": "No independent runtime defect established from #661.",
+      "residuals": "The examples are not claimed as full producer-valid signed PDF fixtures."
+    },
+    {
+      "issue": 673,
+      "effective_clause": "Table 154, collection schema dictionary",
+      "source_location": "physical 465 / printed 450",
+      "annotation_evidence": "StrikeOut/Caret replaces bold \u2018Other keys\u2019 with plain \u2018Other keys\u2019 in the table row. The row describes arbitrary collection-field keys chosen by the PDF writer; \u2018Other keys\u2019 is a table placeholder, not a literal dictionary key.",
+      "classification": "typographical emphasis correction",
+      "effective_change": "No key name, type, requiredness, or association rule changes.",
+      "implementation_and_assertions": "Collection parsing reads actual keys from the schema dictionary and maps corresponding CI item entries. It does not interpret font weight in the source table as a PDF key.",
+      "verdict": "No reader behavior gap.",
+      "residuals": "Collection UX and ordering policies are outside this typographic correction."
+    },
+    {
+      "issue": 676,
+      "effective_clause": "Table 189, Movie annotation entries",
+      "source_location": "physical 512 / printed 497",
+      "annotation_evidence": "StrikeOut/Caret changes bold \u201cMovie\u201d to plain \u201cMovie\u201d in Table 189, the Movie-annotation entries. The adjacent text labels movie annotations as deprecated in PDF 2.0 and points to the multimedia framework.",
+      "classification": "typographical emphasis correction",
+      "effective_change": "The word's emphasis changes; the annotation key and deprecated status do not.",
+      "implementation_and_assertions": "Legacy movie dictionary parsing and static annotation handling were reviewed in the legacy media shard; the text style has no parser effect.",
+      "verdict": "No reader behavior gap.",
+      "residuals": "No claim is made here about movie playback, which is outside this issue's scope."
+    },
+    {
+      "issue": 677,
+      "effective_clause": "Table 208, Microsoft Windows launch parameter dictionary",
+      "source_location": "physical 532 / printed 517",
+      "annotation_evidence": "StrikeOut/Caret replaces the misspelled type phrase \u2018bye string\u2019 with \u2018byte string\u2019 in the /D row (default directory). The surrounding table keeps /F and /P as byte strings and /O as an ASCII string.",
+      "classification": "type-label typo correction",
+      "effective_change": "The value is a byte string, consistent with its neighboring path/parameter rows. This corrects descriptive type spelling; it does not define a launch-time runtime or an encoding conversion algorithm.",
+      "implementation_and_assertions": "Current departed ledger row 12.6.4.6 reads the common F entry and does not interpret deprecated Win parameters. ADR 1358 was extended by 2171/2185 for non-PDF document handoff; programs remain refused. This issue changes only the D type-label typo, not that host policy.",
+      "verdict": "No reader defect established from a type-label typo in a deprecated platform-specific action dictionary.",
+      "residuals": "No Windows launch host integration was tested or claimed."
+    },
+    {
+      "issue": 681,
+      "effective_clause": "Table 238, certificate seed value dictionary, SignaturePolicyCommitmentType type cell",
+      "source_location": "physical 564 / printed 549",
+      "annotation_evidence": "The StrikeOut rectangle covers only the capital A in Array in the type cell; the Caret inserts lowercase a. The current cell is Array of ASCII strings.",
+      "classification": "Typographical capitalization correction",
+      "effective_change": "Array becomes array; no data-shape or accepted-element change.",
+      "implementation_and_assertions": "The current reader does not use signature seed-value dictionaries to validate existing signatures; the row constrains signature creation. Seed-value processing is outside this reader's behavior claims.",
+      "verdict": "No behavior gap or new test warranted.",
+      "residuals": "No full signature seed-value or signing-workflow certification."
+    }
+  ],
+  "review_boundary": "This is a bounded review of the selected annotated corrections, not a full audit of signatures, forms, multimedia, collections, launch actions, or measurement properties. No candidate was treated as a defect solely because its issue number was absent from a ledger citation."
+}

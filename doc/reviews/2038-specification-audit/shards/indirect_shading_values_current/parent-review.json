@@ -1,0 +1,7 @@
+{
+  "source": "Read primary physical49 (7.3.10),245/246(Table77),249(Table79),251/252(Table80), including continuation and clipping semantics.",
+  "code": "Read coords/domain/extend/bbox_of resolution of containers and members.",
+  "controls": "Exact xref and no-recovery guard, complete interpretation, direct and indirect literal interior colors. Nondefault Domain prevents ignored references passing by default. Reverse extension controls independently require true at both boolean positions; false controls check no paint. BBox clips otherwise-painted locations.",
+  "execution": "shading-wave62b.log:2PASS. quality-model-wave62b.log:model all targets Clippy PASS.",
+  "limits": "CPU raster only; no mesh stream, GPU, arbitrary transform or complete shading certificate."
+}

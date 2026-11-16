@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (61)
+## Current checkpoint (62)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **78 assertions**, grouped into behavior findings rather
@@ -99,6 +99,12 @@ Model Clippy passes. The corrected Courier-BoldOblique list exposes a stale sour
 premise in current comments and historical ADRs; tolerant alias behavior remains valid.
 The review withdraws a stale draft rich-text exclusion: current layout/save tests and
 ADRs 1634/1635 supersede ADR 1122. No new behavior failure is established here.
+
+Checkpoint62 adds two passing axial/radial pixel tests for nested references,
+including nondefault domains and both extension boolean polarities. Model Clippy
+passes. Twelve further errata groups were reviewed. Current FDF code already
+implements the #173 distinction; #4 changes a deprecation note, not the signing
+condition. No new behavior failure is established; the manifest remains 78.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

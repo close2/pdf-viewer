@@ -1695,6 +1695,18 @@
       "log": "quality-model-wave61b.log",
       "exit": 0,
       "scope": "Model all-targets Clippy"
+    },
+    {
+      "log": "shading-wave62b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-model-wave62b.log",
+      "exit": 0,
+      "scope": "Model all-targets Clippy"
     }
   ],
   "prior_expected_failures": {

@@ -2,45 +2,11 @@
   "source": "doc/ISO_32000-2_sponsored_EC3.pdf",
   "source_sha256": "c7d4ec236794558d48205394d499a9791575b5f5794e39377382e633846a6f80",
   "method": "Issue IDs in annotation Subj; exact literal #ID absent from selected current shard prose filenames. This can miss semantic ownership, numeric JSON issue fields, alternative citation styles and prior-round evidence. It is not a count of unimplemented or unreviewed features.",
-  "selected_prose_files": 557,
-  "selected_prose_sha256": "6de0dcbf70bf9b4226deb7c02487070bc8d5e7f7f908ad756fad71a38abb1f4e",
+  "selected_prose_files": 565,
+  "selected_prose_sha256": "77eb0d5183f2190b81fde0a1e98d80b6efd028c69dabe2f34e97e389aa024ccc",
   "unique_issue_ids": 360,
-  "candidate_count": 35,
+  "candidate_count": 23,
   "candidates": [
-    {
-      "issue": 4,
-      "physical_pages": [
-        563,
-        585,
-        593
-      ],
-      "annotation_objects": [
-        [
-          5960,
-          0
-        ],
-        [
-          5984,
-          0
-        ],
-        [
-          13834,
-          0
-        ],
-        [
-          13836,
-          0
-        ],
-        [
-          13842,
-          0
-        ],
-        [
-          13844,
-          0
-        ]
-      ]
-    },
     {
       "issue": 18,
       "physical_pages": [
@@ -138,22 +104,6 @@
       ]
     },
     {
-      "issue": 122,
-      "physical_pages": [
-        567
-      ],
-      "annotation_objects": [
-        [
-          13858,
-          0
-        ],
-        [
-          13862,
-          0
-        ]
-      ]
-    },
-    {
       "issue": 145,
       "physical_pages": [
         718
@@ -194,22 +144,6 @@
       ]
     },
     {
-      "issue": 173,
-      "physical_pages": [
-        576
-      ],
-      "annotation_objects": [
-        [
-          5871,
-          0
-        ],
-        [
-          5873,
-          0
-        ]
-      ]
-    },
-    {
       "issue": 179,
       "physical_pages": [
         637
@@ -237,18 +171,6 @@
         ],
         [
           15731,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 264,
-      "physical_pages": [
-        576
-      ],
-      "annotation_objects": [
-        [
-          5874,
           0
         ]
       ]
@@ -329,22 +251,6 @@
         ],
         [
           8428,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 393,
-      "physical_pages": [
-        549
-      ],
-      "annotation_objects": [
-        [
-          5650,
-          0
-        ],
-        [
-          5652,
           0
         ]
       ]
@@ -439,106 +345,6 @@
         ],
         [
           6562,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 649,
-      "physical_pages": [
-        596
-      ],
-      "annotation_objects": [
-        [
-          5998,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 655,
-      "physical_pages": [
-        610
-      ],
-      "annotation_objects": [
-        [
-          6079,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 661,
-      "physical_pages": [
-        602
-      ],
-      "annotation_objects": [
-        [
-          6046,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 673,
-      "physical_pages": [
-        465
-      ],
-      "annotation_objects": [
-        [
-          4770,
-          0
-        ],
-        [
-          4771,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 676,
-      "physical_pages": [
-        512
-      ],
-      "annotation_objects": [
-        [
-          5343,
-          0
-        ],
-        [
-          5344,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 677,
-      "physical_pages": [
-        532
-      ],
-      "annotation_objects": [
-        [
-          5415,
-          0
-        ],
-        [
-          5416,
-          0
-        ]
-      ]
-    },
-    {
-      "issue": 681,
-      "physical_pages": [
-        564
-      ],
-      "annotation_objects": [
-        [
-          5803,
-          0
-        ],
-        [
-          5804,
           0
         ]
       ]

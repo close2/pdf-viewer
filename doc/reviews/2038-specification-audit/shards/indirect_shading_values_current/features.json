@@ -1,0 +1,55 @@
+[
+  {
+    "feature": "Direct/indirect equivalence for axial shading dictionary fields and nested scalar values",
+    "clause": "\u00a77.3.10; \u00a78.7.4.3 Table 77; \u00a78.7.4.5.3 Table 79",
+    "source_location": "Primary ISO 32000-2 EC3: \u00a77.3.10 printed p.34, physical PDF p.49 (paragraph: except where documented to the contrary, object values may be direct or indirect with equivalent semantics); Table 77 physical pp.245\u2013246 (printed pp.230\u2013231); Table 79 physical p.249 (printed p.234). Table 79 defines /Coords as four numbers, /Domain as two numbers defaulting to [0,1], and /Extend as two booleans defaulting false. Table 77 /BBox is an optional target-space clipping boundary.",
+    "errata": "No EC3 annotation affecting the cited axial/table entries was found on physical pp.245\u2013249. The general \u00a77.3.10 rule itself is effective text; no relevant exception in these table entries was located.",
+    "ledger": [
+      "\u00a78.7.4.3 (implemented)",
+      "\u00a78.7.4.5.3 (implemented)",
+      "\u00a77.3.10 (indirect/direct object semantics)"
+    ],
+    "code": [
+      "crates/pdf-colour/src/shading.rs::coords",
+      "crates/pdf-colour/src/shading.rs::domain",
+      "crates/pdf-colour/src/shading.rs::extend",
+      "crates/pdf-colour/src/shading.rs::bbox_of",
+      "crates/pdf-colour/src/shading.rs::axial"
+    ],
+    "tests": [
+      "crates/pdf-model/tests/shadings.rs::an_axial_shading_runs_from_its_first_colour_to_its_second",
+      "crates/pdf-model/tests/shadings.rs::a_shading_that_does_not_extend_paints_nothing_beyond_its_ends",
+      "crates/pdf-model/tests/shadings.rs::a_shadings_bbox_clips_what_it_paints"
+    ],
+    "test_assertions": "Existing tests assert gradient endpoints, no-extend behavior and BBox clipping with direct arrays/scalars. They do not distinguish direct values from indirect references, nor test indirect array members.",
+    "verdict": "Code-path support is present: all four readers resolve each referenced member. Assertion coverage is missing for nested indirect representations; no failure is established.",
+    "residuals": "Type 2/3 only. Public CPU pixels check nondefault Domain, nested array/scalar references, BBox clipping, and both true/false polarities for each Extend position. No mesh byte-field or all-shading conformance claim.",
+    "execution": "Tracked indirect_shading_values_spec_audit: both tests pass in shading-wave62b.log. Model all-targets Clippy passes."
+  },
+  {
+    "feature": "Direct/indirect equivalence for radial shading dictionary fields and nested scalar values",
+    "clause": "\u00a77.3.10; \u00a78.7.4.3 Table 77; \u00a78.7.4.5.4 Table 80",
+    "source_location": "Primary ISO 32000-2 EC3: Table 80 physical pp.251\u2013252 (printed pp.236\u2013237); Table 77 physical pp.245\u2013246 (printed pp.230\u2013231); general direct/indirect equivalence at \u00a77.3.10 physical p.49 (printed p.34). Table 80 defines six /Coords numbers, optional two-number /Domain default [0,1], and optional two-boolean /Extend default [false,false]; Table 77 /BBox is an optional target-space clip.",
+    "errata": "No EC3 annotation affecting the cited radial/table entries was found on physical pp.245\u2013252. No directness exception for these array values was located.",
+    "ledger": [
+      "\u00a78.7.4.3 (implemented)",
+      "\u00a78.7.4.5.4 (implemented)",
+      "\u00a77.3.10 (indirect/direct object semantics)"
+    ],
+    "code": [
+      "crates/pdf-colour/src/shading.rs::coords",
+      "crates/pdf-colour/src/shading.rs::domain",
+      "crates/pdf-colour/src/shading.rs::extend",
+      "crates/pdf-colour/src/shading.rs::bbox_of",
+      "crates/pdf-colour/src/shading.rs::radial"
+    ],
+    "tests": [
+      "crates/pdf-model/tests/shadings.rs::a_radial_shading_grades_between_its_two_circles",
+      "crates/pdf-model/tests/shadings.rs::a_shadings_bbox_clips_what_it_paints"
+    ],
+    "test_assertions": "Existing tests exercise radial interpolation and BBox with direct values; they do not exercise indirect references or indirect array elements.",
+    "verdict": "Code-path support is present; direct-versus-indirect assertion coverage is absent. No implementation failure is established.",
+    "residuals": "Type 2/3 only. Public CPU pixels check nondefault Domain, nested array/scalar references, BBox clipping, and both true/false polarities for each Extend position. No mesh byte-field or all-shading conformance claim.",
+    "execution": "Tracked indirect_shading_values_spec_audit: both tests pass in shading-wave62b.log. Model all-targets Clippy passes."
+  }
+]

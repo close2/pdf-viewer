@@ -2156,5 +2156,17 @@
       "doc/adr/0396-a-standard-set-of-fourteen-may-not-disagree-with-itself.md",
       "doc/adr/1916-the-fourteen-are-kerned-by-the-pairs-adobe-published-for-them.md"
     ]
+  },
+  {
+    "id": "2038-T81",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "7.3.10",
+      "8.7.4.3",
+      "8.7.4.5.3",
+      "8.7.4.5.4"
+    ],
+    "summary": "Axial and radial shading now have public pixel controls for nested indirect Coords, Domain, Extend and BBox values.",
+    "execution": "Two tests pass, including nondefault domains and both extension boolean polarities."
   }
 ]
