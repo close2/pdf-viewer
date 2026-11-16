@@ -4463,7 +4463,8 @@
     "current_artifacts": [
       "prior-assertion-reviews.json",
       "shards/annex_d_encoding/features.json",
-      "shards/simple_font_encodings_current/features.json"
+      "shards/simple_font_encodings_current/features.json",
+      "shards/simple_font_encoding_residual_current/features.json"
     ],
     "prior_artifacts": [],
     "reviewed_assertions": [
@@ -6930,7 +6931,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/media_framing_current/features.json"
+      "shards/media_framing_current/features.json",
+      "shards/rendition_preconditions_current/features.json"
     ],
     "prior_artifacts": [
       "screen_annotation_audit"
@@ -7309,7 +7311,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/media_framing_current/features.json"
+      "shards/media_framing_current/features.json",
+      "shards/rendition_preconditions_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -7348,7 +7351,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/script_action_execution_current/features.json"
+      "shards/script_action_execution_current/features.json",
+      "shards/rendition_preconditions_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -11806,7 +11810,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/annex_d_encoding/features.json"
+      "shards/annex_d_encoding/features.json",
+      "shards/simple_font_encoding_residual_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -11832,7 +11837,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/annex_d_encoding/features.json"
+      "shards/annex_d_encoding/features.json",
+      "shards/simple_font_encoding_residual_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."

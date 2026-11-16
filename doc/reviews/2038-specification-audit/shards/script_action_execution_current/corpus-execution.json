@@ -1,0 +1,25 @@
+{
+  "population": 90763,
+  "in_process": {
+    "runs": 21101,
+    "finished": 11778,
+    "throws": 9315,
+    "budget": 0,
+    "finished_refused": 0,
+    "unparsed": 8
+  },
+  "worker": {
+    "runs": 43158,
+    "workers": 150,
+    "finished": 17261,
+    "throws": 25889,
+    "budget": 0,
+    "finished_refused": 0,
+    "unparsed": 8,
+    "workers_lost": 0,
+    "documents_stopped": 0,
+    "sigsys": 0
+  },
+  "warning": "Different workloads: worker includes annotation/page events. Do not compare throw rates as a regression. In-process counters hold floors/ceilings; worker guards successful execution and no SIGSYS. Neither proves correct script effects. Producer-library/API provenance review is ongoing.",
+  "execution": "2PASS in438s, peak0.93GiB; script-corpus-wave49.log"
+}

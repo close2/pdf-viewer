@@ -1,0 +1,6 @@
+{
+  "source": "Parent checked Table112 physical338/323, ordered nonsymbolic dictionary mapping341/326 and later discretionary fallback342/327. Explicit MacExpert base is permitted; undefined slots must be filled from StandardEncoding before name/Unicode cmap mapping.",
+  "oracle": "AnnexD.2 physical871/856 assigns Standard octal250 to currency; AnnexD.4 leaves MacExpert decimal168 unassigned. Independently inspected embedded LiberationSans hash f8ace1f892b2bd9dc1792ba7f097fa7588f84fed48321480e04de5390828221f: UPM2048; currency GID101 advance1139, dieresis GID105 advance682, parenright GID12 advance682.",
+  "execution": "font-fill-wave51.log:2run1PASS1FAIL. Clean target without Differences selects105 instead of101. WinAnsi guard passes before target assertion; separate Difference control PASS. GID failure prevents subsequent target width assertions; fontTools verifies their source independently. quality-wave51c.log both model/core all-targets Clippy PASS.",
+  "limits": "No-BaseEncoding embedded built-in default remains unresolved, not a claimed defect. Supplemental Differences control is qualified by Table112 SHOULD guidance."
+}

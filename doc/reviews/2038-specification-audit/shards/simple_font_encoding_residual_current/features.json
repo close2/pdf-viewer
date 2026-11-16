@@ -1,0 +1,53 @@
+{
+  "scope": "Focused residual check of ISO 32000-2:2020(E) §9.6.5.4's TrueType glyph-name table initialization/fill after Differences, with Table 112 and Annex D.2/D.4 source controls. This is not a certification of simple-font encoding behavior.",
+  "source_locations": {
+    "table_112": "Primary PDF physical p. 338 / printed p. 323: Table 112 permits BaseEncoding MacExpertEncoding and defines embedded-font default base; Differences is optional and says it should not be used with TrueType.",
+    "section_9_6_5_4_algorithm": "Primary PDF physical pp. 341–342 / printed pp. 326–327: dictionary table starts from BaseEncoding, applies Differences, then fills undefined entries using StandardEncoding; subsequent name→Unicode→(3,1) cmap route.",
+    "annex_d_2": "Primary PDF physical pp. 871–873 / printed pp. 856–858: Table D.2 lists `currency` StandardEncoding code 250 octal = 168 decimal; WinAnsi code 168 is `dieresis` (250 octal).",
+    "annex_d_4": "Primary PDF physical pp. 884–887 / printed pp. 869–872: Table D.4's MacExpert assignments; code 250 octal (168 decimal) has no entry. Table is sparse and does not assign it."
+  },
+  "features": [
+    {
+      "id": "truetype-standard-fill-after-base-and-optional-differences",
+      "source_requirement": "For a nonsymbolic TrueType font, §9.6.5.4 says to create the character-code-to-glyph-name table. When Encoding is a dictionary, initialize from its BaseEncoding entries, use any Differences to update the table, and finally fill any undefined entries from StandardEncoding before mapping glyph names through AGL/AGLFN to a Microsoft Unicode cmap (or the stated alternate routes). This explicit-base case is distinct from Table 112's default-base rule when BaseEncoding is absent.",
+      "fixture_premises": [
+        "Use an explicit /BaseEncoding /MacExpertEncoding so the base is neither dependent on embedded font built-in defaults nor on absent-BaseEncoding interpretation.",
+        "MacExpert code 168 is unassigned in Table D.4; StandardEncoding code 168 (octal 250) is `currency` per Table D.2.",
+        "The checked-in LiberationSans-Regular.ttf contains U+00A4 `currency` GID 101 and U+00A8 `dieresis` GID 105. Its Microsoft Unicode cmap maps those names to different glyphs; direct code 168 in that cmap reaches `dieresis`, providing a discriminating negative route.",
+        "The main code-168 target uses a permitted explicit MacExpert base and omits Differences, avoiding Table 112's SHOULD guidance against Differences on TrueType. The §9.6.5.4 final fill step applies to undefined entries regardless of whether an optional Differences array is present.",
+        "A separate supplementary control uses Differences [40 /parenright] to verify the overlay after the base is chosen. Table 112 says that form should not be used with TrueType; this is not the premise for the clean fill target."
+      ],
+      "ledger": "doc/conformance/ledger.toml §9.6.5.4 / Table 112 entries: encoding table route and cmap mapping.",
+      "implementation": [
+        "crates/pdf-font/src/truetype.rs::truetype_code_table calls encoding_names(..., fall_back_to_standard = !symbolic).",
+        "crates/pdf-font/src/glyph_names.rs::encoding_names chooses a stated base with `base_encoding(...).or(fall_back_to_standard.then_some(Standard))`, applies Differences if present, but does not fill still-empty slots after an explicit base has been copied.",
+        "The remaining TrueType loop in truetype_code_table then considers later reader-chosen `as_character` mapping for an empty code slot. For this fixture code 168 can consequently resolve by cmap U+00A8/dieresis rather than required StandardEncoding/currency. This is a source-to-code concern pending parent execution of the public draft, not yet a runtime-verified finding."
+      ],
+      "existing_assertions": [
+        "crates/pdf-font/src/truetype.rs unit coverage includes synthetic direct cmap, Unicode/name, Mac Roman, post-name, ToUnicode and reader-chosen cases.",
+        "crates/pdf-model/tests/opentype_selection_audit.rs checks a public exact-xref TrueType/OpenType glyph-name route with a synthetic A/B mapping and swapped Differences, but A/B do not distinguish the StandardEncoding final fill from common encodings.",
+        "The prior scratch proposal at scratchpad/r2038/spec-audit/simple_font_encodings_current/drafts/standard_encoding_fill_liberation.rs uses an embedded TrueType font with no BaseEncoding and code 39. Table 112 says an absent BaseEncoding defaults to the embedded program's built-in encoding; Liberation's cmap maps codepoint 39 to quotesingle, while §9.6.5.4 also supplies a Standard fill step in its nonsymbolic/dictionary algorithm. The absent-BaseEncoding interaction is therefore a separate source-interpretation question. Do not promote its expected quoteright assertion as source-derived evidence without resolving which default table the named-font algorithm consumes."
+      ],
+      "independent_expectations": {
+        "font_sha256": "f8ace1f892b2bd9dc1792ba7f097fa7588f84fed48321480e04de5390828221f",
+        "font_metrics": "LiberationSans-Regular.ttf, UPM 2048; currency GID 101, hmtx advance 1139 (PDF advance 1139/2048 = 0.55615234375 em); dieresis GID 105, hmtx advance 682 (682/2048 = 0.3330078125 em); parenright GID 12, advance 682.",
+        "pdf_widths": "Draft target /Widths [556] and WinAnsi control /Widths [333] are the independently rounded /Widths expectations from those hmtx records. Assert LoadedFont.advance on code 168 returns 0.556 and 0.333 respectively, and program_advance distinguishes actual font metrics."
+      },
+      "verdict": "Potential concrete algorithm defect on a clean, permitted Encoding dictionary with explicit MacExpert base and no Differences; public discriminating test is drafted but unexecuted. Parent must run and independently verify the constructed exact-xref PDFs before assigning a durable failure. No current test run result is claimed.",
+      "residuals": [
+        "The draft does not certify Type 1, CFF, Macintosh cmap, or StandardEncoding fill for every code.",
+        "A second supplemental Difference-control uses the Table 112 SHOULD-discouraged TrueType form. The clean no-Differences target carries the fill assertion, so no producer recommendation departure is required for that finding.",
+        "A public font API test proves selected GID and font advance values; it does not assert a rendered page image or text extraction outcome.",
+        "The absent-BaseEncoding embedded-font default is a separate source/implementation question and intentionally is not asserted by this fixture. Table 112's built-in default and §9.6.5.4's StandardEncoding fill need to be reconciled for the dictionary case; this shard makes no claim about its resolution."
+      ]
+    },
+    {
+      "id": "macexpert-table-assignment-completeness",
+      "source_requirement": "Annex D.4 provides the MacExpert encoding table and states that 165 of 256 codes are assigned; §9.6.5.1/Table 112 permits MacExpertEncoding as a base.",
+      "assertion_quality": "Current encoding.rs tests pin a 165-assignment count and selected hazardous transcription points. The earlier annex_d_encoding scratch script compared all 165 implementation pairs against local primary-PDF extraction and reported 0 mismatches. That aggregate check is reproducible scratch evidence, not CI-gated full-table assertions.",
+      "verdict": "No additional full-table defect found in this focused pass. The aggregate comparison can be rerun from scratchpad/r2038/spec-audit/annex_d_encoding/drafts/compare_local_annex_d.py; no full licensed table is duplicated here.",
+      "residuals": "No public document consumer test in this shard exercises a MacExpert base with a genuine embedded expert font; Table data correctness has separate unit and scratch source comparison evidence."
+    }
+  ],
+  "bounded_review": "Focused one-code public TrueType encoding residual and MacExpert-table test-quality review only."
+}

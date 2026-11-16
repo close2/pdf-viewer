@@ -426,6 +426,18 @@
       "test": "valid_depth_65_tree_keeps_kids_order_and_corresponding_page_content",
       "finding": "2038-B48",
       "log": "deep-page-tree-wave48b.log"
+    },
+    {
+      "binary": "viewer-core::rendition_preconditions_spec_audit",
+      "test": "an_enabled_runner_executes_the_rendition_script_and_does_not_use_op_as_fallback",
+      "finding": "2038-B49",
+      "log": "rendition-wave50b.log"
+    },
+    {
+      "binary": "pdf-model::truetype_standard_fill_spec_audit",
+      "test": "explicit_macexpert_base_without_differences_fills_remaining_slot_from_standard",
+      "finding": "2038-B50",
+      "log": "font-fill-wave51.log"
     }
   ]
 }

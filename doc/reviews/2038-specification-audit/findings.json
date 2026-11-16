@@ -1886,5 +1886,31 @@
     "evidence": "Name-tree definition followed by OpenAction invocation changes the literal public model field value. Exact xref, actual Boa, two sites and no reports guarded.",
     "execution": "Both new tests PASS within247 engine-enabled script/worker tests; both crates all-targets Clippy PASS.",
     "limits": "ViewState engine integration, not every public viewer trigger or the complete ECMAScript API. Corpus output counters are a separate form of evidence."
+  },
+  {
+    "id": "2038-B49",
+    "kind": "rendition-script-priority",
+    "clauses": [
+      "12.6.4.14"
+    ],
+    "summary": "Enabled rendition script is ignored and OP fallback executes.",
+    "evidence": "Exact-xref Link click with working controlled runner: no script dispatched, Status remains before, media handoff emitted. Ordinary JS applies edit; no-runner fallback and Page type controls PASS.",
+    "source": "Table218 physical539\u2013540/524\u2013525; current admitted document/viewer scripting scope.",
+    "execution": "rendition-wave50b.log:4PASS1FAIL",
+    "limits": "Dispatch/edit route only; no claim about interpreter semantics or playback. Detached-page hypothesis withdrawn."
+  },
+  {
+    "id": "2038-B50",
+    "kind": "truetype-standard-encoding-fill",
+    "clauses": [
+      "9.6.5.4",
+      "D.2",
+      "D.4"
+    ],
+    "summary": "Explicit MacExpert dictionary leaves an undefined slot unfilled by StandardEncoding.",
+    "evidence": "Clean nonsymbolic TrueType dictionary without Differences: decimal168 selects dieresis105 instead of currency101. WinAnsi named-base and independent Difference controls PASS. Embedded font independently inspected.",
+    "source": "Table112 and ordered dictionary mapping physical341/326; later discretionary fallback cannot override the earlier successful mapping.",
+    "execution": "font-fill-wave51.log:1PASS1FAIL",
+    "limits": "No-BaseEncoding default unresolved. Supplemental Differences SHOULD qualified. No full font-table certification."
   }
 ]
