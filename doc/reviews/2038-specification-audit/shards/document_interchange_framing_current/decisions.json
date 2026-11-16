@@ -1,0 +1,16 @@
+{
+  "decisions": [
+    {
+      "adr": "1535,1599",
+      "decision": "Retain a heading-as-routing convention only after reading its actual prose. Aggregate notes must follow current children; family completeness is not established by settled labels."
+    },
+    {
+      "adr": "2440",
+      "decision": "Retain explicitly requested screen guidelines with user-default styles and print exclusion. This supersedes the prepress aggregate note claiming the permission is declined; direct state, pixel and host-key assertions substantiate selected branches."
+    },
+    {
+      "adr": "1225,1293",
+      "decision": "Retain separately scoped ordinary reader and optional linearizing writer. Alternative file part ordering is permitted by current primary prose; goals about network speed do not create unconditional performance tests for this product. Keep verifier shared-parser and qpdf-warning qualifications visible."
+    }
+  ]
+}

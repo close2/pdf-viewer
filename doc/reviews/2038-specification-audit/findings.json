@@ -1837,5 +1837,16 @@
     "summary": "Aggregate classic-conversion notes retain nominal-cancellation/ADR1069 framing despite the current explicit BG/UCR branch.",
     "evidence": "to_cmyk_at DeviceRGB+generation calls separate; ADR1207 supersedes1069 and ADR2549 applies stated pair over profile default. Leaf notes and discriminating public tests describe this branch.",
     "disposition": "Qualify aggregate evidence rationale; no production defect or ledger-status change inferred. Historical ADRs remain unchanged."
+  },
+  {
+    "id": "2038-D39",
+    "kind": "stale-aggregate-scope",
+    "clauses": [
+      "14.1",
+      "14.11"
+    ],
+    "summary": "Interchange/prepress aggregate notes retain superseded support descriptions.",
+    "evidence": "14.1 says only two parts implemented despite current metadata/structure/associated-file consumers.14.11 says boundary guidelines are declined while14.11.2.2 and ADR2440 implement them; actual style/default/pixel, viewer-state and host-key assertions exist.",
+    "disposition": "Documentation qualification only. No new runtime failure, ledger-status edit or historical ADR rewrite."
   }
 ]

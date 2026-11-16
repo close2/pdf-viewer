@@ -14,7 +14,7 @@ The report and machine-readable continuation are in
 **Evidence so far.** All72 previous failing assertions pass. Current tests expose
 70 failing assertions, grouped by behavior and qualified where interpretation is
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
-The shard index links partial reviews to 784 ledger rows; 99 remain pending in
+The shard index links partial reviews to 816 ledger rows; 67 remain pending in
 this round. No entire clause is certified merely because referenced tests pass.
 A shared-parser date mutation was killed and restored. Independent JP2 fixture
 regeneration matches embedded hashes. Selected ADR conclusions are retained,

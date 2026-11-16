@@ -11,9 +11,9 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (46)
+## Current checkpoint (47)
 
-Partial reviews now cover **784 of 883 ledger rows**, with 99 pending. The current
+Partial reviews now cover **816 of 883 ledger rows**, with 67 pending. The current
 failure manifest contains **70 assertions**, grouped into behavior findings rather
 than 70 independent defects. All 72 failures from the prior audit pass at this baseline.
 The latest broad run, wave38b, covered eleven crates: **7,158 tests ran, 7,096 passed,
@@ -106,6 +106,11 @@ Checkpoint 46 confirms historical OCSP applicability failure through the public
 signature report. The later-response control passes; independent cryptographic
 checks verify both fixtures. Rendering overview review also records stale aggregate
 black-generation rationale against the current implementation and successor ADRs.
+
+Checkpoint 47 reviews structure, interchange and linearization framing. It
+qualifies shared-parser verifier evidence and archive tagging guards, preserves
+confirmed child failures, and records stale interchange/prepress scope notes.
+No new execution or runtime failure is claimed by this checkpoint.
 
 These are partial feature reviews, not whole-clause certification. The paragraphs
 below preserve earlier checkpoint evidence. Weekly usage was 48% at the latest check;

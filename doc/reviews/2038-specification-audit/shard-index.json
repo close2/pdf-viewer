@@ -3,6 +3,52 @@
   "numbering": "Logical content items use published ledger owners14.7.5.1.1/.2/.3/.4 for effective EC3 .2/.3/.4/.5; navigator owner12.3.6 maps effective12.3.5.3. JBIG2 external Annex D is not ISO PDF Annex D.",
   "shards": [
     {
+      "shard": "logical_structure_framing_current",
+      "artifact": "shards/logical_structure_framing_current/features.json",
+      "ledger_owners": [
+        "14.7",
+        "14.7.1",
+        "14.7.4",
+        "14.7.4.1",
+        "14.7.5",
+        "14.7.5.1",
+        "14.7.6",
+        "14.7.7",
+        "14.8",
+        "14.8.2",
+        "14.8.2.2",
+        "14.8.3",
+        "14.8.4",
+        "14.8.4.7",
+        "14.8.4.8",
+        "14.8.5",
+        "14.8.5.1",
+        "14.8.5.4.1",
+        "14.8.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "document_interchange_framing_current",
+      "artifact": "shards/document_interchange_framing_current/features.json",
+      "ledger_owners": [
+        "14.1",
+        "14.3",
+        "14.9",
+        "14.9.1",
+        "14.9.2",
+        "14.11",
+        "14.11.1",
+        "14.11.2",
+        "14.11.6",
+        "14.13",
+        "F",
+        "F.3",
+        "F.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
       "shard": "signature_ocsp_producedat_public",
       "artifact": "shards/signature_ocsp_producedat_public/features.json",
       "ledger_owners": [

@@ -12,15 +12,15 @@
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
-    "new_shards_ready_for_parent_review": [
-      "logical_structure_framing_current"
-    ],
+    "new_shards_ready_for_parent_review": [],
     "active_shards": [
       "signature_framing_current",
       "file_security_framing_current",
       "text_colour_optional_framing_current"
     ],
     "recorded_shards": [
+      "logical_structure_framing_current",
+      "document_interchange_framing_current",
       "signature_ocsp_producedat_public",
       "rendering_framing_current",
       "graphics_transparency_framing_current",
@@ -139,8 +139,8 @@
       "font_substitution_current",
       "tagged_layout"
     ],
-    "partial_current_rows": 784,
-    "pending_current_rows": 99
+    "partial_current_rows": 816,
+    "pending_current_rows": 67
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",
