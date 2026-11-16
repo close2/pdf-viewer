@@ -23,8 +23,8 @@
 use pdf_syntax::Document;
 
 use super::{
-    AskedAt, Chain, ChainRefusal, Claim, Time, TokenRefusal, Unestablished, chain, established,
-    signature_timestamp_established, token_of, tst_info,
+    AskedAt, Authority, Chain, ChainRefusal, Claim, Time, TokenRefusal, Unestablished, chain,
+    established, signature_timestamp_established, token_of, tst_info,
 };
 use crate::cms::{self, Digest};
 use crate::revocation::Material;
@@ -273,6 +273,7 @@ fn a_token_that_chains_to_a_supplied_anchor_states_its_instant() {
         &timestamp,
         &file,
         &anchors,
+        &[],
         &Material::none(),
         AskedAt::TheCallersInstant(AFTER_THE_TOKEN),
     );
@@ -288,6 +289,7 @@ fn a_token_that_chains_to_a_supplied_anchor_states_its_instant() {
         &timestamp,
         &file,
         &TrustAnchors::none(),
+        &[],
         &Material::none(),
         AskedAt::TheCallersInstant(AFTER_THE_TOKEN),
     );
@@ -327,6 +329,7 @@ fn a_signature_timestamps_own_authority_is_established_or_the_instant_is_not_one
         signature_timestamp_established(
             &cms,
             anchors,
+            &[],
             &Material::none(),
             AskedAt::TheCallersInstant(AFTER_THE_TOKEN),
         )
@@ -422,6 +425,7 @@ fn a_tst_info_the_attributes_do_not_commit_to_is_not_a_time() {
             &timestamp,
             &file,
             &anchors,
+            &[],
             &Material::none(),
             AskedAt::TheCallersInstant(AFTER_THE_TOKEN),
         ),
@@ -445,6 +449,7 @@ fn a_later_timestamp_covers_the_earlier_one_and_the_material_beside_it() {
     let chain = chain(
         &document,
         &TrustAnchors::none(),
+        &[],
         &Material::none(),
         AFTER_THE_TOKEN,
     );
@@ -519,6 +524,7 @@ fn a_range_that_stops_short_of_the_material_names_the_object_it_left_out() {
     let chain = chain(
         &document,
         &TrustAnchors::none(),
+        &[],
         &Material::none(),
         AFTER_THE_TOKEN,
     );
@@ -557,6 +563,7 @@ fn a_document_with_no_timestamp_has_no_chain_and_nothing_to_refuse() {
     let chain: Chain = chain(
         &document,
         &TrustAnchors::none(),
+        &[],
         &Material::none(),
         AFTER_THE_TOKEN,
     );
@@ -564,6 +571,133 @@ fn a_document_with_no_timestamp_has_no_chain_and_nothing_to_refuse() {
     assert!(chain.outermost().is_none());
     assert_eq!(chain.signatures, 0);
     assert!(chain.refused.is_empty());
+}
+
+/// **A host's trusted list anchors a token's authority where the reader's anchors do not** (ADR
+/// 2878): ETSI EN 319 102-1 clause 5.6.2.1's trust anchors for a time-stamp are the validation
+/// policy's, and ETSI TS 119 172-4 REQ-4.2-03's NOTE 2 lets them be a Member State's
+/// time-stamping service without requiring it. The token is the one `openssl ts` issued under the
+/// unit `/C=AT/O=r2031 Time Provider`, whose root Austria's list publishes as a `TSA/QTST`
+/// service: with no anchor of the reader's, ETSI TS 119 615 clause 4.3 at the token's `genTime`
+/// returns that service and its identity ends the path.
+///
+/// The controls: no list leaves the token unestablished, as before any list existed; the same
+/// root published as a `CA/QC` service is not a time-stamping service and anchors nothing; and
+/// with the root also the reader's own anchor, the reader's is the authority.
+#[test]
+fn a_listed_time_stamping_service_anchors_a_tokens_authority() {
+    use crate::trusted_list::CA_QC;
+    use crate::trusted_list::tests::Written;
+    use crate::trusted_list::time_stamp::TSA_QTST;
+    use crate::trusted_list::time_stamp::tests::{
+        ASKED, GEN_TIME, PROVIDER, ROOT, TOKEN, list, qtst,
+    };
+    let root = hex(ROOT);
+    let timestamp = document_timestamp(hex(TOKEN));
+    let file = pdf_syntax::FileBytes::from(Vec::new());
+    let asked = AskedAt::TheCallersInstant(ASKED);
+    let lists = [list("AT", PROVIDER, &[qtst(&root)])];
+    let time = established(
+        &timestamp,
+        &file,
+        &TrustAnchors::none(),
+        &lists,
+        &Material::none(),
+        asked,
+    );
+    let Time::Established { at, through, .. } = &time else {
+        panic!("the listed service should establish the token: {time:?}");
+    };
+    assert_eq!(*at, GEN_TIME);
+    let Authority::Listed(listed) = through else {
+        panic!("the authority is the listed service: {through:?}");
+    };
+    assert_eq!(
+        (
+            listed.territory.as_str(),
+            listed.provider.as_str(),
+            listed.service_type.as_str()
+        ),
+        ("AT", PROVIDER, TSA_QTST)
+    );
+
+    let unlisted = established(
+        &timestamp,
+        &file,
+        &TrustAnchors::none(),
+        &[],
+        &Material::none(),
+        asked,
+    );
+    assert_eq!(
+        unlisted,
+        Time::Unknown(Unestablished::AuthorityNotEstablished(
+            Trust::NoAnchorSupplied
+        ))
+    );
+    let issuer_only = Written {
+        service_type: CA_QC,
+        ..qtst(&root)
+    };
+    let not_a_time_stamping_service = [list("AT", PROVIDER, &[issuer_only])];
+    assert_eq!(
+        established(
+            &timestamp,
+            &file,
+            &TrustAnchors::none(),
+            &not_a_time_stamping_service,
+            &Material::none(),
+            asked,
+        ),
+        unlisted
+    );
+
+    let parsed = parse(&root).expect("the root parses");
+    let own = TrustAnchors::of(std::slice::from_ref(&parsed));
+    let Time::Established { through, .. } =
+        established(&timestamp, &file, &own, &lists, &Material::none(), asked)
+    else {
+        panic!("the reader's anchor establishes the token");
+    };
+    assert_eq!(through, Authority::ReadersAnchor);
+}
+
+/// The same for §12.8.3.4.8's signature timestamp attribute: the token inside it is established
+/// through the listed service, and without the list it is not.
+#[test]
+fn a_listed_time_stamping_service_anchors_a_signature_timestamp() {
+    use crate::trusted_list::time_stamp::tests::{ASKED, PROVIDER, ROOT, TOKEN, list, qtst};
+    let root = hex(ROOT);
+    let bytes = cms::fixtures::detached_with_signature_timestamp(&[0x00; 32], &hex(TOKEN));
+    let cms = cms::signed_data(&bytes).expect("a SignedData");
+    let lists = [list("AT", PROVIDER, &[qtst(&root)])];
+    let with = |lists: &[crate::trusted_list::TrustedList]| {
+        signature_timestamp_established(
+            &cms,
+            &TrustAnchors::none(),
+            lists,
+            &Material::none(),
+            AskedAt::TheCallersInstant(ASKED),
+        )
+        .expect("the fixture states the attribute")
+    };
+    assert!(
+        matches!(
+            with(&lists),
+            Time::Established {
+                through: Authority::Listed(_),
+                ..
+            }
+        ),
+        "{:?}",
+        with(&lists)
+    );
+    assert_eq!(
+        with(&[]),
+        Time::Unknown(Unestablished::AuthorityNotEstablished(
+            Trust::NoAnchorSupplied
+        ))
+    );
 }
 
 pub(crate) mod fixtures {

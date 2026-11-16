@@ -43,6 +43,13 @@ pub struct Session {
     /// all six would be keeping this crate's state for it. The viewer's own copy is the same
     /// value; this is the one a partial change is applied to (ADR 1144).
     restrictions: viewer_core::RestrictionPolicy,
+    /// Whom this reader believes, as this caller has set it.
+    ///
+    /// Held for [`Self::restrictions`]' reason: `quorra_trust_anchors` sets the anchors and
+    /// `quorra_trusted_lists` the lists, and `viewer_core::Command::Trust` carries both — a caller
+    /// that supplied lists after its anchors would otherwise have to send the anchors again (ADR
+    /// 2879).
+    trust: viewer_core::TrustPolicy,
     /// What the document this caller has open departs from that policy in.
     ///
     /// Held beside it for the same reason and for one more: `quorra_restrict_document_operation`
@@ -109,6 +116,7 @@ impl Session {
         Self {
             viewer: Viewer::new(width, height, scale),
             restrictions: viewer_core::RestrictionPolicy::default(),
+            trust: viewer_core::TrustPolicy::default(),
             departures: viewer_core::RestrictionOverride::NONE,
             printed: None,
             archived: None,
@@ -1204,6 +1212,48 @@ mod tests {
         assert_eq!(
             Session::new(800, 1000, 1.0).page_text(0),
             Err(Status::NoAnswer)
+        );
+    }
+
+    /// ADR 2879: the anchors and the lists are set by two entry points and the viewer's
+    /// `Command::Trust` carries both, so each keeps what the other set. A caller supplying lists
+    /// with no anchor gives its clock with them, as `viewer-host` does for `--trusted-lists`
+    /// alone (ADR 2842), and a count of zero withdraws the lists and keeps the anchors.
+    #[test]
+    fn anchors_and_lists_are_set_apart_and_each_keeps_the_other() {
+        use pdf_signature::trust::Supply;
+        use pdf_signature::trusted_list::Lists;
+        use pdf_signature::verdict::Acceptance;
+        use pdf_signature::x509::Instant;
+        let mut session = Session::new(800, 1000, 1.0);
+        let list = || {
+            Lists::of(
+                vec![("AT.xml".to_owned(), b"<a/>".to_vec())],
+                "a test".to_owned(),
+            )
+        };
+        let _ = session.trusted_lists(list(), Instant::from_unix_seconds(7));
+        assert_eq!(session.trust.lists, list());
+        assert_eq!(session.trust.anchors.at(), Instant::from_unix_seconds(7));
+
+        let anchors = Supply::of(
+            vec![("root".to_owned(), vec![0x30])],
+            "anchors".to_owned(),
+            Instant::from_unix_seconds(9),
+        );
+        let _ = session.trust_anchors(anchors.clone(), Acceptance::UnknownRevocationAccepted);
+        assert_eq!(session.trust.lists, list(), "the lists outlive new anchors");
+        assert_eq!(session.trust.anchors, anchors);
+
+        let _ = session.trusted_lists(Lists::none(), Instant::from_unix_seconds(11));
+        assert!(session.trust.lists.is_empty());
+        assert_eq!(
+            session.trust.anchors, anchors,
+            "the anchors outlive the lists, and keep their own instant"
+        );
+        assert_eq!(
+            session.trust.acceptance,
+            Acceptance::UnknownRevocationAccepted
         );
     }
 }

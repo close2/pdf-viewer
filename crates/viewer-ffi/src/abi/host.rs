@@ -501,18 +501,88 @@ pub unsafe extern "C" fn quorra_trust_anchors(
     } else {
         CStr::from_ptr(source).to_string_lossy().into_owned()
     };
-    let policy = viewer_core::TrustPolicy {
-        anchors: pdf_signature::trust::Supply::of(
+    // The lists this caller supplied through `quorra_trusted_lists` are kept (ADR 2879).
+    *events = Box::into_raw(Box::new(viewer.trust_anchors(
+        pdf_signature::trust::Supply::of(
             held,
             source,
             pdf_signature::x509::Instant::from_unix_seconds(at),
         ),
-        acceptance: acceptance.acceptance(),
-        // A C host supplies no trusted list yet: the ABI's entry for one is named as left in
-        // `doc/todo/77` (ADR 2834), and none is the default every host starts from.
-        lists: pdf_signature::trusted_list::Lists::none(),
+        acceptance.acceptance(),
+    )));
+    Status::Ok.code()
+}
+
+/// ETSI TS 119 612's trusted lists this reader asks about a signature: whose services end a
+/// certification path, which qualification a list confirms, and which time-stamping authorities
+/// it publishes (ETSI TS 119 615 clauses 4.3 to 4.7, ETSI TS 119 172-4).
+///
+/// **Off until a caller calls this, and a caller's to supply, never a document's** (`CLAUDE.md`
+/// principle 3, ADR 2834). This library reads no file and opens no socket, so the lists arrive
+/// here as bytes; fetching the European Commission's list of trusted lists is a transmission and
+/// the caller's to make.
+///
+/// `lists` is `count` pointers to the files' octets and `lengths` their lengths. `names` is `count`
+/// NUL-terminated strings, and **is required**: a list is matched to the location that names it by
+/// the last path segment of that location, and ETSI TS 119 615 clause 4.1's pivots and the
+/// Official Journal's certificates by the names `OJEU-Loc`, `OJEU-LOTL-Loc` and
+/// `OJEU-LOTL-Certs-Set*` (ADR 2842). `source` is the sentence saying where they came from. `at`
+/// is the caller's clock, seconds since the Unix epoch, used where no anchor was supplied through
+/// [`quorra_trust_anchors`], whose instant is used otherwise.
+///
+/// A `count` of zero withdraws the lists. The anchors and the acceptance stay as
+/// [`quorra_trust_anchors`] set them. The bytes are copied before this returns.
+///
+/// **This takes no struct by value**, so [`crate::abi::layouts::QUORRA_ABI_VERSION`] does not move.
+///
+/// # Safety
+///
+/// See the module documentation. `lists`, `lengths` and `names` are readable for `count`
+/// elements, each `lists[i]` readable for `lengths[i]` bytes and each `names[i]` a NUL-terminated
+/// string; `source` is a NUL-terminated string or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_trusted_lists(
+    viewer: *mut Session,
+    lists: *const *const u8,
+    lengths: *const usize,
+    names: *const *const c_char,
+    count: usize,
+    source: *const c_char,
+    at: i64,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
     };
-    *events = Box::into_raw(Box::new(viewer.trust(policy)));
+    if count > 0 && (lists.is_null() || lengths.is_null() || names.is_null()) {
+        return Status::NullArgument.code();
+    }
+    let mut held = Vec::with_capacity(count);
+    for index in 0..count {
+        let pointer = *lists.add(index);
+        let name = *names.add(index);
+        if pointer.is_null() || name.is_null() {
+            return Status::NullArgument.code();
+        }
+        held.push((
+            CStr::from_ptr(name).to_string_lossy().into_owned(),
+            core::slice::from_raw_parts(pointer, *lengths.add(index)).to_vec(),
+        ));
+    }
+    let source = if source.is_null() {
+        String::new()
+    } else {
+        CStr::from_ptr(source).to_string_lossy().into_owned()
+    };
+    let supplied = if held.is_empty() {
+        pdf_signature::trusted_list::Lists::none()
+    } else {
+        pdf_signature::trusted_list::Lists::of(held, source)
+    };
+    *events = Box::into_raw(Box::new(viewer.trusted_lists(
+        supplied,
+        pdf_signature::x509::Instant::from_unix_seconds(at),
+    )));
     Status::Ok.code()
 }
 

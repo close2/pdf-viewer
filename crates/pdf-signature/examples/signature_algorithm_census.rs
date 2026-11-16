@@ -1208,6 +1208,7 @@ fn count_established(timestamp: &Signature, bytes: &pdf_syntax::FileBytes, count
         timestamp,
         bytes,
         &anchors,
+        &[],
         &pdf_signature::revocation::Material::none(),
         pdf_signature::timestamp::AskedAt::TheCallersInstant(at),
     ) {

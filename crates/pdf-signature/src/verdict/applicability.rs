@@ -22,10 +22,14 @@
 //!   ([`Timing`]).
 //! - **d) iii)**, each time's evidential relevance and assurance: a claim is a claim, a token's time
 //!   is established or not, and a token carries its policy identifier and accuracy. Whether a
-//!   token is an EU qualified time stamp (item 3)) is TS 119 615 clause 4.6's determination, which
-//!   this tree does not run (`doc/todo/77` item 7), and the report says it was not determined
-//!   ([`Assurance::Token`]). d) i)'s information about the time-stamping authority's absence from
-//!   a list is the same determination's and is likewise said as not asked.
+//!   token is an EU qualified time stamp (item 3)) is TS 119 615 clause 4.7's determination — the
+//!   clause's NOTE 3 names clause 4.6, the issuer's determination clause 4.7 runs twice — over the
+//!   host's lists at the instant the token's authority was asked about and at its `genTime`
+//!   ([`EuQualified`]). Clause 4.7.1 determines a status only for a token that is valid, so a
+//!   token whose time was not established is said as not determined for that reason.
+//! - **d) i)**, the absence of the token's authority from a Member State's list as a service of
+//!   type `TSA/QTST` or `TSA`: TS 119 615 clause 4.3, which the clause's NOTE 2 points at, run for
+//!   both types at the token's `genTime` ([`Assurance::Token`]'s `listed`, empty for the absence).
 //! - **f)**, every attribute of the signer, signed or unsigned, named where this tree knows its
 //!   identifier, and a `commitment-type-indication`'s commitment named, which the clause's NOTE 5
 //!   points at ([`SignatureAttribute`]).
@@ -57,6 +61,8 @@ use crate::signature::{Authenticity, Family, Signature};
 use crate::timestamp::{self, Accuracy, AskedAt, Chain, Time};
 use crate::trust::TrustAnchors;
 use crate::trust::names::{self, Name, NamedAttribute, Unreadable};
+use crate::trusted_list::TrustedList;
+use crate::trusted_list::time_stamp::{self, ListedAuthority};
 use crate::x509::{self, Instant};
 
 /// X.520's `id-at-pseudonym`, `2.5.4.65` — the attribute ETSI EN 319 412-2 clause 4.2.4 has a
@@ -146,14 +152,33 @@ pub enum Assurance {
         policy: String,
         /// Item 2): the token's `accuracy`, where it states one.
         accuracy: Option<Accuracy>,
-        /// Item 3): whether it is an EU qualified time stamp — `None`, not determined, because TS
-        /// 119 615 clause 4.6 is not run here (`doc/todo/77` item 7).
-        eu_qualified: Option<bool>,
+        /// Item 3): whether it is an EU qualified time stamp.
+        eu_qualified: EuQualified,
+        /// d) i): the time-stamping services the host's lists publish for the token's authority at
+        /// its `genTime`; empty where lists were supplied and none does, which is the absence the
+        /// item asks to be expressed.
+        listed: Vec<ListedAuthority>,
     },
     /// A statement by the issuer of revocation information.
     StatedBy(Evidence),
     /// The best signature time and what fixed it.
     Best(Proof),
+}
+
+/// REQ-4.5-01 d) iii) 3) for one token: ETSI TS 119 615 clause 4.7's answer, or why it was not
+/// asked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum EuQualified {
+    /// The host supplied no trusted list, so there is no list to ask.
+    NoListSupplied,
+    /// The token's time was not established, and clause 4.7 determines a token's status only
+    /// provided that the token is valid (its clause 4.7.1).
+    TokenNotEstablished,
+    /// The token names no certificate this reader can read, so clause 4.6 has no `CERT`.
+    NoCertificate,
+    /// Clause 4.7's outputs, or the territory whose list was not supplied.
+    Determined(time_stamp::Answer),
 }
 
 /// One of REQ-4.5-01 d) ii)'s times, with its assurance.
@@ -287,6 +312,11 @@ pub struct Asked<'a, 'm> {
     /// The instant the host supplied, at which a token's authority is asked about — the instant
     /// the best signature time starts from.
     pub now: Instant,
+    /// The document's signatures in [`crate::signature::signatures`]'s order, the order
+    /// [`Chain`]'s links name them in: where a document timestamp's token is read from.
+    pub signatures: &'a [Signature],
+    /// The trusted lists the host supplied that read; empty where none was given.
+    pub lists: &'a [TrustedList],
 }
 
 impl Report {
@@ -302,7 +332,7 @@ impl Report {
         let cms = asked.signature.signed_data().ok();
         let mut times = Vec::new();
         claimed(asked.signature, cms.as_ref(), &mut times);
-        document_timestamps(asked.chain, asked.index, &mut times);
+        document_timestamps(asked, &mut times);
         if let Some(cms) = &cms {
             signature_timestamp(cms, asked, &mut times);
         }
@@ -384,17 +414,22 @@ fn claimed(signature: &Signature, cms: Option<&SignedData<'_>>, times: &mut Vec<
 }
 
 /// d) ii) 2): every document timestamp whose range covers this signature's revision.
-fn document_timestamps(chain: &Chain, index: usize, times: &mut Vec<Timing>) {
-    for link in chain
+fn document_timestamps(asked: &Asked<'_, '_>, times: &mut Vec<Timing>) {
+    for link in asked
+        .chain
         .links
         .iter()
-        .filter(|link| link.covers.contains(&index))
+        .filter(|link| link.covers.contains(&asked.index))
     {
         if let Ok(claim) = &link.claim {
+            let cms = asked
+                .signatures
+                .get(link.signature)
+                .and_then(|signature| signature.signed_data().ok());
             times.push(Timing {
                 kind: TimeKind::DocumentTimestamp,
                 at: claim.gen_time,
-                assurance: token(claim, matches!(link.time, Time::Established { .. })),
+                assurance: token(claim, &link.time, cms.as_ref(), asked.lists),
             });
         }
     }
@@ -408,29 +443,60 @@ fn signature_timestamp(cms: &SignedData<'_>, asked: &Asked<'_, '_>, times: &mut 
     if !attribute.covers_the_signature {
         return;
     }
-    let established = matches!(
-        timestamp::signature_timestamp_established(
-            cms,
-            asked.anchors,
-            asked.material,
-            AskedAt::TheCallersInstant(asked.now),
-        ),
-        Some(Time::Established { .. })
-    );
+    // The attribute read above, so the token is there to establish.
+    let Some(time) = timestamp::signature_timestamp_established(
+        cms,
+        asked.anchors,
+        asked.lists,
+        asked.material,
+        AskedAt::TheCallersInstant(asked.now),
+    ) else {
+        return;
+    };
+    let token_cms = timestamp::signature_timestamp_token(cms).and_then(Result::ok);
     times.push(Timing {
         kind: TimeKind::SignatureTimestamp,
         at: attribute.claim.gen_time,
-        assurance: token(&attribute.claim, established),
+        assurance: token(
+            &attribute.claim,
+            &time,
+            token_cms.as_ref().map(|(token, _)| token),
+            asked.lists,
+        ),
     });
 }
 
-/// d) iii) for a token: items 1) and 2) from the token, 3) not determined.
-fn token(claim: &timestamp::Claim, established: bool) -> Assurance {
+/// d) iii) for a token: items 1) and 2) from the token, 3) by ETSI TS 119 615 clause 4.7 at the
+/// instant its authority was asked about and at its `genTime`, and d) i) by clause 4.3 at its
+/// `genTime`.
+fn token(
+    claim: &timestamp::Claim,
+    time: &Time,
+    cms: Option<&SignedData<'_>>,
+    lists: &[TrustedList],
+) -> Assurance {
+    let listed = cms.map_or_else(Vec::new, |cms| {
+        time_stamp::listed_authorities(lists, cms, claim.gen_time)
+            .into_iter()
+            .map(|(listed, _)| listed)
+            .collect()
+    });
+    let eu_qualified = if lists.is_empty() {
+        EuQualified::NoListSupplied
+    } else if let Time::Established { asked_at, .. } = time {
+        cms.and_then(|cms| {
+            time_stamp::qualified_time_stamp_of(lists, cms, claim.gen_time, asked_at.instant())
+        })
+        .map_or(EuQualified::NoCertificate, EuQualified::Determined)
+    } else {
+        EuQualified::TokenNotEstablished
+    };
     Assurance::Token {
-        established,
+        established: matches!(time, Time::Established { .. }),
         policy: claim.policy.clone(),
         accuracy: claim.accuracy,
-        eu_qualified: None,
+        eu_qualified,
+        listed,
     }
 }
 

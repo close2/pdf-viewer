@@ -766,8 +766,13 @@ fn signatures(
     // signature needs to know whether the document states a time this program could establish.
     let store = pdf_signature::signature::security_store(document);
     let material = store.material();
-    let chain =
-        pdf_signature::timestamp::chain(document, &reading.anchors, &material, trust.anchors.at());
+    let chain = pdf_signature::timestamp::chain(
+        document,
+        &reading.anchors,
+        lists,
+        &material,
+        trust.anchors.at(),
+    );
     let length = document.bytes().len() as u64;
     let timestamps = standing(&chain);
     for (index, signature) in signatures.iter().enumerate() {
@@ -783,9 +788,13 @@ fn signatures(
         if let Some(at) = established_over(&chain, index) {
             when = when.proven_at(at, Proof::ADocumentTimestamp);
         }
-        if let Some(at) =
-            signature_timestamps_instant(signature, &reading.anchors, &material, trust.anchors.at())
-        {
+        if let Some(at) = signature_timestamps_instant(
+            signature,
+            &reading.anchors,
+            lists,
+            &material,
+            trust.anchors.at(),
+        ) {
             when = when.proven_at(at, Proof::ThisSignaturesTimestampAttribute);
         }
         let asked = Asked {
@@ -803,6 +812,7 @@ fn signatures(
             chain: &chain,
             index,
             now: trust.anchors.at(),
+            signatures: &signatures,
         };
         about_one(signature, document, length, &asked, notes, published);
         modifications(signature, document, &permissions, notes);
@@ -878,6 +888,9 @@ struct Asked<'a> {
     supplied: pdf_signature::trusted_list::anchors::Supplied<'a>,
     /// §12.8.5's chain, whose links name the signatures they cover by position.
     chain: &'a pdf_signature::timestamp::Chain,
+    /// Every signature, [`pdf_signature::signature::signatures`]'s first and in its order — the
+    /// positions the chain's links name.
+    signatures: &'a [pdf_signature::signature::Signature],
     /// This signature's position among the document's signature dictionaries.
     index: usize,
     /// The host's instant, at which a token's authority is asked about.
@@ -950,6 +963,7 @@ fn established_over(
 fn signature_timestamps_instant(
     signature: &pdf_signature::signature::Signature,
     anchors: &pdf_signature::trust::TrustAnchors<'_>,
+    lists: &[pdf_signature::trusted_list::TrustedList],
     material: &pdf_signature::revocation::Material<'_>,
     now: pdf_signature::x509::Instant,
 ) -> Option<pdf_signature::x509::Instant> {
@@ -963,6 +977,7 @@ fn signature_timestamps_instant(
     match pdf_signature::timestamp::signature_timestamp_established(
         &cms,
         anchors,
+        lists,
         material,
         pdf_signature::timestamp::AskedAt::TheCallersInstant(now),
     )? {
@@ -1160,12 +1175,13 @@ fn document_timestamps(chain: &pdf_signature::timestamp::Chain, notes: &mut Vec<
     // so the four steps ADR 1071 states end at an anchor — and which of the two sentences below is
     // true of this run is decided by whether a host named one.
     notes.push(match chain.outermost().map(|link| &link.time) {
-        Some(pdf_signature::timestamp::Time::Established { at, .. }) => format!(
+        Some(pdf_signature::timestamp::Time::Established { at, through, .. }) => format!(
             "the outermost of those timestamps establishes an instant: its authority's \
-             certification path reaches an anchor you supplied, its token's signature verifies, \
-             and the token's contents are bound to that signature (§12.8.5.2, RFC 3161). The \
-             instant is {} seconds after the epoch. What it establishes is the state of the file \
-             at that moment and nothing about what the file says",
+             certification path reaches {}, its token's signature verifies, and the token's \
+             contents are bound to that signature (§12.8.5.2, RFC 3161). The instant is {} \
+             seconds after the epoch. What it establishes is the state of the file at that moment \
+             and nothing about what the file says",
+            authority_words(through),
             at.unix_seconds()
         ),
         _ => "none of those timestamps tells this program *when* the document was in that state. A \
@@ -1177,6 +1193,29 @@ fn document_timestamps(chain: &pdf_signature::timestamp::Chain, notes: &mut Vec<
               above are claims the file makes, and nothing here says otherwise"
             .to_owned(),
     });
+}
+
+/// Whose anchor a token's authority's path ended at, as a phrase.
+fn authority_words(through: &pdf_signature::timestamp::Authority) -> String {
+    match through {
+        pdf_signature::timestamp::Authority::Listed(listed) => format!(
+            "the time-stamping service \"{}\" of \"{}\", which the trusted list of {} (sequence \
+             number {}) publishes as a service of type {} (ETSI TS 119 615 clause 4.3){}",
+            listed.service,
+            listed.provider,
+            listed.territory,
+            listed.sequence_number,
+            listed.service_type,
+            if listed.authentication
+                == pdf_signature::trusted_list::Authentication::VouchedForByTheHost
+            {
+                ", a list believed because the host that supplied it vouched for it"
+            } else {
+                ""
+            }
+        ),
+        pdf_signature::timestamp::Authority::ReadersAnchor => "an anchor you supplied".to_owned(),
+    }
 }
 
 /// Every signature dictionary the document holds, from both places §12.8.1 puts one.
@@ -2504,6 +2543,8 @@ fn verdicts(
                             material: asked.material,
                             anchors: asked.anchors,
                             now: asked.now,
+                            signatures: asked.signatures,
+                            lists: asked.lists,
                         },
                     ));
             }
@@ -3006,6 +3047,102 @@ fn attribute_short_name(kind: &str) -> &str {
     }
 }
 
+/// REQ-4.5-01 d) iii) 3): whether a token is an EU qualified time stamp, as ETSI TS 119 615 clause
+/// 4.7 answered — its `QTST-Results`, `QTST-Status` and `QTST-Sub-Status` in the clause's own
+/// spelling — or why it was not asked.
+fn eu_qualified_words(eu_qualified: &pdf_signature::verdict::applicability::EuQualified) -> String {
+    use pdf_signature::trusted_list::time_stamp::Answer;
+    use pdf_signature::verdict::applicability::EuQualified;
+    match eu_qualified {
+        EuQualified::NoListSupplied => {
+            "whether it is an EU qualified time stamp was not determined: no trusted list was \
+             given (ETSI TS 119 615 clause 4.7)"
+                .to_owned()
+        }
+        EuQualified::TokenNotEstablished => {
+            "whether it is an EU qualified time stamp was not determined, because ETSI TS 119 615 \
+             clause 4.7 answers only for a token that is valid and this one's time was not \
+             established"
+                .to_owned()
+        }
+        EuQualified::NoCertificate => {
+            "whether it is an EU qualified time stamp was not determined: the token names no \
+             certificate this reader can read (ETSI TS 119 615 clause 4.6's CERT)"
+                .to_owned()
+        }
+        EuQualified::Determined(Answer::NoListForTerritory(territory)) => format!(
+            "whether it is an EU qualified time stamp was not determined: its authority's \
+             certificate names {territory}, and no trusted list of {territory} was given (ETSI TS \
+             119 615 clause 4.7)"
+        ),
+        EuQualified::Determined(Answer::Determined(outputs)) => {
+            let sub: Vec<String> = outputs
+                .sub_status
+                .iter()
+                .map(pdf_signature::trusted_list::time_stamp::SubStatus::name)
+                .collect();
+            format!(
+                "ETSI TS 119 615 clause 4.7 answers {} with {}{}{}",
+                outputs.results.name(),
+                match outputs.status {
+                    pdf_signature::trusted_list::Status::Passed => "PROCESS_PASSED",
+                    pdf_signature::trusted_list::Status::Failed => "PROCESS_FAILED",
+                },
+                if sub.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", sub.join(", "))
+                },
+                outputs
+                    .country
+                    .as_deref()
+                    .map_or_else(String::new, |country| format!(
+                        " by the trusted list of {country}"
+                    )),
+            )
+        }
+        _ => "whether it is an EU qualified time stamp was not determined".to_owned(),
+    }
+}
+
+/// REQ-4.5-01 d) i): the time-stamping services the host's lists publish for a token's authority,
+/// or their absence, which the item asks the report to express; nothing where no list was given.
+fn listed_words(
+    eu_qualified: &pdf_signature::verdict::applicability::EuQualified,
+    listed: &[pdf_signature::trusted_list::time_stamp::ListedAuthority],
+) -> String {
+    if *eu_qualified == pdf_signature::verdict::applicability::EuQualified::NoListSupplied {
+        return "whether its authority is in an EU trusted list was not asked: no list was given"
+            .to_owned();
+    }
+    if listed.is_empty() {
+        return "its authority is absent from every trusted list given as a time-stamping service \
+                (of type TSA/QTST or TSA, REQ-4.5-01 d) i), ETSI TS 119 615 clause 4.3)"
+            .to_owned();
+    }
+    let services: Vec<String> = listed
+        .iter()
+        .map(|service| {
+            format!(
+                "\"{}\" of \"{}\" in the list of {}, of type {}{}",
+                service.service,
+                service.provider,
+                service.territory,
+                service.service_type,
+                service.status_at_generation.as_deref().map_or_else(
+                    || ", with no status at the token's generation time".to_owned(),
+                    |status| format!(", {status} at the token's generation time")
+                ),
+            )
+        })
+        .collect();
+    format!(
+        "its authority is listed as the time-stamping service {} (REQ-4.5-01 d) i), ETSI TS 119 \
+         615 clause 4.3)",
+        services.join("; ")
+    )
+}
+
 /// REQ-4.5-01 d): each time that bears on the signature with its evidential relevance and
 /// assurance, in the clause's order.
 fn times_sentence(times: &[pdf_signature::verdict::applicability::Timing]) -> String {
@@ -3045,11 +3182,10 @@ fn times_sentence(times: &[pdf_signature::verdict::applicability::Timing]) -> St
                     established,
                     policy,
                     accuracy,
-                    ..
+                    eu_qualified,
+                    listed,
                 } => format!(
-                    "{}, under the time-stamping policy {}, {}; whether it is an EU qualified time \
-                     stamp, and whether its authority is in an EU trusted list, was not determined \
-                     (ETSI TS 119 615 clause 4.6 is not run here)",
+                    "{}, under the time-stamping policy {}, {}; {}; {}",
                     if *established {
                         "established by the token's validation"
                     } else {
@@ -3063,7 +3199,9 @@ fn times_sentence(times: &[pdf_signature::verdict::applicability::Timing]) -> St
                     accuracy.map_or_else(
                         || "stating no accuracy".to_owned(),
                         |accuracy| format!("accurate to {} microseconds", accuracy.micros_total())
-                    )
+                    ),
+                    eu_qualified_words(eu_qualified),
+                    listed_words(eu_qualified, listed),
                 ),
                 Assurance::StatedBy(evidence) => format!("as {} states it", evidence.name()),
                 Assurance::Best(proof) => match proof {
@@ -4964,6 +5102,61 @@ mod tests {
         assert!(none.contains("makes none of the statements"), "{none}");
     }
 
+    /// ETSI TS 119 172-4 REQ-4.5-01 d) iii) 3): ETSI TS 119 615 clause 4.7's outputs are said in
+    /// the clause's own spelling with the list they came from, and a token not established is
+    /// said as not determined for clause 4.7.1's proviso. d) i): a listed service is named with
+    /// its type and its status at the token's generation time, and with lists given and none
+    /// listing the authority, the absence is said.
+    #[test]
+    fn a_tokens_qualification_and_listing_are_said_in_the_clauses_words() {
+        use pdf_signature::trusted_list::Authentication;
+        use pdf_signature::trusted_list::time_stamp::{
+            Answer, Indication, ListedAuthority, Outputs, SubStatus, TSA_QTST,
+        };
+        use pdf_signature::verdict::applicability::EuQualified;
+        let failed = EuQualified::Determined(Answer::Determined(Outputs {
+            results: Indication::Qualified,
+            status: pdf_signature::trusted_list::Status::Failed,
+            sub_status: vec![SubStatus::ResultsDifferAtGeneration(
+                Indication::NotQualified,
+            )],
+            country: Some("AT".to_owned()),
+            tsp_name: None,
+        }));
+        assert_eq!(
+            super::eu_qualified_words(&failed),
+            "ETSI TS 119 615 clause 4.7 answers Qualified with PROCESS_FAILED (at the token's \
+             generation time the answer was Not_Qualified) by the trusted list of AT"
+        );
+        assert!(
+            super::eu_qualified_words(&EuQualified::TokenNotEstablished)
+                .contains("only for a token that is valid")
+        );
+        let listed = ListedAuthority {
+            territory: "AT".to_owned(),
+            sequence_number: 42,
+            provider: "A provider".to_owned(),
+            service: "A stamp".to_owned(),
+            service_type: TSA_QTST.to_owned(),
+            status_at_generation: Some(
+                "http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted".to_owned(),
+            ),
+            authentication: Authentication::VouchedForByTheHost,
+        };
+        let said = super::listed_words(&failed, std::slice::from_ref(&listed));
+        assert!(
+            said.contains(
+                "\"A stamp\" of \"A provider\" in the list of AT, of type \
+                 http://uri.etsi.org/TrstSvc/Svctype/TSA/QTST, \
+                 http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted at the token's \
+                 generation time"
+            ),
+            "{said}"
+        );
+        assert!(super::listed_words(&failed, &[]).contains("absent from every trusted list"));
+        assert!(super::listed_words(&EuQualified::NoListSupplied, &[]).contains("was not asked"));
+    }
+
     /// ETSI TS 119 615 clause 4.4's outputs are said in the clause's own indications, with the
     /// list they came from, and named as being about the certificate: no level of the signature
     /// ("QES", "qualified electronic signature") is worded from them (ADR 2835, ADR 2864). A host
@@ -5086,8 +5279,8 @@ mod tests {
         use pdf_signature::trust::names::Name;
         use pdf_signature::verdict::Proof;
         use pdf_signature::verdict::applicability::{
-            Assurance, ClaimedIn, Cryptography, Report, Scope, SecurityRules, SignatureAttribute,
-            Signer, TimeKind, Timing,
+            Assurance, ClaimedIn, Cryptography, EuQualified, Report, Scope, SecurityRules,
+            SignatureAttribute, Signer, TimeKind, Timing,
         };
         use pdf_signature::x509::Instant;
         let subject = pdf_signature::trust::names::attributes_of(&[
@@ -5118,7 +5311,8 @@ mod tests {
                             millis: 0,
                             micros: 0,
                         }),
-                        eu_qualified: None,
+                        eu_qualified: EuQualified::NoListSupplied,
+                        listed: Vec::new(),
                     },
                 },
                 Timing {

@@ -69,7 +69,45 @@ impl Session {
     /// calls this gets.
     #[must_use]
     pub fn trust(&mut self, policy: viewer_core::TrustPolicy) -> Events {
+        self.trust = policy.clone();
         self.handle(Command::Trust(policy))
+    }
+
+    /// [`Self::trust`] with the anchors and the acceptance replaced and the lists this caller
+    /// supplied before kept.
+    #[must_use]
+    pub fn trust_anchors(
+        &mut self,
+        anchors: pdf_signature::trust::Supply,
+        acceptance: pdf_signature::verdict::Acceptance,
+    ) -> Events {
+        let policy = viewer_core::TrustPolicy {
+            anchors,
+            acceptance,
+            lists: self.trust.lists.clone(),
+        };
+        self.trust(policy)
+    }
+
+    /// [`Self::trust`] with the trusted lists replaced and the anchors kept (ETSI TS 119 612, ADR
+    /// 2879).
+    ///
+    /// A verdict through a list, and ETSI TS 119 615 clause 4.1's "has passed", are asked at the
+    /// instant the anchors carry; where this caller supplied no anchor, the lists bring `at`, the
+    /// caller's clock, with them — `viewer-host`'s rule for a reader given `--trusted-lists` and no
+    /// `--trust-anchors` (ADR 2842).
+    #[must_use]
+    pub fn trusted_lists(
+        &mut self,
+        lists: pdf_signature::trusted_list::Lists,
+        at: pdf_signature::x509::Instant,
+    ) -> Events {
+        let mut policy = self.trust.clone();
+        if policy.anchors.is_empty() && !lists.is_empty() {
+            policy.anchors = pdf_signature::trust::Supply::of(Vec::new(), String::new(), at);
+        }
+        policy.lists = lists;
+        self.trust(policy)
     }
 
     /// §7.6.5.1's reader identity: the certificate and key a document encrypted to recipients is

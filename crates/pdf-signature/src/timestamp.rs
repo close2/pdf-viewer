@@ -68,6 +68,8 @@ use crate::der::{
 use crate::revocation::{Material, Revocation};
 use crate::signature::{self, Authenticity, Integrity, Signature, SignedEnd};
 use crate::trust::{Purpose, Trust, TrustAnchors};
+use crate::trusted_list::TrustedList;
+use crate::trusted_list::time_stamp::{self, ListedAuthority};
 use crate::x509::{self, Instant};
 
 /// The largest `serialNumber` this reader takes, in octets.
@@ -426,6 +428,7 @@ pub fn signature_timestamp(
 pub fn signature_timestamp_established(
     cms: &SignedData<'_>,
     anchors: &TrustAnchors<'_>,
+    lists: &[TrustedList],
     material: &Material<'_>,
     asked_at: AskedAt,
 ) -> Option<Time> {
@@ -434,29 +437,36 @@ pub fn signature_timestamp_established(
         Err(refused) => return Some(Time::Unknown(refused)),
     };
     // Step 4, with RFC 3161 section 2.3's purpose for the reason `established` states.
-    if anchors.is_empty() {
-        return Some(Time::Unknown(Unestablished::AuthorityNotEstablished(
-            Trust::NoAnchorSupplied,
-        )));
-    }
-    Some(
-        match signature::cms_trust(
+    let local = if anchors.is_empty() {
+        Trust::NoAnchorSupplied
+    } else {
+        signature::cms_trust(
             &token,
             anchors,
             material,
             asked_at.instant(),
             Purpose::TimeStamping,
             &crate::trust::PathInputs::default(),
-        ) {
-            Trust::Anchored { revocation, .. } => Time::Established {
-                at: info.gen_time,
-                accuracy: info.accuracy,
-                revocation,
-                asked_at,
-            },
-            other => Time::Unknown(Unestablished::AuthorityNotEstablished(other)),
+        )
+    };
+    let (trust, through) = step_four(
+        &token,
+        info.gen_time,
+        local,
+        lists,
+        material,
+        asked_at.instant(),
+    );
+    Some(match trust {
+        Trust::Anchored { revocation, .. } => Time::Established {
+            at: info.gen_time,
+            accuracy: info.accuracy,
+            revocation,
+            asked_at,
+            through,
         },
-    )
+        other => Time::Unknown(Unestablished::AuthorityNotEstablished(other)),
+    })
 }
 
 /// Steps 1 to 3 of [`signature_timestamp_established`] over a signature's `signature-time-stamp`
@@ -685,9 +695,74 @@ pub enum Time {
         revocation: Revocation,
         /// Which instant that path was validated at.
         asked_at: AskedAt,
+        /// Whose anchor that path ended at.
+        through: Authority,
     },
     /// It did not, and this is where it stopped.
     Unknown(Unestablished),
+}
+
+/// Whose anchor a token's authority's path ended at: the reader's own, or the digital identity of
+/// a time-stamping service a host's trusted list publishes for that authority (ADR 2878).
+///
+/// ETSI EN 319 102-1 clause 5.6.2.1 validates a time-stamp against "a trust anchor list
+/// applicable for validating time-stamps according to the validation policy", and ETSI TS 119
+/// 172-4 REQ-4.2-03's NOTE 2 says such an anchor need not be a time-stamping service of a Member
+/// State's list — so a list's service is one source of the anchors and the reader's are another.
+/// The reader's are asked first, and a host's lists only where those reach no anchor, so a host
+/// that supplies lists changes no instant its anchors already established.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Authority {
+    /// One of the anchors the reader supplied.
+    ReadersAnchor,
+    /// A service of type `TSA/QTST` or `TSA` that ETSI TS 119 615 clause 4.3 returns for the
+    /// token's authority at its `genTime`
+    /// ([`crate::trusted_list::time_stamp::listed_authorities`]).
+    Listed(Box<ListedAuthority>),
+}
+
+/// Step 4 over the reader's anchors, whose answer is `local`, and then — where that reached no
+/// anchor — over each service a host's lists publish for the token's authority at `gen_time`, in
+/// the lists' order: the first whose identity the path reaches is the authority.
+///
+/// Where no listed service anchors the path either, the answer is the reader's anchors' when the
+/// reader supplied any, and otherwise the last listed service's.
+fn step_four(
+    token: &SignedData<'_>,
+    gen_time: Instant,
+    local: Trust,
+    lists: &[TrustedList],
+    material: &Material<'_>,
+    at: Instant,
+) -> (Trust, Authority) {
+    if matches!(local, Trust::Anchored { .. }) {
+        return (local, Authority::ReadersAnchor);
+    }
+    let mut answer = local;
+    for (listed, identities) in time_stamp::listed_authorities(lists, token, gen_time) {
+        let parsed: Vec<x509::Certificate<'_>> = identities
+            .iter()
+            .filter_map(|der| x509::parse(der).ok())
+            .collect();
+        if parsed.is_empty() {
+            continue;
+        }
+        let trust = signature::cms_trust(
+            token,
+            &TrustAnchors::of(&parsed),
+            material,
+            at,
+            Purpose::TimeStamping,
+            &crate::trust::PathInputs::default(),
+        );
+        if matches!(trust, Trust::Anchored { .. }) {
+            return (trust, Authority::Listed(Box::new(listed)));
+        }
+        if matches!(answer, Trust::NoAnchorSupplied) {
+            answer = trust;
+        }
+    }
+    (answer, Authority::ReadersAnchor)
 }
 
 /// Why a token's `genTime` is not an instant this program will state.
@@ -736,6 +811,7 @@ pub fn established(
     timestamp: &Signature,
     file: &FileBytes,
     anchors: &TrustAnchors<'_>,
+    lists: &[TrustedList],
     material: &Material<'_>,
     asked_at: AskedAt,
 ) -> Time {
@@ -777,12 +853,22 @@ pub fn established(
     // extension … with KeyPurposeID having value: id-kp-timeStamping", and "[t]his extension MUST
     // be critical" — so without a purpose every conforming authority's certificate is refused as
     // an unrecognised critical extension (ADR 1071 section 4).
-    match timestamp.trust_for(anchors, material, asked_at.instant(), Purpose::TimeStamping) {
+    let local = timestamp.trust_for(anchors, material, asked_at.instant(), Purpose::TimeStamping);
+    let (trust, through) = step_four(
+        &cms,
+        info.gen_time,
+        local,
+        lists,
+        material,
+        asked_at.instant(),
+    );
+    match trust {
         Trust::Anchored { revocation, .. } => Time::Established {
             at: info.gen_time,
             accuracy: info.accuracy,
             revocation,
             asked_at,
+            through,
         },
         other => Time::Unknown(Unestablished::AuthorityNotEstablished(other)),
     }
@@ -921,7 +1007,8 @@ impl Chain {
 /// [`crate::signature::Signature::trust`]: RFC 5280 section 6.1.1 makes the anchors input (d) and
 /// the time input (b), §12.8.4's material comes out of the document, and nothing here opens a
 /// socket or asks a clock. `at` is used only where no later timestamp established one, which is
-/// what [`AskedAt`] reports.
+/// what [`AskedAt`] reports. `lists` are the host's trusted lists, whose time-stamping services
+/// anchor a token's authority where `anchors` do not ([`Authority`]); empty where none was given.
 ///
 /// **The links are established from the outside in.** The outermost token is the only one nothing
 /// later covers, so it is the only one the caller's instant is spent on; every earlier one is asked
@@ -930,6 +1017,7 @@ impl Chain {
 pub fn chain(
     document: &Document,
     anchors: &TrustAnchors<'_>,
+    lists: &[TrustedList],
     material: &Material<'_>,
     at: Instant,
 ) -> Chain {
@@ -999,7 +1087,7 @@ pub fn chain(
         });
     }
     nothing_left_uncovered(&mut chain);
-    establish(&mut chain, &signatures, &file, anchors, material, at);
+    establish(&mut chain, &signatures, &file, anchors, lists, material, at);
     chain
 }
 
@@ -1052,6 +1140,7 @@ fn establish(
     signatures: &[Signature],
     file: &FileBytes,
     anchors: &TrustAnchors<'_>,
+    lists: &[TrustedList],
     material: &Material<'_>,
     at: Instant,
 ) {
@@ -1064,7 +1153,7 @@ fn establish(
         else {
             continue;
         };
-        let time = established(signature, file, anchors, material, asked_at);
+        let time = established(signature, file, anchors, lists, material, asked_at);
         if let Time::Established {
             at: established_at, ..
         } = time

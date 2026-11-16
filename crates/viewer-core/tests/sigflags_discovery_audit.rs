@@ -137,6 +137,7 @@ fn assert_timestamp_is_found(document: &Document) {
     let chain = pdf_signature::timestamp::chain(
         document,
         &pdf_signature::trust::TrustAnchors::none(),
+        &[],
         &pdf_signature::revocation::Material::none(),
         pdf_signature::x509::Instant::from_unix_seconds(0),
     );

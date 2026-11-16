@@ -1,9 +1,9 @@
 # 77 — European signatures, their levels, and *locally valid*
 
 Status: **open** — locally valid, the list reader, the lists' authentication, RSASSA-PSS subject
-keys, the QC statements, TS 119 615 clauses 4.4 and 4.5, TS 119 172-4 clause 4.4.2's level, most of
-clause 4.5's report and a policy's trusted-list anchors are built (ADRs 2834, 2835, 2842, 2843, 2852,
-2853, 2864, 2865, 2866, 2872, 2874);
+keys, the QC statements, TS 119 615 clauses 4.4 to 4.7, TS 119 172-4 clause 4.4.2's level, most of
+clause 4.5's report, a policy's trusted-list anchors and a C host's lists are built (ADRs 2834, 2835,
+2842, 2843, 2852, 2853, 2864, 2865, 2866, 2872, 2874, 2878, 2879);
 section 2 is the order for the rest.
 Priority: the owner's, 2026-11-06, `doc/questions/A800` item 3: "we should be able to validate all
 european digital signatures and be able to tell the user the different levels of signatures QES,
@@ -86,6 +86,17 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
   referencing one (`certification_path::ListedTrustPoint`), a reference not resolved or a pointed-to
   list not supplied is counted unsearched, and `viewer_core::notes` names the list that determined
   the anchor a path ended at.
+- **Time stamps' authorities in a list** (ADR 2878). `trusted_list::time_stamp`: TS 119 615 clause
+  4.6 (PRO-4.6.4-01 to -09, the list named by the subject's `countryName`) and clause 4.7 (the two
+  runs at the instant asked and at `genTime`, compared), and the services of types `TSA/QTST` and
+  `TSA` clause 4.3 returns for a token's authority at its `genTime`. Those services' identities
+  anchor a document timestamp's and a signature timestamp's authority where the reader's anchors
+  reach none (`timestamp::Authority`); clause 4.3's path test states the time-stamping purpose for
+  those types. The report's d) iii) 3) is clause 4.7's answer (`applicability::EuQualified`, not
+  asked for a token not established) and d) i) names the listed services or their absence.
+- **A C host's lists** (ADR 2879). `quorra_trusted_lists` beside `quorra_trust_anchors`, each
+  keeping the other's half of the policy the session holds; names required, the caller's clock
+  carried where no anchor was given.
 
 ## 2. What is left, in order
 
@@ -93,11 +104,10 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
    `doc/questions/Q855` (ETSI's notice, ADR 1085); h)'s potential security issues, assessed against
    ETSI TS 119 312's tables once they are fetched and transcribed (free from ETSI, never tracked;
    the fetch answered 403 on 2026-11-15, and `doc/questions/Q856` asks the owner to supply it).
-   d)'s qualified-time-stamp answer is item 7's.
 4. **The list of trusted lists fetched** by a host at A98's `Submissions` level through ADR 1728's
    port, `ask` by default — a transmission, never the confined worker's — keying each file by its
    URI as ADR 2842's names do, and persisting PRO-4.1.4-16 and -17's configuration updates.
-6. **A C host** supplies lists: one `viewer-ffi` call beside the anchors' (`abi/host.rs`), and the
-   FFI counts with it.
-7. **Time stamps' authorities** in a list (TS 119 615 clause 4.7) for the document timestamp chain,
-   which still asks the local anchors only.
+8. **Annex A's `id-etsi-dst-euqtst`**: whether a document timestamp is owed that type. TS 119 172-4
+   clause 4.4.2 joins a level for a signature and names no join over a time-stamp token; until a
+   reading finds one, a document timestamp is reported by clause 4.7's answer and given no type
+   (ADR 2878).

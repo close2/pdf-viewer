@@ -36,7 +36,7 @@
 //! which is where entity expansion would live (`crate::xml`).
 
 use crate::signature::Signature;
-use crate::trust::{Trust, TrustAnchors};
+use crate::trust::{Purpose, Trust, TrustAnchors};
 use crate::verdict::Listing;
 use crate::x509::{self, Certificate, Instant};
 use crate::xml::{self, Element, Tree, XmlError, base64, date_time};
@@ -45,6 +45,7 @@ pub mod anchors;
 pub mod authentication;
 pub mod determination;
 pub mod qualifications;
+pub mod time_stamp;
 
 pub use authentication::Outcome;
 pub use qualifications::Qualifications;
@@ -382,7 +383,7 @@ pub fn matching<'l>(
     for provider in &list.providers {
         for service in &provider.services {
             if service.current.type_identifier == service_type
-                && identity_issued(&service.current, certificate, pool, at)
+                && identity_issued(&service.current, certificate, pool, service_type, at)
             {
                 results.push(Matched {
                     provider,
@@ -440,10 +441,16 @@ pub fn matching<'l>(
 }
 
 /// PRO-4.3.4-03 ii) for one service's digital identity.
+///
+/// A time-stamping service's certificate is RFC 3161 section 2.3's, whose critical `extKeyUsage`
+/// RFC 5280 section 4.2 refuses where the use is not known; the service type says the use, so a
+/// search for a [`time_stamp::TSA_QTST`] or [`time_stamp::TSA`] service states
+/// [`Purpose::TimeStamping`] and every other search states none.
 fn identity_issued(
     state: &ServiceState,
     certificate: &Certificate<'_>,
     pool: &[Certificate<'_>],
+    service_type: &str,
     at: Instant,
 ) -> bool {
     let identities: Vec<Certificate<'_>> = state
@@ -461,13 +468,19 @@ fn identity_issued(
         return false;
     }
     let anchors = TrustAnchors::of(&identities);
+    let purpose = if service_type == time_stamp::TSA_QTST || service_type == time_stamp::TSA {
+        Purpose::TimeStamping
+    } else {
+        Purpose::Unstated
+    };
     matches!(
-        crate::trust::validate(
+        crate::trust::validate_for(
             certificate,
             pool,
             &anchors,
             &crate::revocation::Material::none(),
-            at
+            at,
+            purpose,
         ),
         Trust::Anchored { .. }
     )

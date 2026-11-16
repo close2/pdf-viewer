@@ -290,6 +290,8 @@ fn the_report_over_a_signature_holds_each_item_in_the_clauses_order() {
         material: &Material::none(),
         anchors: &anchors,
         now: AT,
+        signatures: &[],
+        lists: &[],
     });
     assert_eq!(report.scope, Scope::EuQualifiedUsingTrustedLists);
     assert_eq!(
@@ -318,4 +320,94 @@ fn the_report_over_a_signature_holds_each_item_in_the_clauses_order() {
     );
     assert!(report.signer.is_ok());
     assert_eq!(report.attributes.len(), 4);
+}
+
+/// d) iii) 3) and d) i) for a token, end to end over the `openssl ts` token of
+/// `trusted_list::time_stamp`'s tests, carried as a signature timestamp attribute.
+///
+/// With Austria's list publishing the unit's root as a granted `TSA/QTST` service of the unit's
+/// provider, the token is established through that service, ETSI TS 119 615 clause 4.7 answers
+/// `Qualified` with `PROCESS_PASSED` by the list of `AT` (PRO-4.7.4-03, the two runs agreeing),
+/// and d) i) names the service. With no list nothing is asked; with a list publishing the root only
+/// as a `CA/QC` service the token is not established, so clause 4.7 is not asked (its clause
+/// 4.7.1's proviso), and d) i) expresses the absence.
+#[test]
+fn a_tokens_qualification_and_listing_are_reported_from_the_lists() {
+    use crate::trusted_list::CA_QC;
+    use crate::trusted_list::tests::Written;
+    use crate::trusted_list::time_stamp::tests::{ASKED, PROVIDER, ROOT, TOKEN, list, qtst};
+    use crate::trusted_list::time_stamp::{Answer, Indication, Outputs, TSA_QTST};
+    let root = hex(ROOT);
+    let bytes = cms::fixtures::detached_with_signature_timestamp(&[0x00; 32], &hex(TOKEN));
+    let outer = cms::signed_data(&bytes).expect("a SignedData");
+    let (token_cms, info) = timestamp::signature_timestamp_token(&outer)
+        .expect("the attribute is there")
+        .expect("the token reads");
+    let claim = timestamp::Claim::from(&info);
+    let assured = |lists: &[TrustedList]| {
+        let time = timestamp::signature_timestamp_established(
+            &outer,
+            &TrustAnchors::none(),
+            lists,
+            &Material::none(),
+            AskedAt::TheCallersInstant(ASKED),
+        )
+        .expect("the attribute is there");
+        token(&claim, &time, Some(&token_cms), lists)
+    };
+
+    let lists = [list("AT", PROVIDER, &[qtst(&root)])];
+    let Assurance::Token {
+        established,
+        eu_qualified,
+        listed,
+        ..
+    } = assured(&lists)
+    else {
+        panic!("a token's assurance");
+    };
+    assert!(established);
+    assert_eq!(
+        eu_qualified,
+        EuQualified::Determined(Answer::Determined(Outputs {
+            results: Indication::Qualified,
+            status: crate::trusted_list::Status::Passed,
+            sub_status: Vec::new(),
+            country: Some("AT".to_owned()),
+            tsp_name: None,
+        }))
+    );
+    let [service] = listed.as_slice() else {
+        panic!("one listed service: {listed:?}");
+    };
+    assert_eq!(service.service_type, TSA_QTST);
+
+    let Assurance::Token {
+        eu_qualified,
+        listed,
+        ..
+    } = assured(&[])
+    else {
+        panic!("a token's assurance");
+    };
+    assert_eq!(eu_qualified, EuQualified::NoListSupplied);
+    assert!(listed.is_empty());
+
+    let issuer_only = Written {
+        service_type: CA_QC,
+        ..qtst(&root)
+    };
+    let lists = [list("AT", PROVIDER, &[issuer_only])];
+    let Assurance::Token {
+        established,
+        eu_qualified,
+        listed,
+        ..
+    } = assured(&lists)
+    else {
+        panic!("a token's assurance");
+    };
+    assert!(!established);
+    assert_eq!(eu_qualified, EuQualified::TokenNotEstablished);
+    assert!(listed.is_empty(), "the absence d) i) asks to be expressed");
 }

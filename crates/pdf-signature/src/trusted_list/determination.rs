@@ -590,7 +590,13 @@ pub fn determine(
 
 /// PRO-4.4.4-01: the issuer's `countryName`, in capitals, `GB` written `UK` and `GR` written `EL`.
 fn territory_of(certificate: &Certificate<'_>) -> Option<String> {
-    let attributes = names::attributes_of(certificate.issuer).ok()?;
+    country_code(certificate.issuer)
+}
+
+/// A name's `countryName`, in capitals, `GB` written `UK` and `GR` written `EL` — the conversion
+/// PRO-4.4.4-01 makes of an issuer's name and PRO-4.6.4-02 of a subject's.
+pub(super) fn country_code(name: &[u8]) -> Option<String> {
+    let attributes = names::attributes_of(name).ok()?;
     let country = attributes
         .iter()
         .find(|attribute| attribute.kind == COUNTRY_NAME)?

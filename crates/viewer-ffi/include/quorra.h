@@ -1167,6 +1167,22 @@ int32_t quorra_trust_anchors(quorra_viewer *viewer, const uint8_t *const *certif
                        const char *source, int64_t at, uint32_t acceptance,
                        quorra_events **events);
 
+/* ETSI TS 119 612's trusted lists: whose services end a certification path, which qualification a
+ * list confirms, and which time-stamping authorities it publishes. Off until called; this library
+ * reads no file and opens no socket, so fetching the lists is the caller's.
+ *
+ * lists are count pointers to the files' octets and lengths their lengths. names are count
+ * NUL-terminated strings and are required: a list is matched to the location naming it by that
+ * location's last path segment, and the Official Journal's files by the names OJEU-Loc,
+ * OJEU-LOTL-Loc and OJEU-LOTL-Certs-Set*. source says where they came from. at is the caller's
+ * clock in seconds since the Unix epoch, used where quorra_trust_anchors supplied no anchor.
+ *
+ * A count of 0 withdraws the lists; the anchors stay as quorra_trust_anchors set them. The bytes
+ * are copied before this returns. */
+int32_t quorra_trusted_lists(quorra_viewer *viewer, const uint8_t *const *lists,
+                       const size_t *lengths, const char *const *names, size_t count,
+                       const char *source, int64_t at, quorra_events **events);
+
 /* §8.10.4: which PDF files a reference XObject may import its page from.
  *
  * This library has no filesystem, so the files arrive here or not at all. §8.10.4.1 writes a shall

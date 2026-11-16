@@ -1374,7 +1374,7 @@ fn the_crawls_stacked_document_timestamps_are_ordered_and_none_of_them_is_a_time
         let store = security_store(&document);
         let material = store.material();
         let at = Instant::from_unix_seconds(1_790_812_800);
-        let chain = chain(&document, &TrustAnchors::none(), &material, at);
+        let chain = chain(&document, &TrustAnchors::none(), &[], &material, at);
         println!(
             "{witness}: {} timestamp(s), {} other signature(s), refusals {:?}",
             chain.links.len(),
