@@ -1,0 +1,423 @@
+{
+  "counts": {
+    "function-basename-present": 4090,
+    "file-only": 69
+  },
+  "exceptions": [
+    {
+      "clause": "7.3.7",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/damaged_page_dictionaries.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.3.7",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/damaged_char_procs.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.3.8.1",
+      "status": "implemented",
+      "reference": "crates/pdf-syntax/tests/stream_keyword_padding.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.3.8.1",
+      "status": "implemented",
+      "reference": "crates/pdf-syntax/tests/real_documents.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.4.6",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/corpus.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.4.7",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/fixed_documents.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.4.8",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/colour_transform.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.4.8",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/corpus.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.4.8",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/fixed_documents.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.4.9",
+      "status": "departed",
+      "reference": "crates/pdf-model/tests/corpus.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.7.2",
+      "status": "implemented",
+      "reference": "crates/pdf-syntax/tests/real_documents.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.7.2",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/optional_content.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.7.3.3",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/page_geometry.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.7.3.3",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/contents_entry.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.7.3.3",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/damaged_page_dictionaries.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/shadings.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10",
+      "status": "implemented",
+      "reference": "raster/crates/raster-function-conformance/src/case.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10.1",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/shadings.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10.1",
+      "status": "implemented",
+      "reference": "raster/crates/raster-function-conformance/src/corpus/clipping.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10.1",
+      "status": "implemented",
+      "reference": "raster/crates/raster-function-conformance/src/reference.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10.2",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/shadings.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10.2",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/sampled_function_extent.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10.3",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/shadings.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10.4",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/shadings.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10.4",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/hostile_functions.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10.5",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/shadings.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10.5",
+      "status": "implemented",
+      "reference": "raster/crates/raster-function-conformance/src/reference.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10.5.2",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/shadings.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10.5.3",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/function_faults.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10.5.3",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/shadings.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10.5.3",
+      "status": "implemented",
+      "reference": "raster/crates/raster-function-conformance/src/case.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10.5.3",
+      "status": "implemented",
+      "reference": "raster/crates/raster-function-conformance/src/reference/stack.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10.5.3",
+      "status": "implemented",
+      "reference": "raster/crates/raster-function-conformance/src/corpus/clipping.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "7.10.5.3",
+      "status": "implemented",
+      "reference": "raster/crates/raster-function-conformance/src/corpus/refusal.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "8.6.4.2",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/colour_paths.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "8.7.3.1",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/tiling.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "8.7.4.5.2",
+      "status": "implemented",
+      "reference": "crates/render-cpu/tests/sampled_shading.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "8.7.4.5.3",
+      "status": "implemented",
+      "reference": "crates/render-cpu/tests/shading_placement.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "8.7.4.5.3",
+      "status": "implemented",
+      "reference": "raster/crates/raster-gpu/tests/a_steep_ramp_is_read_at_its_own_t.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "8.7.4.5.3",
+      "status": "implemented",
+      "reference": "raster/crates/raster-gpu/tests/shading_steps.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "8.7.4.5.8",
+      "status": "implemented",
+      "reference": "crates/test-scenes/src/lib.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "8.9.5.1",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/image_masks.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "8.9.5.1",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/image_dimensions.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "8.9.5.2",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/decode_arrays.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "8.9.6.4",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/fixed_documents.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "9.3.6",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/text_render_modes.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "9.3.6",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/glyph_clip_direction.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "9.4.3",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/text_extraction.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "10.7",
+      "status": "implemented",
+      "reference": "crates/render-gpu/tests/headless_gpu.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "10.7",
+      "status": "implemented",
+      "reference": "crates/pdf-render/src/paint.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "11.3.4",
+      "status": "implemented",
+      "reference": "crates/test-scenes/src/lib.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "11.3.5",
+      "status": "implemented",
+      "reference": "crates/test-scenes/src/lib.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "11.3.5.3",
+      "status": "implemented",
+      "reference": "crates/test-scenes/src/lib.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "11.4.6",
+      "status": "implemented",
+      "reference": "crates/test-scenes/src/lib.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "11.5",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/soft_masks.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "11.5",
+      "status": "implemented",
+      "reference": "crates/render-cpu/tests/soft_mask.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "11.6.6",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/transparency_groups.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "11.6.6",
+      "status": "implemented",
+      "reference": "crates/test-scenes/src/lib.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "11.7",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/colour_paths.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "11.7",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/soft_masks.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "11.7.2",
+      "status": "implemented",
+      "reference": "crates/test-scenes/src/lib.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "11.7.5.3",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/icc_paint_context.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "11.7.5.3",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/black_generation_paint.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "11.7.5.3",
+      "status": "implemented",
+      "reference": "crates/pdf-model/tests/pattern_tint_context.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "12.2",
+      "status": "partial",
+      "reference": "crates/viewer-ffi/tests/window_chrome.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "12.2",
+      "status": "partial",
+      "reference": "crates/viewer-ffi/src/window/chrome_tests.rs",
+      "check": "file-only"
+    },
+    {
+      "clause": "12.2",
+      "status": "partial",
+      "reference": "hosts/windows/Quorra.Chrome.Tests/Program.cs",
+      "check": "file-only"
+    },
+    {
+      "clause": "12.2",
+      "status": "partial",
+      "reference": ".github/workflows/ci.yml",
+      "check": "file-only"
+    },
+    {
+      "clause": "12.8.1",
+      "status": "implemented",
+      "reference": "crates/pdf-signature/src/verdict/tests.rs",
+      "check": "file-only"
+    }
+  ],
+  "scope": "Literal function-basename scan of all ledger test references. Does not resolve module identity, macros, #[test] status, execution, fixture validity or assertion quality."
+}

@@ -1,0 +1,43 @@
+{
+  "review_scope": "Bounded source/assertion review, not complete clause or ADR certification. Handoff draft statements are superseded by parent findings and gate-results.",
+  "reviewer_record": {
+    "decisions": [
+      {
+        "adr": "0031",
+        "review": "reaffirmed with limits",
+        "basis": "The code uses RustCrypto primitives and clause-derived fixtures in encryption_fixtures.rs, while real producer corpus files provide a separate interoperability layer. This is a sound implementation strategy but does not independently certify algorithms whose fixture constructors restate the same algorithm. ADR 0031’s R5 refusal was later reconsidered and superseded by ADR 0820/0829 after reading the Adobe ExtensionLevel 3 supplement; current R5 handling is an explicit later decision, not a present discrepancy. The older ADR premise that §7.6 as a whole was unreviewed is historical context, not evidence of current coverage.",
+        "source": "doc/adr/0031-encryption-and-what-a-locked-file-is.md; ISO 32000-2 §7.6.3"
+      },
+      {
+        "adr": "0129",
+        "review": "reaffirmed for the reviewed encryption direction",
+        "basis": "The shared encryption/decryption path and output readback tests align with §7.6.2–.3's symmetric RC4 and AES direction/padding distinctions. This shard did not audit writer completeness or IV generation independently.",
+        "source": "doc/adr/0129-the-cipher-runs-in-both-directions.md; ISO 32000-2 §7.6.2–.3"
+      },
+      {
+        "adr": "0820/0829",
+        "review": "reaffirmed as later, source-backed revision-5 decision",
+        "basis": "ADR 0820 reads Table 21’s R=5 prohibition as a producer-side constraint and implements the proprietary ExtensionLevel 3 path; ADR 0829 checks password preparation and the owner branch against the supplement and qpdf’s published known-key material. The app-specific interpretation is outside complete cryptographic verification here, but it prevents repeating ADR 0031’s obsolete statement that the Standard itself gives no R5 path.",
+        "source": "doc/adr/0820-the-revision-a-table-forbids-a-writer-and-a-reader-still-meets.md; doc/adr/0829-the-supplement-read-and-a-crypt-filter-name-that-defines-nothing.md; Table 21, ISO 32000-2 printed p. 78"
+      },
+      {
+        "adr": "0538",
+        "review": "reaffirmed for errata inventory only",
+        "basis": "The EC3 additions at §7.6.6 are material to V=5 crypt-filter availability and Table 25 Length units. Current errata-read.md records both additions and code comments cite them. This review identified the separate Table 20 mandatory-ignore case (finding E1), which ADR 0538 did not claim to cover.",
+        "source": "doc/adr/0538-the-encryption-familys-counts-and-two-carets-nobody-had-read.md; doc/errata-read.md; EC3 Issues #74 and #184"
+      },
+      {
+        "adr": "1040",
+        "review": "reaffirmed conditionally",
+        "basis": "Table 25 defines the authorization event and says the event fails when authorization fails. The existing same-bytes/one-entry-difference EFOpen vs absent-AuthEvent pair is useful evidence, and §7.6.6 supports the behavior for a filter to which that event applies. The application of this general behavior under each Standard-handler revision must remain subject to §7.6.4.1's profile restrictions; do not generalize the R6 corpus behavior to all Standard-handler revisions.",
+        "source": "doc/adr/1040-the-event-a-failed-authorization-fails.md; ISO 32000-2 §7.6.4.1, §7.6.6"
+      },
+      {
+        "adr": "1534",
+        "review": "not implicated",
+        "basis": "This ADR publishes a known password for the encrypted-attachment corpus case and leaves ADR 1040's event reading unchanged. It does not settle encryption semantics.",
+        "source": "doc/adr/1534-encrypted-attachments-password-is-published.md"
+      }
+    ]
+  }
+}

@@ -6,17 +6,13 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "wave1 13run11pass2expectedfail; wave2 11run5pass6expectedfail",
-    "quality": "Touched4crate Clippy and fmt pass; rustdoc passed; conformance running. Earlier lint failures corrected in test helpers."
+    "later_targets": "28run19pass9expectedfail; exact identities checked after restoring mutation",
+    "quality": "wave3 touched5crate Clippy/fmt pass; earlier4crate rustdoc/full conformance pass"
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
-    "new_shards_ready_for_parent_review": [
-      "tagged_layout",
-      "encryption",
-      "colour_conversion"
-    ],
+    "new_shards_ready_for_parent_review": [],
     "active_shards": [
       "structure_types",
       "xref_streams",
@@ -25,7 +21,10 @@
     "recorded_shards": [
       "logical_structure",
       "fax_jbig2",
-      "collections"
+      "collections",
+      "tagged_layout",
+      "encryption",
+      "colour_conversion"
     ]
   },
   "remaining": [
@@ -40,6 +39,6 @@
     "ceiling": 85,
     "remaining_reserved": 15,
     "last_weekly_used_percent": 31,
-    "last_read_utc": "2026-11-16T08:18:08Z"
+    "last_read_utc": "2026-11-16T08:25:44Z"
   }
 }

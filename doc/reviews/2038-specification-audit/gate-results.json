@@ -54,6 +54,43 @@
       "exit": 100,
       "expected_failures": 6,
       "unexpected_failures": 0
+    },
+    {
+      "log": "wave2-quality-recheck4.log",
+      "scope": "Touched4crate Clippy -Dwarnings; fmt check; rustdoc -Dwarnings; full conformance package tests",
+      "exit": 0,
+      "notes": "Earlier test lint failures corrected; known dependency future-incompatibility notice remains."
+    },
+    {
+      "log": "round2-targets-wave3.log",
+      "exit": 101,
+      "scope": "No tests ran: cargo-nextest was outside PATH; rerun using existing local tool."
+    },
+    {
+      "log": "round2-targets-wave3-rerun.log",
+      "run": 4,
+      "passed": 3,
+      "failed": 1,
+      "skipped": 9,
+      "exit": 100,
+      "expected_failures": 1,
+      "unexpected_failures": 0
+    },
+    {
+      "log": "wave3-quality.log",
+      "scope": "5 touched crates Clippy -Dwarnings and fmt check",
+      "exit": 0
+    },
+    {
+      "log": "round2-targets-restored.log",
+      "scope": "All current audit targets after restoring shared date parser",
+      "run": 28,
+      "passed": 19,
+      "failed": 9,
+      "exit": 100,
+      "expected_failures": 9,
+      "unexpected_failures": 0,
+      "comparison": "Exact binary/test identities match expected-failures.json; mutation restored before this run."
     }
   ],
   "prior_expected_failures": {

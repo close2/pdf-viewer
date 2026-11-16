@@ -1,0 +1,117 @@
+{
+  "review_scope": "Bounded source/assertion review, not complete clause or ADR certification. Handoff draft statements are superseded by parent findings and gate-results.",
+  "reviewer_record": {
+    "scope": "effective TOC: §10.2; §10.3.1-.2; §10.4.1, §10.4.2.1-.5. ISO printed pp.360-364 (physical PDF +15). §10.5 is reviewed only for conversion-order interaction, not certified as a whole here.",
+    "errata": [
+      {
+        "issue": "#181",
+        "clause": "§10.3.1",
+        "state": "EC3 completed",
+        "effect": "Replaces dated ISO 15076-1:2010 citation with appropriate ICC specification per Table 66. icc.rs supports v2/v4."
+      },
+      {
+        "issue": "#640",
+        "clause": "§10.4.2.2-.3",
+        "effect": "Spelling-only 'grey' to 'gray' in formulas; no arithmetic/code behavior change."
+      }
+    ],
+    "features": [
+      {
+        "id": "10.2-native",
+        "source": "p.360",
+        "rule": "Raster output has native colour; any Device or CIE-based colour shall render as process colours. Additional spot colourants, if supported, shall be painted only through Separation/DeviceN spaces defining them.",
+        "implementation": "screen and print outputs are RGB rasters; all sources resolve to process RGB unless separation simulation explicitly creates separations.",
+        "tests": "colour_paths and separation simulation tests; several independent device-path colour tests.",
+        "verdict": "consistent with stated RGB raster device; no spot-native device is claimed. A print route hands RGB raster to host; no claim that physical printer itself is RGB."
+      },
+      {
+        "id": "10.3.1",
+        "source": "pp.360-361",
+        "rule": "CIE source to CIE destination conversion SHALL use appropriate ICC specification. Establishing destination is beyond scope and may use output intents.",
+        "implementation": "ICC profile parsing/evaluation, CIE paths, output intent selection.",
+        "tests": "pdf-colour::icc::a_real_cmyk_profile_agrees_with_independent_evaluators; colour.rs bidirectional profile/table test; model output-intent tests cover public fills/images/shadings/meshes.",
+        "verdict": "implemented, with independent profile evaluator assertions. EC3 #181 makes the ICC citation current/version-neutral."
+      },
+      {
+        "id": "10.3.2",
+        "source": "p.361",
+        "rule": "Processor SHOULD establish CIE-based definitions for device spaces that differ from native device; if native device is CMYK, Gray-to-CMYK SHOULD follow §10.4.2.3. Processor may use assumptions/configuration/analysis for source definitions.",
+        "implementation": "RGB native; CMYK is interpreted through explicit DefaultCMYK/output intent or named assumed press; Gray direct/equal-channel RGB unless CMYK-intent preview choice applies.",
+        "tests": "colour_paths::a_default_colour_space_replaces_the_device_space; output-intent tests across mark types; pdfa_grey tests; source assumption/instrument population documented.",
+        "verdict": "recommendation followed with named assumptions. Conditional CMYK-native sentence does not bind the current RGB raster device; do not treat screen/group blending space as native CMYK."
+      },
+      {
+        "id": "10.4.1",
+        "source": "p.361",
+        "rule": "Names classic conversions; no separate algorithmic requirement.",
+        "implementation": "familial mapping in colour modules.",
+        "tests": "individual .2-.5 cases.",
+        "verdict": "introductory only."
+      },
+      {
+        "id": "10.4.2.1",
+        "source": "p.362",
+        "rule": "ICC-enabled processors SHOULD follow §10.3; less-capable processor MAY use classic .2-.5 approximations.",
+        "implementation": "ICC/assumed press routes preferred; classic functions retained for formulas/masks/other call sites.",
+        "tests": "colour path tests plus alternate branch numeric controls.",
+        "verdict": "branch choice is documented; optional classic paths are not universally owed."
+      },
+      {
+        "id": "10.4.2.2-gray-rgb",
+        "source": "p.362",
+        "rule": "Gray g -> RGB (g,g,g) SHALL; RGB -> gray uses NTSC 0.3R+0.59G+0.11B SHALL.",
+        "implementation": "Gray identity/equal channels; Color::grey_level uses NTSC weights.",
+        "tests": "colour.rs::cmyk_ink_and_grey_are_the_clauses_own_arithmetic; a_grey_and_an_rgb_colour_weigh_the_same_ink; soft-mask and PGM tests assert independent values.",
+        "verdict": "implemented; independent numerical coverage."
+      },
+      {
+        "id": "10.4.2.3-gray-cmyk",
+        "source": "p.362",
+        "rule": "gray g -> (0,0,0,1-g); CMYK->gray = 1-min(1, .3C+.59M+.11Y+K).",
+        "implementation": "CMYK luminance/ink formula exact; Gray-as-output-intent-black for selected preview/PDF-A context. Classic gray->CMYK generally not chosen under ICC-enabled route.",
+        "tests": "colour.rs::cmyk_ink_and_grey_are_the_clauses_own_arithmetic; pdfa_grey and soft-mask tests.",
+        "verdict": "formula is implemented where needed; classic conversion direction is a permitted classic method not universally required. Device-native-CMYK condition is not met by RGB screen/print raster."
+      },
+      {
+        "id": "10.4.2.4-rgb-cmyk-formula",
+        "source": "pp.362-363",
+        "rule": "c=1-R,m=1-G,y=1-B,k=min; C/M/Y subtract UCR(k), K=BG(k), final values clamp to [0,1]. BG outputs [0,1], UCR [-1,1]. Each device SHALL have suitable defaults.",
+        "implementation": "BlackGeneration::separate and rgb_to_cmyk; function results clamped at final channels; default no stated pair routes to §10.3 conversion (profile B2A or assumed press inversion).",
+        "tests": "black_generation.rs::the_stated_functions_are_the_ones_the_clause_calls includes independent worked .2/.7/.4 values, nominal pair, both functions and one-function cases; colour.rs exact formula/roundtrip controls.",
+        "verdict": "formula and stated-function computation well covered. Default-device interpretation is a policy claim: the standard says device-configured defaults but does not dictate a unique algorithm; ADR 2549 chooses press B2A/search for ICC-enabled conversion. Review that reasoning narrowly; do not say nominal f(k)=k must govern ICC path."
+      },
+      {
+        "id": "10.4.2.4-state-defaults",
+        "source": "Table 57 p.166; 10.4.2.4 pp.362-364",
+        "rule": "BG2/UCR2 override BG/UCR in same dictionary; Default on 2 key denotes function in effect at page start. State changes persist until overridden; omission retains value. BG/UCR are applied only during RGB->CMYK conversion; §11.7.5.3 specifies timing/current pair for DeviceRGB into DeviceCMYK group and group Do.",
+        "implementation": "BlackGeneration::read uses pair-wise precedence, None/Set/Initial; graphics state carries pair through conversions and cache keys. to_cmyk_at applies only at RGB leaf.",
+        "tests": "black_generation.rs::table_57_decides_which_of_each_pair_is_in_force; black_generation_paint.rs changes/restores, forms, repeated stencil, source-target cases; transparency_groups profile B2A controls.",
+        "verdict": "implemented, with direct unit numeric and render-path tests. Interpretation of profile B2A as default is selected in ADR 2549; not an omitted default."
+      },
+      {
+        "id": "10.4.2.5-cmyk-rgb",
+        "source": "p.364",
+        "rule": "classic CMYK->RGB: each channel 1-min(1, corresponding ink+K).",
+        "implementation": "Formula available as classic/inverse control; actual ICC-capable device conversion uses selected press/profile, not crude classic branch.",
+        "tests": "colour.rs::the_conversion_into_ink_round_trips_through_the_classic_formula_and_not_the_cube verifies exact inverse for formula-generated colors; press path tests verify ICC route.",
+        "verdict": "formula is independently asserted, but use of ICC branch is permitted/preferred by .2.1; no reader duty to choose classic approximation."
+      },
+      {
+        "id": "10.4.2.4-negative-UCR-clamp",
+        "source": "pp.363-364; Table 57 p.166",
+        "rule": "UCR may return negative amount, adding total colourant; final C/M/Y/K values clamp to [0,1] without an error indication.",
+        "implementation": "BlackGeneration::separate subtracts UCR and clamps each final channel; valid function range permits negative output.",
+        "tests": "No numeric negative-UCR paint assertion found. New draft asserts RGB(.2,.7,.4), UCR=-.5 => raw inks (1.3,.8,1.1,.3), final CMYK (1,.8,1,.3), with a direct-CMYK control.",
+        "verdict": "implementation appears correct; numeric assertion gap is covered by draft."
+      },
+      {
+        "id": "transfer-order-boundary",
+        "source": "§10.1 rendering sequence; §10.5; §11.7.5.3 NOTE",
+        "rule": "Transfer occurs after required inter-space conversions and in native device components; transparency note places it after compositing. BG/UCR governs earlier RGB->CMYK group conversion.",
+        "implementation": "Conversion context carries black-generation into colour mapping; transfer attaches to paint and renderer resolves at final RGB raster.",
+        "tests": "black_generation_paint exercises BG; transfer_functions tests transfer/pixel/group semantics, but no single exact-xref assertion combines BG/UCR, a DeviceCMYK group, and non-identity TR on final RGB.",
+        "verdict": "no defect found; cross-boundary integration assertion gap, draft supplied."
+      }
+    ]
+  }
+}

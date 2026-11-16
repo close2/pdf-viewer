@@ -1,0 +1,194 @@
+{
+  "review_scope": "Bounded source/assertion review, not complete clause or ADR certification. Handoff draft statements are superseded by parent findings and gate-results.",
+  "reviewer_record": [
+    {
+      "feature": "Tagged-page classes and scope of the claim",
+      "clause": "§14.8.1; §14.8.2.1",
+      "source": "Effective ISO 32000-2 pp.745–746 (PDF physical pp.760–761): tagged PDF is the 14.8 rules as a set; MarkInfo /Marked true is a producer requirement; page contents comprise streams, subsidiary streams, annotations and fields.",
+      "errata": "No direct §14.8.2.1 erratum found. Artifact-by-absence is applied only when the file claims tagging through /MarkInfo /Marked true.",
+      "ledger": "§14.8.2 and §14.8.2.1 marked implemented; parent row points to artifact reporting, stream/logical order and Unicode/word-break consumers.",
+      "code": "crates/pdf-model/src/content.rs::Interpreter.tagged and by_absence; crates/pdf-model/src/content/report.rs::Interpretation.",
+      "tests": [
+        "crates/pdf-model/tests/accessibility.rs::a_document_that_does_not_claim_to_be_tagged_has_no_artifact_by_absence",
+        "crates/pdf-model/tests/accessibility.rs::content_no_element_reaches_is_an_artifact_by_absence"
+      ],
+      "assertions": "A document with Marked true reports an unclaimed run as absence-artifact while a document without that claim reports no absence-artifact. The rule is gated by the producer's claim; it is not a rejection test.",
+      "verdict": "supported for the claim gate and tested page-content routes",
+      "residuals": "Fixture open helpers compute exact offsets but do not assert !was_recovered. The standalone artifact_reporting_draft.rs includes exact-xref/no-recovery verification. Public policy is to report artifact spans, not to remove them from Interpretation::text."
+    },
+    {
+      "feature": "Real content versus artifacts and reader choices",
+      "clause": "§14.8.2.2.1",
+      "source": "Effective ISO 32000-2 p.746: real content is author-introduced material needed to understand; all other content is artifact; artifact structure elements are not real content. NOTE 3 explicitly leaves processors' content choices open.",
+      "errata": "No direct semantic change identified. EC3 #484 changes force in the following .2.2 paragraph about producer methods.",
+      "ledger": "§14.8.2.2.1 implemented; note distinguishes reporting from consumer choices and describes copy-specific filtering.",
+      "code": "crates/pdf-model/src/structure.rs::Artifact and artifacts_by_absence; crates/pdf-model/src/content/report.rs::Interpretation.artifacts; viewer-core/src/select.rs::logical_copy.",
+      "tests": [
+        "crates/pdf-model/tests/accessibility.rs::content_no_element_reaches_is_an_artifact_by_absence",
+        "crates/viewer-core/tests/tagged_copy.rs::a_tagged_page_copies_in_its_structure_s_order_with_its_breaks_and_without_its_artifacts",
+        "crates/viewer-core/tests/tagged_copy.rs::content_under_an_artifact_element_is_accounted_for_and_left_out"
+      ],
+      "assertions": "Model preserves all drawn text and reports declared/absence spans. Logical copy accounts for artifact ranges and omits them, while a byte no structure claims makes the complete-copy answer unavailable, avoiding silent loss of possible real content.",
+      "verdict": "supported as a documented consumer policy; no ISO mandate to drop artifacts from general readback",
+      "residuals": "The broad semantic definition of real content is producer/editorial; the reader relies on declared structure and explicit policy rather than inferring authorial intent. Logical-copy character choices are project behavior, not prescribed by §14.8.2."
+    },
+    {
+      "feature": "Explicit marked-content artifact forms and Table 363 properties",
+      "clause": "§14.8.2.2.2 Table 363",
+      "source": "Effective ISO 32000-2 pp.747–748: /Artifact BMC is generic; BDC carries a property list; Table 363 /Type permits Pagination, Layout, Page, Background; /BBox is an optional rectangle; /Attached is an optional set of Top/Bottom/Left/Right page edges (order immaterial), with CropBox defining edges; Background Attached is limited to full-page artifacts. /Subtype should appear only with Pagination and names Header, Footer, Watermark, PageNum, Bates, LineNum, Redaction, plus extensible names.",
+      "errata": "EC3 #484 (errata-read.md §14.8.2.2.2, p.762) splits the paragraph prescribing the two marked-content forms into NOTE 2 and softens its two shall-statements. Treat the forms as descriptive choices; Table 363 values remain available to readers. EC3 #483 separately adds an Artifact-tag property-list location for ActualText under §14.9.4.",
+      "ledger": "§14.8.2.2.2 implemented; note records both marked-content forms, all Table 363 entries, array-valued Attached/BBox parsing and the #484 force change.",
+      "code": "crates/pdf-model/src/structure.rs::Artifact::read, ArtifactKind; crates/pdf-model/src/content/run/marked_ops.rs::begin_marked_content.",
+      "tests": [
+        "crates/pdf-model/tests/accessibility.rs::an_artifact_is_recorded_over_its_own_range_and_left_in_the_text",
+        "crates/pdf-model/tests/accessibility.rs::an_artifacts_replacement_text_replaces_what_it_encloses"
+      ],
+      "assertions": "Tests check BMC and BDC, Pagination/Header, BBox, Attached Top, generic kind absence, untouched text, and ActualText replacement on Artifact-tagged content. Code additionally recognizes all four property-list Type values and retains open Subtype strings.",
+      "verdict": "supported for exercised values; interpretation aligns with #484",
+      "residuals": "No fixture checks every Attached edge or every Type/Subtype value. The parser preserves subtype names and does not validate producer constraints such as Subtype only with Pagination or Background /Attached only for full-page artifacts; these do not create reader rejection duties."
+    },
+    {
+      "feature": "Artifact by absence, including positive controls",
+      "clause": "§14.8.2.2.2 final paragraph and NOTE 2",
+      "source": "Effective ISO 32000-2 p.748: content not included in the structure tree is an artifact even without an /Artifact tag; 'any content' includes page content and annotations.",
+      "errata": "EC3 #484 affects the previous producer-method paragraph, not this final by-absence sentence.",
+      "ledger": "§14.8.2.2.2 implemented; records the /MCID inclusion rule, parent-tree-miss distinction, Marked gate and three routes subtracted.",
+      "code": "crates/pdf-model/src/content.rs::by_absence; crates/pdf-model/src/structure.rs::artifacts_by_absence and keep.",
+      "tests": [
+        "crates/pdf-model/tests/accessibility.rs::content_no_element_reaches_is_an_artifact_by_absence",
+        "crates/pdf-model/tests/accessibility.rs::a_sequence_with_an_identifier_is_included_though_the_parent_tree_misses_it",
+        "crates/pdf-model/tests/logical_order.rs corpus measurement"
+      ],
+      "assertions": "Mixed control distinguishes an MCID-reached run, a declared artifact, and a bare run. A missing ParentTree lookup does not turn a producer-marked MCID into absence. Untagged-claim control suppresses by-absence inference.",
+      "verdict": "supported for marked content; annotation absence is implemented but less directly fixture-isolated",
+      "residuals": "NOTE 2 explicitly includes annotations; by_absence subtracts ObjectSpan ranges, but the inspected by-absence assertion fixtures primarily distinguish page-stream runs. The draft's scope is not a complete annotation classification test."
+    },
+    {
+      "feature": "Soft hyphen representation and copy/search behavior",
+      "clause": "§14.8.2.3",
+      "source": "Effective ISO 32000-2 pp.748–749: a line-end incidental hyphen may be represented by U+00AD; it differs from U+002D. Writer shall distinguish explicitly; NOTE 2 says language-dependent spelling changes can involve several characters.",
+      "errata": "No direct clause erratum identified. §14.9.4 example errata #356 and #364 correct the spelling and numbering of its ActualText example; they do not alter the soft-hyphen rule.",
+      "ledger": "§14.8.2.3 implemented; reader mapping preserves U+00AD, search folds line-break division, and copy removes following break whitespace while keeping the character.",
+      "code": "crates/pdf-model/src/content/text/word_gaps.rs::HYPHENS; crates/viewer-core/src/select.rs::rejoined and find; pdf-font ToUnicode/encoding paths.",
+      "tests": [
+        "crates/pdf-model/tests/tagged_pdf_fixtures.rs::a_soft_hyphen_reads_back_through_either_route_the_clause_names",
+        "crates/viewer-core/tests/tagged_copy.rs::a_word_a_soft_hyphen_divided_is_copied_whole_in_both_orders",
+        "crates/viewer-core/src/select.rs tests::a_word_a_soft_hyphen_divided_is_found_whole"
+      ],
+      "assertions": "Both the explicit ToUnicode route and ActualText route read back U+00AD; copy keeps U+00AD while joining the line division; search matches the joined word. These are reader choices and mapping behaviors, not validation that the writer distinguished all hyphens.",
+      "verdict": "supported for both mapping routes and sampled copy/search consumers",
+      "residuals": "No broad producer validator for soft/hard hyphen distinction; the clause's 'may' leaves soft-hyphen representation optional. Copy rejoining is a project policy, not required by this clause."
+    },
+    {
+      "feature": "Hidden or invisible content remains part of interpretation",
+      "clause": "§14.8.2.4",
+      "source": "Effective ISO 32000-2 p.749: for Tagged PDF, page content includes all graphics objects in their entirety regardless of display/print visibility; note gives repurposing and speech uses.",
+      "errata": "None identified for this text.",
+      "ledger": "§14.8.2.4 implemented; invisible text rendering mode test and corpus witness cited.",
+      "code": "crates/pdf-model/src/content/text/show.rs and content/text/glyph_painting.rs; Interpretation text readback path.",
+      "tests": [
+        "crates/pdf-model/tests/text_render_modes.rs mode-3 extraction and invisible-paint assertions"
+      ],
+      "assertions": "Rendering-mode tests distinguish paint suppression from extraction; text remains readback even when mode 3 paints no glyphs.",
+      "verdict": "supported for invisible text-mode case sampled",
+      "residuals": "The clause covers clipping, same-background color and occlusion too; this shard did not independently re-exercise every invisibility mechanism."
+    },
+    {
+      "feature": "Page order, logical order and structure-driven copy",
+      "clause": "§14.8.2.5.1",
+      "source": "Effective ISO 32000-2 p.749: page order is graphics-object sequence in content streams; logical order is depth-first structure-tree traversal; coincidence is a should; a single marked-content sequence shall be in logical order. NOTE 1 explains visual-order conflicts; NOTE 2 lists across-page/article cases; NOTE 3 excludes declared artifacts outside Artifact elements.",
+      "errata": "No direct erratum identified.",
+      "ledger": "§14.8.2.5.1 implemented; logical-order and selection mapping, corpus divergence and the depth-first definition recorded.",
+      "code": "crates/pdf-model/src/structure/logical.rs::logical_order/logical_text; crates/pdf-model/src/structure.rs::walk/logical_range; viewer-core/src/select.rs::logical_copy.",
+      "tests": [
+        "crates/pdf-model/tests/logical_order.rs::the_logical_order_reorders_what_the_stream_showed",
+        "crates/viewer-core/tests/tagged_copy.rs::a_tagged_page_copies_in_its_structure_s_order_with_its_breaks_and_without_its_artifacts",
+        "crates/pdf-model/tests/structure.rs largest-tree traversal"
+      ],
+      "assertions": "Fixtures separate stream order from structure depth-first order; corpus measurement reports 5 differing pages among 78 tagged first pages with content items. Copy maps selection offsets into logical pieces and includes boundaries chosen by consumer policy.",
+      "verdict": "supported for tested traversal and mapping, with an outstanding traversal-limit reporting concern",
+      "residuals": "The prior Logical Structure shard found MAX_DEPTH and MAX_CHILDREN can silently truncate. Public Reading::truncated currently records MAX_ELEMENTS only; logical order may therefore appear complete for sufficiently deep/wide trees. Page-level consumer copy separators are policy choices, not mandated character values."
+    },
+    {
+      "feature": "Annotations take their position from structure order",
+      "clause": "§14.8.2.5.2",
+      "source": "Effective ISO 32000-2 p.750: annotations are in /Annots, not interleaved in page streams; logical position is determined by logical structure; OBJR links them.",
+      "errata": "No direct erratum identified. Effective §14.7.5 object-reference numbering is shifted by EC3 #452, but this subclause's text is not renumbered.",
+      "ledger": "§14.8.2.5.2 implemented; 295 corpus annotations found in logical order, with object span integration and copy tests.",
+      "code": "crates/pdf-model/src/structure/logical.rs and ContentSpans::objects; crates/pdf-model/src/content/report.rs::ObjectSpan; viewer-core selection.",
+      "tests": [
+        "crates/pdf-model/tests/tagged_pdf_fixtures.rs::an_annotation_is_placed_where_the_structure_puts_it_and_not_where_annots_lists_it",
+        "crates/pdf-model/tests/logical_order.rs annotation census",
+        "crates/viewer-core/tests/tagged_copy.rs annotation copy tests"
+      ],
+      "assertions": "Fixture gives a distinct order in the page's /Annots array, stream MCIDs and structure tree; expected logical order equals only the tree order.",
+      "verdict": "supported for annotation ordering cases sampled",
+      "residuals": "The fixture helper uses exact offsets but does not assert !was_recovered; not all annotation subtypes or multi-page structure cases are covered here."
+    },
+    {
+      "feature": "ReversedChars reverses each show string independently",
+      "clause": "§14.8.2.5.3",
+      "source": "Effective ISO 32000-2 pp.750: tag identifies reversed character order; reverse each string individually even when multiple strings; leading/trailing whitespace may signal word breaks, interior whitespace is forbidden by producer. NOTE 1 explains RTL use.",
+      "errata": "No direct erratum identified.",
+      "ledger": "§14.8.2.5.3 implemented; code records ReversedChars nesting and reverses text per code/show operation.",
+      "code": "crates/pdf-model/src/content/run/marked_ops.rs and crates/pdf-model/src/content/text/show.rs; viewer-core accessibility text-layer consumer.",
+      "tests": [
+        "crates/pdf-model/tests/accessibility.rs::a_reversed_chars_sequence_is_read_back_forwards",
+        "crates/pdf-model/tests/accessibility.rs::the_same_strings_outside_the_tag_are_not_reversed",
+        "crates/viewer-core/tests/headless.rs Arabic/Hebrew ReversedChars cases"
+      ],
+      "assertions": "Clause EXAMPLE with two separately reversed strings returns 'Hello world.'; same streams without the tag are not reversed; code suppresses inferred breaks inside reversed strings.",
+      "verdict": "supported for example and RTL-oriented cases sampled",
+      "residuals": "Producer interior-whitespace validity is not reader-rejection behavior. Multi-character Unicode mappings under ReversedChars were not independently verified in this shard."
+    },
+    {
+      "feature": "Unicode mapping and alternate/replacement exceptions",
+      "clause": "§14.8.2.6.1",
+      "source": "Effective ISO 32000-2 p.750: tagged documents should map every content/appearance character code; codes belonging to a structure element shall map to Unicode except where associated Alt or ActualText applies. PUA should only be used if no other Unicode value is available. Mapping methods live at §9.10.2; note explains consumer choices.",
+      "errata": "EC3 #483 adds an Artifact-tag BDC property list as an additional /ActualText location in §14.9.4. EC3 #356/#364 correct and renumber §14.9.4's worked example without changing the replacement rule.",
+      "ledger": "§14.8.2.6.1 implemented; §9.10.2 mapping and two soft-hyphen routes are separately covered; exception is linked to §14.9 ActualText and Alt consumers.",
+      "code": "pdf-font/src/loading.rs and font text() mapping; pdf-model/src/content/marked.rs accessibility replacement; viewer-core/src/accessibility.rs Alt consumer.",
+      "tests": [
+        "crates/pdf-model/tests/tagged_pdf_fixtures.rs::a_soft_hyphen_reads_back_through_either_route_the_clause_names",
+        "crates/pdf-model/tests/accessibility.rs::an_artifacts_replacement_text_replaces_what_it_encloses",
+        "crates/viewer-core/tests/tagged_copy.rs replacement tests"
+      ],
+      "assertions": "A character code's ToUnicode mapping and associated structure-element ActualText each provide U+00AD; Artifact-tag property-list ActualText is also tested after #483. These show the source's named mapping/exception routes, not all of §9.10.2.",
+      "verdict": "supported for listed mapping routes and replacement locations sampled",
+      "residuals": "The full character-mapping algorithm is §9.10.2 and outside this bounded audit. Parent-added /Alt and /E language-escape tests in this worktree were reported by parent to fail because the parser loses text-string language escapes; that is a §7.9/§14.9 residual, not evidence against ordinary Alt/ActualText mapping exception."
+    },
+    {
+      "feature": "Word breaks and show-string boundaries",
+      "clause": "§14.8.2.6.2",
+      "source": "Effective ISO 32000-2 pp.750–751: a processor may examine Unicode stream augmented by ActualText; tagged representation shall contain whitespace separating words; show-string division has no semantic significance; a break at show-string end still requires the character. NOTE 1 says stated spaces avoid geometry heuristics; NOTE 2 leaves word definitions to clients.",
+      "errata": "EC3 #483 adds an ActualText location, which can augment this stream. No direct word-break erratum identified.",
+      "ledger": "§14.8.2.6.2 implemented; separates authored whitespace from geometry inference, counts inferred separators over tagged corpus, and records policy rationale.",
+      "code": "crates/pdf-model/src/content/text/readback.rs::separate_text; crates/pdf-model/src/content/text/word_gaps.rs; crates/pdf-model/src/content/run/marked_ops.rs ActualText adjacency; Interpretation::inferred_separators.",
+      "tests": [
+        "crates/pdf-model/tests/tagged_pdf_fixtures.rs::a_show_string_boundary_is_not_a_word_boundary",
+        "crates/pdf-model/tests/accessibility.rs::consecutive_replacement_texts_are_not_separated",
+        "crates/pdf-model/tests/accessibility.rs::a_replacement_after_ordinary_text_keeps_its_break",
+        "crates/viewer-core/tests/tagged_copy.rs::a_replacement_over_two_codes_is_one_character_of_its_line"
+      ],
+      "assertions": "Two Tj strings with no space produce one word and inferred_separators=0; an explicit SPACE separates words; ActualText augments the character stream; consecutive ActualText removes inferred gap while intervening ordinary text preserves a boundary. Corpus test counts inferred separators on tagged pages.",
+      "verdict": "supported for explicit-space/show-boundary and ActualText cases; inference is a documented fallback choice",
+      "residuals": "The document's required whitespace is producer-side; geometry fallback thresholds are choices (ADRs 1502/1515), not conformance rules. Drafted fixtures have exact xrefs but current helper does not assert no recovery. Word segmentation policy remains client-specific per NOTE 2."
+    },
+    {
+      "feature": "Compatibility of ActualText, Alt and E with artifact and word-break behavior",
+      "clause": "§14.8.2.2.2 Table 363, §14.8.2.6.1–.2; §14.9.3–.5",
+      "source": "Effective ISO 32000-2 pp.748, 750–751: artifact property lists may contain Alt, ActualText, E and Lang; Alt/ActualText can affect the character stream; ActualText can augment word-finding and replaces characters; §14.9 distinguishes phrase substitutions.",
+      "errata": "EC3 #483 (Completed Review) adds Artifact-tag property list as an ActualText source. #484 weakens producer artifact-form wording. #356/#364 fix the ActualText example's key spelling and example numbering.",
+      "ledger": "§14.8 rows implemented and cross-linked to §14.9 rows; replacement parser asks all BDC property lists, while Alt/E enter speech rather than extraction.",
+      "code": "crates/pdf-model/src/content/marked.rs::accessibility; crates/pdf-model/src/content/run/marked_ops.rs::end_marked_content; crates/pdf-model/src/accessibility.rs; viewer-core/src/accessibility.rs.",
+      "tests": [
+        "crates/pdf-model/tests/accessibility.rs::an_artifacts_replacement_text_replaces_what_it_encloses",
+        "crates/pdf-model/tests/accessibility.rs ActualText/Alt/E substitution cases",
+        "crates/pdf-model/tests/tagged_pdf_fixtures.rs Unicode and word-boundary cases"
+      ],
+      "assertions": "Artifact ActualText replacement is tested with the artifact span covering the post-replacement text; consecutive ActualText removes only an inferred separator; the ActualText soft-hyphen example reads Drucker; Alt and E are spoken substitutions and don't rewrite Interpretation::text.",
+      "verdict": "supported for ordinary substitutions and #483 location; language-escape residual remains",
+      "residuals": "Do not certify all §14.9 behavior from this interoperability slice. In this active worktree, parent's new ActualText mid-string language test passes, while new /Alt and /E language-escape tests fail (per parent's run); actual `stated()` strips those escapes."
+    }
+  ]
+}

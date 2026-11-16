@@ -10,7 +10,7 @@
     "code": "crates/pdf-transform/src/update.rs:1572; crates/pdf-transform/tests/date_spec_audit.rs:42",
     "change": "Classify valid fixtures independently and require successful output to differ from each known-invalid input. Retain valid-input identity controls and parsed output validity.",
     "execution": "3 date assertions PASS, round2-targets-wave1.log",
-    "remaining": "A normalized output still uses Date::parse for general validity; the independent guard covers republication of the two exact invalid values. No mutation run yet."
+    "remaining": "General normalized-output validity still uses Date::parse. The targeted shared-parser mutant is killed by both new independent invalid-input guards; this is not proof against every parser fault."
   },
   {
     "id": "2038-T02",
@@ -170,5 +170,44 @@
     "summary": "ADRs0202/0231 use row emphasis for the initial embedded collection document while leaving container content visible.",
     "source": "Table153 D says the initial document is presented; Split furniture itself is optional.",
     "remaining": "Reconsider whether row selection satisfies presentation of the embedded document; not counted as a confirmed failure. H/V/Position and default sort-array assertions remain unverified."
+  },
+  {
+    "id": "2038-B07",
+    "kind": "behavior-gap",
+    "clauses": [
+      "7.6.2",
+      "7.6.6"
+    ],
+    "summary": "A CF entry named Identity is parsed before its mandatory-ignore rule and can prevent document open.",
+    "source": "Table20 CF (printed73), Table26 Identity (printed91); ignore entry and use standard filter properties. No applicable EC3 removal identified.",
+    "code": "crates/pdf-syntax/src/crypt.rs:1174,1208",
+    "test": "pdf-syntax::encryption_fixtures::a_cf_entry_named_identity_is_ignored_even_if_its_cfm_is_unknown",
+    "execution": "FAIL UnsupportedEncryption for /CFM /Unsupported; no-CF Identity-only R4 control authenticates and yields independently stated plaintext.",
+    "controls": "Uses existing clause-derived O/U fixture, valid R4 permissions, exact xref; no-recovery and known operators checked. Unknown CFM is solely inside the entry the processor must ignore.",
+    "remaining": "Only Standard handler R4, default stream/string filters sampled; no complete cryptographic or public-key-handler certification."
+  },
+  {
+    "id": "2038-T07",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "14.8.2.2"
+    ],
+    "summary": "Added exact-xref artifact reporting control: declared Header and content classified by absence remain in raw readback; real MCID remains logical text.",
+    "execution": "PASS artifact_reporting_audit",
+    "source": "EC3 #484 changes marked-content syntax requirement modality; consumer artifact omission remains a policy.",
+    "remaining": "Attached flags and bounding-box metadata are checked, not repagination behavior. Parent corrected the draft box to enclose the drawn header."
+  },
+  {
+    "id": "2038-T08",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "10.4.2.4",
+      "10.5",
+      "11.7.5.3"
+    ],
+    "summary": "Added negative UCR/final clamp and combined BG/UCR→CMYK group→native RGB transfer assertions.",
+    "execution": "2 PASS black_generation_transfer_audit",
+    "controls": "Independent arithmetic supplies explicit CMYK control; final channel complement tests transfer order; opaque 100x100 raster and complete interpretation checked.",
+    "remaining": "Control shares downstream raster/profile path. Does not certify all ICC conversions or full clause10.5."
   }
 ]

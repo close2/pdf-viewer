@@ -1,0 +1,126 @@
+{
+  "review_scope": "Bounded source/assertion review, not complete clause or ADR certification. Handoff draft statements are superseded by parent findings and gate-results.",
+  "reviewer_record": {
+    "shard": "ISO 32000-2 §7.6.2, §7.6.3, with bounded related review of §7.6.4.1–.2 and §7.6.6",
+    "baseline": "b901326c (audit worktree; source/assertion review only; parent test run pending)",
+    "features": [
+      {
+        "id": "application-of-encryption",
+        "clause": "7.6.2",
+        "source_location": "ISO 32000-2:2020(E), printed pp. 71–73; Table 20 p. 73",
+        "source_requirements_reviewed": [
+          "/Encrypt absent means unencrypted; present /Encrypt is resolved as encryption dictionary",
+          "strings and streams are encrypted except trailer /ID, encryption dictionary strings, signature /Contents, and contents already inside an encrypted object stream",
+          "cross-reference streams and streams whose own filter is /Crypt are excluded from default encryption",
+          "external stream bytes are not encrypted; embedded-file streams are",
+          "V/Length and crypt-filter dictionary selection/defaults in Table 20"
+        ],
+        "code": [
+          "crates/pdf-syntax/src/document/encryption.rs::Document::authenticate",
+          "crates/pdf-syntax/src/document/encryption.rs::Document::decrypt_object",
+          "crates/pdf-syntax/src/document/encryption.rs::Document::stream_filter",
+          "crates/pdf-syntax/src/crypt.rs::Encryption::new",
+          "crates/pdf-syntax/src/crypt.rs::crypt_filters"
+        ],
+        "assertions": [
+          "crates/pdf-syntax/tests/encryption.rs::the_file_identifier_is_not_decrypted",
+          "crates/pdf-syntax/tests/encryption.rs::strings_in_the_encryption_dictionary_are_not_decrypted",
+          "crates/pdf-syntax/tests/encryption.rs::an_encrypt_entry_naming_an_unparseable_object_is_refused_by_name",
+          "crates/pdf-syntax/tests/encryption_fixtures.rs::the_identifier_and_the_encryption_dictionary_are_read_as_written",
+          "crates/pdf-syntax/tests/incremental_update.rs::a_string_written_into_an_encrypted_document_comes_back_out_of_it"
+        ],
+        "verdict": "partial: reviewed paths and principal exceptions align; Table 20 has a concrete ignore-key discrepancy recorded in findings.txt. Parent execution is pending.",
+        "residuals": [
+          "No review of every writer-side exception or encrypted serialization path in this shard.",
+          "No cryptographic certification."
+        ]
+      },
+      {
+        "id": "general-encryption-algorithm",
+        "clause": "7.6.3 and 7.6.3.1–.3",
+        "source_location": "ISO 32000-2:2020(E), printed pp. 74–75; Errata Collection 3 Issue #542 applies at §7.6.3.1 p. 89",
+        "source_requirements_reviewed": [
+          "V=1..4 uses Algorithm 1; V=5 uses Algorithm 1.A",
+          "object and generation number low-order bytes enter Algorithm 1's object key, with sAlT for AES",
+          "AES data has an IV prefix; decrypt before downstream stream filters; decrypt strings after their string representation is decoded",
+          "Errata #542 moves the whole-block padding rule from an example into normative text"
+        ],
+        "code": [
+          "crates/pdf-syntax/src/crypt.rs::Encryption::decrypt",
+          "crates/pdf-syntax/src/crypt.rs::Encryption::encrypt",
+          "crates/pdf-syntax/src/crypt.rs::Method",
+          "crates/pdf-syntax/src/document/encryption.rs::Document::stream_filter"
+        ],
+        "assertions": [
+          "crates/pdf-syntax/tests/encryption.rs::each_revision_and_method_decrypts_to_a_readable_content_stream",
+          "crates/pdf-syntax/tests/encryption_fixtures.rs::a_revision_2_document_opens_on_either_password_and_decrypts",
+          "crates/pdf-syntax/tests/encryption_fixtures.rs::a_revision_4_aes_document_opens_on_either_password_and_decrypts",
+          "crates/pdf-syntax/tests/incremental_update.rs::a_string_written_into_an_encrypted_document_comes_back_out_of_it"
+        ],
+        "verdict": "partial: table/code/assertion trace is consistent for reviewed behavior; no independently recomputed cryptographic vectors were checked here. Parent execution is pending.",
+        "residuals": [
+          "Algorithm coverage is not exhaustive and test fixture algorithms share interpretation risk; see ADR 0031's primitive-delegation decision.",
+          "Not an audit of public-key encryption or all §7.6.4 algorithms."
+        ]
+      },
+      {
+        "id": "standard-handler-permissions-and-metadata",
+        "clause": "7.6.4.1–.2, especially Table 21 and Table 22",
+        "source_location": "ISO 32000-2:2020(E), printed pp. 76–79; Table 21 pp. 77–78, Table 22 pp. 78–79",
+        "source_requirements_reviewed": [
+          "default user password tried; owner and user authentication remain distinguishable",
+          "P is unsigned 32-bit; meaningful bits are 3,4,5,6,9,10,11,12, bit 10 ignored, revision controls availability of 9/11/12",
+          "EncryptMetadata default and R5/R6 Perms behavior",
+          "reader restricts operations according to file permissions while owner access should be full"
+        ],
+        "code": [
+          "crates/pdf-syntax/src/crypt.rs::Permissions::from_flags",
+          "crates/pdf-syntax/src/crypt.rs::Encryption::new",
+          "crates/pdf-model/src/restriction.rs::Operation::bit",
+          "crates/pdf-model/src/restriction.rs::asserted",
+          "viewer-core restriction consumers"
+        ],
+        "assertions": [
+          "crates/pdf-syntax/tests/encryption.rs::permissions_come_from_the_p_entry",
+          "crates/pdf-syntax/tests/encryption.rs::an_empty_password_may_be_the_owner_password",
+          "crates/pdf-syntax/tests/encryption.rs::an_owner_password_authenticates_and_the_print_bit_is_still_read",
+          "crates/pdf-syntax/tests/encryption_fixtures.rs::a_revision_6_document_opens_on_either_password_and_decrypts",
+          "crates/pdf-model/tests/restrictions.rs::an_encrypted_document_can_grant_one_operation_and_withhold_the_other"
+        ],
+        "verdict": "partial: reviewed mapping and consumer seam; tested bits use both corpus and clause-derived fixtures. No exhaustive consumer audit.",
+        "residuals": [
+          "Permission enforcement across every viewer, transform, host, and operation is outside this bounded shard.",
+          "‘Should allow full owner access’ is recommendation wording; current owner bypass is documented implementation policy."
+        ]
+      },
+      {
+        "id": "crypt-filter-defaults-and-authentication-events",
+        "clause": "7.6.6, related to Table 20",
+        "source_location": "ISO 32000-2:2020(E), printed pp. 90–91; Tables 25–26 pp. 90–91",
+        "source_requirements_reviewed": [
+          "StmF/StrF/EFF defaults and /Crypt stream override",
+          "CFM permitted values and unsupported-method behavior",
+          "AuthEvent DocOpen/EFOpen and failed-event consequence",
+          "Table 20 says CF entries named in Table 26 must be ignored"
+        ],
+        "code": [
+          "crates/pdf-syntax/src/crypt.rs::crypt_filters",
+          "crates/pdf-syntax/src/crypt.rs::method_from_cfm",
+          "crates/pdf-syntax/src/document/encryption.rs::Document::stream_filter"
+        ],
+        "assertions": [
+          "crates/pdf-syntax/tests/encryption.rs::an_identity_stream_filter_leaves_streams_alone",
+          "crates/pdf-syntax/tests/encryption.rs::a_document_whose_attachment_alone_is_encrypted_opens_where_it_says_ef_open",
+          "crates/pdf-syntax/tests/encryption.rs::the_same_document_without_it_asks_for_the_password_doc_open_requires",
+          "crates/pdf-syntax/tests/encryption.rs::an_embedded_file_stream_with_no_crypt_specifier_takes_the_eff_filter",
+          "crates/pdf-syntax/tests/encryption_fixtures.rs::a_crypt_filter_naming_identity_overrides_the_default_stream_filter"
+        ],
+        "verdict": "partial: defaults/event behavior have source-derived and real-file assertions, but Table 20's mandatory ignore behavior is not met for malformed Identity-key values; see finding.",
+        "residuals": [
+          "No full review of all §7.6.6 combinations or public-key recipient filter behavior.",
+          "Exact accepted filter profile by Standard handler revision merits follow-up; see findings.txt."
+        ]
+      }
+    ]
+  }
+}

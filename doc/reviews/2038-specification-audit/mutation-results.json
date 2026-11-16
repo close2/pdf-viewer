@@ -1,0 +1,20 @@
+[
+  {
+    "mutation": "Shared Date::parse accepts the two independently invalid fixtures as a valid date. Writer and old output-validity oracle both use this parser.",
+    "restored_sha256": "f6aea529253db08afaacaf8e58563356e4a6dfefc207408bcd6a25410246a561",
+    "exit": 100,
+    "log": "scratchpad/r2038/spec-audit/date-oracle-mutant.log",
+    "expected": "two invalid-input assertions fail at independent inequality; valid-input control passes",
+    "result": "killed",
+    "run": 4,
+    "passed": 2,
+    "failed": 2,
+    "failure_tests": [
+      "pdf-transform::date_spec_audit::metadata_editing_does_not_publish_an_incomplete_numeric_field",
+      "pdf-transform::date_spec_audit::metadata_editing_does_not_publish_an_out_of_range_month"
+    ],
+    "failure_point": "Independent assert_ne! on unchanged known-invalid string, after shared Date::parse output check passed.",
+    "restored_control": "All four date tests pass in round2-targets-restored.log",
+    "reproduce": "Temporarily prepend to Date::parse: if text == \"D:20261301\" || text == \"D:2026010\" { return Self::parse(\"D:20260101\"); }. Run binary(date_spec_audit), then restore source bytes."
+  }
+]

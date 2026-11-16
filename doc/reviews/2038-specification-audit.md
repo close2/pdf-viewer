@@ -49,8 +49,13 @@ assertions pass. The next batch found six failing assertions: wide/deep structur
 omits content without its promised truncation flag, and details-view collection
 cells omit CI text/date/numeric values and compressed size. The structure
 attribute-stream control and PDF-level JBIG2 filter-chain assertions pass.
-There are now eight expected failing assertions; related failures are grouped
-in the findings rather than counted as independent defects.
+An encryption control also fails: a `CF/Identity` entry is parsed despite Table20
+requiring it to be ignored. There are now nine expected failing assertions; related
+failures are grouped rather than counted as independent defects. The combined
+28-test run has 19 passes and exactly these nine failures. Artifact reporting and
+the two added colour arithmetic/transfer controls pass. A shared-date-parser
+mutation is killed by both strengthened invalid-input tests, while valid controls
+pass; the source was restored and all date targets then passed.
 
 The owner-authorized redaction-overlay change is recorded in A842 and ADR 2868;
 the MaxLen change is recorded in A834 and ADR 2840. Their changed assertions must

@@ -48,6 +48,12 @@
       "test": "a_large_k_array_is_either_read_whole_or_reported_truncated",
       "finding": "2038-B03",
       "log": "round2-targets-wave2.log"
+    },
+    {
+      "binary": "pdf-syntax::encryption_fixtures",
+      "test": "a_cf_entry_named_identity_is_ignored_even_if_its_cfm_is_unknown",
+      "finding": "2038-B07",
+      "log": "round2-targets-wave3-rerun.log"
     }
   ]
 }

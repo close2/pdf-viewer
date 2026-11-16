@@ -752,3 +752,29 @@ fn an_empty_owner_password_opens_a_revision_6_document_as_its_owner() {
     let document = open(&bytes, USER).expect("and the user password is still the user's");
     assert!(!document.permissions().expect("encrypted").owner);
 }
+
+/// Table 20 requires CF entries named by Table 26 to be ignored before interpretation.
+#[test]
+fn a_cf_entry_named_identity_is_ignored_even_if_its_cfm_is_unknown() {
+    let older = REVISION_4;
+    let control = older_document(
+        older,
+        4,
+        "/StmF /Identity /StrF /Identity",
+        (Method::Identity, Method::Identity),
+    );
+    let control = open(&control.bytes, USER).expect("valid Identity-only control opens");
+    assert!(!control.was_recovered(), "exact-xref control");
+    assert_eq!(page_content(&control), CONTENT);
+
+    let ignored = older_document(
+        older,
+        4,
+        "/CF << /Identity << /CFM /Unsupported >> >> /StmF /Identity /StrF /Identity",
+        (Method::Identity, Method::Identity),
+    );
+    let ignored = open(&ignored.bytes, USER)
+        .expect("Table 20 requires a CF entry named Identity to be ignored");
+    assert!(!ignored.was_recovered(), "exact-xref challenged fixture");
+    assert_eq!(page_content(&ignored), CONTENT);
+}
