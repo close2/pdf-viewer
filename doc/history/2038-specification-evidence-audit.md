@@ -14,17 +14,15 @@ The report and machine-readable continuation are in
 **Evidence so far.** All72 previous failing assertions pass. Current tests expose
 65 failing assertions, grouped by behavior and qualified where interpretation is
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
-The shard index links partial reviews to642 ledger rows;241 remain pending in
+The shard index links partial reviews to694 ledger rows;189 remain pending in
 this round. No entire clause is certified merely because referenced tests pass.
 A shared-parser date mutation was killed and restored. Independent JP2 fixture
 regeneration matches embedded hashes. Selected ADR conclusions are retained,
 qualified, or reconsidered with primary-source reasoning.
 
-**Gates.** Wave31, eleven crates: nextest7,142 run,7,087 pass, exactly55 expected
-failures by binary/test identity,58 skipped. No missing or additional failures.
-Waves32–33 add five passing tests and three expected failing assertions. Final
-model/core and syntax/render-cpu all-targets Clippy pass. Earlier gates retain their
-recorded scope and do not certify subsequent changes.
+**Gates.** Wave38b, eleven packages:7,158run,7,096pass, exactly62expected
+failures by binary/test identity,58skipped. Three GPU failures are outside that scope.
+Wave39 adds2passing lexical assertions. Final syntax/model/signature/core Clippy pass.
 
 **Latest findings.** Incomplete transparency surveys can yield false Met archive
 results; valid deep DPart attachments can disappear without disclosure. Requirement
@@ -38,3 +36,4 @@ UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Late
 TSA keyCompromise time selection fails with genuine signed material; FieldMDP
 rename coverage fails under a qualified interpretation. Signature/core Clippy passes.
 Alpha empty-group/transfer controls pass; model Clippy passes.
+Scope/lexical review records stale comments; CRL public-path witness remains pending.

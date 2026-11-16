@@ -11,9 +11,9 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (38)
+## Current checkpoint (39)
 
-Partial reviews now cover **642 of 883 ledger rows**, with 241 pending. The current
+Partial reviews now cover **694 of 883 ledger rows**, with 189 pending. The current
 failure manifest contains **65 assertions**, grouped into behavior findings rather
 than 65 independent defects. All 72 failures from the prior audit pass at this baseline.
 The latest broad run, wave31, covered eleven crates: **7,142 tests ran, 7,087 passed,
@@ -62,6 +62,13 @@ Checkpoint38 adds passing public-PDF controls for an empty Alpha soft-mask group
 and its transfer function, including the outside-BBox value. All21soft-mask tests
 pass. Coordinate foundations and group algebra retain explicit precision, shape,
 backend, and arbitrary-stack residuals. The failure manifest remains65.
+
+Checkpoint39 records a clean broad comparison:7,158run,7,096pass, exactly62
+manifest failures within the eleven-package scope,58skipped. Three GPU failures
+remain separately verified. Two subsequent lexical-context assertions pass. Scope
+review retains the3D runtime exclusion while admitting normal appearances; stale
+ledger/comment wording is recorded. Current-time CRL applicability remains a static
+concern pending a valid public-path regression.
 
 These are partial feature reviews, not whole-clause certification. The paragraphs
 below preserve earlier checkpoint evidence. Weekly usage was45% at the latest check;

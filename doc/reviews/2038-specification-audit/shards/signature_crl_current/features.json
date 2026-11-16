@@ -1,0 +1,42 @@
+{
+  "scope": "Narrow independent audit of PAdES CRL interval applicability at current UTC (§12.8.3.4.7) versus later-issued CRL use for historical signer validation (§12.8.3.4.8). No global RFC 5280 freshness change is proposed.",
+  "source": {
+    "standard": "ISO 32000-2:2020 including EC3",
+    "current_clause": {
+      "id": "12.8.3.4.7",
+      "printed_page": 583,
+      "physical_page": 598,
+      "rule": "For current-UTC validation, a CRL is appropriate only when current UTC is in the interval delimited by thisUpdate and nextUpdate."
+    },
+    "historical_clause": {
+      "id": "12.8.3.4.8",
+      "printed_page": 584,
+      "physical_page": 599,
+      "rule": "For a past validation instant, CRL applicability requires capture before signer-certificate expiry and nextUpdate after the historical instant. It does not say thisUpdate must be before that past instant."
+    },
+    "ec3_annotations": "The EC3 annotation inventory has only cross-reference links on physical pages 598–599; no erratum modifies either CRL time condition."
+  },
+  "cases": [
+    {
+      "name": "current_utc_must_be_inside_both_crl_bounds",
+      "evidence": "crates/pdf-signature/src/revocation/tests.rs::fixtures::{CA,GOOD_LEAF,CRL}; the CRL is signed by the fixture CA, thisUpdate is 2026-06-01, nextUpdate 2036-06-01, and the CA/leaf are valid from 2026-01-01 through 2036-01-01.",
+      "control": "The existing current-in-window control asks at 2026-10-01 and expects Good. This remains required.",
+      "discriminating_input": "Ask as current UTC at 2026-03-01: the chain certificates are current, but CRL.thisUpdate is in the future. EC3 .7 says this CRL is not appropriate for this current-time check.",
+      "implementation": "revocation::from_list checks only whether at is later than nextUpdate. It does not reject at < thisUpdate, so it returns Good for the March current-time case.",
+      "verdict": "Context-specific conformance gap candidate. Current PAdES callers need a current-UTC applicability check; a single undifferentiated instant is insufficient to encode both .7 and .8."
+    },
+    {
+      "name": "historical_validation_may_use_later_issued_crl",
+      "evidence": "Same genuinely signed CRL and same fixture CA/leaf. At 2026-03-01, the leaf is already within its validity period and the CRL nextUpdate is after the historical instant. The low-level fixture does not encode a PDF DSS capture time, so this is an applicability control only, not a complete §.8 capture-before-expiry test.",
+      "control": "Existing revocation/tests.rs::a_list_issued_after_the_instant_asked_about_is_evidence_about_it is a historical-time control, but it currently uses 2025, before its test certificates' 2026 notBefore. The March 2026 value is a stronger valid-certificate-time low-level control: it is after notBefore and before thisUpdate. The test does not build the complete certificate path or encode the DSS capture time.",
+      "rule": "§12.8.3.4.8 only requires pre-expiry capture and nextUpdate after the historical instant. Preserve acceptance of this later-issued CRL for the historical signer-time case.",
+      "verdict": "Do not add a global at >= thisUpdate rule to from_list; it would break the historical case."
+    }
+  ],
+  "caller_trace": [
+    "viewer-core/src/notes.rs::signatures initializes BestSignatureTime::now(host_now); if an established signature or document timestamp provides an earlier time, it selects that past instant instead.",
+    "viewer-core/src/notes.rs::about_one calls Signature::trust with asked.when.at(); signature.rs passes that instant to trust::validate_constrained; trust::Search::walk calls revocation::status_within for every path certificate.",
+    "viewer-core/src/notes.rs::signature_timestamps_instant validates the timestamp authority path using AskedAt::TheCallersInstant(now), so the timestamp-authority path is a current-time check even when its genTime later supplies a past signer-validation instant.",
+    "revocation::status/status_within expose only an Instant plus policy Issuance. They do not represent whether that instant means current UTC or an authenticated historical time. Other policy callers (e.g. Issuance::fresh_after for REQ-4.2-03) have separate issuance constraints; they are not a reason to apply .7's current-UTC lower bound globally."
+  ]
+}

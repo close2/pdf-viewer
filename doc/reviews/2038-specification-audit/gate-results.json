@@ -1306,6 +1306,28 @@
       "log": "quality-wave38.log",
       "exit": 0,
       "scope": "Model all-targets Clippy -Dwarnings PASS; final changes after run are comments only."
+    },
+    {
+      "log": "eleven-crate-wave38b.log",
+      "run": 7158,
+      "passed": 7096,
+      "failed": 62,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Eleven packages. Exact binary/test equality with manifest excluding3GPU failures; no extra/missing. Initial38 launch used nonexistent pdf-accessibility package; corrected to viewer-accessibility before execution."
+    },
+    {
+      "log": "lexical-context-wave39.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Two new lexer-context integration assertions, after broad38 snapshot."
+    },
+    {
+      "log": "quality-wave39.log",
+      "exit": 0,
+      "scope": "Syntax all-targets Clippy -Dwarnings PASS."
     }
   ],
   "prior_expected_failures": {

@@ -1,0 +1,8 @@
+{
+  "source": "Parent checked scope ratification/ADR1946, primary541/658/660/715 and actual #282/#265/#142/#163/#127/#166/#58 annotations. #142 corrects the lost cross-reference to13.7 Rich media, not a new artwork requirement.",
+  "assertions": "Missing-AP branch and generic normal-appearance behavior are in scope. Earlier T55 qualified RichMedia carrier is not upgraded to subtype-complete positive fixture; opaque3DD data cannot prove a valid3D input. No new runtime test.",
+  "decision": "Retain ratified active-player/artwork exclusion and admitted still-page/asset/viability behavior. Indexed rows receive applicability review only, not dictionary-level verification.",
+  "correction": "Stale ledger-status wording is in appearance.rs construct arm721\u2013722. Module docs68\u201374 correctly describe AP scope. No production comment edited.",
+  "baseline": "b901326c",
+  "scope": "Partial review only. Parent qualifications supersede draft wording."
+}

@@ -1653,5 +1653,48 @@
     "evidence": "Empty mask leaves four samples white, unmasked control paints black. Type2 inverse maps group alpha0.25 to0.75 and outside alpha0 to1; resulting pixels satisfy independent arithmetic.",
     "execution": "alpha-mask-wave38.log:21PASS, including2new tests. Model all-targets Clippy PASS.",
     "limits": "CPU PDF path only; does not certify every group formula or all backends. Existing luminosity-empty and luminosity-transfer tests were not counted as this Alpha evidence."
+  },
+  {
+    "id": "2038-T61",
+    "kind": "strengthened-lexical-assertions",
+    "clauses": [
+      "7.2",
+      "7.2.3",
+      "7.2.4"
+    ],
+    "summary": "Lexical byte contexts now have explicit comment/EOL and regular-name controls beyond termination.",
+    "execution": "lexical-context-wave39.log:2PASS; syntax Clippy PASS."
+  },
+  {
+    "id": "2038-D34",
+    "kind": "stale-ledger-rationale",
+    "clauses": [
+      "7.1"
+    ],
+    "summary": "General syntax note still says7.11 file specifications and7.12 extensions are unread.",
+    "evidence": "Current dedicated rows and consumers implement both. This stale family note does not undo their implementation; no ledger edit."
+  },
+  {
+    "id": "2038-D35",
+    "kind": "stale-scope-comment",
+    "clauses": [
+      "12.5.6.25"
+    ],
+    "summary": "Appearance fallback comment still calls3D/RichMedia pointer row out-of-scope.",
+    "evidence": "appearance.rs721\u2013722 conflicts with current implemented row and ADR1946 admitted normal-appearance scope. Module docs correctly describe the boundary.",
+    "scope": "Documentation only; no runtime defect or exclusion reopening."
+  },
+  {
+    "id": "2038-D36",
+    "kind": "qualified-static-timing-gap",
+    "clauses": [
+      "12.8.3.4.7",
+      "12.8.3.4.8"
+    ],
+    "summary": "Current-time CRL applicability is not distinguished from historical freshness in the traced caller/API.",
+    "evidence": "Source requires current UTC within both CRL endpoints; historical rule allows later-issued evidence. Generic API receives only selected instant.",
+    "rejected": "Do not promote a test calling identical mode-less inputs with contradictory expected answers. No runtime failure recorded.",
+    "adrs": "Reconsider ADR1112 freshness generalization narrowly; retain historical behavior and ADR1067 material/Unknown and2775 policy timing boundaries.",
+    "residual": "Public report-path signed fixture under review. No global lower-bound fix proposed."
   }
 ]

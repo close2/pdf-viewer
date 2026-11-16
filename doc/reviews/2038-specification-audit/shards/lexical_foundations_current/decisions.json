@@ -1,0 +1,4 @@
+{
+  "decision": "Retain byte-oriented lexer/object-model separation. Do not treat termination or corpus-open tests as semantic coverage of a whole family. Reconsider stale7.1 ledger commentary; statuses unchanged.",
+  "source_force": "Introductory headings and actual child requirements are indexed separately; representative tests do not prove all children."
+}

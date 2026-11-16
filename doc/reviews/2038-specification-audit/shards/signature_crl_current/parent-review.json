@@ -1,0 +1,7 @@
+{
+  "source": "Parent read current-time598/583 and historical599/584, traced notes host-now versus proven time into generic revocation, and read ADR1112/2775. Current interval and historical nextUpdate-only rule must remain distinct.",
+  "decision": "Qualified static caller/API-design concern only. The proposed generic test asked identical inputs for contradictory outcomes; parent rejected it and reviewer removed it. No behavioral failure is claimed here.",
+  "residual": "Genuine public report-path fixture is now assigned separately. Historical fixture alone does not establish capture-before-expiry or current-time behavior.",
+  "baseline": "b901326c",
+  "scope": "Partial review only. Parent qualifications supersede draft wording."
+}

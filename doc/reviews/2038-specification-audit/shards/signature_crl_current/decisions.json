@@ -1,0 +1,21 @@
+{
+  "selected_adr_reviews": [
+    {
+      "adr": "1067",
+      "decision": "Reaffirm, with a narrow current-time applicability follow-up",
+      "rationale": "Keep document-carried material, Unknown rather than Good without adequate evidence, and the deliberate rule that a stale list does not erase a stated revocation. The current finding concerns whether an unlisted certificate may get Good from a CRL not yet current at now; it does not change the revocation-entry-first asymmetry."
+    },
+    {
+      "adr": "1112",
+      "decision": "Reopen only shared CRL applicability mode",
+      "rationale": "The ADR correctly preserves later-issued CRLs for signatures checked at a proven historical instant; this follows the narrower §12.8.3.4.8 conditions and is needed for long-term validation. Its shared one-ended `from_list` rule also governs the explicit current-UTC case in §12.8.3.4.7, which says current UTC must lie between both thisUpdate and nextUpdate. Add mode at PAdES caller/application boundary and retain historical semantics; do not reverse the timestamp or BestSignatureTime decisions."
+    },
+    {
+      "adr": "2775",
+      "decision": "Reaffirm as policy-specific issuance rules; do not use it to settle PAdES mode",
+      "rationale": "ETSI policy `fresh_after` and `issued_from` bounds apply only when a policy supplied them, and EN 319 102-1 clause 5.2.5.4 may substitute a maximum freshness test for a material's own window. The source-derived .7 current UTC interval is a separate PAdES condition. Do not globally combine or override those semantics."
+    }
+  ],
+  "recommended_boundary": "Represent CRL applicability context for PAdES validation (current UTC versus authenticated historical signer time). Apply thisUpdate <= currentNow <= nextUpdate to current-time Good answers; for historical checks preserve the .8 rule allowing a later-issued CRL when nextUpdate is after the past instant and the separate pre-expiry capture condition is established. Keep policy issuance constraints separate. Do not impose the lower bound globally in from_list without context.",
+  "test_status": "No regression test is proposed. An identical context-free status(subject, material, instant) call cannot validly have both current-time and historical-time expectations; a failing duplicate-input test would not be meaningful. The current-mode caller trace and source/code mismatch support a qualified static finding. A future test should exercise the public notes/Signature trust path with host-now context and a genuine PDF/DSS fixture, while a separate authenticated historical-time fixture protects .8 behavior."
+}

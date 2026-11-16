@@ -1,0 +1,44 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected decision review for 3D/RichMedia scope applicability only.",
+  "decisions": [
+    {
+      "adr": "1946",
+      "decision": "Reaffirm",
+      "basis": "A254 ratifies the distinction: still appearances supplied by the producer and file handoff are admitted, while active media presentation and 3D rendering remain excluded. Source §§13.6.2 and 13.7.2.1 put normal appearance in the default inactive state. The nearby §13.4 movie stream-form poster is separately in scope and has its own literal-pixel audit; it does not imply that RichMedia activation or frame decoding is in scope.",
+      "limit": "No reopening trigger is met by this pass; the review did not audit U3D/PRC implementations."
+    },
+    {
+      "adr": "0906",
+      "decision": "Reaffirm, with current assertion-strength limit",
+      "basis": "Its clause-specific missing-AP refusal follows the explicit source requirement and default inactive appearance. A supplied AP is handled by the generic annotation appearance path, consistent with the admitted still-content scope. The no-AP unit assertion is direct; subtype-specific positive appearance evidence is only the self-regression raster corpus digest plus generic AP tests.",
+      "limit": "This limits confidence in the positive subtype-specific test oracle; no source-valid independent 3D/RichMedia fixture was constructed and no behavior defect is established."
+    },
+    {
+      "adr": "1535",
+      "decision": "Reaffirm narrowly",
+      "basis": "§12.5.6.25 is a pointer-only clause with no requirement of its own, so its implemented status follows the two referenced normal-appearance slices. The current ledger is consistent. The source module comment that calls the ledger row out-of-scope is stale and should not be treated as the current rationale.",
+      "limit": "No ledger edit is authorized in this shard."
+    },
+    {
+      "adr": "2400",
+      "decision": "Reaffirm trigger, unmet",
+      "basis": "The ratified U3D reopening trigger requires a complete ECMA-363 fourth-edition Rust reader plus fuzzing, or a distinct owner decision. A dependency or opaque byte stream by itself does not meet it. PRC remains separately excluded.",
+      "limit": "This pass did not conduct a code-level completeness/fuzzing audit of any U3D or PRC reader."
+    },
+    {
+      "adr": "2399 / 2410",
+      "decision": "Do not reopen here; sibling audit owns Assets",
+      "basis": "This shard reuses the parent-reviewed legacy_media_annotations_current findings. The admitted Assets listing/save behavior is distinct from excluded Configurations/Views activation and playback. EC3 #166 makes Configurations required and non-empty for producer conformance; its presence is not an instruction to execute it.",
+      "limit": "No repeated Assets test review or producer fixture construction in this pass."
+    }
+  ],
+  "consistency_issue": {
+    "location": "crates/pdf-model/src/appearance.rs around lines 721–722 (the 3D/RichMedia construct arm)",
+    "claim": "The comment says §12.5.6.25's ledger row is out-of-scope.",
+    "current_evidence": "doc/conformance/ledger.toml says implemented; ADR 1946's migration table says §12.5.6.25 moved to implemented for normal AP; current inventory lists it implemented and pending review.",
+    "classification": "Stale source-comment status, not a runtime or conformance defect. Parent notified."
+  },
+  "tests_run": false,
+  "drafts": []
+}

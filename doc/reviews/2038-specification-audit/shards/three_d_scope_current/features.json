@@ -1,0 +1,54 @@
+{
+  "baseline": "b901326c",
+  "scope": "Feature-applicability review of pending 3D/RichMedia rows and their near-side generic appearance/action behavior. This is not certification of 3D stream parsing, rendering, or RichMedia playback. Primary sources were read from doc/ISO_32000-2_sponsored_EC3.pdf; printed page numbers are taken from the PDF footer; errata physical page numbers are from doc/errata-read.md.",
+  "ratification": {
+    "source": "doc/scope-ratifications.md, Clause 13, the playing of multimedia and the rendering of 3D artwork; Q254/A254, RFC 0009 §3 and §11 question 2, ADR 1946; trigger ADR 2400",
+    "rule": "In scope: still-page appearances supplied by the producer, movie stream-form poster, §13.2.2 viability, and saving/handing media to the configured player. Excluded: audio/video decoding/presentation and U3D/PRC artwork rendering, until the named owner/dependency trigger is met.",
+    "reopen_triggers": "Audio/video: owner decision to build a player under the ratified path. U3D: complete ECMA-363 fourth-edition Rust reader plus fuzzing, or owner decision to write one; PRC requires its own decision. No trigger is met by the code inspected here."
+  },
+  "features": [
+    {
+      "inventory_rows": ["12.5.6.25"],
+      "source": "§12.5.6.25, physical p.521 / printed p.506; its entire sentence points to §§13.6.2 and 13.7.2. No independent drawing algorithm is stated.",
+      "applicability": "The row inherits the two subclauses' admitted normal-appearance behavior. It does not expand scope to activated artwork. Current ledger is implemented.",
+      "code_and_assertions": "The subtype names 3D and RichMedia are in pdf-model/src/annotation.rs STANDARD_SUBTYPES. Generic annotation rendering consumes a supplied AP; when no AP exists, pdf-model/src/appearance.rs reports the clause-specific missing-required-appearance condition. Existing no-AP assertion is annotations.rs::no_table_171_subtype_is_refused_with_the_catch_all_s_sentence. The tracked multimedia_annotations.pdf raster golden is self-regression only, not an independent AP oracle.",
+      "discrepancy": "The construct-arm comment in appearance.rs around lines 721–722 says §12.5.6.25's ledger row is out-of-scope. The current ledger marks it implemented, and ADR 1946 says it moved to implemented for the admitted normal appearances. Stale implementation-comment scope wording; not a runtime defect.",
+      "errata": []
+    },
+    {
+      "inventory_rows": ["12.6.4.16"],
+      "source": "§12.6.4.16, physical p.541 / printed p.526. It defines GoTo3DView as selecting a view for a target 3D annotation. EC3 #282 at physical p.541 adds RichMedia targets and view references through RichMediaContent/Views. #265 at the same physical page repairs the Table 220 /S self-reference from transition action to Go-To-3D-View action.",
+      "applicability": "Changing an active scene's camera/view is within the excluded 3D/RichMedia runtime. A producer-supplied normal AP remains the still-page representation; this action does not create a separate page mark or poster obligation.",
+      "code_and_assertions": "pdf-model/src/action.rs recognizes GoTo3DView in refused() and reports the clause-13 exclusion. No action-specific test was found in the current direct search; broader action parsing does not certify view changes. Such behavior is excluded, so no missing reader obligation is asserted.",
+      "errata": ["#282 widens the target to RichMedia; still falls within the ratified Clause 13 runtime exclusion.", "#265 corrects the action type reference; it does not change scope."]
+    },
+    {
+      "inventory_rows": ["13.6", "13.6.1", "13.6.3", "13.6.3.1", "13.6.3.2", "13.6.3.3", "13.6.4", "13.6.4.1", "13.6.4.2", "13.6.4.3", "13.6.4.4", "13.6.4.5", "13.6.4.6", "13.6.4.7", "13.6.5", "13.6.6", "13.6.7", "13.6.7.1", "13.6.7.2", "13.6.7.3", "13.6.7.3.1", "13.6.7.3.2", "13.6.7.3.3", "13.6.7.3.4", "13.6.7.3.5", "13.6.7.3.6", "13.6.7.4"],
+      "source": "§13.6 introduction, physical p.658 / printed p.643; Tables 309–310 and inactive/active-state rule, physical pp.659–663 / printed pp.644–648; 3D stream Table 311, physical pp.664–665 / printed pp.649–650; views begin physical p.670 / printed p.655; markup and measurement sections physical pp.692–715 / printed pp.677–700. EC3 #142 at physical p.658 only repairs a cross-reference lost number.",
+      "applicability": "3D artwork streams, activation, views/projections, coordinate transformations, lighting/render modes, node visibility, 3D-specific markup and measurement persistence all concern constructing or manipulating the scene. They remain excluded. §13.6.2 is the near-side exception: see the separate feature below. Ordinary annotation AP rendering and non-3D markup remain governed by their generic clauses. §13.6.6's association of ordinary 2D markup with a 3D view, and §13.6.7.4's association of projection annotations with 3D measurements, are excluded relationships; they do not remove generic §12.5.6 appearance handling.",
+      "code_and_assertions": "The 3D dictionaries are not executed by the rendering engine. STANDARD_SUBTYPES includes 3D for generic annotation handling. The existing corpus golden is a self-regression guard only. No model conformance is inferred for Tables 309–325 or U3D/PRC parsing.",
+      "errata": ["#142 repairs the §13.6.2 cross-reference to §13.7; no behavioral scope change."]
+    },
+    {
+      "inventory_rows": ["13.6.2"],
+      "source": "§13.6.2, Table 309 and state prose, physical pp.659–660 / printed pp.644–645; EC3 #142 at p.658 / printed p.643 only fixes the cross-reference. It requires a normal AP. Inactive is the default and displays the normal appearance; active displays rendered 3D artwork. The note says a normal appearance is typically a pre-rendered bitmap, not that the processor must synthesize one.",
+      "applicability": "The normal AP is the producer-supplied still-page appearance and is in scope. No derived default bitmap or active 3D rendering is required by this admitted slice. When a conforming required AP is absent, the implementation reports/refuses the annotation; this is consistent with the source's explicit producer SHALL and the inactive state's stated display.",
+      "code_and_assertions": "Generic AP placement is handled without subtype-specific transformations; no-AP refusal is asserted by annotations.rs::no_table_171_subtype_is_refused_with_the_catch_all_s_sentence. Positive subtype-specific AP output is only in the tracked corpus raster digest, not an independent image oracle. The generic AP path itself is covered by other annotation tests. No new fixture drafted: a source-valid 3D annotation requires meaningful U3D/PRC stream content, and fabricating a dummy 3DD would weaken validity.",
+      "errata": ["#142 cross-reference only."]
+    },
+    {
+      "inventory_rows": ["13.7", "13.7.1", "13.7.2", "13.7.2.2", "13.7.2.2.1", "13.7.2.2.2", "13.7.2.2.3", "13.7.2.2.4", "13.7.2.2.5", "13.7.2.2.6", "13.7.2.3", "13.7.2.3.3", "13.7.2.3.4", "13.7.2.3.5", "13.7.2.3.6", "13.7.2.3.6.1", "13.7.2.3.6.2", "13.7.2.3.6.3"],
+      "source": "§13.7.1–.2.1, physical pp.715–716 / printed pp.700–701; Settings tables and components, physical pp.716–723 / printed pp.701–708; Content/configuration/view material, physical pp.724–728 / printed pp.709–713. Errata #163 is physical p.715; #166 physical p.724; #58 physical p.726.",
+      "applicability": "The activation/deactivation, presentation, view/configuration, animation and state dictionaries determine active RichMedia playback/scene presentation, excluded by the ratification. The static normal AP is retained under §13.7.2.1. Assets handoff is separately admitted and already reviewed by legacy_media_annotations_current; no re-audit of asset extraction is made here.",
+      "errata": ["#163 makes RichMediaSettings uniqueness required if present; it remains a runtime data constraint inside the excluded feature, not a new still-rendering obligation.", "#166 makes Configurations required and non-empty in Table 341; this is the producer requirement for the excluded active content, not an instruction to execute a configuration. The existing assets-only consumer fixture is explicitly not claimed as a complete producer-conforming annotation.", "#58 alters Table 343's Asset relation, outside the present feature-applicability question and already called out in the sibling review."]
+    },
+    {
+      "inventory_rows": ["13.7.2.1"],
+      "source": "§13.7.2.1, physical pp.715–716 / printed pp.700–701. A RichMedia annotation shall provide a normal AP; inactive is the default and displays it. The note says it is typically a 2D bitmap of the artwork's default view. Active state displays rendering specified by RichMediaSettings. EC3 #163 at physical p.715 changes the settings-uniqueness statement to 'if present, shall be unique'.",
+      "applicability": "Producer-supplied static AP is in scope; rendering the configured artwork is excluded. The note does not require the reader to derive a fallback poster/bitmap when AP is absent. Stream-form movie poster remains a separate in-scope §13.4 feature, not a RichMedia runtime obligation.",
+      "code_and_assertions": "Generic AP path handles stored appearance. Missing-AP branch has the subtype-specific refusal assertion in annotations.rs::no_table_171_subtype_is_refused_with_the_catch_all_s_sentence. Positive subtype-specific AP remains corpus-golden-only; no independent source-valid RichMedia fixture was found in this bounded pass. The sibling review covers asset listing/handoff, not active playback.",
+      "errata": ["#163 only tightens Settings uniqueness; active-state execution remains excluded."]
+    }
+  ],
+  "unreviewed": "This is an applicability pass, not whole-clause verification. It does not certify Table 309's individual inputs, ECMA-363/PRC streams, RichMedia runtime dictionaries, asset extraction, poster pixels, or all generic annotation tests. Existing sibling audits cover poster and Assets behavior."
+}
