@@ -1,0 +1,7 @@
+{
+  "source": "Table147 physical454\u2013455/printed439\u2013440; Table148 physical455/440. Read GTK print_settings, Qt Host::print_job and C++ QPrinter/QPageRanges initialization. GTK4.18.6 official CUPS backend maps Tumble to Vertical and NoTumble to Horizontal, corresponding to short and long edges.",
+  "toolkit_source": "https://raw.githubusercontent.com/GNOME/gtk/4.18.6/modules/printbackends/gtkprintbackendcups.c",
+  "assertions": "Two exact-xref three-page fixtures. Actual GtkPrintSettings checks short/long duplex, scale100, copies3, Ranges and literal zero-based pairs1/1,2/2. Actual Qt host bridge checks pages3, copies4, duplex1, no_scaling and both literal one-based range pairs2/2,3/3.",
+  "execution": "Two selected tests PASS under Xvfb; native crates all-targets Clippy PASS.",
+  "limits": "GTK settings seam and Qt Rust bridge only. No native dialog, QPrinter/QPrintDialog final state, printer output or user override is driven. PickTrayByPDFSize capability and suppressed-dialog PrintScaling remain separate residuals."
+}

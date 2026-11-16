@@ -1824,6 +1824,18 @@
       "log": "quality-model-transform-wave67d.log",
       "exit": 0,
       "scope": "Model/transform all-targets Clippy"
+    },
+    {
+      "log": "native-print-wave68b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-native-wave68b.log",
+      "exit": 0,
+      "scope": "GTK/Qt all-targets Clippy"
     }
   ],
   "prior_expected_failures": {

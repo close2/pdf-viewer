@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (67)
+## Current checkpoint (68)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **80 assertions**, grouped into behavior findings rather
@@ -145,6 +145,13 @@ Literal pixels, dates, payloads and checksums supply independent expectations.
 A draft legacy EF/Unix case was excluded because current Table43 permits F/UF
 keys there. Model/transform Clippy passes; the 80-assertion manifest is unchanged.
 The broad64 run predates five passing additions through checkpoint67.
+
+Checkpoint68 adds passing GTK settings and Qt bridge print-default tests. They
+check literal ranges, copies, scaling and duplex values, while preserving the
+native-dialog/printer evidence limit. Native all-targets Clippy passes.
+The source inventory now records unnumbered editorial notes as well as numbered
+issues. A deeper AnnexL review verifies six current matrix cells and the actual
+merge-wrapper assertions; it does not claim a complete hierarchy validator.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

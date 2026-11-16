@@ -3,6 +3,39 @@
   "numbering": "Logical content items use published ledger owners14.7.5.1.1/.2/.3/.4 for effective EC3 .2/.3/.4/.5; navigator owner12.3.6 maps effective12.3.5.3. JBIG2 external Annex D is not ISO PDF Annex D.",
   "shards": [
     {
+      "shard": "native_print_defaults_tests_current",
+      "artifact": "shards/native_print_defaults_tests_current/features.json",
+      "ledger_owners": [
+        "12.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "print_scaling_policy_current",
+      "artifact": "shards/print_scaling_policy_current/features.json",
+      "ledger_owners": [
+        "12.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annex_l_matrix_cell_review_current",
+      "artifact": "shards/annex_l_matrix_cell_review_current/features.json",
+      "ledger_owners": [
+        "L",
+        "14.8.4.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annotation_universe_current",
+      "artifact": "shards/annotation_universe_current/features.json",
+      "ledger_owners": [
+        "12.8.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
       "shard": "annotation_visibility_print_current",
       "artifact": "shards/annotation_visibility_print_current/features.json",
       "ledger_owners": [

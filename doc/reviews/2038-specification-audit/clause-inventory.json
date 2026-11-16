@@ -6344,7 +6344,9 @@
       "shards/page_boundaries_current/features.json",
       "shards/viewer_preferences_layout_current/features.json",
       "shards/partial_writer_decisions_current/features.json",
-      "shards/errata_reference_editorial_current/features.json"
+      "shards/errata_reference_editorial_current/features.json",
+      "shards/native_print_defaults_tests_current/features.json",
+      "shards/print_scaling_policy_current/features.json"
     ],
     "prior_artifacts": [
       "viewer_preferences_audit"
@@ -8587,7 +8589,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/signatures_transforms/features.json"
+      "shards/signatures_transforms/features.json",
+      "shards/annotation_universe_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -10617,7 +10620,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/annex_l_structure_relationships_current/features.json"
+      "shards/annex_l_structure_relationships_current/features.json",
+      "shards/annex_l_matrix_cell_review_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -12555,7 +12559,8 @@
     "current_artifacts": [
       "shards/annex_l_structure_relationships_current/features.json",
       "shards/errata_late_behavior_current/features.json",
-      "shards/errata_disposition_crosswalk_current/features.json"
+      "shards/errata_disposition_crosswalk_current/features.json",
+      "shards/annex_l_matrix_cell_review_current/features.json"
     ],
     "prior_artifacts": [
       "annex_l_audit"

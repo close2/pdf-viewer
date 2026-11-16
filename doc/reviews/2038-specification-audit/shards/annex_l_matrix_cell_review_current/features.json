@@ -1,0 +1,82 @@
+{
+  "baseline": "b901326c",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "scope": "Independent cell-level review of the current July 2024 Annex L matrix attachment only for cells relevant to generated PDF 2.0 merge-wrapper output, plus the explicitly corrected #83/#440 cells. This is not a full Table L.2 producer conformance audit or reader validation review.",
+  "attachment": {
+    "xlsx": {
+      "path": "scratchpad/r2038/spec-audit/ISO32000-2_AnnexL_matrix-version072024.xlsx",
+      "bytes": 32984,
+      "sha256": "d372710f5b2ccca20101317e7656b25bdf4570dd2b399dbaa287839783b31ed1"
+    },
+    "pdf": {
+      "path": "scratchpad/r2038/spec-audit/ISO32000-2_AnnexL_matrix-version072024.pdf",
+      "bytes": 330475,
+      "sha256": "6684535e0a381f211866660f6ba9a00b14f5e618a8bc047acb6496dd3f3bd782"
+    },
+    "provenance": "Embedded primary EC3 physical p.962 / printed p.947 attachments. The grouped annotation states #64/#83/#336/#349/#440 corrected Annex L and the embedded matrices; its note says the July 2024 replacements supersede the earlier attachments. The current XLSX title is 'ISO 32000-2:2020 with errata (07-2024)'."
+  },
+  "orientation": {
+    "parent_axis": "Column headings on spreadsheet row 2, C through AR.",
+    "child_axis": "Child type labels in column B, rows 3 through 44.",
+    "cell_meaning": "A cell gives the allowed occurrence for the child row under the parent column; the matrix is not symmetric. A relationship shown in the parent-type children view is repeated in the child-type parents view, not a reverse edge.",
+    "legend": "Row 49 expands the symbols. Bare 1 means exactly once; 0..n means zero or more; \u2205 means forbidden; \u2205* means forbidden except when the parent is used as a grouping-level element; \u2021 defers to the type-specific provisions."
+  },
+  "features": [
+    {
+      "feature": "Synthetic merge wrapper under StructTreeRoot",
+      "clause": "Annex L, Table L.2; #349 single-root note",
+      "source_location": "Annex L begins primary physical p.962 / printed p.947. The current embedded XLSX cell C3 (child row Document, parent column StructTreeRoot) is '1'. The legend at row 49 defines bare 1 as exactly once. #349's primary annotation at p.963 clarifies StructTreeRoot is a dictionary, not a structure-element type.",
+      "effective_matrix": "C3 = 1: exactly one Document child of StructTreeRoot. This agrees with the wrapper output's one /K child. No reverse-edge claim is made.",
+      "ledger": "doc/conformance/ledger.toml row L, writer-side scope; \u00a714.8.4.2 is separately implemented for role resolution, while no reader nesting validator is claimed.",
+      "implementation": "pdf-transform/src/structure/wrapper.rs::Carry::wrap_documents selects top-level source elements whose role resolves to Document in the PDF 2.0 namespace (including role-mapped targets) and creates a wrapper only when at least two source documents contribute. pdf-transform/src/structure/write.rs::wrapper_element writes /S /Document, /NS, /P root, and /K source-Document references. The structure-root writer installs this wrapper as its single child. Grep of pdf-transform/src finds no other emitted PDF 2.0 standard Document type or general Table L.2 matrix validator. The PDF/A archive writer uses default PDF 1.7 namespace and is outside Annex L's PDF 2.0 condition.",
+      "tests_assertions": [
+        "crates/pdf-transform/tests/merge.rs::two_pdf_2_0_documents_are_written_inside_one checks exactly one top-level child, its role and namespace as PDF 2.0 Document, two source Document children, each child's /P back to wrapper, structure check and archive judgements.",
+        "crates/pdf-transform/tests/annex_l_role_mapping.rs::role_mapped_pdf_2_documents_are_written_inside_one_document starts with custom DocAlias roles resolving to PDF 2.0 Document and checks exactly one wrapper plus its two mapped children and /P links; output must not be xref-recovered.",
+        "crates/pdf-transform/tests/merge.rs::documents_outside_the_pdf_2_0_namespace_are_not_wrapped is a PDF 1.7 no-wrapper control."
+      ],
+      "verdict": "The exact generated root\u2192Document relationship is admitted by C3 and has discriminating writer integration assertions, including the role-mapped population. The matrix does not test arbitrary source hierarchy, nor is such a reader rejection policy inferred.",
+      "residuals": "The tests sample the only explicitly constructed PDF 2.0 standard Document wrapper edge found in the writer. They do not run a general checker over all cells or prove every derived output path preserves all source constraints. No such general checker was found in this inspection."
+    },
+    {
+      "feature": "Nested source Documents under the generated wrapper",
+      "clause": "Annex L, Table L.2; ADR 1474",
+      "source_location": "Current embedded XLSX cell D3 (child row Document, parent column Document) is '0..n'. Row 49 defines this as zero or more occurrences.",
+      "effective_matrix": "D3 = 0..n: a Document may contain zero or more Document children. The generated wrapper has two children in the integration tests. This is one directed parent Document\u2192child Document relationship.",
+      "ledger": "doc/conformance/ledger.toml row L and ADR 1474 describe the wrapper generated when PDF 2.0 Documents from multiple sources are merged.",
+      "implementation": "wrapper_element writes the source Documents in /K in source order, and the carry/reconciliation path rewrites each source child's /P to the new wrapper. No unrelated current row/column intersection is treated as a reverse relationship.",
+      "tests_assertions": "Both two_pdf_2_0_documents_are_written_inside_one and role_mapped_pdf_2_documents_are_written_inside_one require two source Document children beneath the synthetic wrapper and verify each child's /P points to that wrapper.",
+      "verdict": "The generated child edge and its /P parent pointer agree with the effective D3 allowance; this independently checks that the wrapper does not merely satisfy C3 while placing source Documents outside it.",
+      "residuals": "No claim about all Table L.2 pairs or malformed input-source relationships."
+    },
+    {
+      "feature": "#83 Table under P",
+      "clause": "Annex L, Table L.2, #83",
+      "source_location": "Primary physical p.962 / printed p.947 annotation #83: 'Table is now permitted as a child of P' and the matrix records this at both views. Current XLSX M33 = 0..n (child Table under parent P); AH10 = \u2205 (child P under parent Table).",
+      "effective_matrix": "M33 allows P\u2192Table at 0..n; AH10 forbids the opposite Table\u2192P relation. The two matrix perspectives in the PDF table repeat an edge, but these two XLSX cells are opposite directed pairs.",
+      "implementation": "No generated wrapper path emits a P/Table pair; the relationship is source structure carried through. The writer currently has no general Table L.2 checker.",
+      "tests_assertions": "The selected wrapper tests do not exercise M33/AH10; that is not a gap for the Document-wrapper behavior. No claim is made about whether all derived writer outputs preserve this pair.",
+      "verdict": "Effective relation clarified: only P may parent Table, at 0..n. No Annex L implementation defect found in the merge wrapper from this erratum.",
+      "residuals": "No full transform-path preservation test for P/Table; the source constraint is producer-facing, and a general writer audit is outside this bounded pass."
+    },
+    {
+      "feature": "#440 Figure under WP",
+      "clause": "Annex L, Table L.2, #440",
+      "source_location": "Primary physical pp.979 and 985 / printed pp.964 and 970 annotations #440 correct the WP/Figure cells. Current XLSX AC41 = 0..n (child Figure under parent WP); AP28 = \u2205 (child WP under parent Figure).",
+      "effective_matrix": "AC41 allows WP\u2192Figure at 0..n. AP28 forbids Figure\u2192WP. The previous undefined `c` marker is gone; neither this correction nor #83 creates symmetric relations.",
+      "implementation": "No generated wrapper path emits a WP/Figure relationship; source hierarchy is carried. There is no general matrix validator in the inspected writer.",
+      "tests_assertions": "Merge wrapper tests do not exercise AC41/AP28; their relevant edges are C3/D3. No failure follows from that test scope.",
+      "verdict": "Current matrix has a well-defined, one-way optional WP\u2192Figure relationship. No merge-wrapper mismatch.",
+      "residuals": "No full writer validation/preservation test for WP/Figure in this bounded pass."
+    },
+    {
+      "feature": "#336 matrix effects",
+      "clause": "Annex L attachment correction group",
+      "source_location": "Primary physical p.962 group annotation names #336 among issues changing Annex L and its replacement matrices. The supplied current attachment is independently hashed and parsed, but no prior attachment version or standalone #336 cell-level annotation body was found in this worktree.",
+      "effective_matrix": "The July 2024 matrix is authoritative for the reviewed current cells C3, D3, M33, AH10, AC41, AP28. This inspection cannot attribute any other current cell to #336 specifically or say which older cells it changed.",
+      "implementation": "Only generated wrapper pairs C3/D3 were compared with current emitted output. Other cell effects were not mapped to code-generated relationships.",
+      "tests_assertions": "The wrapper integration assertions cover C3/D3 only.",
+      "verdict": "The source confirms #336 belongs to the correction group, but its individual matrix delta remains unknown here. Do not claim #336 is fully reviewed or assign it the #83/#440 semantics.",
+      "residuals": "Individual #336 historical delta attribution is unknown. This does not block judging current cells against the effective attachment; remaining current cell/code-output comparisons are the conformance residual."
+    }
+  ]
+}

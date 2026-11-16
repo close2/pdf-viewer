@@ -1,0 +1,22 @@
+{
+  "scope": "Selected decision review for proposed native print-default assertions.",
+  "decisions": [
+    {
+      "adr": "ADR 1180, especially its native-dialog boundary",
+      "review": "Retain the distinction between core/query and native host settings. The draft closes an assertion gap by reading actual settings objects but does not erase the ADR's explicit statement that the native dialog is not driven in this test evidence."
+    },
+    {
+      "adr": "ADR 2814 (historical Qt page-range pair forwarding fix)",
+      "review": "Current Qt Rust code flattens all inclusive pairs. The draft's two-pair literal input and returned-vector assertion are a discriminating regression for that historical change; it does not claim the QPrintDialog or QPrinter later preserves them."
+    },
+    {
+      "adr": "ADR 2840 / Table 148 enforcement",
+      "review": "Do not conflate opening defaults with locking a control. The GTK test verifies the settings seeded before a dialog; the Qt test uses scaling_held=false. Table 148 enforcement remains under its separate prior audit."
+    },
+    {
+      "adr": "ADR 1203 and ADR 1204 (print permission and placement)",
+      "review": "The tests assert only dialog opening state. They do not assert print destination policy, raster fidelity, page placement, scale composition, or the adjacent no-dialog API interpretation."
+    }
+  ],
+  "conclusion": "No decision reversal proposed. The residual is an untested settings seam; the drafts preserve the boundary between an adapter value and native dialog/printer behavior."
+}

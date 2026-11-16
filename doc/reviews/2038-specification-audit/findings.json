@@ -2287,5 +2287,15 @@
     "summary": "Indirect file specification and embedded-file parameter values now reach literal attachment consumer assertions.",
     "execution": "One testPASS; model/transformClippyPASS.",
     "limits": "Listing/metadata/decoded bytes only; legacy EF/Unix draft excluded as outside current Table43 permitted keys."
+  },
+  {
+    "id": "2038-T89",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "12.2"
+    ],
+    "summary": "Print preference values now have actual GTK settings and Qt bridge assertions, including all range pairs and independent duplex mappings.",
+    "execution": "Two tests PASS under Xvfb; GTK/Qt all-targets Clippy PASS.",
+    "limits": "No native dialog or printer driven; tray capability and suppressed-dialog scaling remain separately qualified."
   }
 ]

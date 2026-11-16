@@ -1,0 +1,12 @@
+{
+  "decisions": [
+    {
+      "topic": "Use annotation subjects as an issue inventory, not the whole feature denominator",
+      "decision": "Retain the numbered crosswalk but supplement it with content/title/reply and unnumbered-note reconciliation. Literal references or generic numeric markers do not establish disposition."
+    },
+    {
+      "topic": "Unnumbered editorial notes",
+      "decision": "Preserve the normative-reference interpretation constraint and the two formatting/numbering notes in audit evidence. Do not invent new implementation rows solely because these notes are unnumbered."
+    }
+  ]
+}

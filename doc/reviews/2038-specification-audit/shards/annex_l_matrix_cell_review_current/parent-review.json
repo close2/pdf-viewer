@@ -1,0 +1,6 @@
+{
+  "source": "Parent independently parsed ZIP/XML shared strings and selected C3/D3/M33/AH10/AC41/AP28 cells. Attachment hashes match the prior source extraction. Checked column-parent/row-child orientation.",
+  "test_bodies": "Parent read the ordinary merge wrapper, PDF1.7 control and role-mapped wrapper integration tests, plus wrapper.rs and write.rs. Tests assert cardinality, resolved type/namespace and parent back-references. Ordinary test has optional qpdf corroboration; core structural assertions execute independently of qpdf.",
+  "corrections": "Corrected draft #440 heading to Figure under WP, opposite-direction cell wording, and truncated test function name. Historical #336 delta attribution is distinct from current effective-cell conformance.",
+  "scope": "Retain narrow writer evidence and ADR1474. Earlier audit shard already corrected #83/#440 directionality; no duplicate defect. No complete matrix validator or all-transform preservation claim. No new test or execution required for this deeper source/assertion review."
+}

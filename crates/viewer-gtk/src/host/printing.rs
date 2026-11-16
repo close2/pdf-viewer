@@ -394,3 +394,6 @@ fn paint_raster(
     cairo.paint()?;
     cairo.restore()
 }
+
+#[cfg(test)]
+mod print_defaults_settings_spec_audit;

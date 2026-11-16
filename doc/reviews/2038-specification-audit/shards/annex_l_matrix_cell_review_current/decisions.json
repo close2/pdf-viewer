@@ -1,0 +1,29 @@
+{
+  "scope": "Selected Annex L matrix-cell and ADR decisions; this does not re-ratify Annex L as a whole.",
+  "decisions": [
+    {
+      "topic": "Matrix orientation and #83/#440 directionality",
+      "source": "The replacement XLSX labels columns as Parent and rows as Child. #83 text says P is parent and Table child; #440 errata changes WP parent/Figure child. The child-row/parent-column counterpart cells are the opposite-direction combinations and remain forbidden.",
+      "decision": "Record one-way relations only: P→Table (M33 0..n; reverse AH10 forbidden) and WP→Figure (AC41 0..n; reverse AP28 forbidden). Prior prose saying #83 was 'both directions' is inaccurate: the two cell views repeat one edge, they do not authorize its inverse.",
+      "status": "source correction; no production defect"
+    },
+    {
+      "topic": "Generated merge wrapper versus full Table L.2",
+      "source": "Effective C3 requires exactly one Document below StructTreeRoot; D3 allows Document below Document 0..n. Current writer constructs precisely those two edge kinds when at least two PDF 2.0 Documents, including role-mapped Documents, are merged.",
+      "decision": "Retain the narrow writer implementation and ADR 1474. Describe the evidence as checking C3/D3 for a generated wrapper, not implementing or validating every Table L.2 cell. Do not infer malformed-source rejection duties from these producer constraints.",
+      "status": "retained, narrowly qualified"
+    },
+    {
+      "topic": "ADR 0716 current-tense Table L.2 claim",
+      "source": "ADR 0716 says #83 admits P→Table 'both directions' and that no code reads any Table L.2 cell. Later ADR 1474 and current wrapper.rs/write.rs implement a hand-selected Document-root/Document-child relation, not a generic matrix lookup.",
+      "decision": "Treat ADR 0716 as historical errata-accounting rationale, not an accurate current implementation description. Its bidirectional paraphrase should be corrected in durable review material; if the ADR is edited later, preserve the historical status but mark that ADR 1474 implemented one bounded case. There remains no general cell-driven checker.",
+      "status": "stale wording identified; no production defect"
+    },
+    {
+      "topic": "#336 attribution",
+      "source": "The grouped p.962 annotation states #336 altered the Annex L matrices, while the available replacement attachment contains only the effective combined result; no prior attachment comparison or standalone #336 cell-edit description was inspected.",
+      "decision": "Keep #336 explicitly partial. Use the effective matrix for present conformance checks, but do not invent a cell delta or claim full issue disposition.",
+      "status": "unresolved attribution residual"
+    }
+  ]
+}

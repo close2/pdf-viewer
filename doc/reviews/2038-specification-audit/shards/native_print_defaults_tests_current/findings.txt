@@ -1,0 +1,1 @@
+T89: two passing tests close the bounded Table147 toolkit-settings gap. Exact PDF preferences reach actual GTK PrintSettings and the Qt host bridge; range indexing, both GTK duplex edges, copies and no-scaling are asserted with literal expectations. No native dialog or physical printer is driven. All-targets GTK/Qt Clippy passes.
