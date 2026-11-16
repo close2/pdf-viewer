@@ -1354,6 +1354,19 @@
       "log": "quality-wave41b.log",
       "exit": 0,
       "scope": "Viewer-core all-targets Clippy PASS after CAdES doc markup correction."
+    },
+    {
+      "log": "calculator-lexical-wave42.log",
+      "run": 5,
+      "passed": 4,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Four existing calculator assertions plus new NUL regression. Five non-NUL separator controls pass inside failing test."
+    },
+    {
+      "log": "quality-wave42.log",
+      "exit": 0,
+      "scope": "pdf-colour all-targets Clippy PASS."
     }
   ],
   "prior_expected_failures": {

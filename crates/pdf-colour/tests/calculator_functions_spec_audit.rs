@@ -157,3 +157,21 @@ fn stack_probe(zeros: usize) -> String {
     source.push('}');
     source
 }
+
+/// §7.10.5.2 uses PDF operand syntax; both PDF Table 1 and PLRM3 Table 3.1 include NUL.
+#[test]
+fn type4_null_separates_operands_and_operators_like_the_other_five_white_spaces() {
+    // Run the five other separators first: these isolate the exact-xref fixture and arithmetic
+    // from the NUL case. The input remains runtime data, so this is not only constant folding.
+    for separator in [' ', '\t', '\n', '\r', '\u{000c}', '\0'] {
+        let program = format!("{{{separator}.5{separator}mul{separator}}}");
+        let document = type4_document(&program, "0 1", "0 1");
+        let function = parse_function(&document)
+            .unwrap_or_else(|error| panic!("valid separator {separator:?}: {error:?}"));
+        assert_eq!(
+            function.eval(&[0.5]),
+            vec![0.25],
+            "changing only the white-space byte {separator:?} cannot change the function"
+        );
+    }
+}

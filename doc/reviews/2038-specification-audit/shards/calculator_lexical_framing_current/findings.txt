@@ -1,0 +1,1 @@
+B45: Type4 rejects NUL whitespace. Five separator controls pass before the NUL parse failure; all four pre-existing calculator integration tests pass. Public Function API only. Primary PDF and delegated PLRM3 agree on the byte set. No production changes. Filter framing introduces no independent requirement; earlier paraphrased test identifiers are corrected in this shard.

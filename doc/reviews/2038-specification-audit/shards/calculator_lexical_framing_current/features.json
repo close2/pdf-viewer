@@ -1,0 +1,38 @@
+{
+  "baseline": "b901326c",
+  "scope": "Partial parent review of filter/function framing and Type4 whitespace. Previous detailed decoder/numeric shards remain scoped evidence, not whole-clause certification.",
+  "features": [
+    {
+      "clauses": [
+        "7.4",
+        "7.4.4"
+      ],
+      "source": "Primary physical49/34 starts7.4 then7.4.1 without intervening text; physical53/38 starts7.4.4 then7.4.4.1. Filter pipelines and parameters reside in7.4.1; compression definitions and informative ratio notes in7.4.4.1.",
+      "ledger": "Both implemented aggregate rows; no additional requirement is inferred from empty headings.",
+      "assertions": [
+        "filters.rs::a_filter_array_is_a_pipeline_decoded_in_the_order_written independently requires ASCII85 then Flate output to equal the literal payload.",
+        "filters.rs::each_stage_takes_its_own_entry_of_a_decodeparms_array distinguishes the second-stage predictor.",
+        "filters.rs::every_filter_table_6_names_is_supported_under_both_of_its_spellings checks route/name coverage; image codecs deliberately decline byte-only decode and must be tested in image consumers.",
+        "flate_lzw_spec_audit.rs::table8_defaults_and_png_row_tags_reach_both_decoders checks expected AB and row outputs for both filters."
+      ],
+      "correction": "The prior syntax_streams_filters_current artifact paraphrased the first and third test names as identifiers that do not exist. The exact current names above are verified. Its7.4.1 locator begins printed34, not35.",
+      "limit": "No new decoder execution or exhaustive RFC/image/Crypt certification. Informative compression-performance notes do not prescribe benchmark results."
+    },
+    {
+      "clauses": [
+        "7.10",
+        "7.10.5",
+        "7.10.5.1",
+        "7.10.5.2",
+        "7.2.3"
+      ],
+      "source": "PDF primary physical138/123 function framing;145/130 Type4 feature list;146/131 operand syntax and operator deferral;37/22 Table1 whitespace. Locally retained Adobe PLRM3\u00a73.2 Table3.1, printed26\u201327, independently includes NUL. Original normative PDF hash/source are in r1983/spec-audit/source/PLRM3-source.json.",
+      "errata": "Actual annotations #446 at145 change Type4 NOTE1 sampled-function reference to Type0; #269 at146 changes If to if; #669 at146 fixes right-brace hexadecimal to7Dh. None excludes NUL.",
+      "code": "pdf-colour/src/function.rs::compile_postscript cuts comments before spacing braces, then uses str::split_whitespace; Rust Unicode whitespace omits NUL. The general PDF lexer is not used here.",
+      "assertions": "New public Function parser/evaluator test uses complete exact-xref PDFs. Identical {.5 mul} with five non-NUL PDF whitespace choices evaluates runtime input0.5 to0.25. NUL-separated version fails to parse as unknown operator. Existing four calculator integration assertions pass.",
+      "prior_assertions": "Comment tests assert arithmetic and literal expected outputs, including CR and LF, inline comments, braces in comments, and no token merging. Their paired compile-equality control alone would not establish expected arithmetic; the literal controls do. No NUL case was found.",
+      "assessment": "B45 valid-program lexical defect, separate from earlier B09/B10 numeric defects. Aggregate implemented status does not prove valid functions all parse. Width, error-recovery and GPU fault residuals from functions_current remain explicit.",
+      "limit": "No exhaustive operator or numeric-precision audit. This test uses public Function API from an exact PDF, not a drawn shading or live GPU consumer."
+    }
+  ]
+}

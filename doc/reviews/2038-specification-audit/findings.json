@@ -1729,5 +1729,22 @@
       "1067",
       "2775"
     ]
+  },
+  {
+    "id": "2038-B45",
+    "kind": "calculator-lexical-whitespace",
+    "clauses": [
+      "7.10.5.2",
+      "7.2.3"
+    ],
+    "summary": "Type4 functions reject valid NUL-separated operands/operators.",
+    "evidence": "Exact-xref public Function parse/eval: five other PDF whitespace separators yield0.25 from input0.5; NUL is reported as part of an unknown operator. PDF Table1 and PLRM3 Table3.1 both classify NUL as whitespace.",
+    "execution": "calculator-lexical-wave42.log:4PASS1FAIL. All-targets colour Clippy passes.",
+    "scope": "Public function API, no raster/GPU consumer tested. str::split_whitespace omits NUL.",
+    "adrs": [
+      "0361",
+      "0749",
+      "0733"
+    ]
   }
 ]

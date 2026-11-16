@@ -1,0 +1,5 @@
+{
+  "execution": "calculator-lexical-wave42.log:5run4PASS1FAIL. quality-wave42.log:pdf-colour all-targets Clippy PASS.",
+  "source": "Parent read actual source pages and PLRM3 Table3.1, actual EC3 annotations, code and assertions, and ADR0361/0749/0733/1599.",
+  "qualification": "Valid scalar program with NUL separators; no malformed-input rejection demand. Existing five non-NUL controls run before failing sixth case."
+}

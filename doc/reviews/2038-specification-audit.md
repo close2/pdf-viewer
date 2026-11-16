@@ -11,11 +11,11 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (41)
+## Current checkpoint (42)
 
-Partial reviews now cover **707 of 883 ledger rows**, with 176 pending. The current
-failure manifest contains **67 assertions**, grouped into behavior findings rather
-than 67 independent defects. All 72 failures from the prior audit pass at this baseline.
+Partial reviews now cover **711 of 883 ledger rows**, with 172 pending. The current
+failure manifest contains **68 assertions**, grouped into behavior findings rather
+than 68 independent defects. All 72 failures from the prior audit pass at this baseline.
 The latest broad run, wave31, covered eleven crates: **7,142 tests ran, 7,087 passed,
 and exactly the 55 then-recorded assertions failed; 58 were skipped**. Exact test
 identities matched. Waves32–33 add five passing tests and three expected failures.
@@ -79,6 +79,10 @@ Checkpoint 41 confirms a public current-time CRL defect: a genuinely signed PDF
 is reported locally valid using a CRL issued after the supplied clock. The matching
 in-window control passes. Multimedia review corrects two errata summaries while
 retaining the ratified playback exclusion.
+
+Checkpoint 42 finds that Type 4 functions reject valid NUL whitespace. Five
+other separator controls pass; the PDF and delegated PostScript grammars agree
+on NUL. Filter/function framing is mapped without inventing heading requirements.
 
 These are partial feature reviews, not whole-clause certification. The paragraphs
 below preserve earlier checkpoint evidence. Weekly usage was 47% at the latest check;

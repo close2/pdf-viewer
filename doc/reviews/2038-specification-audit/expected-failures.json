@@ -402,6 +402,12 @@
       "test": "signed_crl_not_yet_current_at_host_time_cannot_support_local_validity",
       "finding": "2038-B44",
       "log": "current-crl-wave41b.log"
+    },
+    {
+      "binary": "pdf-colour::calculator_functions_spec_audit",
+      "test": "type4_null_separates_operands_and_operators_like_the_other_five_white_spaces",
+      "finding": "2038-B45",
+      "log": "calculator-lexical-wave42.log"
     }
   ]
 }
