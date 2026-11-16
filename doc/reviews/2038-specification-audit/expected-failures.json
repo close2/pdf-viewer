@@ -138,6 +138,12 @@
       "test": "valid_docmdp_p1_and_dts_only_revision_are_within_the_carveout",
       "finding": "2038-B18",
       "log": "docmdp-dts-wave13b.log"
+    },
+    {
+      "binary": "pdf-model::page_geometry",
+      "test": "a_disjoint_page_boundary_clips_all_content_instead_of_defaulting_to_the_medium",
+      "finding": "2038-B19",
+      "log": "fdf-boundary-wave14b.log"
     }
   ]
 }

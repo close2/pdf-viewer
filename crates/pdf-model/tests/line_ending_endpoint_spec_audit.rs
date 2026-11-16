@@ -1,8 +1,7 @@
 //! Table 178's literal LE-to-L endpoint mapping when LL is present.
 //! This tests missing-AP construction policy, not a PDF 2.0 producer conformance witness.
-//! ADR 0192 chooses the displaced line's endpoints instead. Figure 80 supplies no arrowhead
-//! on the main line to substantiate its stated justification; this regression records the
-//! table's explicit endpoint mapping and deliberately exposes the current disagreement.
+//! ADR 2818 applies the table's explicit endpoint mapping, superseding ADR 0192's
+//! displaced-endpoint interpretation. These assertions protect the corrected behavior.
 
 #![expect(
     clippy::expect_used,

@@ -1,0 +1,9 @@
+{
+  "execution": "metadata_sources_spec_audit::properties_keep_conflicting_info_and_packet_titles_separate PASS in metadata-wave14.log.",
+  "scope": "Public Query\u2192host property_rows with literal conflicting dictionary/XMP title values and catalog-no-stream control. This protects chosen presentation, not normative reconciliation of titles.",
+  "source_corrections": [
+    "Metadata printed714\u2013718/physical729\u2013733. EC3#296 physical730/printed715; #398 physical732/printed717. Annotation index page field is physical; agent #398 recalculation to747 was incorrect.",
+    "Table349 has six text fields, two date values, and Trapped name. metadata.rs introduction calls seven entries text, an imprecision; actual parser distinguishes Trapped correctly."
+  ],
+  "remaining": "No full XMP validator, all object-metadata UI, or date-parser certification."
+}

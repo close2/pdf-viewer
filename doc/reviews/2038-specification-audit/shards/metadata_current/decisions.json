@@ -1,0 +1,47 @@
+{
+  "selected_reviews": [
+    {
+      "adr": "0186",
+      "title": "A packet is XML, and xmlparser costs no dependency",
+      "verdict": "retain the parser/dependency choice; do not treat its supported XMP surface as a complete validator",
+      "basis": "§14.3.2 requires XMP-form XML from producers. The implementation parses properties needed by consumers, preserves simple/array/structured presence and has bounded input. General XMP validation is not a visible PDF reader requirement established by this clause."
+    },
+    {
+      "adr": "1269",
+      "title": "The oldest metadata moves to the newest, and a namespace is not a label",
+      "verdict": "retain as a writer/conversion policy, with scope kept to archive conversion",
+      "basis": "Table 349 NOTES identify counterpart properties and §14.3.1 prefers streams in PDF 2.0. ADR's writer mapping is more than the base standard's narrow date-equivalence rules, so describe it as archive conversion policy rather than general reader obligation."
+    },
+    {
+      "adr": "1473",
+      "title": "A PDF 2.0 file's deprecated metadata is written into its packet alone",
+      "verdict": "retain for update/merge writer behavior and packet-backed information view",
+      "basis": "§3.15 defines deprecated as should not be written; §14.3.1 says prefer XMP. Update/merge tests assert PDF-version-specific output and equivalent representations when both are emitted. ADR's table-driven property routing is a writer choice."
+    },
+    {
+      "adr": "0564",
+      "title": "Three panels the native hosts did not have, and the list of panels itself",
+      "verdict": "retain the shared properties panel as host/UI policy",
+      "basis": "The panel displays Info and XMP under separate headings; §14.3.4 leaves inconsistent-date reading to processor discretion and §14.3 does not require this UI. Targeted panel tests cover Info/no-metadata but omit packet-bearing and conflicting values. Draft supplied to protect this chosen behavior."
+    },
+    {
+      "adr": "1275",
+      "title": "A document a reader names opens beside the one showing, and a tab says its title",
+      "verdict": "retain narrow title-bar/tab choices without extending them to all metadata reconciliation",
+      "basis": "§12.2 explicitly takes the title bar title from XMP dc:title when /DisplayDocTitle applies. Tab choice uses Info /Title where present. This does not supply a general precedence rule for conflicting properties-panel values."
+    }
+  ],
+  "effective_errata": [
+    {
+      "item": "EC3 issue #296, §14.3.2, physical PDF page 730 / printed footer page 715",
+      "effect": "Adds producer constraint that all XMP metadata in PDF shall be encoded as UTF-8.",
+      "current_behavior": "Xmp::decode also accepts BOM-marked UTF-16 and UTF-32 as extra reader tolerance; UTF-8 output is directly tested.",
+      "assessment": "No reader-conformance defect: producer encoding constraint is not a reader rejection requirement. Ensure docs call extra decoding permissive behavior, not the clause's encoding allowance. `doc/errata-read.md:2733` records this distinction."
+    },
+    {
+      "item": "EC3 issue #398, §14.3.3 example, physical PDF page 732 / printed footer page 717",
+      "effect": "Corrects a printed byte-order-mark glyph in the example to UTF-8 U+FEFF.",
+      "assessment": "No change to reader/writer requirement; emitted wrapper writes U+FEFF and the writer test checks emitted UTF-8."
+    }
+  ]
+}

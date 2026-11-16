@@ -1,0 +1,5 @@
+{
+  "execution": "New disjoint assertion fails for Crop/Bleed/Trim/Art; partial-overlap positive controls pass. New inherited Crop/leaf override and strengthened Table397 defaults pass in fdf-boundary-wave14b.log.",
+  "source_locator": "Parent checked actual PDF text and footers: intersection paragraph physical831/printed816.",
+  "qualification": "All supplied rectangles are themselves nondegenerate. No empty viewport is requested. ADR0414 explicitly favors fallback; finding challenges its inference from defaults."
+}

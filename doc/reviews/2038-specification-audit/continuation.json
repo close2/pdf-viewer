@@ -6,20 +6,19 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "Eight-crate wave13: 6381 run, 6358 passed, exactly all 23 expected failing identities, 55 skipped. DTS-only comparison fails; separately timestamped page-change control passes.",
-    "quality": "New pdf-syntax/pdf-model/pdf-signature all-targets Clippy with warnings denied passes; workspace formatted. Earlier six-crate docs/conformance checks remain recorded separately."
+    "later_targets": "24 expected failing assertions. Eight-crate wave13 (before wave14 additions): 6381 run, 6358 passed, exact23expected failures,55skips. Wave14 adds B19 with all four partial-overlap positives passing; Type3/popup/FDF/inheritedCrop/metadata controls pass. Draft-only errors corrected separately.",
+    "quality": "Current pdf-model/viewer-core/viewer-host all-targets Clippy with warnings denied passes; workspace formatting checked. Earlier broad/docs/conformance gates retain their precise scopes."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [
-      "font_dictionaries_current",
-      "annotation_types_current"
+      "cid_opentype_current"
     ],
     "active_shards": [
-      "cid_opentype_current",
-      "metadata_current",
-      "fdf_current"
+      "pattern_forms_current",
+      "outlines_threads_current",
+      "file_specs_current"
     ],
     "recorded_shards": [
       "logical_structure",
@@ -48,10 +47,15 @@
       "inline_images_current",
       "public_key_encryption_current",
       "transparency_groups_current",
-      "signatures_transforms"
+      "signatures_transforms",
+      "font_dictionaries_current",
+      "annotation_types_current",
+      "fdf_current",
+      "page_boundaries_current",
+      "metadata_current"
     ],
-    "partial_current_rows": 247,
-    "pending_current_rows": 636
+    "partial_current_rows": 260,
+    "pending_current_rows": 623
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",
@@ -65,6 +69,6 @@
     "ceiling": 85,
     "remaining_reserved": 15,
     "last_weekly_used_percent": 35,
-    "last_read_utc": "2026-11-16T11:32:37Z"
+    "last_read_utc": "2026-11-16T11:50:03Z"
   }
 }

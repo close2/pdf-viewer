@@ -415,6 +415,75 @@
       "expected_failures": 6,
       "unexpected_failures": 0,
       "comparison": "Exact binary/test identities match the scoped expected-failures manifest."
+    },
+    {
+      "log": "boundary-font-annotation-wave14.log",
+      "run": 17,
+      "passed": 16,
+      "failed": 1,
+      "exit": 100,
+      "expected_failures": 1,
+      "unexpected_failures": 0,
+      "scope": "page_geometry, Type3 restoration, text-markup popup, line endpoints"
+    },
+    {
+      "log": "fdf-boundary-wave14.log",
+      "exit": 101,
+      "scope": "Draft raster index type mismatch; no test execution"
+    },
+    {
+      "log": "fdf-boundary-wave14b.log",
+      "run": 26,
+      "passed": 24,
+      "failed": 2,
+      "exit": 100,
+      "scope": "One expected boundary failure; one FDF draft failed a representation assumption in single-template positive control, corrected before checkpoint"
+    },
+    {
+      "log": "fdf-pixels-wave14c.log",
+      "exit": 101,
+      "scope": "Unreachable draft fallback match; no test execution"
+    },
+    {
+      "log": "fdf-pixels-wave14d.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Corrected one-/two-template CPU controls"
+    },
+    {
+      "log": "metadata-wave14.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Query-to-properties panel title sources with no-packet control"
+    },
+    {
+      "log": "wave14-quality.log",
+      "exit": 101,
+      "scope": "New test doc-markdown lints; corrected"
+    },
+    {
+      "log": "wave14b-quality.log",
+      "exit": 101,
+      "scope": "Unfulfilled test lint expectations; corrected"
+    },
+    {
+      "log": "wave14c-quality.log",
+      "exit": 0,
+      "scope": "pdf-model/viewer-core all-targets Clippy -Dwarnings"
+    },
+    {
+      "log": "wave14-host-quality.log",
+      "exit": 101,
+      "scope": "New fixture expect_used lint; corrected"
+    },
+    {
+      "log": "wave14b-host-quality.log",
+      "exit": 0,
+      "scope": "viewer-host all-targets Clippy -Dwarnings"
     }
   ],
   "prior_expected_failures": {

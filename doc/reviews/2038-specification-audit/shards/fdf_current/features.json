@@ -1,0 +1,93 @@
+[
+  {
+    "feature": "FDF Pages describes pages to add; one FDF page dictionary represents one page",
+    "clause": "§12.7.8.3.3; §12.7.8.3.1 Table 246 Pages entry; Table 251",
+    "source_location": "doc/md/processed/ISO_32000-2_sponsored_EC3.md:13007,13081-13090; verified ISO printed p.565 (physical PDF p.580); Table 246 printed p.560 (physical p.575)",
+    "source_rule": "Optional /Pages is an array of FDF page dictionaries describing new pages to be added. A Table 251 page has required /Templates array naming pages that serve as templates on that new page; optional /Info is a page-information dictionary, but Table 251 defines no entries for it.",
+    "errata": "No directly applicable EC3 erratum found in doc/errata-read.md.",
+    "ledger": "doc/conformance/ledger.toml §12.7.8.3.3 is departed; note separates /Rename=true and page persistence limits.",
+    "code": "crates/pdf-model/src/forms_data.rs:1374-1420 reads page and template arrays; crates/pdf-model/src/view/pages.rs:30-144 adds one page per FDF page dictionary; :515-614 layers several local templates; :616-676 carries an external template page.",
+    "tests": "crates/pdf-model/tests/fdf_template_count_audit.rs::template_array_members_do_not_multiply_the_fdf_page_count checks one FDF page with two templates→one and two FDF pages with one template each→two, exact xref and no recovery. forms_data.rs::an_imported_template_adds_a_page_the_document_already_held checks a one-template page added in view and reported unwritten on save.",
+    "assertion_quality": "The count test checks parser counts and public imported-page cardinality with valid named-page positives; it does not paint both templates' content. Draft drafts/multiple_templates_paint_one_added_page.rs adds one-template positive control then independent red/blue interior pixel assertions for both contributors, with exact xrefs and no-recovery checks.",
+    "verdict": "cardinality behavior represented; multi-template painted-content assertion is a useful gap draft",
+    "residuals": "The draft is unrun. Table 251's /Info is detected and recorded in FormsData::owed because the table gives it no member definitions. Existing code reports pages omitted by save through Written::unwritten_pages; saving an appended page into the page tree remains a documented product departure, not a silent loss."
+  },
+  {
+    "feature": "Template name reference and imported fields; Rename false branch",
+    "clause": "§12.7.8.3.3 Table 252; §12.7.8.3.2 import-by-name rule; §12.7.4.2 field name matching",
+    "source_location": "doc/md/processed/ISO_32000-2_sponsored_EC3.md:13092-13104; verified ISO printed p.565 (physical PDF p.580)",
+    "source_rule": "/TRef is required and identifies a template location. Optional /Fields lists root FDF fields to import. /Rename false means fields are not renamed, permitting same-name duplicates, and every matching target field shall be updated. /Rename defaults true.",
+    "errata": "No directly applicable EC3 erratum found.",
+    "ledger": "§12.7.8.3.3 departed on default /Rename true only; /Rename false is described as implemented.",
+    "code": "crates/pdf-model/src/forms_data.rs:1374-1416 reads TRef, fields and default true; crates/pdf-model/src/view/pages.rs:294-331::template_fields; crates/pdf-model/src/forms_data.rs::match_fields",
+    "tests": "crates/pdf-model/tests/fdf_template_fields_audit.rs::a_template_field_updates_every_target_field_with_the_same_name is an exact-xref positive control for multiple same-named target fields and checks both final drawn values; ::default_and_explicit_rename_true_report_the_departure_without_overwriting_fields checks omitted default and explicit true. forms_data.rs::a_templates_own_fields_are_imported_where_rename_says_not_to_rename and ::a_template_asking_for_renaming_is_refused_rather_than_imported_over_the_document provide public readback tests.",
+    "assertion_quality": "Strong same-name/multiple-widget rendered-text assertions and a no-overwrite control; true/default branch explicitly checks refusal and retained old values.",
+    "verdict": "false branch covered; true/default branch is a clearly recorded departure",
+    "residuals": "The standard says renamed fields guarantee uniqueness but leaves algorithm open. The reader cannot persist new fields/page structures in the current view save path; it reports rather than treats true as false. No claim that refusal fulfills the shall."
+  },
+  {
+    "feature": "Rename true and its default",
+    "clause": "§12.7.8.3.3 Table 252 /Rename and NOTE",
+    "source_location": "doc/md/processed/ISO_32000-2_sponsored_EC3.md:13100-13104; verified ISO printed p.565 (physical PDF p.580)",
+    "source_rule": "Where conflict exists, /Rename true shall rename imported fields to guarantee uniqueness; default true. The note makes renaming algorithm optional/unspecified, not the outcome.",
+    "errata": "No directly applicable EC3 erratum found.",
+    "ledger": "§12.7.8.3.3 status departed, narrowed to this branch.",
+    "code": "crates/pdf-model/src/view/pages.rs:307-317 reports a refusal and does not import matching fields; crates/pdf-model/src/view/writing.rs reports appended template pages that it does not save.",
+    "tests": "fdf_template_fields_audit.rs::default_and_explicit_rename_true_report_the_departure_without_overwriting_fields checks both default and explicit true and verifies old values stay visible. forms_data.rs::an_imported_template_adds_a_page_the_document_already_held checks save's unwritten_pages count.",
+    "assertion_quality": "Tests substantiate the chosen refusal and user-visible reporting, not the normative rename behavior. This must remain `departed`.",
+    "verdict": "departure accurately recorded",
+    "residuals": "Do not infer that the NOTE permits refusing the shall; it only leaves the renaming algorithm unspecified. The second departure, failure to persist a new template page, is separately reported by `Written::unwritten_pages`."
+  },
+  {
+    "feature": "Table 253 named page external-file binding",
+    "clause": "§12.7.8.3.3 Table 253; related §7.11 file specifications and §12.7.6.4 file-request boundary",
+    "source_location": "doc/md/processed/ISO_32000-2_sponsored_EC3.md:13106-13113 and 3905-3924; verified ISO printed pp.565 and 134 respectively (physical pp.580 and 149)",
+    "source_rule": "/Name is required. /F is optional file specification; absent means the associated PDF. File specification may be string or dictionary; dictionary readers prefer /UF when present over /F (Table 43). A reference to another file is an input binding, while path and host access are governed by host policy, not by a normative demand for live network access.",
+    "errata": "No directly applicable EC3 erratum found.",
+    "ledger": "§12.7.8.3.3 note attributes external file handling to ADR 1239; named-page tests listed on the row.",
+    "code": "crates/pdf-model/src/named_page.rs:234-270::Reference::read (string and dictionary UF/F); crates/pdf-model/src/view/pages.rs:154-252 `file_awaited`/`supply_named_pages`; crates/viewer-core/src/interact.rs::request_named_page and supply_named_page; viewer-host policy gates resolution under remote-documents.",
+    "tests": "forms_data.rs::a_template_this_document_cannot_reach_is_named separates an external file question from an absent local page; ::a_template_in_another_file_is_supplied_and_added checks copied values hold no references into source and rendered content arrives; ::a_template_in_another_file_that_is_not_supplied_is_named checks decline. viewer-core/tests/named_pages_and_threads.rs tests ask, success supply, decline, and invalid file bytes. Current tests exercise string /F; draft drafts/table253_file_spec_dictionary.rs checks file-spec dictionary /UF precedence through the host-facing `file_awaited` model callback without filesystem/network.",
+    "assertion_quality": "Cross-file success uses supplied in-memory Document and asserts text/render route, while no-supply and malformed bytes are separate controls. The file-spec dictionary draft is unrun; existing Table 253 paths appear to use string names.",
+    "verdict": "string form end-to-end; dictionary form appears implemented but merits targeted assertion",
+    "residuals": "Cross-file template pages carrying /Annots are omitted and counted in `Imported::refused`; this is surfaced rather than silently carried. The reader does not follow live network references. The exact host policy over URL-form FileSpecs was outside this bounded pass."
+  },
+  {
+    "feature": "Producer-only mutual exclusions and FDF page metadata",
+    "clause": "§12.7.8.3.1 Table 246; §12.7.8.3.3 Table 251",
+    "source_location": "doc/md/processed/ISO_32000-2_sponsored_EC3.md:13007-13011,13085-13090; verified ISO printed pp.560 and 565 (physical pp.575 and 580)",
+    "source_rule": "FDF writers shall not state /Fields and /Pages together, nor /Status and /Pages together. /Info is allowed but its member dictionary has no entries defined by Table 251. These are producer constraints; they do not automatically require the reader to reject a file that contains both.",
+    "errata": "No directly applicable EC3 erratum found.",
+    "ledger": "The §12.7.8.3.3 row doesn't separately map the Table 246 pairs; FormsData::owed documents one conflict.",
+    "code": "crates/pdf-model/src/forms_data.rs:720-730 only names /Fields + /Pages, while later reads /Status at :781-784 and pages independently; it names /Info at :721-723.",
+    "tests": "No Pages+Status assertion found. Draft drafts/pages_status_diagnostic.rs has Pages-only and Status-only controls and verifies a producer-invalid combination keeps both readable values while an owed diagnostic names the contradiction.",
+    "assertion_quality": "This tests diagnostics, not a normative reader error. The implementation comment says both excluded combinations are named, but only Fields+Pages currently gets an owed string; Pages+Status is a documentation/diagnostic inconsistency.",
+    "verdict": "incomplete contradiction reporting relative to current code comment; reader should not reject solely on writer constraint",
+    "residuals": "Draft unrun. Table 251 /Info contents are not modeled; presence is surfaced in owed."
+  },
+  {
+    "feature": "FDF page/template array processing bound",
+    "clause": "§12.7.8.3.3 Tables 251-253 (resource behavior, not a stated maximum)",
+    "source_location": "doc/md/processed/ISO_32000-2_sponsored_EC3.md:13083-13113; verified ISO printed p.565 (physical PDF p.580)",
+    "source_rule": "No page-count or template-count maximum is stated in these tables. This does not require unbounded work; a reader may impose a local resource bound if it surfaces what it did not process.",
+    "errata": "No directly applicable EC3 erratum found.",
+    "ledger": "No explicit 4096-page truncation assertion or bounded-reader report is cited for this row.",
+    "code": "crates/pdf-model/src/forms_data.rs:140 const MAX_PAGES=4096; :1381 and :1390 use `.take(MAX_PAGES)` with no overflow indicator added to FormsData::owed.",
+    "tests": "No >4096 FDF page/template test found. Draft drafts/pages_array_bound_diagnostic.rs builds 4097 valid page dictionaries with a distinct final /Info marker, asserts exact xref/no recovery and existing 4096 work bound, and expects a public owed diagnostic rather than unbounded processing.",
+    "assertion_quality": "The draft is a bounded-work/reporting check; it does not demand unbounded array processing and is unrun.",
+    "verdict": "possible silent resource-limit diagnostic gap, not an ISO-mandated maximum violation",
+    "residuals": "Both the top-level /Pages and each /Templates array silently cap at 4096. Confirm project-wide truncation/reporting guarantees and parent policy before promoting the requested diagnostic."
+  },
+  {
+    "feature": "Template pages omitted from persisted save",
+    "clause": "§12.7.8.3.3 Table 251 /Pages; related §7.5.6 incremental update",
+    "source_location": "doc/md/processed/ISO_32000-2_sponsored_EC3.md:13083-13090; verified ISO printed p.565 (physical PDF p.580)",
+    "source_rule": "An FDF /Pages array describes new pages that shall be added to the target document.",
+    "errata": "No directly applicable EC3 erratum found.",
+    "ledger": "§12.7.8.3.3 departed; ADR 2154 separately requires save omissions to be named.",
+    "code": "crates/pdf-model/src/view/writing.rs::save returns unwritten_pages for appended pages; viewer-core reports them. `ViewState::appended_pages` keeps them visible for the session.",
+    "tests": "forms_data.rs::an_imported_template_adds_a_page_the_document_already_held checks one page visible in view, unwritten_pages=1, and saved PDF page tree remains one page.",
+    "assertion_quality": "Good before/after assertion for the implementation departure and user-facing omission count.",
+    "verdict": "documented departure; reporting test supports the scoped claim",
+    "residuals": "A new template page is not persisted as a page-tree update. Do not conflate this with `/Rename=true` departure."
+  }
+]

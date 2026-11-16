@@ -136,6 +136,16 @@ behavioral defects. Partial evidence now reaches 247 rows; 636 remain pending.
 The eight-crate broad run has 6,358 passes, exactly all 23 expected failing
 identities, and 55 skips. Current touched-crate Clippy and formatting pass.
 
+The next checkpoint adds a failing empty-intersection boundary control for all four
+non-media boxes. It challenges ADR 0414's inference that an empty intersection may
+use an absent-value default; a separate Media viewport avoids zero-size output.
+Type 3 state restoration, all four text-markup popups, inherited CropBox rendering,
+FDF template pixels/file requests and separately labeled metadata sources pass.
+Table 397 defaults now use literal source values instead of implementation constants.
+The manifest has 24 expected failures; partial evidence reaches 260 rows, with 623
+still pending. Current touched-crate Clippy passes. Source-locator and draft-premise
+corrections are explicit in the shard parent reviews and execution log index.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks

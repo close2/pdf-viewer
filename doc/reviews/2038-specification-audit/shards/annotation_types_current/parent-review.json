@@ -1,0 +1,6 @@
+{
+  "execution": "boundary-font-annotation-wave14.log: 16 PASS and one unrelated expected boundary failure; new four-subtype popup assertion PASS.",
+  "qualification": "Popup requirement is the §12.5.6.10 opening prose, not a Table182 dictionary member. Test activates explicit associated Popup and checks parent/body/title with /Open false initial control; no host window-placement/font claim.",
+  "change": "Corrected stale line_ending_endpoint_spec_audit introductory claim to current ADR2818 behavior.",
+  "residual": "Widget MK and redaction source/assertion mappings are bounded; no all-entry or whole-ADR certification."
+}

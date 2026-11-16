@@ -1,0 +1,52 @@
+{
+  "baseline": "b901326c",
+  "features": [
+    {
+      "section": "14.3.1",
+      "title": "General",
+      "ledger_status": "implemented",
+      "features": [
+        {"feature":"document-level and object-level metadata carriers","kind":"reader and producer context","norm":"Metadata streams may carry document/object metadata; Info carries document metadata. Metadata streams are preferred in PDF 2.0; Info use other than CreationDate/ModDate is deprecated. This constrains writers; it does not direct a reader to reject or ignore legacy Info.","evidence":"metadata.rs::Information::read and xmp.rs::Xmp::read; ledger 14.3.1, 14.3.2, 14.3.3","assessment":"both sources are read and public consumers preserve source distinction"},
+        {"feature":"no effect on document appearance","kind":"reader scope","norm":"14.1 says metadata does not affect final appearance; no required visual rendering follows from metadata alone.","evidence":"Query::Properties and document-properties panel, not page painter","assessment":"panel is a chosen informational surface; not a rendering requirement"}
+      ]
+    },
+    {
+      "section": "14.3.2",
+      "title": "Metadata streams",
+      "ledger_status": "implemented",
+      "features": [
+        {"feature":"Table 347 /Type and /Subtype","kind":"producer requirement","norm":"Metadata stream dictionary shall state /Type /Metadata and /Subtype /XML.","evidence":"pdf-transform/tests/metadata_requirements_audit.rs::emitted_metadata_streams_have_table347_names_and_utf8_packets checks emitted values","assessment":"writer assertion exists; reader intentionally parses stream contents without requiring these writer-only tags"},
+        {"feature":"XML/XMP stream contents","kind":"producer requirement and reader interpretation","norm":"Contents shall be XML and its grammar shall follow XMP ISO 16684-1; EC3 #296 adds that all XMP metadata in PDF shall be UTF-8.","evidence":"pdf-model/src/xmp.rs parser, xmp.rs unit tests, corpus read gate; EC3 overlay transcribed at doc/errata-read.md:2733 (physical PDF p.730, printed footer p.715)","assessment":"UTF-8 emitted output has a writer test; reader also accepts UTF-16/UTF-32 by BOM as deliberate extra tolerance, not a reader-duty failure"},
+        {"feature":"catalog /Metadata and object-level attachment points","kind":"producer structure and generic reader API","norm":"Catalog Metadata carries document packet; Table 348 allows metadata on component stream/dictionary; marked-content property lists may also carry an indirect metadata stream named through resource properties.","evidence":"Xmp::read accepts a dictionary; Xmp::document reads catalog; pdf-model/tests/xmp.rs::a_metadata_stream_on_a_form_xobject_reads_back","assessment":"generic reading and object-carrier control exist; no in-scope display/use consumer is required for all object-level packets"},
+        {"feature":"/EncryptMetadata","kind":"cross-reference to encryption clause","norm":"Metadata encryption follows Table 21 and §7.6, not a separate §14.3 behavior.","evidence":"pdf-syntax/tests/encryption.rs::a_metadata_stream_is_in_the_clear_when_encrypt_metadata_is_false","assessment":"kept separate from §14.3 conformance claim"},
+        {"feature":"document packet query and informational surface","kind":"product/UI behavior","norm":"§14.3 does not mandate a properties panel or selection of properties to display; metadata is informational rather than page appearance.","evidence":"viewer-core Query::Properties returns Information plus Option<Result<Xmp>>; viewer-host::panel::property_rows labels packet separately","assessment":"public data route exists. Test gap: no property_rows assertion currently covers packet-bearing and conflicting Info/XMP title values side by side"}
+      ]
+    },
+    {
+      "section": "14.3.3",
+      "title": "Document information dictionary",
+      "ledger_status": "implemented",
+      "features": [
+        {"feature":"optional trailer /Info dictionary, legacy reads","kind":"reader","norm":"Info is optional; when present it holds a document information dictionary. PDF 2.0 deprecation is producer direction, not an instruction to discard extant data.","evidence":"metadata.rs::Information::read; table_349_is_read_and_its_two_prose_rules_hold; Query::Properties","assessment":"optional/no-Info control and table fields tested"},
+        {"feature":"Table 349 fields and value kinds","kind":"reader and producer","norm":"Six non-date entries other than Trapped are text strings; CreationDate/ModDate are date values; Trapped is a name True/False/Unknown, with Unknown default. ModDate is required if catalog PieceInfo is present.","evidence":"metadata.rs::in_dictionary and table_349 test; metadata_requirements_audit tests conditional ModDate; xmp/transform writer tests","assessment":"non-string title and boolean Trapped controls exist; parser date mechanics excluded from this shard per assignment"},
+        {"feature":"Thread information dictionary use","kind":"reader","norm":"Info dictionaries are also used with Threads; reader API supports a held dictionary.","evidence":"Information::in_dictionary public API","assessment":"support exists; no new test need identified in bounded crosscut review"}
+      ]
+    },
+    {
+      "section": "14.3.4",
+      "title": "Reconciling two sources of document metadata",
+      "ledger_status": "implemented",
+      "features": [
+        {"feature":"date equivalence when writing creation/last-modification values","kind":"writer requirement","norm":"First creation dates and last-modification dates shall be fully equivalent across Info and document XMP if both are written; an existing inconsistent creation pair should remain unchanged on modification; a missing counterpart may be added if equivalent.","evidence":"pdf-transform update.rs earlier-version test and merge.rs date-equivalence test; archive metadata conversion; ADR 1473","assessment":"existing writer tests compare both date representations. Date parser itself not reassessed"},
+        {"feature":"reader behavior on inconsistent dates","kind":"reader discretion","norm":"If inconsistent created/modified date values are encountered, use is at PDF processor discretion.","evidence":"metadata panel renders Info and XMP under separate labeled headings; writer tests enforce equivalence only when writing both","assessment":"showing both separately is a defensible product policy; no standard-mandated precedence exists here"},
+        {"feature":"other metadata consistency","kind":"not specified as §14.3.4 reader mandate","norm":"§14.3.4 rules concern creation and modification time/date, not all Table 349/XMP counterpart values. Table NOTE counterparts do not create a general reader reconciliation rule.","evidence":"EC3 effective §14.3.4 printed p.718; Table 349 pp.716–717","assessment":"do not infer a requirement to merge or choose between conflicting titles/authors in Properties panel"}
+      ]
+    }
+  ],
+  "remaining_work": [
+    "No general ISO 16684-1 XMP validator certification is claimed; this pass inspected reader paths needed by §14.3 consumers and relevant tests only.",
+    "Date parsing/normalization behavior was assigned to a prior audit and is not revisited here; only existing writer consistency assertions were mapped.",
+    "The new panel test is product-regression coverage, not a standard-required source precedence behavior.",
+    "Object-level metadata can be decoded from a held dictionary; this pass found no in-scope consumer duty to display every object packet."
+  ]
+}

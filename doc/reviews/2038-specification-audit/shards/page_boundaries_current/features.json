@@ -1,0 +1,43 @@
+{
+  "baseline": "b901326c",
+  "source": "ISO 32000-2 EC3 §14.11.2.1 printed815–816/physical830–831; §14.11.2.2 Tables396–397 printed817–818/physical832–833. Relevant §7.7.3.4 inheritance and §12.2 boundary selection are cross-cutting.",
+  "features": [
+    {
+      "clause": "14.11.2.1",
+      "feature": "Five boundary meanings, absence defaults, intersection with media",
+      "rule": "Media bounds physical medium; Crop clips ordinary viewing/printing; Bleed clips production; Trim describes finished page; Art meaningful content. Crop defaults to Media; other three default to Crop. Bounds outside Media shall be treated as their intersection. The recommendation against ordinarily extending beyond Media is not a prohibition.",
+      "code": "pdf-model/src/page.rs:build_page",
+      "assertions": "page_geometry::the_five_page_boundaries_default_and_are_clipped_to_the_medium independently asserts several rectangles/defaults; new disjoint test has literal black/white CPU pixels and partial-overlap positives for all four boxes.",
+      "verdict": "B19: empty intersections incorrectly fall back to a larger box and paint content. Existing intersecting-box tests miss this branch.",
+      "limits": "This test selects Media for ViewArea so the viewport remains usable and selects each tested boundary for ViewClip. It does not demand a zero-size image or prescribed error for an empty viewport."
+    },
+    {
+      "clause": "7.7.3.4",
+      "feature": "Nearest Crop inheritance and explicit page override reach rendering",
+      "rule": "CropBox is inheritable; nearest value is used unless leaf states a value.",
+      "assertions": "page_geometry::inherited_crop_box_reaches_the_rendered_page_and_a_leaf_can_override_it uses root100x50, intermediate80x40 and leaf60x30 with distinct black/white margins. Exact xref/no recovery and complete interpretation.",
+      "verdict": "PASS; closes page_resources_current public crop inheritance residual."
+    },
+    {
+      "clause": "12.2",
+      "feature": "ViewArea and ViewClip are separate choices",
+      "assertions": "Existing page_geometry ViewAreaMedia/ViewClipTrim literal pixel and viewport tests; no-preference Crop viewport. New disjoint controls explicitly preserve Media viewport.",
+      "verdict": "Reviewed selected view controls; printing and all preference combinations remain outside this shard."
+    },
+    {
+      "clause": "14.11.2.2",
+      "feature": "Defined boxes, supplied styles, absent box/style entries",
+      "rule": "Guideline display is optional. Style for an undefined corresponding box is ignored. Missing box-style dictionary uses processor settings; missing members inside supplied dictionary use Table397 defaults.",
+      "assertions": "guidelines tests inspect which strokes exist, explicit RGB/width/dash/phase, ignored Art style, inherited Crop definition; on-request View vs Print control; rendered dash/gap pixels.",
+      "verdict": "Selected controls pass. Replaced shared BoxStyle::TABLE_397 oracle in absent-key test with literal black/width1/solid and dashed[3]. Processor-default colours remain chosen policy."
+    },
+    {
+      "clause": "14.11.2.2",
+      "feature": "Malformed styles and page-group restrictions",
+      "assertions": "Existing malformed style values check fallback and Unsupported::Guidelines; ADR2440 documents refusal when page compositing uses own colour space.",
+      "verdict": "Malformed fallback is policy, not mandated reader rejection. Group restriction remains acknowledged; no new complete host/backend certification."
+    }
+  ],
+  "notes": "Production-purpose examples in the source NOTE explain common uses; they do not turn every suggested print configuration into an additional universal reader requirement.",
+  "limit": "Partial feature review, not whole-clause certification. Annex-related prepress functions beyond these boundary decisions remain pending."
+}

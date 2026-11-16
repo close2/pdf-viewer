@@ -1,0 +1,90 @@
+{
+  "baseline": "b901326c",
+  "scope": [
+    "ISO 32000-2:2020 + Errata Collection 3 §9.6.4",
+    "§9.7.6.1",
+    "§9.9 OpenType rows"
+  ],
+  "overall": "Type 3 reviewed in depth; no confirmed valid-input defect found in reviewed obligations. One meaningful regression gap is drafted for a changed state-restoration line. CID and OpenType are partial, with explicit residuals.",
+  "features": [
+    {
+      "clause": "9.6.4",
+      "feature": "Font dictionary and glyph mapping",
+      "source": "EC3 PDF physical pp. 332–333 / printed pp. 317–318; doc/md/ISO_32000-2_sponsored_EC3.md:7766-7792. Table 110 requires FontMatrix, CharProcs, Encoding, FirstChar, LastChar, Widths; widths outside range are zero, Widths are glyph-space values and only horizontal transformed width advances; Resources is optional with fallback.",
+      "implementation": "crates/pdf-model/src/type3.rs:235-326, 366-420, 430-520; crates/pdf-model/src/content/text/type3.rs:64-142.",
+      "assertions": [
+        "tests/type3.rs::each_shown_code_runs_its_glyph_description",
+        "tests/type3.rs::a_width_advances_through_the_font_matrix",
+        "tests/type3.rs::a_code_with_no_glyph_description_paints_nothing_and_still_advances",
+        "tests/type3_spec_audit.rs::a_rotated_font_matrix_keeps_the_type3_advance_horizontal",
+        "tests/type3_residual_audit.rs::an_encoding_omission_does_not_select_notdef_or_another_charproc"
+      ],
+      "assessment": "The tested mapping and horizontal advance behavior have independent geometry assertions and positive controls. Type3-specific no-default-glyph behavior is covered; AGL/fallback is outside this pass and was separately audited. No gap found in the inspected mapping requirements."
+    },
+    {
+      "clause": "9.6.4",
+      "feature": "CharProc execution environment, CTM, origin, graphics state, and resources",
+      "source": "EC3 PDF physical p. 334 / printed p. 319; md:7798-7804. Steps b-c specify absent CharProcs means no glyph and graphics-state save/restore; execution CTM concatenates FontMatrix and text space, glyph coordinates are absolute with origin (0,0); inherited graphics state otherwise applies. Errata #128 amends resource lookup to glyph-stream, font, then page/inherited page resources.",
+      "implementation": "crates/pdf-model/src/content/text/type3.rs:77-142; crates/pdf-model/src/type3.rs resource selection; crates/pdf-model/src/content.rs nested interpreter state.",
+      "assertions": [
+        "tests/type3_residual_audit.rs::glyph_ctm_uses_the_nonzero_text_origin",
+        "tests/type3_residual_audit.rs::glyph_stream_resources_win_a_name_collision_with_font_resources",
+        "tests/type3_spec_audit.rs::a_d0_glyph_does_not_change_the_callers_graphics_state",
+        "tests/missing_resources.rs::a_type3_font_shown_inside_a_form_reads_the_pages_resources_and_not_the_forms"
+      ],
+      "assessment": "The source rule and major execution behavior are asserted with discriminating fixtures. Current changed code explicitly saves/restores shape_only_glyph, but no existing assertion was found proving normal page transparency operations work after a d1 glyph returns; draft in drafts/type3_shape_state_restoration.rs."
+    },
+    {
+      "clause": "9.6.4, Table 111",
+      "feature": "d0/d1 width and shape/color behavior",
+      "source": "EC3 PDF physical p. 335 / printed p. 320; md:7816-7822. d0 sets wx/wy (wy zero), must be first, width consistent with Widths and declares own color; d1 declares shape-only with glyph bbox, must be first; color operators are ignored and processing continues; image disallowed but image mask accepted. The producer's bbox accuracy and width consistency are not promoted to reader rejection rules.",
+      "implementation": "crates/pdf-model/src/content/run/compat_type3_ops.rs:40-100; crates/pdf-model/src/content/ext_gstate.rs:270-300; crates/pdf-model/src/content/text/type3.rs:108-141.",
+      "assertions": [
+        "tests/type3_residual_audit.rs::d1_ignores_color_related_extgstate_changes_and_continues",
+        "tests/type3.rs::a_d1_description_takes_its_colour_from_the_page_and_a_d0_one_does_not",
+        "tests/type3.rs::a_d1_glyph_description_drops_an_image_and_keeps_an_image_mask",
+        "pdf-archive/src/table/fonts.rs Type3 width consistency checks (producer conformance only)"
+      ],
+      "assessment": "The d1/d0 contrasting alpha/color tests are source-derived; validator width checks are not ordinary-reader behavior. No finding that malformed d0/d1 producer values must be rejected. The state restoration boundary is the only identified unasserted changed behavior."
+    },
+    {
+      "clause": "9.6.4",
+      "feature": "Glyph resources, nested content and recursion",
+      "source": "EC3 PDF physical pp. 332-335 / printed pp. 317-320; §9.6.4 steps and EC3 #111, #128. #111 says operators from any category subject to restrictions and result for direct/indirect recursion is implementation-dependent; #128 changes resource search.",
+      "implementation": "crates/pdf-model/src/content/text/type3.rs:80-135; crates/pdf-model/src/type3.rs resource resolver.",
+      "assertions": [
+        "tests/type3_residual_audit.rs::glyph_stream_resources_win_a_name_collision_with_font_resources",
+        "tests/hostile_budgets.rs::a_glyph_showing_itself_in_its_inherited_font_is_refused_at_its_reentry",
+        "tests/hostile_budgets.rs::a_type3_cycle_through_a_tiling_cell_is_refused_at_its_reentry",
+        "tests/type3.rs::a_named_encoding_maps_codes_to_glyph_names_out_of_annex_d"
+      ],
+      "assessment": "Resource precedence is directly discriminated. Recursion refusal is a reader policy permitted by EC3's implementation-dependent result, not a mandatory normative failure mode."
+    },
+    {
+      "clause": "9.7.6.1",
+      "feature": "Type 0 font dictionary structure",
+      "source": "EC3 PDF physical pp. 355-356 / printed pp. 340-341; doc/md Table 119 around 8295 onward. Required Type, Subtype Type0, BaseFont, Encoding, one descendant; optional ToUnicode.",
+      "implementation": "Ledger doc/conformance/ledger.toml:2611 onward maps composite font loading; this pass did not independently trace all parser branches or current assertions for every Table 119 entry.",
+      "assertions": [
+        "Composite font tests are mapped by the ledger; individual bodies were not exhaustively inspected in this bounded audit."
+      ],
+      "assessment": "Partial. No certification of Table 119 handling. BaseFont's arbitrary name is not itself interpreted as a font program."
+    },
+    {
+      "clause": "9.9",
+      "feature": "OpenType FontFile3 selection and required table families",
+      "source": "EC3 PDF physical pp. 366-368 / printed pp. 351-353; doc/md §9.9 Table 124/125 around 8500 onward. OpenType is selected according to font dictionary and contained CFF/glyf table: Type1 CFF follows §9.6.5.2; TrueType/glyf and CID/CFF variants have different requirements. Table 125 extents apply to Type1/TrueType; CFF has no Length1-3.",
+      "implementation": "Changed crates/pdf-font/src/loading.rs:1048-1150 substitutes a metrics-derived face for selected unreadable embedded programs; OpenType type selection in crates/pdf-font/src/loading/opening.rs (current change ADR 2817).",
+      "assertions": [
+        "tests/opentype_selection_audit.rs has selection fixtures and distinct CFF/glyf assertions; unreadable_program_substitute.rs is relevant to new unreadable-program fallback."
+      ],
+      "assessment": "Partial. This audit checked the current changed-code premise and selected ADR 2817 only; no complete validation of OpenType conformance, all Table 124 combinations, or unreadable-program substitute behavior."
+    }
+  ],
+  "not_claimed": [
+    "Whole-clause certification for §9.7.6.1 or §9.9",
+    "Conformance of font programs to ISO/IEC 14496-22",
+    "Cryptographic or exhaustive fuzz validation of font readers",
+    "Mandatory rejection of producer-only d0/d1 width/bbox inconsistencies"
+  ]
+}

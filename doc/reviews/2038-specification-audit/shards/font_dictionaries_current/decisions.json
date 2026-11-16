@@ -1,0 +1,53 @@
+{
+  "baseline": "b901326c",
+  "reviewed_decisions": [
+    {
+      "adr": "0018",
+      "topic": "Type 3 glyphs execute as content streams in pdf-model",
+      "decision_check": "Consistent with §9.6.4's defining rule that glyphs are streams of PDF graphics operators. Current Type3Font and nested interpreter path were inspected. No reconsideration indicated by this review.",
+      "residual": "This does not certify all PDF operator categories or every nested-content boundary."
+    },
+    {
+      "adr": "0393",
+      "topic": "d1 glyph paints use inherited fill/stroke color parameters",
+      "decision_check": "The current source's example and Table 111 singular color sentence, §9.3.3, and §8.6.8 were inspected alongside current d0/d1 and stroke tests. Existing assertions discriminate red/blue or alpha and include d0 control. No new conflict found.",
+      "residual": "d1 transparency/color operator handling is a scoped reading of referenced clauses; no broad certification of all §8.6.8 operators here."
+    },
+    {
+      "adr": "0914",
+      "topic": "Refuse Type 3 FontMatrix with no inverse",
+      "decision_check": "Table 110 requires FontMatrix mapping glyph space to text space; §9.2.4 describes that map. Current read refuses no-inverse matrices, and a test asserts the refusal. No contrary evidence found.",
+      "residual": "The normative characterization of singular affine maps is the ADR's interpretation; this review did not seek new owner adjudication."
+    },
+    {
+      "adr": "1059",
+      "topic": "Type 3 resource fallback resolves to page resources per EC3 #128",
+      "decision_check": "EC3's amended §7.8.3 sequence and a current nested-form test support glyph-stream/font/page resolution; current glyph-stream collision test independently asserts precedence. No reversal indicated.",
+      "residual": "Inherited page-resource details beyond the targeted test were not exhaustively enumerated."
+    },
+    {
+      "adr": "1792",
+      "topic": "Refuse Type 3 recursive glyph at re-entry",
+      "decision_check": "EC3 #111 says implementations need avoid recursion and result is implementation-dependent. Existing hostile-budget tests show bounded refusal and a nonrecursive control. The ADR's refusal is allowed, not required.",
+      "residual": "Do not characterize recursion refusal as the only standard-conforming outcome."
+    },
+    {
+      "adr": "2817",
+      "topic": "OpenType wrapper selection by embedded CFF/glyf and font dictionary type",
+      "decision_check": "The §9.9.1 bullet distinction is reflected in the changed `type1_cff_in_opentype` path and selected OpenType audit tests. This bounded review did not independently recompute all CFF charset/cmap outcomes; decision retained provisionally.",
+      "residual": "Partial selected-row verification; no statement about every OpenType table requirement."
+    },
+    {
+      "adr": "2870",
+      "topic": "Use a substitute face for an embedded but unreadable font program",
+      "decision_check": "§9.5 and §9.8.1 permit a substitute when the program is unavailable; they do not mandate this policy. The changed loader path explicitly keeps/report the refusal while substituting. This pass did not validate substitute appearance, all refusal types, or new public behavior.",
+      "residual": "Policy is permissive and product/owner-directed; partial review only."
+    }
+  ],
+  "focused_test_decision": {
+    "finding": "The baseline adds save/restore of shape_only_glyph in content/text/type3.rs, but inspected Type3 tests establish only that d1 ignores transparency changes inside the glyph. No test asserts a normal page ExtGState after d1 glyph invocation takes effect.",
+    "action": "Draft a viewer integration regression with a blue page state, a d1 glyph invoking /Half gs, then page content that switches to black, invokes /Half gs, and paints. Expected glyph paint is blue/alpha 1; following page fill is black/alpha 0.5. This tests internal d1 suppression and restoration without relying on malformed input.",
+    "authority": "§9.6.4 step c: graphics state is restored after glyph; Table 111 d1 color-related operators are ignored and processing continues.",
+    "interpretation": "Test gap only; current code appears to implement the expected behavior. No reported current failure because parent is running the baseline suite."
+  }
+}

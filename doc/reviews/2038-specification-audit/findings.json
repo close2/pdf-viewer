@@ -464,5 +464,88 @@
     "decision": "ADR 0907 explains the restriction path; that argument does not establish correctness of the separate comparison consumer.",
     "execution": "docmdp-dts-wave13b.log: 1 PASS, 1 expected FAIL.",
     "limits": "The fixture uses local test certificates and does not assert public trust or revocation status. The entire LTV profile and other transforms are not certified."
+  },
+  {
+    "id": "2038-B19",
+    "kind": "behavior-decision-mismatch",
+    "clauses": [
+      "14.11.2.1",
+      "12.2"
+    ],
+    "summary": "Present nondegenerate page boundaries wholly outside MediaBox fall back to a larger box, revealing content instead of retaining the empty intersection.",
+    "source": "§14.11.2.1 printed816/physical831 requires intersection. Table31/§14.11.2.1 absence defaults do not state recovery for an empty intersection.",
+    "code": "crates/pdf-model/src/page.rs:build_page crop_box and production_box fallbacks",
+    "test": "pdf-model::page_geometry::a_disjoint_page_boundary_clips_all_content_instead_of_defaulting_to_the_medium",
+    "execution": "FAIL for all four boxes; partial-overlap controls pass, exact xrefs/no recovery, complete interpretation.",
+    "adr_review": "ADR0414 explicitly endorses fallback; reconsider its inference from defaults. Test chooses ViewAreaMediaBox and each ViewClip to preserve a nonempty viewport, so no zero-size output policy is imposed.",
+    "remaining": "Production behavior/ADR unchanged. A future fix needs an explicit representation of empty clipping distinct from absent/default box and regression review of intentional recovery policy."
+  },
+  {
+    "id": "2038-T12",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "9.6.4"
+    ],
+    "summary": "Existing d1 tests checked suppression inside the glyph but not restoration before following page ExtGState.",
+    "change": "Added black d1 glyph with internal Half ignored and following blue page rectangle with Half applied; literal alpha1 and0.5 distinguish both.",
+    "execution": "PASS in boundary-font-annotation-wave14.log.",
+    "remaining": "Display-list alpha/color control; not every Type3 nested-state field or raster compositing path."
+  },
+  {
+    "id": "2038-T13",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "12.5.6.10"
+    ],
+    "summary": "Added public activation-to-popup assertions across all four text-markup subtypes.",
+    "change": "Explicit closed-state control, associated popup object/parent and literal note/title values; exact xref fixture contains text-covering CCW quad.",
+    "execution": "PASS in boundary-font-annotation-wave14.log.",
+    "remaining": "No host window geometry/font or all annotation type certification."
+  },
+  {
+    "id": "2038-T14",
+    "kind": "test-oracle-and-coverage-gap",
+    "clauses": [
+      "14.11.2.2",
+      "7.7.3.4"
+    ],
+    "summary": "Table397 missing-key expectations shared an implementation constant; crop inheritance lacked a direct rendering control.",
+    "change": "Use literal source-derived black/width1/solid and dash[3] expectations; add inherited and explicit-leaf viewport/pixel assertions.",
+    "execution": "PASS in fdf-boundary-wave14b.log.",
+    "remaining": "Separate malformed fallback and processor-default settings remain policy controls."
+  },
+  {
+    "id": "2038-T15",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "12.7.8.3.3"
+    ],
+    "summary": "FDF template cardinality tests did not show that both templates actually paint; file-request tests used string F only.",
+    "change": "Add independent red/blue CPU pixels for one composed page with single-template control; dictionary UF preference reaches file_awaited.",
+    "execution": "PASS: fdf-pixels-wave14d.log and fdf-boundary-wave14b.log. Earlier draft representation/indexing failures corrected, not product findings.",
+    "remaining": "Persistence and Rename=true remain documented departures; no live remote-file opening claim."
+  },
+  {
+    "id": "2038-D07",
+    "kind": "stale-diagnostic-description",
+    "clauses": [
+      "12.7.8.3.1"
+    ],
+    "summary": "FormsData comment says both Table246 Pages conflicts are named, but only Fields+Pages is diagnosed; Pages+Status is read without that diagnostic.",
+    "source": "Table246 constrains writers, not mandatory reader rejection/diagnostics.",
+    "code": "crates/pdf-model/src/forms_data.rs:724",
+    "remaining": "Recorded documentation/reporting inconsistency; diagnostic draft remains unpromoted. Silent4096-array bounds are a separate resource-reporting candidate without a proven public truncation contract."
+  },
+  {
+    "id": "2038-T16",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "14.3.3",
+      "14.3.4"
+    ],
+    "summary": "Properties tests lacked conflicting Info/XMP values through the host panel.",
+    "change": "Literal distinct dictionary/packet titles survive Query::Properties→property_rows with separate labels; no-packet control does not synthesize XMP.",
+    "execution": "PASS in metadata-wave14.log.",
+    "remaining": "Product presentation policy only. §14.3.4 gives discretion for inconsistent dates and does not require general title reconciliation."
   }
 ]
