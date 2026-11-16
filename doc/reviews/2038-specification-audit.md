@@ -206,6 +206,16 @@ filter. Primary #79 annotations confirm the existing alternate-image branches.
 Partial evidence reaches 379 rows, with 504 pending; the failure manifest remains36.
 Current model all-targets Clippy and the12targeted path/state tests pass.
 
+The annotation checkpoint adds passing Stamp and Caret stored-appearance controls,
+each discriminated by red/blue stream content. Primary #444 on the Ink table
+contradicts the current documentation that Path precedence is merely a choice;
+the code already prefers Path. That source/ledger rationale gap is D12. The table
+citation triage separately records two Annex-prefix search misses among63candidates;
+all63 have structural owners, which does not prove feature-entry completeness.
+Partial reviews reach383rows, with500pending. The refreshed eight-crate run has
+6,399passes, exactly all36expected failing identities, and55skips. No extra or
+missing failure was found. Current model all-targets Clippy passes.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks

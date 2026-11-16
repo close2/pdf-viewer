@@ -5986,11 +5986,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/annotations_markup_current/features.json"
+    ],
     "prior_artifacts": [
       "free_text_annotation_audit"
-    ]
+    ],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "12.5.6.7",
@@ -6000,7 +6003,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/annotation_types_current/features.json"
+      "shards/annotation_types_current/features.json",
+      "shards/annotations_markup_current/features.json"
     ],
     "prior_artifacts": [
       "line_annotation_audit"
@@ -6013,11 +6017,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/annotations_markup_current/features.json"
+    ],
     "prior_artifacts": [
       "square_circle_annotation_audit"
-    ]
+    ],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "12.5.6.9",
@@ -6025,9 +6032,10 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "partial-current-assertion-review",
+    "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "prior-assertion-reviews.json"
+      "prior-assertion-reviews.json",
+      "shards/annotations_markup_current/features.json"
     ],
     "prior_artifacts": [
       "polygon_polyline_audit"
@@ -6036,7 +6044,8 @@
       "pdf-model::polygon_polyline_spec_audit::polyline_ic_fills_closed_endings_but_not_open_endings",
       "pdf-model::polygon_polyline_spec_audit::polygon_path_strokes_its_closing_edge_while_polyline_path_stays_open",
       "pdf-model::polygon_polyline_spec_audit::polyline_first_ending_is_at_first_vertex_not_second_vertex"
-    ]
+    ],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "12.5.6.10",
@@ -6059,11 +6068,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/annotations_markup_current/features.json"
+    ],
     "prior_artifacts": [
       "caret_stamp_annotation_audit"
-    ]
+    ],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "12.5.6.12",
@@ -6071,16 +6083,18 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "partial-current-assertion-review",
+    "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "prior-assertion-reviews.json"
+      "prior-assertion-reviews.json",
+      "shards/annotations_markup_current/features.json"
     ],
     "prior_artifacts": [
       "caret_stamp_annotation_audit"
     ],
     "reviewed_assertions": [
       "viewer-core::stamp_popup_spec_audit::opening_a_stamp_without_a_popup_reference_still_displays_its_associated_note"
-    ]
+    ],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "12.5.6.13",
@@ -6088,11 +6102,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/annotations_markup_current/features.json"
+    ],
     "prior_artifacts": [
       "ink_annotation_audit"
-    ]
+    ],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "12.5.6.14",

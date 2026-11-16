@@ -6,19 +6,20 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "Eight-crate wave18:6415run,6382PASS,33expectedFAIL,55skip; exact manifest match then. Wave19 4PASS. Wave20 13run10PASS3expectedFAIL; current manifest36. Broad run predates new three failures. Wave21 composed transform and11path/stack tests PASS.",
+    "later_targets": "Eight-crate wave22:6435run,6399PASS,exactly36expectedFAIL,55skip; no missing or additional failure identities. Includes checkpoint22 AP tests.",
     "quality": "Current pdf-syntax/pdf-model/viewer-core all-targets Clippy passes. Broader/docs/conformance gates retain recorded scope."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [
-      "simple_font_encodings_current"
+      "simple_font_encodings_current",
+      "rendering_intent_transfer_current"
     ],
     "active_shards": [
       "marked_content_current",
-      "annotations_markup_current",
-      "rendering_intent_transfer_current"
+      "annex_o_current",
+      "scan_conversion_current"
     ],
     "recorded_shards": [
       "logical_structure",
@@ -73,10 +74,11 @@
       "text_extraction_cmaps_current",
       "special_colour_spaces_current",
       "coordinates_graphics_state_current",
-      "images_samples_interpolation_current"
+      "images_samples_interpolation_current",
+      "annotations_markup_current"
     ],
-    "partial_current_rows": 379,
-    "pending_current_rows": 504
+    "partial_current_rows": 383,
+    "pending_current_rows": 500
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",

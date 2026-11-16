@@ -14,18 +14,18 @@ The report and machine-readable continuation are in
 **Evidence so far.** All 72 previous failing assertions pass. Current tests expose
 36 failing assertions, grouped by behavior and qualified where interpretation is
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
-The shard index links partial reviews to 379 ledger rows; 504 remain pending in
+The shard index links partial reviews to 383 ledger rows; 500 remain pending in
 this round. No entire clause is certified merely because referenced tests pass.
 A shared-parser date mutation was killed and restored. Independent JP2 fixture
 regeneration matches the embedded hashes. Selected ADR conclusions are retained,
 qualified, or reconsidered with primary-source reasoning.
 
-**Gates.** Wave18, eight crates: nextest 6,415 run, 6,382 pass, exactly the 33 expected
+**Gates.** Wave22, eight crates: nextest 6,435 run, 6,399 pass, exactly the 36 expected
 failures, 55 skipped. Current touched-crate all-targets Clippy and formatting pass.
 Earlier rustdoc/conformance, baseline and GTK runs are recorded separately; they
 do not certify later changes. CID, parser-boundary and nested associated-file controls pass;
 GoToR/GoToE, FitR/FitB and ICC fallback fail; actions/IsMap pass. Wave20 adds three
-choice/ToUnicode failures; CMap, special-colour and composed-transform controls pass.
+choice/ToUnicode failures; CMap, colours, transforms and Stamp/Caret AP controls pass.
 
 The next checkpoint adds AGL sequence/unknown-component failures and public text/search
 controls, four passing mesh pixel assertions, and genuine PAdES report/tamper tests.

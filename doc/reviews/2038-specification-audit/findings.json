@@ -913,5 +913,34 @@
     "source": "Figure9 physical163/148 and Note2.",
     "action": "Preserved assertion; added explicit policy comment. Valid stack behavior has separate tests.",
     "execution": "Existing assertion still PASS; its outcome is not a required conformance result."
+  },
+  {
+    "id": "2038-D12",
+    "kind": "source-ledger-rationale-gap",
+    "clauses": [
+      "12.5.6.13"
+    ],
+    "summary": "Current Ink comments and ledger miss EC3#444 and describe Path-over-InkList as unspecified policy.",
+    "source": "Table185, physical510/printed495; Caret at Rect[261.172607,657.242371,270.248718,664.637695] after InkList Required; Contents: Shall be ignored if Path is present. Parent visually verified placement.",
+    "affected": [
+      "crates/pdf-model/src/appearance.rs::ink documentation",
+      "crates/pdf-model/src/appearance.rs::path_segments documentation",
+      "doc/conformance/ledger.toml 12.5.6.13 note",
+      "ADR0278 historical Ink reasoning"
+    ],
+    "behavior": "Existing implementation already prefers Path; no rendering defect established. Existing no-AP curve test discriminates Path from InkList but remains a fallback fixture.",
+    "action": "Corrected ink_annotation_spec_audit test comment; record current documentation/ledger follow-up without rewriting production or historical ADR. Initial shard claim rejected and corrected."
+  },
+  {
+    "id": "2038-T34",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "12.5.5",
+      "12.5.6.11",
+      "12.5.6.12"
+    ],
+    "summary": "Added Stamp and Caret supplied-appearance public raster controls distinct from missing-artwork policy.",
+    "execution": "2PASS markup-ap-wave22.log; both subtypes show red and blue when respective AP stream changes.",
+    "limits": "Literal CPU pixel and complete interpretation, not native interaction or all AP states."
   }
 ]

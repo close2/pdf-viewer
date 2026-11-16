@@ -1,0 +1,821 @@
+{
+  "baseline": "b901326c230faa5d2cb288016339b9d5c6288527",
+  "method": "Parent triage of the63 literal-citation misses in table-coverage-index.json. Uses current ledger text/status and explicit partial-review links; not a fresh per-entry certification.",
+  "counts": {
+    "implemented": 27,
+    "out-of-scope": 34,
+    "inapplicable": 2
+  },
+  "verified_citation_false_negatives": 2,
+  "limits": [
+    "All63 have structural ledger owners. This alone does not establish coverage of each feature in a table.",
+    "34out-of-scope and2inapplicable owners retain existing decisions; this pass does not re-ratify those decisions.",
+    "27implemented owners include two Annex-prefix search misses. Remaining omissions may be abbreviations or feature descriptions; none automatically proves a missing feature.",
+    "Rows without a current artifact still require source/assertion review."
+  ],
+  "candidates": [
+    {
+      "designation": "7",
+      "title": "Typical LZW encoding sequence",
+      "line": 1720,
+      "owner_heading": "7.4.4.2",
+      "ledger_row": "7.4.4.2",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/syntax_streams_filters_current/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "10",
+      "title": "Predictor values",
+      "line": 1798,
+      "owner_heading": "7.4.4.4",
+      "ledger_row": "7.4.4.4",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/predictors_current/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "38",
+      "title": "Entries common to all function dictionaries",
+      "line": 3621,
+      "owner_heading": "7.10.1",
+      "ledger_row": "7.10.1",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/functions_current/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "40",
+      "title": "Additional entries specific to a Type 2 function dictionary",
+      "line": 3739,
+      "owner_heading": "7.10.3",
+      "ledger_row": "7.10.3",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/functions_current/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "55",
+      "title": "Examples of line dash patterns",
+      "line": 4503,
+      "owner_heading": "8.4.3.6",
+      "ledger_row": "8.4.3.6",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/paths_current/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "60",
+      "title": "Clipping path operators",
+      "line": 4784,
+      "owner_heading": "8.5.4",
+      "ledger_row": "8.5.4",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/paths_current/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "90",
+      "title": "Inline image operators",
+      "line": 6555,
+      "owner_heading": "8.9.7",
+      "ledger_row": "8.9.7",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/inline_images_current/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "108",
+      "title": "Font types",
+      "line": 7635,
+      "owner_heading": "9.5",
+      "ledger_row": "9.5",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/font_substitution_current/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "113",
+      "title": "Additional entries in Mac OS Roman encoding not in MacRomanEncoding",
+      "line": 7936,
+      "owner_heading": "9.6.5.4",
+      "ledger_row": "9.6.5.4",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "prior-assertion-reviews.json",
+        "shards/annex_d_encoding/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "114",
+      "title": "Entries in a CIDSystemInfo dictionary",
+      "line": 8010,
+      "owner_heading": "9.7.3",
+      "ledger_row": "9.7.3",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/cid_opentype_current/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "133",
+      "title": "Variables used in the basic compositing formula",
+      "line": 9362,
+      "owner_heading": "11.3.3",
+      "ledger_row": "11.3.3",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "137",
+      "title": "Variables used in the result shape and opacity formulas",
+      "line": 9673,
+      "owner_heading": "11.3.7.3",
+      "ledger_row": "11.3.7.3",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "154",
+      "title": "Entries in a collection schema dictionary",
+      "line": 10730,
+      "owner_heading": "12.3.5.1",
+      "ledger_row": "12.3.5.1",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/collections/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "216",
+      "title": "Additional entries specific to named actions",
+      "line": 12255,
+      "owner_heading": "12.6.4.12",
+      "ledger_row": "12.6.4.12",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/named_actions_current/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "222",
+      "title": "Additional entries specific to a rich-media-execute action",
+      "line": 12374,
+      "owner_heading": "12.6.4.18",
+      "ledger_row": "12.6.4.18",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "280",
+      "title": "Entries in a minimum bit depth dictionary",
+      "line": 14218,
+      "owner_heading": "13.2.3.1",
+      "ledger_row": "13.2.3.1",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/media_viability/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "281",
+      "title": "Entries in a minimum screen size dictionary",
+      "line": 14226,
+      "owner_heading": "13.2.3.1",
+      "ledger_row": "13.2.3.1",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/media_viability/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "293",
+      "title": "Entries in a media screen parameters dictionary",
+      "line": 14442,
+      "owner_heading": "13.2.6.1",
+      "ledger_row": "13.2.6.1",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/media_viability/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "301",
+      "title": "Entries in a media players dictionary",
+      "line": 14541,
+      "owner_heading": "13.2.7.2.1",
+      "ledger_row": "13.2.7.2.1",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/media_viability/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "304",
+      "title": "Monitor specifier values",
+      "line": 14644,
+      "owner_heading": "13.2.7.5",
+      "ledger_row": "13.2.7.5",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "308",
+      "title": "Entries in a slideshow dictionary",
+      "line": 14740,
+      "owner_heading": "13.5",
+      "ledger_row": "13.5",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "311",
+      "title": "Entries in a 3D stream dictionary",
+      "line": 14888,
+      "owner_heading": "13.6.3.1",
+      "ledger_row": "13.6.3.1",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "312",
+      "title": "Entries in an 3D animation style dictionary",
+      "line": 14919,
+      "owner_heading": "13.6.3.2",
+      "ledger_row": "13.6.3.2",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "313",
+      "title": "Animation styles",
+      "line": 14940,
+      "owner_heading": "13.6.3.2",
+      "ledger_row": "13.6.3.2",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "314",
+      "title": "Entries in a 3D reference dictionary",
+      "line": 14955,
+      "owner_heading": "13.6.3.3",
+      "ledger_row": "13.6.3.3",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "315",
+      "title": "Entries in a 3D view dictionary",
+      "line": 15006,
+      "owner_heading": "13.6.4.1",
+      "ledger_row": "13.6.4.1",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "316",
+      "title": "Entries in a projection dictionary",
+      "line": 15063,
+      "owner_heading": "13.6.4.2",
+      "ledger_row": "13.6.4.2",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "317",
+      "title": "Entries in a 3D background dictionary",
+      "line": 15121,
+      "owner_heading": "13.6.4.3",
+      "ledger_row": "13.6.4.3",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "318",
+      "title": "Entries in a render mode dictionary",
+      "line": 15140,
+      "owner_heading": "13.6.4.4",
+      "ledger_row": "13.6.4.4",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "319",
+      "title": "Render modes",
+      "line": 15163,
+      "owner_heading": "13.6.4.4",
+      "ledger_row": "13.6.4.4",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "320",
+      "title": "Entries in a 3D lighting scheme dictionary",
+      "line": 15194,
+      "owner_heading": "13.6.4.5",
+      "ledger_row": "13.6.4.5",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "321",
+      "title": "3D lighting scheme styles",
+      "line": 15205,
+      "owner_heading": "13.6.4.5",
+      "ledger_row": "13.6.4.5",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "322",
+      "title": "Entries in a 3D cross section dictionary",
+      "line": 15280,
+      "owner_heading": "13.6.4.6",
+      "ledger_row": "13.6.4.6",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "323",
+      "title": "Entries in a 3D node dictionary",
+      "line": 15374,
+      "owner_heading": "13.6.4.7",
+      "ledger_row": "13.6.4.7",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "324",
+      "title": "Entries in an external data dictionary used to markup 3D annotations",
+      "line": 15490,
+      "owner_heading": "13.6.6",
+      "ledger_row": "13.6.6",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "325",
+      "title": "Entries in a 3D units dictionary",
+      "line": 15579,
+      "owner_heading": "13.6.7.2",
+      "ledger_row": "13.6.7.2",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "326",
+      "title": "Entries in a 3D measurement/markup dictionary common to all markup subtypes",
+      "line": 15636,
+      "owner_heading": "13.6.7.3.1",
+      "ledger_row": "13.6.7.3.1",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "327",
+      "title": "Additional entries in a 3D measurement/markup dictionary for a 3D linear dimension measurement",
+      "line": 15661,
+      "owner_heading": "13.6.7.3.2",
+      "ledger_row": "13.6.7.3.2",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "328",
+      "title": "Additional entries in a 3D measurement/markup dictionary for a 3D perpendicular dimension measurement",
+      "line": 15711,
+      "owner_heading": "13.6.7.3.3",
+      "ledger_row": "13.6.7.3.3",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "329",
+      "title": "Additional entries in a 3D measurement/markup dictionary for a 3D angular dimension measurement",
+      "line": 15758,
+      "owner_heading": "13.6.7.3.4",
+      "ledger_row": "13.6.7.3.4",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "330",
+      "title": "Additional entries in a 3D measurement/markup dictionary for a 3D radial dimension measurement",
+      "line": 15818,
+      "owner_heading": "13.6.7.3.5",
+      "ledger_row": "13.6.7.3.5",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "332",
+      "title": "Entries in the external data dictionary of a projection annotation",
+      "line": 15894,
+      "owner_heading": "13.6.7.4",
+      "ledger_row": "13.6.7.4",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "334",
+      "title": "Entries in a RichMediaSettings dictionary",
+      "line": 15952,
+      "owner_heading": "13.7.2.2.1",
+      "ledger_row": "13.7.2.2.1",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "335",
+      "title": "Entries in a RichMediaActivation dictionary",
+      "line": 15973,
+      "owner_heading": "13.7.2.2.2",
+      "ledger_row": "13.7.2.2.2",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "336",
+      "title": "Entries in a RichMediaDeactivation dictionary",
+      "line": 15991,
+      "owner_heading": "13.7.2.2.3",
+      "ledger_row": "13.7.2.2.3",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "337",
+      "title": "Entries in a RichMediaAnimation dictionary",
+      "line": 16006,
+      "owner_heading": "13.7.2.2.4",
+      "ledger_row": "13.7.2.2.4",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "338",
+      "title": "Entries in a RichMediaPresentation dictionary",
+      "line": 16037,
+      "owner_heading": "13.7.2.2.5",
+      "ledger_row": "13.7.2.2.5",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "339",
+      "title": "Entries in a RichMediaWindow dictionary",
+      "line": 16058,
+      "owner_heading": "13.7.2.2.6",
+      "ledger_row": "13.7.2.2.6",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "340",
+      "title": "Entries in a RichMediaPosition dictionary",
+      "line": 16072,
+      "owner_heading": "13.7.2.2.6",
+      "ledger_row": "13.7.2.2.6",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "343",
+      "title": "Entries in a RichMediaInstance dictionary",
+      "line": 16159,
+      "owner_heading": "13.7.2.3.4",
+      "ledger_row": "13.7.2.3.4",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "344",
+      "title": "Additional entries in a 3D view dictionary",
+      "line": 16177,
+      "owner_heading": "13.7.2.3.5",
+      "ledger_row": "13.7.2.3.5",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "345",
+      "title": "Entries in a View Params dictionary",
+      "line": 16192,
+      "owner_heading": "13.7.2.3.6.1",
+      "ledger_row": "13.7.2.3.6.1",
+      "ledger_status": "out-of-scope",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "352",
+      "title": "Marked-content operators",
+      "line": 16398,
+      "owner_heading": "14.6.1",
+      "ledger_row": "14.6.1",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "367",
+      "title": "Sub-block level structure type",
+      "line": 17215,
+      "owner_heading": "14.8.4.6",
+      "ledger_row": "14.8.4.6",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/structure_types/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "370",
+      "title": "List standard structure types",
+      "line": 17298,
+      "owner_heading": "14.8.4.8.2",
+      "ledger_row": "14.8.4.8.2",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/structure_types/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "371",
+      "title": "Table standard structure types",
+      "line": 17314,
+      "owner_heading": "14.8.4.8.3",
+      "ledger_row": "14.8.4.8.3",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/structure_types/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "373",
+      "title": "Standard structure type Figure",
+      "line": 17366,
+      "owner_heading": "14.8.4.8.5",
+      "ledger_row": "14.8.4.8.5",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/structure_types/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "374",
+      "title": "Standard structure type Formula",
+      "line": 17385,
+      "owner_heading": "14.8.4.8.6",
+      "ledger_row": "14.8.4.8.6",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/structure_types/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "375",
+      "title": "standard structure type Artifact",
+      "line": 17396,
+      "owner_heading": "14.8.4.8.7",
+      "ledger_row": "14.8.4.8.7",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [
+        "shards/structure_types/features.json"
+      ],
+      "disposition": "Structural owner exists; feature-entry completeness remains bounded by listed reviews."
+    },
+    {
+      "designation": "392",
+      "title": "Entries in a URL alias dictionary",
+      "line": 18191,
+      "owner_heading": "14.10.5.2",
+      "ledger_row": "14.10.5.2",
+      "ledger_status": "inapplicable",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "394",
+      "title": "Web Capture command flags",
+      "line": 18225,
+      "owner_heading": "14.10.5.3",
+      "ledger_row": "14.10.5.3",
+      "ledger_status": "inapplicable",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Existing scoped-out ledger owner; this citation triage neither re-ratifies the exclusion nor treats lack of implementation as a missing row."
+    },
+    {
+      "designation": "O.3",
+      "title": "PDF object identifiers",
+      "line": 22180,
+      "owner_heading": "O.2.1",
+      "ledger_row": "O.2.1",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Literal-search false negative: owner note explicitly uses Table Annex O.3. Effective #700 caption renumbering separately retained in ledger. No missing-row finding.",
+      "verified_literal": "Table Annex O.3"
+    },
+    {
+      "designation": "O.4",
+      "title": "PDF open parameters",
+      "line": 22203,
+      "owner_heading": "O.2.2",
+      "ledger_row": "O.2.2",
+      "ledger_status": "implemented",
+      "explicit_ledger_mention": false,
+      "feature_review": "pending unless separately named in shard feature evidence",
+      "partial_feature_artifacts": [],
+      "disposition": "Literal-search false negative: owner note explicitly uses Table Annex O.4. Effective #700 caption renumbering separately retained in ledger. No missing-row finding.",
+      "verified_literal": "Table Annex O.4"
+    }
+  ]
+}
