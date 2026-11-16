@@ -6,18 +6,19 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "27 committed expected failing assertions. Wave13 broad6381/6358pass/23expectedfail55skip predates later additions. Wave17 adds B22 initial-open event order; valid multi-level trees2, literal preferences1, annotation borders5 and stored BM1 pass. Cross-document destination candidate is pending parent source/control review in scratch/current uncommitted test.",
+    "later_targets": "33 expected failing assertions. Wave18 adds GoToR/GoToE2, FitR/FitB3, ICC fallback1. Whole-page Fit and DeviceRGB reset pass. Broad refresh pending; earlier wave13 covers23failures.",
     "quality": "Current pdf-syntax/pdf-model/viewer-core all-targets Clippy passes. Broader/docs/conformance gates retain recorded scope."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [
-      "destinations_current_followup"
+      "actions_chains_current"
     ],
     "active_shards": [
-      "colour_spaces_current",
-      "font_descriptors_current"
+      "special_colour_spaces_current",
+      "text_extraction_cmaps_current",
+      "forms_buttons_choices_current"
     ],
     "recorded_shards": [
       "logical_structure",
@@ -63,10 +64,13 @@
       "file_structure_current",
       "trees_strings_current",
       "viewer_preferences_layout_current",
-      "annotation_common_current"
+      "annotation_common_current",
+      "destinations_current_followup",
+      "colour_spaces_current",
+      "font_descriptors_current"
     ],
-    "partial_current_rows": 338,
-    "pending_current_rows": 545
+    "partial_current_rows": 356,
+    "pending_current_rows": 527
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",
@@ -79,7 +83,7 @@
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 37,
-    "last_read_utc": "2026-11-16T12:27:49.782307+00:00"
+    "last_weekly_used_percent": 38,
+    "last_read_utc": "2026-11-16T12:48:34.958857+00:00"
   }
 }

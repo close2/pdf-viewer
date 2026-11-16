@@ -1,0 +1,5 @@
+{
+  "parent_checks": "Read Table120 MissingWidth and errata#453; checked metrics::missing_width/descriptor_flags and literal direct tests, Lang script selection and its controls, class_faces filtering/override selection. Selected ADRs0158/0716/1074/1220/1411/1441 reviewed with source; no whole-ADR certification.",
+  "finding": "§9.8.1 ledger description does not map EC3#453 predictable-width qualification. Deterministic fixed MissingWidth is permitted when widths are inconsistent; no behavior defect asserted. Ledger status/content left unchanged.",
+  "limits": "Producer-required descriptor fields do not by themselves imply mandatory reader rejection. Full Table123/KR public path, every descriptor metric and embedded-font flag pixel matrix remain pending. No new test or separate execution claim for this shard."
+}

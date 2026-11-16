@@ -1,0 +1,25 @@
+Synthetic ICC.2 v5 Lab display profile, generated from the adjacent Python source.
+Profile SHA256: 2302f21938c448617bb90e29c5b9793d46707c3207d10d2dee2c9a023530123a
+Regeneration was independently reproduced by the parent auditor, byte for byte.
+ICC iccDEV 2.3.2.5 validate_profile_file returns ValidationStatus.OK, empty report.
+CPython3.14 Linux wheel SHA256:
+5fc0b1488257826f7e508bc5cac1169ee541bda67a0774755e8a4eab2c5751bd
+Independent validation reproduced by parent on 2026-11-16.
+
+Reproduce with an isolated environment containing iccdev==2.3.2.5:
+  python3 -c 'import iccdev; print(iccdev.validate_profile_file("icc2_v5_lab_mpe.icc"))'
+The adjacent structural validator is source-guided and is not the independent validator.
+ICC primary implementation links:
+https://www.color.org/iccmax/
+https://www.color.org/profilingtools/opensource/
+https://www.color.org/icc_specs2/
+
+ICC.2:2023 §§8.2/8.4 require common tags and forward/reverse display transforms.
+§§9.2.1/9.2.38 permit mpet for A2B0/B2A0; Table63 gives mpet structure;
+Table120 gives matf identity matrix representation. A zero ProfileID is permitted.
+PDF Tables65/67/68 allow a later-version Lab display profile and require Alternate
+when the processor cannot handle it. PDF Lab permits wider stated a/b ranges.
+The regression isolates the first range clamp using input a=150, ICC maximum127,
+and an alternate Lab range of -200..200. This is a fallback test, not a claim that
+the synthetic profile characterizes a real monitor. If the reader later supports
+this profile, the fallback-specific fixture and its expected path need review.

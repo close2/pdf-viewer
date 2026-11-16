@@ -6935,7 +6935,12 @@ fn an_open_action_states_where_to_look_at_the_page_and_how_large() {
     );
 
     // `/FitR`: a 200x100 rectangle in a 300x400 window fits at 1.5 — the width decides, because
-    // 400/100 would be 4 — and the rectangle's top-left corner goes to the window's.
+    // 400/100 would be 4. Table 149 centers the rectangle in the unused vertical space.
+    // The 150-pixel rectangle leaves 250 pixels: 125 above it, so origin y=-150+125=-25.
+    let same_aspect = geometry_in("[3 0 R /FitR 100 600 300 700]", 300, 150);
+    assert!((same_aspect.scale - 1.5).abs() < 1e-3);
+    assert!((same_aspect.origin.0 + 150.0).abs() < 1.0);
+    assert!((same_aspect.origin.1 + 150.0).abs() < 1.0);
     let fit_r = geometry_for("[3 0 R /FitR 100 600 300 700]");
     assert!(
         (fit_r.scale - 1.5).abs() < 1e-2,
@@ -6943,8 +6948,8 @@ fn an_open_action_states_where_to_look_at_the_page_and_how_large() {
         fit_r.scale
     );
     assert!(
-        (fit_r.origin.0 + 150.0).abs() < 2.0 && (fit_r.origin.1 + 150.0).abs() < 2.0,
-        "the rectangle's corner is the window's corner, got {:?}",
+        (fit_r.origin.0 + 150.0).abs() < 2.0 && (fit_r.origin.1 + 25.0).abs() < 2.0,
+        "the rectangle is centered vertically, got {:?}",
         fit_r.origin
     );
 
@@ -10810,4 +10815,47 @@ fn structure_actualtext_replaces_two_owned_content_items_once() {
 #[test]
 fn structure_actualtext_replaces_content_enclosed_in_descendant_elements() {
     assert_eq!(actualtext_over_two_items_selection(true), "fi9");
+}
+
+/// Table 149 centers the fitted content box, not its containing page, in the unused dimension.
+#[test]
+fn fit_b_centers_its_content_box_in_the_unused_vertical_dimension() {
+    let bytes = with_open_action("[3 0 R /FitB]");
+    assert!(
+        !pdf_syntax::Document::open(bytes)
+            .expect("valid fixture")
+            .was_recovered()
+    );
+    let control = geometry_in("[3 0 R /FitB]", 300, 150);
+    assert!((control.scale - 1.5).abs() < 1e-3);
+    assert!((control.origin.0 + 150.0).abs() < 1.0);
+    assert!((control.origin.1 + 150.0).abs() < 1.0);
+    let fitted = geometry_in("[3 0 R /FitB]", 300, 400);
+    // Content bounds [100,600,300,700] -> 300x150 pixels. 250 spare vertical
+    // pixels require 125 on each side, placing page origin at (-150,-25).
+    assert!((fitted.scale - 1.5).abs() < 1e-3);
+    assert!((fitted.origin.0 + 150.0).abs() < 1.0);
+    assert!((fitted.origin.1 + 25.0).abs() < 1.0, "{fitted:?}");
+}
+
+#[test]
+fn fit_b_centers_its_content_box_in_the_unused_horizontal_dimension() {
+    let fitted = geometry_in("[3 0 R /FitB]", 600, 150);
+    // The same 300x150-pixel content box leaves 300 spare horizontal pixels.
+    // 150 pixels on each side cancel its 150-pixel left inset into the page.
+    assert!((fitted.scale - 1.5).abs() < 1e-3);
+    assert!((fitted.origin.1 + 150.0).abs() < 1.0);
+    assert!(fitted.origin.0.abs() < 1.0, "{fitted:?}");
+}
+
+#[test]
+fn fit_centers_the_page_in_the_unused_vertical_dimension() {
+    let control = geometry_in("[3 0 R /Fit]", 300, 400);
+    assert!((control.scale - 0.5).abs() < 1e-3);
+    assert!(control.origin.0.abs() < 1.0 && control.origin.1.abs() < 1.0);
+    let fitted = geometry_in("[3 0 R /Fit]", 300, 600);
+    // The full page is 300x400 pixels; the 600-pixel-tall viewport leaves 100 per side.
+    assert!((fitted.scale - 0.5).abs() < 1e-3);
+    assert!(fitted.origin.0.abs() < 1.0);
+    assert!((fitted.origin.1 - 100.0).abs() < 1.0, "{fitted:?}");
 }

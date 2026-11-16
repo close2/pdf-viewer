@@ -1,0 +1,152 @@
+{
+  "scope": "Selected source-to-code review of ISO 32000-2:2020(E) \u00a7\u00a78.6.2\u20138.6.5.5, including effective EC3 changes. This is not a certification of all colour operators, conversion requirements in clause 10, output intents, default colour spaces, shadings, or pattern use.",
+  "source": {
+    "primary": "/home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/source/spec-layout.txt",
+    "effective_markdown": "doc/md/ISO_32000-2_sponsored_EC3.md",
+    "page_rule": "Physical page = printed page + 15; the sampled physical pages show footer ISO 32000-2:2020(E)."
+  },
+  "features": [
+    {
+      "clauses": [
+        "8.6.2",
+        "8.6.3"
+      ],
+      "source_locations": [
+        "printed p. 178 / physical p. 193",
+        "printed p. 181 / physical p. 196, Table 61"
+      ],
+      "requirements_sampled": [
+        "Current colour values are interpreted through selected colour space; device convenience operators select space and value together.",
+        "Colour spaces are arrays headed by a family name or simple family names; device, CIE-based, and special families are categorized."
+      ],
+      "ledger": [
+        "8.6.2",
+        "8.6.3"
+      ],
+      "implementation": [
+        "crates/pdf-model/src/content/colour.rs",
+        "crates/pdf-colour/src/colour/parsing.rs",
+        "crates/pdf-colour/src/colour.rs"
+      ],
+      "assertions_reviewed": [
+        "crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn",
+        "crates/pdf-model/tests/colour_paths.rs::a_grey_is_the_same_however_it_is_drawn",
+        "crates/pdf-model/tests/colour_paths.rs::a_default_colour_space_replaces_the_device_space",
+        "crates/pdf-colour/src/colour.rs::components_outside_their_range_are_clamped"
+      ],
+      "assessment": "The consumer path uses the parsed space for sc/SC operands and the convenience operators. Cross-route tests distinguish operator and explicit-space behavior. The \u00a78.6.3 ledger row's sole test is only an ICC alternate test; the broader family claim depends on the leaf rows' evidence and is not independently established by that row's named test."
+    },
+    {
+      "clauses": [
+        "8.6.4.2",
+        "8.6.4.3",
+        "8.6.4.4"
+      ],
+      "source_locations": [
+        "printed pp. 182\u2013184 / physical pp. 197\u2013199"
+      ],
+      "requirements_sampled": [
+        "Gray is one component, black=0 and white=1; RGB is three additive intensities in [0,1]; CMYK is four subtractive ink concentrations in [0,1]. Selecting each family initializes its current value (Gray/RGB zero; CMYK [0,0,0,1])."
+      ],
+      "ledger": [
+        "8.6.4.2",
+        "8.6.4.3",
+        "8.6.4.4"
+      ],
+      "implementation": [
+        "crates/pdf-model/src/content/colour.rs",
+        "crates/pdf-colour/src/colour/queries.rs",
+        "crates/pdf-colour/src/colour/to_rgb.rs"
+      ],
+      "assertions_reviewed": [
+        "crates/pdf-model/tests/colour_paths.rs::a_grey_level_is_its_fraction_of_white_and_selecting_the_space_starts_it_at_black",
+        "crates/pdf-model/tests/colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn",
+        "crates/pdf-colour/src/colour.rs::a_space_starts_at_the_colour_the_clause_gives_it",
+        "crates/pdf-colour/src/colour.rs::grey_and_rgb_pass_through_unchanged"
+      ],
+      "assessment": "Gray and CMYK have public consumer assertions; RGB initial state is pinned in a direct ColourSpace unit assertion but no matching public consumer reset assertion was found in the examined tests. This is a coverage limitation, not evidence of wrong behavior. DeviceCMYK-to-RGB conversion is intentionally excluded here because \u00a78.6.4.4 does not own that conversion."
+    },
+    {
+      "clauses": [
+        "8.6.5.1",
+        "8.6.5.2",
+        "8.6.5.3",
+        "8.6.5.4"
+      ],
+      "source_locations": [
+        "printed pp. 184\u2013191 / physical pp. 199\u2013206; Table 62 printed p. 186, Table 63 printed p. 187, Table 64 printed p. 189, Lab transform printed p. 190"
+      ],
+      "requirements_sampled": [
+        "CalGray and CalRGB require WhitePoint; defaults are BlackPoint zero, CalGray Gamma 1, CalRGB Gamma [1,1,1] and identity Matrix. CalRGB matrix entries are XYZ columns.",
+        "Lab L* is [0,100], a*/b* use Range (default [-100,100,-100,100]); values outside component ranges are clipped without error; fixed Lab equations map to XYZ.",
+        "Selecting any CIE-based space initializes components to zero or nearest in-range values; CalCMYK is ignored and rendered as DeviceCMYK."
+      ],
+      "ledger": [
+        "8.6.5.1",
+        "8.6.5.2",
+        "8.6.5.3",
+        "8.6.5.4"
+      ],
+      "implementation": [
+        "crates/pdf-colour/src/colour/parsing.rs",
+        "crates/pdf-colour/src/colour/entries.rs",
+        "crates/pdf-colour/src/colour/queries.rs",
+        "crates/pdf-colour/src/colour/cie.rs",
+        "crates/pdf-colour/src/colour/to_rgb.rs"
+      ],
+      "assertions_reviewed": [
+        "crates/pdf-colour/src/colour.rs::a_calcmyk_space_is_device_cmyk_and_its_dictionary_is_ignored",
+        "crates/pdf-colour/src/colour.rs::an_initial_colour_is_held_to_the_range_however_it_is_written",
+        "crates/pdf-colour/src/colour.rs::calgray_is_a_luminance_and_must_be_encoded_for_the_display",
+        "crates/pdf-colour/src/colour.rs::calgray_applies_its_gamma_before_the_white_point",
+        "crates/pdf-colour/src/colour.rs::calrgb_reads_its_matrix_one_column_per_component",
+        "crates/pdf-colour/src/colour.rs::calrgb_stating_srgbs_own_parameters_is_the_identity",
+        "crates/pdf-colour/src/colour.rs::lab_maps_its_anchor_colours",
+        "crates/pdf-colour/src/colour.rs::a_lab_space_is_read_under_its_own_white_point"
+      ],
+      "assessment": "Assertions discriminate CIE conversion from device passthrough, test CalGray gamma and luminance, exercise CalRGB matrix order and an asymmetric identity, test Lab anchors and source WhitePoint, and check component clamp/initial values. Most are ColourSpace unit tests; the selected sample does not independently test every malformed dictionary recovery policy."
+    },
+    {
+      "clauses": [
+        "8.6.5.5"
+      ],
+      "source_locations": [
+        "printed pp. 190\u2013193 / physical pp. 205\u2013208; Table 65 printed p. 191, Table 67 printed p. 192, Table 68 printed p. 193"
+      ],
+      "requirements_sampled": [
+        "ICCBased is [/ICCBased stream]; N is required and 1/3/4 matching profile components; optional Alternate is for unsupported profile data and must have matching arity; absent Alternate falls back by N. Values passed through Alternate are constrained to ICC Range and then alternate range, without tint conversion.",
+        "PDF 2.0 requires ICC.1:2010 support; source profiles use AToB only; ICC profile's own intent is ignored; component ranges include Lab [0,100] and [-128,127]."
+      ],
+      "effective_errata": [
+        "EC3 issue #181 at printed pp. 191\u2013192 (physical pp. 206\u2013207) replaces the PDF-version-to-ICC-spec table with an ICC profile-header-version table that supports both ICC 2.x and 4.x."
+      ],
+      "ledger": [
+        "8.6.5.5"
+      ],
+      "implementation": [
+        "crates/pdf-colour/src/colour/parsing.rs::parse_icc_based",
+        "crates/pdf-colour/src/colour/entries.rs::icc_range",
+        "crates/pdf-colour/src/icc.rs::Profile::parse",
+        "crates/pdf-colour/src/icc.rs::Profile::with_range"
+      ],
+      "assertions_reviewed": [
+        "crates/pdf-model/tests/colour_paths.rs::an_icc_space_prefers_its_stated_alternate",
+        "crates/pdf-model/tests/colour_paths.rs::an_icc_spaces_range_decides_what_its_operands_mean",
+        "crates/pdf-model/tests/colour_paths.rs::an_icc_image_is_converted_through_the_same_profile_as_a_fill",
+        "crates/pdf-colour/src/icc.rs::a_lab_profiles_components_are_read_over_the_range_the_clause_states",
+        "crates/pdf-colour/src/icc.rs::a_stated_range_replaces_the_one_the_data_colour_space_states",
+        "crates/pdf-colour/src/icc.rs::a_component_outside_the_range_is_clipped_into_it",
+        "crates/pdf-colour/src/icc.rs::a_real_cmyk_profile_agrees_with_independent_evaluators"
+      ],
+      "assessment": "The real profile parser uses the header version byte and accepts legacy and v4 paths. Tests include valid hand-built ICC data and an embedded profile consumer. The alternate-choice consumer test uses an empty unsupported profile stream and cannot establish full fallback semantics. A 528-byte ICC.2:2023 v5 Lab display-profile candidate was generated with required display tags and forward/reverse mpet transforms. ICC.2 \u00a7\u00a79.2.1/9.2.38 explicitly permit mpet for A2B0/B2A0. ICC's official iccDEV Python API validate_profile_file accepted the profile (iccdev 2.3.2.5, ValidationStatus.OK, empty report); the PDF-level Table 65 /Range fallback draft remains unexecuted pending parent test run. The candidate enters fallback because this parser supports only ICC.1 LUT types and rejects mpet."
+    }
+  ],
+  "explicitly_out_of_scope": [
+    "\u00a78.6.5.6 default spaces",
+    "\u00a78.6.5.7 output intents",
+    "\u00a78.6.5.8\u2013.9 rendering intents/black point compensation",
+    "\u00a78.6.6 Indexed/Separation/DeviceN/Pattern",
+    "clause 10 CIE-to-device conversion",
+    "shadings and patterns"
+  ]
+}

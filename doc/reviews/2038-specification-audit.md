@@ -172,6 +172,15 @@ claim that the existing byte-key fixture was unsorted is rejected: its stored ke
 are sorted, and query order is separate. Partial evidence reaches 338 rows, with 545
 pending. Current model/core Clippy passes; broad execution retains its earlier scope.
 
+Remote and embedded go-to tests now confirm that target page selection drops the
+requested view. Separate centering checks expose FitR/FitB corner placement and an
+existing wrong test oracle; matched-aspect and whole-page Fit controls pass. A
+validated later-version ICC profile exposes missing source-range clipping before
+Alternate conversion. The manifest contains 33 expected failures. DeviceRGB reset
+passes, and the MissingWidth erratum omission is recorded as a ledger-description
+gap, not a rendering defect. Partial evidence reaches 356 rows; 527 remain pending.
+Current model/core all-targets Clippy passes. The broad run will be refreshed.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks

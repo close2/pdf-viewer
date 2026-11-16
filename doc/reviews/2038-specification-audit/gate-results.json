@@ -683,6 +683,41 @@
       "log": "wave17e-quality.log",
       "exit": 0,
       "scope": "Current pdf-model/viewer-core all-targets Clippy -Dwarnings, includes pending cross-document destination draft"
+    },
+    {
+      "log": "remote-destination-wave18.log",
+      "exit": 100,
+      "scope": "3run: local1PASS, GoToR/GoToE2FAIL. Direct target controls passed."
+    },
+    {
+      "log": "remote-destination-wave18b.log",
+      "exit": 100,
+      "scope": "Final context-labelled3run1PASS2expectedFAIL; failures after Supply."
+    },
+    {
+      "log": "destination-centering-wave18.log",
+      "exit": 100,
+      "scope": "3run3expectedFAIL: corrected existing FitR and new FitB vertical/horizontal. Matched-aspect controls pass."
+    },
+    {
+      "log": "fit-page-rgb-wave18.log",
+      "exit": 0,
+      "scope": "2PASS: whole-page Fit spare-height centering and DeviceRGB reset."
+    },
+    {
+      "log": "icc-alternate-wave18.log",
+      "exit": 100,
+      "scope": "1expectedFAIL ICC fallback clipping, distinct clamped/unclamped companions pass."
+    },
+    {
+      "log": "wave18-quality.log",
+      "exit": 101,
+      "scope": "Draft test doc-markdown lints; corrected backticks."
+    },
+    {
+      "log": "wave18b-quality.log",
+      "exit": 0,
+      "scope": "Current pdf-model/viewer-core all-targets Clippy -Dwarnings."
     }
   ],
   "prior_expected_failures": {

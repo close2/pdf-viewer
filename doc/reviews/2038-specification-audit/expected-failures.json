@@ -162,6 +162,42 @@
       "test": "catalog_open_action_precedes_initial_page_and_annotation_open_actions",
       "finding": "2038-B22",
       "log": "trees-open-order-wave17c.log"
+    },
+    {
+      "binary": "viewer-core::cross_document_destination_view_spec_audit",
+      "test": "a_remote_goto_applies_the_explicit_destination_view_in_the_target",
+      "finding": "2038-B23",
+      "log": "remote-destination-wave18b.log"
+    },
+    {
+      "binary": "viewer-core::cross_document_destination_view_spec_audit",
+      "test": "an_embedded_goto_applies_the_explicit_destination_view_in_the_target",
+      "finding": "2038-B23",
+      "log": "remote-destination-wave18b.log"
+    },
+    {
+      "binary": "viewer-core::headless",
+      "test": "an_open_action_states_where_to_look_at_the_page_and_how_large",
+      "finding": "2038-B24",
+      "log": "destination-centering-wave18.log"
+    },
+    {
+      "binary": "viewer-core::headless",
+      "test": "fit_b_centers_its_content_box_in_the_unused_vertical_dimension",
+      "finding": "2038-B24",
+      "log": "destination-centering-wave18.log"
+    },
+    {
+      "binary": "viewer-core::headless",
+      "test": "fit_b_centers_its_content_box_in_the_unused_horizontal_dimension",
+      "finding": "2038-B24",
+      "log": "destination-centering-wave18.log"
+    },
+    {
+      "binary": "pdf-model::icc_alternate_range_spec_audit",
+      "test": "unsupported_icc2_profile_clamps_to_icc_range_before_wider_alternate",
+      "finding": "2038-B25",
+      "log": "icc-alternate-wave18.log"
     }
   ]
 }
