@@ -1,0 +1,9 @@
+{
+  "reviewed": [
+    {"adr": "1067", "assessment": "Its rule that revocation statements survive stale-list windows is compatible with checking revocation reason before using a timestamp. It does not answer the distinct timestamp-reliability selector."},
+    {"adr": "1071", "assessment": "Covers establishment prerequisites and validation of a timestamp authority path at the next timestamp's instant. No explicit handling of §12.8.3.4.8 reason-dependent reliability was found; do not infer rejection of that rule."},
+    {"adr": "2720", "assessment": "Purpose-specific TSA trust/revocation is relevant, but generic Trust::Anchored is not equivalent to a reliable genTime under §12.8.3.4.8."},
+    {"adr": "2775", "assessment": "Policy issuance bounds are a separate input. Do not conflate those with the PDF current-time CRL thisUpdate/nextUpdate interval, and preserve historical behavior."}
+  ],
+  "reconsideration": "Represent current-time and historical revocation applicability distinctly at the validation boundary. Add the §12.8.3.4.8 timestamp-path reason decision before promoting genTime to BestSignatureTime. Avoid global changes to from_list or generic Time::Established until all callers and API semantics are enumerated."
+}

@@ -5374,3 +5374,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "notes/timestamp_revocation_spec_audit.rs"]
+mod timestamp_revocation_spec_audit;

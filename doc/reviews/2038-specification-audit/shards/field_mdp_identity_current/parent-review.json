@@ -1,0 +1,9 @@
+{
+  "source": "Parent read Table259 primary591\u2013592, signed/current comparison and actual #33 caret insertion. Corrected reviewer field-name locator to547/532, not124/109.",
+  "assertions": "One comparison-API regression: same-name selected change and distinct outside field controls pass; same indirect field renamed Name to Other plus value edit produces covered count0 rather than1. Exact xref/ByteRange prefix, no recovery and uncut chain checked.",
+  "qualification": "B42 is an interpretation regression: signed selector should bind the signed field identity, but source does not expressly give a cross-revision rename algorithm. Existing shared fixture has placeholder CMS and minimal widgets; it establishes comparison behavior, not a conforming signed PDF or signature authenticity. No viewer enforcement claim.",
+  "adrs": "Retain ADR1096 Data scoping. Current-first field naming is useful for labels but loses the signed selector identity; these responsibilities should be distinguished. Historical no-host statement was checked against current callers.",
+  "execution": "signature-time-field-wave37b.log: FieldMDP interpretation FAIL; controls precede failure. Final signature/core Clippy PASS.",
+  "baseline": "b901326c",
+  "scope": "Partial review only. Parent qualifications supersede drafts."
+}

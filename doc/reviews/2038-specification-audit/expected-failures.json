@@ -378,6 +378,18 @@
       "test": "annotation_save_withdraws_usage_rights_when_creation_is_not_granted",
       "finding": "2038-B40",
       "log": "usage-rights-wave36.log"
+    },
+    {
+      "binary": "viewer-core",
+      "test": "notes::timestamp_revocation_spec_audit::a_known_key_compromise_on_the_timestamp_path_does_not_set_best_signature_time",
+      "finding": "2038-B41",
+      "log": "signature-time-field-wave37b.log"
+    },
+    {
+      "binary": "pdf-signature",
+      "test": "revision::tests::field_mdp_signed_name_spec_audit::a_fieldmdp_selection_keeps_the_signed_field_identity_across_a_rename",
+      "finding": "2038-B42",
+      "log": "signature-time-field-wave37b.log"
     }
   ]
 }

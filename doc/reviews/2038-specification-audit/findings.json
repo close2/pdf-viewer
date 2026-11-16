@@ -1611,5 +1611,35 @@
     "summary": "Effective Table377 permits BaselineShift on BLSEs; accessibility resets at blocks as a semantic mapping choice.",
     "decision": "Retain ADR2384 sign-to-Sup/Sub policy after considering the counterexample. Whole-paragraph displacement is not necessarily semantic superscript. No actual layout consumer failure established.",
     "rejected": "Do not add a failing test requiring Sup solely from BLSE attribute applicability. Clarify source applicability separately from lossy platform representation."
+  },
+  {
+    "id": "2038-B41",
+    "kind": "timestamp-time-selection",
+    "clauses": [
+      "12.8.3.4.8"
+    ],
+    "summary": "Signature timestamp genTime is used despite a known keyCompromise on its TSA path.",
+    "evidence": "The actual notes selector returns Some(1794845543) where .4.8 prohibits using that time. Clean signed CRL control accepts genTime; corrupted CRL signature yields Unknown. Revoked CRL is genuine, current, root-signed and effective at the check.",
+    "execution": "signature-time-field-wave37b.log:1FAIL",
+    "scope": "Private viewer time selector with genuine CAdES/RFC3161 inputs; not a full PDF/report, document-timestamp-chain, unknown-revocation-policy, or byte-range integrity finding.",
+    "adrs": [
+      "1067",
+      "1071",
+      "1085 section3",
+      "2720"
+    ]
+  },
+  {
+    "id": "2038-B42",
+    "kind": "qualified-interpretation-regression",
+    "clauses": [
+      "12.8.2.4"
+    ],
+    "summary": "A selected field renamed after signing is classified outside Include(Name) when its value changes.",
+    "evidence": "Stable indirect object6 is named from current state first, so Other replaces the signed Name identity. Stable-name selected and distinct-outside controls pass.",
+    "source_qualification": "Signed selection implies binding to the signed field, but Table259 does not expressly prescribe cross-revision rename identity. Treat as a likely comparison API defect, not unequivocal ISO conformance failure.",
+    "execution": "signature-time-field-wave37b.log:1FAIL",
+    "scope": "Comparison API only. Placeholder CMS and minimal widget fixture do not establish signature validity, full PDF conformance, or viewer enforcement.",
+    "adr": "1096"
   }
 ]

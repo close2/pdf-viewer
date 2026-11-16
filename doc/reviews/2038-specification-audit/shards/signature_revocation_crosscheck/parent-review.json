@@ -1,0 +1,7 @@
+{
+  "source": "Independent reviewer checked primary598\u2013599 and applicable timing paragraphs.",
+  "decision": "Agrees with narrow signature-timestamp consumer finding. Explicitly rejects treating all revoked timestamps alike or globally adding thisUpdate lower-bound to shared historical revocation logic. Document timestamp chains and material capture remain residuals.",
+  "execution": "Cross-check itself did not execute tests; parent signed-fixture execution is recorded under B41.",
+  "baseline": "b901326c",
+  "scope": "Partial review only. Parent qualifications supersede drafts."
+}

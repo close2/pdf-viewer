@@ -1,0 +1,10 @@
+{
+  "source": "Parent read primary593\u2013599, especially current-time .4.7 on598/583 and historical .4.8 on599/584; inspected actual page annotations. Draft locators were shifted and are corrected in the copied feature artifact.",
+  "assertions": "Genuine CAdES CMS and RFC3161 token, actual signature-octet imprint, host anchor, clean signed CRL and keyCompromise signed CRL. Good control and bad-CRL-signature Unknown control pass before the selector fails. Exact artifacts independently pass OpenSSL CMS, token/imprint, chain and both CRL checks at fixed time. Relocated generator also completes in scratch with private keys removed.",
+  "finding": "B41: private notes::signature_timestamps_instant ignores known TSA keyCompromise and returns genTime. Generic Time::Established retaining a separate Revoked answer is not itself the defect.",
+  "limits": "No full PDF/report or byte-range integrity certification; empty Signature.byte_range is only a selector carrier. No claim that document timestamp chains obey this same paragraph without separate .5.3 analysis. Material capture-before-expiry and current-CRL timing concerns remain separate unexecuted residuals.",
+  "adrs": "Retain ADR1067 material/Unknown design. Reconsider ADR1071 establishment and ADR1085 section3 downstream instant selection only; ADR1085 is directly about extracting shared CMS validation and consuming signature timestamp times. ADR2720 purpose-specific policy checks do not fix this notes consumer.",
+  "execution": "signature-time-field-wave37b.log: timestamp selector FAIL. quality-wave37b.log: signature/core all-targets Clippy PASS.",
+  "baseline": "b901326c",
+  "scope": "Partial review only. Parent qualifications supersede drafts."
+}

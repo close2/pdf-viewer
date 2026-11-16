@@ -1,0 +1,30 @@
+{
+  "reviews": [
+    {
+      "adr": "0229",
+      "decision": "Reaffirm",
+      "reason": "PKCS #1 reader support verifies raw signature against the /Cert key; that is separate from user trust. The format is deprecated but reader support remains useful and does not imply a writer commitment."
+    },
+    {
+      "adr": "1067",
+      "decision": "Reaffirm basic material/Unknown policy; reopen narrow PAdES timing conditions",
+      "reason": "Document-carried CRL/OCSP are used and Unknown is not Good. §12.8.3.4.7 says current UTC must be within the CRL thisUpdate/nextUpdate interval and OCSP must be captured before signer notAfter; historical .8 independently requires collection before signer notAfter and permits a later-issued CRL when nextUpdate remains after the past instant. Keep those contexts distinct. The source's two-ended CRL interval conflicts with the implementation comment's one-ended ETSI freshness interpretation, so record that conflict explicitly. Known Revoked status on a TSA path must also affect whether its genTime can be used under the reason carveout."
+    },
+    {
+      "adr": "1071",
+      "decision": "Reopen narrowly",
+      "reason": "The four-step timestamp establishment decision accounts for an anchored authority path but not §12.8.3.4.8's separate current revocation/reason rules. A path that reached an anchor may carry Revocation::Revoked; `viewer-core/src/notes.rs::signature_timestamps_instant` currently extracts `at` from every Time::Established, and `established_over` does the same for document timestamp links, so the downstream BestSignatureTime can use the token despite that known status. Past-time material capture cutoffs and the .4.7 current-time CRL lower bound / OCSP capture cutoff also need separate treatment. Preserve the separate ordering and host-anchor choices."
+    },
+    {
+      "adr": "1039 / 1076",
+      "decision": "Reaffirm",
+      "reason": "Trust anchors remain host supplied and no embedded certificate becomes trusted merely by being present. This audit does not propose network revocation fetches."
+    },
+    {
+      "adr": "1085",
+      "decision": "Reaffirm pending narrow correction",
+      "reason": "Keeping signature integrity, signature authenticity, path/trust, timestamp-time evidence, and revocation as distinct answers is sound. The issue is timestamp consumers omitting the included revocation answer when selecting BestSignatureTime; do not infer a mandatory UI note or combine crypto integrity with trust policy."
+    }
+  ],
+  "scope_reference": "Held EC3 PDF, clauses 12.8.3.2, 12.8.3.3.2, 12.8.3.4.2, 12.8.3.4.6-.8. No network revocation fetch or UI note requirement assessed."
+}

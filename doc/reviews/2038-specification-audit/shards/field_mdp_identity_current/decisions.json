@@ -1,0 +1,24 @@
+{
+  "decision_reviews": [
+    {
+      "id": "FieldMDP selection identity across /T rename",
+      "source_to_behavior": "Table 259's /Fields text is the signed transform's fully qualified field name (Issue #33). §12.8.2.2.2 defines a signed/current revision comparison only after the digest binds the signed bytes to the state at signing. A field's /T mutation and /V mutation appear as changed objects; selection should be applied to the field identity/name established in the signed revision, then the changed objects followed by indirect object identity into current state.",
+      "code_effect": "Current-first `field_subjects` means a stable indirect field object whose current name has changed is selected by its new name. Include(Name) can return Outside after /T Name→Other while /V also changes; Exclude(Name) can conversely return Covered. The unchanged-name and distinct-Other controls are already represented by existing selector tests, but neither resolves the cross-revision case.",
+      "decision": "Treat this as a likely comparison API defect and draft a minimal adversarial regression. Keep the standards conclusion qualified because the algorithm for preserving logical identity across a rename is inferred, not expressly stated.",
+      "reason_not_just_coderesemblance": "The signed transform stores the name at signing and the standard directs comparison of the signed and current states; Issue #33 requires the fully qualified form. Current code supplies a different, later field name for the same stable field reference. The expected result follows the signed transform's fixed selector and revision boundary, while a truly separate `Other` field remains outside Include(Name)."
+    },
+    {
+      "id": "ADR 1096 / Table 256 Data scope",
+      "adr_review": "ADR 1096 §3 establishes that Table 256 /Data is required and scopes analysis to a document object; it does not decide which revision's /T-derived name resolves a Table 259 selector. §5 records that no host calls the comparison, which bounds product impact but does not establish correctness of the public API.",
+      "decision": "No change to the /Data scope claim. Regression uses /Data naming the catalog (whole-form scope) so the selection-name issue is isolated."
+    },
+    {
+      "id": "Issue #33 and §12.7.4.2",
+      "decision": "Use the two actual caret annotations on primary Table 259 page 592/printed 577 and the EC3-added words `fully qualified`; §12.7.4.2 defines that name via /T and ancestor partial names. Do not cite the heading shown by the errata outline as the annotation's clause owner; the errata-read inventory explains the page-straddle and actual caret positions."
+    },
+    {
+      "id": "Caller scope",
+      "decision": "Describe the comparison finding as a public `pdf-signature` analysis API issue, exercised by tests/census, rather than an already observed viewer restriction or signature-verdict bug. `restriction::asserted` is a separate current-form prospective-edit path."
+    }
+  ]
+}

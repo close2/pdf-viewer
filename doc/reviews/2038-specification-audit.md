@@ -11,11 +11,11 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (36)
+## Current checkpoint (37)
 
-Partial reviews now cover **622 of 883 ledger rows**, with 261 pending. The current
-failure manifest contains **63 assertions**, grouped into behavior findings rather
-than 63 independent defects. All 72 failures from the prior audit pass at this baseline.
+Partial reviews now cover **629 of 883 ledger rows**, with 254 pending. The current
+failure manifest contains **65 assertions**, grouped into behavior findings rather
+than 65 independent defects. All 72 failures from the prior audit pass at this baseline.
 The latest broad run, wave31, covered eleven crates: **7,142 tests ran, 7,087 passed,
 and exactly the 55 then-recorded assertions failed; 58 were skipped**. Exact test
 identities matched. Waves32–33 add five passing tests and three expected failures.
@@ -51,6 +51,12 @@ recommendation, not a mandatory ISO failure. A proposed paragraph-baseline
 superscript test was rejected after distinguishing layout displacement from semantic
 text position. Deprecated web/prepress review separates reader guidance, writer
 version rules, and the product’s chosen metadata retention policy.
+
+Checkpoint37 confirms that the signature-timestamp selector uses genTime despite a
+verified keyCompromise on the TSA path. Genuine CMS/token/CRL artifacts and clean
+and damaged-signature controls distinguish this from untrusted input. A separate
+FieldMDP rename regression fails at the comparison API; the cross-revision identity
+reading remains qualified, and its minimal fixture does not certify signature validity.
 
 These are partial feature reviews, not whole-clause certification. The paragraphs
 below preserve earlier checkpoint evidence. Weekly usage was45% at the latest check;

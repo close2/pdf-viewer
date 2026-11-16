@@ -2313,6 +2313,9 @@ fn verdict(level: Modification, kind: Kind, disposition: Disposition) -> Verdict
 
 #[cfg(test)]
 mod tests {
+    #[path = "field_mdp_signed_name_spec_audit.rs"]
+    mod field_mdp_signed_name_spec_audit;
+
     use std::fmt::Write as _;
 
     use pdf_syntax::Document;

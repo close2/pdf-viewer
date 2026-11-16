@@ -1280,6 +1280,19 @@
       "log": "quality-wave36b.log",
       "exit": 0,
       "scope": "Model all-targets Clippy -Dwarnings PASS after doc/closure lint corrections. Transform changes are comments only; diff checked, no new execution claimed."
+    },
+    {
+      "log": "signature-time-field-wave37b.log",
+      "run": 2,
+      "passed": 0,
+      "failed": 2,
+      "exit": 100,
+      "scope": "TSA selector failure and qualified FieldMDP interpretation failure; all embedded controls passed. Initial build rejected unnecessary type qualification, corrected."
+    },
+    {
+      "log": "quality-wave37b.log",
+      "exit": 0,
+      "scope": "Signature/core all-targets Clippy -Dwarnings PASS. Initial quality run required a justified too-many-lines expectation around signed controls."
     }
   ],
   "prior_expected_failures": {
