@@ -1,0 +1,72 @@
+{
+  "baseline": "b901326c",
+  "scope": "Text-state and text-object mechanics §§9.3.1-.7 and 9.4.1-.4. Excludes font substitution, AGL, ActualText, text extraction policy, and broad font mapping apart from code length needed for Tw.",
+  "overall": "Source-directed review finds the core placement, spacing, Tz, text-matrix, clipping and rise implementations aligned in the inspected paths, with discriminating public assertions for most horizontal and rendering-mode behavior. Two evidence issues remain: the ledger §9.3.2 note incorrectly says no vertical writing mode exists, and ledger evidence lists omit the focused q/Q and positioning tests. Existing public two-byte-code-32 test can skip on a host without a substitute; a deterministic embedded-font draft and vertical TJ draft are supplied but unexecuted. No execution claim is made.",
+  "source_location_method": "ISO printed pages are cited with physical PDF page = printed page + 15; each cited page footer was checked in scratchpad/r1983/spec-audit/source/spec-layout.txt. EC3 annotations are checked against doc/ISO_32000-2_sponsored_EC3.pdf, and changes summarized in doc/errata-read.md.",
+  "changes_since_prior_baseline": "Read-only diff 4015a9ae..b901326c: no relevant text-state test file changed. The only production diff in the scoped text-show path is additional font-coverage accounting in show.rs for unreached substitute glyphs; it does not alter text matrix movement, Tw, Tz, TJ, or text clipping. The reviewed operator implementation is otherwise unchanged across those two commits.",
+  "features": [
+    {
+      "clause": "9.3.1-.2",
+      "source": "Physical pp.315-317 (printed pp.300-302), footer ISO 32000-2:2020(E). §9.3.2 states Tc is added to horizontal or vertical displacement and is scaled by Th only in horizontal writing. §9.7.5.1 governs vertical mode (outside the deep scope here).",
+      "ledger": "§9.3.2 is implemented, but its note says 'The vertical branch does not exist because no writing mode 1 does'; this is factually inconsistent with the source's horizontal/vertical rule and the vertical font path/tests. Its listed test is only text_state.rs::horizontal_scaling_reaches_the_character_spacing_too.",
+      "implementation": "crates/pdf-model/src/content/text/placement.rs::advance_step selects vertical and horizontal displacement paths. show.rs::advance_past supplies Tc and applies horizontal scale in the horizontal path. The inspected production paths include the vertical branch.",
+      "assertions": "text_state.rs::horizontal_scaling_reaches_the_character_spacing_too checks size-independent Tc inclusion and halving the whole horizontal step. text_state_residual_audit.rs::vertical_spacing_rise_and_horizontal_scale_keep_distinct_axes uses an embedded LiberationSans vertical Type0 font and checks Tc=3 moves the next glyph by 3, so this independently covers the ledger's claimed absent branch (although the ledger test list omits it).",
+      "verdict": "Implementation evidence supports both axes; ledger note is stale/incorrect and evidence mapping is incomplete. No code defect found in this slice."
+    },
+    {
+      "clause": "9.3.3",
+      "source": "Physical p.317 (printed p.302), footer checked. Requires Tw for each single-byte code 32 (simple fonts including Type 3 and composite fonts defining a single-byte 32); expressly excludes byte value 32 occurring in multibyte codes.",
+      "ledger": "§9.3.3 implemented; test list covers a simple-font positive and a two-byte-code test, plus readback/name behavior outside this task's scope.",
+      "implementation": "pdf-font/src/cmap.rs::Code::takes_word_spacing requires length == 1 and value == 32. pdf-model/src/content/text/show.rs::advance_past uses this predicate before adding Tw.",
+      "assertions": "text_state.rs::word_spacing_moves_the_glyph_after_a_simple_fonts_space checks +50 placement. ::word_spacing_does_not_reach_a_two_byte_code_32 checks equality with/without Tw, but first calls machine_offers_a_face_for and can return early. The embedded vertical fixture in text_state_residual_audit.rs tests composite single-byte code 32 positively, with Tw=4; it does not test multibyte code 32. The supplied standalone draft uses an embedded Type0 font and exact xref to compare both code lengths without a host-font skip.",
+      "verdict": "Code rule matches source; existing tests are useful but multi-byte public consumer assertion has a host-dependent skip. Draft addresses that test-quality gap; no current code failure is established."
+    },
+    {
+      "clause": "9.3.4",
+      "source": "Physical pp.317-318 (printed pp.302-303). Th changes the horizontal glyph coordinate and glyph shape/displacement in either writing mode; in horizontal mode it also scales Tc, Tw and TJ. EC3 #376 at physical p.317 amends Th to the normalized Tz value and specifies 100% corresponds to 1.0.",
+      "ledger": "§9.3.4 implemented; test list identifies Tc and TJ but does not name the vertical glyph-shape assertion in text_state_residual_audit.rs.",
+      "implementation": "text_ops.rs stores Tz percent /100. placement.rs::glyph_to_text multiplies glyph x and horizontal position by scale; advance_step scales horizontal displacement, not vertical advance. TJ branch scales shift only in horizontal mode.",
+      "assertions": "text_state.rs::horizontal_scaling_reaches_the_character_spacing_too compares full horizontal advance with/without 50% Tz; ::horizontal_scaling_reaches_a_tj_adjustment checks a -1000 adjustment halves. text_state_residual_audit.rs::vertical_spacing_rise_and_horizontal_scale_keep_distinct_axes checks 50% Tz halves vertical-font glyph width while leaving vertical Tc/Tw advance unscaled. This covers shape and both displacement modes, though the horizontal tests inspect placements rather than a direct horizontal outline-width assertion.",
+      "verdict": "Inspected implementation and assertions support the amended rule. Horizontal glyph outline scaling is less directly asserted than vertical outline scaling; no defect established."
+    },
+    {
+      "clause": "9.3.5-.7",
+      "source": "Physical pp.318-320 (printed pp.303-305). Leading is used by TD, T*, quote and double-quote; rise is an unscaled text-space baseline offset. §9.3.6 requires accumulation of clipping outlines until ET, no mode switch away before ET, clip after all glyph paints, intersection with previous clip, and no clip when no outlines are accumulated. Table 104 plus the following paragraph distinguish glyph placement/advance in modes 3/7 and Type3's mode exception.",
+      "ledger": "Rows 9.3.5-.7 implemented. 9.3.6 lists whole focused test files, in addition to some named tests.",
+      "implementation": "text_ops.rs positions text lines and applies leading; text/placement.rs puts Ts in the glyph-to-text transform. glyph_painting.rs derives paint/clip operations; text/show.rs accumulates outlines and still updates positions; text/end_object.rs creates the nonzero clip at ET after paint and leaves prior clip unchanged on empty accumulation.",
+      "assertions": "text_state.rs::leading_moves_the_next_line_downwards and ::text_rise_is_not_scaled_by_the_font_size; text_render_modes.rs covers modes and empty outlines; text_clipping_audit.rs::modes_five_and_six_paint_both_shows_before_the_text_clip_takes_effect discriminates paint-before-clip by two shows and later paint. text_state_residual_audit.rs checks vertical rise independently. Assertions are source-directed and have positive/control states.",
+      "verdict": "No discrepancy found in reviewed requirements; this is sampled feature verification, not certification of every rendering-mode interaction."
+    },
+    {
+      "clause": "9.4.1",
+      "source": "Physical pp.321-322 (printed pp.306-307). BT initializes Tm/Tlm; ET discards text matrix; text-only matrices do not persist. The same source states q/Q nesting restrictions relative to BT/ET. EC3 #368 adds to §9.4.2 that q/Q within a text object additionally push/pop Tm and Tlm.",
+      "ledger": "§9.4.1 implemented. Listed test is a text clipping lifetime test; it does not directly assert BT matrix initialization or EC3 #368 save/restore.",
+      "implementation": "run.rs begins/ends text object and initializes the matrices. run/graphics.rs pushes graphics state plus Tm/Tlm and restores both only while in text. This is the EC3 #368 behavior.",
+      "assertions": "text_state.rs::q_and_q_save_the_text_matrices_inside_a_text_object tests a paired saved/unsaved stream with a post-Q glyph. text_positioning_audit.rs::q_restore_recovers_the_line_matrix_used_by_the_next_line_operator checks Tlm through a later T*. Both are valid, exact-offset public PDF fixtures; ledger row's named-test list omits them. ADR 0421's prior corpus census does not replace the synthetic regression.",
+      "verdict": "Implementation/test behavior is supported, but evidence is mis-mapped in the 9.4.1 ledger entry. EC3 addition is real; no behavior defect found."
+    },
+    {
+      "clause": "9.4.2",
+      "source": "Physical pp.322-324 (printed pp.307-309). Table 106: Td translates line matrix and copies to text matrix; TD sets leading=-ty then performs Td; Tm replaces both; T* moves by (0,-Tl). EC3 #373 strikes TD for Td in the T* row. EC3 #368 adds q/Q text-matrix stack behavior, with a pointer from §7.8.2.",
+      "ledger": "§9.4.2 test list names only a leading test, while its note discusses replacement, T*, q/Q and the census. The dedicated text_positioning_audit tests are absent from the row's test field.",
+      "implementation": "text_ops.rs performs all four Table 106 operations; q/Q behavior is in graphics.rs. Table 106 replacement is assigned directly; TD side effect is -y; T* translates Tlm and copies to Tm.",
+      "assertions": "text_positioning_audit.rs::tstar_returns_to_line_matrix_after_text_advance, ::tm_replaces_both_text_matrices, ::double_quote_sets_spacing_then_moves_line_and_shows, ::q_restore_recovers_the_line_matrix_used_by_the_next_line_operator use a deterministic Type3 fixture with exact xref and explicit expected positions. text_state.rs::leading_moves... is also directly relevant. ADRs 0421 and 0548 correctly treat #368 as an addition and distinguish synthetic valid behavior from malformed corpus cases.",
+      "verdict": "Source and code align in inspected operators; test evidence is stronger than ledger test mapping suggests. No defect found."
+    },
+    {
+      "clause": "9.4.3-.4",
+      "source": "Physical pp.324-326 (printed pp.309-311). Table 107 specifies Tj, quote, double-quote, TJ numeric adjustment in thousandths, subtracted from current writing-direction coordinate; positive moves left/down in default coordinates. §9.4.4 sets horizontal tx=((w0-Tj/1000)Tfs+Tc+Tw)Th and vertical ty=(w1-Tj/1000)Tfs+Tc+Tw, then updates Tm. EC3 #376 changes §9.4.4 NOTE 2 into normative text about Trm.",
+      "ledger": "§9.4.3 is implemented and lists horizontal TJ plus broad extraction tests; §9.4.4 is implemented and lists vertical font advance, but there is no named direct assertion for numeric TJ in vertical mode. The aggregate §9.4 row claims vertical branch exercised, correctly for glyph advances, but that alone does not verify vertical TJ.",
+      "implementation": "text_ops.rs::run_text_showing_op subtracts number/1000*size and applies Th only for horizontal mode. placement.rs::advance_step applies glyph displacement and spacing in vertical y without Th. show.rs updates text matrix after each glyph. Text matrix and text-space render matrix follow current source formula.",
+      "assertions": "text_positioning_audit.rs::tj_positive_number_moves_left_by_thousandths_of_text_space proves horizontal positive TJ with an embedded Type3 width=1000; text_state.rs::horizontal_scaling_reaches_a_tj_adjustment proves horizontal Th effect. composite_fonts.rs covers vertical default advances; text_state_residual_audit.rs has explicit vertical metrics and Tz tests. No direct vertical numeric TJ consumer assertion was found; the supplied draft computes two Type0 glyph quad centers with W2=-1000 and independently expects +250 to change the second vertical step by -5 at 20pt, invariant under 50% Tz.",
+      "verdict": "Inspected formulas align with source; targeted vertical TJ assertion is a coverage gap, not a demonstrated behavior failure. The draft is unexecuted."
+    }
+  ],
+  "execution": "No Cargo/test execution was performed in this audit shard. Parent baseline suite result remains separate evidence.",
+  "residuals": [
+    "No independent run of the parent test suite; drafts unexecuted.",
+    "The proposed CMap fixture allows distinct one- and two-byte codespaces to map the same space Unicode/CID; promote only after validating this fixture against the local parser, while retaining exact xref and embedded-font assertions.",
+    "No full audit of malformed operator recovery, text extraction/readback policy, all writing-mode combinations, clipping under every graphics-state feature, or text rendering matrix under arbitrary CTMs.",
+    "Issue #376 makes the Trm NOTE normative; detailed arbitrary-matrix numeric conformance was not independently re-derived here beyond the state/placement paths summarized."
+  ]
+}

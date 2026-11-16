@@ -1,0 +1,60 @@
+{
+  "reviews": [
+    {
+      "adr": "0794",
+      "decision": "Retain",
+      "scope": "Malformed/truncated thumbnail decode reporting boundary",
+      "evidence": "The clause defines a thumbnail's valid image structure but does not prescribe recovery/reporting for malformed streams. The thumbnail query has no per-image error-report channel and returns no thumbnail on failure. This is a product boundary, not a claim that malformed producer data conforms.",
+      "revisit": "No standards-conformance change indicated in the reviewed routes."
+    },
+    {
+      "adr": "0564",
+      "decision": "Retain",
+      "scope": "Thumbnail panel exposure across hosts",
+      "evidence": "§12.3.4 permits thumbnail display and click navigation. The UI/host implementation exposes it through the page panel; this is a chosen capability and does not turn the clause's may into an every-reader obligation.",
+      "revisit": "No new normative issue found."
+    },
+    {
+      "adr": "0576",
+      "decision": "Retain within inspected scope",
+      "scope": "No C ABI collection/list query for thumbnails",
+      "evidence": "The clause permits a UI to display thumbnails but does not require a public list API or a C binding. Native/UI consumers request per-page thumbnails through the core route.",
+      "revisit": "No normative API requirement found."
+    },
+    {
+      "adr": "0230",
+      "decision": "Superseded in part; do not use as current refusal",
+      "scope": "Transition frame support",
+      "evidence": "ADR 1299 expressly supersedes the refusal of Blinds, Glitter, Dissolve, and Fly and records selected quantities. The current code draws the listed styles; quantities and intermediate curves are implementation choices because Table 164 supplies qualitative effects rather than numeric frame algorithms.",
+      "revisit": "Only the superseded refusal is displaced; other historical decisions need their own scope review."
+    },
+    {
+      "adr": "1299",
+      "decision": "Retain",
+      "scope": "Owner-selected quantities for four transition styles",
+      "evidence": "The implementation reports the selected quantities as program choices. Table 164 does not prescribe exact quantities, frame count, or time curve. The tests cover geometry/end states and reported choices rather than mislabeling them as ISO numeric requirements.",
+      "revisit": "No gap against the source found in this bounded review."
+    },
+    {
+      "adr": "0316",
+      "decision": "Retain",
+      "scope": "Timing/transitions conditioned on presentation mode",
+      "evidence": "§12.4.4.1 describes /Dur and /Trans as specifying how to display a page in presentation mode. Core ticks only auto-advance during presentation; a host may still render an action transition under its own action semantics, a separate path.",
+      "revisit": "No counterevidence found."
+    },
+    {
+      "adr": "0473",
+      "decision": "Retain; supplement with a missing-value test",
+      "scope": "Clocking and transition timing across hosts",
+      "evidence": "The core receives elapsed ticks and current tests cover stated page duration and incoming transition selection. I found no public runtime assertion for §12.4.4.1's separate rule that an omitted page /Dur prevents automatic advance while presenting.",
+      "revisit": "Draft an exact-xref four-page test with stated-duration positive controls before and after an omitted-duration page."
+    },
+    {
+      "adr": "1702",
+      "decision": "Retain",
+      "scope": "Tick delivery while not presenting",
+      "evidence": "The standard conditions page /Dur behavior on presentation mode; the window's script timers may tick outside presentation without turning pages. Existing headless test covers this separation.",
+      "revisit": "No gap against the source found in this bounded review."
+    }
+  ]
+}

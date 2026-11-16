@@ -150,6 +150,12 @@
       "test": "a_zero_height_pattern_bbox_clips_distant_cell_marks_but_scan_converts_its_boundary",
       "finding": "2038-B20",
       "log": "pattern-syntax-wave15.log"
+    },
+    {
+      "binary": "pdf-syntax::prefixed_incremental_xref_spec_audit",
+      "test": "a_long_header_prefix_does_not_resurrect_an_object_deleted_by_the_latest_section",
+      "finding": "2038-B21",
+      "log": "header-prefix-wave16.log"
     }
   ]
 }

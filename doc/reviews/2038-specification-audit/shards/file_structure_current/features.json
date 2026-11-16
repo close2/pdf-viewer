@@ -1,0 +1,52 @@
+{
+  "scope": "Parent review of §§7.3.9/.10 and7.5.1–.4, with cross-reference deletion interaction7.5.6; partial, not whole parser/writer certification.",
+  "features": [
+    {
+      "clauses": [
+        "7.3.9",
+        "7.3.10"
+      ],
+      "feature": "Null, undefined references, indirect identity and generation",
+      "source": "SourceMD1531–1572, EC3#379 physical48: positive/nonnegative decimal spelling with no leading+ or zeros. Undefined reference isNull; direct/indirect equivalence except stated exclusions; chains allowed outside object streams.",
+      "code": "document/objects.rs get/load/defined_at; parser.rs",
+      "assertions": "spec_basic_objects cold/warm wrong generation and positive defined42; parser dictionaryNull absent; cross_references unlisted body object paired with listed control; robustness cycle terminatesNull.",
+      "assessment": "Source identity behavior supported by inspected assertions; tolerant object-number spelling is producer-invalid recovery, not rejection duty. All indirect consumers not certified."
+    },
+    {
+      "clauses": [
+        "7.5.1",
+        "7.5.2",
+        "7.5.3"
+      ],
+      "feature": "Four-part file, header-relative offsets, accepted headers and indirect body",
+      "source": "Header rule and prefixNOTE1 physical69/printed54. #272 physical70 requires binary comment to start with four high bytes. #149 replaces table wording with sections; #101 corrects decoded-stream wording toPDFfile.",
+      "assertions": "file_structure_audit all nine headers/no recovery; raw output high-byte comment; cross_references table-selected first copy versus later body copy, unlisted object remainsNull; robustness short prefix no-recovery.",
+      "assessment": "Existing finite header/short-prefix controls pass. New2048-prefix deletion counterexample B21 disproves broad offset-prefix certification. Raw output assertion is independent of reopen. All extensions/feature-version conformance remains separate."
+    },
+    {
+      "clauses": [
+        "7.5.4"
+      ],
+      "feature": "Subsections,20-byte entries, offsets, generations and free entries",
+      "source": "Physical71–73; free-list alternative atphysical72/printed57. #147 nonnegative subsection integers; #109 example spacing; #113 duplicate prose deletion.",
+      "assertions": "file_structure_audit walks raw output: first0,countSize,20byte entries, ten/five digits, spaces,allowedEOL,free0gen65535,and eachn offset points to its exact header.",
+      "assessment": "Strong writer oracle beyond shared parser roundtrip. Reader recovery for malformed counts/displaced headers has separate bounded tests; not required producer validation. Free-link writer policy follows ADR0803 second mechanism."
+    },
+    {
+      "clauses": [
+        "7.5.2",
+        "7.5.6"
+      ],
+      "feature": "Long prefix must not change latest deletion semantics",
+      "source": "§7.5.2 offset origin at%PDF marker; §7.5.6 deleted bytes remain but xref marks them deleted.",
+      "test": "prefixed_incremental_xref_spec_audit::a_long_header_prefix_does_not_resurrect_an_object_deleted_by_the_latest_section",
+      "assessment": "FAIL at2048prefix: original string returned instead ofNull, recovered=true. Prefix0/1000 deletion controls and all three original-object controls pass. Header search limited1024 usesbase0 when no hit and recovery rebuilds body objects without latest deletion. This is altered object semantics, not just a performance issue."
+    }
+  ],
+  "residuals": [
+    "On-disk-specific large-prefix route not separately executed",
+    "No complete archive/merge/serializer feature proof",
+    "Extensions and full version-policy covered elsewhere/pending",
+    "Recovery policy for genuinely damaged xref tables not judged by this valid-prefix counterexample"
+  ]
+}

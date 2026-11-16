@@ -609,5 +609,66 @@
     "change": "Literal names/relationships/descriptions/decoded payloads, ordinary Span decoy exclusion, exact-xref/complete-interpretation guards, distinct ordinary y/nested x controls and pattern red CPU pixel.",
     "execution": "3PASS mcaf-wave15c.log",
     "limits": "Type3 glyph-construction text is not page text: initial draft expectation corrected. Its association has empty text range. No UI enumeration or annotation-appearance/metadata carrier claim."
+  },
+  {
+    "id": "2038-B21",
+    "kind": "behavior-mismatch",
+    "clauses": [
+      "7.5.2",
+      "7.5.6",
+      "7.3.10"
+    ],
+    "summary": "A valid2048-byte prefix causes xref recovery to resurrect an object freed by the latest incremental section.",
+    "source": "Header offset origin physical69/printed54; free65535 alternative physical72/printed57; deleted-object rule7.5.6.",
+    "code": "xref.rs header_position fixed1024window; read usesbase0 if absent, thenrebuild scansoldbody.",
+    "test": "pdf-syntax::prefixed_incremental_xref_spec_audit::a_long_header_prefix_does_not_resurrect_an_object_deleted_by_the_latest_section",
+    "execution": "FAIL returns original string instead ofNull. Prefix0/1000 deletion controls pass; original-object positive control passes atall3lengths.",
+    "limits": "Recovery is reported; defect is changed definition, not lack of all diagnostics. Direct test uses in-memory file; on-disk not separately asserted."
+  },
+  {
+    "id": "2038-D09",
+    "kind": "stale-ledger-description-and-evidence-links",
+    "clauses": [
+      "9.3.2",
+      "9.4.1",
+      "9.4.2"
+    ],
+    "summary": "§9.3.2 says no writing mode1 exists despite implemented vertical spacing; matrix-positioning rows omit focused tests discussed by their notes.",
+    "evidence": "text_state_residual_audit verticalTc/Tw/Tz and currentverticalTJtest; text_state q/Q and text_positioning_audit line-matrix restoration.",
+    "limits": "No current behavior failure established; ledger unchanged within audit scope."
+  },
+  {
+    "id": "2038-T20",
+    "kind": "test-premise-and-discrimination",
+    "clauses": [
+      "7.4.3"
+    ],
+    "summary": "ASCII85 marker test comment incorrectly called x a valid alphabet byte.",
+    "change": "Two whole/pump tests now include valid digits! andu, space/LF/NUL and invalidx after~; valid~>control retained.",
+    "execution": "40selectedfilter/streamtestsPASS filters-wave16b.log.",
+    "limits": "Unfinished final~ reporting divergence remainspolicy question, no mandatoryCorrupt assertion promoted."
+  },
+  {
+    "id": "2038-T21",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "12.4.4.1"
+    ],
+    "summary": "Added non-final omitted-Dur presentation runtime control.",
+    "change": "Fourpages; /Dur1 beforeandafter, manualnavigation andpositiveTickcontrols distinguish frozen clock or final-page guard.",
+    "execution": "PASS text-presentations-wave16b.log andstructure-text-wave16.log."
+  },
+  {
+    "id": "2038-T22",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "9.3.3",
+      "9.4.3",
+      "9.4.4"
+    ],
+    "summary": "Added deterministic embedded-font controls for multibyte word spacing and vertical numericTJ.",
+    "change": "One-/two-bytecode32 shareCID3; secondA movementTw4vs0; W2-1000 at20pt gives-20 andTJ250gives-25 independent of50%Tz. Exactmetrics,xref,completeinterpretation andtwoFillcommandsguardvalidity.",
+    "execution": "2PASS text-presentations-wave16b.log andstructure-text-wave16.log.",
+    "limits": "Draftglyph-count/metric/APIpremisescorrectedbeforeexecution; nohost-fontskip or extractiongap threshold proof."
   }
 ]

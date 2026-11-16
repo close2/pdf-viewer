@@ -1,0 +1,66 @@
+{
+  "source_baseline": "ISO 32000-2:2020 with supplied EC3; ISO printed-page number and physical PDF page are both recorded",
+  "features": [
+    {
+      "id": "thumb_optional_page_entry_and_public_consumption",
+      "clause": "12.3.4",
+      "title": "Thumbnail images",
+      "source_location": "physical p.462 / printed p.447; §12.3.4 paragraph and NOTE",
+      "requirement": "A document may provide a thumbnail on some pages and omit it on others. An interactive processor may show it and permit navigation by clicking it. If a page has /Thumb, its value is an image XObject; only Width, Height, ColorSpace, BitsPerComponent, and Decode are significant, all other Table 87 entries are ignored, stated Subtype must be Image, and the color space is DeviceGray, DeviceRGB, or Indexed based on one of those.",
+      "implementation": [
+        "crates/pdf-model/src/thumbnail.rs::read",
+        "crates/viewer-core/src/viewer/answers.rs::Query::Thumbnail",
+        "crates/viewer-host/src/panel.rs::page_entry",
+        "crates/viewer-ui/src/bin/quorra/sidebar.rs"
+      ],
+      "assertions": [
+        "crates/pdf-model/src/thumbnail.rs::only_the_five_significant_entries_of_table_87_survive",
+        "crates/pdf-model/src/thumbnail.rs::an_ignored_soft_mask_does_not_reach_the_pixels",
+        "crates/pdf-model/tests/thumbnails.rs::every_thumbnail_decodes_and_is_compared_with_the_page_it_stands_for",
+        "crates/viewer-host/tests/host_mappings.rs::a_page_stating_a_thumb_gives_its_row_the_image",
+        "crates/viewer-ui/tests/panel.rs::the_pages_tab_draws_a_thumbnail_and_a_click_goes_to_its_page"
+      ],
+      "boundary": "Optional display/navigation is an interactive-processor may, not a requirement that every reader expose a thumbnails pane. Image-space restrictions and ignored entries are producer constraints; the reader still decodes/render-consumes the stated image. A missing thumbnail is an ordinary absent value."
+    },
+    {
+      "id": "page_transition_is_incoming_and_presentation_optional",
+      "clause": "12.4.4.1",
+      "title": "General (under §12.4.4 Presentations)",
+      "source_location": "physical pp.476–478 / printed pp.461–463; opening prose, Table 164, NOTE 2",
+      "requirement": "Presentation support and page /Dur and /Trans are optional. /Trans describes the visual transition from another page to this page during a presentation. /Dur is the maximum seconds this page is displayed before automatic advance; a page with no /Dur shall not advance automatically. Table 164 supplies defaults and style-dependent meanings; its /D is ignored for R. Table 164 NOTE 2 assigns transition duration to the transition into its page.",
+      "implementation": [
+        "crates/pdf-model/src/navigation.rs::transition",
+        "crates/pdf-model/src/navigation.rs::display_duration",
+        "crates/viewer-core/src/viewer/navigation.rs::tick",
+        "crates/viewer-core/src/viewer/navigation.rs::arrived",
+        "crates/viewer-core/src/transition.rs",
+        "crates/viewer-host/src/clock.rs"
+      ],
+      "assertions": [
+        "crates/pdf-model/src/navigation.rs::tests::the_clauses_own_example_page_states_a_split_and_five_seconds",
+        "crates/pdf-model/src/navigation.rs::tests::a_page_stating_neither_entry_says_nothing_about_either",
+        "crates/viewer-core/tests/headless.rs::a_page_stating_a_duration_does_not_advance_outside_a_presentation",
+        "crates/viewer-core/tests/headless.rs::a_page_stating_a_duration_advances_when_it_is_told_the_time",
+        "crates/viewer-core/tests/presentations_audit.rs::transition_defaults_are_delivered_to_the_host_for_the_styles_that_use_them",
+        "crates/viewer-core/tests/presentations_audit.rs::an_omitted_transition_style_replaces_immediately_despite_a_stated_duration",
+        "crates/viewer-core/src/transition.rs::tests"
+      ],
+      "boundary": "The standard does not require every interactive processor to provide slideshow mode, nor specify exact intermediate frame curves or style quantities. Those presentation UI and frame details are owner choices recorded separately. A page duration only operates while the viewer is presenting."
+    },
+    {
+      "id": "absent_page_duration_runtime_behavior",
+      "clause": "12.4.4.1",
+      "title": "General (under §12.4.4 Presentations)",
+      "source_location": "physical477 / printed462, paragraph immediately after NOTE1; verified actual PDF footer by parent",
+      "requirement": "If a page object has no /Dur entry, it shall not advance automatically.",
+      "implementation": [
+        "crates/pdf-model/src/navigation.rs::display_duration",
+        "crates/viewer-core/src/viewer/navigation.rs::tick"
+      ],
+      "assertions": [
+        "parser distinguishes absent /Dur as None; existing runtime tests cover stated /Dur and non-presentation gating, but no public viewer test was found for an omitted /Dur on a non-final page while presentation is active"
+      ],
+      "boundary": "This is the explicit missing-value rule; a last-page fixture alone would not distinguish it because the implementation also stops at end of document."
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "source": "Parent checked Tw defining paragraph physical317/printed302: single-byte code32 only, composite permitted, positiveTw reduces vertical gap. Table107/§9.4.4 give vertical TJ subtraction independent ofTh.",
+  "fixture_corrections": "Draft had one A but helper expected2; parent made A-space-A. Corrected include path, known checked-in font advances569/2048 and1366/2048 to exact PDF widths, scaled FontBBox and W2 horizontal positions; ToUnicode collectionmetadata consistent. Paint count2 guards real outlines. Mixed code spaces have disjoint first-byte ranges.",
+  "execution": "2PASS text-presentations-wave16b.log: single-byteTw moves secondA by+4, multibyte32 does not; vertical250TJ changes -20 to-25 at20pt, 50%Tz leaves vertical displacement unchanged.",
+  "ledger": "§9.3.2 still says no vertical writing mode; current branch and existing vertical assertions contradict it. §9.4.1/.2 omit named q/Q/positioning tests discussed in notes.",
+  "limits": "No substitution skip; two independent numeric/differential controls. Does not audit inferred extraction word gaps."
+}

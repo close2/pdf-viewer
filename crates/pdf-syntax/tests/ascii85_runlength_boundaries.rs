@@ -29,13 +29,15 @@ fn ascii_hex_decodes_both_letter_cases_and_ignores_pdf_whitespace() {
 /// marker, so the error cannot come from the alphabet or group checks.
 #[test]
 fn ascii85_tilde_followed_by_anything_but_greater_than_is_an_error() {
-    let input = b"z~x";
-
-    assert_eq!(
-        decode_reported(b"ASCII85Decode", input, None, Limits::DEFAULT).err(),
-        Some(FilterRefusal::Corrupt),
-        "Issue #293 requires an error after `~x`; `~>` is the only EOD marker"
-    );
+    // Valid alphabet digits and otherwise-ignored whitespace isolate the marker rule.
+    for next in [b'!', b'u', b' ', b'\n', 0, b'x'] {
+        let input = [b'z', b'~', next];
+        assert_eq!(
+            decode_reported(b"ASCII85Decode", &input, None, Limits::DEFAULT).err(),
+            Some(FilterRefusal::Corrupt),
+            "Issue #293 requires > immediately after ~, got {next:#04x}"
+        );
+    }
 }
 
 /// §7.4.3 writes the encoder's partial-group rule, which a decoder reverses: append 4−n zero
@@ -97,18 +99,20 @@ fn ascii85_windowed_reader_accepts_the_two_byte_eod_marker() {
 }
 
 /// The same Issue #293 rule reaches the windowed content-stream path: a tilde followed by `x`
-/// must be reported as damage. `x` is itself in the ASCII85 alphabet, isolating the EOD check.
+/// must be reported as damage. Valid digits and whitespace also exercise the EOD check.
 #[test]
 fn ascii85_windowed_reader_reports_a_malformed_eod_marker() {
-    let mut pump = Pump::new(Pumping::single(Stage::Ascii85), Arc::from(&b"z~x"[..]));
-    let mut output = [0_u8; 8];
-
-    assert_eq!(
-        pump.pump(&mut output),
-        Pumped::Damaged(4, Damage::Corrupt),
-        "the valid zero-run prefix stands, but ~x is not an EOD marker"
-    );
-    assert_eq!(&output[..4], &[0; 4]);
+    for next in [b'!', b'u', b' ', b'\n', 0, b'x'] {
+        let input = [b'z', b'~', next];
+        let mut pump = Pump::new(Pumping::single(Stage::Ascii85), Arc::from(input.as_slice()));
+        let mut output = [0_u8; 8];
+        assert_eq!(
+            pump.pump(&mut output),
+            Pumped::Damaged(4, Damage::Corrupt),
+            "zero-run prefix stands, but the byte after ~ is {next:#04x}"
+        );
+        assert_eq!(&output[..4], &[0; 4]);
+    }
 }
 
 /// §7.4.5's literal and repeat ranges meet at four endpoints. The headers and payloads below

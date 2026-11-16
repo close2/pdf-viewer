@@ -1,0 +1,11 @@
+{
+  "source": "Parent read ASCII85/hex decoding, marker_end and ADR0587 prefix rationale. Source #293 defines immediate >; incomplete final~ policy is distinct. Prior raw EOF ambiguity remains open, no failure test promoted.",
+  "assertions": "Strengthened two existing marker tests: x is outside alphabet !..u, contrary to old comment. Added valid digits !/u and space/LF/NUL alongside x; valid z~> control remains. 40 selected stream/filter tests pass in filters-wave16b.log.",
+  "reference_corrections": "Corrected nonexistent stream_extent_delimiter filename to spec_stream_extent_delimiter and external-stream test exact identity. Agent source page ranges partly span starts; no whole-clause certification.",
+  "residual_probe": {
+    "input": "z~",
+    "whole": "currently decoded zero4 with no damage",
+    "pump": "Truncated with zero4 prefix",
+    "qualification": "Valid marker is z~>; producer-invalid EOF handling may legitimately differ by consumer. No mandatory Corrupt result imposed."
+  }
+}

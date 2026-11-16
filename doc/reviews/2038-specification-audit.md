@@ -155,6 +155,14 @@ ADR0746 rejects a preliminary stale-rationale concern; its erratum handling is c
 Partial evidence reaches 303 ledger rows, with 580 pending. Current syntax/model
 Clippy passes; initial draft errors and their corrections remain in the execution log.
 
+A long header prefix exposes a further incremental-update defect: recovery resurrects
+an object deleted by the newest xref section. Original-object and shorter-prefix
+controls pass; recovery is reported, but its object semantics are wrong. The manifest
+has 26 expected failing assertions. Vertical word spacing/TJ, omitted nonfinal-page
+duration, and strengthened ASCII85 marker controls pass. A stale vertical-text ledger
+note is recorded without changing its status. Partial evidence reaches 328 rows, with
+555 pending. Current syntax/model/core all-targets Clippy passes.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks

@@ -1,0 +1,53 @@
+{
+  "reviewed_decisions": [
+    {
+      "adr": "0022",
+      "subject": "Text rendering modes as fill/stroke/clip operations",
+      "source_check": "§9.3.6 physical pp.318-320, footer ISO 32000-2:2020(E), including Table 104 and the special Type 3 and empty-outline text. The rule says outlines accumulate to ET, clip after painting, and an empty accumulation causes no clip.",
+      "current_evidence": "glyph_painting.rs classifies the independent operations; show.rs records accumulated outlines; end_object.rs creates a nonzero clip after the text object's marks. text_render_modes.rs and text_clipping_audit.rs have discriminating mode, empty-path and paint-before-clip controls.",
+      "decision": "Retain; ADR 0022's core decision is supported by the source and current assertions. This review did not exhaust clipping interactions with all alpha, group or optional-content states."
+    },
+    {
+      "adr": "0421",
+      "subject": "EC3 #368 discovery and q/Q text matrix restoration",
+      "source_check": "EC3 #368 adds to §9.4.2 the requirement that q/Q within a text object additionally push/pop Tm and Tlm; the EC3 amendment is recorded in doc/errata-read.md and re-cited in the ledger. Base §9.4.1 is physical pp.321-322 (printed pp.306-307); §9.4.2 is physical pp.322-324 (printed pp.307-309).",
+      "current_evidence": "run/graphics.rs stores/restores the two text matrices together with graphics state, while in a text object. text_state.rs::q_and_q_save_the_text_matrices_inside_a_text_object and text_positioning_audit.rs::q_restore_recovers_the_line_matrix_used_by_the_next_line_operator distinguish saved vs unsaved outcomes.",
+      "decision": "Retain the source interpretation and implementation decision. Correct the ledger mapping: neither §9.4.1 nor §9.4.2 test arrays currently name these focused assertions, despite their notes discussing #368. ADR 0421's rationale is not a substitute for current test execution."
+    },
+    {
+      "adr": "0548",
+      "subject": "Rechecking text-positioning errata and q/Q corpus claim",
+      "source_check": "EC3 #373 changes Table 106's T* expansion token TD to Td; Table 106's base physical page 323/printed p.308 says Tm operands replace rather than concatenate. #368 is a separate addition to the same subclause.",
+      "current_evidence": "text_ops.rs implements T* by translating Tlm and copying it to Tm, so its arithmetic matches the amended form. text_positioning_audit.rs checks T* against an explicit placement, and the q/Q test checks a synthetic valid pair. The ledger row's test list omits the focused tests it discusses.",
+      "decision": "The reviewed ADR distinction between valid producer behavior and damaged-stream corpus examples is sound. The physical test evidence supports the operator semantics; ledger evidence names need repair outside this shard."
+    },
+    {
+      "adr": "0746",
+      "subject": "EC3 #376 normalization and Trm note status",
+      "source_check": "§9.3.4 physical p.317 (printed p.302) has the #376 annotation marker and amended percentage/normalized-factor wording; §9.4.4 physical p.326 (printed p.311) marks NOTE 2 to be made normative. EC3 statement and errata-read.md identify both changes.",
+      "current_evidence": "text_ops.rs divides Tz by 100; glyph_to_text applies horizontal scale to x; advance_step and the TJ branch scale horizontal movement only. Current horizontal and vertical tests discriminate Tc, TJ, shape and vertical displacement behavior.",
+      "decision": "Retain. No conflict found between the amended rule and current code. Note that the 9.3.4 ledger tests do not directly assert horizontal outline extent, although the vertical-font test directly asserts extent under Tz=50."
+    },
+    {
+      "adr": "1490",
+      "subject": "Text-space word-gap inference",
+      "source_check": "§9.4.4 physical pp.325-326 specifies the displacement computation; it does not prescribe thresholds for inferred readback word breaks.",
+      "current_evidence": "This shard did not re-audit separate_text or inferred word gaps. Those are an extraction/readback policy with ADR 1490, separate from the explicit Tw glyph-advance rule in §9.3.3 and numeric TJ positioning in §9.4.3.",
+      "decision": "Keep outside this audit's verdict. Do not use ADR 1490 to establish conformance or nonconformance of Tw/TJ operator movement."
+    }
+  ],
+  "ledger_corrections_to_consider": [
+    {
+      "clause": "9.3.2",
+      "issue": "Current note says no writing mode 1 exists; this conflicts with §9.3.2's explicit vertical displacement language and vertical font support. Add the vertical-spacing test to evidence list and remove the claim."
+    },
+    {
+      "clause": "9.4.1/9.4.2",
+      "issue": "The dedicated q/Q and positioning audit tests are absent from the listed test arrays although the note claims the assertions. Name tests by owner and verify there is no 9.4.1/9.4.2 evidence-placement drift."
+    },
+    {
+      "clause": "9.4.3/9.4.4",
+      "issue": "No listed direct assertion was found for a numeric TJ adjustment under a vertical writing font. Existing vertical default advance tests do not prove TJ's vertical branch."
+    }
+  ]
+}
