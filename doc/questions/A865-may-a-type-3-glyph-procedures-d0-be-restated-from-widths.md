@@ -1,0 +1,7 @@
+Status: complete
+Given: 2026-11-16, in conversation — transcribed by the round
+Owes: restate a Type 3 glyph procedure's d0/d1 wx operand from the font's /Widths under a named loss (e.g. type3-width-as-drawn, original operand recorded in xmpMM:History) admitted by both as-shown and as-if-printed (option a), and record in doc/pdf-a-mitigations.md (and the acting ADR) the owner's standing rule that archival mitigations are weighed and built from the specification's requirements rather than gated on corpus hit counts (a PDF/A round)
+
+> Q865: agree, but again: the corpus is not what counts!  Even if we have no document at all, we should consider such mitigations.
+
+Reading: adopts option (a) — restate a Type 3 glyph procedure's `d0`/`d1` `wx` operand from the font's `/Widths` under a named loss (`type3-width-as-drawn`, original operand recorded in `xmpMM:History`), admitted under both `as-shown` and `as-if-printed` (keeping `refuse-any-loss` stopping on it). In addition, restates the owner's general principle for archival conversion and specification work: **the corpus is evidence, not the gate** — sound mitigations implied by ISO 19005 / ISO 32000-2's rules (including cases with zero hits in the held corpora, or split/duplicated procedures if a shared Type 3 `/CharProcs` entry is reached with distinct `/Widths`) should be considered on the specification's own merits rather than justified or dismissed by corpus counts.
