@@ -1,0 +1,6 @@
+{
+  "source": "Read primary648\u2013649 player algorithm,651\u2013652 monitor Table304,655\u2013656 alternate presentations. Direct annotations449 and481 correct misleading untouched index summaries: paragraph moves under algorithm, and other media objects use file specification dictionaries, typically with embedded streams.",
+  "assessment": "Retain ratified viability/handoff scope and excluded physical playback. Source explicitly permits unsupported alternate presentations; static fallback SHOULD is author-facing.",
+  "assertions": "Existing tests check proxy viability and public handoff, not OS player identity or display choice. Isolated MH/M assertion remains a specificity gap; no confirmed new defect or execution added.",
+  "scope": "Partial review; previous MU/NU-empty interpretation remains qualified."
+}

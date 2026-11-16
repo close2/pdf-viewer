@@ -1341,6 +1341,19 @@
       "log": "quality-wave40b.log",
       "exit": 0,
       "scope": "Accessibility all-targets Clippy -Dwarnings PASS. Initial run rejected helper expect/arithmetic and closure/nested-if style; corrected."
+    },
+    {
+      "log": "current-crl-wave41b.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Final public current-time CRL pair. Initial wave41 also1PASS1FAIL; final adds explicit ByteRange integrity guard and combined verdict assertion."
+    },
+    {
+      "log": "quality-wave41b.log",
+      "exit": 0,
+      "scope": "Viewer-core all-targets Clippy PASS after CAdES doc markup correction."
     }
   ],
   "prior_expected_failures": {

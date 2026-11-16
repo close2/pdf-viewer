@@ -1,0 +1,9 @@
+{
+  "source": "Primary physical598/583 and599/584 establish distinct current and historical CRL applicability. DSS is12.8.4.3, not12.8.4.2. No change to historical later-issued evidence is demanded.",
+  "execution": "current-crl-wave41b.log: 2 tests, 1 PASS in-window, 1 FAIL future-thisUpdate. Actual PDF ByteRange digest, CMS RSA signature and signing-certificate-v2 guards pass in both. Public Report falsely says locally valid with RevocationMustBeGood and the supplied clock.",
+  "fixture": "Retained original fixed host1794848986, leaf valid from1794847186; CRL issued host\u221260 or host+60, same nextUpdate. Parent independently extracted and verified actual ByteRanges with OpenSSL, signer path at host instant, CRL signatures and qpdf syntax. No trusted timestamp present.",
+  "quality": "quality-wave41b.log: viewer-core all-targets Clippy PASS after documentation backticks correction. Final test follows assertion cleanup.",
+  "generator": "Hardened generator requires a fresh output directory and removes ephemeral keys via exit trap. Agent regenerated a separate pair to verify it; committed fixtures retain the original pair.",
+  "decision": "Reopen ADR1112 only for shared applicability losing current-versus-historical context. Retain historical CRL semantics, ADR1067 explicit-revocation asymmetry and ADR2775 policy-specific constraints.",
+  "limit": "No network, OS trust store, historical capture-time or OCSP certification."
+}

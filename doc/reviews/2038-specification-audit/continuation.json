@@ -6,19 +6,23 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "Latest broad38b eleven packages:7158run7096PASS62expectedFAIL58skip. Exact manifest identities match package scope;3GPU failures separately recorded. Wave39 then adds2PASS lexical tests; manifest65 unchanged. Wave40 adds one public accessibility-order failure; manifest 66. Broad38 predates this and the two lexical tests.",
-    "quality": "Checkpoint40 accessibility all-targets Clippy PASS; 39 syntax, 38 model and 37 signature/core retain scope."
+    "later_targets": "Latest broad38b eleven packages:7158run7096PASS62expectedFAIL58skip. Exact manifest identities match package scope;3GPU failures separately recorded. Wave39 then adds2PASS lexical tests; manifest65 unchanged. Wave40 adds one public accessibility-order failure; manifest 66. Broad38 predates this and the two lexical tests. Wave41 adds current-time CRL public report1PASS1FAIL; manifest67.",
+    "quality": "Checkpoint41 viewer-core all-targets Clippy PASS; prior checks retain their recorded scope."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
-    "new_shards_ready_for_parent_review": [],
+    "new_shards_ready_for_parent_review": [
+      "calculator_lexical_framing_current"
+    ],
     "active_shards": [
-      "signature_crl_public_current",
+      "signature_ocsp_capture_current",
       "file_specification_remaining_current",
-      "remaining_multimedia_controls_current"
+      "content_stream_foundations_current"
     ],
     "recorded_shards": [
+      "signature_crl_public_current",
+      "remaining_multimedia_controls_current",
       "structure_layout_remaining_current",
       "lexical_foundations_current",
       "signature_crl_current",
@@ -127,8 +131,8 @@
       "font_substitution_current",
       "tagged_layout"
     ],
-    "partial_current_rows": 700,
-    "pending_current_rows": 183
+    "partial_current_rows": 707,
+    "pending_current_rows": 176
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",
@@ -142,6 +146,6 @@
     "ceiling": 85,
     "remaining_reserved": 15,
     "last_weekly_used_percent": 47,
-    "last_read_utc": "2026-11-16T16:37:32.736513+00:00"
+    "last_read_utc": "2026-11-16T16:47:28.598375+00:00"
   }
 }

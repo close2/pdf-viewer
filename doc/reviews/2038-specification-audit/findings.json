@@ -1713,5 +1713,21 @@
       "0214",
       "0394"
     ]
+  },
+  {
+    "id": "2038-B44",
+    "kind": "current-crl-applicability",
+    "clauses": [
+      "12.8.3.4.7"
+    ],
+    "summary": "Public signature report accepts a CRL issued after the supplied current UTC instant and calls the signature locally valid.",
+    "evidence": "Genuine signed exact-xref PDFs with paired current/future-thisUpdate DSS CRLs, same root/leaf/clock and no trusted timestamp. Current control passes; future report incorrectly says locally valid with RevocationMustBeGood. ByteRange, RSA and certificate-binding guards pass.",
+    "execution": "current-crl-wave41b.log: 1 PASS, 1 FAIL. Parent independently verifies cryptographic fixtures with OpenSSL and syntax with qpdf.",
+    "scope": "Current-time public Report path. Preserve separately permitted later-issued CRLs for historical validation. This promotes static concern D36 with a valid caller-context witness.",
+    "adrs": [
+      "1112",
+      "1067",
+      "2775"
+    ]
   }
 ]

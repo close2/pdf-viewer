@@ -396,6 +396,12 @@
       "test": "accesskit_preserves_interleaving_of_parent_content_and_child_elements",
       "finding": "2038-B43",
       "log": "accessibility-order-wave40b.log"
+    },
+    {
+      "binary": "viewer-core::current_crl_report_spec_audit",
+      "test": "signed_crl_not_yet_current_at_host_time_cannot_support_local_validity",
+      "finding": "2038-B44",
+      "log": "current-crl-wave41b.log"
     }
   ]
 }

@@ -12,9 +12,9 @@ The report and machine-readable continuation are in
 `doc/reviews/2038-specification-audit.md` and its evidence directory.
 
 **Evidence so far.** All72 previous failing assertions pass. Current tests expose
-66 failing assertions, grouped by behavior and qualified where interpretation is
+67 failing assertions, grouped by behavior and qualified where interpretation is
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
-The shard index links partial reviews to700 ledger rows;183 remain pending in
+The shard index links partial reviews to 707 ledger rows; 176 remain pending in
 this round. No entire clause is certified merely because referenced tests pass.
 A shared-parser date mutation was killed and restored. Independent JP2 fixture
 regeneration matches embedded hashes. Selected ADR conclusions are retained,
@@ -36,5 +36,5 @@ UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Late
 TSA keyCompromise time selection fails with genuine signed material; FieldMDP
 rename coverage fails under a qualified interpretation. Signature/core Clippy passes.
 Alpha empty-group/transfer controls pass; model Clippy passes.
-Scope/lexical review records stale comments; CRL public-path witness remains pending.
+Scope/lexical review records stale comments; public current-time CRL witness fails, its positive control passes.
 Mixed-content AccessKit order fails ABC to ACB; final accessibility Clippy passes.
