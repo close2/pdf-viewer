@@ -1,8 +1,10 @@
 //! A font program whose decode stops short is answered as an unembedded font is: the front is
 //! dropped and the shipped face takes the font's place under its descriptor's names and its
-//! dictionary's widths (`doc/adr/2636`), and a program decoded whole is kept. This reader drew
-//! none of the cut program's glyphs, so every glyph the page shows in that face is emptied and the
-//! page draws the nothing the window drew (`doc/adr/2830`).
+//! dictionary's widths (`doc/adr/2636`), and a program decoded whole is kept. The window draws such
+//! a font from the substitute face it draws a font naming no program from (`doc/adr/2870`), so the
+//! face is written whole and the page draws what the window drew; only a font the window reaches no
+//! substitute for, and draws from its widths alone, has every shown glyph emptied
+//! (`doc/adr/2830`).
 
 use super::*;
 
@@ -98,6 +100,48 @@ fn draws_the_nothing_drawn(source: &[u8], output: &[u8]) -> bool {
     blank && pixels(output).data == before.data
 }
 
+/// Whether `output` draws the text `source` drew, where `source` drew marks: the same ink, box for
+/// box, to a pixel.
+///
+/// Not pixel for pixel: the window draws the source from the substitute face through the
+/// substitution's route and the output's embedded program through the embedded one, and the two
+/// differ in edge pixels of the same outlines (measured: 867 of 160 000 channel values, the glyphs
+/// in the same place — looked at, trap 1). What is asserted is the thing a blank would fail: ink
+/// where the window put ink, within one pixel of its box and a tenth of its amount.
+fn draws_the_text_drawn(source: &[u8], output: &[u8]) -> bool {
+    /// The bounding box of the non-white pixels and how many there are.
+    fn ink(raster: &pdf_render::Raster) -> Option<([u32; 4], usize)> {
+        let mut found: Option<[u32; 4]> = None;
+        let mut count = 0;
+        for (index, pixel) in (0_u32..).zip(raster.data.chunks_exact(4)) {
+            if pixel[..3] == [0xFF, 0xFF, 0xFF] {
+                continue;
+            }
+            count = usize::saturating_add(count, 1);
+            let (Some(x), Some(y)) = (
+                index.checked_rem(raster.width),
+                index.checked_div(raster.width),
+            ) else {
+                continue;
+            };
+            found = Some(found.map_or([x, y, x, y], |[x0, y0, x1, y1]| {
+                [x0.min(x), y0.min(y), x1.max(x), y1.max(y)]
+            }));
+        }
+        found.map(|found| (found, count))
+    }
+    let (Some((before, drawn)), Some((after, written))) =
+        (ink(&pixels(source)), ink(&pixels(output)))
+    else {
+        return false;
+    };
+    let near = before
+        .iter()
+        .zip(after)
+        .all(|(before, after)| before.abs_diff(after) <= 1);
+    near && drawn.abs_diff(written).saturating_mul(10) < drawn
+}
+
 /// The decoded `/FontFile2` of the converted font object 6.
 fn embedded_program(output: &[u8]) -> Vec<u8> {
     let (document, font) = described_font(output);
@@ -116,19 +160,20 @@ fn embedded_program(output: &[u8]) -> Vec<u8> {
 }
 
 #[test]
-fn a_program_cut_mid_stream_is_dropped_and_the_font_draws_the_nothing_the_window_drew() {
+fn a_program_cut_mid_stream_is_dropped_and_the_face_the_window_drew_is_written_whole() {
     // ISO 32000-2 §9.9 embeds a program "as data contained in a PDF stream object", and a stream
     // cut inside a stored block whose LEN runs past the bytes holds only the front of one. The
     // checker fails it as it fails a font naming none (ADR 2619); the converter drops the front
-    // and embeds the face a font naming no program is drawn from (ADR 2636), every glyph the page
-    // shows in it emptied, since this reader drew the font from its widths alone and marked
-    // nothing (ADRs 1094, 2830).
+    // and embeds the face a font naming no program is drawn from (ADR 2636). §9.5's "information
+    // that can be used to provide a substitute when the font program is not available" is what
+    // the window draws "Hi" from (ADR 2870), so that face is written whole, under no loss of the
+    // unreadable program's, and the page draws what the window drew.
     let whole = zlib_stored(LIBERATION_SANS);
     let cut = whole.get(..4096).expect("the face is far longer");
     let source = a_font_whose_program_is(cut);
     let target = Target::Two(Level::B);
     assert_eq!(holds(&source, target).verdict(), Verdict::Fails);
-    let (report, output) = convert(&source, target, the_unreadable_program_authorised());
+    let (report, output) = convert(&source, target, the_face_losses_authorised());
     let output = written(&report, output);
     assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
     let substituted = &conversion(&report).substituted;
@@ -137,15 +182,24 @@ fn a_program_cut_mid_stream_is_dropped_and_the_font_draws_the_nothing_the_window
     let dropped = entry.cut_program.expect("the entry names the cut program");
     assert_eq!(dropped.key, "FontFile2");
     assert_eq!(dropped.damage, Some(pdf_syntax::filter::Damage::Truncated));
-    assert_eq!(
-        entry.losses.iter().map(Loss::word).collect::<Vec<_>>(),
-        ["unreadable-program"]
+    assert!(!dropped.drawn_as_nothing);
+    assert!(
+        !entry
+            .losses
+            .iter()
+            .any(|loss| loss == Loss::UnreadableProgram),
+        "{:?}",
+        entry.losses
     );
-    assert_ne!(embedded_program(&output), cut.to_vec());
-    // The page draws nothing, pixel for pixel, where the shipped face whole would draw "Hi".
-    assert!(draws_the_nothing_drawn(&source, &output));
+    let (document, font) = described_font(&output);
+    let shipped =
+        pdf_font::standard::shipped_face(&document, &font, "F1").expect("a face is shipped");
+    assert_eq!(embedded_program(&output), shipped.program.to_vec());
+    // "Hi" in the substitute, pixel for pixel the window's.
+    assert!(draws_the_text_drawn(&source, &output));
     let text = conversion(&report).render();
     assert!(text.contains("does not decode whole (Truncated)"), "{text}");
+    assert!(text.contains("from a substitute face"), "{text}");
 }
 
 #[test]
@@ -210,13 +264,13 @@ fn a_program_refused_outright_or_disowned_by_its_checksum_is_substituted() {
     ] {
         let source = a_font_whose_program_is(&program);
         assert_eq!(holds(&source, target).verdict(), Verdict::Fails);
-        let (report, output) = convert(&source, target, the_unreadable_program_authorised());
+        let (report, output) = convert(&source, target, the_face_losses_authorised());
         let output = written(&report, output);
         assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
         let entry = conversion(&report).substituted.first().cloned();
         let dropped = entry.and_then(|entry| entry.cut_program);
         assert_eq!(dropped.and_then(|cut| cut.damage), Some(damage));
-        assert!(draws_the_nothing_drawn(&source, &output));
+        assert!(draws_the_text_drawn(&source, &output));
     }
 }
 
@@ -233,7 +287,7 @@ fn a_whole_program_that_is_not_one_in_its_format_is_substituted() {
     let source = a_font_whose_program_is(&zlib_stored(&spaced));
     let target = Target::Two(Level::B);
     assert_eq!(holds(&source, target).verdict(), Verdict::Fails);
-    let (report, output) = convert(&source, target, the_unreadable_program_authorised());
+    let (report, output) = convert(&source, target, the_face_losses_authorised());
     let output = written(&report, output);
     assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
     let entry = conversion(&report).substituted.first().cloned();
@@ -242,7 +296,7 @@ fn a_whole_program_that_is_not_one_in_its_format_is_substituted() {
         dropped.map(|cut| (cut.key, cut.damage)),
         Some(("FontFile2", None))
     );
-    assert!(draws_the_nothing_drawn(&source, &output));
+    assert!(draws_the_text_drawn(&source, &output));
     let text = conversion(&report).render();
     assert!(
         text.contains("decodes whole and is not a program"),
@@ -259,12 +313,17 @@ fn the_unreadable_program_authorised() -> Authorisations {
 }
 
 #[test]
-fn a_cut_program_is_refused_where_its_loss_is_withheld_and_the_face_losses_change_nothing() {
+fn a_font_drawn_as_nothing_is_refused_where_its_loss_is_withheld_and_the_face_losses_change_nothing()
+ {
     // The program written states that the text draws nothing, where the source left the face to
-    // the reader (ISO 32000-2 §9.1, §9.8.1): a loss of its own, which the face losses that once
-    // answered a cut program do not authorise (ADR 2830).
+    // the reader (ISO 32000-2 §9.5, §9.8.1): a loss of its own, which the face losses do not
+    // authorise (ADR 2830). The window draws nothing only where it reaches no substitute, which
+    // is the composite font below with no `/ToUnicode` (§9.7.4.2, ADR 2870).
     let whole = zlib_stored(LIBERATION_SANS);
-    let source = a_font_whose_program_is(whole.get(..4096).expect("the face is far longer"));
+    let source = an_identity_font_whose_program_is(
+        whole.get(..4096).expect("the face is far longer"),
+        false,
+    );
     let target = Target::Two(Level::B);
     let (report, output) = convert(&source, target, the_face_losses_authorised());
     assert!(output.is_none(), "{}", conversion(&report).render());
@@ -295,12 +354,12 @@ fn which_shipped_profiles_admit_an_unreadable_program() {
 }
 
 /// An `Identity-H` composite font over a `CIDFontType2` whose `/FontFile2` is `program`, showing
-/// three codes a `/ToUnicode` names, as `issue11651`'s `NotoSans-Regular` is.
-fn an_identity_font_whose_program_is(program: &[u8]) -> Vec<u8> {
+/// three codes a `/ToUnicode` names where `named` holds, as `issue11651`'s `NotoSans-Regular` is.
+fn an_identity_font_whose_program_is(program: &[u8], named: bool) -> Vec<u8> {
     let cmap = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
                 /CMapName /Test def\n/CMapType 2 def\n\
                 1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n\
-                3 beginbfchar\n<0024> <0041>\n<0025> <0042>\n<0030> <0041>\nendbfchar\n\
+                3 beginbfchar\n<0024> <0041>\n<0025> <0042>\n<0030> <0043>\nendbfchar\n\
                 endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n";
     Conforming {
         resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
@@ -311,9 +370,11 @@ fn an_identity_font_whose_program_is(program: &[u8]) -> Vec<u8> {
             b"/CS0 cs 0 sc BT /F1 48 Tf 10 100 Td <002400250030> Tj ET".to_vec(),
         )),
         objects: vec![
-            "<< /Type /Font /Subtype /Type0 /BaseFont /LiberationSans /Encoding /Identity-H \
-             /DescendantFonts [7 0 R] /ToUnicode 10 0 R >>"
-                .to_owned(),
+            format!(
+                "<< /Type /Font /Subtype /Type0 /BaseFont /LiberationSans /Encoding /Identity-H \
+                 /DescendantFonts [7 0 R] {} >>",
+                if named { "/ToUnicode 10 0 R" } else { "" }
+            ),
             "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /LiberationSans /CIDSystemInfo \
              << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 8 0 R \
              /DW 1000 /W [36 [667 667] 48 [500]] >>"
@@ -340,16 +401,18 @@ fn an_identity_font_whose_program_is(program: &[u8]) -> Vec<u8> {
 }
 
 #[test]
-fn a_composite_font_whose_program_is_cut_sends_every_shown_cid_to_a_glyph_drawing_nothing() {
-    // `issue11651`: the window drew the composite font from its `CMap` and `/W` alone (ADR 1094),
-    // and the route that would embed a face for its `/ToUnicode` characters drew "AB A" where the
-    // window drew nothing. Every shown CID goes to an empty glyph at its `/W` width under a
-    // `/CIDToGIDMap` stream (§9.7.4.2), so the page is the window's (ADR 2830). The descendant
-    // states no map, as `issue11651`'s does not, so `fonts/cid-to-gid-map-present`'s `Identity`
-    // would reach glyphs the subset does not hold if it were written over the stream.
+fn a_composite_font_whose_program_is_cut_and_reaches_no_substitute_draws_nothing() {
+    // With no `/ToUnicode` and an `Adobe-Identity` collection, §9.7.4.2 leaves a substitute no
+    // route to a glyph — "CIDs shall not participate in glyph selection" — so the window draws the
+    // font from its `CMap` and `/W` alone (ADRs 1094, 2870). Every shown CID goes to an empty glyph
+    // at its `/W` width under a `/CIDToGIDMap` stream (§9.7.4.2), so the page is the window's (ADR
+    // 2830). The descendant states no map, so `fonts/cid-to-gid-map-present`'s `Identity` would
+    // reach glyphs the subset does not hold if it were written over the stream.
     let whole = zlib_stored(LIBERATION_SANS);
-    let source =
-        an_identity_font_whose_program_is(whole.get(..4096).expect("the face is far longer"));
+    let source = an_identity_font_whose_program_is(
+        whole.get(..4096).expect("the face is far longer"),
+        false,
+    );
     let target = Target::Two(Level::B);
     assert_eq!(holds(&source, target).verdict(), Verdict::Fails);
     let (report, output) = convert(&source, target, the_unreadable_program_authorised());
@@ -360,7 +423,10 @@ fn a_composite_font_whose_program_is_cut_sends_every_shown_cid_to_a_glyph_drawin
         .first()
         .cloned()
         .expect("the font is substituted");
-    assert_eq!(entry.cut_program.map(|cut| cut.key), Some("FontFile2"));
+    assert_eq!(
+        entry.cut_program.map(|cut| (cut.key, cut.drawn_as_nothing)),
+        Some(("FontFile2", true))
+    );
     assert_eq!(
         entry.losses.iter().map(Loss::word).collect::<Vec<_>>(),
         ["unreadable-program"]
@@ -380,4 +446,57 @@ fn a_composite_font_whose_program_is_cut_sends_every_shown_cid_to_a_glyph_drawin
         matches!(map, pdf_syntax::Object::Stream(_)),
         "the map is the substitution's stream: {map:?}"
     );
+}
+
+#[test]
+fn a_composite_font_whose_program_is_cut_takes_the_route_of_one_naming_none() {
+    // `issue11651`: the composite font's `/ToUnicode` names each shown code, so §9.7.4.2's route to
+    // a substitute is open and the window draws "ABA" from a face of this machine's, as it draws a
+    // font naming no program (ADR 2870). The converter therefore takes the route such a font takes
+    // (ADR 2636), and no glyph is emptied: the loss `unreadable-program` is not this font's.
+    let whole = zlib_stored(LIBERATION_SANS);
+    let source =
+        an_identity_font_whose_program_is(whole.get(..4096).expect("the face is far longer"), true);
+    let document = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("it opens");
+    let font = document.get(ObjectId::new(6, 0));
+    let font = font.as_dict().expect("the font");
+    let dropped = pdf_font::without_program(&document, font).expect("a descriptor to copy");
+    if !pdf_font::LoadedFont::machine_offers_a_substitute(&document, &dropped) {
+        eprintln!("skipped: this machine offers no face a composite font can be addressed in");
+        return;
+    }
+    let target = Target::Two(Level::B);
+    let (report, output) = convert(&source, target, the_face_losses_authorised());
+    let entry = conversion(&report)
+        .substituted
+        .first()
+        .cloned()
+        .unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(
+        entry.cut_program.map(|cut| (cut.key, cut.drawn_as_nothing)),
+        Some(("FontFile2", false))
+    );
+    assert!(entry.empty_cids.is_empty(), "{:?}", entry.empty_cids);
+    assert!(
+        !entry
+            .losses
+            .iter()
+            .any(|loss| loss == Loss::UnreadableProgram),
+        "{:?}",
+        entry.losses
+    );
+    let output = written(&report, output);
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert!(pixels(&output).data.iter().any(|byte| *byte != 0xFF));
+    // Where the profile withholds `machine-face`, as `as-shown` does, the machine's face the window
+    // drew the substitute from is the face written, held by its proof to the window's outlines and
+    // advances: `issue11651` under `as-shown` (ADR 2871).
+    let as_shown = Authorisations {
+        glyphs_from_to_unicode: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, target, as_shown);
+    let output = written(&report, output);
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert!(draws_the_text_drawn(&source, &output));
 }

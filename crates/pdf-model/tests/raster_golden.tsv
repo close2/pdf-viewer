@@ -189,7 +189,7 @@ bug1020858.pdf p1	drawn	200x50	810aadda3e59182a	916bc614074f2072	4f53cda18c2baa0
 bug1027533.pdf p1	drawn	200x50	8f67bbdba7a22c20	2a82e57e3feceaf7	4f53cda18c2baa0c
 bug1028735.pdf p1	drawn	200x50	ad2e1db6c5002bfc	9dadec660f3dbc7c	4f53cda18c2baa0c
 bug1046314.pdf p1	drawn	200x50	f682e89ea4689efd	e85bdaa29fe1e1d9	4f53cda18c2baa0c
-bug1050040.pdf p1	drawn	200x50	e2ce7238a89a97ff	ec564febf92da314	f908f187a22f4387
+bug1050040.pdf p1	drawn	200x50	b57e731270ce611f	21cbb3711f441bfd	08632efad3a92dd7
 bug1057544.pdf p1	drawn	612x792	f6736acf6ddef384	2bdf4bfcde99fee6	4f53cda18c2baa0c
 bug1065245.pdf p1	drawn	596x843	b0a898baa593d6a9	b4f26c5e2faf09d5	4f53cda18c2baa0c
 bug1068432.pdf p1	drawn	200x50	468fe565aa57a4c9	b6b344a989cbcd0e	4f53cda18c2baa0c
@@ -414,7 +414,7 @@ issue11549_reduced.pdf p1	drawn	200x50	9a27022c9fb6267e	5ff107674fc7eee1	4f53cda
 issue11555.pdf p1	drawn	595x842	f8649342b3d84416	b9defb7ca0e0eca2	4f53cda18c2baa0c
 issue1155r.pdf p1	drawn	596x842	188820afd79352ad	fcb772c6ef4ebced	4f53cda18c2baa0c
 issue11578_reduced.pdf p1	drawn	200x50	e2ce7238a89a97ff	ec564febf92da314	ab2ef7182ea81974
-issue11651.pdf p1	drawn	300x300	17c4e1ea706ef375	ac91aa236f8d48c2	113130b19821f165
+issue11651.pdf p1	drawn	300x300	8db188399cf6d111	54290a85867112bd	75864f4bdffcf2ed
 issue11656.pdf p1	drawn	612x792	98757ff6c204278e	36715ffa89ba0327	4f53cda18c2baa0c
 issue11697_reduced.pdf p1	drawn	200x50	ddfb20de3b5d9bf7	eb84f272dc6890cd	4f53cda18c2baa0c
 issue1171.pdf p1	drawn	200x50	14acd30a96ddca7b	ea262191729aac38	4f53cda18c2baa0c
@@ -456,7 +456,7 @@ issue13226.pdf p1	drawn	400x50	7a4864a538d051d2	d31b29234a46240b	4f53cda18c2baa0
 issue13242.pdf p1	drawn	596x842	daa53a6904e0caeb	eacfad5c5bae3e61	4f53cda18c2baa0c
 issue13269.pdf p1	drawn	612x792	5dff3922f8ab64ac	255c29f222ec54f6	4f53cda18c2baa0c
 issue13271.pdf p1	drawn	612x792	5dff3922f8ab64ac	255c29f222ec54f6	4f53cda18c2baa0c
-issue13316_reduced.pdf p1	drawn	200x50	e2ce7238a89a97ff	ec564febf92da314	aa3ea2c6095c54f7
+issue13316_reduced.pdf p1	drawn	200x50	e2ce7238a89a97ff	ec564febf92da314	99afcccc199f39da
 issue13325_reduced.pdf p1	drawn	596x842	5b08e61b4767f0da	66195b70a313fa3b	4f53cda18c2baa0c
 issue13343.pdf p1	drawn	200x50	8a49d09ec8864a1a	e2980ab3d61c38ea	4f53cda18c2baa0c
 issue13372.pdf p1	drawn	595x842	393af03727496a33	62db492ed409bf88	4f53cda18c2baa0c

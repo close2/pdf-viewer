@@ -224,6 +224,11 @@ pub struct CutProgram {
     /// or `None` where it decoded whole and this reader's parse of the program's format refused
     /// the bytes ([`pdf_archive::program_unparsed`]).
     pub damage: Option<pdf_syntax::filter::Damage>,
+    /// Whether the window draws the font as nothing — its widths alone (`doc/adr/1094`) — rather
+    /// than from the substitute face it draws an unreadable program from (`doc/adr/2870`): the
+    /// font then reaches no substitute, which for a composite font is one with neither a
+    /// `/ToUnicode` nor a character collection this reader carries (ISO 32000-2 §9.7.4.2).
+    pub drawn_as_nothing: bool,
 }
 
 impl CutProgram {
@@ -231,19 +236,24 @@ impl CutProgram {
     /// `xmpMM:History` alike.
     #[must_use]
     pub fn describe(self) -> String {
+        let drawn = if self.drawn_as_nothing {
+            "this reader drew none of its glyphs, so none of the glyphs the page shows in the \
+             program written draws a mark either"
+        } else {
+            "this reader drew the font from a substitute face, as it draws a font that embeds no \
+             program, and the face written is that substitute"
+        };
         match self.damage {
             Some(damage) => format!(
                 "its {} stream's data does not decode whole ({damage:?}), so the file held only the \
                  front of its program, which ISO 32000-2 section 9.9 does not count as embedded; \
-                 that front was removed, and this reader drew none of its glyphs, so none of the \
-                 glyphs the page shows in the program written draws a mark either",
+                 that front was removed, and {drawn}",
                 self.key
             ),
             None => format!(
                 "its {} stream's data decodes whole and is not a program in the format it is filed \
                  under, which ISO 32000-2 section 9.9 does not count as embedded; those bytes were \
-                 removed, and this reader drew none of its glyphs, so none of the glyphs the page \
-                 shows in the program written draws a mark either",
+                 removed, and {drawn}",
                 self.key
             ),
         }
@@ -1189,8 +1199,10 @@ fn embed_pass(
         if subtype == "Type0" {
             let before = substitutes.done.len();
             // A composite font the window drew as nothing is written drawing nothing, ahead of
-            // every route that would embed a face drawing its text (`doc/adr/2830`).
-            if cut.is_some() {
+            // every route that would embed a face drawing its text (`doc/adr/2830`); one the
+            // window drew from a substitute takes the route a font naming no program takes
+            // (`doc/adr/2870`).
+            if cut.is_some_and(|cut| cut.drawn_as_nothing) {
                 machine_cid::drawn_as_nothing(document, used, spare, &mut substitutes)?;
                 for entry in substitutes.done.iter_mut().skip(before) {
                     entry.cut_program = cut;
@@ -1250,8 +1262,10 @@ fn embed_pass(
         let font = LoadedFont::load(document, &reading.dict, &reading.name)
             .map_err(|_| Because::NotBuiltYet(FONT_NOT_READ))?;
         // A font the window drew as nothing is written drawing nothing, so no face of the machine's
-        // is carried for it (`doc/adr/2830`).
-        let machine = (embed_machine_face && cut.is_none()).then_some(&font);
+        // is carried for it (`doc/adr/2830`); one it drew from a substitute is the font a file
+        // naming no program states, and may carry the face it was drawn from (`doc/adr/2870`).
+        let emptied = cut.is_some_and(|cut| cut.drawn_as_nothing);
+        let machine = (embed_machine_face && !emptied).then_some(&font);
         let face = face_for(document, supplied, &requested, reading, machine)?;
         let (row, restated) = row_for(document, reading, &subtype, &face)?;
         // **A code Annex D encodes twice, at a width of its own**: named for the character ISO
@@ -1275,7 +1289,7 @@ fn embed_pass(
                 };
                 let font = LoadedFont::load(document, &renamed.dict, &renamed.name)
                     .map_err(|_| Because::NotBuiltYet(FONT_NOT_READ))?;
-                let machine = (embed_machine_face && cut.is_none()).then_some(&font);
+                let machine = (embed_machine_face && !emptied).then_some(&font);
                 let face = face_for(document, supplied, &requested, &renamed, machine)?;
                 let found =
                     face_widths(&font, &face, &renamed, &twins.codes).map_err(|_| refusal)?;
@@ -1369,12 +1383,14 @@ fn embed_pass(
             )?;
         }
         // **A font the window drew as nothing is written drawing nothing.** Its program did not
-        // decode whole, or is no program in its format, so this reader drew none of its glyphs and
-        // advanced by the dictionary's widths alone (`doc/adr/1094`); the face the route above
-        // chose and proved carries the encoding, the advances and the dictionary's kind, and
-        // every glyph a shown code reaches in it is emptied, so the page shows what the window
-        // showed rather than text it never drew (`doc/adr/2830`).
-        let program = if cut.is_some() {
+        // decode whole, or is no program in its format, and the window reached no substitute
+        // either, so it drew none of its glyphs and advanced by the dictionary's widths alone
+        // (`doc/adr/1094`); the face the route above chose and proved carries the encoding, the
+        // advances and the dictionary's kind, and every glyph a shown code reaches in it is
+        // emptied, so the page shows what the window showed rather than text it never drew
+        // (`doc/adr/2830`). Where the window drew a substitute, the face is written whole: it is
+        // the face the window drew (`doc/adr/2870`).
+        let program = if emptied {
             let mut written_entries = restated
                 .as_ref()
                 .map_or_else(Dictionary::new, |restatement| restatement.entries.clone());
@@ -1440,7 +1456,7 @@ fn embed_pass(
         let (losses, fitting) = match (drawn, &fitting_written) {
             // No shape is drawn, so no face's shapes and no fitting are lost or written: the loss
             // is the program the file held and the substitute another reader may have drawn.
-            _ if cut.is_some() => (Losses::one(Loss::UnreadableProgram), None),
+            _ if emptied => (Losses::one(Loss::UnreadableProgram), None),
             (_, Some((_, stretch))) => (Losses::default(), Some(Fitting::Written(*stretch))),
             (None, None) => (Losses::default(), None),
             (Some(drawn), None) => described::losses_of(drawn, &font),
@@ -1961,9 +1977,10 @@ fn descriptor_holder(document: &Document, dict: &Dictionary) -> Option<Dictionar
 /// it fails a font that names none (`doc/adr/2619`), by the reading
 /// [`pdf_archive::program_stopping_short`] makes here too. So it is answered as that font is: the
 /// front is dropped and a face takes the font's place under the descriptor's names and the
-/// dictionary's widths (`doc/adr/2636`), every glyph the page shows in it emptied, because this
-/// reader drew none of them (`doc/adr/2830`). Not where this reader draws the program whole all the
-/// same — a truncation reaching the extent §9.9's Table 125 states — because dropping it would
+/// dictionary's widths (`doc/adr/2636`) — the face the window draws such a font from
+/// (`doc/adr/2870`), or, where the window reaches no substitute and draws the font from its widths
+/// alone, every glyph the page shows in it emptied (`doc/adr/2830`). Not where this reader draws
+/// the program whole all the same — a truncation reaching the extent §9.9's Table 125 states — because dropping it would
 /// change shapes the window drew, and writing the stream whole is a remedy of its own.
 fn cut_program(document: &Document, used: &SelectedFont) -> Shortfall {
     let Some(descriptor) = descriptor_holder(document, &used.dict).and_then(|holder| {
@@ -1977,10 +1994,16 @@ fn cut_program(document: &Document, used: &SelectedFont) -> Shortfall {
     let Some((key, damage)) = pdf_archive::program_stopping_short(document, &descriptor) else {
         // Bytes that decode whole and are not a program in the format they are filed under are
         // no program either, and this reader draws none of them by the reading that finds them.
-        return pdf_archive::program_unparsed(document, &used.dict, &used.name)
-            .map_or(Shortfall::None, |(key, _)| {
-                Shortfall::Cut(CutProgram { key, damage: None })
-            });
+        return pdf_archive::program_unparsed(document, &used.dict, &used.name).map_or(
+            Shortfall::None,
+            |(key, _)| {
+                Shortfall::Cut(CutProgram {
+                    key,
+                    damage: None,
+                    drawn_as_nothing: drawn_as_nothing(document, used),
+                })
+            },
+        );
     };
     if LoadedFont::load(document, &used.dict, &used.name).is_ok() {
         Shortfall::DrawnWhole
@@ -1988,7 +2011,26 @@ fn cut_program(document: &Document, used: &SelectedFont) -> Shortfall {
         Shortfall::Cut(CutProgram {
             key,
             damage: Some(damage),
+            drawn_as_nothing: drawn_as_nothing(document, used),
         })
+    }
+}
+
+/// Whether the window draws a font whose program it refused from its widths alone.
+fn drawn_as_nothing(document: &Document, used: &SelectedFont) -> bool {
+    drawn_by_the_window(document, used).is_none()
+}
+
+/// The font as the window draws it: loaded, or — where its program is present and unreadable —
+/// the substitute the window draws in its place, by asking the question the window asks:
+/// [`LoadedFont::substitute_for_unreadable`] over the refusal [`LoadedFont::load`] gives
+/// (`doc/adr/2870`). `None` where the window draws the font from its widths alone or not at all.
+pub(super) fn drawn_by_the_window(document: &Document, used: &SelectedFont) -> Option<LoadedFont> {
+    match LoadedFont::load(document, &used.dict, &used.name) {
+        Ok(font) => Some(font),
+        Err(refusal) => {
+            LoadedFont::substitute_for_unreadable(document, &used.dict, &used.name, &refusal)
+        }
     }
 }
 
@@ -1997,7 +2039,8 @@ enum Shortfall {
     /// The decode did not stop short, or there is no program to decode.
     None,
     /// The decode stopped short, or the bytes are not a program in their format, and this reader
-    /// draws none of the program: the substitution's.
+    /// draws none of the program: the substitution's, whether the window draws the font from a
+    /// substitute or from its widths alone.
     Cut(CutProgram),
     /// The decode stopped short and this reader draws the program all the same: the refusal
     /// [`CUT_PROGRAM_DRAWN_WHOLE`]'s.
@@ -2008,19 +2051,16 @@ enum Shortfall {
 /// without §9.9's three keys, so that each reading of it loads the face a font naming no program
 /// is drawn from.
 fn program_dropped(document: &Document, used: &SelectedFont) -> SelectedFont {
-    let mut descriptor = document
-        .get_key(&used.dict, "FontDescriptor")
-        .as_dict()
-        .cloned()
-        .unwrap_or_default();
-    for key in ["FontFile", "FontFile2", "FontFile3"] {
-        descriptor.remove(key);
-    }
-    let mut dict = used.dict.clone();
-    dict.insert(
-        Name::new(&b"FontDescriptor"[..]),
-        Object::Dictionary(descriptor),
-    );
+    // The window's own copy (`pdf_font::without_program`), so the font read here is the font the
+    // window draws a substitute for (`doc/adr/2870`).
+    let dict = pdf_font::without_program(document, &used.dict).unwrap_or_else(|| {
+        let mut dict = used.dict.clone();
+        dict.insert(
+            Name::new(&b"FontDescriptor"[..]),
+            Object::Dictionary(Dictionary::new()),
+        );
+        dict
+    });
     SelectedFont {
         dict,
         ..used.clone()

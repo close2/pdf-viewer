@@ -24,10 +24,13 @@
 //!
 //! The **fixture** is hand-built, because the simple-font half of the same rule has no corpus
 //! witness to be had: a simple font with no program is *substituted* (§9.7.4.2's route by
-//! character), so the only way to a refusal is a program that is present and will not parse. It
-//! carries its own control, which is trap 13's rule rather than a nicety — an arm that states no
-//! width at all must put the second font back where the `Td` left it, or the test is measuring
-//! something other than Table 109's array.
+//! character), and so is one whose program is present and will not parse (ADR 2870), so the
+//! window reaches a simple font's metrics-only reading only through a refusal no substitute
+//! recovers. The fixture's unreadable program therefore places the second font through the
+//! substitute's `/Widths`, and the two arms about Table 120 read [`LoadedFont::metrics_only`]
+//! itself. They carry their own control, which is trap 13's rule rather than a nicety — an arm
+//! that states no width at all must advance by nothing, or the test is measuring something other
+//! than the dictionary's entries.
 
 #![expect(
     clippy::expect_used,
@@ -37,8 +40,9 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
+use pdf_font::{Code, LoadedFont};
 use pdf_model::{Pages, interpret};
-use pdf_syntax::Document;
+use pdf_syntax::{Document, ObjectId};
 
 /// Where each of a page's readback characters begins, paired with the character.
 fn placed(bytes: Vec<u8>, page: usize) -> Vec<(String, f32)> {
@@ -137,7 +141,17 @@ fn helvetica_starts_at(widths: &str, missing_width: &str) -> f32 {
     *x
 }
 
-/// Table 109's `/Widths` places the next font's glyph, though nothing drew the first one.
+/// What [`LoadedFont::metrics_only`] advances the fixture's `/F1` by for `A`, in ems.
+fn metrics_only_advance(widths: &str, missing_width: &str) -> f32 {
+    let document = Document::open(document(widths, missing_width)).expect("the fixture opens");
+    let font = document.get(ObjectId::new(5, 0));
+    let font = font.as_dict().expect("object 5 is the font");
+    LoadedFont::metrics_only(&document, font, "F1")
+        .expect("a simple font states its codes one byte each")
+        .advance(Code::single_byte(b'A'))
+}
+
+/// Table 109's `/Widths` places the next font's glyph, whatever drew the first one.
 ///
 /// §9.6.2.1's table states the array and what indexes it:
 ///
@@ -159,33 +173,33 @@ fn a_refused_program_still_advances_by_the_stated_width() {
 /// > The width to use for character codes whose widths are not specified in a font dictionary's
 /// > Widths array.
 ///
-/// The same arithmetic one entry further out: 800 thousandths at size 10 is 8 points.
+/// The same arithmetic one entry further out: 800 thousandths of an em.
 #[test]
 fn a_refused_program_falls_back_to_the_stated_missing_width() {
-    let x = helvetica_starts_at("", "/MissingWidth 800");
-    assert!((x - 28.0).abs() < 0.001, "20 + 800/1000 × 10 = 28, not {x}");
+    let advance = metrics_only_advance("", "/MissingWidth 800");
+    assert!((advance - 0.8).abs() < 1e-6, "800/1000, not {advance}");
 }
 
 /// The control: a font stating no width moves nothing, which is what the defect looked like.
 ///
 /// Trap 13 — an instrument that cannot fail says nothing when it passes. Table 120 gives
 /// `/MissingWidth` a "[d]efault value: 0", so a dictionary that states neither entry displaces the
-/// pen by nothing and `/Helvetica` starts at the `Td`'s own 20. That is exactly the position every
-/// arm above had before the metrics were kept, so an implementation that ignored `/Widths` and one
-/// that had no metrics at all would be told apart by these three numbers.
+/// pen by nothing. That is exactly the advance every arm above had before the metrics were kept,
+/// so an implementation that ignored the entries and one that had no metrics at all would be told
+/// apart by these three numbers.
 #[test]
 fn a_refused_program_stating_no_width_advances_by_nothing() {
-    let x = helvetica_starts_at("", "");
+    let advance = metrics_only_advance("", "");
     assert!(
-        (x - 20.0).abs() < 0.001,
-        "Table 120's default width is 0, so the pen has not moved: {x}"
+        advance.abs() < 1e-6,
+        "Table 120's default width is 0, so the pen does not move: {advance}"
     );
 }
 
-/// And the page still says the font was refused, whatever it now places.
+/// And the page still says the font was refused, whatever it now draws.
 ///
-/// The metrics are not a recovery and must not read as one (trap 5): nothing of `/F1`'s was
-/// drawn, so the page is incomplete and names the font.
+/// The substitute is a recovery, and a recovery must not read as the producer's font (trap 5): the
+/// page is incomplete and names the font and its unreadable program (ADR 2870).
 #[test]
 fn keeping_the_metrics_does_not_quiet_the_refusal() {
     let document = Document::open(document("/Widths [500]", "")).expect("the fixture opens");
@@ -198,5 +212,9 @@ fn keeping_the_metrics_does_not_quiet_the_refusal() {
     assert!(
         said.contains("font /F1 could not be parsed"),
         "and the refusal names the font: {said}"
+    );
+    assert!(
+        said.contains("drawn from a substitute face instead"),
+        "and says what stood in: {said}"
     );
 }

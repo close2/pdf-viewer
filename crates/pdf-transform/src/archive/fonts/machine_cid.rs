@@ -107,8 +107,10 @@ pub(super) fn embed(
     } else {
         return Err(Because::NotBuiltYet(NOT_THIS_ROUTES));
     };
-    let font = LoadedFont::load(document, &used.dict, &used.name)
-        .map_err(|_| Because::NotBuiltYet(NOT_THIS_ROUTES))?;
+    // The font the window draws, which for a program present and unreadable is the substitute
+    // drawn in its place (`doc/adr/2871`); the proof below holds the output to it.
+    let font =
+        super::drawn_by_the_window(document, used).ok_or(Because::NotBuiltYet(NOT_THIS_ROUTES))?;
     let program = drawn_face(document, descendant, &font)?;
     let face = (super::machine_face_named(program), FaceAuthority::Machine);
     written_in(
@@ -121,8 +123,9 @@ pub(super) fn embed(
     )
 }
 
-/// A composite font the window drew as nothing, its program unreadable, embedded with a program
-/// whose every shown CID draws that nothing at the dictionary's widths (`doc/adr/2830`).
+/// A composite font the window drew as nothing, its program unreadable and no substitute reached
+/// (`doc/adr/2870`), embedded with a program whose every shown CID draws that nothing at the
+/// dictionary's widths (`doc/adr/2830`).
 ///
 /// ISO 32000-2 §9.9 counts a program whose data does not decode whole, or that is no program in
 /// its format, as no program, and this reader drew the font from its `CMap` and its `/W` alone,

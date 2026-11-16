@@ -948,6 +948,30 @@ impl Interpreter<'_> {
                 }
             }
             Some(Err(error)) => {
+                // **A program present and unreadable is drawn from a substitute face**, as a
+                // font naming no program is (ADR 0007): ISO 32000-2 §9.5 says the dictionary
+                // carries "information that can be used to provide a substitute when the font
+                // program is not available", and §9.9 counts a program this reader cannot read as
+                // none (ADR 2619). The refusal is said all the same, with what stood in, because
+                // the producer's shapes are not what the page shows (`doc/questions/A837`, ADR
+                // 2870).
+                let substitute = dict.and_then(|dict| {
+                    pdf_font::LoadedFont::substitute_for_unreadable(
+                        self.document,
+                        dict,
+                        name,
+                        &error,
+                    )
+                });
+                if let Some(substitute) = substitute {
+                    self.note(Unsupported::Font {
+                        detail: format!("{error}; drawn from a substitute face instead"),
+                    });
+                    let font = Font::Program(Arc::new(substitute));
+                    self.note_cmap_truncation(&font);
+                    self.note_to_unicode_truncation(&font);
+                    return self.kept(key, Some(font), true);
+                }
                 self.note(Unsupported::Font {
                     detail: error.to_string(),
                 });
@@ -966,17 +990,22 @@ impl Interpreter<'_> {
             // under it says it (see `font`).
             None => None,
         };
+        let refused = result.as_ref().is_some_and(Font::is_metrics_only);
+        self.kept(key, result, refused)
+    }
 
+    /// Keeps `result` in this page's cache under `key`, and in the cache that outlives the page
+    /// unless the font stands for a refusal.
+    ///
+    /// **Not across pages, and that is the report rather than the cost.** `across` outlives the
+    /// page and `cached_font` serves what it holds without reporting, so a font standing for a
+    /// refused program kept there — the metrics-only font that draws nothing, or the substitute
+    /// that draws in place of an unreadable program — would let page two draw it in silence, trap
+    /// 5's own failure. The page-scoped cache is where it belongs: within one page the refusal
+    /// has already been said once.
+    fn kept(&mut self, key: Option<FontKey>, result: Option<Font>, refused: bool) -> Option<Font> {
         if let Some(key) = key {
-            // **Not across pages, and that is the report rather than the cost.** `across`
-            // outlives the page and `cached_font` serves what it holds without reporting, so a
-            // metrics-only font kept there would let page two draw nothing through a refused
-            // program in silence — trap 5's own failure. The page-scoped cache below is where
-            // it belongs: within one page the refusal has already been said once.
-            if let Some((across, font)) = self
-                .across
-                .zip(result.as_ref().filter(|font| !font.is_metrics_only()))
-            {
+            if let Some((across, font)) = self.across.zip(result.as_ref().filter(|_| !refused)) {
                 across.keep(self.document, key.clone(), font);
             }
             self.fonts.insert(key, result.clone());

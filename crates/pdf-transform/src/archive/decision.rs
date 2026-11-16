@@ -548,12 +548,17 @@ pub enum Loss {
     UndecodableStream,
     /// ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1: a font whose program this
     /// reader could not read — its data does not decode whole, or decodes to bytes that are not a
-    /// program in the format they are filed under — is embedded with a program whose every glyph
-    /// the page shows draws nothing, at the widths the font dictionary states.
+    /// program in the format they are filed under — and for which this viewer reaches no
+    /// substitute face is embedded with a program whose every glyph the page shows draws nothing,
+    /// at the widths the font dictionary states.
     ///
-    /// ISO 32000-2 §9.9 counts such bytes as no program, and this viewer draws the font from the
-    /// dictionary's metrics alone, marking nothing (`doc/adr/1094`); the program written keeps
-    /// that page. What is lost is the front of the producer's program, which the conversion
+    /// ISO 32000-2 §9.9 counts such bytes as no program. This viewer draws such a font from a
+    /// substitute face where the dictionary offers a route to one (`doc/adr/2870`), and the
+    /// conversion then writes that face under the losses a font naming no program costs; this loss
+    /// is the rest — a composite font with neither a `/ToUnicode` nor a known character collection
+    /// (§9.7.4.2), or a program read whose encoding reaches none of its glyphs — which the viewer
+    /// draws from the dictionary's metrics alone, marking nothing (`doc/adr/1094`); the program
+    /// written keeps that page. What is lost is the front of the producer's program, which the conversion
     /// removes, and the substitute another reader may have drawn in its place from the font's
     /// descriptor, which §9.1 and §9.8.1 describe as what a font dictionary's information is for
     /// when the program is unavailable: the output states that the text draws nothing, where the
@@ -930,7 +935,8 @@ impl Loss {
             }
             Self::UnreadableProgram => {
                 "a font whose program this viewer could not read, its data not decoding whole or \
-                 not being a program in its format, is embedded with a program whose every glyph \
+                 not being a program in its format, and for which it reached no substitute face, \
+                 is embedded with a program whose every glyph \
                  the page shows draws nothing, at the widths the file states: the page shows \
                  what this viewer's window showed, which is no mark for that text. The front of \
                  the producer's program is gone, and so is the substitute face another reader \

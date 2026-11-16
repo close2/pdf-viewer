@@ -376,8 +376,9 @@ pub(super) fn restatement_proved(
 /// `program` with every glyph the page shows through `source` drawing nothing, proved to draw
 /// what the window drew: no mark, at the advance the window drew each code at (`doc/adr/2830`).
 ///
-/// `source` is the font as the file states it, whose program this reader could not read, so the
-/// window drew it from the dictionary's metrics alone (`doc/adr/1094`); `reading` is the same
+/// `source` is the font as the file states it, whose program this reader could not read and for
+/// which it reached no substitute face (`doc/adr/2870`), so the window drew it from the
+/// dictionary's metrics alone (`doc/adr/1094`); `reading` is the same
 /// font with that program dropped, which the route that wrote `program` read it as, and
 /// `entries` and `gains` are what that route writes into its dictionary and its descriptor. The
 /// glyphs emptied are the ones the font as written reaches for the codes the page shows, found by

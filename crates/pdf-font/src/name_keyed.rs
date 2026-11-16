@@ -149,7 +149,7 @@ pub(crate) fn simple_code_table(
         // one glyph. Reporting beats rendering an entirely blank page in silence.
         return Err(FontError::Malformed {
             name: name.to_owned(),
-            detail: "no character code maps to a glyph".to_owned(),
+            detail: crate::loading::NO_CODE_REACHES_A_GLYPH.to_owned(),
         });
     }
 

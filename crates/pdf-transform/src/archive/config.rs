@@ -1513,8 +1513,9 @@ struct Row {
     /// of the site's other losses (owner answer A832, `doc/adr/2829`).
     glyphs_from_to_unicode: Kind,
     /// `unreadable-program` — whether `fonts/font-programs-embedded` may embed a font this viewer
-    /// drew as nothing, its program unreadable, with a program that draws that nothing, whatever
-    /// the row's remedy says of the site's other losses (`doc/adr/2830`).
+    /// drew as nothing, its program unreadable and no substitute reached, with a program that draws
+    /// that nothing, whatever the row's remedy says of the site's other losses (`doc/adr/2830`,
+    /// `doc/adr/2870`).
     unreadable_program: Kind,
     /// `source = "shipped-cmaps"` — a `CMap` is embedded from the published set (`doc/adr/1286`).
     shipped_cmaps: bool,

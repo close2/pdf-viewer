@@ -335,14 +335,16 @@ pub enum FontError {
     /// Substituting a system font would change metrics and therefore layout, so this is
     /// reported rather than guessed at.
     ///
-    /// **This is the only way into substitution, and a refusal downstream relies on that.**
-    /// `composite::collection_gap`'s first branch says of a `/Encoding /Identity-H` over a
-    /// substituted descendant that the *file* broke §9.7.5.2's "shall not be used with a
-    /// non-embedded font" — a claim about the document rather than about this reader — and what
-    /// entitles it is that `program::embedded_program` answers this variant exactly when Table
-    /// 120's three keys supplied no program. A second error kind routed to substitution would
-    /// carry that sentence to a file that *did* embed one, so either it does not, or
-    /// `collection_gap` reads the descriptor for itself.
+    /// **This is the only way into substitution inside [`LoadedFont::load`], and a refusal
+    /// downstream relies on that.** `composite::collection_gap`'s first branch says of a
+    /// `/Encoding /Identity-H` over a substituted descendant that the *file* broke §9.7.5.2's
+    /// "shall not be used with a non-embedded font" — a claim about the document rather than about
+    /// this reader — and what entitles it is that `program::embedded_program` answers this variant
+    /// exactly when Table 120's three keys supplied no program. A second error kind routed to
+    /// substitution would carry that sentence to a file that *did* embed one, so either it does
+    /// not, or `collection_gap` reads the descriptor for itself.
+    /// [`LoadedFont::substitute_for_unreadable`] is the one route in for an embedded program, and
+    /// it keeps the sentence out by discarding the inner refusal: its caller says the program's.
     #[error("font /{name} has no embedded font program")]
     NotEmbedded {
         /// The resource name, for diagnosis.
@@ -1045,6 +1047,113 @@ impl LoadedFont {
             program_by_glyph: OnceLock::new(),
         })
     }
+
+    /// The font a refused, unreadable program leaves, drawn from the substitute face a font naming
+    /// no program is drawn from, or `None` where `refusal` is not that or no substitute is reached.
+    ///
+    /// # Which refusals
+    ///
+    /// [`FontError::Malformed`] — the variant whose subject is a program the descriptor supplied
+    /// and this crate read and rejected: data that did not decode, or stops short of the extent
+    /// §9.9's Table 125 states, or is not a program in the format it is filed under (ADR 2619,
+    /// ADR 2636). Every other refusal keeps [`Self::metrics_only`]: a Type 3 font has no program
+    /// (§9.6.4), a dictionary fault is the dictionary's, and §9.7.5.2's forbidden combination —
+    /// "\[t]he Identity-H and Identity-V `CMaps` shall not be used with a non-embedded font" — is
+    /// [`FontError::NoSubstitute`] on a font that names no program, which this never sees. Nor a
+    /// program that parsed and whose encoding reaches none of its glyphs
+    /// (the refusal `no character code maps to a glyph`): that program is readable, and what it draws is the
+    /// producer's.
+    ///
+    /// # Why a substitute
+    ///
+    /// ISO 32000-2 §9.5 says of a font dictionary that it carries
+    ///
+    /// > information that can be used to provide a substitute when the font program is not
+    /// > available
+    ///
+    /// and §9.8.1 that a descriptor's metrics
+    ///
+    /// > provide information that enables a PDF processor to synthesise a substitute font or select
+    /// > a similar font when the font program is unavailable
+    ///
+    /// A program this crate cannot read is unavailable in exactly that sense, and §9.9 counts the
+    /// front of one as none (ADR 2619). So the font is read as the file would state it with no
+    /// program — the descriptor copied without Table 120's `/FontFile`, `/FontFile2` and
+    /// `/FontFile3`, every other entry the producer's — and [`Self::load`] draws it as it draws a
+    /// font that names none (ADR 0007): the widths, the flags and metrics, the encoding and the
+    /// `/ToUnicode` decide the face and reach its glyphs. A composite font goes the same way
+    /// through its descendant, and §9.7.4.2's rule for a substituted `CIDFont` holds: its glyphs
+    /// are reached by character, so one with neither a `/ToUnicode` nor a known collection is
+    /// still refused, and this answers `None`. The owner's answer `doc/questions/A837` and ADR
+    /// 2870 narrow ADR 1094's "metrics only" to the other refusals.
+    ///
+    /// **The refusal stays the caller's to say.** This is a recovery from a fault the page owes a
+    /// reader the news of, so the caller reports `refusal` exactly as before and keeps the font
+    /// out of any cache that serves without reporting (trap 5).
+    #[must_use]
+    pub fn substitute_for_unreadable(
+        document: &Document,
+        dict: &Dictionary,
+        name: &str,
+        refusal: &FontError,
+    ) -> Option<Self> {
+        let FontError::Malformed { detail, .. } = refusal else {
+            return None;
+        };
+        if detail == NO_CODE_REACHES_A_GLYPH {
+            return None;
+        }
+        let dropped = without_program(document, dict)?;
+        Self::load(document, &dropped, name).ok()
+    }
+}
+
+/// The sentence a program that parsed and whose encoding addresses none of its glyphs is refused
+/// by, kept in one place because [`LoadedFont::substitute_for_unreadable`] tells it apart from a
+/// program that did not read.
+pub(crate) const NO_CODE_REACHES_A_GLYPH: &str = "no character code maps to a glyph";
+
+/// The font dictionary `dict` as it would read with no program embedded: the descriptor that
+/// states one — the font's, or a Type 0 font's descendant's — copied without Table 120's three
+/// program keys, and written into a copy of the font in place of the reference.
+///
+/// `None` where there is no descriptor to copy, for a Type 0 font one with no descendant
+/// dictionary: such a font names no program, so nothing could have been refused for reading one.
+#[must_use]
+pub fn without_program(document: &Document, dict: &Dictionary) -> Option<Dictionary> {
+    let dropped = |holder: &Dictionary| -> Option<Dictionary> {
+        let mut descriptor = document
+            .get_key(holder, "FontDescriptor")
+            .as_dict()?
+            .clone();
+        for key in ["FontFile", "FontFile2", "FontFile3"] {
+            descriptor.remove(key);
+        }
+        let mut holder = holder.clone();
+        holder.insert(name_of("FontDescriptor"), Object::Dictionary(descriptor));
+        Some(holder)
+    };
+    let subtype = document.get_key(dict, "Subtype");
+    if subtype.as_name().map(pdf_syntax::Name::as_bytes) != Some(b"Type0".as_slice()) {
+        return dropped(dict);
+    }
+    let descendants = document.get_key(dict, "DescendantFonts");
+    let descendant = descendants
+        .as_array()
+        .and_then(<[Object]>::first)
+        .map(|item| document.resolve(item))
+        .and_then(|item| item.as_dict().cloned())?;
+    let mut font = dict.clone();
+    font.insert(
+        name_of("DescendantFonts"),
+        Object::Array(vec![Object::Dictionary(dropped(&descendant)?)]),
+    );
+    Some(font)
+}
+
+/// A key or a name, spelled.
+fn name_of(spelled: &str) -> pdf_syntax::Name {
+    pdf_syntax::Name::new(spelled.as_bytes().to_vec())
 }
 
 /// Whether a descriptor sets both of Table 121's Symbolic (bit 3) and Nonsymbolic (bit 6) flags,

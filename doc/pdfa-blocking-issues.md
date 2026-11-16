@@ -307,14 +307,19 @@ freed and pass veraPDF. A `FlateDecode` refused outright or disowned by its Adle
 bytes that decode whole and are not a program in the format they are filed under are too (decision
 5): `178360` converts with `ICLJGJ+Glypha` substituted as well and passes veraPDF at 2b and 4;
 `F001u_3_7j`'s front loads whole and is refused by name — writing the stream whole is the remedy it
-waits for. **The window draws such a font from its widths alone and marks nothing** (ADR 1094), so
-every glyph the page shows in the face written is emptied, and the loss is `unreadable-program`,
-which `as-shown`, `as-if-printed` and `state-every-loss` admit (ADR 2830; a composite font goes to
-ADR 2824's empty glyphs under a `/CIDToGIDMap` stream): `issue11651` converts under `as-shown` at
-both parts, and the outputs of the four, of `020747`, `477139` and `504076` and of `bug1050040`
-(also under `as-shown`) draw what the window drew where they drew the face's text. The route still
-asks the shipped face for a glyph for every shown code, which it then empties: `issue13316_reduced`
-stops there under `as-shown`.
+waits for. **The window draws such a font from a substitute face** (owner answer A837, ADR 2870),
+as it draws a font naming no program, and reports the unreadable program; the converter writes that
+face by this route, whole, under the losses a font naming no program costs (ADR 2871), so the
+outputs of `issue11651`, `178360`, `435321` and `268346` draw their text as the window now does.
+**Only where the window reaches no substitute** — a composite font with neither a `/ToUnicode` nor a
+character collection this reader carries (§9.7.4.2), or a program read whose encoding reaches none
+of its glyphs — does it draw from the widths alone (ADR 1094), and there every glyph the page shows
+in the face written is emptied under the loss `unreadable-program`, which `as-shown`,
+`as-if-printed` and `state-every-loss` admit (ADR 2830; a composite font goes to ADR 2824's empty
+glyphs under a `/CIDToGIDMap` stream). R09's and section 2's counts are the last census's and
+predate ADR 2871: `issue11651` converts under `as-shown` at both parts with the machine's face the
+window drew (ADR 2773's route, now reading the window's substitute), pixel for pixel the window's
+page, and the census that re-counts R09 is owed.
 
 ## 4. Colour and graphics
 
