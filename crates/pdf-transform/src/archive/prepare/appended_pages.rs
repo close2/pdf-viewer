@@ -1017,6 +1017,11 @@ fn stated_graphics<'a>(
             "graphics/no-halftone-origin-in-a-graphics-state" => {
                 super::super::halftones::origins(document, input)
             }
+            super::super::actual_text::SITE => super::super::actual_text::removal(document, input)
+                .map(|removed| sites::Sites {
+                    at: removed.at.into_keys().collect(),
+                    tables: BTreeSet::new(),
+                }),
             _ => continue,
         };
         let Ok(population) = population else {

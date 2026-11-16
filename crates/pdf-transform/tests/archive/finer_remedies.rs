@@ -5,6 +5,7 @@
 //! (`doc/adr/2889`).
 
 use super::*;
+use pdf_syntax::object::Object;
 use pdf_transform::profiles::{Contribution, named};
 
 const BOUNDARIES: &str = "implementation-limits/page-boundary-sizes";
@@ -303,4 +304,185 @@ fn a_transfer_functions_page_is_photographed_as_if_printed_and_stays_refused_as_
         decision(&report, TRANSFER),
         Decision::Authorised { .. }
     ));
+}
+
+const SECOND_TRANSFER: &str = "graphics/second-transfer-function-is-default";
+const HALFTONE_TRANSFER: &str = "graphics/halftone-transfer-function-only-where-required";
+
+/// A page whose one graphics state states `/TR2` as `value`, with an inverting function as object
+/// 7, at `target`'s part.
+fn a_second_transfer_function(value: &str, part_two: bool) -> Vec<u8> {
+    let base = if part_two {
+        Conforming::part_two()
+    } else {
+        Conforming::default()
+    };
+    Conforming {
+        resources: "/ExtGState << /G1 6 0 R >>".to_owned(),
+        objects: vec![
+            format!("<< /Type /ExtGState /TR2 {value} >>"),
+            "<< /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>".to_owned(),
+        ],
+        contents: Some((String::new(), b"/G1 gs 0 0 1 rg 10 10 50 50 re f".to_vec())),
+        ..base
+    }
+    .build()
+}
+
+/// A part 2 page whose graphics state's `HT` is a type 5 halftone whose `Cyan` component states
+/// `TransferFunction` as `value`; object 10 is an inverting function.
+///
+/// ISO 32000-2 §10.6.5.6 lists cyan among `DeviceCMYK`'s primary components, for which the
+/// function is not required, so ISO 19005-2 section 6.2.5 forbids it there.
+fn a_halftone_transfer_function(value: &str) -> Vec<u8> {
+    Conforming {
+        resources: "/ExtGState << /G1 6 0 R >>".to_owned(),
+        objects: vec![
+            "<< /Type /ExtGState /HT 7 0 R >>".to_owned(),
+            "<< /Type /Halftone /HalftoneType 5 /Cyan 8 0 R /Default 9 0 R >>".to_owned(),
+            format!(
+                "<< /Type /Halftone /HalftoneType 1 /Frequency 60 /Angle 15 /SpotFunction \
+                 /Round /TransferFunction {value} >>"
+            ),
+            "<< /Type /Halftone /HalftoneType 1 /Frequency 60 /Angle 45 /SpotFunction /Round >>"
+                .to_owned(),
+            "<< /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>".to_owned(),
+        ],
+        contents: Some((String::new(), b"/G1 gs 0 0 1 rg 10 10 50 50 re f".to_vec())),
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// Whether any object of `output` states `key`.
+fn any_object_states(output: &[u8], key: &str) -> bool {
+    let document =
+        Document::open_with_limits(output.to_vec(), Limits::DEFAULT).expect("the output opens");
+    document.xref().object_numbers().any(|number| {
+        let object = document.get(document.defined_id(number));
+        match &object {
+            Object::Dictionary(dict) => dict.get(key).is_some(),
+            Object::Stream(stream) => stream.dict.get(key).is_some(),
+            _ => false,
+        }
+    })
+}
+
+/// Converts `source` under both shipped profiles, and checks that `as-if-printed` photographs its
+/// one page for `row` and leaves no object stating `key`, and that `as-shown` refuses it.
+fn photographed_as_if_printed_and_refused_as_shown(
+    source: &[u8],
+    target: Target,
+    row: &str,
+    key: &str,
+) {
+    let (report, output) = convert(source, target, authorised_by("as-if-printed", target));
+    let Decision::Authorised { losses, .. } = decision(&report, row) else {
+        panic!("{target}: {:?}", decision(&report, row));
+    };
+    assert!(
+        losses.iter().eq([Loss::TextAsImage, Loss::PageAsImage]),
+        "{target}: {}",
+        losses.words()
+    );
+    assert_eq!(conversion(&report).photographed.len(), 1, "{target}");
+    let output = written(&report, output);
+    let held = holds(&output, target);
+    assert_eq!(
+        held.verdict(),
+        Verdict::Conforms,
+        "{target}: {}",
+        held.render()
+    );
+    assert!(
+        !any_object_states(&output, key),
+        "{target}: no object states /{key}"
+    );
+
+    let (report, output) = convert(source, target, authorised_by("as-shown", target));
+    assert!(output.is_none(), "{target}");
+    assert!(
+        !matches!(decision(&report, row), Decision::Authorised { .. }),
+        "{target}: {:?}",
+        decision(&report, row)
+    );
+}
+
+#[test]
+fn a_second_transfer_functions_page_is_photographed_as_if_printed_and_stays_refused_as_shown() {
+    // ISO 32000-2 §8.4.5's Table 57: TR2 is "[s]ame as TR except that the value may also be the
+    // name Default", and ISO 19005-2 and -4 section 6.2.5 admit only Default. A function there is
+    // one §10.5 has "the PDF processor shall apply", so a print carries it, and the photograph is
+    // this reader's drawing with it applied (ADR 2893).
+    for (target, part_two) in [
+        (Target::Two(Level::B), true),
+        (Target::Four(Flavour::Plain), false),
+    ] {
+        photographed_as_if_printed_and_refused_as_shown(
+            &a_second_transfer_function("7 0 R", part_two),
+            target,
+            SECOND_TRANSFER,
+            "TR2",
+        );
+    }
+}
+
+#[test]
+fn a_halftones_transfer_functions_page_is_photographed_as_if_printed_and_stays_refused_as_shown() {
+    // ISO 32000-2 §10.5: "[a] transfer function specified in a halftone dictionary shall override
+    // the corresponding one specified by the current transfer function parameter in the graphics
+    // state", so it is applied as a state's is. ISO 19005-2 section 6.2.5 admits it only where
+    // §10.6.5.6 requires it, and cyan is a primary component, so it is forbidden here; the type 5
+    // halftone holding it is reached through the state's HT (ADR 2893).
+    photographed_as_if_printed_and_refused_as_shown(
+        &a_halftone_transfer_function("10 0 R"),
+        Target::Two(Level::B),
+        HALFTONE_TRANSFER,
+        "TransferFunction",
+    );
+}
+
+#[test]
+fn an_identity_second_or_halftone_transfer_function_is_removed_and_nothing_is_photographed() {
+    // Table 57: "[t]he name Identity may be used to represent the Identity function", the
+    // function in force on this reader's device at the start of the page (ADR 1964), so writing a
+    // TR2 Default or removing a halftone's Identity moves no colour: the row is a statement under
+    // either profile, and no page is photographed for it.
+    for (source, row, key) in [
+        (
+            a_second_transfer_function("/Identity", true),
+            SECOND_TRANSFER,
+            "TR2",
+        ),
+        (
+            a_halftone_transfer_function("/Identity"),
+            HALFTONE_TRANSFER,
+            "TransferFunction",
+        ),
+    ] {
+        for profile in ["as-shown", "as-if-printed"] {
+            let target = Target::Two(Level::B);
+            let (report, output) = convert(&source, target, authorised_by(profile, target));
+            assert!(
+                matches!(decision(&report, row), Decision::Stated { .. }),
+                "{profile} {row}: {:?}",
+                decision(&report, row)
+            );
+            assert!(
+                conversion(&report).photographed.is_empty(),
+                "{profile} {row}"
+            );
+            let output = written(&report, output);
+            let held = holds(&output, target);
+            assert_eq!(
+                held.verdict(),
+                Verdict::Conforms,
+                "{profile}: {}",
+                held.render()
+            );
+            if key == "TransferFunction" {
+                assert!(!any_object_states(&output, key), "{profile}");
+            }
+        }
+    }
 }

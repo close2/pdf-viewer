@@ -45,32 +45,38 @@ use super::{ConfigError, Kind, Placement, Row, check_rows};
 pub(in crate::archive) const APPEND_STATEMENT: &str = "append-statement";
 
 /// Why `append-statement` is built only at the embedded-file rows, the packet rows, the
-/// document-information rows, the halftone rows, the font row and the operator row.
+/// document-information rows, the halftone rows, the `ActualText` row, the font row and the
+/// operator row.
 pub(in crate::archive) const STATED_ONLY_PER_OBJECT: &str = "the page append-statement appends \
      lists each object the loss took, so it is built where the loss is reported one object at a \
      time: the two embedded-file rows (ISO 19005-2 section 6.8, ISO 19005-4 section 6.9), the \
      three packet rows after preserve with original = \"page\" (ISO 19005-2 section 6.6.2.1, \
      ISO 19005-4 section 6.7.2.1), whose packets are reported one replaced stream at a time, the \
      two document-information rows after preserve with unmapped = \"carry\" (ISO 19005-4 section \
-     6.1.3), whose entries are reported one key at a time, the three halftone rows (ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5), the font row \
+     6.1.3), whose entries are reported one key at a time, the three halftone rows (ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5), the \
+     ActualText row (ISO 19005-4 section 6.2.10.8), whose entries are reported one object at a \
+     time, the font row \
      (ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1), whose losses are reported \
      one photographed page or one embedded face at a time, and the operator row (ISO 19005-2 \
      section 6.2.2, ISO 19005-4 section 6.2.2), whose runs are reported one at a time. At every \
      other site the step is not \
      built yet, and `discard` takes the loss without the page";
 
-/// The graphics family's sites whose loss `append-statement` states, one graphics state or
-/// halftone at a time (`doc/adr/2562`).
+/// The sites whose loss `append-statement` states one object losing one entry at a time: the
+/// three halftone rows, one graphics state or halftone at a time (`doc/adr/2562`), and the
+/// `ActualText` row, one structure element or property list at a time (`doc/adr/2892`).
 ///
-/// Each removal is a `super::super::halftones` population: every object in it loses one entry,
-/// so the page states the object, the entry and the value the source gave it. A page that cannot
+/// Each removal is a `super::super::halftones` or `super::super::actual_text` population: every
+/// object in it loses one entry, so the page states the object, the entry and the value the source
+/// gave it. A page that cannot
 /// be composed hands the objects to the step after it, `doc/rfc/0014` section 3's rule for a step
 /// that fails, so `try = ["append-statement", "discard"]` takes the loss unstated rather than
 /// refusing, and says so in the report.
-pub(in crate::archive) const STATED_GRAPHICS: [&str; 3] = [
+pub(in crate::archive) const STATED_GRAPHICS: [&str; 4] = [
     "graphics/no-halftone-name",
     "graphics/halftone-type-is-one-or-five",
     "graphics/no-halftone-origin-in-a-graphics-state",
+    "fonts/actual-text-states-no-private-use",
 ];
 
 /// The font site whose loss `append-statement` states, one photographed page or one embedded face

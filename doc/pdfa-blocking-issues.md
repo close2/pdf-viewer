@@ -106,7 +106,7 @@ column. R02 is built (ADR 2498) and no document reaches it.
 |---|---|---|---|---|---|---|
 | 1 | R06b-the-other-part | 37 | 0 | 42 / 0 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses; a `%PDF-3.x` source is written at 4 (ADR 2692) |
 | 2 | R10-font-refiling | 4 | 4 | 6 / 6 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688), a glyf program under a CIDFontType0 (ADR 2716), a collection nothing reads (ADR 2717), a font written inside another object (ADR 2722), a code Annex D encodes twice in a glyf face (ADR 2723) |
-| 3 | R03-photograph | 3 | 2 | 52 / 53 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638, 2760, a Type 3 width on the pages reaching its font (ADR 2847); a font name with the program the conversion embeds (ADR 2846); a lone delimiter where no operand stands (ADR 2859); a MediaBox restated in larger units (ADR 2888); a Private Use `ActualText` an object states removed, and a transfer function's page photographed (ADR 2889); left, a page this reader does not draw whole, by its cause (ADR 2760), a MediaBox with a side of no length, a name the file's own program carries; `as-shown` keeps ADR 2394's gate (A694 item 1) |
+| 3 | R03-photograph | 3 | 2 | 52 / 53 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638, 2760, a Type 3 width on the pages reaching its font (ADR 2847); a font name with the program the conversion embeds (ADR 2846); a lone delimiter where no operand stands (ADR 2859); a MediaBox restated in larger units (ADR 2888); a Private Use `ActualText` an object states removed, and a transfer function's page photographed (ADR 2889), a `/TR2` or a halftone's function too (ADR 2893); left, a page this reader does not draw whole, by its cause (ADR 2760), a MediaBox with a side of no length, a name the file's own program carries; `as-shown` keeps ADR 2394's gate (A694 item 1) |
 | 4 | R08-unembedded-font-photograph | 8 | 8 | 31 / 31 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
 | 5 | R11-truetype-route | 5 | 5 | 6 / 6 | builds only | built: A694 item 3, ADR 2520 |
 | 6 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
@@ -397,7 +397,10 @@ the matching `cm`, under every profile and with no loss (ADR 2888; a box with a 
 annotations, a page pattern, a destination or a layout `BBox` in the page's units stay refused by
 name); an `ActualText` an object states with a Private Use character is removed at the loss
 `actual-text-private-use` under `as-shown` and `as-if-printed` (ADR 2889); and a transfer function's
-page is photographed under `as-if-printed`, drawn with §10.5's function applied (ADR 2889). The bound
+page is photographed under `as-if-printed`, drawn with §10.5's function applied (ADR 2889), and so is a
+`/TR2` other than `Default` or a halftone's `TransferFunction` (ADR 2893; no census document holds either);
+`state-every-loss` states the `ActualText` removal on its appended page (ADR 2892). A Type 3 width is
+photographed until Q865 is answered (restating `d0` from `/Widths`, behind ADR 0816's fence). The bound
 names a content stream never uses could still be renamed outright; part 4 has none of part 2's limits
 (R06b).
 A photographed page is one the window drew whole, its own bytes' faults apart (ADR 2516 decision

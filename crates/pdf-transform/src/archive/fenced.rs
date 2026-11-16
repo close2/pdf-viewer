@@ -33,9 +33,10 @@ pub(super) const OPERATORS: &str = "graphics/only-operators-the-base-standard-de
 /// [`OPERATORS`] (ISO 19005-2 section 6.2.2, ISO 19005-4 section 6.2.2): an inline image's
 /// interpolation, a hexadecimal string holding a byte that is no digit, a glyph procedure whose
 /// width the procedure contradicts, an `/ActualText` holding a Private Use character, a bound
-/// name that is not UTF-8 (ISO 19005-2 section 6.1.8), and a graphics state's transfer function
-/// other than the identity (ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5).
-pub(super) const ROWS: [&str; 7] = [
+/// name that is not UTF-8 (ISO 19005-2 section 6.1.8), and a transfer function other than the
+/// identity, stated by a graphics state's `/TR` or `/TR2` or by a halftone (ISO 19005-2 section
+/// 6.2.5, ISO 19005-4 section 6.2.5).
+pub(super) const ROWS: [&str; 9] = [
     OPERATORS,
     "graphics/inline-image-interpolation-is-off",
     "file-structure/hexadecimal-string-holds-only-digits",
@@ -43,6 +44,8 @@ pub(super) const ROWS: [&str; 7] = [
     "fonts/actual-text-states-no-private-use",
     "file-structure/bound-names-are-valid-utf8",
     TRANSFER,
+    SECOND_TRANSFER,
+    HALFTONE_TRANSFER,
 ];
 
 /// What the failed fenced rows hold on the document's pages.
@@ -109,10 +112,10 @@ pub(super) fn pages(
             let Outcome::Failed { places, total } = &judgement.outcome else {
                 continue;
             };
-            if row == TRANSFER {
+            if let Some(applies) = transfer_function_of(row) {
                 let reached =
                     annotations_reach.get_or_insert_with(|| reached_from_annotations(document));
-                match transfer_pages(document, judgement, reached) {
+                match transfer_pages(document, judgement, reached, applies) {
                     Some(pages) => pages,
                     None => continue,
                 }
@@ -181,22 +184,90 @@ fn type3_pages(
 /// 19005-4 section 6.2.5).
 const TRANSFER: &str = "graphics/no-transfer-function-in-a-graphics-state";
 
-/// The pages a transfer function's graphics states are reached from, or `None` where the
+/// The row whose places name a graphics state stating a `/TR2` other than `Default` (the same
+/// sections).
+const SECOND_TRANSFER: &str = "graphics/second-transfer-function-is-default";
+
+/// The row whose places name the graphics state (`HT`) or the type 5 halftone (a colourant's
+/// name) whose halftone states a `TransferFunction` where ISO 32000-2 §10.6.5.6 requires none, or
+/// omits one it requires (ISO 19005-2 section 6.2.5; ISO 19005-4 section 6.2.5 as its erratum
+/// leaves it).
+const HALFTONE_TRANSFER: &str = "graphics/halftone-transfer-function-only-where-required";
+
+/// Whether one finding of a transfer row names a function this reader applies (`Some(true)`), the
+/// name `Identity` (`Some(false)`), or a place the photograph cannot answer (`None`).
+type Applies = fn(&Document, &pdf_archive::Finding) -> Option<bool>;
+
+/// The reading of a transfer row's findings, where `row` is one.
+fn transfer_function_of(row: &str) -> Option<Applies> {
+    match row {
+        TRANSFER => Some(|document, finding| state_applies(document, finding, "TR")),
+        SECOND_TRANSFER => Some(|document, finding| state_applies(document, finding, "TR2")),
+        HALFTONE_TRANSFER => Some(halftone_applies),
+        _ => None,
+    }
+}
+
+/// Whether a graphics state's `key` is a function other than the identity.
+///
+/// ISO 32000-2 §8.4.5's Table 57: for `TR`, "\[t]he name Identity may be used to represent the
+/// Identity function", and `TR2` is "\[s]ame as TR except that the value may also be the name
+/// Default"; the validator reports no `Default`, so every other value is a function.
+fn state_applies(document: &Document, finding: &pdf_archive::Finding, key: &str) -> Option<bool> {
+    let state = finding.place.object?;
+    let identity = document
+        .get(state)
+        .as_dict()
+        .and_then(|dict| dict.get(key))
+        .and_then(Object::as_name)
+        .is_some_and(|name| name.as_bytes() == b"Identity");
+    Some(!identity)
+}
+
+/// Whether the halftone a finding names states a function other than the identity, or omits the
+/// one it is required to state.
+///
+/// The finding names the object holding the halftone and the key it is held under: `HT` on a
+/// graphics state, a colourant's name on a type 5 halftone. ISO 32000-2 §10.5's second bullet has
+/// the halftone's function "override the corresponding one specified by the current transfer
+/// function parameter in the graphics state", so a function there is applied as a state's is. A
+/// component omitting the function §10.6.5.6 requires of it is drawn as this reader draws it, and
+/// the photograph is that drawing, so it is answered as a function is: nothing in the file says
+/// what the omitted function would be, and the photograph claims nothing about it.
+fn halftone_applies(document: &Document, finding: &pdf_archive::Finding) -> Option<bool> {
+    let holder = document.get(finding.place.object?);
+    let key = finding.place.name.as_deref()?;
+    let halftone = document.resolve(holder.as_dict()?.get(key)?);
+    let dict = match &halftone {
+        Object::Dictionary(dict) => dict,
+        Object::Stream(stream) => &stream.dict,
+        _ => return None,
+    };
+    let identity = dict
+        .get("TransferFunction")
+        .and_then(Object::as_name)
+        .is_some_and(|name| name.as_bytes() == b"Identity");
+    Some(!identity)
+}
+
+/// The pages a transfer row's graphics states or halftones are reached from, or `None` where the
 /// photograph does not answer the row.
 ///
 /// ISO 32000-2 §10.5 has every processor apply the function — "the PDF processor shall apply the
 /// transfer function after performing any needed conversions between colour spaces" — so a print
 /// carries it, and the page this reader draws with it applied is what a print scanned back in
-/// shows (`doc/adr/1964` section 3, `doc/adr/2889`). The pages are the ones whose resources reach a
-/// state whose `/TR` is not the name `Identity`. Where every state names `Identity` the removal
-/// moves no colour and answers the row itself, so nothing is photographed; an `Identity` state
-/// any other page reaches would be left in the output by a photograph of these, so the row keeps
-/// that answer's refusal. A state an annotation's appearance reaches keeps it too, as a Type 3
-/// font does (ADR 2847), and so does a place that names no object.
+/// shows (`doc/adr/1964` section 3, `doc/adr/2889`, `doc/adr/2893`). The pages are the ones whose
+/// resources reach an object stating a function other than the identity, as `reads` reads it.
+/// Where every one names `Identity` the removal moves no colour and answers the row itself, so
+/// nothing is photographed; an `Identity` any other page reaches would be left in the output by a
+/// photograph of these, so the row keeps that answer's refusal. An object an annotation's
+/// appearance reaches keeps it too, as a Type 3 font does (ADR 2847), and so does a place that
+/// names no object.
 fn transfer_pages(
     document: &Document,
     judgement: &pdf_archive::Judgement,
     annotations_reach: &BTreeSet<ObjectId>,
+    reads: Applies,
 ) -> Option<BTreeSet<usize>> {
     let Outcome::Failed { places, total } = &judgement.outcome else {
         return None;
@@ -204,35 +275,30 @@ fn transfer_pages(
     if places.len() != *total {
         return None;
     }
-    let mut applied: BTreeSet<ObjectId> = BTreeSet::new();
+    let mut functions: BTreeSet<ObjectId> = BTreeSet::new();
     let mut identity: BTreeSet<ObjectId> = BTreeSet::new();
     for finding in places {
-        let state = finding.place.object?;
-        let is_identity = document
-            .get(state)
-            .as_dict()
-            .and_then(|dict| dict.get("TR"))
-            .and_then(Object::as_name)
-            .is_some_and(|name| name.as_bytes() == b"Identity");
-        if is_identity {
-            identity.insert(state);
+        let holder = finding.place.object?;
+        if reads(document, finding)? {
+            functions.insert(holder);
         } else {
-            applied.insert(state);
+            identity.insert(holder);
         }
     }
-    if applied.is_empty() {
+    if functions.is_empty() {
         return None;
     }
     let mut pages = BTreeSet::new();
-    for state in &applied {
-        let reaching = pages_reaching(document, *state);
-        if annotations_reach.contains(state) || reaching.is_empty() {
+    for holder in &functions {
+        let reaching = pages_reaching(document, *holder);
+        if annotations_reach.contains(holder) || reaching.is_empty() {
             return None;
         }
         pages.extend(reaching);
     }
-    for state in &identity {
-        if annotations_reach.contains(state) || !pages_reaching(document, *state).is_subset(&pages)
+    for holder in &identity {
+        if annotations_reach.contains(holder)
+            || !pages_reaching(document, *holder).is_subset(&pages)
         {
             return None;
         }
@@ -295,6 +361,11 @@ fn reached_from(document: &Document, mut queue: Vec<Object>) -> BTreeSet<ObjectI
             Object::Dictionary(dict) => dict,
             _ => continue,
         };
+        // A type 5 halftone's components (ISO 32000-2 §10.6.5.6's Table 132), where this object
+        // is one: the halftone row names the type 5 halftone, and its components are below it.
+        if document.get_key(dict, "HalftoneType").as_integer() == Some(5) {
+            queue.extend(dict.iter().map(|(_, component)| component.clone()));
+        }
         // A Type 3 font's glyph procedures, where this object is one.
         if let Some(procedures) = document.get_key(dict, "CharProcs").as_dict() {
             queue.extend(procedures.iter().map(|(_, procedure)| procedure.clone()));
@@ -316,10 +387,12 @@ fn resource_entries(document: &Document, resources: &Dictionary, queue: &mut Vec
         }
     }
     if let Some(states) = document.get_key(resources, "ExtGState").as_dict() {
-        // The states themselves, for the transfer row that names them.
+        // The states themselves, for the transfer rows that name them, and each state's
+        // halftone (Table 57's `HT`), for the halftone row that names a type 5 halftone.
         queue.extend(states.iter().map(|(_, state)| state.clone()));
         for (_, state) in states.iter() {
             let state = document.resolve(state);
+            queue.extend(state.as_dict().and_then(|state| state.get("HT").cloned()));
             let group = state
                 .as_dict()
                 .map(|state| document.get_key(state, "SMask"))

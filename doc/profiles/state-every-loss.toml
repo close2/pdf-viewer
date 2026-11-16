@@ -13,8 +13,9 @@
 # executor carries the second step there (doc/rfc/0014 section 3, config/steps.rs).
 #
 # At a presentation site the answer is try = ["append-statement", "discard"]. This version sets
-# append-statement's page at the two embedded-file rows, the three halftone rows, the font row and
-# the operator row (config/steps.rs, doc/adr/2562, doc/adr/2600, doc/adr/2638), where a page that cannot be composed hands its objects to
+# append-statement's page at the two embedded-file rows, the three halftone rows, the ActualText row,
+# the font row and the operator row (config/steps.rs, doc/adr/2562, doc/adr/2600, doc/adr/2638,
+# doc/adr/2892), where a page that cannot be composed hands its objects to
 # discard; at every other site the first step is passed over with its sentence and the loss is
 # taken as discard takes it, named in the report and in xmpMM:History, until the page is built there. The three
 # transfer-function sites keep keep-everything's answer, because a transfer function decides what
@@ -355,6 +356,14 @@ winner = "first"
 # each photographed page and each face embedded with a loss, with its loss words (doc/adr/2600);
 # a page that cannot be composed hands them to `discard`, and the report says why.
 [site."fonts/font-programs-embedded"]
+try = ["append-statement", "discard"]
+
+# An ActualText holding a Unicode Private Use character, which ISO 19005-4 section 6.2.10.8 forbids:
+# where an object states it the entry is removed and the content is read as its own text (ISO 32000-2
+# 14.9.4), the loss `actual-text-private-use`. `append-statement` lists each structure element or
+# property list with the value it held; a page that cannot be composed hands them to `discard`
+# (doc/adr/2889, doc/adr/2892).
+[site."fonts/actual-text-states-no-private-use"]
 try = ["append-statement", "discard"]
 
 [site."fonts/embedded-cmap-states-its-own-write-mode"]

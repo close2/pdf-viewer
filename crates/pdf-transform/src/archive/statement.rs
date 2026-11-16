@@ -598,7 +598,8 @@ fn entry(
     }
 }
 
-/// One entry a halftone row's step took from one object, to be stated (`doc/adr/2562`).
+/// One entry a halftone row's or the `ActualText` row's step took from one object, to be stated
+/// (`doc/adr/2562`, `doc/adr/2892`).
 pub(super) struct GraphicsEntry<'a> {
     /// The requirement, one of [`super::config::STATED_GRAPHICS`].
     pub(super) site: &'static str,
@@ -620,14 +621,19 @@ struct Taken {
     line: &'static str,
 }
 
-/// The three halftone rows' entries, in [`super::config::STATED_GRAPHICS`]'s order.
+/// The entries of the rows [`super::config::STATED_GRAPHICS`] names, in its order.
 ///
-/// `super::halftones` is what each population is: a halftone stating `HalftoneName` (ISO 32000-2
-/// §10.6.5.1's pointer into a device's own halftones), a graphics state whose Table 57 `HT` names
-/// a halftone of a type other than 1 or 5 and is written `Default`, and a graphics state stating
-/// Table 57's `HTO`. The loss words are [`super::Loss::HalftoneName`]'s and
-/// [`super::Loss::Halftone`]'s.
-const TAKEN: [Taken; 3] = [
+/// `super::halftones` is what the first three populations are: a halftone stating `HalftoneName`
+/// (ISO 32000-2 §10.6.5.1's pointer into a device's own halftones), a graphics state whose Table
+/// 57 `HT` names a halftone of a type other than 1 or 5 and is written `Default`, and a graphics
+/// state stating Table 57's `HTO`. The loss words are [`super::Loss::HalftoneName`]'s and
+/// [`super::Loss::Halftone`]'s. `super::actual_text` is the fourth: a structure element or a
+/// marked-content property list whose `ActualText` holds a Private Use character (ISO 19005-4
+/// section 6.2.10.8), the loss [`super::Loss::ActualTextPrivateUse`], whose line says what ISO
+/// 32000-2 §14.9.4 leaves of the content once the optional entry is gone (`doc/adr/2892`). The
+/// value the page writes is the source's string as it is stated, so the page names the characters
+/// without composing any.
+const TAKEN: [Taken; 4] = [
     Taken {
         site: "graphics/no-halftone-name",
         holder: "halftone",
@@ -654,6 +660,15 @@ const TAKEN: [Taken; 3] = [
         loss: "halftone",
         line: "the graphics state's halftone origin is no longer in this document, so a press \
                places its screen at its own origin",
+    },
+    Taken {
+        site: "fonts/actual-text-states-no-private-use",
+        holder: "dictionary",
+        key: "ActualText",
+        written: None,
+        loss: "actual-text-private-use",
+        line: "the replacement text, which held a character of the Unicode Private Use Area, is no \
+               longer in this document, so the content it covered is read as its own text",
     },
 ];
 

@@ -662,6 +662,7 @@ fn read_back_against(source: &[u8], page: &str) -> usize {
         let Some(object) = line
             .strip_prefix("Object: graphics state ")
             .or_else(|| line.strip_prefix("Object: halftone "))
+            .or_else(|| line.strip_prefix("Object: dictionary "))
         else {
             continue;
         };
@@ -1054,4 +1055,62 @@ fn a_photographed_page_of_a_layered_document_is_stated_with_the_groups_it_fixed(
             "the page states {fact:?}:\n{page}"
         );
     }
+}
+
+#[test]
+fn a_private_use_actual_text_is_stated_and_reads_back_against_the_source() {
+    // ISO 19005-4 section 6.2.10.8 forbids a Private Use character in an ActualText, and ISO
+    // 32000-2 §14.9.4 makes the entry optional, so state-every-loss removes it and lists the
+    // object, the entry and the value the source gave it, as it lists a halftone's entry
+    // (`doc/adr/2892`). The value is the source's own string, U+F0B7 in UTF-16BE behind its byte
+    // order mark (§7.9.2.2), written in hexadecimal.
+    let target = Target::Four(Flavour::Plain);
+    let source = Conforming {
+        catalog: "/StructTreeRoot 6 0 R".to_owned(),
+        objects: vec![
+            "<< /Type /StructTreeRoot /K 7 0 R >>".to_owned(),
+            "<< /Type /StructElem /S /Span /P 6 0 R /ActualText <FEFFF0B7> >>".to_owned(),
+        ],
+        contents: Some((String::new(), b"q 0 0 1 rg 10 10 50 50 re f Q".to_vec())),
+        ..Conforming::default()
+    }
+    .build();
+    let plan = planned(STATE_EVERY_LOSS, target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let conversion = conversion(&report);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion.render()));
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let statement = conversion.statement.as_ref().expect("the page is reported");
+    assert_eq!(statement.sites, ["fonts/actual-text-states-no-private-use"]);
+    assert_eq!(statement.listed.total(), 1);
+    let page = stated_lines(&output, statement);
+    assert_eq!(read_back_against(&source, &page), 1, "{page}");
+    let unbroken: String = page.split_whitespace().collect();
+    for fact in [
+        "Requirement: fonts/actual-text-states-no-private-use",
+        "Loss: actual-text-private-use, the replacement text, which held a character of the \
+         Unicode Private Use Area, is no longer in this document",
+        "Object: dictionary 7 0",
+        "Entry removed: ActualText",
+        "Value in the source: <FEFFF0B7>",
+    ] {
+        assert!(
+            holds_fact(&unbroken, fact),
+            "the page states {fact:?}:\n{page}"
+        );
+    }
+    // The page itself names the entry, so the key is looked for in the output's syntax, every
+    // dictionary written directly inside another included: the structure tree root's `/K` keeps
+    // naming element 7 by reference when the appended page's element joins it (Table 354).
+    let written = Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("it opens");
+    let states_it = written.xref().object_numbers().any(|number| {
+        let mut bytes = Vec::new();
+        pdf_syntax::write::object(&written.get(written.defined_id(number)), &mut bytes);
+        bytes
+            .windows(b"/ActualText".len())
+            .any(|w| w == b"/ActualText")
+    });
+    assert!(!states_it, "no object of the output states /ActualText");
+    assert_eq!(conversion.removed_actual_texts.len(), 1);
 }

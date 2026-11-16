@@ -506,10 +506,14 @@ impl Described {
             // root stating nothing states this conversion's alone.
             // A rebuild alone adds no element, and the producer's `/K` is then left as written.
             if !self.tops.is_empty() {
-                let mut kids = match document.get_key(out, "K") {
-                    Object::Array(items) => items.clone(),
+                // A `/K` naming one element by reference keeps the reference: resolving it would
+                // write the source's dictionary inline, past every rewrite of that object and
+                // beside the object itself, which its kids' `/P` still name.
+                let stated = out.get("K").cloned().unwrap_or(Object::Null);
+                let mut kids = match document.resolve(&stated) {
+                    Object::Array(items) => items,
                     Object::Null => Vec::new(),
-                    other => vec![other],
+                    _ => vec![stated],
                 };
                 kids.extend(self.tops.iter().cloned());
                 out.insert(Name::new(&b"K"[..]), Object::Array(kids));

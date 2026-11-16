@@ -971,6 +971,8 @@ start of the page — a statement where every function the file states is `Ident
 **built** the same way (ADR 2007): a halftone's `TransferFunction` where §10.6.5.6 requires none
 is removed, `Identity` as a statement wherever it stands and a function as the loss
 `transfer-function`, kept in `xmpMM:History`; a component lacking a required function is refused.
+Under `as-if-printed`, a page reaching a `/TR`, a `/TR2` or a halftone's function other than `Identity`
+is photographed as this reader draws it with the function applied (ADRs 2889, 2893).
 Part 4 no longer states the rule (PDF Association issue #314)
 
 - **Mitigation** — `discard`, with the limits document's section 4.8 evidence attached: render the
@@ -1961,7 +1963,8 @@ ISO 19005-4 6.2.10.8 · PDF/A-4, 4f, 4e · **built** where an object states it (
   read as its own text. A Private Use value spells nothing to a reader without the producer's private
   agreement (ISO 32000-2 §14.9.4 asks for text "equivalent to what a person would see"), so the
   statement lost is one no standard reader could read; changing the value is `A48`'s forbidden half.
-  Both shipped profiles authorise it, and the report names each object and its value. An entry inline
+  Both shipped profiles authorise it, and the report names each object and its value; `state-every-loss`
+  lists them on its appended statement page (ADR 2892). An entry inline
   in a `BDC` operand is the content stream's, and its page the photograph's.
 - **By target** — part 2 states no such rule (confirmed **A**).
 - **From a configuration** — `remedy = "discard"`, with a cost sentence an operator will understand:

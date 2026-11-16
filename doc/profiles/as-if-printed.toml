@@ -331,12 +331,16 @@ remedy = "discard"
 
 # ---------------------------------------------------------------------------------------------
 # Transfer functions. Printing WOULD have carried one: ISO 32000-2 8.4.1's Table 52 has a reader
-# initialise the transfer to a device dependent value, and a graphics state's TR replaces that
-# value on a printer exactly as on a screen. The corpus's one witness, issue6931_reduced.pdf, draws
-# its logo as a near-black negative without its function. So the yardstick says stop. A file whose
-# every TR is Identity converts with nothing moved; an operator who accepts the loss says
+# initialise the transfer to a device dependent value, a graphics state's TR or TR2 replaces that
+# value on a printer exactly as on a screen, and 10.5 has a halftone's TransferFunction override it
+# for its component. The corpus's one witness, issue6931_reduced.pdf, draws its logo as a
+# near-black negative without its function. So removing the function stays at `stop`: a file whose
+# every function is Identity converts with nothing moved, and an operator who accepts the loss says
 # --authorise transfer-function, and the converter writes each function into the output's own
-# xmpMM:History before removing it (doc/adr/1964).
+# xmpMM:History before removing it (doc/adr/1964). Where a page's resources reach a TR, a TR2 other
+# than Default or a halftone's function, the `discard` at fonts/font-programs-embedded below
+# photographs the page as this reader draws it, the function applied - what a scan of the print
+# shows (doc/adr/2889, doc/adr/2893).
 # ---------------------------------------------------------------------------------------------
 
 [site."graphics/no-transfer-function-in-a-graphics-state"]
@@ -431,9 +435,10 @@ remedy = "preserve"
 # What this profile deliberately leaves at `stop`, because printing WOULD have carried it:
 #
 #   graphics/no-transfer-function-in-a-graphics-state, second-transfer-function-is-default,
+#   halftone-transfer-function-only-where-required,
 #   halftone-type-is-one-or-five, no-halftone-origin-in-a-graphics-state
 #                                  a press applies these; an archived print master is kept for it
-#                                  (TR above). A halftone phase HTP converts as a statement under
+#                                  (TR above, whose pages are photographed). A halftone phase HTP converts as a statement under
 #                                  every profile: no base standard defines it (doc/adr/2035). A
 #                                  halftone's name is answered above (doc/adr/2693)
 #   graphics/rendering-intent-*    decides printed colour

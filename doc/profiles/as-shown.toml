@@ -320,7 +320,8 @@ remedy = "discard"
 # Transfer functions. The window applied ISO 32000-2 10.5's function to every colour drawn under
 # it, so removing one moves what was shown, and baking it into the colours instead would rewrite
 # every colour, image and shading under it - content, behind ADR 0816's fence. A file whose every
-# TR is Identity converts with nothing moved; any other function stops (doc/adr/1964).
+# TR, TR2 and halftone TransferFunction is Identity converts with nothing moved; any other function
+# stops, and no page is photographed for it, ADR 2394's gate (doc/adr/1964, doc/adr/2893).
 # ---------------------------------------------------------------------------------------------
 
 [site."graphics/no-transfer-function-in-a-graphics-state"]
