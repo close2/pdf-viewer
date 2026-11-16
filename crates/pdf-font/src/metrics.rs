@@ -1043,6 +1043,42 @@ mod substituted_width_tests {
 
         assert!((font.advance(Code::single_byte(32)) - 0.250).abs() < 1e-6);
     }
+
+    /// A substitute outside the fourteen that states no `/Widths` is laid out by the published
+    /// metrics of the standard font its request resembles — ADR 0007's documented choice for a
+    /// file missing an entry Table 109 requires — with or without a descriptor: `/Arial` is sans
+    /// serif, and Helvetica's `A` is 667. Whether a descriptor's `/MissingWidth` (Table 120,
+    /// default 0) should answer instead is `doc/questions/Q859`'s; read literally it puts every
+    /// glyph of `issue5470.pdf`'s line at one point.
+    #[test]
+    fn a_substitute_with_no_widths_keeps_the_resembling_standard_metrics() {
+        for entries in [
+            "/BaseFont /Arial",
+            "/BaseFont /Arial /FontDescriptor << /Type /FontDescriptor /FontName /Arial \
+             /Flags 32 >>",
+        ] {
+            let (document, dict) = font_dictionary(entries);
+            let font = LoadedFont::load(&document, &dict, "F1").expect("a substitute loads");
+
+            assert!(
+                (font.advance(Code::single_byte(b'A')) - 0.667).abs() < 1e-6,
+                "{entries}"
+            );
+        }
+    }
+
+    /// The control: a `Type1` dictionary under one of the fourteen keeps §9.6.2.2's metrics,
+    /// whatever its descriptor's `/MissingWidth` — Helvetica's `A` is 667.
+    #[test]
+    fn a_standard_14_font_with_no_widths_keeps_its_published_metrics() {
+        let (document, dict) = font_dictionary(
+            "/BaseFont /Helvetica /FontDescriptor << /Type /FontDescriptor \
+             /FontName /Helvetica /Flags 32 /MissingWidth 300 >>",
+        );
+        let font = LoadedFont::load(&document, &dict, "F1").expect("a standard 14 name loads");
+
+        assert!((font.advance(Code::single_byte(b'A')) - 0.667).abs() < 1e-6);
+    }
 }
 
 /// What a substituted face's *shape* is scaled by, and what leaves it alone (ADR 0358).

@@ -21,6 +21,7 @@ use crate::cff::CodeToGlyph;
 use crate::encoding;
 use crate::glyph_names::{GlyphNames, encoding_names};
 use crate::loading::{CodeTable, FontError, NOTDEF_GLYPH};
+use crate::post::PostNames;
 use crate::program::Program;
 use crate::substitute;
 
@@ -130,17 +131,29 @@ fn fill_substitute_table(
             detail: format!("substitute font: {e}"),
         })?;
         let charmap = font.charmap();
+        // §9.6.5.4's last step, for a name the first one cannot map: "the glyph name shall be
+        // looked up in the font program's "post" table (if one is present) and the associated
+        // glyph description shall be used". The face stands in for the font program, so its
+        // table is the one asked (ADR 2880). Built only when a name needs it.
+        let post = PostNames::new(&font);
         for (code, slot) in table.iter_mut().enumerate() {
             let Some(glyph_name) = names.get(code).map(Cow::as_ref).filter(|n| !n.is_empty())
             else {
                 continue;
             };
-            let Some(character) = read_fonts::ps::agl::name_to_char(glyph_name) else {
-                continue;
-            };
-            *slot = charmap
-                .map(character)
-                .and_then(|id| u16::try_from(id.to_u32()).ok());
+            let by_character =
+                read_fonts::ps::agl::name_to_char(glyph_name).and_then(|character| {
+                    charmap
+                        .map(character)
+                        .and_then(|id| u16::try_from(id.to_u32()).ok())
+                });
+            // `.notdef` is glyph 0 by the format's own rule and is no mark of the producer's.
+            *slot = by_character.or_else(|| {
+                (glyph_name != ".notdef")
+                    .then(|| post.glyph(glyph_name))
+                    .flatten()
+                    .filter(|glyph| *glyph != NOTDEF_GLYPH)
+            });
         }
     }
 
@@ -564,5 +577,52 @@ mod substitute_face_tests {
 
         let (document, dict) = font_dictionary("/BaseFont /Helvetica /FirstChar 32 /LastChar 90");
         assert_eq!(stated_code_range(&document, &dict), Some(32..=90));
+    }
+}
+
+#[cfg(test)]
+mod post_route_tests {
+    //! §9.6.5.4's last step taken in a substitute face: "if the glyph name cannot be mapped as
+    //! specified, the glyph name shall be looked up in the font program's "post" table (if one
+    //! is present) and the associated glyph description shall be used" (ADR 2880).
+
+    use std::borrow::Cow;
+
+    use super::fill_substitute_table;
+    use crate::glyph_names::GlyphNames;
+    use crate::program::Program;
+    use crate::truetype::truetype_encoding_tests::{GLYPH, cmap, post, sfnt};
+
+    /// A face whose `post` table names glyph [`GLYPH`] `gid2436`, a name the Adobe Glyph List
+    /// does not hold.
+    fn face() -> Vec<u8> {
+        sfnt(&[
+            (*b"cmap", cmap(3, 1, 0x00E9, &[1])),
+            (*b"post", post(GLYPH, "gid2436")),
+        ])
+    }
+
+    /// Codes 65, 67 and 68 named `gid2436`, `gid9999` and `.notdef`.
+    fn names() -> GlyphNames {
+        let mut names: GlyphNames = Box::new(std::array::from_fn(|_| Cow::Borrowed("")));
+        names[65] = Cow::Borrowed("gid2436");
+        names[67] = Cow::Borrowed("gid9999");
+        names[68] = Cow::Borrowed(".notdef");
+        names
+    }
+
+    /// A name the Adobe Glyph List cannot map reaches the face's glyph of that name; a name
+    /// neither route reaches, or `.notdef`, reaches nothing.
+    #[test]
+    fn a_name_the_glyph_list_cannot_map_is_looked_up_in_the_faces_post_table() {
+        let table = fill_substitute_table(&names(), &face(), Program::Sfnt, "/F1")
+            .expect("a readable face");
+        assert_eq!(
+            table[65],
+            Some(GLYPH),
+            "§9.6.5.4: the post table names gid2436"
+        );
+        assert_eq!(table[67], None, "no route reaches gid9999");
+        assert_eq!(table[68], None, ".notdef is no mark of the producer's");
     }
 }

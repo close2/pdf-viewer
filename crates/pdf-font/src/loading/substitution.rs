@@ -202,6 +202,57 @@ impl LoadedFont {
         (form == Form::Unsupplied).then_some(character)
     }
 
+    /// What the file states for a code of a substituted font that reaches no glyph by any route
+    /// a clause gives a substitute — the code's marks are then lost on every machine, whatever
+    /// face it offers.
+    ///
+    /// A substitute is no program the document named, so a code reaches it only through what
+    /// the code *means*. For a simple font that is the glyph name the encoding gives it
+    /// (§9.6.5.1), which §9.6.5.4 takes through the Adobe Glyph List to a character and, where
+    /// "the glyph name cannot be mapped as specified", to the face's own `post` table; a bare CFF
+    /// face keys its glyphs by that name directly (§9.6.5.2). `/ToUnicode` selects no glyph of a
+    /// simple font: §9.10.2 states it for extracting text, and §9.6.5's routes run from the
+    /// encoding (ADR 2880).
+    ///
+    /// `Some` only where that route ends before any character or name the face could answer: a
+    /// code that the encoding names nothing, or names with a name that is no character under the
+    /// Adobe Glyph List and no glyph of the face. A code the face lacks only *here* — a character
+    /// the machine's face does not draw — is [`Self::uncovered_character`]'s, a statement about
+    /// the machine rather than the file (ADR 0152). `None` for an embedded program, for a code
+    /// that reached a glyph, for a code the encoding sends to `.notdef`, which names the
+    /// producer's own blank, and for every code of a composite font, which reaches its substitute
+    /// by the character §9.10.2 gives it (§9.7.4.2): a code with none names no mark either.
+    #[must_use]
+    pub fn unreached_in_substitute(&self, code: Code) -> Option<UnreachedCode> {
+        if !self.substituted || self.glyph_for(code).is_some() {
+            return None;
+        }
+        match &self.mapping {
+            CodeMapping::Named(_) => {
+                let index = usize::try_from(code.value()).ok()?;
+                let name = self
+                    .glyph_names
+                    .as_ref()
+                    .and_then(|names| names.get(index))
+                    .map(AsRef::as_ref)
+                    .filter(|name| !name.is_empty());
+                match name {
+                    None => Some(UnreachedCode::NoGlyphName),
+                    Some(".notdef") => None,
+                    Some(name) => read_fonts::ps::agl::name_to_char(name)
+                        .is_none()
+                        .then(|| UnreachedCode::GlyphName(name.to_owned())),
+                }
+            }
+            // A composite font's code reaches its substitute by the character §9.10.2 gives it,
+            // so a code with no character is one that names no mark either, and a code with one
+            // the face lacks is the machine's (ADR 0152).
+            CodeMapping::Substituted { .. }
+            | CodeMapping::Composite { .. }
+            | CodeMapping::MetricsOnly { .. } => None,
+        }
+    }
+
     /// The character a code stands for, where the substitute cannot draw it.
     ///
     /// `Some` only in one situation, and it is the one worth reporting: the font was
@@ -237,4 +288,15 @@ impl LoadedFont {
         let font = FontRef::new(data).ok()?;
         font.charmap().map(character).is_none().then_some(character)
     }
+}
+
+/// What a substituted font's file states for a code that reaches no glyph on any machine
+/// ([`LoadedFont::unreached_in_substitute`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnreachedCode {
+    /// The encoding names this glyph (§9.6.5.1), and the name is neither a character under the
+    /// Adobe Glyph List nor a glyph of the face (§9.6.5.4's `post` table, §9.6.5.2's names).
+    GlyphName(String),
+    /// The encoding gives the code no glyph name at all.
+    NoGlyphName,
 }

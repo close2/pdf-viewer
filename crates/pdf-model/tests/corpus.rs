@@ -865,6 +865,13 @@ fn a_font_refusal(detail: &str) -> Option<(Whose, &'static str)> {
             Whose::TheFile,
             "a font descriptor setting both flags §9.8.2 says shall not both be set",
         ),
+        // ADR 2880: a substituted font's code whose glyph name, or want of one, no route a clause
+        // gives a substitute reaches — §9.6.5.4's Glyph List and `post` table — while §9.10.2
+        // names the mark it owed. No face on any machine draws it, so the defect is the file's.
+        _ if has("reach no glyph by anything the file states") => (
+            Whose::TheFile,
+            "a substituted font's code its encoding takes to no glyph (§9.6.5)",
+        ),
         // ADR 0270: an embedded subset that contains no glyph for the codes its own document
         // shows is traced to the end of every route the standard states.
         _ if has("has no outline for any of the") || has("draws none of the") => (

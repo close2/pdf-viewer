@@ -35,6 +35,7 @@ mod codes;
 mod drawing;
 
 pub use drawing::OutlineRefused;
+pub use substitution::UnreachedCode;
 
 /// Each glyph asked for: its outline, `None` for one with nothing to draw, or the evaluator's
 /// refusal of its program ([`LoadedFont::outline_refusal`]).

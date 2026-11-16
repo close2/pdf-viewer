@@ -114,6 +114,12 @@ pub(super) struct Coverage {
     /// How many of `empty` were §9.10.2's uncovered characters, which decides which of the
     /// two reports a silent font gets.
     pub(super) uncovered: u32,
+    /// How many of `empty` were codes of a substituted font whose route to a glyph ends at what
+    /// the file states — a glyph name no route reaches, no glyph name, or no character — which
+    /// no face on any machine would draw (`LoadedFont::unreached_in_substitute`, ADR 2880).
+    pub(super) unreached: u32,
+    /// The first of them, for the page's report to name.
+    pub(super) first_unreached: Option<pdf_font::UnreachedCode>,
     /// How many of `empty` reached a glyph the program's repair could not draw — a CID-keyed
     /// CFF read against an empty Private DICT, whose glyph calls a local subroutine (ADR 0808).
     pub(super) lost: u32,

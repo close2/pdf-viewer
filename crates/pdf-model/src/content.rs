@@ -2290,9 +2290,37 @@ fn complete(
                 ),
             });
         }
+        // A substituted font's codes that what the file states takes to no glyph, said whatever
+        // else the font drew: the font's own report says it is drawn from a substitute, and for
+        // these codes nothing is drawn, on this machine or any other (ADR 2880).
+        if coverage.unreached > 0
+            && let Some(first) = &coverage.first_unreached
+        {
+            let why = match first {
+                pdf_font::UnreachedCode::GlyphName(glyph) => format!(
+                    "selects the glyph name /{glyph}, which neither the Adobe Glyph List nor the \
+                     substitute face's post table reaches (§9.6.5.4)"
+                ),
+                pdf_font::UnreachedCode::NoGlyphName => {
+                    "is given no glyph name by the font's encoding (§9.6.5.1)".to_owned()
+                }
+            };
+            interpreter.note(Unsupported::Font {
+                detail: format!(
+                    "font /{name} is substituted, and {} of the code(s) the page shows through it \
+                     reach no glyph by anything the file states, so they are not drawn: the first \
+                     {why}",
+                    coverage.unreached
+                ),
+            });
+        }
         if coverage.drawn > 0
             || coverage.empty == 0
-            || coverage.lost.saturating_add(coverage.refused) == coverage.empty
+            || coverage
+                .lost
+                .saturating_add(coverage.refused)
+                .saturating_add(coverage.unreached)
+                == coverage.empty
         {
             continue;
         }

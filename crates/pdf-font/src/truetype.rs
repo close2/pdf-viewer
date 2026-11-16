@@ -442,7 +442,7 @@ fn is_symbolic(document: &Document, descriptor: &Dictionary) -> bool {
 }
 
 #[cfg(test)]
-mod truetype_encoding_tests {
+pub(crate) mod truetype_encoding_tests {
     use super::{
         PostNames, Subtables, ToUnicode, as_character, named_glyph, symbol_glyph,
         truetype_code_table,
@@ -458,10 +458,10 @@ mod truetype_encoding_tests {
     ///
     /// Deliberately not equal to any code used here: a route that quietly fell back to
     /// treating the code as a glyph index would otherwise pass.
-    const GLYPH: u16 = 7;
+    pub(crate) const GLYPH: u16 = 7;
 
     /// Assembles an sfnt file from tables, which is all `FontRef` needs to read one.
-    fn sfnt(tables: &[([u8; 4], Vec<u8>)]) -> Vec<u8> {
+    pub(crate) fn sfnt(tables: &[([u8; 4], Vec<u8>)]) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend_from_slice(&0x0001_0000_u32.to_be_bytes());
         let count = u16::try_from(tables.len()).expect("a handful of tables");
@@ -810,7 +810,7 @@ mod truetype_encoding_tests {
     /// is only the identity §9.6.5.4 selects on. A subtable format is a storage detail and
     /// `read-fonts` reads all the common ones; the platform and encoding IDs are the
     /// subclause's whole subject.
-    fn cmap(platform: u16, encoding: u16, first_code: u16, glyphs: &[u16]) -> Vec<u8> {
+    pub(crate) fn cmap(platform: u16, encoding: u16, first_code: u16, glyphs: &[u16]) -> Vec<u8> {
         let mut subtable = Vec::new();
         subtable.extend_from_slice(&6_u16.to_be_bytes());
         let length = 10_usize.saturating_add(2_usize.saturating_mul(glyphs.len()));
@@ -833,7 +833,7 @@ mod truetype_encoding_tests {
     }
 
     /// A version 2.0 `post` table naming one glyph, and leaving every other `.notdef`.
-    fn post(glyph: u16, name: &str) -> Vec<u8> {
+    pub(crate) fn post(glyph: u16, name: &str) -> Vec<u8> {
         /// How many names the format reserves before a font's own begin.
         const MACINTOSH_NAMES: u16 = 258;
 

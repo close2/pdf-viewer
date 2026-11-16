@@ -29,6 +29,10 @@ impl Interpreter<'_> {
             entry.drawn = entry.drawn.saturating_add(counted.drawn);
             entry.empty = entry.empty.saturating_add(counted.empty);
             entry.uncovered = entry.uncovered.saturating_add(counted.uncovered);
+            entry.unreached = entry.unreached.saturating_add(counted.unreached);
+            if entry.first_unreached.is_none() {
+                entry.first_unreached = counted.first_unreached;
+            }
             entry.lost = entry.lost.saturating_add(counted.lost);
             if entry.shortfall.is_none() {
                 entry.shortfall = counted.shortfall;
@@ -401,6 +405,21 @@ impl Interpreter<'_> {
             // Tallied rather than reported here: see `glyph_coverage`.
             coverage.empty = coverage.empty.saturating_add(1);
             coverage.uncovered = coverage.uncovered.saturating_add(1);
+        } else if read.is_some_and(Readback::names_a_mark)
+            && let Some(unreached) = program.unreached_in_substitute(code)
+        {
+            // §9.10.2 names a mark this code owed, and the file states nothing a substitute
+            // could be asked for it by, so the mark is lost on every machine: said per code,
+            // whatever else the font drew, because the font's report says it was drawn from a
+            // substitute and this code was not (ADR 2880). A code §9.10.2 names nothing owes no
+            // mark anyone can name, and keeps the account below.
+            coverage.empty = coverage.empty.saturating_add(1);
+            coverage.unreached = coverage.unreached.saturating_add(1);
+            if coverage.first_unreached.is_none() {
+                coverage.first_unreached = Some(unreached);
+            }
+            // Still a route that ended without a glyph, as the page's statistic counts one.
+            self.codes_without_a_glyph = self.codes_without_a_glyph.saturating_add(1);
         } else if read.is_some_and(|read| read != Readback::Whitespace) {
             self.account_for_a_missing_mark(show, program, at);
         } else {
