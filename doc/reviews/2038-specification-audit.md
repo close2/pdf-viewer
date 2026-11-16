@@ -11,11 +11,11 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (33)
+## Current checkpoint (34)
 
-Partial reviews now cover **578 of 883 ledger rows**, with 305 pending. The current
-failure manifest contains **58 assertions**, grouped into behavior findings rather
-than 58 independent defects. All 72 failures from the prior audit pass at this baseline.
+Partial reviews now cover **582 of 883 ledger rows**, with 301 pending. The current
+failure manifest contains **62 assertions**, grouped into behavior findings rather
+than 62 independent defects. All 72 failures from the prior audit pass at this baseline.
 The latest broad run, wave31, covered eleven crates: **7,142 tests ran, 7,087 passed,
 and exactly the 55 then-recorded assertions failed; 58 were skipped**. Exact test
 identities matched. Waves32–33 add five passing tests and three expected failures.
@@ -33,6 +33,11 @@ in the implemented separation-simulation row. A filtered UTF-8 script dispatch c
 passes. RichMedia Assets fixtures are now explicitly documented as partial consumer
 probes. A preliminary claim that the current ledger called Configurations optional was
 checked against the exact note and withdrawn; no such wording is present.
+
+Checkpoint34 reproduces the same-stroke failure through a PDF and three hardware
+lanes: direct Vello, raster GPU and raster Compute. Ordinary-line controls pass.
+A sampled-CMYK-image overprint exclusion control passes. Model and both GPU
+backend all-targets Clippy passes. The broad run above predates these five tests.
 
 These are partial feature reviews, not whole-clause certification. The paragraphs
 below preserve earlier checkpoint evidence. Weekly usage was45% at the latest check;

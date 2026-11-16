@@ -1204,6 +1204,27 @@
       "log": "quality-wave33e.log",
       "exit": 0,
       "scope": "Final model/viewer-core all-targets Clippy -Dwarnings. Prior d failed on two doc backticks; corrected. Dependency future-incompatibility notice is recorded, not a current warning failure."
+    },
+    {
+      "log": "colour-stroke-wave34.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "SampledCMYK OP exclusion passes; PDF same-stroke transparency fails."
+    },
+    {
+      "log": "gpu-stroke-wave34b.log",
+      "run": 3,
+      "passed": 0,
+      "failed": 3,
+      "exit": 100,
+      "scope": "DirectVello and rasterGPU/Compute fail B39 after controls pass; actual Radeon890M Vulkan device reported."
+    },
+    {
+      "log": "quality-wave34e.log",
+      "exit": 0,
+      "scope": "Final model/render-raster/render-gpu all-targets Clippy -Dwarnings; c/d rejected crate-specific lint expectations, corrected."
     }
   ],
   "prior_expected_failures": {

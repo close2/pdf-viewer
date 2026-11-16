@@ -348,6 +348,30 @@
       "test": "a_degenerate_subpath_does_not_composite_twice_with_the_same_stroke_object",
       "finding": "2038-B39",
       "log": "geometry-requirements-wave32.log"
+    },
+    {
+      "binary": "pdf-model::stroke_composition_pdf_spec_audit",
+      "test": "one_pdf_stroke_object_does_not_apply_its_alpha_to_its_own_parts",
+      "finding": "2038-B39",
+      "log": "colour-stroke-wave34.log"
+    },
+    {
+      "binary": "render-gpu::stroke_composition_spec_audit",
+      "test": "direct_gpu_backend_applies_one_alpha_for_one_stroke_object",
+      "finding": "2038-B39",
+      "log": "gpu-stroke-wave34b.log"
+    },
+    {
+      "binary": "render-raster::stroke_composition_spec_audit",
+      "test": "gpu_coverage_applies_one_alpha_for_one_stroke_object",
+      "finding": "2038-B39",
+      "log": "gpu-stroke-wave34b.log"
+    },
+    {
+      "binary": "render-raster::stroke_composition_spec_audit",
+      "test": "compute_coverage_applies_one_alpha_for_one_stroke_object",
+      "finding": "2038-B39",
+      "log": "gpu-stroke-wave34b.log"
     }
   ]
 }

@@ -6,21 +6,23 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "Latest broad refresh wave31: eleven crates,7142run7087PASS55expectedFAIL58skip; exact binary/test identity equality. Wave32 adds four passing tests and three expected failing assertions, manifest58. Broad run predates those seven new tests. Wave33 adds one passing script dispatch test; expected manifest remains58. Media BE diagnostic draft passed but was discarded as redundant.",
-    "quality": "Checkpoint33 model/viewer-core all-targets Clippy -Dwarnings PASS; checkpoint32 syntax/render-cpu PASS. Earlier archive/accessibility gates retain their scope."
+    "later_targets": "Latest broad refresh wave31: eleven crates,7142run7087PASS55expectedFAIL58skip; exact binary/test identity equality. Wave32 adds four passing tests and three expected failing assertions, manifest58. Broad run predates those seven new tests. Wave33 adds one passing script dispatch test; expected manifest remains58. Media BE diagnostic draft passed but was discarded as redundant. Wave34 adds1PASS and4FAIL; manifest62. Three GPU failures are outside the eleven-crate broad-run package scope.",
+    "quality": "Checkpoint34 model/render-raster/render-gpu all-targets Clippy -Dwarnings PASS; prior core/syntax/CPU/archive scopes retained."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [
-      "default_colour_bpc_current"
+      "signature_revocation_crosscheck"
     ],
     "active_shards": [
-      "stroke_composition_consumers_current",
       "font_basics_graphical_effects_current",
-      "signature_revocation_current"
+      "signature_revocation_current",
+      "fdf_forms_current"
     ],
     "recorded_shards": [
+      "default_colour_bpc_current",
+      "stroke_composition_consumers_current",
       "halftones_separations_current",
       "overprint_transparency_current",
       "multimedia_data_current",
@@ -112,8 +114,8 @@
       "font_substitution_current",
       "tagged_layout"
     ],
-    "partial_current_rows": 578,
-    "pending_current_rows": 305
+    "partial_current_rows": 582,
+    "pending_current_rows": 301
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",

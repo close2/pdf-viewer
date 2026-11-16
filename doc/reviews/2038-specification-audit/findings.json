@@ -1411,7 +1411,8 @@
     ],
     "summary": "A round-capped degenerate subpath is painted separately over another portion of the same transparent stroke.",
     "evidence": "One alpha-0.5 black Stroke over white: ordinary line interior red128; adding a fully contained same-path dot gives red64. The split draw composites twice instead of once.",
-    "qualification": "CPU public raster witness. Oracle does not depend on requiring the degenerate geometry in transparent mode. GPU/PDF consumer follow-up remains pending."
+    "qualification": "CPU public raster witness. Oracle does not depend on requiring the degenerate geometry in transparent mode. GPU/PDF consumer follow-up remains pending.",
+    "consumer_followup": "Checkpoint34: same failure from exact-xref PDF to CPU, direct Vello, raster GPU and raster Compute. All four new assertions fail after independent line controls pass. Five total B39 assertions including prior CPU. Source physical430\u2013431/printed415\u2013416."
   },
   {
     "id": "2038-T52",
@@ -1521,5 +1522,16 @@
     "summary": "Software identifier implementation is scoped to viability of a handoff with no player identity.",
     "evidence": "Negative version values and unknown identifier keys affect viability, but URI/OS/version-range matching is not implemented for a named/versioned player.",
     "disposition": "Retain explicit handoff boundary. Do not present implemented status as certification of the complete comparison algorithms or external playback."
+  },
+  {
+    "id": "2038-T57",
+    "kind": "assertion-coverage-gap",
+    "clauses": [
+      "8.6.7",
+      "11.7.4"
+    ],
+    "summary": "Sampled DeviceCMYK images lacked an independent comparison against direct-colour OPM1 zero retention.",
+    "change": "Added sampled OPtrue/false equality, direct OPM1 contrast and ordinary direct cyan equality control; exact-xref PDF and complete interpretation.",
+    "execution": "1PASS. Controlled screen/press-group behavior only; not all Table146 combinations."
   }
 ]
