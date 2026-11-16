@@ -245,6 +245,14 @@ AntiAlias no-read remains an interpretation residual: an optional entry and no
 fixed filter kernel do not establish permission to ignore true. Partial reviews
 reach414rows, with469pending. Model/core all-targets Clippy passes; manifest remains36.
 
+The security/structure-attribute checkpoint adds passing independent password-preparation
+vectors and confirms a consumer gap: flattened-field Role, Checked and Desc changes
+produce identical public accessibility answers. Three regressions fail; the title
+control passes. The manifest now contains39failing identities. Perms conflict recovery,
+ListNumbering classification and the Algorithm2.B256-round cap receive separate,
+qualified decision findings. No high-round authentication failure is claimed.
+Partial reviews reach436rows, with447pending; syntax/core all-targets Clippy passes.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks

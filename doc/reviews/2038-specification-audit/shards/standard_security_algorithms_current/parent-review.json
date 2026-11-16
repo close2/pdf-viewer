@@ -1,0 +1,8 @@
+{
+  "source": "Parent read primary physical95\u201397/101, #325 two-case K0 replacement, #24 ECB deletion, ADR0031 and0820 authority statements; verified RFC4013 section3 directly at https://www.rfc-editor.org/rfc/rfc4013.html. Agent source locators for 2.A were one page early: 2.A starts physical96/printed81 and continues97/82; General7.6.4.3.1 starts95/80. Algorithm2.B remains97/82; Algorithm13 remains101/86.",
+  "assertions": "Added RFC soft-hyphen/NFKC/control examples plus parent case-preservation and bidi example, normalization-before-limit discriminator, ASCII128\u2192127 and split-multibyte boundary. One direct unit test passes. This tests password preparation, not hash/writer independence.",
+  "qualification": "Perms conflict is nonconforming-input recovery. Algorithm2.A stepf says matching P shall hold; Algorithm13 says should. Current256 cap can end before the source stopping predicate; because last byte<=255, predicate necessarily stops by round counter287. No input requiring>256 was found; do not report a reproduced authentication failure. Ciphertext E is computed from the inputs, not freely chosen per round by the file. No need for an unbounded-loop justification when a natural finite bound exists.",
+  "execution": "password-prep-wave26.log 1PASS; quality-wave26.log syntax/core all-targets PASS. Independent writer vectors remain residual.",
+  "baseline": "b901326c",
+  "limit": "Partial source/assertion review, not whole-clause certification."
+}

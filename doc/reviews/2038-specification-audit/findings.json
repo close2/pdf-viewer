@@ -1058,5 +1058,58 @@
     "summary": "Optional AntiAlias flag is currently unread; optional dictionary entry and absence of a fixed filter kernel do not establish permission to ignore true.",
     "source": "Table77 physical245\u2013246; ADR1765 reviewed.",
     "change": "Preserve unresolved consumer/interpretation question; no ungrounded exact-pixel failure or confirmed defect asserted."
+  },
+  {
+    "id": "2038-T42",
+    "kind": "independent-oracle-gap",
+    "clauses": [
+      "7.6.4.3.3"
+    ],
+    "summary": "Password preprocessing lacked direct RFC vectors and normalize-before-byte-limit discrimination.",
+    "change": "Added RFC4013 mapping/NFKC/prohibited-control/case/bidi examples, normalization-before127-byte limit, ASCII boundary and split UTF8 byte boundary.",
+    "execution": "1PASS.",
+    "remaining": "This does not certify cryptographic primitives or independent writer output."
+  },
+  {
+    "id": "2038-B29",
+    "kind": "implementation-consumer-gap",
+    "clauses": [
+      "14.8.5.6"
+    ],
+    "summary": "Flattened form Role, Checked and Desc are parsed but disappear before the public accessibility consumer.",
+    "source": "Table383 primary physical805\u2013806/printed790\u2013791; ADR0085 rationale; todo31 acknowledges no consumer.",
+    "evidence": "Three public semantic-difference regressions fail with identical complete AccessibilityNode vectors; title control passes. Static call search shows parser test only.",
+    "remaining": "Choose noninteractive platform representation without inventing widget actions; strengthen exact consumer assertions when API exists. Ledger implemented claim exceeds delivered behavior."
+  },
+  {
+    "id": "2038-D16",
+    "kind": "source-interpretation-qualification",
+    "clauses": [
+      "7.6.4.3.3",
+      "7.6.4.4.12"
+    ],
+    "summary": "Perms-over-P tamper assertion establishes inconsistent-input recovery, not a prescribed normative authority rule.",
+    "source": "2.A stepf requires P consistency; Algorithm13 uses should. ADR0031/0820 reviewed.",
+    "change": "Retain permissive policy as policy; no valid-input defect asserted."
+  },
+  {
+    "id": "2038-D17",
+    "kind": "source-interpretation-residual",
+    "clauses": [
+      "14.8.5.5"
+    ],
+    "summary": "ListNumbering rationale addresses optional autonumbering but not the separate ordered/unordered classification.",
+    "source": "Table382 physical805/790; ADR0748.",
+    "change": "Reconsider reader accessibility contract; no required label regeneration or exact platform API inferred."
+  },
+  {
+    "id": "2038-D18",
+    "kind": "implementation-bound-risk",
+    "clauses": [
+      "7.6.4.3.4"
+    ],
+    "summary": "Algorithm2.B has a natural stopping bound at counter287, while code caps256 and returns the partial hash.",
+    "evidence": "Static predicate inspection: last E byte is at most255; at287 threshold is255. Source gives a statistical typical count, not256limit.",
+    "remaining": "No valid input requiring>256 found; not an execution-confirmed authentication defect. Reconsider cap against natural bound rather than unbounded-work rationale."
   }
 ]

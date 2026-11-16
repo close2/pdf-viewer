@@ -1,0 +1,25 @@
+{
+  "reviews": [
+    {
+      "adr": "0085",
+      "topic": "PrintField consumer implementation",
+      "source_evidence": "EC3 §14.8.5.6 physical 805-806 / printed 790-791 explicitly calls Table 383 the accessibility mechanism for non-interactive forms; field roles and values are defined using a PrintField attribute on Form elements. Table 383 defines role, state, and alternate name, and makes a tv field's value its Form element content.",
+      "current_code_evidence": "Tree::print_field parses attributes, but repository-wide call search finds only its definition and one pdf-model parser test. AccessibilityNode and viewer-accessibility::tree have no PrintField field/state/name channel. The accessibility tree therefore reads flattened Form text as ordinary structure text and never exposes the declared checkbox/radio/listbox/pushbutton/text-value identity or Checked/Desc.",
+      "verdict": "ADR 0085 correctly found a reader-facing obligation, but its implementation conclusion was premature: parsing alone does not make the declared accessibility mechanism reach a consumer. Reopen the row/decision for a public accessibility representation and test. The form's visual appearance remains page content, not a requirement to synthesize a widget appearance.",
+      "limits": "No current corpus witness is not evidence that a required reader mechanism can be omitted. The exact host vocabulary/representation is a platform design choice; do not require widget interaction for flattened forms. The Part grouping recommendation is not a shall."
+    },
+    {
+      "adr": "0748 (and the ListNumbering rationale preserved in ADR 0743)",
+      "topic": "ListNumbering as inapplicable",
+      "source_evidence": "EC3 Table 382 physical 805 / printed 790 says the value 'shall be applied as described here'; explicitly classifies the list as unordered unless ListNumbering is one of Ordered, Decimal, UpperRoman, LowerRoman, UpperAlpha, or LowerAlpha. Its NOTE says the attribute allows extraction tools to autonumber but Lbl may already contain explicit results, a caution against duplicate number generation.",
+      "current_code_evidence": "No ListNumbering parser/caller. Every standard List maps to generic List; AccessibilityNode exposes continuation only, not ordered/unordered classification. Lbl text may carry printed label text but does not by itself encode the source list classification as metadata.",
+      "verdict": "ADR 0748's continuation implementation is supported. Its inherited ListNumbering argument covers renumbering already-present Lbl text, but it does not address Table 382's separate ordered/unordered classification sentence. Reconsider whether that classification is owed to the public accessibility consumer, and whether the existing host vocabulary can carry it. Do not call regeneration/automatic numbering required: the NOTE is permissive and warns against duplicating explicit labels.",
+      "limits": "This is an unresolved source-to-consumer decision, not yet an execution-confirmed defect. Some platform accessibility APIs use one generic list role and may convey order through authored labels; establish the current public consumer contract before requiring an API change. Table 382 permits inheriting ListNumbering; no test here claims that implementation handles its inheritance."
+    },
+    {
+      "adr": "0300, 0312, 0715; 0743",
+      "topic": "Table and Artifact attributes",
+      "verdict": "No ADR reversal proposed in this shard. Effective source pages and Table 384/385 entries were checked; existing ledger mapping and cited consumer tests are within those ADR decisions. Detailed assertion audits belong to the prior table/artifact shards and are not recertified here."
+    }
+  ]
+}

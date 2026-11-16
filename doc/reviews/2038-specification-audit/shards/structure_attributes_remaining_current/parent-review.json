@@ -1,0 +1,8 @@
+{
+  "source": "Parent read physical805/790 Table382 and806/791 Table383, #346 continuation noninheritance carets and #632 List box wording. Read ADR0085 and0748; searched actual callers and public accessibility fields. Tree::print_field only reaches a model parser test; todo31 explicitly acknowledges no consumer.",
+  "assertions": "Parent added exact-xref/no-recovery/complete public Viewer fixtures with coherent ParentTree and actual settled CPU render. Four tests: changing title affects the answer (PASS); changing Role(cb/rb), Checked(off/on), Desc(Agree/Decline) each produces identical full public node vectors (3FAIL). State fixtures have distinct checked marks but same outer bounds. No mandated platform role/API or interaction is imposed; this proves semantic information loss, not what the final representation must be.",
+  "qualification": "A future fix needs exact consumer-state/name assertions beyond these distinguishing regressions. ListNumbering classifies ordered/unordered separately from optional autonumbering; current generic List does not carry that classification. Host representation obligation remains qualified. Tables384/385 are cross-references to earlier deeper shards, not recertified.",
+  "execution": "print-field-wave26.log 4run1PASS3expectedFAIL; quality-wave26.log syntax/core all-targets PASS.",
+  "baseline": "b901326c",
+  "limit": "Partial source/assertion review, not whole-clause certification."
+}

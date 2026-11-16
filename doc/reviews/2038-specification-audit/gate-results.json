@@ -908,6 +908,29 @@
       "log": "quality-wave25b.log",
       "scope": "pdf-model/viewer-core all-targets Clippy -Dwarnings",
       "exit": 0
+    },
+    {
+      "log": "password-prep-wave26.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "RFC4013 and PDF byte-limit unit controls"
+    },
+    {
+      "log": "print-field-wave26.log",
+      "run": 4,
+      "passed": 1,
+      "failed": 3,
+      "expected_failures": 3,
+      "unexpected_failures": 0,
+      "exit": 101,
+      "scope": "Flattened-field public accessibility information loss; title control passes"
+    },
+    {
+      "log": "quality-wave26.log",
+      "exit": 0,
+      "scope": "pdf-syntax/viewer-core all-targets Clippy -Dwarnings"
     }
   ],
   "prior_expected_failures": {

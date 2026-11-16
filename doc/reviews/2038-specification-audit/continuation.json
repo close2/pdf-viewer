@@ -6,19 +6,18 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "Eight-crate wave22:6435run,6399PASS,exactly36expectedFAIL,55skip; no missing or additional failure identities. Includes checkpoint22 AP tests. Wave23 adds five passing transfer/font controls; broad wave22 predates these. Wave24 adds two passing AnnexO controls and strengthens stroke-fit interior coverage, with two passing hardware-lane tests. Wave25:61model tests and1viewer signed-lock edit test pass; includes corrected Type3 fixtures and new Type1 geometry/colour discriminator.",
+    "later_targets": "Eight-crate wave22:6435run,6399PASS,exactly36expectedFAIL,55skip; no missing or additional failure identities. Includes checkpoint22 AP tests. Wave23 adds five passing transfer/font controls; broad wave22 predates these. Wave24 adds two passing AnnexO controls and strengthens stroke-fit interior coverage, with two passing hardware-lane tests. Wave25:61model tests and1viewer signed-lock edit test pass; includes corrected Type3 fixtures and new Type1 geometry/colour discriminator. Wave26:password preprocessing1PASS; PrintField title1PASS and3new expected failures, current manifest39. Broad wave22 predates these.",
     "quality": "Current pdf-model, viewer-core and render-raster all-targets Clippy -Dwarnings PASS. Other recorded gates retain scope."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [
-      "standard_security_algorithms_current",
-      "structure_attributes_remaining_current"
+      "language_pronunciation_current",
+      "transparency_compositing_current"
     ],
     "active_shards": [
-      "language_pronunciation_current",
-      "transparency_compositing_current",
+      "image_filters_remaining_current",
       "reference_xobjects_current"
     ],
     "recorded_shards": [
@@ -83,10 +82,12 @@
       "annex_o_current",
       "shading_type1_current",
       "type3_fonts_current",
-      "forms_remaining_current"
+      "forms_remaining_current",
+      "standard_security_algorithms_current",
+      "structure_attributes_remaining_current"
     ],
-    "partial_current_rows": 414,
-    "pending_current_rows": 469
+    "partial_current_rows": 436,
+    "pending_current_rows": 447
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",

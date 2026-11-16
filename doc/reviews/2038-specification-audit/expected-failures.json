@@ -216,6 +216,24 @@
       "test": "sequential_multiscalar_bfrange_increments_destination_string_last_byte",
       "finding": "2038-B28",
       "log": "cmaps-colour-choice-wave20.log"
+    },
+    {
+      "binary": "viewer-core::print_field_consumer_spec_audit",
+      "test": "flattened_field_role_is_not_lost_before_the_accessibility_consumer",
+      "finding": "2038-B29",
+      "log": "print-field-wave26.log"
+    },
+    {
+      "binary": "viewer-core::print_field_consumer_spec_audit",
+      "test": "flattened_field_checked_state_is_not_lost_before_the_accessibility_consumer",
+      "finding": "2038-B29",
+      "log": "print-field-wave26.log"
+    },
+    {
+      "binary": "viewer-core::print_field_consumer_spec_audit",
+      "test": "flattened_field_description_is_not_lost_before_the_accessibility_consumer",
+      "finding": "2038-B29",
+      "log": "print-field-wave26.log"
     }
   ]
 }

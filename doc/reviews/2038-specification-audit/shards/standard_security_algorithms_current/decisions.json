@@ -1,0 +1,38 @@
+{
+  "decisions": [
+    {
+      "adr": "ADR 0031 — Encryption and what a locked file is",
+      "decision_review": "Its description of key and AES-256 read flow is supported by code and independent real-producer R5/R6 files. Its sentence that R6 permissions 'come from' `/Perms` is too categorical for mismatched values: Algorithm 2.A says they shall match `/P`. The tamper test only pins recovery policy for a nonconforming mismatch.",
+      "source": "§7.6.4.3.3(f), printed p.81 / physical p.96; §7.6.4.4.12, printed p.86 / physical p.101.",
+      "status": "retain crypto summary; qualify invalid-input authority claim"
+    },
+    {
+      "adr": "ADR 0253 — EC3 errata source reading",
+      "decision_review": "Keep the errata-first method. Relevant direct correction #24 removes 'zero IV' from ECB text; retain zero IV only for CBC unwrap. No security-algorithm conclusion here relies on old marked-up ECB wording.",
+      "source": "doc/errata-read.md #24, §§7.6.4.4.1, 7.6.5.1; physical primary pp.97–101.",
+      "status": "reaffirm"
+    },
+    {
+      "adr": "ADR 0255 — Algorithm 2.B erratum #325",
+      "decision_review": "The clarified step specifies a two-case K0 and 64 repetitions. `hash_2b` constructs password‖K‖extra per repetition; empty extra for user and 48-byte U for owner matches the current corrected wording.",
+      "source": "§7.6.4.3.4 printed p.82 / physical p.97; doc/errata-read.md #325.",
+      "status": "reaffirm against effective erratum"
+    },
+    {
+      "adr": "ADR 0820 — R5 extension and shared R5/R6 authentication",
+      "decision_review": "The R5/R6 shared Algorithm 2.A flow is supported by real corpus witnesses plus published qpdf password/key evidence recorded in test comments. The `/Perms` verification table should distinguish matching conforming data from malformed conflicting `/P`; it does not establish that a mismatch must resolve in favor of the block.",
+      "source": "R6 Algorithm 2.A printed pp.80–81 / physical pp.95–96; Algorithm 13 printed p.86 / physical p.101.",
+      "status": "retain shared path; qualify conflict authority"
+    },
+    {
+      "adr": "ADR 0829 — Revision 5 SASLprep extension source",
+      "decision_review": "Relevant as context only: its R5 SASLprep claim rests on the Adobe ExtensionLevel 3 supplement, while R6 SASLprep is directly required by PDF 2.0 §7.6.4.3.3. Tests should not conflate the source authority of those revisions.",
+      "source": "§7.6.4.3.3 printed p.80 / physical p.95; ADR 0829 quotes the separate supplement.",
+      "status": "reaffirm distinction"
+    }
+  ],
+  "unresolved": [
+    "The standard's consistency statements specify matching P and EncryptMetadata for conforming R6 files. Whether a reader should reject, report, or recover from a marker-valid block conflicting with dictionary values is not resolved here.",
+    "Algorithm 2.B lacks an explicit numeric round cap; implementation MAX_2B_ROUNDS=256 can theoretically truncate paths that the stated termination rule would continue. No >256-round vector was available."
+  ]
+}

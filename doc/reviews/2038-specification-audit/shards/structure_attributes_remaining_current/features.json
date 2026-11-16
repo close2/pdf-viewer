@@ -1,0 +1,63 @@
+{
+  "baseline": "b901326c",
+  "source": "ISO 32000-2:2020 with Errata Collection 3",
+  "scope": "§14.8.5.5–.8; feature-level review, not whole-clause certification",
+  "features": [
+    {
+      "clause": "14.8.5.5",
+      "table": 382,
+      "source_locations": [
+        {"physical_page": 804, "printed_page": 789, "text": "List-attribute lead-in; says attributes control Lbl interpretation and ContinuedList/ContinuedFrom control L relative to non-parent L elements."},
+        {"physical_page": 805, "printed_page": 790, "text": "Table 382; ListNumbering values/default/order classification and continuation fields; NOTE on optional extraction autonumbering and explicit Lbl labels."}
+      ],
+      "features": [
+        {"entry": "ListNumbering", "norm": "Optional, inheritable; the listed value classifies L as ordered or unordered, specifies numbering/symbol scheme and language-dependent alphabet. Default None; ordered iff value is Ordered, Decimal, UpperRoman, LowerRoman, UpperAlpha or LowerAlpha.", "reader_relevance": "The ordered/unordered classification is source-defined list semantics. The NOTE says an extraction tool may autonumber and warns Lbl can already carry explicit results; it supports avoiding duplicate label generation, but does not itself waive the table's classification rule.", "implementation": "Not read by Tree::attribute/list_continuation or viewer-core gathering. All standard Lists map to one generic List role; no ordered/unordered property crosses the public accessibility tree.", "assertions": "No ListNumbering assertion found in implementation tests; existing list tests cover continuation only."},
+        {"entry": "ContinuedList", "norm": "Optional, PDF 2.0, not inheritable by EC3 #346; boolean default false. If true and ContinuedFrom absent, predecessor is preceding list at same structure depth.", "implementation": "Tree::list_continuation and list_predecessors; carries flag to AccessibilityNode; viewer-accessibility publishes continuation text. Existing source-derived model, headless, and tree tests cover explicit and fallback behavior.", "assertions": "Existing list continuation tests assert data and rendered accessible description/FlowTo; this shard did not re-audit their fixture internals."},
+        {"entry": "ContinuedFrom", "norm": "Optional PDF 2.0 ID byte string, not inheritable by EC3 #346; names earlier L by its /ID.", "implementation": "Resolved over structure walk by list_predecessors, carried as index and exposed as AT-SPI FlowTo when predecessor is in answer.", "assertions": "Existing list continuation tests; no new draft because prior shard covers this behavior."}
+      ],
+      "ledger": "Implemented row 14.8.5.5 currently names the two continuation fields; its ListNumbering-inapplicable rationale is limited to renumbering/explicit Lbl marks and does not separately account for Table 382's ordered-vs-unordered classification." 
+    },
+    {
+      "clause": "14.8.5.6",
+      "table": 383,
+      "source_locations": [
+        {"physical_page": 805, "printed_page": 790, "text": "Lead-in: defines an accessibility mechanism for non-interactive forms; Form elements enclose each content set; roles and values are defined through PrintField."},
+        {"physical_page": 806, "printed_page": 791, "text": "Table 383: Role, tv content rule, grouping recommendation, default role; Checked/checked states and default; Desc alternate field name."}
+      ],
+      "features": [
+        {"entry": "Role", "norm": "Optional, noninheritable. rb/radio, cb/check box, pb/pushbutton, tv/text-value, lb/listbox. tv is for noninteractive textual values; value shall be the Form element's content. Related noninteractive field groupings should be enclosed in Part.", "implementation": "pdf-model::Tree::print_field parses role (including all five names); no production caller. Viewer accessibility nodes do not carry this information to a consumer.", "assertions": "pdf-model unit test a_flattened_form_field_says_what_it_was checks cb/rb/tv parser results only; no public-viewer/assistive consumer assertion."},
+        {"entry": "Checked/checked", "norm": "Optional, noninheritable; on/off/neutral; lowercase alias deprecated in PDF 2.0; default off. State is for radio/check-box fields.", "implementation": "Parser gives current capitalization priority, reads deprecated spelling, defaults to Off. Not consumed or published after parsing.", "assertions": "Model test checks current on, deprecated neutral, default off; lacks end-to-end use."},
+        {"entry": "Desc", "norm": "Optional, noninheritable text-string alternate field name, analogous to interactive field /TU.", "implementation": "Parser decodes it; no production caller and no accessibility-tree mapping.", "assertions": "Model test checks a decoded check-box description; no user-visible assertion."}
+      ],
+      "ledger": "Implemented row 14.8.5.6 overstates consumer coverage: listed code is parser/model only, while the clause expressly identifies an accessibility mechanism and currently no caller publishes the parsed values." 
+    },
+    {
+      "clause": "14.8.5.7",
+      "table": 384,
+      "source_locations": [
+        {"physical_page": 807, "printed_page": 792, "text": "RowSpan, ColSpan, Headers (including recursive association and order), Scope and default axis algorithm."},
+        {"physical_page": 808, "printed_page": 793, "text": "Summary and Short: type applicability and nonvisual/screen-reader usage."}
+      ],
+      "features": [
+        {"entry_group": "RowSpan/ColSpan/Headers/Scope", "norm": "Noninheritable cell/header semantics; span defaults 1; Headers names TH IDs, row IDs then column IDs most-specific-first and recursively inherits referenced TH Headers; Scope is Row/Column/Both for TH only, with source algorithm when absent.", "implementation_and_assertions": "Substantially covered by existing model/headless/AT-SPI tests cited in ledger 14.8.5.7; overlapping prior shards intentionally not repeated here."},
+        {"entry_group": "Summary/Short", "norm": "Noninheritable. Summary applies only to Table and is for nonvisual rendering. Short applies only to TH as a short replacement form used when repeating headers.", "implementation_and_assertions": "Substantially covered by existing source-derived model/headless/tree tests cited in ledger 14.8.5.7; no new issue raised in this bounded shard."}
+      ],
+      "ledger": "No new discrepancy identified in the reviewed source-to-test map; prior table-attribute shards contain deeper assertion review." 
+    },
+    {
+      "clause": "14.8.5.8",
+      "table": 385,
+      "source_locations": [
+        {"physical_page": 808, "printed_page": 793, "text": "Artifact owner restriction; Type values/descriptions; BBox."},
+        {"physical_page": 809, "printed_page": 794, "text": "Subtype values and should-only-use-with-Pagination-or-Inline guidance; Annex E extensibility."}
+      ],
+      "features": [
+        {"entry_group": "Type/BBox/Subtype", "norm": "Artifact-owned/nonstandard owner restrictions are stated in §14.8.5.8 lead-in; Table 385 defines Type, user-space BBox, and Subtype. EC3 #346 marks Table 385 entries noninheritable. Subtype's condition is a should, not a shall.", "implementation_and_assertions": "Tree::artifact/attributes.rs plus viewer accessibility publication; existing model/headless/AT-SPI tests and ADR 0743 were previously reviewed. Not re-audited beyond confirming table rows and locators."}
+      ],
+      "ledger": "No additional discrepancy raised. Avoided repeating prior artifact/attributeStream coverage." 
+    }
+  ],
+  "errata": [
+    {"issue": 346, "affected": "Table 382 ContinuedList/ContinuedFrom; Table 385 artifact entries", "effect": "Adds not-inheritable status to the two continuation entries and Table 385 entries. Does not alter Table 382 ListNumbering inheritance or the Table 383 statuses."}
+  ]
+}

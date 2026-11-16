@@ -1937,6 +1937,51 @@ fn perms_entry(
 mod tests {
     use super::*;
 
+    // RFC 4013 §3 examples plus PDF §7.6.4.3.3 UTF-8 byte limit.
+    #[test]
+    fn r6_password_preparation_matches_saslprep_vectors_and_byte_limit() {
+        assert_eq!(
+            utf8_password("I\u{00ad}X").expect("soft hyphen maps away"),
+            b"IX"
+        );
+        assert_eq!(
+            utf8_password("\u{00aa}").expect("NFKC maps feminine ordinal"),
+            b"a"
+        );
+        assert!(
+            utf8_password("\u{0007}").is_err(),
+            "RFC 4013 prohibits this control"
+        );
+
+        assert_eq!(utf8_password("USER").expect("case is preserved"), b"USER");
+        assert!(
+            utf8_password("\u{0627}1").is_err(),
+            "RFC 4013 bidirectional check"
+        );
+        // Normalization must precede the byte limit: U+00AA becomes one ASCII byte.
+        let normalizes_first = format!("{}\u{00aa}", "a".repeat(126));
+        assert_eq!(
+            utf8_password(&normalizes_first).expect("normalize then truncate"),
+            vec![b'a'; 127]
+        );
+
+        let ascii = "a".repeat(128);
+        assert_eq!(
+            utf8_password(&ascii).expect("ASCII is SASLprep-stable"),
+            vec![b'a'; 127]
+        );
+
+        // Truncation is specified in UTF-8 bytes after preparation. 126 ASCII bytes followed by
+        // U+00E9 occupies 128 bytes, so byte 127 is the first byte (C3) of the final UTF-8 pair.
+        // This checks byte-order/length semantics independently of a character-count truncation.
+        let multibyte = format!("{}é", "a".repeat(126));
+        let expected = [vec![b'a'; 126], vec![0xC3]].concat();
+        assert_eq!(
+            utf8_password(&multibyte).expect("prepared string"),
+            expected
+        );
+    }
+
     /// RC4 against RFC 6229's first test vector.
     ///
     /// The cipher comes from a dependency, so what this pins is the *call*: a key handed
