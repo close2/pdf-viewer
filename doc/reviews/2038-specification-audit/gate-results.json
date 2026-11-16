@@ -1683,6 +1683,18 @@
       "skipped": 58,
       "exit": 100,
       "scope": "Eleven default-feature crates. Exact binary/test identities match; exclusions in wave59-comparison.json."
+    },
+    {
+      "log": "model-wave61b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-model-wave61b.log",
+      "exit": 0,
+      "scope": "Model all-targets Clippy"
     }
   ],
   "prior_expected_failures": {

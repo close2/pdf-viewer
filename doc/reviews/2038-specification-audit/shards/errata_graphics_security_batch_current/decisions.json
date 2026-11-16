@@ -1,0 +1,32 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected ADR and disposition review for EC3 errata #37,#80,#134,#216,#228,#286,#428,#469,#529,#643,#674,#682.",
+  "decisions": [
+    {
+      "issues": [134],
+      "sources": ["doc/adr/0551-the-count-a-parent-kept-and-the-witness-that-was-a-mask.md", "doc/adr/0327-the-backdrop-retained-beside-the-accumulation-and-the-press-a-group-brings.md"],
+      "assessment": "ADR 0551 accurately locates the Table 145 insertion and explains the former resource-scope ambiguity. Current group form resources and the report/paint tests align with the clarified group-XObject scope. Retain the accepted interpretation; do not infer a new requirement beyond the changed phrase."
+    },
+    {
+      "issues": [216],
+      "sources": ["doc/adr/0691-the-filter-set-that-became-this-programs.md"],
+      "assessment": "ADR 0691 ties the reader-facing Table 6 processor obligation to a closure assertion over the listed filter spellings and separates the producer-facing edits. The assertion is directly relevant and is not merely a count or smoke test. No additional gap identified in this bounded check."
+    },
+    {
+      "issues": [428],
+      "sources": ["doc/adr/0477-the-budget-a-page-had-and-did-not-spend.md", "doc/adr/0827-the-note-that-says-a-cell-is-evaluated-once-is-not-the-one-three-places-cited.md"],
+      "assessment": "The amendment adds implementation dependence to tile visitation order; it does not remove the obligation to paint the cell as often as necessary, subject to the project's explicit bounded work policy. ADR 0477's prefix choice remains compatible. ADR 0827 is consistent that cell evaluation count and visitation order are separate questions. No exact-order oracle should be added."
+    },
+    {
+      "issues": [37, 80, 228, 286, 469, 529, 643, 674, 682],
+      "sources": ["Effective ISO 32000-2:2020 EC3 source pages identified in features.json; corresponding current test/code paths identified in findings.txt."],
+      "assessment": "These selected edits either clarify optional/default wording, correct a table/example/operator reference, add an informative implementation-dependent note, delete a producer cardinality constraint, or request figure cleanup. The current reader behavior reviewed is consistent with the effective text. Deletions and notes were not converted into new rejection rules."
+    }
+  ],
+  "limitations": [
+    "This is a bounded errata review, not clause certification.",
+    "No test was run during this review; named assertions were inspected in source.",
+    "The ICC private-tag note does not certify support for every private tag or profile.",
+    "The attachment review does not certify every EmbeddedFiles name-tree edge case or writer conformance."
+  ]
+}

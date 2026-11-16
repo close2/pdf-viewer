@@ -1,0 +1,43 @@
+{
+  "decisions": [
+    {
+      "topic": "Issue #188 context-dependent Placement defaults",
+      "decision": "Retain the bounded stated-value attribute API. Its documentation explicitly leaves defaults to attribute-specific consumers; no effective Placement or reflow promise was found. Contextual defaults remain a future-consumer coverage residual.",
+      "evidence": [
+        "Primary PDF physical 791 / printed 776, Table 378 plus #188 NOTE and Examples 1\u20132",
+        "crates/pdf-model/src/structure.rs attribute accessors",
+        "crates/pdf-model/src/structure/tables.rs geometry methods",
+        "doc/adr/0728-the-rule-the-writer-is-named-by.md"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "topic": "Issue #69 PagePiece key classes",
+      "decision": "Treat the two permitted key categories and second-class-name recommendation as producer-side extensibility guidance; no validation/rejection test for a general-purpose reader.",
+      "evidence": [
+        "Primary PDF physical 734 / printed 719, \u00a714.5 Table 350 and following paragraph",
+        "doc/conformance/ledger.toml \u00a714.5 note",
+        "\u00a714.5 says private data can be ignored by general-purpose processors"
+      ],
+      "confidence": "high"
+    },
+    {
+      "topic": "Issues #45/#71 Table 371; #347 annotation refers to 382, actual artifact Table 385",
+      "decision": "Table wording/owner-specific artifact semantics are source clarifications. Existing table and artifact code is the pertinent consumer. Do not promote general PDF dictionary conventions over the special Artifact owner.",
+      "evidence": [
+        "Primary PDF physical 782 / printed 767 and 809 / printed 794",
+        "crates/pdf-model/src/structure.rs Artifact and table APIs; current structure tests"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "topic": "Examples/editor notes/terminology (#62,#65,#108,#126,#224,#303,#357,#703,#742)",
+      "decision": "#126 changes spacing only. #303 removes informative NOTE 1 about complete graphics objects and requires renumbering with #334; it does not delete NOTE 3. Remaining example/editorial changes do not themselves add algorithms.",
+      "evidence": [
+        "EC3 annotation bodies verified in held primary PDF",
+        "existing ADR 0560 and ADR 0653 account for #126/#224/#357"
+      ],
+      "confidence": "medium"
+    }
+  ]
+}

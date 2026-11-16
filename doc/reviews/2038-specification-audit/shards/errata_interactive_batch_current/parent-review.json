@@ -1,0 +1,6 @@
+{
+  "source": "Freshly enumerated all sixteen issue groups and checked actual primary pages. Read Table 166 AP exception, Table 231 RichText condition and the relevant current ledger row. Confirmed doc/errata-read.md already records #191 and #392; #318/#254 were not literally cited there.",
+  "assertions": "Read markup_annotation_audit writer CR assertion through ViewState::save and reopen; rich_text current positive/negative and save/clear assertions. New class test uses exact xref, valid parent links, empty page resources, literal red local attributes and conditional known-class TextAlign.",
+  "execution": "model-wave61b.log: class test and composite escape test both pass; model all-targets Clippy passes. Earlier broad59 predates these two.",
+  "limits": "Some referenced destination/link tests are parser or model assertions, not live UI clicks. No universal producer-invalid reader rejection requirement; B24 is not erased by the narrow FitR modal review."
+}

@@ -2122,5 +2122,39 @@
     "summary": "Direct and indirect simple-font and CID metric values now have literal consumer assertions.",
     "execution": "Two new tests pass; font all-targets Clippy passes.",
     "limits": "Simple-font metrics-only seam and selected CID decode metrics; no claim of all font rendering behavior."
+  },
+  {
+    "id": "2038-T79",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "9.4.3",
+      "7.3.4.2"
+    ],
+    "summary": "Literal octal escapes now have a composite-font consumer assertion before code segmentation.",
+    "execution": "One new test passes with literal text, glyph/placement count, advance and a hex control."
+  },
+  {
+    "id": "2038-T80",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "14.7.6.2"
+    ],
+    "summary": "Absent attribute classes now have a focused public API assertion preserving mapped/local values.",
+    "execution": "One new test passes across absent-map, absent-name and known-class controls."
+  },
+  {
+    "id": "2038-D43",
+    "kind": "source-premise-correction",
+    "clauses": [
+      "9.6.2.2"
+    ],
+    "summary": "Effective EC3 #384 names Courier-BoldOblique; current font comments and historical ADR premises still describe the unhyphenated spelling as normative.",
+    "resolution": "Retain tolerant alias behavior. Record corrected current source rationale; historical ADRs and production comments are not rewritten in this audit.",
+    "evidence": [
+      "crates/pdf-font/src/standard.rs",
+      "crates/pdf-font/src/substitute.rs",
+      "doc/adr/0396-a-standard-set-of-fourteen-may-not-disagree-with-itself.md",
+      "doc/adr/1916-the-fourteen-are-kerned-by-the-pairs-adobe-published-for-them.md"
+    ]
   }
 ]

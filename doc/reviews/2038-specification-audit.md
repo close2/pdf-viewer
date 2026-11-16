@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (60)
+## Current checkpoint (61)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **78 assertions**, grouped into behavior findings rather
@@ -92,6 +92,13 @@ It corrects draft source ownership and distinguishes informative notes, producer
 constraints and reference-version rules. Existing literal assertions support selected
 encoding, timezone, object-stream and metadata paths. No new failure or execution is
 claimed; full soft-mask restrictions and linearization resources remain partial.
+
+Checkpoint61 reviews 51 further selected errata issue groups and adds two passing
+tests: composite-font literal escape ordering and missing attribute classes.
+Model Clippy passes. The corrected Courier-BoldOblique list exposes a stale source
+premise in current comments and historical ADRs; tolerant alias behavior remains valid.
+The review withdraws a stale draft rich-text exclusion: current layout/save tests and
+ADRs 1634/1635 supersede ADR 1122. No new behavior failure is established here.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

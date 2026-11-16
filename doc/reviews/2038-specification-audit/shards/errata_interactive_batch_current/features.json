@@ -1,0 +1,162 @@
+[
+  {
+    "issue": 17,
+    "primary_locator": "Primary PDF physical p.498 / printed p.483, annotation group subject Issue #17. Text note adds NOTE 1: link activation area and visual appearance including border need not match when QuadPoints is used; prior note is renumbered.",
+    "classification": "reader-facing clarification/permission; no newly required equality or new reader refusal",
+    "ledger": "\u00a712.5.6.5 and Table 176; existing errata-read.md entry currently groups #17/#299",
+    "code": "crates/pdf-model/src/link.rs separates quadrilateral activation geometry from rectangle-based appearance/border",
+    "assertions": "links.rs::a_links_region_is_found_and_its_destination_resolves asserts link-region/destination behavior; no assertion here pairs deliberately different QuadPoints activation and appearance/border, so no such coverage is claimed.",
+    "verdict": "no defect indicated; note affirms existing split and does not require visual mismatch",
+    "residual": "None identified in this sampled review."
+  },
+  {
+    "issue": 73,
+    "primary_locator": "Primary PDF physical p.473 / printed p.458, Issue #73 Caret inserts 'and indices' into \u00a712.4.2 statement that labels need not coincide.",
+    "classification": "explanatory clarification",
+    "ledger": "\u00a712.4.2; ledger already distinguishes page labels from page indices",
+    "code": "crates/pdf-model/src/page_label.rs and viewer consumers keep labels and ordinal indices separate",
+    "assertions": "page_labels.rs::the_clauses_own_example_produces_the_labels_it_states and ::a_prefix_on_the_default_start_labels_the_ranges_boundary_a_one assert label output; these are label assertions, not evidence that all consumer ordinals differ.",
+    "verdict": "clarification already reflected by model; no behavior gap found",
+    "residual": "No test needed solely to mirror explanatory sentence."
+  },
+  {
+    "issue": 90,
+    "primary_locator": "Primary PDF physical p.493 / printed p.478, Issue #90 Caret in \u00a712.5.6.2 inserts 'providing the Contents key, if'.",
+    "classification": "producer-side writing constraint scoped to providing Contents; carriage return is required between paragraphs",
+    "ledger": "\u00a712.5.6.2 errata-read entry currently cites the insertion",
+    "code": "viewer_ui::chrome and variable_text::encode consume/write Contents; reader acceptance of LF is tolerant parsing, not a failure to reject",
+    "assertions": "markup_annotation_audit.rs::writer_uses_cr_for_contents_paragraphs directly checks the amended writer requirement; LF reader tolerance remains separate.",
+    "verdict": "amendment narrows the producer requirement; do not require reader rejection",
+    "residual": "None for writer output; permissive LF reading is not itself a defect."
+  },
+  {
+    "issue": 124,
+    "primary_locator": "Physical 483 / printed 468. Four corrected indices in the AP exception become Rect[0]=Rect[2] and Rect[1]=Rect[3].",
+    "classification": "Producer appearance-dictionary exception with corrected zero-based Rect indices.",
+    "ledger": "12.5.2, Table 166 AP row; 3.2 supplies array indexing.",
+    "code": "pdf_syntax Object::Array uses zero-based indices; navigational and annotation consumers use ordinary zero-based indexing",
+    "assertions": "Current tree/array tests use concrete positions and zero-based enumeration; no one-based production logic identified.",
+    "verdict": "The correction concerns a table condition, not an illustrative example or generic array behavior. No new reader-rejection requirement is inferred.",
+    "residual": "This batch does not add an independent appearance-generation control for the zero-area exception."
+  },
+  {
+    "issue": 139,
+    "primary_locator": "Primary PDF physical p.460 / printed p.445, two Issue #139 Carets in Table 151 /Prev and /Next rows.",
+    "classification": "producer-side constraint: /Prev prohibited on first sibling and /Next prohibited on last sibling",
+    "ledger": "\u00a712.3.3 outline entries; current outline implementation and tests follow linked list through /First,/Next",
+    "code": "crates/pdf-model/src/outline.rs",
+    "assertions": "Hierarchy/count/activation tests exercise the valid linked-list route; they do not demand malformed endpoint links be rejected.",
+    "verdict": "writer-invalid endpoint fields need not trigger a reader conformance error; cycle guard remains robustness behavior",
+    "residual": "No reader bug established."
+  },
+  {
+    "issue": 140,
+    "primary_locator": "Primary PDF physical p.526 / printed p.511, Issue #140 inserts 'explicit destination or named' in Table 202 /D description for ordinary Go-To actions (\u00a712.6.4.2).",
+    "classification": "reader-relevant clarification of supported destination forms",
+    "ledger": "\u00a712.6.4.2 Go-To actions; implemented row cites action and destination readers",
+    "code": "crates/pdf-model/src/action.rs::read_action and crates/pdf-model/src/destination.rs",
+    "assertions": "destinations.rs::a_named_destination_resolves_when_its_document_defines_it and ::a_local_destination_names_its_page_by_reference test the named and explicit destination forms; these are destination-reader assertions rather than full live Go-To action controls.",
+    "verdict": "effective table wording agrees with implemented paths; no missing test identified",
+    "residual": "No broad certification of all Go-To forms from this one check."
+  },
+  {
+    "issue": 191,
+    "primary_locator": "Primary PDF physical p.556 / printed p.541, Issue #191 strike/caret in Table 232 /MaxLen row. Caret inserts 'An integer value greater than or equal to zero that is the' before 'maximum length'.",
+    "classification": "producer constraint on a stated /MaxLen value; table row already types it as integer",
+    "ledger": "\u00a712.7.5.3 Table 232 and \u00a712.7.4.3 variable-text consumers; errata-read currently mentions #191 under \u00a712.7.5.4 but primary caret is Table 232 in \u00a712.7.5.3",
+    "code": "crates/pdf-model/src/form.rs reads inherited MaxLen; view/fields.rs::held_to_max_len applies it to field text; appearance uses the value for rendering/control metadata",
+    "assertions": "max_len_model.rs checks truncation/controls for valid nonnegative limits; no negative-value writer-valid fixture is required because #191 makes negative values invalid producer output",
+    "verdict": "doc/errata-read.md already records the ownership correction to 12.7.5.3. Valid nonnegative MaxLen behavior has focused tests; no mandatory negative-value reader rejection is inferred.",
+    "residual": "No new misfiling finding; preserve the already recorded correction."
+  },
+  {
+    "issue": 254,
+    "primary_locator": "Primary PDF page index 752 (physical p.753; printed p.738), Issue #254 Text annotation inserts NOTE: class names absent from ClassMap are empty classes and define no additional attributes.",
+    "classification": "reader-semantic clarification of missing class mapping; empty class contributes no attributes",
+    "ledger": "\u00a714.7.6 and \u00a714.7.6.2 class-map attributes; current feature row should carry this NOTE even if errata-read omits it",
+    "code": "crates/pdf-model/src/structure/attributes.rs::Tree::attributes skips a C class if ClassMap is absent or has no matching name",
+    "assertions": "missing_attribute_class_spec_audit::missing_classes_contribute_no_attributes_and_preserve_other_sources now passes. It separately checks absent map, absent name and a later known class, with local-A precedence and literal values.",
+    "verdict": "implementation appears to match the note by contributing no attribute objects; no runtime defect found",
+    "residual": "Public attribute-resolution seam only; no page-reflow claim."
+  },
+  {
+    "issue": 258,
+    "primary_locator": "Primary PDF physical p.529 / printed p.514, Issue #258 Text annotation beside Table 204 /D for Embedded Go-To actions.",
+    "classification": "producer-side type restriction clarified by a NOTE: although name objects can represent named destinations generally, name objects are not a provided /D form for this particular action",
+    "ledger": "\u00a712.6.4.4 Embedded Go-To actions; current implemented row carries Tables 204/205 and target-side destination resolution",
+    "code": "crates/pdf-model/src/action.rs::embedded_go_to stores /D unresolved; EmbeddedGoTo::page_index_in_target delegates to Destination::read in target",
+    "assertions": "actions.rs and action.rs tests exercise valid byte-string and explicit-array D forms. actions.rs::an_embedded_go_to_opens_the_document_inside_this_one covers explicit target-page form when the corpus is present; no assertion exercises Name-valued /D.",
+    "verdict": "The reader helper may accept a name destination if it appears, but the NOTE states allowed producer forms; permissive reading of malformed input is not a conformance defect.",
+    "residual": "Avoid certifying name-form GoToE as producer-valid; no mandatory reader rejection sourced."
+  },
+  {
+    "issue": 297,
+    "primary_locator": "Primary PDF physical p.495 / printed p.480, Issue #297 group in \u00a712.5.6.2: grouped annotations introduced in PDF 1.5; RT /Group marker is PDF 1.6.",
+    "classification": "version-marker correction distinguishing feature origin from one table entry's later version",
+    "ledger": "\u00a712.5.6.2 markup/reply groups; current row documents support and cites the amendment",
+    "code": "crates/pdf-model/src/markup.rs",
+    "assertions": "markup annotation group tests cover both reply relationships; no version-header gate is applied, appropriately for reader behavior.",
+    "verdict": "current behavior is consistent; PDF version annotations constrain producers, not a requirement to refuse a file by header",
+    "residual": "None found for the corrected version markers."
+  },
+  {
+    "issue": 299,
+    "primary_locator": "Primary PDF physical pp.498 and 500 / printed pp.483 and 485, Issue #299 strikes PDF 1.6 and inserts PDF 1.3 in Table 176 and Table 177 /BS entries.",
+    "classification": "producer availability/version-marker correction",
+    "ledger": "\u00a712.5.6.5\u2013.6 annotation border entries; errata-read.md already groups #299 with #17",
+    "code": "crates/pdf-model/src/annotation.rs and annotation border appearance path",
+    "assertions": "annotation_border_audit and annotation border tests assert border behavior; no header-version conditional is required of readers",
+    "verdict": "current reader handles /BS without header gating; no defect indicated",
+    "residual": "No rejection test warranted for pre-1.3 header claims."
+  },
+  {
+    "issue": 318,
+    "primary_locator": "Primary PDF physical pp.499, 544, 548\u2013549 / printed pp.484, 529, 533\u2013534; eight Issue #318 Carets insert 'byte' in Table 177 /DA, Table 224 /DA, Table 228 /DA and \u00a712.7.4.3's DA references/prose.",
+    "classification": "data-type clarification: a default appearance program is a byte string, not a text string",
+    "ledger": "\u00a712.7.4.3 and free-text appearance code; no #318 citation found in current errata-read inventory or matching ledger annotation",
+    "code": "crates/pdf-model/src/variable_text.rs reads DA string bytes as page-content operators; free text and AcroForm DA paths retain bytes rather than Unicode-decode the program",
+    "assertions": "Existing variable_text/free-text appearance tests exercise DA operators but no assertion specifically uses the corrected byte-string terminology or non-ASCII source bytes.",
+    "verdict": "behavior path is byte-oriented already; amendment changes type precision, not the required program interpretation",
+    "residual": "Add #318 as effective source annotation to the owning notes if citation completeness is desired; do not require Unicode decoding or invent behavior for non-ASCII operator bytes."
+  },
+  {
+    "issue": 392,
+    "primary_locator": "Primary PDF physical p.555 / printed p.540, Issue #392 strike/caret in Table 231 RichText flag description under \u00a712.7.5.3.",
+    "classification": "writer condition clarified: RV is supplied when V is non-null, not merely present",
+    "ledger": "12.7.5.3 is implemented, including rich-text layout; current note cites ADRs 1634/1635 and subsequent extensions.",
+    "code": "Current appearance/rich_text code lays out RV; forms_data and ViewState preserve/write it. ADR 1122 was amended by 1634/1635.",
+    "assertions": "Parent read rich_text::a_field_without_the_flag_reads_neither_entry, a_value_its_rich_text_does_not_describe_is_drawn_as_the_value and a_save_writes_the_rich_text_string_beside_the_value. The last checks a written rich value and removal of RV when cleared.",
+    "verdict": "The erratum qualifies the producer condition with non-null V. It does not exclude rich-text formatting. Current selected assertions cover actual layout/writing behavior; no new defect established.",
+    "residual": "No blanket rich-text conformance certificate. The draft exclusion claim was stale and has been withdrawn."
+  },
+  {
+    "issue": 536,
+    "primary_locator": "Primary PDF physical p.457 / printed p.442, Issue #536 Caret in Table 149 /FitR text adds 'interactive processors should' before 'use the smaller of the two'.",
+    "classification": "recommendation, not mandatory requirement: choose smaller factor when horizontal/vertical factors differ",
+    "ledger": "\u00a712.3.2.2; existing errata-read.md records the modal clarification",
+    "code": "viewer_core::Open::apply_view uses the smaller factor for FitR and related fit views",
+    "assertions": "navigation geometry/public measurement tests cover the selected dimensions and scale; implementation follows the recommendation; separate B24 failures concern centering, not this different-axis recommendation",
+    "verdict": "ADR/policy choice remains compatible with a SHOULD; no mandatory failure or universal must claim",
+    "residual": "Do not promote this recommendation into a SHALL conformance test."
+  },
+  {
+    "issue": 618,
+    "primary_locator": "Primary PDF physical p.546 / printed p.531, Issue #618 Caret extends Table 226 /AA's cross-reference to Table 199, the form-field additional-actions table.",
+    "classification": "editorial cross-reference correction; it identifies the table of actions but adds no action behavior",
+    "ledger": "\u00a712.7.4.1 and \u00a712.6.3; current script-action scope lists Table 199 independently",
+    "code": "pdf-model action readers and pdf-script engine paths",
+    "assertions": "Parent has run the engine-enabled script suite; Table 199 supported actions have dedicated engine/API assertions, beyond this cross-reference amendment.",
+    "verdict": "no separate runtime obligation introduced; amended reference points to already reviewed action family",
+    "residual": "Keep engine-enabled command/features explicit in the script shard; no duplicate test needed here."
+  },
+  {
+    "issue": 679,
+    "primary_locator": "Primary PDF physical p.543 / printed p.528, Issue #679 strikes 'number' and inserts 'real' in Table 223 /A argument types for RichMediaCommand.",
+    "classification": "Argument type terminology correction in the excluded Rich-Media-Execute action. Integer remains separately listed; do not describe this as narrowing the general PDF numeric input set.",
+    "ledger": "\u00a712.6.4.18 Rich-Media-Execute action, currently out-of-scope",
+    "code": "pdf-model action reader refuses/excludes rich-media execute rather than executing it",
+    "assertions": "No RichMedia command execution test exists or is owed under current scope; generic PDF number parsing is separate from this excluded action family.",
+    "verdict": "no current reader feature affected; do not apply this action-table correction to \u00a77.3.3 number parsing or unrelated numeric arguments",
+    "residual": "This amendment should remain recorded as a source exclusion, not a claimed supported behavior."
+  }
+]

@@ -11,19 +11,22 @@
     "script_engine": "247PASS4ignored plus separate corpus2PASS249filtered. Corpus counters documented; semantic/error provenance follow-up active.",
     "rendition_and_font": "B49/B50:7new tests,5PASS2FAIL;73total expected failures,70in eleven-crate scope+3GPU. Model/core Clippy PASS.",
     "optional_and_save": "Wave51 final4run3PASS1FAIL; manifest74 (71eleven-crate scope+3GPU). Model/core/signature Clippy PASS.",
-    "residual_consumers": "Wave52:Matrix2D1engineFAIL; appearance1PASS, navigation3PASS, outlineUI1PASS; existingLZWtest extended andPASS. Manifest75=71eleven-crate+3GPU+1engine. FivecrateClippyPASS. Wave54 adds2syntaxPASS after broad53, strengthens existingBMtestPASS; syntax/modelClippyPASS. Manifest75unchanged. Wave55newcore4run3PASS1FAIL;manifest76=72broadscope+3GPU+1engine. Broad53 predates this newfailure; no newbroadrun claimed. Core/syntaxClippyPASS. Wave56syntax4run2PASS2FAIL; manifest78=74broadscope+3GPU+1engine. SyntaxClippyPASS. Wave57adds4PASSannotation/link/function/CalGray; model+colourClippyPASS. Manifest78unchanged. Wave58adds2PASSgraphicsstatepixels;modelClippyPASS;manifest78unchanged. Wave59 adds two passing font metric tests; font all-targets Clippy passes. Manifest remains 78."
+    "residual_consumers": "Wave52:Matrix2D1engineFAIL; appearance1PASS, navigation3PASS, outlineUI1PASS; existingLZWtest extended andPASS. Manifest75=71eleven-crate+3GPU+1engine. FivecrateClippyPASS. Wave54 adds2syntaxPASS after broad53, strengthens existingBMtestPASS; syntax/modelClippyPASS. Manifest75unchanged. Wave55newcore4run3PASS1FAIL;manifest76=72broadscope+3GPU+1engine. Broad53 predates this newfailure; no newbroadrun claimed. Core/syntaxClippyPASS. Wave56syntax4run2PASS2FAIL; manifest78=74broadscope+3GPU+1engine. SyntaxClippyPASS. Wave57adds4PASSannotation/link/function/CalGray; model+colourClippyPASS. Manifest78unchanged. Wave58adds2PASSgraphicsstatepixels;modelClippyPASS;manifest78unchanged. Wave59 adds two passing font metric tests; font all-targets Clippy passes. Manifest remains 78. Wave61 adds two passing composite-string/class-map tests; model all-targets Clippy passes. Manifest remains 78; broad59 predates these two."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
-      "errata_interactive_batch_current",
-      "errata_graphics_security_batch_current",
-      "errata_structure_metadata_batch_current",
-      "errata_font_text_batch_current"
+      "errata_media_annex_batch_current",
+      "errata_action_form_batch_current",
+      "indirect_shading_values_current"
     ],
     "recorded_shards": [
+      "errata_interactive_batch_current",
+      "errata_structure_metadata_batch_current",
+      "errata_font_text_batch_current",
+      "errata_graphics_security_batch_current",
       "errata_numeric_syntax_batch_current",
       "errata_reference_editorial_current",
       "indirect_font_values_current",
@@ -188,6 +191,6 @@
     "ceiling": 85,
     "remaining_reserved": 15,
     "last_weekly_used_percent": 54,
-    "last_read_utc": "2026-11-16T19:47:13.985042+00:00"
+    "last_read_utc": "2026-11-16T19:54:57.992724+00:00"
   }
 }

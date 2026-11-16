@@ -3,6 +3,83 @@
   "numbering": "Logical content items use published ledger owners14.7.5.1.1/.2/.3/.4 for effective EC3 .2/.3/.4/.5; navigator owner12.3.6 maps effective12.3.5.3. JBIG2 external Annex D is not ISO PDF Annex D.",
   "shards": [
     {
+      "shard": "errata_interactive_batch_current",
+      "artifact": "shards/errata_interactive_batch_current/features.json",
+      "ledger_owners": [
+        "12.3.2.2",
+        "12.3.3",
+        "12.4.2",
+        "12.5.2",
+        "12.5.6.2",
+        "12.5.6.5",
+        "12.5.6.6",
+        "12.6.3",
+        "12.6.4.2",
+        "12.6.4.4",
+        "12.6.4.18",
+        "12.7.4.1",
+        "12.7.4.3",
+        "12.7.5.3",
+        "14.7.6.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_structure_metadata_batch_current",
+      "artifact": "shards/errata_structure_metadata_batch_current/features.json",
+      "ledger_owners": [
+        "14.3.1",
+        "14.5",
+        "14.6.1",
+        "14.7.3",
+        "14.8.3.3",
+        "14.8.4.7.2",
+        "14.8.4.8.3",
+        "14.8.5.1",
+        "14.8.5.2",
+        "14.8.5.3",
+        "14.8.5.4.2",
+        "14.8.5.8",
+        "14.8.6.1",
+        "14.8.6.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_font_text_batch_current",
+      "artifact": "shards/errata_font_text_batch_current/features.json",
+      "ledger_owners": [
+        "7.9.2.2.1",
+        "9.3.6",
+        "9.4.3",
+        "9.6.2.2",
+        "9.6.3",
+        "9.6.4",
+        "9.8.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "errata_graphics_security_batch_current",
+      "artifact": "shards/errata_graphics_security_batch_current/features.json",
+      "ledger_owners": [
+        "7.4.1",
+        "7.6.3",
+        "7.6.4.2",
+        "7.6.4.4.2",
+        "7.6.7",
+        "7.11.6",
+        "8.2",
+        "8.6.5.5",
+        "8.7.3.1",
+        "8.7.4.5.8",
+        "11.6.6",
+        "14.8.5.2",
+        "14.8.5.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
       "shard": "errata_numeric_syntax_batch_current",
       "artifact": "shards/errata_numeric_syntax_batch_current/features.json",
       "ledger_owners": [

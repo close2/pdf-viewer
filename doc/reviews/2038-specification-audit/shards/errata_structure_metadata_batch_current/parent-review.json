@@ -1,0 +1,6 @@
+{
+  "source": "Parent enumerated all fourteen groups, read relevant primary headings/tables and compared annotation rectangles. #45/#71 share one overlay and are not two independent changes. #303 StrikeOut6812 lies over NOTE1; #126 rectangles only cover rolemapped at physical735 and742.",
+  "consumer": "Read Tree::attribute documentation: explicit/local priority only, inheritance and defaults separately assigned. ADR0728 described then-inapplicable layout rows historically; do not use that historical status as current evidence.",
+  "assertions": "Existing accessibility::a_structure_element_inherits_a_language_from_its_ancestry places BDC/EMC inside BT/ET and checks the actual speech text/language, so the deleted complete-graphics-object note is not treated as a parser prohibition. Current generic class API is covered by the new passing test.",
+  "limits": "Selected corrections only; full namespace examples, all table header semantics and all layout defaults remain partial."
+}
