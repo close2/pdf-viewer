@@ -11,9 +11,9 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (43)
+## Current checkpoint (44)
 
-Partial reviews now cover **715 of 883 ledger rows**, with 168 pending. The current
+Partial reviews now cover **720 of 883 ledger rows**, with 163 pending. The current
 failure manifest contains **69 assertions**, grouped into behavior findings rather
 than 69 independent defects. All 72 failures from the prior audit pass at this baseline.
 The latest broad run, wave31, covered eleven crates: **7,142 tests ran, 7,087 passed,
@@ -90,8 +90,12 @@ opened. Filtered attachment checksum and cross-Contents graphics-stack controls
 pass. A token-boundary comment and several source locators are corrected in the
 audit evidence; production and historical decision files remain unchanged.
 
+Checkpoint 44 adds passing CPU controls for Type 3 image suppression and the
+image-mask exception, including nested forms. Colour/font overview requirements
+are mapped to their detailed owners; no aggregate status certifies every child.
+
 These are partial feature reviews, not whole-clause certification. The paragraphs
-below preserve earlier checkpoint evidence. Weekly usage was 47% at the latest check;
+below preserve earlier checkpoint evidence. Weekly usage was 48% at the latest check;
 the ceiling is85%, preserving the requested15% reserve.
 
 ## Method and current work

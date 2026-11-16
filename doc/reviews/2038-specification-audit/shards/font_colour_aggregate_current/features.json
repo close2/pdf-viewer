@@ -1,0 +1,90 @@
+{
+  "baseline": "b901326c",
+  "scope": "Aggregate-framing pass over ISO 32000-2:2020(E) \u00a7\u00a78.6.1\u2013.3, 8.6.8, 9.1, 9.2, 9.7, and 9.10. This checks whether these overview/aggregate clauses add distinct normative behavior beyond their leaf owners; it does not recertify their leaves or all color/font behavior.",
+  "source": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "effective_text": "doc/md/ISO_32000-2_sponsored_EC3.md",
+    "locators": {
+      "8.6.1-8.6.3": "printed pp.177-179 / physical pp.192-194",
+      "8.6.8": "printed pp.216\u2013219 / physical pp.231\u2013234; Table 73 and uncoloured-figure restriction",
+      "9.1": "printed p.293 / physical p.308",
+      "9.2.1-.3": "printed pp.293-296 / physical pp.308-311",
+      "9.7.1-.2": "printed pp.327-328 / physical pp.342-343",
+      "9.10.1": "printed p.355 / physical p.370"
+    },
+    "ec3": [
+      {
+        "issue": "#551",
+        "clause": "8.6.8 Table 73 cross-reference / Table 73 CS row",
+        "source": "Actual primary annotation #551 physical232/217, Table73 CS row; removes associated-value array restriction.",
+        "effect": "Removes the statement that the CS resource entry shall be an array. The code's colour parser accepts a name resource form; this is a producer-table correction, not a reader rejection requirement."
+      },
+      {
+        "issue": "#324",
+        "clause": "Table 119 ToUnicode cross-reference",
+        "source": "primary physical p.356 / printed p.341",
+        "effect": "Corrects a cross-reference to \u00a79.10; no new extraction algorithm."
+      }
+    ]
+  },
+  "features": [
+    {
+      "id": "colour_specification_vs_rendering",
+      "clause": "8.6.1",
+      "source_rule": "The standard separates colour specification in PDF from device-dependent colour rendering. A rendering processor shall reproduce specified colour through a multi-step process; detailed rendering facilities are in Clause 10. Separation rendering may be implemented on subtractive devices, and separation simulation is optional.",
+      "ledger": "8.6.1 is implemented introductory prose with a real general colour-reproduction obligation; it is not an empty heading. Detailed stages have their own rows. 8.6 itself is a heading.",
+      "implementation_and_assertions": "Specification routes feed colour conversion/rendering and are covered by colour_spaces_current, special_colour_spaces_current, default_colour_bpc_current, rendering_intent_transfer_current, and image/shading/overprint sibling evidence. Clause 10 owns device calibration/halftoning choices. No sampled test here establishes every hardware or printing stage.",
+      "verdict": "No separate colour-space algorithm is hidden in the overview. Treating optional separation simulation as a universal reader MUST would overstate the source. The parent row is an aggregate claim only; its child rows remain the evidence-bearing units.",
+      "residuals": [
+        "This pass does not certify all Clause 10 rendering stages or physical output-device behavior."
+      ]
+    },
+    {
+      "id": "colour_value_and_image_pipeline",
+      "clause": "8.6.2-8.6.3",
+      "source_rule": "Marks obtain their current colour from the current graphics-state colour space and value; component values are interpreted by that space and constrained to its permitted range. Image samples are independent of the graphics-state current colour but later colour-processing stages shall treat them the same way as SC/sc values. Families are device, CIE-based, and special; family instances are selected by names/parameters.",
+      "ledger": "\u00a78.6.2 and .3 implemented; their current test fields are aggregate examples, while specialized rows own actual ranges/families and image routes.",
+      "implementation_and_assertions": "ColourSpace parsing and component ranges are in pdf-colour; fill/stroke, image, and shading callers route values through conversion. The colour_spaces_current review found leaf-level independent numeric controls and an ICC fallback-range gap; image sibling artifacts cover sample/Decode/space paths. Current colour_paths tests distinguish some fill/JPEG gray/CMYK routes. No single image-vs-operator test should be taken as evidence for every colour family.",
+      "verdict": "This is shared-pipeline framing rather than an additional family implementation. Existing leaf ownership is appropriate. Aggregate ledger evidence is too narrow if read as proof by itself, but the leaf inventory supplies separate evidence; no new defect inferred in this pass.",
+      "residuals": [
+        "Colour_spaces_current records the DeviceRGB public reset assertion gap and unsupported-ICC alternate /Range candidate; those are not re-audited here.",
+        "No exhaustive same-colour comparison across all image codecs, families, blend spaces, and render intents was performed."
+      ]
+    },
+    {
+      "id": "colour_operators_and_uncoloured_context",
+      "clause": "8.6.8 Table 73 and following restriction",
+      "source_rule": "Table 73 defines twelve color-space/color-setting operators and ri is cross-referenced. In d1 glyph descriptions and uncoloured tiling patterns, specified colour and colour-related operators and named ExtGState entries are ignored throughout invoked content; image operators are ignored except for image masks. Selecting a space initializes current colour according to the space-specific cases. The PDF 2.0 rule is ignore, replacing older contradictory error language.",
+      "ledger": "\u00a78.6.8 implemented. Ledger claims all twelve operators, initial-colour cases and ignored operators/ExtGState/image behavior.",
+      "implementation_and_assertions": "Colour dispatch is in pdf-model/content.rs and pdf-colour; `colour::queries` supplies space-specific initial colours. Focused tests include `colour_paths.rs::a_grey_level_is_its_fraction_of_white_and_selecting_the_space_starts_it_at_black`, Type 3 d0/d1 inherited-color control, tiling colour-operator and TR/TR2 controls, and operand-count stream-fault reporting. EC3 #551's name-valued CS form is accepted by `colour::parse_at`.",
+      "verdict": "The uncoloured-context restriction is represented by explicit execution-state behavior and consumer tests, not just by dictionary acceptance. Existing assertions do not independently recite every Table 73 paired operator or every image kind; the earlier pattern shard explicitly left the full operator/image list unrecertified. This is a remaining evidence-granularity boundary, not a demonstrated gap in runtime behavior.",
+      "residuals": [
+        "No full operator-by-operator census was run in this aggregate pass.",
+        "Image-mask exception and transparent mask-group handling have their own image/transparency owners; do not infer them solely from the Type 3/tiling tests.",
+        "#551 concerns producer wording in Table 73 and does not justify rejecting older resource-array forms."
+      ]
+    },
+    {
+      "id": "font_clause_organization",
+      "clause": "9.1 and 9.2",
+      "source_rule": "Clause 9 separates text state/operators, font data structures, and glyph placement/painting. Character-code selection, glyph appearance, and text information are distinct concepts; glyphs remain graphical shapes subject to transformations and rendering effects.",
+      "ledger": "\u00a79.1 / .2 implemented as aggregates; specialized rows cover text state, font dictionaries/programs, metrics/placement, rendering, and extraction.",
+      "implementation_and_assertions": "The code splits pdf-model text interpretation from pdf-font loading/encoding and pdf-render glyph paint. font_basics_graphical_effects_current reviewed \u00a7\u00a79.2.1-.3 and found the mode/clipping path plus a public raster draft; text_state_current reviews \u00a7\u00a79.3-.4; font dictionaries, descriptors, encodings, Type3, CMaps and extraction have separate current artifacts.",
+      "verdict": "No independent algorithm is imposed by the overview beyond those detailed clauses. The aggregate ledger claim is derivative and should not be read as whole-clause proof when any specialized clause remains pending or has a residual.",
+      "residuals": [
+        "The parent and \u00a79.1 wording does not close leaf residuals or certify every font technology/substitution host route."
+      ]
+    },
+    {
+      "id": "composite_font_and_extraction_overview",
+      "clause": "9.7.1-.2 and 9.10.1",
+      "source_rule": "Composite fonts decode one-or-more-byte sequences through a Type 0/CMap/CIDFont architecture; CIDs may have Annex C implementation limits. Extraction distinguishes Unicode character information from glyph appearance, lists mapping routes and permits a chosen fallback when all methods fail. Tagged documents have additional mapping duties owned by \u00a714.8.2.6.",
+      "ledger": "\u00a79.7 and \u00a79.10 are aggregates; CMap/CID mechanics, ToUnicode, glyph names and structure replacement routes have child owners.",
+      "implementation_and_assertions": "font_basics_graphical_effects_current reviewed composite architecture and extraction overview against variable-length code, font-selection, independent extractor, no-paint extraction and ActualText assertions. text_extraction_cmaps_current covers selected ToUnicode syntax and source-code length. Structure/layout shards own tagged-text mapping and reading order.",
+      "verdict": "The aggregate framing is compatible with the separate implementation paths. Annex C expressly permits limits, and \u00a79.10's fallback permission means unmapped input alone is not evidence of a failure. #324 only corrects a cross-reference.",
+      "residuals": [
+        "Prior font_basics_graphical_effects_current explicitly excludes complete extraction precedence, language, word-boundary, and all collection behavior; see those shard residuals."
+      ]
+    }
+  ]
+}

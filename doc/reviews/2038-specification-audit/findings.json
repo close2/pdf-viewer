@@ -1798,5 +1798,17 @@
     "adrs": [
       "0365"
     ]
+  },
+  {
+    "id": "2038-T64",
+    "kind": "passing-regression",
+    "clauses": [
+      "8.6.8",
+      "9.6.4"
+    ],
+    "summary": "Type3 d1 suppresses coloured images and preserves image masks in direct and nested Form content.",
+    "evidence": "Exact-xref PDF2.0: d0 red-image controls, d1 explicit-white no-paint targets, d1 inherited-blue stencils with white outside controls. Complete interpretation; actual CPU pixels.",
+    "execution": "type3-image-wave44.log:2PASS. Model all-targets Clippy PASS.",
+    "scope": "No GPU, inline-image, soft-mask-group or full ignored-operator list certification."
   }
 ]
