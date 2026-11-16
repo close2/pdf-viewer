@@ -1,0 +1,36 @@
+{
+  "scope": "Only decisions that directly bear on the reviewed framing claims; no ADR-wide recertification.",
+  "reviews": [
+    {
+      "adr": "0907",
+      "verdict": "Reopen narrowly for the DocMDP comparison path.",
+      "basis": "Its ‘met by construction’ rationale addresses operation restriction checks that omit DSS/DTS objects. B18 demonstrates the separate `revision::Comparison` / `viewer-core::notes::modifications` consumer can classify a valid DTS-only P=1 update as NotClassified because required signature-field/catalog/page registration is not carved out. Keep the operation-level conclusion distinct."
+    },
+    {
+      "adr": "1043",
+      "verdict": "Retain the signed-prefix and revision-diff model; qualify its completeness claim at the DTS-only boundary.",
+      "basis": "Prefix reconstruction and object-diff assertions are validly exercised. The B18 failure is classification of a source-permitted update, not evidence against prefix reconstruction generally."
+    },
+    {
+      "adr": "1049",
+      "verdict": "Retain ranking framework; narrow the completed claim for Table 257’s timestamp exception.",
+      "basis": "Literal ranking tests cover ordinary DocMDP object classes. B18 shows the DTS registration objects needed for the explicit exception are not fully ranked as validation material."
+    },
+    {
+      "adr": "1104",
+      "verdict": "Keep operation permission/reporting and signed-revision comparison as separate consumers.",
+      "basis": "Operation-level permission tests cannot substitute for an observed public report/comparison result; B18 reaches the latter."
+    },
+    {
+      "adr": "1071",
+      "verdict": "Retain token-establishment boundary; do not treat it as proof of DocMDP revision classification.",
+      "basis": "RFC 3161 token/range/time controls support timestamp authenticity and coverage. B18 independently tests transform comparison."
+    },
+    {
+      "adr": "1067",
+      "verdict": "Retain separation of parsed DSS material from cryptographically usable revocation evidence.",
+      "basis": "Not reconsidered by this framing review; referenced only to avoid implying the CMS/DTS framing tests establish revocation status."
+    }
+  ],
+  "no_new_decision_or_test": "No duplicate was added for the existing B18 DTS-only DocMDP public comparison regression and valid mixed control. The broader signature audit also has prior observed findings B41 and B44 (TSA keyCompromise/current CRL applicability), B47 (historical OCSP producedAt), and B42 (FieldMDP name selection); B42 is outside this exact clause shard, and the others belong to detailed .4.7/.4.8 clauses not re-audited here. They are not erased by saying B18 is the only signature finding."
+}

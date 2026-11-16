@@ -1437,6 +1437,20 @@
       "failed": 1,
       "exit": 100,
       "scope": "Final lint-adjusted test pair retains expected depth64PASS/depth65FAIL."
+    },
+    {
+      "log": "script-engine-wave49.log",
+      "run": 247,
+      "passed": 247,
+      "failed": 0,
+      "skipped": 4,
+      "exit": 0,
+      "scope": "pdf-script and pdf-script-worker with both engine features; two new Table221 controls plus existing engine and confined-worker suites."
+    },
+    {
+      "log": "quality-wave49.log",
+      "exit": 0,
+      "scope": "Both script crates all-targets Clippy with engine features PASS."
     }
   ],
   "prior_expected_failures": {

@@ -1864,5 +1864,27 @@
       "1533"
     ],
     "execution": "deep-page-tree-wave48b.log:1PASS1FAIL; final lint-only-adjusted rerun recorded in gates."
+  },
+  {
+    "id": "2038-D40",
+    "kind": "stale-screen-rendition-scope",
+    "clauses": [
+      "12.5.6.18",
+      "12.6.4.14"
+    ],
+    "summary": "Screen annotation note still vacates its rendition P precondition under an obsolete action exclusion.",
+    "evidence": "Current rendition row is implemented and unplaced checks Type=Page plus Annots membership. Primary513/498 and540/525 state the precondition. Current media scope admits handoff and viability.",
+    "disposition": "Documentation finding only. Detached-page and enabled JS priority are separate live behavioral reviews. No ledger edit or duplicate D35 appearance finding."
+  },
+  {
+    "id": "2038-T65",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "12.6.4.17"
+    ],
+    "summary": "Added actual engine execution of an indirect JS text stream with a direct-string control.",
+    "evidence": "Name-tree definition followed by OpenAction invocation changes the literal public model field value. Exact xref, actual Boa, two sites and no reports guarded.",
+    "execution": "Both new tests PASS within247 engine-enabled script/worker tests; both crates all-targets Clippy PASS.",
+    "limits": "ViewState engine integration, not every public viewer trigger or the complete ECMAScript API. Corpus output counters are a separate form of evidence."
   }
 ]

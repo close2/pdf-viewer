@@ -7,19 +7,22 @@
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
     "later_targets": "Latest broad38b eleven packages:7158run7096PASS62expectedFAIL58skip. Exact manifest identities match package scope;3GPU failures separately recorded. Wave39 then adds2PASS lexical tests; manifest65 unchanged. Wave40 adds one public accessibility-order failure; manifest 66. Broad38 predates this and the two lexical tests. Wave41 adds current-time CRL public report1PASS1FAIL; manifest67. Wave42 adds Type4 NUL1FAIL with4existingPASS; manifest68. Wave43 final4run3PASS1FAIL; manifest69. Broad38 predates waves39\u201343. Wave44 adds2PASS Type3 image controls; manifest69 unchanged. Wave46 adds public historical OCSP producedAt1PASS1FAIL; manifest70. Wave48 adds depth-boundary1PASS1FAIL; manifest71.",
-    "quality": "Checkpoint48 model,46 core,43 transform,42 colour all-targets Clippy PASS; earlier scopes recorded."
+    "quality": "Checkpoint48 model,46 core,43 transform,42 colour all-targets Clippy PASS; earlier scopes recorded.",
+    "script_engine": "Wave49:247run247PASS4ignored, two new controls included. Both engine-enabled crate Clippy checks PASS. Ignored corpus/census pair running separately; no result claimed yet."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
-      "signature_framing_current",
       "rendition_preconditions_current",
-      "script_action_execution_current",
+      "optional_content_ui_usage_residual_current",
       "simple_font_encoding_residual_current"
     ],
     "recorded_shards": [
+      "media_framing_current",
+      "signature_framing_current",
+      "script_action_execution_current",
       "file_security_framing_current",
       "text_colour_optional_framing_current",
       "logical_structure_framing_current",
@@ -142,14 +145,14 @@
       "font_substitution_current",
       "tagged_layout"
     ],
-    "partial_current_rows": 856,
-    "pending_current_rows": 27
+    "partial_current_rows": 883,
+    "pending_current_rows": 0
   },
   "remaining": [
-    "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",
-    "Expand feature-level coverage in previously pending source areas.",
-    "Promote and run meaningful missing tests, with independent controls.",
-    "Record source/ledger/citation gaps separately from behavioral defects."
+    "Every ledger row now has at least a partial current review, not a complete feature certificate. Reconcile feature residuals and evidence gaps within reviewed rows.",
+    "Complete rendition precondition/script-priority, simple-font encoding and optional-content UI/usage follow-ups.",
+    "Finish engine corpus execution and characterize counters separately from semantic assertions.",
+    "Continue selected ADR reconsideration and meaningful missing tests within the weekly85% ceiling; stop new dispatch near81%."
   ],
   "budget": {
     "weekly_used_at_start": 29,
@@ -157,6 +160,6 @@
     "ceiling": 85,
     "remaining_reserved": 15,
     "last_weekly_used_percent": 49,
-    "last_read_utc": "2026-11-16T17:24:09.237607+00:00"
+    "last_read_utc": "2026-11-16T17:31:11.228871+00:00"
   }
 }

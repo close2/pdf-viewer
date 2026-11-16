@@ -1,0 +1,13 @@
+[
+  {
+    "clause": "12.6.4.17",
+    "title": "ECMAScript actions",
+    "source_location": "ISO 32000-2:2020 EC3 primary layout: printed p. 526 / physical p. 541 for the clause; Table 221 is printed p. 527 / physical p. 542. Primary-layout text was checked directly in scratchpad/r2038/spec-audit/ec3-parent-layout.txt lines 31684\u201331726.",
+    "errata": "No EC3 change to \u00a712.6.4.17 or Table 221 identified in doc/errata-read.md. The six annotations attributed to this page belong to \u00a712.6.4.16 because the page begins there; they do not amend the next clause. EC3 #214 affects Table 32's terminology, changing 'name string' to 'string'; it does not change the JavaScript action behavior or Table 221.",
+    "ledger": "Implemented; row 12.6.4.17 names the code, direct assertions, scope ratifications A100/A193/A286, and the off-by-default level. It distinguishes its ISO claim from the product's permitted level policy.",
+    "code": "pdf-model action parsing and view/script_sites.rs + view/scripts.rs read and dispatch actions; pdf-script's feature-gated Boa engine executes ECMAScript; pdf-script-worker hosts that engine in a confined worker; viewer-core and viewer-host supply the reader's script level/runner.",
+    "tests_assertions": "Engine-enabled pdf-script hook test the_open_runs_the_name_tree_the_open_action_the_page_and_its_annotations_in_order asserts an actual shared-field value LAOP, helper definition/use across name tree and later actions, and no reports. realm.rs::a_function_the_name_tree_defines_is_what_a_later_field_script_calls separately checks persistent realm behavior. pdf-model/tests/script_unread.rs exercises Table 221's string-vs-stream extraction, bound and refusal reporting with a real exact-xref PDF and recording runner; it does not itself evaluate the stream through Boa. pdf-script-worker/tests/end_to_end.rs exercises ViewState -> real ScriptWorker -> separate worker process, off/on, edits, realm/process reuse and confinement, behind engine. viewer-core tests exercise caller level/trigger policy.",
+    "verdict": "Implemented within the explicit A286/A193 scope and the reader's Scripts-level policy. Sampled source, dispatch, engine and worker evidence is coherent; this review does not certify all ECMAScript/ISO 21757-1 language features or every action event and API member.",
+    "residuals": "Parent added indirect JS text-stream execution and direct-string controls in pdf-script/tests/hook.rs. Both PASS. Engine-enabled pdf-script and pdf-script-worker suites:247PASS,4ignored. Selected ignored corpus walks run separately; they measure execution/error/death populations, not correct field values. Full language/API/event coverage remains unproved."
+  }
+]

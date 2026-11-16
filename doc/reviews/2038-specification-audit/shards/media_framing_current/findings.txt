@@ -1,0 +1,9 @@
+Parent bounded media framing review, baseline b901326c.
+
+Primary EC3 pages and actual assertion bodies were read, not only ledger test names. Existing public movie/sound tests inspect exact handoff payloads, URLs, notes and negative controls. Rendition positive/permission controls establish Event::Media behavior; their tiny moov payload is not a valid-playback oracle. Model viability tests distinguish selected required and best-effort options, unknown clip subtype and unnamed-player matching.
+
+D40 documentation finding: Screen row12.5.6.18 still calls rendition12.6.4.14 out-of-scope and its P requirement vacated, while that row now implemented and code checks P TypePage and Annots membership. Primary513/498 and540/525 explicitly bind the check. Production behavior at detachedpage/JSpriority boundaries is being reviewed separately, not assumed correct from that code or failure from this stale prose.
+
+The current scope explicitly admits file handoff, still appearances, viability and confined document/viewer scripts. Playback and rich-media/3D handlers remain excluded. Therefore neither13.1 nor old script exclusion prose may blanket-exclude admitted behaviors. Media software matching remains conditional on an unnamed processor/player; no URI/version/OS comparator is certified. Existing multimedia_data_current evidence owns that limitation.
+
+No new execution or duplicate behavior finding in this framing shard. Current broad38b includes existing media tests; parent reviewed their bodies here. No whole-clause conformance certificate, new media decoder, status edit or historical ADR rewrite.

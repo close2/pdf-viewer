@@ -1,0 +1,100 @@
+[
+  {
+    "clause": "12.5.6.16",
+    "source_location": "physical511\u2013512/printed496\u2013497;Table188",
+    "source_requirement": "Deprecated sound annotations retain activation and icon behavior.",
+    "assertion_review": "The public URL test asserts the same literal handoff from an annotation and an action. The sample test checks decoded signed-PCM rebiasing and mu-law RIFF bytes. Existing appearance review owns the icon assertions.",
+    "limits": "File handoff is scoped product behavior. No actual player, sound decoding quality or artwork certificate."
+  },
+  {
+    "clause": "12.5.6.17",
+    "source_location": "physical512/printed497;Table189",
+    "source_requirement": "Movie activation uses its activation entry; false prevents playback.",
+    "assertion_review": "The public activation test checks the exact embedded payload and title/unsupported-Mode note. The A=false control hands nothing over. A separate test exercises the click route.",
+    "limits": "Playback excluded. SuppliedAP/poster appearance remains separate; no complete activation-parameter matrix claimed."
+  },
+  {
+    "clause": "12.5.6.18",
+    "source_location": "physical512\u2013513/printed497\u2013498;Table190",
+    "source_requirement": "A Screen without AP has no default appearance or printing. A rendition requires P to reference a valid page and that page to list the annotation.",
+    "assertion_review": "The existing no-appearance test covers model appearance. The public missing-Annots control checks no Media event and the corresponding diagnostic. Primary page513/498 explicitly states both preconditions.",
+    "limits": "D40: the ledger still calls rendition actions out of scope and the P duty vacated, although current12.6.4.14 is implemented. Precondition/script follow-up is separate; D35 owns the earlier appearance-comment issue."
+  },
+  {
+    "clause": "12.6.4.9",
+    "source_location": "physical535/printed520;Table212",
+    "source_requirement": "A sound action references its sound stream; playback parameters are distinct from the sound bytes.",
+    "assertion_review": "Public URL and filtered-sample tests inspect actual Media events, literal bytes and the Repeat diagnostic. A private-CO control withholds media and names the unsupported codec.",
+    "limits": "Handoff only; repeat/mix/volume/synchronous playback not implemented or certified."
+  },
+  {
+    "clause": "12.6.4.10",
+    "source_location": "physical535\u2013536/printed520\u2013521;Table213",
+    "source_requirement": "A movie action selects an annotation or title and operation. Its settings override annotation activation defaults.",
+    "assertion_review": "The intro-title Play control hands over the movie even when annotation A=false. The missing outro title has no Media event and a diagnostic. Stop, Pause and Resume each hand nothing over and report that nothing plays in this program. The restrictions-On control admits the movie without rendition-only permissions.",
+    "limits": "Action-chain page selection and all overrides not recertified here. Actual movieplayer excluded."
+  },
+  {
+    "clause": "12.6.4.14",
+    "source_location": "physical539\u2013540/printed524\u2013525;Table218",
+    "source_requirement": "Before executing a rendition action, check Screen P and Annots membership. JS executes first; OP is the fallback when the processor cannot execute ECMAScript.",
+    "assertion_review": "Public positive control checks the exact moov payload, video/mp4 type and title. Missing Annots has no Media event. TEMPNEVER with restrictions On refuses; TEMPALWAYS hands over; Ask requires an answer. The unplaced code checks Type=Page and Annots.",
+    "limits": "The tiny moov payload does not establish a playable container. Enabled script priority and detached-page membership are separate live follow-ups. No complete precondition certificate."
+  },
+  {
+    "clause": "12.6.4.18",
+    "source_location": "physical542/printed527;Tables222\u2013223",
+    "source_requirement": "RichMediaExecute invokes the specified rich-media annotation handler command.",
+    "assertion_review": "The current exclusion concerns this handler and playback. It is distinct from the generic document/viewer JavaScript action.",
+    "limits": "Retain excludedhandler scope; a general claim that all script execution is excluded is stale. No handlerexecution test is demanded by current scope."
+  },
+  {
+    "clause": "13.1",
+    "source_location": "physical629/printed614",
+    "source_requirement": "The introduction describes embedding and playing multimedia; operational rules reside in child clauses.",
+    "assertion_review": "Current CLAUDE.md and ADR1946 distinguish playback/3D rendering from admitted still appearances, viability, extraction and file handoff.",
+    "limits": "Outofscopeintro cannot be used to exclude those admitted child features. No independent headingalgorithm to test."
+  },
+  {
+    "clause": "13.2.3",
+    "source_location": "physical631/printed616",
+    "source_requirement": "The Renditions heading introduces common, media and selector child clauses.",
+    "assertion_review": "Specific tests cover C/P/SP viability and selector order. There is no independent heading algorithm.",
+    "limits": "Passing chosenclip is not full media-player support."
+  },
+  {
+    "clause": "13.2.3.2",
+    "source_location": "physical634\u2013635/printed619\u2013620;Table282",
+    "source_requirement": "Media rendition viability is the conjunction of C, P and SP viability. Omitting C requires a player that takes no input, referenced through P.PL.MU or A.",
+    "assertion_review": "The public model control admits best-effort options, rejects a must-honour screen option, and rejects missing C with a named inputless player. Walk::media_rendition accumulates play/screen failures before accepting the clip.",
+    "limits": "Sampled conjunction branches; actualexternalplayer has no softwareidentity. Tests do not prove everydefaultcombination."
+  },
+  {
+    "clause": "13.2.4",
+    "source_location": "physical635/printed620",
+    "source_requirement": "The Media clip objects heading introduces data and section children.",
+    "assertion_review": "Existing section tests check next-level viability, nesting, required-seek rejection and best-effort continuation. Detailed owners review container semantics.",
+    "limits": "Not fullcontainerdecode or playingcertificate."
+  },
+  {
+    "clause": "13.2.4.1",
+    "source_location": "physical635\u2013636/printed620\u2013621;Table284",
+    "source_requirement": "An unrecognized clip subtype is expressly nonviable.",
+    "assertion_review": "The MCX test asserts false; MCD positive controls exist separately. Parent inspected Walk::clip dispatch.",
+    "limits": "OptionalTypeproducerconstraint does not create a general readerrejectobligation."
+  },
+  {
+    "clause": "13.2.6",
+    "source_location": "physical643/printed628;Tables293\u2013294",
+    "source_requirement": "Must-honour and best-effort screen parameters govern viability. Playing clips must stop when their document closes.",
+    "assertion_review": "The model test distinguishes best-effort W=1/M=2, which is viable, from must-honour W=3, which is not. File-only handoff cannot request the specified window.",
+    "limits": "No playbackwindow or lifecycleengine is implemented. Do not call externalplayerstoponclose tested; current scope excludes that engine."
+  },
+  {
+    "clause": "13.2.7.4",
+    "source_location": "physical649\u2013651/printed634\u2013636;Table303",
+    "source_requirement": "Software identifiers describe name, version and OS. Child clauses define matching and partial-recognition viability.",
+    "assertion_review": "The player test admits NU/A and empty MU, rejects nonempty MU, and rejects unknown content type without MU. software_identifier_set_aside checks unknown keys, missing U and negative versions.",
+    "limits": "ADR2376 defines neither the processor nor its handoff player with a software name. URI escaping/case, OS and version-range comparison are absent and not certified. Reopen when the host supplies an identity; preserve the earlier multimedia-data qualification."
+  }
+]

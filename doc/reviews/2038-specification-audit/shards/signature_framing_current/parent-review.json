@@ -1,0 +1,6 @@
+{
+  "source": "Parent checked actual headings:12.8 starts582/567, transform methods588/573, interoperability592/577, CMS594/579, CAdES595/580, LTV600/585 and DTS605/590. 12.8 and12.8.4 themselves are headings; general child paragraphs carry substantive context.",
+  "assertions": "Parent read CMS detached parser test: algorithm, digest from supplied bytes, content type, no encapsulated content, signer/certificate counts and attribute placement. It does not prove a cryptographic signature. PAdES structural test checks exact departures with digest guard and non-PAdES control. Security-store report fixture uses empty streams and dummy signature: inventory and refusal/unknown-trust reporting only, not a valid signed-document witness. Genuine public signature controls are separately recorded.",
+  "timestamp": "Range-shortening test independently demands one uncovered material object plus whole-file refusal. It establishes coverage detection, not every historical applicability condition.",
+  "existing_findings": "B17 static open-time validation gap; B18 DocMDP DTS classification; B41 TSA keyCompromise time; B42 qualified FieldMDP name identity; B44 current CRL applicability; B47 historical OCSP producedAt all remain. No whole signature/profile certificate or duplicate finding."
+}

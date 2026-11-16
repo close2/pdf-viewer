@@ -14,15 +14,15 @@ The report and machine-readable continuation are in
 **Evidence so far.** All72 previous failing assertions pass. Current tests expose
 71 failing assertions, grouped by behavior and qualified where interpretation is
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
-The shard index links partial reviews to 856 ledger rows; 27 remain pending in
-this round. No entire clause is certified merely because referenced tests pass.
+The shard index links partial reviews to all883 ledger rows, each still partial. Feature residuals remain
+inside reviewed rows. No entire clause is certified merely because referenced tests pass.
 A shared-parser date mutation was killed and restored. Independent JP2 fixture
 regeneration matches embedded hashes. Selected ADR conclusions are retained,
 qualified, or reconsidered with primary-source reasoning.
 
 **Gates.** Wave38b, eleven packages:7,158run,7,096pass, exactly62expected
 failures by binary/test identity,58skipped. Three GPU failures are outside that scope.
-Wave39 adds2passing lexical assertions. Final syntax/model/signature/core Clippy pass.
+Wave49 adds247passing engine-enabled script/worker tests; both crate Clippy checks pass.
 
 **Latest findings.** Incomplete transparency surveys can yield false Met archive
 results; valid deep DPart attachments can disappear without disclosure. Requirement

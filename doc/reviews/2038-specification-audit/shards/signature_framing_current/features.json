@@ -1,0 +1,143 @@
+{
+  "scope": "Bounded framing audit of ISO 32000-2:2020 + EC3 §§12.8, 12.8.2, 12.8.2.1, 12.8.2.2, 12.8.2.2.1, 12.8.2.2.2, 12.8.3, 12.8.3.1, 12.8.3.3, 12.8.3.3.1, 12.8.3.4, 12.8.3.4.1, and 12.8.4/.4.1 and 12.8.5. Not a recertification of signature algorithms, PAdES requirements §§12.8.3.4.2–.8, revocation, trust policy, VRI/DSS, or all DTS edge cases.",
+  "source": "doc/ISO_32000-2_sponsored_EC3.pdf; physical page = printed page + 15. Effective EC3 checked against doc/errata-read.md and actual PDF annotations. Relevant #152 changes Table 257 /P to integer. #55 is a producer ordering correction; it does not establish a reader rejection/report obligation.",
+  "features": [
+    {
+      "clause": "12.8",
+      "locator": "printed 567 / physical 582; aggregate heading before §12.8.1",
+      "source_requirement": "No standalone requirement is stated in this heading; ledger status is aggregate-only.",
+      "ledger": "partial aggregate",
+      "implementation_evidence": "Subclauses tracked individually.",
+      "assertion_quality": "No independent test should be attributed to the heading itself."
+    },
+    {
+      "clause": "12.8.2",
+      "locator": "printed 573–575/physical 588–590",
+      "source_requirement": "Transform methods and parameters determine which objects enter revision comparison; DocMDP, FieldMDP, and UR are separate methods with distinct roles.",
+      "ledger": "implemented",
+      "implementation_evidence": "pdf-signature/signature.rs and revision.rs; pdf-model/restriction.rs; viewer-core/notes.rs.",
+      "assertions": "signature.rs::a_certification_signature_states_what_may_change_after_it; revision.rs ranking and transition tests; restriction and notes consumer tests. The test bodies distinguish selected modifications and permitted/refused operations.",
+      "limitation": "An existing real DocMDP P=1 plus DTS-only incremental-update public test is tracked separately as B18 and fails comparison. This audit does not treat aggregate ledger status as proof that every carveout works."
+    },
+    {
+      "clause": "12.8.2.1",
+      "locator": "printed 573/physical 588",
+      "source_requirement": "Transform methods/parameters shall define the scope of revision comparison.",
+      "ledger": "implemented",
+      "implementation_evidence": "revision::Comparison and against_field_mdp scope changed objects.",
+      "assertions": "FieldMDP selection tests cover included and excluded field changes; distinct from DocMDP's update-level timestamp carveout.",
+      "limitation": "B18 remains a separate DocMDP validation/comparison gap; it does not negate FieldMDP scope controls."
+    },
+    {
+      "clause": "12.8.2.2 / .2.1",
+      "locator": "printed 573–574/physical 588–589; Table 257 printed 574/physical 589",
+      "source_requirement": "DocMDP states permitted changes; the permissions dictionary association makes it binding. Table 257 defines P=1/2/3 and default P=2. P=1 has a narrow incremental-update exception for only data necessary to add DSS and/or DTS. P=2/3 enumerate permitted form/annotation changes and likewise permit DSS/DTS updates. EC3 #152 makes /P an integer.",
+      "ledger": "implemented (with observed B18 exception gap)",
+      "implementation_evidence": "signature.rs parses DocMDP; revision.rs compares/ranks revisions; restriction.rs applies operation-specific permissions; viewer-core/notes.rs reports change comparison.",
+      "assertions": "Certification level and operation tests cover permitted/refused edits. `a_docmdp_level_written_as_a_real_takes_the_tables_default` deliberately verifies fallback for a non-integer /P; this malformed-value behavior is not a valid-input claim.",
+      "limitation": "Public API DTS-only fixture shows required signature-field/page/catalog registration objects are reported NotClassified under P=1; the valid mixed page-change control is not ranked as unchanged. See B18 and signatures_transforms shard."
+    },
+    {
+      "clause": "12.8.2.2.2",
+      "locator": "printed 574/physical 589",
+      "source_requirement": "After integrity verification, compare the signed and current revisions and evaluate modifications under the transform parameters.",
+      "ledger": "implemented",
+      "implementation_evidence": "revision::Comparison opens the signed prefix and compares it with current xref state; viewer-core notes consumes the result.",
+      "assertions": "Revision comparison tests use literal added/redefined/deleted-object and operation results; B18 is a counterexample to completeness for the DTS carveout only."
+    },
+    {
+      "clause": "12.8.3",
+      "locator": "printed 577/physical 592; aggregate heading",
+      "source_requirement": "Aggregate heading; detailed interoperability requirements are in subclauses.",
+      "ledger": "partial aggregate",
+      "implementation_evidence": "Signature parsing, digest, authenticity, trust, reporting implemented by subordinate rows.",
+      "limitation": "No aggregate certification made here."
+    },
+    {
+      "clause": "12.8.3.1",
+      "locator": "printed 577–578/physical 592–593",
+      "source_requirement": "Signature handlers interoperate through the Filter/SubFilter declarations and the validation parameters; Table 260 enumerates supported combinations.",
+      "ledger": "implemented",
+      "implementation_evidence": "pdf-signature dispatches parsing, digest, crypto family and certificate selection; viewer-core reports digest/authenticity/trust as separate results.",
+      "assertions": "cms.rs detached SignedData controls distinguish content type, digest, signer and certificate facts; corpus signature tests exercise digest mutation and signer-certificate binding; signature algorithm tests cover implemented key families.",
+      "limitation": "These controls do not establish every external handler/profile combination or trust policy. Scope boundary: source’s supported rows and host-supplied trust, not a universal validation oracle."
+    },
+    {
+      "clause": "12.8.3.3 / .3.1",
+      "locator": "printed 579/physical 594",
+      "source_requirement": "CMS signature Contents is DER SignedData; ByteRange identifies signed bytes excluding the Contents hex string; trailing padding is permitted; detached CMS and the specified digest variants are interpreted under RFC 5652. A signer certificate is needed to verify; timestamps/revocation information may also be present.",
+      "ledger": "implemented",
+      "implementation_evidence": "pdf-signature/cms.rs parses CMS; signature.rs checks ByteRange/digest/crypto and certificate association.",
+      "assertions": "Parser fixture `cms::a_detached_signature_states_its_algorithm_and_its_message_digest` asserts literal detached content type and digest; corpus tests check digest tampering and signer-certificate binding. Parser fixture alone is not cryptographic verification; integration tests separately establish verification.",
+      "excluded": "§12.8.3.3.2 archival revocation attribute is out of this bounded shard."
+    },
+    {
+      "clause": "12.8.3.4 / .4.1",
+      "locator": "printed 580/physical 595",
+      "source_requirement": "Aggregate heading plus framing: PAdES signatures use ETSI.CAdES.detached; CMS applies, and compatibility with further CAdES profiles may be obtained with DSS/DTS provisions.",
+      "ledger": "partial aggregate; .4.1 implemented",
+      "implementation_evidence": "Signature::pades_departures scopes profile-specific checks to ETSI.CAdES.detached; authenticity dispatch is separately cryptographic.",
+      "assertions": "`a_pades_signature_is_held_to_the_rules_that_need_no_certificate` includes non-PAdES control; PAdES ECDSA integration test establishes a real signature verification path.",
+      "limitation": "Detailed PAdES conditions reside in .4.2–.8, not reviewed as part of this framing artifact; #55’s producer order condition does not itself require a reader-visible warning."
+    },
+    {
+      "clause": "12.8.4 / 12.8.4.1",
+      "locator": "printed 585 / physical 600 (heading and §12.8.4.1; continuation to printed 586 / physical 601)",
+      "source_requirement": "§12.8.4 is an aggregate heading. §12.8.4.1 frames LTV as using DSS and DTS dictionaries; the sentence itself states no modal reader duty. DSS structure and its detailed use are delegated to §12.8.4.2–.5; timestamp details are in §12.8.5.",
+      "ledger": "12.8.4 implemented; 12.8.4.1 implemented",
+      "implementation_evidence": "security_store parser decodes DSS/VRI material; revocation/trust validate cryptographic evidence with host-supplied anchors; Signature::timestamp handles DTS. viewer-core notes reports evidence separately from status.",
+      "assertions": "The current security-store report fixture checks stream/member inventory and a no-DSS control; revocation/path tests separately establish signed evidence and anchor behavior. These do not prove every LTV workflow or historical capture requirement.",
+      "limitation": "No DSS/VRI/DTS producer conformance or whole LTV profile claim. Detailed .4.2–.5 are only referenced here, not re-audited."
+    },
+    {
+      "clause": "12.8.5",
+      "locator": "printed 590/physical 605",
+      "source_requirement": "DTS uses the signature dictionary and RFC 3161 token; its ByteRange covers the complete revision except Contents and the token imprint binds those bytes. Detailed DTS conditions are further subdivided.",
+      "ledger": "implemented",
+      "implementation_evidence": "signature.rs coverage; timestamp.rs token parser and establishment; viewer-core notes/report paths.",
+      "assertions": "timestamp/tests.rs checks TSTInfo members, token authority, range coverage and chained timestamp/material coverage. B18 separately tests DocMDP interaction; public historical OCSP finding B47 separately tests §12.8.3.4.8 and does not establish all DTS duties.",
+      "limitation": "This entry does not certify every .5.2/.5.3 edge, timestamp order, trust, or revocation policy."
+    }
+  ],
+  "errata_review": [
+    {
+      "issue": "EC3 #152",
+      "effect": "Table 257 /P is integer; current parser fallback for a real-valued malformed /P is covered by a test but is not a valid-value conformance witness."
+    },
+    {
+      "issue": "EC3 #55",
+      "effect": "DTS follows a certification signature when present (producer order). Do not infer a reader must reject otherwise solely from this correction."
+    },
+    {
+      "issue": "Table 255 corrections #121/#219 and Table 256 #117",
+      "effect": "Adjacent framing/parameter issues, not exhaustively reviewed in this shard; #121/#219 concern signature dictionary entries/version indications and #117 DigestMethod optionality."
+    }
+  ],
+  "related_existing_findings": [
+    {
+      "id": "2038-B18",
+      "clause": "12.8.2.2.1 / 12.8.5.2-.3",
+      "relation": "Within this shard: DocMDP P=1 DTS-only revision classification failure with valid mixed page-edit control."
+    },
+    {
+      "id": "2038-B41",
+      "clause": "12.8.3.4.8",
+      "relation": "Adjacent prior finding: trusted timestamp genTime is used despite authenticated TSA keyCompromise. Not re-audited here."
+    },
+    {
+      "id": "2038-B42",
+      "clause": "12.8.2.4",
+      "relation": "Outside this shard: selected FieldMDP field rename is classified outside Include(Name). Mentioned to avoid presenting B18 as the only current signature-related finding."
+    },
+    {
+      "id": "2038-B44",
+      "clause": "12.8.3.4.7",
+      "relation": "Adjacent prior finding: public current-time report accepts a CRL with thisUpdate after the supplied current UTC time. Preserve historical validation distinction."
+    },
+    {
+      "id": "2038-B47",
+      "clause": "12.8.3.4.8",
+      "relation": "Adjacent prior finding: public historical report accepts GOOD OCSP with producedAt before the trusted past timestamp; distinct from B41 and from LTV capture-time evidence."
+    }
+  ]
+}
