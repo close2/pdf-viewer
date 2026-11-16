@@ -10,21 +10,24 @@
     "quality": "Checkpoint48 model,46 core,43 transform,42 colour all-targets Clippy PASS; earlier scopes recorded.",
     "script_engine": "247PASS4ignored plus separate corpus2PASS249filtered. Corpus counters documented; semantic/error provenance follow-up active.",
     "rendition_and_font": "B49/B50:7new tests,5PASS2FAIL;73total expected failures,70in eleven-crate scope+3GPU. Model/core Clippy PASS.",
-    "optional_and_save": "Wave51 final4run3PASS1FAIL; manifest74 (71eleven-crate scope+3GPU). Model/core/signature Clippy PASS."
+    "optional_and_save": "Wave51 final4run3PASS1FAIL; manifest74 (71eleven-crate scope+3GPU). Model/core/signature Clippy PASS.",
+    "residual_consumers": "Wave52:Matrix2D1engineFAIL; appearance1PASS, navigation3PASS, outlineUI1PASS; existingLZWtest extended andPASS. Manifest75=71eleven-crate+3GPU+1engine. FivecrateClippyPASS."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
-    "new_shards_ready_for_parent_review": [
-      "appearance_state_residual_current",
-      "script_corpus_error_provenance_current"
-    ],
+    "new_shards_ready_for_parent_review": [],
     "active_shards": [
-      "filter_assertion_residual_current",
-      "outline_assertion_residual_current",
-      "navigation_geometry_residual_current"
+      "errata_early_residual_current",
+      "errata_late_residual_current",
+      "departure_decisions_residual_current"
     ],
     "recorded_shards": [
+      "appearance_state_residual_current",
+      "filter_assertion_residual_current",
+      "navigation_geometry_residual_current",
+      "outline_assertion_residual_current",
+      "script_corpus_error_provenance_current",
       "optional_content_ui_usage_residual_current",
       "tree_consumer_limits_current",
       "transform_preservation_residual_current",
@@ -159,17 +162,17 @@
     "pending_current_rows": 0
   },
   "remaining": [
-    "All883rows partial only: keep auditing feature residuals and assertion quality.",
-    "Review appearance-state raster composition and Matrix2D reference-library scope/provenance.",
-    "Continue filter, outline and navigation geometry residuals; refresh broad manifest comparison after the new test batch.",
-    "Stop new dispatch near81% weekly used; reserve15% at85%."
+    "All883rows still partial. Audit actual EC3 annotations and strongest apparently unaccounted insertions/notes; absent issue citation alone proves nothing.",
+    "Reconsider all10 departed rows against current source/code/ADR premises.",
+    "Refresh broad manifest comparison after accumulated tests. Matrix2D methods/semantics and outline style pixels remain residuals.",
+    "Stop new dispatch near81%; preserve15% weekly at85%."
   ],
   "budget": {
     "weekly_used_at_start": 29,
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 50,
-    "last_read_utc": "2026-11-16T17:51:34.762542+00:00"
+    "last_weekly_used_percent": 51,
+    "last_read_utc": "2026-11-16T18:00:15.583435+00:00"
   }
 }

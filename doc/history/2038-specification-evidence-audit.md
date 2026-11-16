@@ -12,7 +12,7 @@ The report and machine-readable continuation are in
 `doc/reviews/2038-specification-audit.md` and its evidence directory.
 
 **Evidence so far.** All72 previous failing assertions pass. Current tests expose
-74 failing assertions, grouped by behavior and qualified where interpretation is
+75 failing assertions, grouped by behavior and qualified where interpretation is
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
 The shard index links partial reviews to all883 ledger rows, each still partial. Feature residuals remain
 inside reviewed rows. No entire clause is certified merely because referenced tests pass.
@@ -30,11 +30,11 @@ versions affect neither reports nor processing restrictions. A transparent strok
 composites overlapping same-object geometry twice. Literal measurement, join/fill,
 WritingMode and new-file ID controls pass. The stroke failure also reaches PDF and three GPU lanes; CMYK-image OP passes.
 Embedded-font, Type3 image and corrected FDF controls pass. Next scopes cover
-appearance-state, optional-content and transform preservation residuals.
-UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage50%;ceiling85%.
+actual EC3 insertions/notes and departed-row ADR residuals.
+UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage51%;ceiling85%.
 
 TSA keyCompromise time selection fails with genuine signed material; FieldMDP
 rename coverage fails under a qualified interpretation. Signature/core Clippy passes.
 Alpha, filtered-checksum and cross-Contents controls pass; archive path cap fails. Model/transform Clippy pass.
 Current CRL and historical OCSP applicability witnesses fail; both positive controls pass.
-Rendition JS, TrueType fill and multi-visible-page layers fail; language and signed-save controls pass.
+Matrix2D constructor missing under A193; appearance/navigation/outline pixels and LZW default pass.

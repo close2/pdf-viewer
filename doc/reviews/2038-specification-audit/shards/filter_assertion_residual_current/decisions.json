@@ -1,0 +1,9 @@
+{
+  "decision_reviews": [
+    {
+      "decision": "LZW variable-width schedule and default EarlyChange=1",
+      "result": "Retain implementation decision. The source states thresholds at entries 511, 1023, and 2047; Table 8 explicitly sets default 1. Code's next + early_change comparison is consistent with those boundaries. The full-table test gives an exact independent decoded-output oracle for both defined settings, and the published example remains a separate fixed vector.",
+      "reconsideration": "Add coverage for the omitted-parameter default through all three width changes and reset, rather than changing behavior. This is test completeness only."
+    }
+  ]
+}

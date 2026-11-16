@@ -103,6 +103,21 @@ fn full_lzw_table_clear_resets_width_and_dictionary_for_both_earlychange_values(
     assert_eq!(code_width(3840, 0), 9);
     assert_eq!(code_width(3840, 1), 9);
 
+    // Table 8 defaults to EarlyChange=1 when DecodeParms is absent.
+    let encoded_default = pack_codes(&codes, 1);
+    let decoded_default =
+        decode_with_parms_reported(b"LZWDecode", &encoded_default, None, Limits::DEFAULT)
+            .expect("Table 8's omitted EarlyChange defaults to 1 for the full-table stream");
+    assert_eq!(
+        decoded_default.data.as_ref(),
+        expected.as_slice(),
+        "the default route traverses 9-, 10-, 11-, and 12-bit codes and resets at a full table",
+    );
+    assert_eq!(
+        decoded_default.damage, None,
+        "the default route reaches EOD cleanly"
+    );
+
     for early_change in [0, 1] {
         let encoded = pack_codes(&codes, early_change);
         let mut parms = Dictionary::new();

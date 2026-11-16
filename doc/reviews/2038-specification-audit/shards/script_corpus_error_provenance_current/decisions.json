@@ -1,0 +1,20 @@
+{
+  "reviews": [
+    {
+      "decision": "ADR1602 folder-helper classification",
+      "verdict": "Reopen for Matrix2D: pinned official example assumes constructor/methods. Parent does not depend on inaccessible older PDFs or claim exact historical source-file provenance verified."
+    },
+    {
+      "decision": "A193 admitted document/viewer surface",
+      "verdict": "A zero-argument pure matrix constructor used in the pinned reference belongs to the safe surface target. Record gap under this adopted scope, not an ISO-required general ECMAScript global. No unsafe/external effects admitted."
+    },
+    {
+      "decision": "ADR1625 corpus outcome gate",
+      "verdict": "Retain as execution census/ratchet only. No reference values means PASS does not prove semantic correctness."
+    },
+    {
+      "decision": "TFMC/defaultValue/AF cohorts",
+      "verdict": "Do not invent missing producer helpers, receiver repair or misspelled AF aliases. Parent static object scan plus runtime errors supports classification as unresolved producer dependencies; dynamic semantics not exhaustively proven."
+    }
+  ]
+}

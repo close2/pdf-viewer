@@ -1,0 +1,19 @@
+[
+  {
+    "feature": "12.3.2 destination coordinate transform under rotated cropped pages",
+    "title": "Named Table 149 XYZ coordinates are in default user space and must reach the viewport through the page crop-origin and inherited clockwise Rotate transform",
+    "source_location": "ISO 32000-2 §12.3.2.1–.2 and Table 149 printed pp.441–443 (physical pp.456–458); §7.7.3.3 Table 31 CropBox/Rotate entries printed pp.104–106 (physical pp.119–121)",
+    "errata": "§12.3.2.2 NOTE records the 2020 correction that the embedded-GoTo integer exception is also included; no EC3 change found to Table 149 default-user-space coordinates or Table 31 Rotate/CropBox geometry.",
+    "ledger": "§12.3.2.1/.2 and §7.7.3.3 are implemented. ADR 0162 and superseding ADR 2814 address destination view application and transformed FitBH/FitBV coordinates. Prior navigation audit tests cover non-origin CropBox coordinate conversion at Rotate 0 and XYZ null retention; this shard asks only whether coordinate transforms are asserted when rotation is 90/270.",
+    "code": "`pdf-model::content::base_transform` translates the CropBox lower-left, applies clockwise Rotate, then UserUnit; `viewer-core::open::destinations::user_corner` maps stated default-space coordinates through `page_space_at`; inherited Rotate is resolved by `Page::build` from Table 31.",
+    "tests": "Existing local destination public tests check `/XYZ`, `/FitH`, `/FitV`, `/FitBH`, `/FitBV`, and null-retention geometry, all on pages with rotation 0. Separate page-geometry unit tests check clockwise 90/270 transforms, but do not compose that transform with navigation. No found public destination test combines a named destination, nonzero MediaBox/CropBox lower-left offsets, and inherited Rotate 90/270.",
+    "assertions": "A test draft specifies point (150,680) in CropBox [50,80,550,780] on a 600×800 MediaBox, with `/Rotate` inherited from the Pages node and XYZ zoom 0.5. Independent arithmetic gives page-space point (600,400) and geometry origin (-300,-50) at Rotate90, versus (100,100) and origin (-50,-200) at Rotate270, with display extent 700×500 in both. A direct-GoTo control at Rotate90 is compared with the named-destination route.",
+    "verdict": "narrow assertion gap in composition of already-implemented page rotation and destination coordinate transforms; no implementation defect established without execution",
+    "residuals": "Draft is not compiled or run. It tests only one point and XYZ; it does not certify every Fit variant under all rotations, UserUnit values, or other page boundary preferences. It uses a valid, exact-xref PDF 1.7 with indirect page-tree Kids and a sorted single-entry name tree.",
+    "related_adrs": [
+      "ADR 0162 — destination includes view geometry",
+      "ADR 2814 — default-space coordinates for destination views and retained-coordinate behavior",
+      "ADR 0118 — page transform and rotation direction (reviewed as background, not whole-ADR recertification)"
+    ]
+  }
+]

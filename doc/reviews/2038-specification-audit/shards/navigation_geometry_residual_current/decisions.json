@@ -1,0 +1,18 @@
+[
+  {
+    "adr": "0162 — A destination is three things and two of them were owed; 2814 — The viewer does what the tables say of views",
+    "review_scope": "Whether navigation coordinates are tested after a page's effective crop-origin and inherited page rotation transform",
+    "original_claim": "A destination specifies page, viewport location and magnification; Table 149 coordinates are default user space. ADR 2814 applies page/crop/UserUnit transformation and retains coordinates across navigation.",
+    "current_evidence": "Code composes `pdf_model::content::page_space_at` in `Open::user_corner`; page size and transform are based on effective inherited page attributes. Existing public navigation tests independently verify non-origin CropBox transforms and XYZ null retention at Rotate 0. Separate page geometry tests independently verify clockwise 90/270 mapping, but no found navigation assertion combines the two.",
+    "decision": "The implementation path and ADR rationale remain supported by sampled evidence; no code defect is established. Add a composition test rather than revise either ADR: a named destination on a cropped page with inherited Rotate90/270, compared with direct GoTo for the same view and independent point arithmetic.",
+    "residuals": "The candidate covers only one XYZ point and two right-angle rotations. It does not claim every Fit form, all four rotations, UserUnit, ViewArea preferences or every media/crop boundary combination."
+  },
+  {
+    "adr": "0118 — The page transform from default user space to device geometry",
+    "review_scope": "Source-derived rotation direction and crop offset used only to build the expected coordinate values",
+    "original_claim": "Table 31 rotates clockwise when displayed; default-space points map through the cropped page transform before raster placement.",
+    "current_evidence": "Primary Table 31 marks CropBox and Rotate inheritable and defines Rotate clockwise. Table 149 requires destination coordinates in default user space. For CropBox [50,80,550,780], point (150,680) has offset (100,600). Clockwise 90 maps this offset to (600,400); clockwise 270 maps it to (100,100).",
+    "decision": "No conflict found. The test oracle expresses these transforms as point arithmetic and independent expected view origins, rather than consulting the production transform routine.",
+    "residuals": "Review is limited to this coordinate derivation; no whole-ADR or page-transform certification."
+  }
+]

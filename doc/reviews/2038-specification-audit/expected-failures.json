@@ -444,6 +444,13 @@
       "test": "visible_pages_includes_every_page_in_the_current_arrangement",
       "finding": "2038-B51",
       "log": "combined-wave51.log"
+    },
+    {
+      "binary": "pdf-script::matrix2d_reference_spec_audit",
+      "test": "matrix2d_constructor_and_reference_methods_are_available_to_a_document_realm",
+      "finding": "2038-B52",
+      "log": "appearance-matrix-wave52.log",
+      "requires": "pdf-script/engine"
     }
   ]
 }

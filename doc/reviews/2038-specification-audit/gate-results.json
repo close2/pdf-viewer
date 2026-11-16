@@ -1519,6 +1519,43 @@
       "log": "quality-wave51f.log",
       "exit": 0,
       "scope": "Model/core/signature all-targets Clippy PASS. Earlier51d/e rejected fixture string-building style and an unused lint expectation; corrected."
+    },
+    {
+      "log": "appearance-matrix-wave52.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Stored appearance pixel oracle and actual engine Matrix2D availability."
+    },
+    {
+      "log": "navigation-lzw-wave52.log",
+      "run": 4,
+      "passed": 1,
+      "failed": 3,
+      "exit": 100,
+      "scope": "LZW extensionPASS. Initial navigation fixture failures REJECTED: viewport exactly fits page, scroll clamp masks intended transform."
+    },
+    {
+      "log": "navigation-wave52d.log",
+      "run": 3,
+      "passed": 3,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Corrected50x50 viewport and Presented; literal independent geometry oracles."
+    },
+    {
+      "log": "outline-colour-wave52.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Public Sidebar raster, explicitred/defaultblack positive ink controls."
+    },
+    {
+      "log": "quality-wave52d.log",
+      "exit": 0,
+      "scope": "Syntax/model/script/core/UI all-targets Clippy with script engine PASS; initial52\u201352c rejected fixture-only unused expectation, literal-float comparison and similar-name issues; removed/justified/renamed."
     }
   ],
   "prior_expected_failures": {

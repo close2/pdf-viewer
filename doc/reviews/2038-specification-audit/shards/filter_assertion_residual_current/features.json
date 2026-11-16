@@ -1,0 +1,21 @@
+{
+  "scope": "One assertion-quality slice of ISO 32000-2:2020 §7.4.4.2–.3: LZW variable-width decoding, with emphasis on omitted /EarlyChange at higher width boundaries. Predictor, fax, JBIG2, DCT, JPX, and general filter-chain behavior are outside scope.",
+  "source": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf, physical pp. 53–55 (printed pp. 38–40), §7.4.4.2. The width rule says the first 10-bit output follows entry 511, and similarly 1023 and 2047 for 11/12 bits; 4095 is the last table entry. Table 8 EarlyChange is physical pp. 55–56 (printed pp. 40–41); 0 postpones growth, 1 moves it one code earlier, default 1.",
+    "errata": "EC3 issue scan of relevant pages: no annotation changes §7.4.4.2 or Table 8. Nearby #98 is an ASCII85 correction and does not apply to LZW.",
+    "ledger": "doc/reviews/1983-specification-audit/features.json rows for lzw-code-width, table8-earlychange, maximum-table-entry. The exact locations are printed around entries 15555–15570 and 15863–15885; the existing earlychange evidence explicitly says it proves divergence, not expected long output. A later full-table test adds exact clear/reset expected output, so the older wording is stale/incomplete as an aggregate assertion-quality statement.",
+    "implementation": [
+      "crates/pdf-syntax/src/filter.rs::Lzw::step (around 734–820): initial width 9, table next code, growth test next + early_change >= 1 << width, max width 12.",
+      "crates/pdf-syntax/src/filter.rs::early_change (around 1243–1255): absent or non-integer value defaults to 1; nonzero selects early change.",
+      "crates/pdf-syntax/src/document/sources.rs around 312: the staged document filter path carries EarlyChange into the LZW pump."
+    ],
+    "current_assertions": [
+      "filter.rs::lzw_decodes_the_clauses_own_example asserts the exact 10-byte output from the published §7.4.4.2 code/byte vector.",
+      "filter.rs::early_change_moves_the_width_increase_by_one_code checks that the same all-9-bit fixture produces a shared prefix then diverges for default and explicit 0. It does not assert an independently expected full output and is not a valid variable-width long-stream oracle by itself.",
+      "tests/lzw_full_table_audit.rs::full_lzw_table_clear_resets_width_and_dictionary_for_both_earlychange_values packs independently described codes at the hand-derived 0/1 thresholds, fills the dictionary through entry 4095, clears, and asserts exact expected literal-prefix + DEDE and clean EOD for both explicit parameter values. The expected bytes are independent of decoder output; however, this test passes EarlyChange explicitly and does not exercise the omitted-parameter default through 10-, 11-, and 12-bit transitions.",
+      "filter.rs::the_lzw_pump_reads_early_change checks the route-selected explicit parameter, but not a full-table default stream."
+    ],
+    "finding": "No decoder defect is established. The specific residual is a small default-routing assertion gap: code clearly defaults to 1, and shorter tests exercise the default, while the full-width expected-output oracle supplies explicit 0 and 1 only. A third assertion decoding the EarlyChange=1 full-table fixture with no DecodeParms would close the gap with little duplication.",
+    "verdict": "focused assertion-quality residual; code-supported; no test run by this audit"
+  }
+}

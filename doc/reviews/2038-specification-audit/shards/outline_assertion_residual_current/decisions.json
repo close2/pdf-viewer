@@ -1,0 +1,18 @@
+{
+  "reviewed_decisions": [
+    {
+      "adr": "ADR 0144 — activate the item, not its destination",
+      "subject": "Outline item surface and Table 151 visual properties",
+      "review": "Retain its activation decision. It correctly treats a visible item as an activatable object, preserving actions as well as direct destinations. Its statement that `/C` and style bits are part of the completed outline screen is backed by a real consumer path: parsed Item colour/bold/italic is copied into `viewer-ui::Sidebar::flatten` and used in label drawing. However, the current test evidence I traced is uneven: model tests assert the parsed RGB and bold flag; script tests assert a Bookmark object's style/color values; generic panel pixel tests draw default-black outline titles. I found no rendered public-panel assertion for a non-default `/C`, `/F` italic, or `/F` bold. The prior shard's broad phrase “outline rendering tests” should be qualified rather than relied on as proof of those specific visuals.",
+      "evidence": ["doc/adr/0144-activate-the-item-not-its-destination.md, section `§12.3.3 closes`", "crates/pdf-model/src/outline.rs::the_linked_lists_read_as_a_tree", "crates/pdf-script/tests/hook.rs::the_bookmark_root_walks_the_outline_a_person_sees_and_execute_asks_the_host", "crates/viewer-ui/src/chrome.rs::Sidebar::flatten", "crates/viewer-ui/tests/panel.rs::the_panel_puts_ink_on_the_rows_it_lists", "scratchpad/r2038/spec-audit/outline_assertion_residual_current/drafts/outline_colour_reaches_panel_pixels.rs"],
+      "verdict": "Keep the behavior decision; add or promote the narrow output assertion if parent review confirms the fixture/API details. Current evidence is insufficient to claim the visual color path was already regression-tested, but it does not demonstrate a runtime defect."
+    },
+    {
+      "adr": "ADR 0246 — the second host and the one-word cost",
+      "subject": "Outline row expansion semantics",
+      "review": "Its description of expansion from `/Count` and the real multi-level tree is consistent with the effective clause and current model/UI path. A new exact-xref Sidebar fixture directly distinguishes both count signs, recursively open and closed descendants, sibling row movement, and user disclosure toggles; this turns the older real-document/tree-expanded observation into a discriminating fixture assertion. The parent-reported baseline log records the new test as passing, but current promotion should rely on parent's current gate run.",
+      "evidence": ["doc/adr/0246-the-second-host-and-the-one-word-it-cost.md, evidence table and outline discussion", "doc/ISO_32000-2_sponsored_EC3.pdf printed pp.444–445 / physical pp.459–460", "crates/viewer-ui/tests/outline_count_audit.rs::pdf_outline_count_controls_initial_panel_visibility_and_user_toggle", "crates/pdf-model/src/outline.rs::Outline::visible_count"],
+      "verdict": "Retain. Count/open-state is not merely a parse/count statistic: the exact UI test observes its initial row visibility and subsequent expansion behavior."
+    }
+  ]
+}

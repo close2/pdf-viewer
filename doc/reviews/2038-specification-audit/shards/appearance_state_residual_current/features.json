@@ -1,0 +1,46 @@
+{
+  "scope": "Focused residual review of stored annotation appearance-state lookup and widget-state consumers: §12.5.5, Table 166 /AS, Table 170 appearance dictionaries, and §12.7.5.2.3 inherited button /V and the /AS mismatch rule. No whole-clause certification.",
+  "source_locations": {
+    "table_166_ap_as": "Primary ISO PDF physical pp. 482–485 / printed pp. 467–470; Table 166 says AP is optional, N is required within an appearance dictionary, and AS is required if AP contains one or more subdictionaries.",
+    "section_12_5_5_state_selection": "Primary physical pp. 490–491 / printed pp. 475–476; Table 170 N/R/D entries, appearance subdictionary per appearance state, example says state choice is determined by annotation AS, and reasonable behavior is required for AS naming a state with no corresponding appearance (such as displaying nothing).",
+    "field_inheritance": "Primary physical p. 544 / printed p. 529; §12.7.4.1 and Table 226 state inheritable field attributes and list V as optional/inheritable.",
+    "button_v_as": "Primary physical pp. 550–551 / printed pp. 535–536; §12.7.5.2.3 says V holds a name selecting the appearance, V shall also equal AS, and if unequal AS is used instead of V.",
+    "radio_off_erratum": "EC3 #170 annotation at physical p. 568 / printed p. 553 inserts the optional /Off appearance sentence into §12.7.5.2.4. It does not alter the general /AS state-selection rule or check-box V/AS mismatch rule."
+  },
+  "features": [
+    {
+      "id": "appearance-dictionary-state-selection",
+      "requirement": "§12.5.5 permits each N/R/D entry to be a stream or a subdictionary of appearance-state streams. A subdictionary's state is selected by annotation /AS; if /AS designates a missing state, a reader shall attempt reasonable behavior (e.g. display nothing). Table 166 requires AS when AP contains subdictionaries.",
+      "code": "crates/pdf-model/src/annotation.rs::stored_appearance selects the requested N/R/D value, uses N if requested optional R/D is absent or null, reads a direct stream without state lookup, and for a state dictionary probes exact /AS bytes (or an updated toggling-widget state). Missing selected state returns StateNotDefined, which decide answers with Nothing. Absent R/D defaulting to N is Table170; treating explicit null the same way is tolerance for a malformed typed value.",
+      "assertions": [
+        "crates/pdf-model/tests/annotations.rs::an_appearance_state_is_selected_by_as checks a direct /AS /On state and a valid-but-unmatched /AS /Off case; the latter draws no display-list commands and reports nothing, within §12.5.5's stated reasonable behavior.",
+        "crates/pdf-model/tests/annotation_appearance_audit.rs::rollover_and_down_state_subdictionaries_select_the_state_named_by_as checks N/R/D state dictionaries with distinct red/green/yellow/blue/magenta streams and both On/Off AS values.",
+        "crates/pdf-model/tests/names_are_bytes.rs has non-UTF-8 state-name controls proving lookup uses exact PDF name bytes, not lossy display text.",
+        "crates/pdf-model/tests/annotation_appearance_audit.rs checks optional R/D defaults to N. Table 170 states those defaults; no need to infer behavior from filenames or coverage totals."
+      ],
+      "assessment": "Sampled selection, normal/rollover/down states, unknown-state handling, and exact-byte names are directly asserted. No wrong mapping found in this slice.",
+      "residuals": [
+        "An absent or null AS while AP contains an appearance-state subdictionary violates Table 166's Required-if condition. The implementation yields no selected stored state (and the form model may independently use inherited V); the standard reviewed here does not prescribe a particular recovery for this invalid producer case. Treat it as a product-policy / cross-consumer consistency question, not a mandatory ISO rejection defect.",
+        "AP /N null or missing violates Table 170's required-N row; no mandatory reader fallback is claimed. AP itself may be absent for Table 166's stated cases; generated/reported subtype behavior follows local policy unless a subtype clause provides a stronger rule.",
+        "Explicit null in optional R/D is not the same as an absent entry and is not a Table170-conforming value. The current N fallback is tolerant recovery; no normative null-specific result is asserted."
+      ]
+    },
+    {
+      "id": "inherited-widget-value-and-explicit-as-precedence",
+      "requirement": "Table 226 makes field /V inheritable; §12.7.5.2.3 specifies that a check-box V is a name for its state and shall also equal widget /AS. It gives an explicit reader rule for mismatch: use /AS rather than /V. Radio-widget state follows the same V/AS precedence. /AS is per-widget, /V may be on the parent field.",
+      "code": "crates/pdf-model/src/appearance.rs::Field::read inherits V and flags through the field chain. Field::is_on uses widget AS where present and inherited value only if AS is absent; after an in-view value replacement, replacement_state derives the per-widget state from the replacement and applies off/mutual-exclusion rules. crates/pdf-model/src/annotation.rs::stored_appearance uses the updated replacement state for toggling controls, otherwise exact /AS.",
+      "assertions": [
+        "crates/pdf-model/tests/radios_in_unison.rs::a_file_that_states_two_buttons_on_is_drawn_as_it_wrote_itself uses parent /V /Off while each child has explicit /AS /Yes and checks model widget states; this asserts mismatch precedence at the model/form API, but not pixels.",
+        "crates/pdf-model/tests/radios_in_unison.rs::the_page_draws_the_same_buttons_the_description_names checks actual CPU pixels after an in-view V replacement, with parent-field V and child AS values, but does not isolate persisted /V-versus-/AS mismatch on load.",
+        "crates/pdf-model/tests/variable_text.rs::checking_a_box_draws_the_state_the_new_value_names checks a stored normal-state subdictionary responds to a user replacement and construction path separately.",
+        "crates/pdf-model/tests/saving.rs checks a changed check box saves V as a name and writes matching AS, with both on and off transitions."
+      ],
+      "assessment": "The value inheritance and image update paths have meaningful tests, and explicit mismatch is asserted through the public form model. A combined exact-xref pixel test for inherited V versus explicit widget AS would close a small public-consumer assertion gap; draft supplied.",
+      "residuals": [
+        "In a conforming saved widget, V and AS agree. The intentionally mismatched fixture tests §12.7.5.2.3's explicit reader direction and should not be described as a conforming producer example.",
+        "On a state-subdictionary widget with missing/null AS, Table 166 makes the input invalid. A difference between model's inherited-V fallback and renderer's no-state result is not here classified as an ISO behavior defect."
+      ]
+    }
+  ],
+  "bounded_review": "Focused stored appearance state choice, widget V/AS precedence, error/recovery limits, and selected public assertions. Does not re-audit button interaction flags, state-name generation, R/D highlighting policy, appearance geometry, or all forms behavior."
+}

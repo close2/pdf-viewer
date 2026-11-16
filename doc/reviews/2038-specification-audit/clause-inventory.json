@@ -561,7 +561,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/syntax_streams_filters_current/features.json"
+      "shards/syntax_streams_filters_current/features.json",
+      "shards/filter_assertion_residual_current/features.json"
     ],
     "prior_artifacts": [
       "flate_lzw_predictors",
@@ -1433,7 +1434,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/page_resources_current/features.json",
-      "shards/content_stream_foundations_current/features.json"
+      "shards/content_stream_foundations_current/features.json",
+      "shards/navigation_geometry_residual_current/features.json"
     ],
     "prior_artifacts": [
       "catalog_pages_audit"
@@ -6306,7 +6308,8 @@
     "current_artifacts": [
       "prior-assertion-reviews.json",
       "shards/navigation/features.json",
-      "shards/destinations_current_followup/features.json"
+      "shards/destinations_current_followup/features.json",
+      "shards/navigation_geometry_residual_current/features.json"
     ],
     "prior_artifacts": [
       "destinations_audit",
@@ -6343,7 +6346,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/navigation/features.json"
+      "shards/navigation/features.json",
+      "shards/navigation_geometry_residual_current/features.json"
     ],
     "prior_artifacts": [
       "destinations_audit"
@@ -6358,7 +6362,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/outlines_threads_current/features.json"
+      "shards/outlines_threads_current/features.json",
+      "shards/outline_assertion_residual_current/features.json"
     ],
     "prior_artifacts": [
       "outlines_labels_audit",
@@ -6627,7 +6632,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "prior-assertion-reviews.json",
-      "shards/annotation_common_current/features.json"
+      "shards/annotation_common_current/features.json",
+      "shards/appearance_state_residual_current/features.json"
     ],
     "prior_artifacts": [
       "annotation_appearance_audit"
@@ -7359,7 +7365,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/script_action_execution_current/features.json",
-      "shards/rendition_preconditions_current/features.json"
+      "shards/rendition_preconditions_current/features.json",
+      "shards/script_corpus_error_provenance_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -7585,7 +7592,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/forms_buttons_choices_current/features.json"
+      "shards/forms_buttons_choices_current/features.json",
+      "shards/appearance_state_residual_current/features.json"
     ],
     "prior_artifacts": [
       "field_names_buttons_audit"
@@ -7600,7 +7608,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/forms_buttons_choices_current/features.json"
+      "shards/forms_buttons_choices_current/features.json",
+      "shards/appearance_state_residual_current/features.json"
     ],
     "prior_artifacts": [
       "field_names_buttons_audit"

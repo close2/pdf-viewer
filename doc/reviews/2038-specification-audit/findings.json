@@ -1956,5 +1956,54 @@
     "summary": "Depth limit silently becomes normal absence/partial enumeration, and its cyclic-or-hostile-only rationale is too strong.",
     "evidence": "Static lookup/collect boundary and caller contracts reviewed. A valid unary tree is not disallowed by node forms.",
     "qualification": "AnnexC informative; finite limits retained. Design/documentation concern, no new normative diagnostic duty or runtime failure asserted."
+  },
+  {
+    "id": "2038-B52",
+    "kind": "adopted-script-reference-surface-gap",
+    "clauses": [
+      "12.6.4.17"
+    ],
+    "summary": "Engine realm lacks Matrix2D constructor used by the pinned Adobe reference example.",
+    "evidence": "Ordinary JS control passes, zero-argument constructor throws ReferenceError; actual engine, not mock. Source pin ab3b42a7 Doc.addLink Example2.",
+    "qualification": "A193 adopted safe document/viewer surface, not ISO-required ECMAScript built-in. Method checks are not reached; no transform semantics or six-arg overload claim. ADR1602 provenance reconsidered; inaccessible older-PDF claims withdrawn.",
+    "execution": "appearance-matrix-wave52.log"
+  },
+  {
+    "id": "2038-T68",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "12.7.5.2.3"
+    ],
+    "summary": "Added literal pixel controls for stored inherited V versus widget AS, including both mismatches.",
+    "execution": "1PASS; exact-xref, complete interpretation and distinct red/blue streams."
+  },
+  {
+    "id": "2038-T69",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "7.4.4.2"
+    ],
+    "summary": "Extended existing full-table LZW assertion to omitted DecodeParms/EarlyChange default1.",
+    "execution": "Existing testPASS; all widths and reset plus explicit0/1 retained. No new test-count increment."
+  },
+  {
+    "id": "2038-T70",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "12.3.2.2",
+      "12.3.2.4"
+    ],
+    "summary": "Added independent geometry controls for named/direct XYZ with crop offset and inherited90/270 rotation.",
+    "execution": "3PASS after correcting viewport fixture to avoid clamping the intended point.",
+    "limits": "Initial exactly-fit viewport failures rejected; scroll-bound policy not adjudicated."
+  },
+  {
+    "id": "2038-T71",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "12.3.3"
+    ],
+    "summary": "Added source-to-panel raster proof of explicit outline colour and actual default-black title ink.",
+    "execution": "1PASS outside eleven-crate broad scope; style-bit visual effects remain unverified."
   }
 ]
