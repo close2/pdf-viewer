@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (56)
+## Current checkpoint (57)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **78 assertions**, grouped into behavior findings rather
@@ -71,6 +71,12 @@ Checkpoint56 finds two failures within one parameter-resolution gap: indirect
 Two outer dictionary/array representation tests pass. These are ordinary data
 streams, so the special direct-only rule for cross-reference streams does not apply.
 Syntax Clippy passes; the failure manifest now has 78 entries, 74 in the broad scope.
+
+Checkpoint57 adds four passing representation controls: annotation pixels and
+NoView, GoTo link targets, sampled-function mappings, and CalGray parameters.
+The function fixture uses nondefault values that make each tested field observable.
+A too-tight colour precision assertion was rejected; exact reference equivalence
+and parsed values still pass. Model and colour Clippy checks pass.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

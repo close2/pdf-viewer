@@ -11,18 +11,20 @@
     "script_engine": "247PASS4ignored plus separate corpus2PASS249filtered. Corpus counters documented; semantic/error provenance follow-up active.",
     "rendition_and_font": "B49/B50:7new tests,5PASS2FAIL;73total expected failures,70in eleven-crate scope+3GPU. Model/core Clippy PASS.",
     "optional_and_save": "Wave51 final4run3PASS1FAIL; manifest74 (71eleven-crate scope+3GPU). Model/core/signature Clippy PASS.",
-    "residual_consumers": "Wave52:Matrix2D1engineFAIL; appearance1PASS, navigation3PASS, outlineUI1PASS; existingLZWtest extended andPASS. Manifest75=71eleven-crate+3GPU+1engine. FivecrateClippyPASS. Wave54 adds2syntaxPASS after broad53, strengthens existingBMtestPASS; syntax/modelClippyPASS. Manifest75unchanged. Wave55newcore4run3PASS1FAIL;manifest76=72broadscope+3GPU+1engine. Broad53 predates this newfailure; no newbroadrun claimed. Core/syntaxClippyPASS. Wave56syntax4run2PASS2FAIL; manifest78=74broadscope+3GPU+1engine. SyntaxClippyPASS."
+    "residual_consumers": "Wave52:Matrix2D1engineFAIL; appearance1PASS, navigation3PASS, outlineUI1PASS; existingLZWtest extended andPASS. Manifest75=71eleven-crate+3GPU+1engine. FivecrateClippyPASS. Wave54 adds2syntaxPASS after broad53, strengthens existingBMtestPASS; syntax/modelClippyPASS. Manifest75unchanged. Wave55newcore4run3PASS1FAIL;manifest76=72broadscope+3GPU+1engine. Broad53 predates this newfailure; no newbroadrun claimed. Core/syntaxClippyPASS. Wave56syntax4run2PASS2FAIL; manifest78=74broadscope+3GPU+1engine. SyntaxClippyPASS. Wave57adds4PASSannotation/link/function/CalGray; model+colourClippyPASS. Manifest78unchanged."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
-      "indirect_annotation_parameters_current",
       "indirect_font_values_current",
-      "indirect_function_colour_current"
+      "indirect_graphics_state_current",
+      "errata_numeric_syntax_batch_current"
     ],
     "recorded_shards": [
+      "indirect_annotation_parameters_current",
+      "indirect_function_colour_current",
       "indirect_filter_parameters_current",
       "errata_early_behavior_current",
       "errata_late_behavior_current",
@@ -171,6 +173,7 @@
   },
   "remaining": [
     "All883rows remain partial. Continue cross-cutting indirectrepresentation tests and substantive assertion review.",
+    "Fresherrata literalhashcitation census found360uniqueIDs,110candidateuncitedIDs; textualabsence not semanticgap. Selected sourcebatch active; full classification pending.",
     "B54 confirms unresolved scalar DecodeParms Predictor/Columns despite passing outerdictionary/array forms. Otherkeys/codecs remain untested.",
     "B53 optionalimplicitheadersearch recommendationgap confirmed;NamedID contribution/downstreamTD state unresolved.",
     "AnnexL source paraphrases corrected:#83P\u2192Table and#440WP\u2192Figure are directed; fullmatrix residual.",
@@ -181,7 +184,7 @@
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 52,
-    "last_read_utc": "2026-11-16T18:36:37.822239+00:00"
+    "last_weekly_used_percent": 53,
+    "last_read_utc": "2026-11-16T18:44:48.894518+00:00"
   }
 }

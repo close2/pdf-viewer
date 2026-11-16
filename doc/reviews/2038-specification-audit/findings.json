@@ -2070,5 +2070,31 @@
     "summary": "Outer indirect Filter/DecodeParms dictionaries, arrays and members now have public decoded-byte controls.",
     "execution": "Two new testsPASS. B54 separately owns unresolved numericdictionaryvalues.",
     "limits": "Fixture data is not used as a page contentprogram; no rastercertificate."
+  },
+  {
+    "id": "2038-T75",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "7.3.10",
+      "12.5.2",
+      "12.5.3",
+      "12.5.5",
+      "12.6.4.2"
+    ],
+    "summary": "Added public indirectannotationRGBA/NoView and GoTo-linktarget controls.",
+    "execution": "2newPASS; exactxref/completeinterpretation; literalpixelsandpageindex.",
+    "limits": "No arbitraryactionfamily orhostUIcertificate."
+  },
+  {
+    "id": "2038-T76",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "7.3.10",
+      "7.10.2",
+      "8.6.5.2"
+    ],
+    "summary": "Added indirectfunctionnumericarrays andCalGrayWhitePoint/Gamma controls with independentoracles.",
+    "execution": "2newPASS; sevenfunctioninput-outputpairs, exactparsedcolourparameters/equivalence, boundedneutralestimate.",
+    "limits": "Rejectedinitialcolourprecisionfailure; no newconformancefailure."
   }
 ]
