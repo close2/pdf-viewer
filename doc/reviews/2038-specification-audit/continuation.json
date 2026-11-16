@@ -6,8 +6,8 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "15 unique expected failures; wave8 had8run4pass4expectedfail. Full current target rerun pending.",
-    "quality": "6 touched crates all-targets Clippy pass; previous rustdoc/conformance gates precede newest tests."
+    "later_targets": "Full six-crate run5358:5341pass,17expectedfail,50skip; exact manifest equality.",
+    "quality": "6 touched crates all-targets Clippy/fmt/rustdoc -Dwarnings and full conformance package pass."
   },
   "review": {
     "prior_failure_assertions": 72,
@@ -15,8 +15,8 @@
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
       "annex_d_encoding",
-      "images_current",
-      "forms_current"
+      "shading_current",
+      "signatures_current"
     ],
     "recorded_shards": [
       "logical_structure",
@@ -29,8 +29,13 @@
       "navigation",
       "structure_types",
       "functions_current",
-      "font_substitution_current"
-    ]
+      "font_substitution_current",
+      "images_current",
+      "forms_current",
+      "annex_f_linearization"
+    ],
+    "partial_current_rows": 171,
+    "pending_current_rows": 712
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",
@@ -44,6 +49,6 @@
     "ceiling": 85,
     "remaining_reserved": 15,
     "last_weekly_used_percent": 32,
-    "last_read_utc": "2026-11-16T10:32:20Z"
+    "last_read_utc": "2026-11-16T10:41:02Z"
   }
 }

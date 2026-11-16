@@ -1,0 +1,41 @@
+{
+  "review_scope": "Bounded source/assertion review, not whole AnnexF certification.",
+  "parent_qualification": "The test-only hint bit decoder is separate from the writer, but Read::of shares production Document, linearize::state and Parameters. It is not an entirely independent parser. The planted offset fault establishes one meaningful sensitivity check. TableF.2 L absence alone is not shown invalid; do not infer unconditional requiredness from a missing parenthetical.",
+  "reviewer_record": [
+    {
+      "decision": "Linearized writer conformance versus fast-reader support",
+      "question": "Does Annex F's normative designation mean every reader must use the hint tables or network range strategy?",
+      "primary_evidence": "F.1 calls linearization optional and explicitly says a processor without this optional support can still successfully process linearized files, albeit less efficiently. §6.3.2.1 recommends reading as Annex F/G. ADR 1225 and the ledger §6.3.2.1 record a measured departure from that recommendation; ADR 1293/A03 ratifies the separate writer feature behind --linearize.",
+      "current_code_and_consumer": "pdf-syntax::linearize::state identifies the marker/length state; Document opens the first-page/main xref chain through ordinary xref logic. No production reader parses hint tables for random access. pdf-syntax/src/linearize.rs serializes them only when optimize --linearize is selected.",
+      "disposition": "The optimized writer must satisfy Annex F requirements it chooses to emit. A missing network range reader is the ratified efficiency departure, not an Annex F conformance failure. Keep these denominators separate."
+    },
+    {
+      "decision": "2020 alternative part orderings and ADR 1293's chosen layout",
+      "question": "Does the writer's ordering part 5 before part 4 contradict Annex F?",
+      "primary_evidence": "Current F.3.1 has the EC3-consolidated note 'This clause was updated to allow alternative part orderings (2020)'; F.3.6 expressly permits part 5 before part 4 or part 6.",
+      "current_code_and_consumer": "The writer emits parts 1,2,3,5,4,6,7,8,9,11 and omits optional part 10. Writer tests calculate the offsets after fixed-point settlement; qpdf check is supplemental evidence.",
+      "disposition": "Supported: this order is explicitly permitted. Do not treat a part order as mandatory from the example's diagram when the normative prose allows alternatives."
+    },
+    {
+      "decision": "Table F.2 page-label hint /L",
+      "question": "Is /L a required table unconditionally, or only when page labels are present?",
+      "primary_evidence": "Table F.2 labels /L '(PDF 1.3)' without a parenthetical conditional, while F.4.5 describes page-label hints as a generic table used for the applicable category. The current writer adds /L when it finds catalog /PageLabels; feature-rich fixture includes labels and asserts /L.",
+      "current_code_and_consumer": "linearize.rs Part::Labels includes objects reached from /PageLabels; the Table F.2 fixture currently checks only a document with page labels.",
+      "disposition": "No failure identified: presence when page labels exist is directly tested. The source is less explicit than neighboring 'Required only if' entries about unconditional emission in PDF 1.3, so the ledger wording 'where page labels are indirect' should be reviewed rather than treated as settled. This is a bounded source/ledger ambiguity, not established producer invalidity."
+    },
+    {
+      "decision": "Changed linearization detector uses generation-defined first object",
+      "question": "Does document.defined_id(number) in state() create a newly required behavior or violate F.3.1's generation rule?",
+      "primary_evidence": "F.3.1 requires all indirect objects in a Linearized PDF to have generation 0. §7.3.10 says object number and generation jointly identify an object; §7.5 xref entries define object generation. The 4015a9ae→b901326c diff changes cache to retain generation with the object and changes state() from ObjectId(number,0) to document.defined_id(number).",
+      "current_code_and_consumer": "spec_basic_objects tests cold and warm wrong-generation lookups; linearized writer tests read its generated objects, all generation 0. state() reports marker/length detection, not full validation of each Annex F predicate.",
+      "disposition": "No Annex F defect found for valid writer output. A generation-nonzero parameter-dictionary fixture would violate the producer constraint and cannot support a mandatory-reader-error claim. Preserve the detector-versus-validator distinction."
+    },
+    {
+      "decision": "F.2 notes and producer requirements",
+      "question": "Do the network assumptions, performance goals, or recommended orderings become mandatory conformance assertions?",
+      "primary_evidence": "F.2 consists of background/notes and performance assumptions. F.3.7, F.3.8 and F.3.10 distinguish 'shall' placement from 'should' ordering; F.1's goals describe desired performance. A03/ADR 1293 records explicit writer choices where exact content-stream first-use fractions are unavailable.",
+      "current_code_and_consumer": "Writer traversal and hint tables use object-graph order and denominator 1; no network-range or progressive-display reader consumes those hints.",
+      "disposition": "Only normative 'shall' obligations are treated as writer constraints. Where exact reference positions would require decoding content, the writer's documented approximation should not be reported as a failing conformance assertion absent a clearer mandatory obligation."
+    }
+  ]
+}

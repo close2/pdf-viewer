@@ -1,0 +1,28 @@
+{
+  "review_scope": "Bounded source/assertion review. Parent findings and gate-results supersede draft/run status. Neither whole-clause nor all-feature certification.",
+  "reviewer_record": {
+    "selected_reviews": [
+      {
+        "adr": "1796",
+        "title": "The forms rows' claims, read against their lines, and the latest statement about a value stands",
+        "review": "Retain the fixed ordering of user edit, import, reset and stored /V: current set/import/reset code explicitly forgets displaced statements, and value_statements.rs covers ordering in both directions. Narrow the save claim to the shapes actually tested. Existing tests use a merged one-widget field whose /DV is local; they do not prove that a save preserves distinct per-terminal reset defaults when /V is inherited from a common ancestor. The new two-terminal fixture directly tests that case. This is a point-level review, not an ADR-wide rejection."
+      },
+      {
+        "adr": "2448",
+        "title": "The field hierarchy is followed without a depth bound",
+        "review": "Retain the interpretation that §12.7.4.1 forbids a fixed inheritance-depth limit; direct 4,000-link and public deeper-chain tests support the read path. A successful unlimited read does not prove write placement is correct when a shared ancestor's inherited /V must become two distinct terminal values. The holder helper's choice of the existing /V ancestor needs a sibling-conflict test. This says nothing against the cycle handling or overall lineage cache."
+      },
+      {
+        "adr": "2840",
+        "title": "A text value is held to /MaxLen in the model, and /Enforce is a restriction at the reader's level",
+        "review": "Retain /MaxLen cutting as the explicit owner decision in A834 item 1; distinguish that ratified product behavior from the limited literal wording of Table 232. New max_len_model tests assert resulting text and saved values, but not generated page text after truncation. The inherited reset finding is separate and does not depend on the MaxLen policy."
+      },
+      {
+        "adr": "2816",
+        "title": "A form's limits and commits hold in every control, and an FDF file's options, pages and scripts are applied",
+        "review": "For this shard, rely on ADR 2840 as the later owner-backed decision for model-level /MaxLen behavior. No conclusion is drawn here about GTK/Qt limits, selection commit timing, FDF scripts/options, or any other ADR 2816 section."
+      }
+    ],
+    "current_execution": "No draft was compiled or run by this audit agent."
+  }
+}

@@ -359,5 +359,37 @@
     "code": "Interpretation::function_faults_after_drawing; viewer-core::report",
     "assessment": "Model test proves deferred faults can be read; it does not prove visible viewer warnings. ADR2848 and ledger already acknowledge host integration, ADR2849 defers GPU fault readback.",
     "remaining": "Existing implemented status must not be interpreted as complete cross-backend/user-visible error reporting. No newly invented host contract or red test."
+  },
+  {
+    "id": "2038-B13",
+    "kind": "behavior-gap",
+    "clauses": [
+      "12.7.4.1",
+      "12.7.6.3"
+    ],
+    "summary": "Saving a reset overwrites the shared ancestor V with one terminal child’s default, losing its sibling’s distinct effective value.",
+    "source": "Table226 V/DV inheritance and §12.7.6.3 field-specific reset semantics. Two terminal fields, each with a widget, share a nonterminal ancestor V; one overrides DV locally.",
+    "code": "crates/pdf-model/src/view/writing.rs::write_resets and holder",
+    "test": "pdf-model::inherited_reset_defaults_audit::reset_saves_each_terminal_fields_effective_default",
+    "execution": "FAIL wave9: reopened group.first is local-default instead of shared-default. Separate runtime values and appearance test PASS.",
+    "controls": "Exact xref/no recovery before and after save; pre-reset stored appearance; runtime first=shared-default and second=local-default with both visible texts. No ReadOnly distraction.",
+    "remaining": "Confirmed saved field-value mismatch; saved appearance assertions follow that failure and were not reached. Do not claim runtime reset fails."
+  },
+  {
+    "id": "2038-B14",
+    "kind": "behavior-gap",
+    "clauses": [
+      "7.4.9",
+      "8.9.5.1",
+      "11.6.5.2"
+    ],
+    "summary": "A valid JP2 premultiplied-opacity channel is counted as ordinary color, refusing RGB SMaskInData2 before rendering.",
+    "source": "ISO32000-2 §7.4.9, Table87; ISO/IEC15444-1 I.5.3.6 TableI-16 type2 defines premultiplied opacity, association0 whole image.",
+    "primary_url": "https://www.itu.int/rec/dologin_pub.asp?id=T-REC-T.800-201511-S%21%21PDF-E&lang=e&type=items",
+    "code": "pinned hayro-jpeg20007e39af4 jp2/cdef.rs::ChannelType::from_raw accepts only0/1; lib.rs derives has_alpha; pdf-sandbox/src/decode.rs trusts it; pdf-model/src/image/jpx.rs rejects count mismatch.",
+    "test": "pdf-model::jpx_ordinary_opacity_audit::ordinary_rgb_jpx_smask_in_data_two_unpremultiplies_color",
+    "execution": "FAIL wave9: RGB3 vs codestream4 components. Code0 ignore-opacity and code1 straight-alpha public pixels PASS.",
+    "controls": "Independently generated lossless2x1 JP2; correct ihdr, sRGB, cdef0/1/2 with whole-image opacity; exact PDF xref; no SMask conflict. Parent regenerated both embedded arrays byte-for-byte, hashes in generator provenance.",
+    "remaining": "Code2 test stops at interpretation; downstream unpremultiply pixels are not reached. No claim about all JPEG2000 variants."
   }
 ]

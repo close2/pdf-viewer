@@ -165,6 +165,40 @@
       "log": "wave67-quality-recheck2.log",
       "scope": "6 touched crates all-targets Clippy -Dwarnings; earlier test lint failures corrected",
       "exit": 0
+    },
+    {
+      "log": "round2-targets-wave9.log",
+      "scope": "runtime and saved form reset, JPX opacity0/1/2",
+      "run": 5,
+      "passed": 3,
+      "failed": 2,
+      "skipped": 0,
+      "exit": 100,
+      "expected_failures": 2,
+      "unexpected_failures": 0
+    },
+    {
+      "log": "wave9-quality.log",
+      "scope": "One doc-markdown lint in new JPX test; corrected in checkpoint9-quality",
+      "exit": 101
+    },
+    {
+      "log": "checkpoint9-quality.log",
+      "scope": "6 touched crates all-targets Clippy/fmt/rustdoc with warnings denied; full conformance package tests",
+      "exit": 0,
+      "notes": "Dependency future-incompatibility notice only; test/doc lints corrected."
+    },
+    {
+      "log": "checkpoint9-full-nextest.log",
+      "scope": "All tests in six touched crates, no-fail-fast, RUSTFLAGS=-Dwarnings",
+      "run": 5358,
+      "passed": 5341,
+      "failed": 17,
+      "skipped": 50,
+      "exit": 100,
+      "expected_failures": 17,
+      "unexpected_failures": 0,
+      "comparison": "Exact binary/test identities equal the17-entry expected-failures manifest; no missing or additional failures."
     }
   ],
   "prior_expected_failures": {

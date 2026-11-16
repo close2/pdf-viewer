@@ -80,6 +80,17 @@ The PLRM3 review also qualifies 32-bit shifts as local policy, while reaffirming
 mandatory zero-fill. Deferred Type4 faults still lack host warning integration, a
 limit already acknowledged by the ledger and ADR2848.
 
+The form reset works in memory but loses distinct sibling defaults after saving.
+JPX opacity codes 0 and 1 pass independent pixel controls; code 2 refuses a valid
+premultiplied-opacity channel before rendering. These bring the total to seventeen
+failing assertions. Independently regenerated JP2 fixture hashes are recorded.
+The [shard index](2038-specification-audit/shard-index.json) links bounded feature
+reviews to ledger owners, with published/effective numbering translations.
+Neither these links nor the ledger’s existing test references certify whole rows.
+The six-crate checkpoint ran 5,358 tests: 5,341 passed, exactly the 17 recorded
+assertions failed, and 50 were skipped. Clippy, formatting, rustdoc with warnings
+denied, and the full conformance-tool package pass.
+
 The owner-authorized redaction-overlay change is recorded in A842 and ADR 2868;
 the MaxLen change is recorded in A834 and ADR 2840. Their changed assertions must
 be assessed against those current decisions rather than treated as unauthorized

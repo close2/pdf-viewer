@@ -90,6 +90,18 @@
       "test": "structure_actualtext_replaces_content_enclosed_in_descendant_elements",
       "finding": "2038-B12",
       "log": "round2-targets-wave8.log"
+    },
+    {
+      "binary": "pdf-model::inherited_reset_defaults_audit",
+      "test": "reset_saves_each_terminal_fields_effective_default",
+      "finding": "2038-B13",
+      "log": "round2-targets-wave9.log"
+    },
+    {
+      "binary": "pdf-model::jpx_ordinary_opacity_audit",
+      "test": "ordinary_rgb_jpx_smask_in_data_two_unpremultiplies_color",
+      "finding": "2038-B14",
+      "log": "round2-targets-wave9.log"
     }
   ]
 }
