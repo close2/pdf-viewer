@@ -332,3 +332,21 @@ read only by tests.
     © CIE, International Commission on Illumination, Vienna. Licensed under the Creative Commons
     Attribution-ShareAlike 4.0 International licence (CC BY-SA 4.0),
     https://creativecommons.org/licenses/by-sa/4.0/ — the table is shipped unaltered.
+
+
+-------------------------------------------------------------------------------
+7. Barcode tables derived from rxing
+-------------------------------------------------------------------------------
+
+`crates/xfa-barcode` encodes XFA's `dataMatrix`, `code3Of9` and `code3Of9extended` barcodes. Part
+of what it carries was derived from rxing 0.9.4 (https://github.com/rxing-core/rxing), a Rust port
+of ZXing, on the project owner's answer doc/questions/A857 (ADR 2900): Code 39's check-value order
+and full-ASCII table, and Data Matrix ECC 200's symbol sizes, encodation tables, error-correction
+parameters, module placement and finder pattern. The rules are re-expressed in this program's own
+code and no source text is copied; doc/third-party-data.md lists each table and the file it was
+read from. rxing ships no NOTICE file, so nothing of it is obliged here; this section is an
+acknowledgement, given because the work is theirs.
+
+    rxing — Copyright the rxing authors. ZXing — Copyright the ZXing authors.
+    Data Matrix encoder — Copyright 2006-2007 Jeremias Maerki.
+    Licensed under the Apache License, Version 2.0; see LICENSE.

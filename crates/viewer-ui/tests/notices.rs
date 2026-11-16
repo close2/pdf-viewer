@@ -279,3 +279,19 @@ fn the_vendored_cmaps_are_the_bytes_that_were_vetted() {
         "239 CMaps, the licence and the provenance note"
     );
 }
+
+/// The barcode tables `xfa-barcode` derived from rxing (ADR 2900) are acknowledged in `NOTICE` on
+/// the owner's word of 2026-11-16. rxing ships no NOTICE file, so Apache-2.0 section 4(d) obliges
+/// nothing; this pins the acknowledgement so that it is not lost in an edit of the file.
+#[test]
+fn the_barcode_tables_taken_from_rxing_are_acknowledged() {
+    let notice = notice();
+    assert!(
+        notice.contains("Barcode tables derived from rxing"),
+        "NOTICE lost its acknowledgement of rxing"
+    );
+    assert!(
+        notice.contains("Jeremias Maerki"),
+        "NOTICE lost the Data Matrix encoder's copyright line"
+    );
+}

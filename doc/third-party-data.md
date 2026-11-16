@@ -1163,7 +1163,7 @@ from `rxing`, the entry below, under the owner's answer A857 (ADR 2900).
 The owner's answer A857 lifts principle 5 for XFA's barcodes alone: their tables and algorithms may be derived from
 permissively licensed implementations where no held public text prints them (ISO/IEC 16022 for Data Matrix,
 ISO/IEC 16388 or MIL-STD-1189B for Code 39's check character and extended set). **`rxing` 0.9.4**, licensed
-**Apache-2.0** (its `Cargo.toml` and `LICENSE`; it ships no NOTICE file), a Rust port of `ZXing` whose Data Matrix
+**Apache-2.0** (its `Cargo.toml` and `LICENSE`; it ships no NOTICE file, so nothing is obliged, and `/NOTICE` section 7 acknowledges it on the owner's word of 2026-11-16), a Rust port of `ZXing` whose Data Matrix
 encoder is Jeremias Maerki's (copyright 2006, Apache-2.0, in each file's header), is the source read, from the copy
 cargo keeps under `~/.cargo/registry/src/*/rxing-0.9.4/`; it is already this crate's dev-dependency (ADR 2877).
 What the tree carries from it, each beside the file it was read from:
