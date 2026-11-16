@@ -3,6 +3,56 @@
   "numbering": "Logical content items use published ledger owners14.7.5.1.1/.2/.3/.4 for effective EC3 .2/.3/.4/.5; navigator owner12.3.6 maps effective12.3.5.3. JBIG2 external Annex D is not ISO PDF Annex D.",
   "shards": [
     {
+      "shard": "document_requirements_current",
+      "artifact": "shards/document_requirements_current/features.json",
+      "ledger_owners": [
+        "12.11.1",
+        "12.11.2",
+        "12.11.3",
+        "12.11.4",
+        "12.11.5",
+        "12.11.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "stroke_fill_geometry_current",
+      "artifact": "shards/stroke_fill_geometry_current/features.json",
+      "ledger_owners": [
+        "8.4.3.2",
+        "8.4.3.3",
+        "8.4.3.4",
+        "8.4.3.5",
+        "8.5.3.2",
+        "8.5.3.3.2",
+        "8.5.3.3.3",
+        "11.6.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "measurement_geospatial_current",
+      "artifact": "shards/measurement_geospatial_current/features.json",
+      "ledger_owners": [
+        "12.9.1",
+        "12.9.2",
+        "12.10.2",
+        "12.10.3",
+        "12.10.4",
+        "12.10.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "identifiers_procsets_current",
+      "artifact": "shards/identifiers_procsets_current/features.json",
+      "ledger_owners": [
+        "14.2",
+        "14.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
       "shard": "dpart_limits_current",
       "artifact": "shards/dpart_limits_current/features.json",
       "ledger_owners": [

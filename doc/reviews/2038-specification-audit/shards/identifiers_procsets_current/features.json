@@ -1,0 +1,22 @@
+{
+  "scope": "Parent-owned bounded review of14.2 and14.4; not all ID consumers.",
+  "features": [
+    {
+      "clause": "14.2",
+      "source": "Primary728/713 plusTable346on729. ProcSet is used only for PostScript-compatible output. EC3#367 separates unnecessary since1.4 from deprecated in2.0.",
+      "ledger": "Inapplicable: screen and platform printing consume raster output.",
+      "code": "viewer-host/src/printing.rs describes/implements raster page handoff; content operators are interpreted directly. ProcSet names do not select this interpreter.",
+      "verdict": "Retain conditional inapplicability. No added test asserting a meaningless ProcSet resource side effect.",
+      "residual": "A future PostScript-program output route changes applicability; external printer internals do not make the present raster handoff such a route."
+    },
+    {
+      "clause": "14.4",
+      "source": "Primary734/719. Two byte strings: first permanent, second changing; both equal when first written. #328 removes contents-based narrowing; #691 removes named MD5 example.",
+      "ledger": "Implemented. Note says nothing compares a second document, yet links reference.rs and form import/submission consumers that do; stale scope prose.",
+      "code": "write.rs::identify preserves first ID and hashes appended bytes; serialize.rs::identify writes one digest twice for derived files. extend runs before identify, so caller trailer additions do not bypass ID generation. linearize.rs uses equal new IDs too, inspected only.",
+      "assertions": "incremental_update.rs pins permanent[1,2] and changed second versus[3,4], plus deterministic repeat. encryption.rs checks ID literal hex against corpus bytes but can return early if corpus missing. serialize.rs original determinism test checks bytes equality and only /ID token presence; it does not inspect equal string slots.",
+      "change": "Added valid-xref classic andstream serializer cases requiring two nonempty byte strings, equal on new output and distinct from literal source IDs.1PASS. Distinct-source requirement is the derived-file identity policy ofADR0817 plus uniqueness recommendation, not an assertion that copying bytes must invent a new ID.",
+      "residual": "No universal uniqueness/collision proof; no new encryption-ID fixture, linearized-ID execution or full external-reference census. Existing reference/current and FDF shards own selected two-document consumers."
+    }
+  ]
+}

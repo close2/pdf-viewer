@@ -1,0 +1,37 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "id": "degenerate-transparent-compositing",
+      "source": "EC3 Issue #103 at primary physical 188 / printed 173; §11.6.2 at physical 430 / printed 415",
+      "decision": "Promote and run the alpha overlap draft before retaining the current blanket statement that #103 changes only an annotation. It targets a one-object compositing rule that applies independently of whether the degenerate dot itself is defined in the transparent model.",
+      "reasoning": "The CPU backend visibly divides one Stroke command into two draws. With a dot fully contained by the ordinary path stroke, separately applying alpha could darken a pixel already painted by the same object. Existing tests only validate opaque appearance.",
+      "status": "draft_ready_execution_needed",
+      "related_adrs": ["ADR 0420", "ADR 1857", "ADR 1875"]
+    },
+    {
+      "id": "pentagram-fill-rule-example",
+      "source": "§§8.5.3.3.2–.3, primary physical 190–191 / printed 175–176",
+      "decision": "Add one self-intersecting pentagram pixel test alongside the existing concentric-square area tests; sample central pentagon, one arm and exterior under both rules.",
+      "reasoning": "Existing tests are strong, independent and correctly discriminate the two rules on nested contours, matching the source's concentric-circle example. A compact star test covers the clause's separately described self-intersection behavior without duplicating the area tests.",
+      "status": "draft_ready_execution_needed",
+      "related_adrs": ["ADR 0396", "ADR 0226"]
+    },
+    {
+      "id": "fortuitous-join",
+      "source": "§8.4.3.4, primary physical 176 / printed 161",
+      "decision": "Add a paired connected-vs-separate-subpath pixel check for the clause's distinction between a consecutive join and a fortuitous geometric meeting.",
+      "reasoning": "Round/bevel area tests already discriminate the shape types, but do not cover the sentence limiting joins to consecutive connected segments. The proposed pixel is fully inside the connected miter wedge and outside both butt-capped segments in the separate-subpath control.",
+      "status": "draft_ready_execution_needed",
+      "related_adrs": ["ADR 0398"]
+    },
+    {
+      "id": "miter-range-update",
+      "source": "§8.4.3.5 and EC3 Issue #154, primary physical 177 / printed 162",
+      "decision": "Interpret the current below-one clamp as recovery for producer-invalid values, not conformance evidence for valid input. The miter geometry and large-admitted-miter assertions remain well grounded in the revised source formula.",
+      "reasoning": "#154 adds a normative minimum of 1.0. Existing test name describes clipping, while the three-backend shape test uses the valid 333 limit and an independent formula oracle.",
+      "status": "accounted_for_no_new_failure",
+      "related_adrs": ["ADR 0398", "ADR 0189", "ADR 0154"]
+    }
+  ]
+}

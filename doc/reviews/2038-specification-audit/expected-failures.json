@@ -330,6 +330,24 @@
       "test": "pdf_a4_stopped_stream_count_is_not_certified_met",
       "finding": "2038-B37",
       "log": "survey-limits-wave31d.log"
+    },
+    {
+      "binary": "viewer-core::requirements_version_spec_audit",
+      "test": "a_requirement_minimum_version_affects_the_public_unmet_report",
+      "finding": "2038-B38",
+      "log": "requirements-wave32d.log"
+    },
+    {
+      "binary": "viewer-core::requirements_version_spec_audit",
+      "test": "requirement_versions_reach_the_enabled_processing_policy",
+      "finding": "2038-B38",
+      "log": "requirements-wave32d.log"
+    },
+    {
+      "binary": "render-cpu::transparent_degenerate_spec_audit",
+      "test": "a_degenerate_subpath_does_not_composite_twice_with_the_same_stroke_object",
+      "finding": "2038-B39",
+      "log": "geometry-requirements-wave32.log"
     }
   ]
 }

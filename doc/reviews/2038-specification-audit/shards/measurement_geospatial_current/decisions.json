@@ -1,0 +1,18 @@
+{
+  "reviews": [
+    {"adr":"1191","topic":"Interactive measurement and geospatial query","verdict":"Retain. It connects actual host-facing Query::Measure to measurement semantics. Its own example-level test proves formatting in the model, but the public Query assertion is only partial-string coverage; add the drafted discriminating numeric route test."},
+    {"adr":"1593","topic":"Georeferencing interpolation and position display","verdict":"Retain the affine-fit and decimal-degree presentation as explicit implementation choices where source does not prescribe an interpolation/display format. Qualify the claim that /PDU angular unit is only for angles: Table 269 calls the units preferred and assigns order, while the nearby DCS entry says display formatting is controlled by the interactive processor. No exact source rule found that mandates honoring /PDU for a position label; no confirmed conformance defect."},
+    {"adr":"1586","topic":"EPSG registry and WKT support scope","verdict":"Retain as a bounded corpus-based implementation decision, not a claim that all valid PDFs pair EPSG with WKT or that the EPSG registry is unnecessary universally. State explicitly that code-only EPSG is refused."},
+    {"adr":"1587","topic":"Projection method accuracy and supported subset","verdict":"Retain where its test oracle is IOGP Guidance Note 7-2 worked examples. Do not elevate the implementation to full GN7-2 or ISO 19162 conformance; record finite methods and unsupported systems as residual scope."},
+    {"adr":"1918","topic":"Projected degree-shaped GPTS departure","verdict":"Retain as an owner-ratified departure, not a reading of current Table 269's ordinary projected coordinate requirement. Effective #534 only changes PCSM semantics; it does not reverse this departure."},
+    {"adr":"0653","topic":"PCSM shape from #534","verdict":"Retain. The erratum explicitly supplies matrix shape/order; tests use asymmetric values that distinguish row order and translation."},
+    {"adr":"0728","topic":"#321 correction","verdict":"Retain. The actual EC3 annotation resolves the contradiction between prose 'either or both' and the tables' mutually exclusive entries; current parsing follows the table and the correction does not require a new code change."},
+    {"adr":"1958","topic":"Cross-datum DCS","verdict":"Retain only for parameters/methods currently supported and tested. Its ledger claims must not imply full external datum operation coverage, registry/grid/epoch support, or arbitrary ISO 19162 transformation methods."}
+  ],
+  "triage": [
+    {"item":"Table 269 PDU versus six-place decimal display","verdict":"Unresolved source-level preference, not a confirmed violation. Preserve the host presentation as a product choice; qualify the stronger normative claim in ADR 1593/ledger if it says angular units categorically cannot affect positions."},
+    {"item":"Table 272 point data values in public UI","verdict":"No public consumer was found, and the source describes extended point data without a rendering/display workflow. Treat as model-level parsing/preservation and current UI inapplicability, not a demand to display arbitrary data."},
+    {"item":"Projected GPTS ordinarily eastings/northings","verdict":"Known owner-approved departure ADR 1918/A271; exclude from new defect assertions."},
+    {"item":"LPTS optionality","verdict":"Effective source is Required due issue #533. The implementation's refusal/absence behavior is recovery policy; a conforming fixture should supply /LPTS."}
+  ]
+}

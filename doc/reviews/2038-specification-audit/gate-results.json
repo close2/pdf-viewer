@@ -1138,8 +1138,46 @@
     },
     {
       "log": "eleven-crate-wave31.log",
-      "status": "running",
-      "scope": "Expanded broad refresh including archive/accessibility; result pending at checkpoint31."
+      "scope": "Eleven crates including archive/accessibility: exact binary/test identity equality with checkpoint31 manifest55; no missing or extra failures.589seconds,5.97GiB peak. Comparison parser initially omitted padded test indices; corrected whitespace pattern matched all55.",
+      "run": 7142,
+      "passed": 7087,
+      "failed": 55,
+      "skipped": 58,
+      "exit": 100
+    },
+    {
+      "log": "geometry-requirements-wave32.log",
+      "run": 6,
+      "passed": 3,
+      "failed": 3,
+      "exit": 101,
+      "scope": "Two geometry controls and public measurement pass; transparent stroke fails as predicted. Requirements policy fails; report draft also failed on an invalid guard demanding an event for an empty supported report."
+    },
+    {
+      "log": "serializer-id-wave32b.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "New file ID pair for classic and stream output."
+    },
+    {
+      "log": "requirements-wave32c.log",
+      "exit": 101,
+      "scope": "Rejected draft edit with mismatched delimiter; no behavior evidence."
+    },
+    {
+      "log": "requirements-wave32d.log",
+      "run": 2,
+      "passed": 0,
+      "failed": 2,
+      "exit": 101,
+      "scope": "Final version semantics: report and enabled Process policy fail after absent/current/unknown controls. Empty supported reports correctly need no event."
+    },
+    {
+      "log": "quality-wave32g.log",
+      "exit": 0,
+      "scope": "Final syntax/render-cpu/viewer-core all-targets Clippy -Dwarnings. Earlier e/f draft lint failures corrected."
     }
   ],
   "prior_expected_failures": {

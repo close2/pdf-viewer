@@ -1,0 +1,98 @@
+{
+  "baseline": "b901326c",
+  "source": "ISO 32000-2:2020 with Errata Collection 3",
+  "scope": "Effective geometry rules in §§8.4.3.2–.5 and §8.5.3.3.2–.3. Excludes §10.7.5 stroke adjustment and midpath Q robustness.",
+  "features": [
+    {
+      "clause": "8.4.3.2",
+      "title": "Line width / stroke geometry",
+      "source_location": "Primary physical 175 / printed 160. Requires nonnegative width; positive-width stroke covers all points within half the width of the path in user space; CTM anisotropy makes device-space thickness orientation-dependent. A width of zero denotes the thinnest device line. The clause explicitly allows up to two device pixels of line-width difference depending on grid position.",
+      "errata": "No EC3 item changing this clause found in doc/errata-read.md or the effective-page review.",
+      "ledger": "Implemented, §8.4.3.2. Ledger ties zero-width, negative clipping via §8.4.1, and wide-curve distance-set behavior to distinct tests.",
+      "code": "Graphics-state parsing and Stroke::device_width implement parameter handling. CPU stroke folding constructs unions of convex pieces when stroking curves wider than their curvature; other backends use their stroke paths except where shared geometry is required.",
+      "tests": "render-cpu/tests/stroke_wider_than_its_curve.rs asserts analytic distance sets for a circle, ellipse and open arch. stroke_width.rs tests zero-width scale behavior. line_parameters.rs checks negative width clipping. Cross-backend tests cover narrow strokes; stroke adjustment remains excluded per task.",
+      "assertions": "The wide-curve tests use an independent control-point distance oracle and broad interiors, which distinguishes a disk from the erroneous annulus without depending on rasterizer edge antialiasing. The clause allows up to two device pixels of line-width variation for ordinary rasterized strokes; do not classify boundary coverage differences inside that allowance as a geometry failure.",
+      "verdict": "source_supported_geometry_coverage",
+      "residuals": "The two-pixel device-width allowance and explicit stroke-adjustment clause constrain pixel-exact expectations at edges. This review does not certify every scale/CTM/cap combination or backend.",
+      "related_adrs": ["ADR 1348", "ADR 0419", "ADR 0480"]
+    },
+    {
+      "clause": "8.4.3.3",
+      "title": "Line cap style; Table 53",
+      "source_location": "Primary physical 176 / printed 161. Butt cap has no projection; round cap is a filled semicircle of diameter equal to line width; projecting square cap extends half the line width beyond the endpoint.",
+      "errata": "No EC3 item changing Table 53 found.",
+      "ledger": "Implemented; ledger maps both `J` and ExtGState `/LC` plus open subpath/dash use and the separately handled subpixel cap shapes.",
+      "code": "LineCap parsing feeds pdf-render's exact cap construction and degenerate-subpath handling; sub_pixel_caps adds the cap as a separate region when the body width is substituted for pixel coverage.",
+      "tests": "pdf-render/src/sub_pixel.rs tests round semicircle, projecting square, butt no-mark, and closed-path no-cap shapes. render-raster/tests/sub_pixel_coverage.rs checks subpixel area. render-cpu/tests/degenerate_subpath.rs covers the normative round-only closed single-point case.",
+      "assertions": "Tests assert named geometric regions/areas and distinguish each style; they include positive and negative cases. The exact geometric test applies to ordinary widths, while subpixel coverage is separately checked as an area/alpha quantity.",
+      "verdict": "source_supported_geometry_coverage",
+      "residuals": "Not a full audit of dashing, whose broader cap behavior belongs to §8.4.3.6. The implementation-dependent zero-length-dash corner is outside this task.",
+      "related_adrs": ["ADR 0268", "ADR 0290", "ADR 1857"]
+    },
+    {
+      "clause": "8.4.3.4",
+      "title": "Line join style; Table 54",
+      "source_location": "Primary physical 176 / printed 161. Miter/round/bevel joins apply at corners where consecutive segments connect at an angle; segments that meet or intersect fortuitously receive no special treatment. Round is an arc of diameter line width; bevel caps the segments and fills the triangular notch.",
+      "errata": "No EC3 item changing Table 54 found.",
+      "ledger": "Implemented; the row separates rasterizer-supported ordinary joins from the shared miter-wedge fallback required for exceptionally large admitted miters. It also states the closed-dashed-path rule separately.",
+      "code": "Graphics-state joins feed backend stroke geometry. `pdf-render::mitre_wedges` supplies only admitted miters a backend refuses; the shared wedge is combined with the bevel outline in one fill path.",
+      "tests": "render-cpu/tests/stroke_join_shapes_audit.rs draws an 8-unit right-angle path and measures the outer corner: expected quarter-disc area πr²/4 for round versus triangle r²/2 for bevel, with an explicit discrimination assertion. render-raster/tests/mitre_limit.rs checks the long miter against the §8.4.3.5 closed form across three backends.",
+      "assertions": "The quarter-disc and triangle areas are independent geometric expectations, not another backend's output. A remaining untested sentence is the explicit connected-versus-fortuitous distinction; a narrow positive-control draft is included.",
+      "verdict": "implemented_with_narrow_test_gap",
+      "residuals": "Ordinary device rasterization remains subject to the line-width allowance and pixel-grid antialiasing; the draft samples a fully interior pixel away from boundaries. Dash/close semantics remain outside the draft.",
+      "related_adrs": ["ADR 0398", "ADR 0033"]
+    },
+    {
+      "clause": "8.4.3.5",
+      "title": "Miter limit",
+      "source_location": "Primary physical 177 / printed 162. EC3 Issue #154 carets `shall be a number greater than or equal to 1.0 and` into the clause, so miter limit is explicitly at least 1.0. The clause ratio is miter length / line width = 1 / sin(φ/2); when the limit is exceeded the join becomes bevel, not a clipped-length miter. Very large miters are allowed if the file's limit admits them.",
+      "errata": "Issue #154 (Review/Completed, Caret) changes the minimum from a derived interpretation to an explicit producer range. Existing parser/test clamps values below 1.0; this is now clearly recovery from invalid input rather than a reader's handling of a conforming file.",
+      "ledger": "Implemented; row links parser, analytic wedge, corpus testimony and three-backend area/tip checks.",
+      "code": "content.rs clamps the parameter at 1; pdf-render::mitre_wedges calculates ratio and tip from the source formula and adds only wedges beyond the backend's native mitre cutoff but within the document's limit.",
+      "tests": "line_parameters.rs::a_miter_limit_below_one_is_clipped_into_range tests a now-invalid producer value as input sanitization. pdf-render/src/mitre.rs has analytic ratio/geometry unit assertions. render-raster/tests/mitre_limit.rs compares ink area and tip reach to independent closed form on CPU, raster and GPU paths.",
+      "assertions": "The cross-backend test derives φ, ratio and reach from the fixture coordinates, checks full wedge area within 2%, and asserts a broad tip tolerance; it is discriminating against bevel fallback (no ink above the vertex). It does not use another renderer as its expected oracle.",
+      "verdict": "source_supported_geometry_coverage",
+      "residuals": "The below-one test is no longer a conformance test for valid PDF; its description should retain that producer-invalid distinction. No remaining valid-input failure identified. Raster-edge tolerance and dash cases are separate.",
+      "related_adrs": ["ADR 0398", "ADR 0189", "ADR 0154", "ADR 0523"]
+    },
+    {
+      "clause": "8.5.3.2, read with 11.6.2 and 11.6.4.2",
+      "title": "Degenerate subpath treatment after EC3 Issue #103",
+      "source_location": "Primary physical 188 / printed 173 (§8.5.3.2). EC3 #103 changes the qualifier to: in the opaque imaging model, the degenerate-subpath circle/no-output rule applies only to zero-length subpaths and not zero-length dashes. §11.6.2 at physical 430 / printed 415 says portions of one graphics object shall not composite with one another, even for overlaps; §11.6.4.2 defines path-object shape.",
+      "errata": "Issue #103 (`Review`/`Completed`) replaces `This rule` with `In the opaque imaging model, this rule`. Issue #434 adds a NOTE, with no additional requirement.",
+      "ledger": "The §8.5.3.2 row is implemented and records subpath/dash rules. Existing degenerate test commentary quotes the pre-EC3 wording; implementation commentary acknowledges #103 but concludes no behavior change based on §11.6.2.",
+      "code": "pdf-render::split_degenerate extracts circular marks from the rest of a single Stroke command. render-cpu::draw_stroke first strokes the remainder, then independently fills the dots using the same paint/blend. This split occurs outside the SourceOver-only thin-dot optimization and therefore can represent two composites for one source path when the dot overlaps ordinary stroked content.",
+      "tests": "render-cpu/tests/degenerate_subpath.rs measures closed single-point paths and distinct cap/dash outcomes, but its pixels are opaque. pdf-render unit tests assert geometry shape only. No located test checks an overlapping degenerate subpath and ordinary stroke under partial alpha.",
+      "assertions": "Static code tracing suggests a counterexample: a width-8 horizontal stroke crossing a same-path round-capped zero-length closed subpath, both painted with alpha .5, has an interior sample within both. `draw_stroke` strokes one path portion and then fills the circle, so SourceOver can raise alpha from .5 to .75. §11.6.2 requires parts of a single graphics object not to composite with one another. A draft samples a pixel already inside the nondegenerate stroke, so its expected alpha is .5 regardless of whether transparent-model processing includes the extra zero-length geometry.",
+      "verdict": "static_potential_reader_failure_requires_execution",
+      "residuals": "The EC3 qualification means the opaque-model dot rule alone cannot mandate the circle's presence under transparency. The candidate test only asserts no double compositing inside the ordinary stroke body, an obligation independent of whether transparent semantics also paint the degenerate part. Not executed; parent should run/inspect and may revise the verdict.",
+      "related_adrs": ["ADR 0420", "ADR 1857", "ADR 1875"]
+    },
+    {
+      "clause": "8.5.3.3.2",
+      "title": "Non-zero winding number rule",
+      "source_location": "Primary physical 190 / printed 175. Standard fill `f` and clip `W` use nonzero; same-oriented nested contours include both regions, opposite-oriented nested contours form a hole; the five-point self-intersecting star includes its central pentagon.",
+      "errata": "No EC3 item changing the rule found.",
+      "ledger": "Implemented; explicit fill-rule value travels through all renderers.",
+      "code": "FillRule::NonZero maps to each renderer's winding rule; path painting/clip command carries it explicitly.",
+      "tests": "render-cpu/tests/fill_rules.rs asserts independently calculated area for two concentric square subpaths: 6400 for same winding, 4800 for opposite winding. Those cases mirror the source's concentric-circle example and distinguish an orientation-insensitive implementation.",
+      "assertions": "The area oracle is analytic, tolerance is 40 pixels against a 1600-pixel hole, and the companion even-odd assertion gives a negative/positive control. No currently located pixel assertion samples the source's self-intersecting-star center directly.",
+      "verdict": "implemented_with_additional_source_example_gap",
+      "residuals": "The current nested-contour tests establish the rule on non-self-intersecting contours; one compact source-example regression for the self-intersecting pentagram center would cover a distinct geometry family. Draft included.",
+      "related_adrs": ["ADR 0396", "ADR 0226"]
+    },
+    {
+      "clause": "8.5.3.3.3",
+      "title": "Even-odd rule",
+      "source_location": "Primary physical 190–191 / printed 175–176. Starred fill/clip operators use parity; the pentagram's central pentagon is outside; nested concentric contours leave a hole regardless of contour direction.",
+      "errata": "No EC3 item changing the rule found.",
+      "ledger": "Implemented; the row points to a pixel-area test that distinguishes parity from winding.",
+      "code": "FillRule::EvenOdd maps to each renderer's parity rule; fill and clip paths preserve the rule in display-list commands.",
+      "tests": "render-cpu/tests/fill_rules.rs::the_even_odd_rule_leaves_the_hole_regardless_of_direction asserts 4800 square units for both same and opposite orientations; its comment explicitly notes same-direction nested shapes would give 6400 under the nonzero rule. Other tests cover the even-odd hole formed by overlapping marks and clips.",
+      "assertions": "Substantial coverage exists for nested contour parity and the meaningful different-answer control. A self-intersecting path center test is not required to validate every case but would directly check the source's separate star example; shared draft covers both rules and an arm/exterior control.",
+      "verdict": "implemented_with_additional_source_example_gap",
+      "residuals": "No full audit of every self-intersection or all backend combinations; the additional draft targets the normative star example with interior sample pixels.",
+      "related_adrs": ["ADR 0396", "ADR 0226"]
+    }
+  ]
+}

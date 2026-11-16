@@ -1389,5 +1389,90 @@
     "summary": "Artifact classification assertions reach a raw accessibility update, not the final platform bus.",
     "evidence": "Artifact uses GenericContainer, which platform filtering may omit. Existing description assertions do not establish assistive-client access.",
     "disposition": "Unresolved product/API visibility question; no requirement to speak artifacts inferred. Keep explicit scope rather than treating raw-tree tests as end-to-end proof."
+  },
+  {
+    "id": "2038-B38",
+    "kind": "ignored-minimum-requirement-version",
+    "clauses": [
+      "12.11.1",
+      "12.11.4",
+      "12.11.6"
+    ],
+    "summary": "A declared minimum feature version is parsed but ignored by unmet reporting and processing penalties.",
+    "evidence": "Navigation and Attachment at V2.0 pass; unknown-feature controls report/refuse. V2.1 produces no unmet note, and a 120-point pair opens despite Process On. Two controlled public failures.",
+    "qualification": "2.1 is a forward minimum name, not a claim of a published edition. The default policy override is a separate owner choice."
+  },
+  {
+    "id": "2038-B39",
+    "kind": "same-object-double-compositing",
+    "clauses": [
+      "8.5.3.2",
+      "11.6.2"
+    ],
+    "summary": "A round-capped degenerate subpath is painted separately over another portion of the same transparent stroke.",
+    "evidence": "One alpha-0.5 black Stroke over white: ordinary line interior red128; adding a fully contained same-path dot gives red64. The split draw composites twice instead of once.",
+    "qualification": "CPU public raster witness. Oracle does not depend on requiring the degenerate geometry in transparent mode. GPU/PDF consumer follow-up remains pending."
+  },
+  {
+    "id": "2038-T52",
+    "kind": "assertion-coverage-gap",
+    "clauses": [
+      "12.9.1",
+      "12.9.2"
+    ],
+    "summary": "Public measurement tests checked names or string fragments without discriminating numericviewport selection.",
+    "change": "Distinct0.01/0.02 scales and literal1u/2u interior and reversed-crossing controls.",
+    "execution": "1 PASS."
+  },
+  {
+    "id": "2038-T53",
+    "kind": "assertion-coverage-gap",
+    "clauses": [
+      "8.4.3.4",
+      "8.5.3.3.2",
+      "8.5.3.3.3"
+    ],
+    "summary": "Selected geometry assertions omitted fortuitousjoins and the source self-intersectingstar example.",
+    "change": "Connected versus separate miter wedge; nonzero/even-odd star center with arm/exterior controls.",
+    "execution": "2 PASS. Parent corrected draft star coordinates before execution."
+  },
+  {
+    "id": "2038-T54",
+    "kind": "assertion-coverage-gap",
+    "clauses": [
+      "14.4"
+    ],
+    "summary": "The referenced serializer test asserted determinism and IDtokenpresence, not the required equal initial pair.",
+    "change": "Classic and stream output checks inspect two equal nonempty byte strings and distinguish the literal source IDs under the derived-file policy.",
+    "execution": "1 PASS."
+  },
+  {
+    "id": "2038-D27",
+    "kind": "policy-source-distinction",
+    "clauses": [
+      "12.11.3",
+      "12.11.6"
+    ],
+    "summary": "Requirements processing remains a useroverride; that design does not remove the need to assess declared versions.",
+    "disposition": "Retain owner policy and ADR1167 architecture. Qualify the SHOULD threshold versus SHALL processing text; do not present Off, Warn or approved Ask as unqualified source fulfillment."
+  },
+  {
+    "id": "2038-D28",
+    "kind": "stale-ledger-rationale",
+    "clauses": [
+      "14.4"
+    ],
+    "summary": "The current file-identifier note says nothing compares two documents, despite implemented reference and FDF consumers.",
+    "disposition": "Reconcile current rationale; historical ADR0050 does not describe the current scope. No ledger or historical ADR was edited."
+  },
+  {
+    "id": "2038-D29",
+    "kind": "decision-counterexample",
+    "clauses": [
+      "8.5.3.2",
+      "11.6.2"
+    ],
+    "summary": "ADR0420 assumes existing stroke handling already preserves one-object transparency afterEC3#103.",
+    "disposition": "Reconsider for overlapping degenerate parts: new CPU counterexample B39. Retain separate opaque geometry and subpixel arguments pending their own evidence."
   }
 ]

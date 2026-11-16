@@ -11,23 +11,25 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (31)
+## Current checkpoint (32)
 
-Partial reviews now cover **520 of 883 ledger rows**, with 363 pending. The current
-failure manifest contains **55 assertions**; these are grouped behavior findings,
-not 55 independent defects. All 72 failures from the prior audit pass at this baseline.
-The latest completed broad run is wave27 (nine crates); an expanded eleven-crate
-refresh is running. Later focused runs and quality checks are recorded separately.
-The paragraphs below preserve the evidence accumulated at earlier checkpoints.
+Partial reviews now cover **541 of 883 ledger rows**, with 342 pending. The current
+failure manifest contains **58 assertions**, grouped into behavior findings rather
+than 58 independent defects. All 72 failures from the prior audit pass at this baseline.
+The latest broad run, wave31, covered eleven crates: **7,142 tests ran, 7,087 passed,
+and exactly the 55 then-recorded assertions failed; 58 were skipped**. Exact test
+identities matched. Wave32 adds four passing tests and three expected failures.
 
-The newest regressions expose two limits whose consequences are hidden: an attachment
-below the DPart depth ceiling disappears without a partial-result notice, and archive
-validation can report a transparency requirement as met after its survey stopped early.
-Four archive cases cover PDF/A2 and4 at depth and stream-count boundaries. The tests
-accept disclosed incompleteness; they do not demand unlimited processing. Eight
-WritingMode allocation controls pass. Model/core/archive all-targets Clippy passes.
-Clause6 review distinguishes producer obligations and optional external-suite evidence
-from executed reader tests. Weekly usage was 44% at the latest check; the ceiling is85%.
+The latest failures concern ignored minimum requirement versions (both reporting and
+processing restrictions) and double compositing of overlapping portions of one
+transparent stroke. New public measurement, join/fill geometry and new-file identifier
+controls pass. Syntax/render-cpu/viewer-core all-targets Clippy passes. The previous
+checkpoint records silent DPart truncation and false archive validation after an
+incomplete transparency survey. Tests accept truthful bounded processing.
+
+These are partial feature reviews, not whole-clause certification. The paragraphs
+below preserve earlier checkpoint evidence. Weekly usage was44% at the latest check;
+the ceiling is85%, preserving the requested15% reserve.
 
 ## Method and current work
 

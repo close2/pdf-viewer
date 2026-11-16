@@ -6,23 +6,27 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "Eight-crate wave22:6435run,6399PASS,exactly36expectedFAIL,55skip; no missing or additional failure identities. Includes checkpoint22 AP tests. Wave23 adds five passing transfer/font controls; broad wave22 predates these. Wave24 adds two passing AnnexO controls and strengthens stroke-fit interior coverage, with two passing hardware-lane tests. Wave25:61model tests and1viewer signed-lock edit test pass; includes corrected Type3 fixtures and new Type1 geometry/colour discriminator. Wave26:password preprocessing1PASS; PrintField title1PASS and3new expected failures, current manifest39. Broad wave22 predates these. Wave27 adds4language failures and1page-label limit failure:manifest44. Formula testPASS after rejecting initial white-medium setup; public reference printPASS.  Final wave27 refresh:6723run6679PASS44expectedFAIL55skip; exact manifest equality, no missing or extra failures. Wave28 adds four passing navigation/state controls; broad wave27 predates them. Wave29:3passing controls and5new expected failures, manifest49. Broad wave27 predates waves28\u201329. Wave30 adds Ruby and two transparency controls, with one new CA-detection failure: manifest50. Unresolved soft-mask probe remains scratch evidence, not a confirmed failure. Wave31 adds a passing depth64 and eight-mode allocation control, plus five expected failures: manifest55. Eleven-crate wave31 broad refresh is running.",
-    "quality": "Checkpoint31 model/core/archive all-targets Clippy -Dwarnings PASS; checkpoint30 accessibility PASS."
+    "later_targets": "Latest broad refresh wave31: eleven crates,7142run7087PASS55expectedFAIL58skip; exact binary/test identity equality. Wave32 adds four passing tests and three expected failing assertions, manifest58. Broad run predates those seven new tests.",
+    "quality": "Checkpoint32 syntax/render-cpu/viewer-core all-targets Clippy -Dwarnings PASS. Checkpoint31 model/archive and checkpoint30 accessibility remain passing at their scoped revisions."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [
-      "document_requirements_current",
-      "stroke_fill_geometry_current",
-      "measurement_geospatial_current"
-    ],
-    "active_shards": [
       "halftones_separations_current",
       "overprint_transparency_current",
       "multimedia_data_current"
     ],
+    "active_shards": [
+      "text_streams_rectangles_current",
+      "default_colour_bpc_current",
+      "legacy_media_annotations_current"
+    ],
     "recorded_shards": [
+      "document_requirements_current",
+      "stroke_fill_geometry_current",
+      "measurement_geospatial_current",
+      "identifiers_procsets_current",
       "dpart_limits_current",
       "survey_limits_current",
       "tagged_content_tables_current",
@@ -105,8 +109,8 @@
       "font_substitution_current",
       "tagged_layout"
     ],
-    "partial_current_rows": 520,
-    "pending_current_rows": 363
+    "partial_current_rows": 541,
+    "pending_current_rows": 342
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",
@@ -120,6 +124,6 @@
     "ceiling": 85,
     "remaining_reserved": 15,
     "last_weekly_used_percent": 44,
-    "last_read_utc": "2026-11-16T15:17:56.207459+00:00"
+    "last_read_utc": "2026-11-16T15:29:12.422760+00:00"
   }
 }
