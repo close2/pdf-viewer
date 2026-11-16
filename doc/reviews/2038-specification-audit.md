@@ -266,6 +266,18 @@ rows, with423pending; model/core/render-cpu all-targets Clippy passes. The final
 nine-crate refresh runs6,723tests:6,679pass, exactly44manifest failures and55skipped.
 Exact binary/test identities match, with no additional or missing failures.
 
+
+The filter/annotation/navigation checkpoint adds four passing public controls for
+StateModel defaults, GoToDp leaf/interior navigation, Thread bead indices, and a
+link-triggered transition event. The interior-node behavior remains an interpretation;
+the event test does not certify visual sequencing. Parent source review corrected
+DPart draft arrays against #612, Projection text against #42/#94, and the JPX
+producer/support distinction against #29. Existing PrinterMark/TrapNet pixels,
+Popup flags, Watermark placement, DCT precedence and named Crypt witnesses were
+reviewed as assertions. A valid unsupported-ICC JPX fallback witness remains missing.
+Partial reviews reach 477 rows, with 406 pending; the failure manifest remains 44.
+Model/core all-targets Clippy passes. The broad wave27 run predates these four tests.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks

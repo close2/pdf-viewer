@@ -6,18 +6,15 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "Eight-crate wave22:6435run,6399PASS,exactly36expectedFAIL,55skip; no missing or additional failure identities. Includes checkpoint22 AP tests. Wave23 adds five passing transfer/font controls; broad wave22 predates these. Wave24 adds two passing AnnexO controls and strengthens stroke-fit interior coverage, with two passing hardware-lane tests. Wave25:61model tests and1viewer signed-lock edit test pass; includes corrected Type3 fixtures and new Type1 geometry/colour discriminator. Wave26:password preprocessing1PASS; PrintField title1PASS and3new expected failures, current manifest39. Broad wave22 predates these. Wave27 adds4language failures and1page-label limit failure:manifest44. Formula testPASS after rejecting initial white-medium setup; public reference printPASS.  Final wave27 refresh:6723run6679PASS44expectedFAIL55skip; exact manifest equality, no missing or extra failures.",
-    "quality": "Final checkpoint27 pdf-model/viewer-core/render-cpu all-targets Clippy -Dwarnings PASS; touched formatting/diff checks PASS. Other recorded gates retain their scope."
+    "later_targets": "Eight-crate wave22:6435run,6399PASS,exactly36expectedFAIL,55skip; no missing or additional failure identities. Includes checkpoint22 AP tests. Wave23 adds five passing transfer/font controls; broad wave22 predates these. Wave24 adds two passing AnnexO controls and strengthens stroke-fit interior coverage, with two passing hardware-lane tests. Wave25:61model tests and1viewer signed-lock edit test pass; includes corrected Type3 fixtures and new Type1 geometry/colour discriminator. Wave26:password preprocessing1PASS; PrintField title1PASS and3new expected failures, current manifest39. Broad wave22 predates these. Wave27 adds4language failures and1page-label limit failure:manifest44. Formula testPASS after rejecting initial white-medium setup; public reference printPASS.  Final wave27 refresh:6723run6679PASS44expectedFAIL55skip; exact manifest equality, no missing or extra failures. Wave28 adds four passing navigation/state controls; broad wave27 predates them.",
+    "quality": "Final checkpoint28 model/core all-targets Clippy -Dwarnings PASS. Earlier gates retain their recorded scope."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
-    "new_shards_ready_for_parent_review": [
-      "image_filters_remaining_current",
-      "annotation_remaining_current"
-    ],
+    "new_shards_ready_for_parent_review": [],
     "active_shards": [
-      "remaining_navigation_actions_current",
+      "dpart_associated_files_current",
       "empty_text_replacements_current",
       "compatibility_extensions_current"
     ],
@@ -104,7 +101,7 @@
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 41,
-    "last_read_utc": "2026-11-16T14:07:19.619433+00:00"
+    "last_weekly_used_percent": 42,
+    "last_read_utc": "2026-11-16T14:26:46.003472+00:00"
   }
 }

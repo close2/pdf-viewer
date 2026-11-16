@@ -1189,5 +1189,29 @@
     "summary": "ID-only matching is a product policy; required F, optional ID and embedded-target permission need distinct capability accounting.",
     "source": "Table95 primary290\u2013291, ADR1101,14.4 confidence/changed-version semantics.",
     "change": "Retain no arbitrary path opening. Reconsider offered-name/no-ID and embedded-target capability separately; no source-mandated multi-candidate priority inferred."
+  },
+  {
+    "id": "2038-T46",
+    "kind": "public-integration-test-gap",
+    "clauses": [
+      "12.5.6.3",
+      "12.6.4.5",
+      "12.6.4.7",
+      "12.6.4.15"
+    ],
+    "summary": "Selected model-only routes lacked public consumer assertions; StateModel-only default coverage was absent.",
+    "change": "Four passing controls for annotation defaults, GoToDp leaf/interior navigation, nonzero Thread bead, and a link-triggered transition event.",
+    "limits": "Interior GoToDp is a qualified interpretation; a transition event does not certify visual sequences. Parent repaired the #612 DParts draft shape and used explicit B0 as the bead control."
+  },
+  {
+    "id": "2038-D20",
+    "kind": "effective-source-and-test-scope",
+    "clauses": [
+      "7.4.9"
+    ],
+    "summary": "EC3 #29 excludes enum19 from permitted PDF image data; this is distinct from JPX baseline membership and the separate reader-support sentence.",
+    "evidence": "Primary page 65 strike/caret and page 67 support bullet; T.801 baseline includes enum19. PDF 2.0 enum19 fixtures are recovery/override controls. The declared departure refers to owner A348.",
+    "disposition": "Retain producer-constraint versus reader-rejection distinction. Do not infer a reader-duty exception from the producer exclusion or a new defect from fallback alone. A valid unsupported ICC.1 lower-choice scenario remains unproven.",
+    "rejected": "The preliminary claim that ADR 1184 discusses #29 and the module falsely calls CIEJab baseline was withdrawn after direct source review."
   }
 ]

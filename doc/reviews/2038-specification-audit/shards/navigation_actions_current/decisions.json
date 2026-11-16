@@ -1,0 +1,41 @@
+{
+  "scope_note": "Selected ADR review only, not whole-ADR certification. This shard uses the current source and tests; earlier action refusal histories and open-order/action-chain test families are not reopened.",
+  "decisions": [
+    {
+      "adr": "0316",
+      "topic": "Sub-page navigation is presentation-mode state",
+      "review": "§12.4.4.2 NOTE 3 limits the need to respect navigation nodes to presentation mode. Command::Present is the host condition, and the current presentation state machine implements primary-node arrival, next/previous state, and page turn. The related newer random-access arrival assertion checks the primary NA and exposes selected Next through the later PA request.",
+      "disposition": "Retain the mode gate and state-machine interpretation. The audit did not duplicate the existing arrival test. Explicit no-recovery assertion is a small fixture-evidence gap, not an observed behavior failure."
+    },
+    {
+      "adr": "0473, 0470, 0526",
+      "topic": "Sub-page clock and arrow key host mappings",
+      "review": "Current tests verify node Dur/no-Dur via injected Tick, OCG restore at presentation exit, and key behavior through Command::GoTo. These are consistent with the current host clock and key mapping; no stale old clock/page-transition premise found in the sampled paths.",
+      "disposition": "Retain. Timing comparison is a current reader choice at the stated maximum, not a numerical display cadence requirement."
+    },
+    {
+      "adr": "1051, 1784",
+      "topic": "Annotation state reader and its consumer boundary",
+      "review": "ADR 1051's page-local reply-chain model remains consistent for conforming inputs. ADR 1784 corrects the obsolete host-caller claim: annotation_state::states currently has no non-test caller. §12.5.6.3 has no UI/rendering SHALL; §12.5.6.2 separately requires replies shown together as threaded comments. Table175 makes /StateModel mandatory when /State appears, and T specifies the author, so missing-field inference/anonymous-user grouping are recovery policy rather than valid-input obligations.",
+      "disposition": "Keep the state parser/API and no-UI-obligation conclusion. Retain exact-xref regression for valid reply chains; new draft covers only valid StateModel-only defaults. Do not certify the broader §12.5.6.2 threaded-comment UI from this row."
+    },
+    {
+      "adr": "0108, 0475, 0295, 1040",
+      "topic": "GoToDp makes DPart hierarchy relevant to view navigation",
+      "review": "ADR 0108's decision to perform GoToDp based on its page-selecting sentence remains current. Later DPart root corrections (#609/#614) are reflected in document_part.rs; ADR 1040 explains a separate DPart-associated-file path, while ADR 0475 identifies the earlier status-row reach issue. Current code resolves an interior node to its first depth-first leaf page.",
+      "disposition": "Retain action support. Add a viewer public assertion for action-to-page behavior before claiming end-to-end route evidence; no mandatory DPart panel is inferred here."
+    },
+    {
+      "adr": "0200, 0405, 0746, 1239",
+      "topic": "Thread navigation, article order, and remote file request",
+      "review": "The selected thread UI remains an optional §12.4.3 navigation facility. #320 and ADR 0746 make the article bead order reading order. ADR 1239's external-file request route remains current. Public local route tests first bead/FitR; remote route opens supplied file at bead page; model assertions cover D/B encodings and duplicate-title tie-break.",
+      "disposition": "Retain. Add the drafted local `/D 0 /B 1` public route to close the gap between model parsing and the actual viewer consumer, without requiring a next-bead UI control."
+    },
+    {
+      "adr": "1216, 1299, 0473",
+      "topic": "Transition action independent of presentation and chosen visual quantities",
+      "review": "§12.6.4.15 itself lacks the page-transition clause's presentation-mode condition, supporting ADR 1216's action behavior. ADR 1299's A72-selected style quantities remain implementation choices, not standards pixel counts. Clock tests support host timing, but current public event tests exercise page /Trans rather than Action::Trans.",
+      "disposition": "Keep the action outside presentation-mode gating and retain reported quantities. Add the draft public Viewer action test to prove the link-triggered Action::Trans reaches Event::Transition."
+    }
+  ]
+}

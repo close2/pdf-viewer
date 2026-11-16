@@ -1,0 +1,7 @@
+{
+  "source": "Read primary pages 65\u201367 and the exact #29 strike/caret; independently read ADR 1184. Corrected the reviewer: ADR 1184 does not discuss #29, and T.801 baseline membership includes enum19, so the test module is not wrong about membership. Both the effective PDF 2.0 producer restriction and the separate processor-support sentence remain relevant. No categorical exception to reader duty or enum19 defect is inferred.",
+  "assertions": "Read DCT direct-RGB, default and marker controls; JPX full-package/header fixtures; and the named Crypt witness boundaries. Selected DCT controls discriminate pixel results. Unsupported enum19 recovery is not the valid-but-unsupported ICC case. The existing enum19 departure records owner A348 declining the source purchase.",
+  "limits": "The progressive-process matrix, Adobe TN 5116, and an independently validated unsupported ICC.1 profile with a lower JPX color choice remain residual. The rejected baseline-membership premise justifies no production/comment change.",
+  "baseline": "b901326c",
+  "limit": "Partial source/assertion review, not whole-clause certification. Parent qualifications govern unrun draft claims."
+}

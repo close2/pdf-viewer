@@ -1,0 +1,101 @@
+{
+  "baseline": "b901326c",
+  "scope": ["12.5.1 context", "12.5.6.4", "12.5.6.14", "12.5.6.20", "12.5.6.21", "12.5.6.22", "12.5.6.24"],
+  "source": "doc/ISO_32000-2_sponsored_EC3.pdf (primary EC3 PDF; physical and printed page numbers listed per feature)",
+  "features": [
+    {
+      "clause": "12.5.1 / 12.5.2 / 12.5.3",
+      "feature": "Common annotation placement, appearance eligibility, and F flags",
+      "source_location": "physical 480 / printed 465 (§12.5.1); physical 482–491 / printed 467–476 (Tables 166–167); physical 486 / printed 471 (Table 167 flags)",
+      "source_rule": "§12.5.1 supplies the general annotation/activation context. Table 166 makes AP generally required for writers, except zero-area rectangles and Popup, Projection, or Link; Table 167 makes Hidden suppress rendering/interactions, Print control print output, NoView suppress screen display/interactions, and ReadOnly suppress interaction while allowing rendering/printing subject to other flags.",
+      "ledger": "12.5.1 implemented; 12.5.2 and 12.5.3 are the common implementation rows",
+      "implementation_and_assertions": [
+        "crates/pdf-model/src/annotation.rs::decide and displayed; crates/pdf-model/src/content/annotations.rs::draw_annotation",
+        "crates/pdf-model/tests/annotations.rs::the_hidden_and_no_view_flags_draw_nothing_and_report_nothing asserts F=2,32,34 produce no page commands and no unsupported report",
+        "crates/viewer-core/tests/screen_annotation_audit.rs tests stored AP under both Purpose::View and Purpose::Print and selected states"
+      ],
+      "boundary": "The table's AP obligation is addressed to PDF writers. Reader behavior for a missing AP follows each subtype's clause and selected policy; do not convert a producer violation into mandatory rejection."
+    },
+    {
+      "clause": "12.5.6.4",
+      "feature": "Text annotation closed icon/open note and forced NoZoom+NoRotate",
+      "source_location": "physical 497 / printed 482 (Table 175 and clause prose)",
+      "ledger": "implemented; ADRs 0168 and 0777 explain subtype-specific flags and placement",
+      "implementation_and_assertions": [
+        "crates/pdf-model/src/annotation.rs::view_flags and crates/pdf-model/src/icon.rs",
+        "crates/pdf-model/tests/annotations.rs::each_of_the_seven_standard_icon_names_draws_its_own_shape and table_166_s_colour_is_the_icon_s_background",
+        "crates/pdf-model/src/popup.rs::a_text_annotations_own_open_opens_its_popup",
+        "prior text_annotation_spec_audit covers forced flags and their transform behavior; this shard does not duplicate that geometry test"
+      ],
+      "errata": "No relevant EC3 change located for this clause in doc/errata-read.md."
+    },
+    {
+      "clause": "12.5.6.14",
+      "feature": "Popup is a host window, has no AP/actions, is linked to parent, and applies its own common flags",
+      "source_location": "physical 510 / printed 495 (prose and Table 186)",
+      "ledger": "implemented; ADR 0191 establishes that the window is not page ink; ADR 1057 excludes watermark windows; ADR 1224 addresses markup entries",
+      "implementation_and_assertions": [
+        "crates/pdf-model/src/annotation.rs::decided returns Nothing for Popup; crates/pdf-model/src/popup.rs::popups filters with annotation::displayed",
+        "crates/pdf-model/src/popup.rs::a_hidden_popup_is_not_a_window and the_flags_read_are_the_popups_own_and_not_the_parents",
+        "crates/viewer-core/tests/headless.rs::a_document_that_opens_a_popup_window_says_so_before_anybody_clicks verifies public Query::Popups, parent, contents/title/colour, and placed dimensions"
+      ],
+      "errata": "No relevant EC3 change located for this clause in doc/errata-read.md.",
+      "boundary": "Table 186's Parent override names Contents, M, C, and T; F is not inherited. Absence of AP and page ink is the required subtype behavior, not a missing appearance defect."
+    },
+    {
+      "clause": "12.5.6.20 + 14.11.3",
+      "feature": "PrinterMark stored AP selection, display and print flags",
+      "source_location": "physical 516 / printed 501 (§12.5.6.20); physical 834 / printed 819 (§14.11.3 appearance/flag requirements and Table 398)",
+      "source_rule": "The annotation clause defines the graphic-symbol purpose and points to §14.11.3. §14.11.3 requires AP and F; Print and ReadOnly set, all other F flags clear; AS is required if AP/N has alternatives. The N form appearance is the mark; R and D appearances are never displayed or printed.",
+      "ledger": "12.5.6.20 implemented; §14.11.3 implemented; ADR 0205 corrects the prior unsupported claim that a screen cannot display printer marks",
+      "implementation_and_assertions": [
+        "crates/pdf-model/src/annotation.rs selects stored normal appearance and flags through common annotation logic",
+        "crates/viewer-core/tests/screen_annotation_audit.rs::printer_mark_and_legacy_trapnet_render_their_stored_appearance_for_view_and_print uses F=68 (Print+ReadOnly, with NoView clear) and asserts the red AP pixel for View and Print",
+        "crates/viewer-core/tests/screen_annotation_audit.rs::printer_mark_and_trapnet_as_select_the_named_normal_appearance uses distinct red/blue normal appearances, asserts /AS changes the sampled pixel under View and Print"
+      ],
+      "boundary": "The visual/AP and flag clauses constrain authoring; the renderer's stored AP behavior is tested with a conforming flag combination. /MN and Colorants are descriptive/prepress fields, not display obligations."
+    },
+    {
+      "clause": "12.5.6.21 + 14.11.6.2",
+      "feature": "TrapNet stored AP selection/order, print and display; deprecated-feature boundary",
+      "source_location": "physical 516 / printed 501 (§12.5.6.21); physical 841 / printed 826 (§14.11.6.2 prose); physical 842 / printed 827 (Table 403 and LastModified condition)",
+      "source_rule": "PDF 2.0 deprecates trapping. The annotation clause's max-one and last-in-Annots rules describe conforming files; the last position naturally composites after preceding annotations. §14.11.6.2 requires AP, AS, F, Print+ReadOnly, all other flags clear; named /N selection controls current network. R/D are never printed. Table 403 provides change-tracking entries.",
+      "ledger": "12.5.6.21 implemented; §14.11.6.2 implemented; ADRs 0906, 1035, 1535, 0205 are directly relevant",
+      "implementation_and_assertions": [
+        "crates/pdf-model/src/annotation.rs uses common AP selection/placement; crates/pdf-model/src/content/annotations.rs follows /Annots order",
+        "crates/viewer-core/tests/screen_annotation_audit.rs uses a named /N state plus /AS and asserts red in View and Print",
+        "crates/pdf-model/tests/annotations.rs::every_annotation_type_table_171_defines_is_answered_by_its_own_clause checks handler membership, not TrapNet's visual semantics; it is not counted as the behavioral test"
+      ],
+      "boundary": "The legacy compatibility reader draws the stored AP; it does not generate traps. The at-most-one/last requirement is a file-structure rule; reader reordering/rejection is not stated."
+    },
+    {
+      "clause": "12.5.6.22",
+      "feature": "Watermark AP, FixedPrint geometry/media, no popup or interaction, and shared F flags",
+      "source_location": "physical 516 / printed 501 (clause and Table 193); physical 517 / printed 502 (Table 194 and rendering algorithm)",
+      "source_rule": "FixedPrint optional; absent means ordinary annotation placement; present requires the Table 194 rendering transform. On-screen media dimensions shall use MediaBox. Watermarks shall have no popup or other interactive elements. Table 194 defaults Matrix to identity and H,V to zero.",
+      "ledger": "implemented; ADRs 0934, 1057, 1179, 1180 and 0906 are relevant",
+      "implementation_and_assertions": [
+        "crates/pdf-model/src/annotation.rs::fixed_print and is_watermark/interacts; crates/pdf-model/src/popup.rs::popups",
+        "crates/pdf-model/tests/watermark_defaults_audit.rs::omitted_fixed_print_matrix_h_and_v_match_their_explicit_defaults compares omission against explicit defaults and a displaced positive control",
+        "crates/pdf-model/tests/annotations.rs::a_fixed_print_watermark_is_placed_against_the_media and a_watermark_is_not_under_the_pointer_and_a_square_is",
+        "crates/pdf-model/src/popup.rs::a_watermark_has_no_popup_window_and_a_square_has_one",
+        "crates/viewer-core/tests/printing.rs tests NoView+Print and fixed-print output; prior print_intent and watermark_nup_consumer audits cover media/print consumers"
+      ],
+      "errata": "No relevant EC3 change located for this clause in doc/errata-read.md.",
+      "boundary": "The specific tiled/n-up producer and printer cases need their own source-derived geometry; existing media transform tests are not a blanket certification of all printer cell layouts."
+    },
+    {
+      "clause": "12.5.6.24",
+      "feature": "Projection is a runtime-context measurement subtype; AP exception/Errata #94",
+      "source_location": "physical 520 / printed 505; EC3 issue #42 strikes the final paragraph here and issue #94 annotates the runtime-context sentence",
+      "source_rule": "EC3 Issue #42 strikes the entire final paragraph of §12.5.6.24, including the zero-width/height Rect sentence. Table 166 separately exempts Projection from the general AP-writer requirement. The EC3 #94 overlay adds that the annotation is only valid in its associated runtime and '*and thus an AP dictionary is not required*'; the AP-less behavior is consistent with the surviving AP exception.",
+      "ledger": "implemented; ADR 0901, ADR 0906, and the #94 entry in doc/errata-read.md are relevant",
+      "implementation_and_assertions": [
+        "crates/pdf-model/src/annotation.rs::decided handles stored AP before construct; construct returns Nothing for AP-less Projection",
+        "crates/pdf-model/tests/annotations.rs::no_table_171_subtype_is_refused_with_the_catch_all_s_sentence includes Projection in the no-AP handler population",
+        "crates/pdf-model/tests/annotations.rs::the_hidden_and_no_view_flags_draw_nothing_and_report_nothing only asserts generic Square flags; it does not itself prove Projection behavior"
+      ],
+      "boundary": "The associated 3D runtime and measurement interaction are outside this shard and the scope's clause-13 exclusion. No valid runtime fixture was found here, so no AP-present Projection assertion is proposed."
+    }
+  ]
+}

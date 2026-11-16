@@ -1,0 +1,41 @@
+{
+  "reviews": [
+    {
+      "adr": "0168",
+      "topic": "NoZoom/NoRotate flag behavior",
+      "verdict": "No reconsideration from this shard. §12.5.6.4 explicitly imposes both flags on Text annotations, and prior text_annotation_spec_audit covers the implementation geometry."
+    },
+    {
+      "adr": "0191",
+      "topic": "Popup is a separate window, not page appearance",
+      "verdict": "Supported. Primary EC3 §12.5.6.14 p.495 says no AP/actions and describes the editing window; actual model and public Query::Popups tests exercise the split."
+    },
+    {
+      "adr": "0205",
+      "topic": "PrinterMark/TrapNet must be visible under conforming F flags",
+      "verdict": "Supported. §14.11.3 p.819 and §14.11.6.2 p.826 explicitly set Print+ReadOnly and all other flags clear. The integration test uses F=68 and checks both screen and print output."
+    },
+    {
+      "adr": "0906",
+      "topic": "Subtype-wide handler sweep, PrinterMark/TrapNet stored AP, Watermark FixedPrint",
+      "verdict": "The current specific tests materially support the AP and FixedPrint branches. The generic Table 171 population assertion is only a dispatch/catch-all guard and should not be cited as visual behavior; no contrary implementation finding."
+    },
+    {
+      "adr": "1035",
+      "topic": "Table 403 stale TrapNet tracking fields are writer-side or reader obligations",
+      "verdict": "Keep as an open interpretation rather than repeating the current ledger's certainty. §14.11.6.2 p.826 explicitly assigns verification to a PDF writer generating a new network, then uses passive 'Any trap networks found to be invalid shall be regenerated' and a condition on LastModified. Regeneration appears to construct trapping marks, which is not performed here; however the subject of the latter shall is not explicit. The current ADR1035 correctly recorded that the source/reader boundary still needs adjudication. No new code/test change is supported by this shard."
+    },
+    {
+      "adr": "0934 / 1057",
+      "topic": "Watermark geometry, screen media, and interactivity exclusion",
+      "verdict": "Supported by direct source text and current assertion bodies. Keep the known page-media / FixedPrint evidence separate from blanket claims about all tiled/n-up combinations."
+    },
+    {
+      "adr": "0901 / EC3 #94",
+      "topic": "Projection appearance exception and out-of-context behavior",
+      "verdict": "The #94 annotation adds 'and thus an AP dictionary is not required' at physical 520 / printed 505. Stored AP dispatch is generic; AP absence returns Nothing. Existing tests prove the no-catch-all path, not valid 3D runtime measurement behavior. Do not extend this result into clause 13."
+    }
+  ],
+  "test_drafts": [],
+  "why_no_new_draft": "Current focused assertions cover the source-derived, observable reader behavior in this assignment: Popup display flags and public window query; PrinterMark/TrapNet named appearance selection and View/Print behavior; Watermark default FixedPrint values, output placement, no pointer/popup; and Projection's no-AP dispatch. A missing valid-runtime Projection fixture and TrapNet regeneration test would need out-of-scope production/editor behavior, so drafting them would either assert policy or violate the valid-producer control requirement."
+}

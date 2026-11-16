@@ -993,6 +993,29 @@
       "skipped": 55,
       "exit": 100,
       "scope": "Nine crates: pdf-syntax/font/model/signature/transform/colour, viewer-core/host, render-cpu. Exact binary/test failure identities equal all44manifest entries; no missing or extra failures. CARGO_BUILD_JOBS2; bounded8GiB process tree, peak5.93GiB;4test threads."
+    },
+    {
+      "log": "navigation-wave28.log",
+      "run": 4,
+      "passed": 4,
+      "failed": 0,
+      "exit": 0,
+      "scope": "New public navigation and StateModel-default controls; parent repaired fixtures before execution."
+    },
+    {
+      "log": "quality-wave28.log",
+      "exit": 101,
+      "scope": "Draft test lint errors, corrected."
+    },
+    {
+      "log": "quality-wave28b.log",
+      "exit": 101,
+      "scope": "Remaining draft doc-markdown lint, corrected."
+    },
+    {
+      "log": "quality-wave28c.log",
+      "exit": 0,
+      "scope": "Final pdf-model/viewer-core all-targets Clippy -Dwarnings."
     }
   ],
   "prior_expected_failures": {

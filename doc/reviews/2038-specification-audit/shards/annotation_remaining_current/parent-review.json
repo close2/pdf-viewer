@@ -1,0 +1,7 @@
+{
+  "source": "Read physical pages 516\u2013517, 520, 834 and 841\u2013842. #42 strikes the final Projection paragraph; #94 adds the AP exception. Corrected the reviewer\u2019s historical zero-area AP sentence and page labels before promotion. Read ADRs 0205, 0901 and 1035 and the current TrapNet ledger rationale.",
+  "assertions": "Read the actual screen_annotation_audit named-appearance and View/Print red/blue assertions, correcting one wrong file pointer. Read Popup own-flags/parent-fields assertions and Watermark default literal extents. The generic Table 171 population guard is not a visual assertion. A Projection visual draft without an associated runtime was rejected.",
+  "limits": "The passive TrapNet regeneration actor remains a textual qualification, but the current ledger gives an authoring-exclusion reason. No mandatory reader regeneration or missing UI is inferred. Stored appearance compatibility is distinct from trap creation. Clause 13 runtime integration and all n-up geometry remain uncertified.",
+  "baseline": "b901326c",
+  "limit": "Partial source/assertion review, not whole-clause certification. Parent qualifications govern unrun draft claims."
+}

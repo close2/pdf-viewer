@@ -1,0 +1,94 @@
+{
+  "scope": "Bounded review of ISO 32000-2 §12.4.4.2, §12.5.6.3, and §12.6.4.5/.7/.15 against the EC3-consolidated primary PDF, ledger, current implementation, and actual assertion bodies. Does not reopen general action-chain ordering, presentation-page arrival, article-thread UI, page-transition dictionaries, or annotation appearance states except where needed to establish a selected route.",
+  "features": [
+    {
+      "clause": "12.4.4.2",
+      "title": "Sub-page navigation nodes and arrival/request state machine",
+      "source_location": "Primary printed pp.464–465 / physical pp.479–480. Table 165 gives NA, PA, Next, Prev, and Dur. The paragraph makes PresSteps the page's primary node; current node actions run before walking the linked sequence. The final page-arrival paragraph makes a random-access arrival perform exactly one NA/Next or PA/Prev step, then display the page. NOTE 1 illustrates layers/bullets; NOTE 2 says save/restore optional-content state; NOTE 3 limits required respect to presentation mode.",
+      "errata": "EC3 Issue #304 is shown by annotations on the primary PDF against items (b) and (d): if Next/Prev is absent, navigate to the adjacent page; at the document edge, leave the current navigation node unchanged. It is not listed in doc/errata-read.md; current code/tests cite and apply both added sentences. No further direct correction to Table 165 was found in this bounded pass.",
+      "ledger": "doc/conformance/ledger.toml §12.4.4.2 is implemented. Code ownership includes pdf-model navigation::steps, viewer-core presentation state, action execution, optional-content snapshot, and host keys. Tests listed there exercise forward/backward steps, edge behavior, no-PresSteps and non-presentation controls, OCG restore, and per-node Dur.",
+      "code": "pdf-model/src/navigation.rs::steps walks Next and records NA/PA/Dur. viewer-core/src/presentation.rs keeps the current node and applies issue #304 edge behavior. viewer-core/src/interact.rs performs arrival/actions; viewer-core/src/viewer/navigation.rs changes pages and applies arrival state; viewer-core/src/command.rs exposes Present/GoTo. Host key mapping applies arrows in presentation mode.",
+      "assertions": "Actual assertions in viewer-core/tests/sub_page_navigation.rs verify ON/OFF layer state, forward and backward steps, page-turn boundaries, mode-off bypass, save/restore, and Dur/no-Dur. viewer-core/tests/presentations_audit.rs::random_access_arrival_runs_primary_action_then_selects_next_node verifies a destination-page primary NA and that a subsequent backward request operates the selected Next node. The fixture builder emits computed xref offsets and a PDF 2.0 ID; it checks Event::Opened, but does not explicitly assert was_recovered=false. Model tests separately exercise linked node extraction and cycle termination.",
+      "verdict": "The main state machine, both #304 edge cases, timing, OCG snapshot and random-access arrival have concrete public viewer assertions. No behavior gap identified in this sampled path. The existing random-arrival fixture is a discriminating test: the next key's PA exposes whether Next became current.",
+      "residuals": "No need to duplicate current random-arrival or action-chain tests. The public presentation fixture does not assert was_recovered=false, despite computed xref offsets. Table 165's source table has a known layout-transposition problem in markdown; primary PDF was used. Direct NA/PA action sequence semantics are shared with the separate §12.6.2 action-chain audit and are not recertified here.",
+      "related_adrs": [
+        "ADR 0316",
+        "ADR 0473",
+        "ADR 0470",
+        "ADR 0526"
+      ]
+    },
+    {
+      "clause": "12.5.6.3",
+      "title": "Annotation review state from page-local Text reply chains",
+      "source_location": "Primary §12.5.6.3 printed pp.480–481 / physical pp.495–496; Table 174 is printed p.480 / physical p.495, with Table 175 on printed p.482 / physical p.497. State is carried by a separate Text annotation whose IRT identifies the annotation/reply being updated. Table 174 has Marked/Unmarked and Accepted/Rejected/Cancelled/Completed/None. Table 175 specifies defaults when State is absent under a stated StateModel, and makes StateModel required when State is present. A later state change is a reply to the prior reply for that user.",
+      "errata": "EC3 Issue #479 corrects two §12.5.6.3 citations for IRT from Table 176 (link annotation entries) to Table 172 (markup annotation entries). The current reader already reads the Table 172 shape; this is a citation correction, not a changed state algorithm. No additional direct state-value correction found.",
+      "ledger": "doc/conformance/ledger.toml §12.5.6.3 is implemented and names annotation_state::states plus markup::group_source. Clause does not require state rendering or a review UI; it defines state placement and update semantics. §12.5.6.2 separately owes threaded-comment display, so that is not inferred from this state clause.",
+      "code": "pdf-model/src/annotation_state.rs indexes page Annots Text replies with IRT, breadth-first follows reply chains, and records one state per user/model; markup::group_source resolves T from a primary for RT Group subordinates. StateModel-only valid replies use Table 175 defaults. For the malformed producer case State without required StateModel, code infers a known state model from Table 174; this is tolerant recovery, not a source-imposed reader behavior. No non-test host caller of states() was found in the current code tree.",
+      "assertions": "Current unit tests separately assert primary/reply direction, later same-user state, independent users/models, State/StateModel defaults and missing-model tolerance, unknown strings, group T, Text-only filter and cycles. pdf-model/tests/annotation_states_audit.rs::a_state_chain_crosses_a_text_reply_without_a_state is a complete-PDF exact-xref test that asserts was_recovered=false and a comment-only Text reply in the user's chain does not replace the later Completed state. It is not a host UI assertion; no clause requirement to show a review UI was found. Draft annotation_state_model_defaults.rs adds a valid PDF-level public API check for Marked→Unmarked and Review→None defaults with an explicit Completed control.",
+      "verdict": "The state chain route and amended Table 172 citations are supported. Existing integration coverage is valid and checks no xref recovery. No reader/UI conformance defect identified. A small additional valid-public-model assertion for StateModel-only defaults is drafted; this strengthens the current unit-only default tests without turning a producer constraint into a reader rejection.",
+      "residuals": "ADR 1051's earlier prose treated a missing T as an anonymous user and a missing StateModel inference as clause-grounded. Current audit ADR 1784 / durable 1983 decision review qualifies both as tolerant recovery for producer-invalid state changes; do not claim the clause requires those behaviors. No test execution is claimed in this scratch review.",
+      "related_adrs": [
+        "ADR 1051",
+        "ADR 1784"
+      ]
+    },
+    {
+      "clause": "12.6.4.5; 14.12.2–.3; Tables 206, 408, 409",
+      "title": "GoToDp to a DPart Start page, including node targets",
+      "source_location": "Primary §12.6.4.5 printed p.516 / physical p.531; Table 206 makes /Dp a required indirect reference to a DPart. Effective §14.12.2–.3 is printed pp.835–836 (physical pp.850–851): each page belongs to exactly one leaf range, leaf order matches page-tree order, and a node's first page is its first descendant leaf in depth-first order. Table 409 (printed p.837 / physical p.852) makes Start and DParts exclusive; a non-leaf DPart has DParts arrays and no Start.",
+      "errata": "No direct amendment to §12.6.4.5 / Table 206 found. Related effective hierarchy corrections: EC3 #609 corrects §14.12.2's root dictionary name to DPartRoot and Table 408's DPartRootNode; #614 makes catalog /DPartRoot indirect; #290 removes DPart /Metadata. The first two affect a valid hierarchy fixture/reader path, not the Table 206 action's meaning. The current action uses the post-#609/#614 structure.",
+      "ledger": "doc/conformance/ledger.toml §12.6.4.5 is implemented; related §14.12 entries are no longer treated as wholly irrelevant because this action selects a page and §14.13.8 can enumerate DPart-associated files. No mandatory DPart panel is inferred from this action clause.",
+      "code": "pdf-model/src/action.rs reads Table 206 /Dp as an ObjectId; action dispatch emits ViewState::Request::DocumentPart. viewer-core/src/interact.rs resolves DocumentPartJump::page_in; pdf-model/src/document_part.rs::first_page descends DParts in order until the first leaf Start.",
+      "assertions": "Ledger-linked tests parse the action and exercise first-page resolution for a leaf and an interior node at the document_part.rs unit level. No existing viewer integration test was found that activates a GoToDp action and observes the public current page. Draft goto_dp_node_viewer.rs builds a PDF 2.0 hierarchy with exact xref, required trailer ID, page DPart leaf references, parent links and depth-first page order; asserts no recovery; a direct page-3 destination is the positive route control; then activates a GoToDp naming an interior node and expects its first leaf at page 2.",
+      "verdict": "Core code follows the effective hierarchy and unit tests cover the node-vs-leaf computation, but the action-to-view public route lacks an assertion. Draft provides a valid, discriminating viewer regression for Table 206 in combination with EC3-corrected Tables 408/409.",
+      "residuals": "Draft unrun; parent should validate its table-level DParts arrays and run it before promoting. No DPart hierarchy panel or writer validity checks are claimed by §12.6.4.5. Do not infer reader rejection requirements from malformed DPart producer constraints.",
+      "related_adrs": [
+        "ADR 0108",
+        "ADR 0295",
+        "ADR 1040",
+        "ADR 0475"
+      ]
+    },
+    {
+      "clause": "12.6.4.7; Table 209; §12.4.3; Table 163",
+      "title": "Thread action thread/bead forms and file handoff",
+      "source_location": "Primary §12.6.4.7 / Table 209 printed pp.518–519 / physical pp.533–534. /D can be a thread reference, catalog Threads index (0-based), or title (first duplicate title in Threads order wins); /B can be a bead reference or index (0-based), defaulting to first bead; /F optionally names another file. §12.4.3 thread and bead dictionaries are printed p.460 / physical p.475 and Table 163 continues printed p.461 / physical p.476.",
+      "errata": "No direct EC3 change to Table 209 found. Related §12.4.3/Table 31 Issue #320 corrects article page bead order from drawing to reading order; action integer /B resolves within the article's thread bead sequence. Existing article-thread audit and ADR 0746 apply the amendment; no action change is implied.",
+      "ledger": "doc/conformance/ledger.toml §12.6.4.7 is implemented. The reader supports current-document and externally supplied thread documents. §12.4.3's navigation-panel/UI is a separate permission and does not require a particular panel control.",
+      "code": "pdf-model/src/action.rs parses three ThreadTarget forms and two BeadTarget forms; ThreadJump::bead_in resolves against Articles in catalog/thread order. viewer-core/src/interact.rs handles file-bearing jumps through host-purpose ThreadDocument and resolves the received document; local jumps route to bead page/rectangle.",
+      "assertions": "pdf-model action unit test a_thread_action_names_its_thread_in_all_three_forms checks reference/index/title, duplicate-title tie-break and both /B index/reference. viewer-core/tests/headless.rs::a_thread_action_shows_the_bead_and_not_merely_its_page proves a local action takes the reader to the bead rectangle (FitR), not merely its page. named_pages_and_threads.rs tests /F handoff and supplied external file to the bead page. Draft thread_bead_index_viewer.rs adds a valid exact-xref current-file public route: omitted /B controls first bead/page 2, then /B 1 must navigate to the second bead/page 3.",
+      "verdict": "All action spellings and external handoff have model or public consumer tests; missing public assertion is the integer bead selector through the actual viewer route. Draft isolates it against the default-first-bead control and uses a valid two-bead circular thread.",
+      "residuals": "Draft unrun. Existing headless public thread fixture tests only first bead by direct thread reference, while index and nonzero bead selector are currently model-level assertions. UI next-bead behavior remains separate and optional under §12.4.3; it is not demanded by this action clause.",
+      "related_adrs": [
+        "ADR 0200",
+        "ADR 0405",
+        "ADR 0746",
+        "ADR 1239"
+      ]
+    },
+    {
+      "clause": "12.6.4.15; Table 219; Table 164",
+      "title": "Transition action host display",
+      "source_location": "Primary §12.6.4.15 printed p.525 / physical p.540. Table 219 has /S and required /Trans; the transition value is Table 164's style dictionary. Clause directs the interactive processor, during an action sequence, to render the state after the previous action and display it using that transition. Unlike §12.4.4.1 page transitions, this action text does not condition on presentation mode.",
+      "errata": "EC3 #36 changes Table 164 /Di's declared type to integer; that producer/type correction is shared with page transitions and does not define a reader refusal requirement for fractions. EC3 #265 corrects Table 220's /S description for GoTo3DView and does not amend Table 219 or Transition. No direct transition-action erratum found.",
+      "ledger": "doc/conformance/ledger.toml §12.6.4.15 is implemented. It records the action's use of Table164 transitions, the explicit absence of presentation-mode gating, public Event::Transition handoff and selected visual quantities under owner answer A72.",
+      "code": "pdf-model/src/action.rs reads Table219 into Action::Trans; pdf-model/src/view/actions.rs returns Request::Transition; viewer-core interaction/outcome emits Event::Transition; viewer-host/src/clock.rs::for_one_transition arms the shared transition animation clock. The action path is separate from page /Trans arrival.",
+      "assertions": "pdf-model/src/action.rs::a_transition_action_carries_table_164s_dictionary checks model construction. viewer-host/src/clock.rs tests the one-transition clock; viewer-core presentations_audit.rs tests page-arrival /Trans, not an Action::Trans. No public Viewer assertion of a link's §12.6.4.15 action was found. Draft transition_action_viewer.rs invokes a valid link action in an otherwise static one-page PDF, checks exact xref/no recovery and expects Event::Transition with independent Wipe/180 values while CurrentPage remains unchanged.",
+      "verdict": "Code path is present, but end-to-end public consumer coverage for the action variant is missing; current host-clock and page-transition tests do not establish that a triggered Action::Trans reaches the host. A focused draft fills that route gap without duplicating general action-chain order tests.",
+      "residuals": "Draft unrun. Frame-rate, exact intermediate geometry and selected numeric quantities are implementation/owner choices, not claims of Table164 numeric requirements. Page-transition rendering was reviewed in a neighboring shard and is not recertified here.",
+      "related_adrs": [
+        "ADR 0071",
+        "ADR 1216",
+        "ADR 1299",
+        "ADR 0473"
+      ]
+    }
+  ],
+  "drafts": [
+    "drafts/goto_dp_node_viewer.rs",
+    "drafts/thread_bead_index_viewer.rs",
+    "drafts/transition_action_viewer.rs",
+    "drafts/annotation_state_model_defaults.rs"
+  ]
+}
