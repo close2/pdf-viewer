@@ -1,5 +1,7 @@
 //! Printing through GTK's print dialogue: the settings, the sheet, and each page painted into the print context.
 
+use std::rc::Rc;
+
 use gtk4::glib;
 use gtk4::prelude::*;
 use pdf_render::Rasterizer;
@@ -63,9 +65,10 @@ impl Host {
                 &pdf_model::viewer_preferences::ViewerPreferences::default(),
             ),
         };
-        // §12.2's `/Enforce` where the reader's level obeys it: GTK's dialogue has no way to
-        // lock its scale, so the hold is this sentence and the dialogue opening on the
-        // document's scaling (ADR 2840).
+        // §12.2's `/Enforce` where the reader's level obeys it: said before the dialogue, and
+        // then held in it — its scale control locked and the job built on the document's
+        // scaling, by [`hold_the_scaling`] (ADRs 2840, 2908).
+        let held = defaults.held_scaling(scaling_held);
         if let Some(note) = defaults.held_note(scaling_held) {
             self.say(note);
         }
@@ -85,6 +88,14 @@ impl Host {
             // and the only scaling left is the one this host applies to its own raster.
             operation.set_unit(gtk4::Unit::Points);
             operation.set_embed_page_setup(true);
+            if let Some(scaling) = held {
+                let said = me.clone();
+                hold_the_scaling(
+                    &operation,
+                    scaling,
+                    Rc::new(move |note: &str| with(&said, |host| host.say(note))),
+                );
+            }
             let begin = me.clone();
             operation.connect_begin_print(move |operation, context| {
                 // Table 22 bit 12's other half, and the one a resolution cannot answer: a job
@@ -188,9 +199,9 @@ impl Host {
 /// "\[t]he paper handling option that shall be used when printing the PDF file from the print
 /// dialogue", "\[t]he page numbers used to initialise the print dialogue box when the PDF file is
 /// printed", "\[t]he number of copies that shall be printed when the print dialog is opened for
-/// this PDF file". A person changes any of them in the dialogue this seeds, and Table 148's
-/// `/Enforce` is said in the status bar rather than obeyed, because a document telling a reader
-/// what they may not change is a restriction and `CLAUDE.md` makes those the reader's.
+/// this PDF file". A person changes any of them in the dialogue this seeds; Table 148's
+/// `/Enforce` is a restriction at the reader's level, and where that level holds it
+/// [`hold_the_scaling`] keeps the scale this function set.
 ///
 /// **`/PrintPageRange` is one-based and `GtkPageRange` is not**, which is the whole reason
 /// `viewer_host::PrintDefaults` keeps the clause's own numbering: the conversion is here, at the
@@ -220,7 +231,7 @@ fn print_settings(defaults: &viewer_host::PrintDefaults) -> gtk4::PrintSettings 
     }
     // "None, which indicates no page scaling" — GTK states a percentage, and no scaling is 100.
     if defaults.scaling == PrintScaling::NoScaling {
-        settings.set_scale(100.0);
+        settings.set_scale(percentage(PrintScaling::NoScaling));
     }
     let ranges: Vec<gtk4::PageRange> = defaults
         .page_range
@@ -239,6 +250,113 @@ fn print_settings(defaults: &viewer_host::PrintDefaults) -> gtk4::PrintSettings 
         settings.set_print_pages(gtk4::PrintPages::Ranges);
     }
     settings
+}
+
+/// §12.2's `/PrintScaling` as the percentage `GtkPrintSettings` states a scale in.
+///
+/// Table 147: `None` "indicates no page scaling", which is GTK's 100. `AppDefault` is "the
+/// interactive PDF processor's default print scaling", and this host's is GTK's own default scale,
+/// which is 100 as well — so the two values print alike here, and what differs is only that a
+/// reader may change the second.
+fn percentage(scaling: pdf_model::viewer_preferences::PrintScaling) -> f64 {
+    match scaling {
+        pdf_model::viewer_preferences::PrintScaling::NoScaling
+        | pdf_model::viewer_preferences::PrintScaling::AppDefault => 100.0,
+    }
+}
+
+/// §12.2's `/Enforce`, held in GTK's own print dialogue (ADR 2908).
+///
+/// Table 147's `/Enforce` names preferences "that shall be enforced by PDF processors and that
+/// shall not be overridden by subsequent selections in the application user interface", and the
+/// reader's level for `OverridePreference` has said to obey it. Two halves, each through GTK's
+/// public print API, and the second does not depend on the first:
+///
+/// - **The control is locked.** `GtkPrintOperation` builds its `GtkPrintUnixDialog` with
+///   `GTK_PRINT_CAPABILITY_SCALE` among the capabilities it handles itself, and the dialogue makes
+///   its scale control sensitive only where that capability is offered by the application or by
+///   the printer. The custom tab this adds carries the held sentence, and from it the dialogue it
+///   was placed in is reached and that one capability withdrawn, at a priority above the
+///   dialogue's first frame. A printer whose own backend states the capability would leave the
+///   control live; no backend GTK ships does (ADR 2908).
+/// - **The job keeps the scale.** `custom-widget-apply` runs when the reader accepts the dialogue,
+///   after its settings are the operation's and before GTK builds the job whose scale it applies to
+///   every page, so the scale is set back to the document's there — said when it had moved.
+///
+/// Every other control of the dialogue stays the reader's: `/Enforce` names `/PrintScaling` alone.
+fn hold_the_scaling(
+    operation: &gtk4::PrintOperation,
+    scaling: pdf_model::viewer_preferences::PrintScaling,
+    say: Rc<dyn Fn(&str)>,
+) {
+    operation.set_custom_tab_label(Some("Scaling held"));
+    let unlocked = Rc::clone(&say);
+    operation.connect_create_custom_widget(move |_| {
+        let tab = gtk4::Label::new(Some(HELD_TAB));
+        tab.set_wrap(true);
+        let placed = tab.clone();
+        let unlocked = Rc::clone(&unlocked);
+        // The tab is placed in the dialogue as soon as this handler returns, so the next turn of
+        // the loop finds it there; `HIGH` runs that turn ahead of the dialogue's first frame.
+        glib::idle_add_local_full(glib::Priority::HIGH, move || {
+            if !lock_the_scale(&placed) {
+                unlocked(UNLOCKED);
+            }
+            glib::ControlFlow::Break
+        });
+        Some(tab.upcast())
+    });
+    operation.connect_custom_widget_apply(move |operation, _| {
+        if let Some(settings) = operation.print_settings()
+            && keep_the_scale(&settings, scaling)
+        {
+            say(SET_BACK);
+        }
+    });
+}
+
+/// What the dialogue's own tab says where the scaling is held.
+const HELD_TAB: &str = "This document enforces its print scaling (ISO 32000-2 §12.2, Table 147's \
+                        /Enforce) and your level obeys it, so the scale is locked to the scaling \
+                        it states. The level is yours to change in the restrictions menu.";
+
+/// Said where the dialogue could not be found to lock: the job is held all the same.
+const UNLOCKED: &str = "the print dialogue's scale could not be locked; the print keeps the \
+                        scaling the document enforces whatever is chosen there";
+
+/// Said where a scale chosen in the dialogue was set back.
+const SET_BACK: &str = "the scale chosen in the print dialogue was set back to the scaling this \
+                        document enforces (ISO 32000-2 §12.2, Table 147's /Enforce)";
+
+/// Withdraws `GTK_PRINT_CAPABILITY_SCALE` from the dialogue `tab` was placed in.
+///
+/// `false` where `tab` is in no `GtkPrintUnixDialog`, which is what the caller says.
+fn lock_the_scale(tab: &impl IsA<gtk4::Widget>) -> bool {
+    let Some(dialog) = tab.as_ref().root().and_downcast::<gtk4::PrintUnixDialog>() else {
+        return false;
+    };
+    dialog.set_manual_capabilities(
+        dialog
+            .manual_capabilities()
+            .difference(gtk4::PrintCapabilities::SCALE),
+    );
+    true
+}
+
+/// Sets `settings`' scale to the document's held `scaling`; `true` where it had been changed.
+#[expect(
+    clippy::float_cmp,
+    reason = "both sides are GTK's stored percentage and a constant of this file; a scale the \
+              dialogue moved by any amount is a moved scale"
+)]
+fn keep_the_scale(
+    settings: &gtk4::PrintSettings,
+    scaling: pdf_model::viewer_preferences::PrintScaling,
+) -> bool {
+    let kept = percentage(scaling);
+    let moved = settings.scale() != kept;
+    settings.set_scale(kept);
+    moved
 }
 
 /// The sheet a page setup describes, in §12.5.6.22's terms.
@@ -393,4 +511,138 @@ fn paint_raster(
     cairo.set_source_surface(&surface, 0.0, 0.0)?;
     cairo.paint()?;
     cairo.restore()
+}
+
+/// §12.2's `/Enforce` held in GTK's own dialogue, driven through the signals `GtkPrintOperation`
+/// raises and the dialogue it builds. Run under a display: `xvfb-run -a cargo test -p viewer-gtk
+/// --lib printing`.
+#[cfg(test)]
+#[expect(
+    clippy::float_cmp,
+    reason = "GTK's stored percentage against the whole numbers this test set and the hold sets: \
+              exact by construction, and a scale off by any amount is a scale not held"
+)]
+mod tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use gtk4::glib;
+    use gtk4::prelude::*;
+    use pdf_model::viewer_preferences::PrintScaling;
+
+    use super::{SET_BACK, hold_the_scaling, print_settings};
+
+    /// The capabilities `GtkPrintOperation` gives the dialogue it builds, in `get_print_dialog`
+    /// of GTK's `gtkprintoperation-unix.c`: the ones it applies to the job itself.
+    fn the_operations_capabilities() -> gtk4::PrintCapabilities {
+        gtk4::PrintCapabilities::PAGE_SET
+            | gtk4::PrintCapabilities::COPIES
+            | gtk4::PrintCapabilities::COLLATE
+            | gtk4::PrintCapabilities::REVERSE
+            | gtk4::PrintCapabilities::SCALE
+            | gtk4::PrintCapabilities::PREVIEW
+            | gtk4::PrintCapabilities::NUMBER_UP
+            | gtk4::PrintCapabilities::NUMBER_UP_LAYOUT
+    }
+
+    /// An operation, with the hold attached where `held`, and what it said.
+    fn operation(held: bool) -> (gtk4::PrintOperation, Rc<RefCell<Vec<String>>>) {
+        let operation = gtk4::PrintOperation::new();
+        let said = Rc::new(RefCell::new(Vec::new()));
+        if held {
+            let heard = Rc::clone(&said);
+            hold_the_scaling(
+                &operation,
+                PrintScaling::NoScaling,
+                Rc::new(move |note: &str| heard.borrow_mut().push(note.to_owned())),
+            );
+        }
+        (operation, said)
+    }
+
+    /// The dialogue as `get_print_dialog` builds it — its capabilities, then the operation's
+    /// `create-custom-widget` and the tab it answered — and the loop turned until idle.
+    fn the_dialogue(
+        operation: &gtk4::PrintOperation,
+    ) -> (gtk4::PrintUnixDialog, Option<gtk4::Widget>) {
+        let dialog = gtk4::PrintUnixDialog::new(None, None::<&gtk4::Window>);
+        dialog.set_manual_capabilities(the_operations_capabilities());
+        let tab = operation
+            .emit_by_name::<Option<glib::Object>>("create-custom-widget", &[])
+            .and_downcast::<gtk4::Widget>();
+        if let Some(tab) = &tab {
+            dialog.add_custom_tab(tab, &gtk4::Label::new(Some("tab")));
+        }
+        while glib::MainContext::default().iteration(false) {}
+        (dialog, tab)
+    }
+
+    /// The reader's choice of 150 % in the dialogue, accepted: the settings become the
+    /// operation's and `custom-widget-apply` runs, which is `handle_print_response`'s order.
+    fn accepted(operation: &gtk4::PrintOperation, tab: Option<&gtk4::Widget>) -> f64 {
+        let settings = print_settings(&viewer_host::PrintDefaults::of(
+            &pdf_model::viewer_preferences::ViewerPreferences {
+                print_scaling: PrintScaling::NoScaling,
+                enforce_print_scaling: true,
+                ..pdf_model::viewer_preferences::ViewerPreferences::default()
+            },
+        ));
+        settings.set_scale(150.0);
+        operation.set_print_settings(Some(&settings));
+        let placeholder = gtk4::Label::new(None).upcast::<gtk4::Widget>();
+        operation.emit_by_name::<()>("custom-widget-apply", &[tab.unwrap_or(&placeholder)]);
+        operation
+            .print_settings()
+            .map_or(f64::NAN, |settings| settings.scale())
+    }
+
+    /// §12.2, Table 147's `/Enforce`: a held preference "shall not be overridden by subsequent
+    /// selections in the application user interface", so the dialogue's scale control is locked —
+    /// `GTK_PRINT_CAPABILITY_SCALE` withdrawn, every other capability left the reader's — and its
+    /// own tab says why.
+    #[gtk4::test]
+    fn a_held_scaling_locks_the_dialogues_scale_and_nothing_else() {
+        let (operation, said) = operation(true);
+        let (dialog, tab) = the_dialogue(&operation);
+        assert_eq!(
+            dialog.manual_capabilities(),
+            the_operations_capabilities().difference(gtk4::PrintCapabilities::SCALE)
+        );
+        let tab = tab
+            .and_downcast::<gtk4::Label>()
+            .expect("the held tab is a label");
+        assert!(
+            tab.text().contains("Table 147's /Enforce"),
+            "{}",
+            tab.text()
+        );
+        assert!(
+            said.borrow().is_empty(),
+            "locked, so nothing more to say: {said:?}"
+        );
+    }
+
+    /// The same sentence's second half: whatever the dialogue let through, the job GTK builds after
+    /// `custom-widget-apply` keeps the document's scaling — Table 147's `None`, "no page scaling",
+    /// GTK's 100 — and the reader is told the choice was set back.
+    #[gtk4::test]
+    fn a_held_scaling_is_what_the_job_is_built_on() {
+        let (operation, said) = operation(true);
+        let (_dialog, tab) = the_dialogue(&operation);
+        assert_eq!(accepted(&operation, tab.as_ref()), 100.0);
+        assert_eq!(said.borrow().as_slice(), [SET_BACK]);
+    }
+
+    /// The control (trap 13): where the reader's level does not hold it — `off`, `warn`, or a
+    /// `yes` at `ask`, each of which grants `scaling_held` false (ADR 2840) — the dialogue is
+    /// GTK's own, the scale stays live, and the reader's 150 % is the job's.
+    #[gtk4::test]
+    fn an_unheld_scaling_is_the_readers() {
+        let (operation, said) = operation(false);
+        let (dialog, tab) = the_dialogue(&operation);
+        assert!(tab.is_none());
+        assert_eq!(dialog.manual_capabilities(), the_operations_capabilities());
+        assert_eq!(accepted(&operation, None), 150.0);
+        assert!(said.borrow().is_empty());
+    }
 }

@@ -87,6 +87,8 @@ struct seen {
     int prints;
     size_t print_pages;
     bool print_degraded;
+    bool print_held;
+    uint32_t print_scaling;
     char title[256];
     char said[512];
     char question[512];
@@ -223,7 +225,10 @@ static int act_on_what_is_owed(quorra_window *window, struct seen *seen)
             seen->prints += 1;
             printf("print: %s\n", text);
             if (!check("quorra_owed_print",
-                       quorra_owed_print(owed, index, &seen->print_pages, &seen->print_degraded))) {
+                       quorra_owed_print(owed, index, &seen->print_pages, &seen->print_degraded))
+                || !check("quorra_owed_print_scaling",
+                          quorra_owed_print_scaling(owed, index, &seen->print_held,
+                                                    &seen->print_scaling))) {
                 free(text);
                 quorra_owed_free(owed);
                 return 0;
@@ -1344,6 +1349,129 @@ static int the_held_question(const char *path)
            && seen.questions == 1;
 }
 
+/* §12.2's /Enforce through a window at one of the reader's levels: Table 147's "shall not be
+ * overridden by subsequent selections in the application user interface", asked at the print's
+ * grant (ADR 2840). `answer` is the reply at ASK, 0 or 1, and -1 where no question is expected.
+ * What the PRINT record says is what this caller's own dialogue would lock its scaling to. */
+static int enforced_window(const char *path, uint32_t level, const char *name, int answer)
+{
+    quorra_settings *settings = NULL;
+    quorra_window *window = NULL;
+    struct seen seen = {0};
+    int ok = check("quorra_settings_new", quorra_settings_new(&settings))
+             && check("quorra_settings_restrict",
+                      quorra_settings_restrict(settings, QUORRA_RESTRICTED_ENFORCE, level))
+             && check("quorra_window_open_under",
+                      quorra_window_open_under(path, NULL, settings, &window));
+    quorra_settings_free(settings);
+    uint32_t act = QUORRA_ACT_NOTHING;
+    if (!ok || !check("quorra_window_resize", quorra_window_resize(window, 800, 600, 1.0f))
+        || !act_on_what_is_owed(window, &seen) || !run_the_timer(window, &seen)
+        || !press(window, QUORRA_KEY_P, true, &act, &seen)) {
+        quorra_window_free(window);
+        return 0;
+    }
+    int asked = seen.questions;
+    if (answer >= 0
+        && (!check("quorra_window_answer", quorra_window_answer(window, answer == 1))
+            || !act_on_what_is_owed(window, &seen))) {
+        quorra_window_free(window);
+        return 0;
+    }
+    printf("window enforced %s: %d question(s), %d print(s), held %d, scaling %u\n", name, asked,
+           seen.prints, seen.print_held ? 1 : 0, seen.print_scaling);
+    int printed = seen.prints == 1
+                  && check("quorra_window_print_finish", quorra_window_print_finish(window));
+    quorra_window_free(window);
+    return printed && asked == (answer >= 0 ? 1 : 0);
+}
+
+/* The same through a viewer and its QUORRA_EVENT_PRINTING, for a caller with no window. */
+static int enforced_viewer(const char *path, uint32_t level, const char *name, int answer)
+{
+    FILE *file = fopen(path, "rb");
+    uint8_t bytes[4096];
+    size_t len = file != NULL ? fread(bytes, 1, sizeof bytes, file) : 0;
+    if (file != NULL) {
+        fclose(file);
+    }
+    quorra_viewer *viewer = quorra_viewer_new(800, 600, 1.0f);
+    quorra_events *events = NULL;
+    if (len == 0 || len == sizeof bytes
+        || !check("quorra_restrict_operation",
+                  quorra_restrict_operation(viewer, QUORRA_RESTRICTED_ENFORCE, level, &events))) {
+        quorra_events_free(events);
+        quorra_viewer_free(viewer);
+        return 0;
+    }
+    quorra_events_free(events);
+    events = NULL;
+    const float media[4] = {0.0f, 0.0f, 612.0f, 792.0f};
+    if (!check("quorra_open", quorra_open(viewer, 1, bytes, len, NULL, NULL, &events))) {
+        quorra_viewer_free(viewer);
+        return 0;
+    }
+    quorra_events_free(events);
+    events = NULL;
+    if (!check("quorra_print", quorra_print(viewer, media, 300.0f / 72.0f, &events))) {
+        quorra_viewer_free(viewer);
+        return 0;
+    }
+    if (answer >= 0) {
+        quorra_events_free(events);
+        events = NULL;
+        if (!check("quorra_answer", quorra_answer(viewer, 1, answer == 1, &events))) {
+            quorra_viewer_free(viewer);
+            return 0;
+        }
+    }
+    int granted = 0;
+    bool held = false;
+    uint32_t scaling = QUORRA_PRINT_SCALING_APP_DEFAULT;
+    for (size_t index = 0; index < quorra_events_len(events); ++index) {
+        uint32_t kind = 0;
+        if (check("quorra_events_kind", quorra_events_kind(events, index, &kind))
+            && kind == QUORRA_EVENT_PRINTING
+            && check("quorra_event_printing_scaling",
+                     quorra_event_printing_scaling(events, index, &held, &scaling))) {
+            granted += 1;
+        }
+    }
+    int32_t wrong = quorra_event_printing_scaling(events, quorra_events_len(events), &held, NULL);
+    printf("viewer enforced %s: %d grant(s), held %d, scaling %u; past the events: %s\n", name,
+           granted, held ? 1 : 0, scaling, quorra_status_message(wrong));
+    quorra_events_free(events);
+    events = NULL;
+    int finished = check("quorra_print_finish", quorra_print_finish(viewer, &events));
+    quorra_events_free(events);
+    quorra_viewer_free(viewer);
+    return granted == 1 && finished && wrong == QUORRA_OUT_OF_RANGE;
+}
+
+/* Every level, through both surfaces, run alone as `--enforced <file.pdf>`: the test reads the
+ * lines against Table 147 and ADR 2840's table. */
+static int the_enforced(const char *path)
+{
+    static const struct {
+        uint32_t level;
+        const char *name;
+        int answer;
+    } levels[] = {
+        {QUORRA_RESTRICT_OFF, "off", -1},
+        {QUORRA_RESTRICT_WARN, "warn", -1},
+        {QUORRA_RESTRICT_ON, "on", -1},
+        {QUORRA_RESTRICT_ASK, "ask, no", 0},
+        {QUORRA_RESTRICT_ASK, "ask, yes", 1},
+    };
+    for (size_t at = 0; at < sizeof levels / sizeof levels[0]; ++at) {
+        if (!enforced_window(path, levels[at].level, levels[at].name, levels[at].answer)
+            || !enforced_viewer(path, levels[at].level, levels[at].name, levels[at].answer)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* A mark the union declines, named in the title as the toolkits' titles name it (ADR 2290): run
  * alone, as `--declined <file.pdf>`, because the fault is planted in the process's environment
  * (PDFVIEWER_PLANT_OPEN_ROW) and the test runs it once planted and once not, the control. */
@@ -1368,12 +1496,16 @@ int main(int argc, char **argv)
     if (argc == 3 && strcmp(argv[1], "--declined") == 0) {
         return the_declined(argv[2]) ? 0 : 1;
     }
+    if (argc == 3 && strcmp(argv[1], "--enforced") == 0) {
+        return the_enforced(argv[2]) ? 0 : 1;
+    }
     if (argc < 8) {
         fprintf(stderr,
                 "usage: %s <file.pdf> <form.pdf> <script.pdf> <directory> <audience.pdf> "
                 "<placed.pdf> <held.pdf>\n"
-                "       %s --declined <file.pdf>\n",
-                argv[0], argv[0]);
+                "       %s --declined <file.pdf>\n"
+                "       %s --enforced <file.pdf>\n",
+                argv[0], argv[0], argv[0]);
         return 1;
     }
     if (!check("quorra_abi_check", quorra_abi_check(QUORRA_ABI_VERSION, QUORRA_EVENT_KIND_COUNT))) {

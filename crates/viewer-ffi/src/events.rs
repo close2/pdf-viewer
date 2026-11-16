@@ -13,8 +13,8 @@ use pdf_model::navigation::{Dimension, Direction, Motion, Style};
 use viewer_core::{Event, Extraction, RenderRequest};
 
 use crate::kinds::{
-    AlertButtonKind, AlertButtonsKind, AlertIconKind, EventKind, MethodKind, PurposeKind,
-    ScriptQuestionKind, ScriptTextKind,
+    AlertButtonKind, AlertButtonsKind, AlertIconKind, EventKind, MethodKind, PrintScalingKind,
+    PurposeKind, ScriptQuestionKind, ScriptTextKind,
 };
 use crate::status::Status;
 
@@ -602,6 +602,35 @@ impl Events {
             Event::Printing {
                 pages, fidelity, ..
             } => Ok((*pages, *fidelity == viewer_core::Fidelity::Degraded)),
+            _ => Err(Status::WrongKind),
+        }
+    }
+
+    /// [`Event::Printing`]'s `scaling_held`, and the scaling a caller's dialogue keeps where it
+    /// holds (ADR 2908).
+    ///
+    /// §12.2, Table 147's `/Enforce` names preferences "that shall not be overridden by subsequent
+    /// selections in the application user interface", and the reader's level has said whether to
+    /// obey it. The scaling held is `/PrintScaling`'s one value Table 148 lets `/Enforce` name — the
+    /// name may appear there only where Table 147's entry states a valid value other than
+    /// `AppDefault`, and Table 147's valid values are `None` and `AppDefault` — so a held print keeps `None`, which
+    /// `quorra_preference`'s `QUORRA_PREF_PRINT_SCALING` answers for the same document. Where
+    /// nothing is held the answer is `AppDefault`: the caller's own default, and the reader's
+    /// choice.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`].
+    pub fn printing_scaling(&self, index: usize) -> Result<(bool, PrintScalingKind), Status> {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::Printing { scaling_held, .. } => Ok((
+                *scaling_held,
+                if *scaling_held {
+                    PrintScalingKind::NoScaling
+                } else {
+                    PrintScalingKind::AppDefault
+                },
+            )),
             _ => Err(Status::WrongKind),
         }
     }

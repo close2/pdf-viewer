@@ -302,6 +302,14 @@ internal static unsafe partial class Native
 
     [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static partial int quorra_event_printing_scaling(
+        nint events,
+        nuint index,
+        byte* held,
+        uint* scaling);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static partial int quorra_print_finish(nint viewer, nint* events);
 
     [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]

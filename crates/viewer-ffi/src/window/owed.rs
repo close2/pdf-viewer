@@ -199,6 +199,9 @@ pub(crate) enum Owed {
         pages: usize,
         /// Whether §7.6.4.2's bit 12 limits the quality.
         degraded: bool,
+        /// §12.2's `/Enforce` where the reader's level holds it: the document's `/PrintScaling`,
+        /// which the caller's dialogue keeps (ADR 2908). `None` leaves the scaling the reader's.
+        held: Option<pdf_model::viewer_preferences::PrintScaling>,
         /// What the window says about it.
         words: String,
     },
@@ -410,6 +413,29 @@ impl Owing {
         match self.records.get(index) {
             None => Err(crate::Status::OutOfRange),
             Some(Owed::Repaint(repainted)) => Ok(repainted),
+            Some(_) => Err(crate::Status::WrongKind),
+        }
+    }
+
+    /// Whether the print let through at `index` holds its scaling, and the scaling it holds —
+    /// `AppDefault` where it holds none, the caller's own default and the reader's choice.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::document`], for a kind that is not a print.
+    pub fn print_scaling(
+        &self,
+        index: usize,
+    ) -> Result<(bool, crate::kinds::PrintScalingKind), crate::Status> {
+        match self.records.get(index) {
+            None => Err(crate::Status::OutOfRange),
+            Some(Owed::Print { held, .. }) => Ok((
+                held.is_some(),
+                held.map_or(
+                    crate::kinds::PrintScalingKind::AppDefault,
+                    crate::kinds::PrintScalingKind::of,
+                ),
+            )),
             Some(_) => Err(crate::Status::WrongKind),
         }
     }

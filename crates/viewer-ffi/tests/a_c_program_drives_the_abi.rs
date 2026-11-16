@@ -112,6 +112,22 @@ fn placed_fixture() -> Vec<u8> {
     )
 }
 
+/// One page whose viewer preferences enforce their print scaling: Table 147's `/PrintScaling
+/// /None` and `/Enforce [/PrintScaling]`, which Table 148 admits because `None` is a valid value
+/// other than `AppDefault`. `/Enforce` is PDF 2.0's, so the header says 2.0 — the same length as
+/// `written`'s, so its offsets stand.
+fn enforced_fixture() -> Vec<u8> {
+    let bytes = written(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /ViewerPreferences \
+         << /PrintScaling /None /Enforce [/PrintScaling] >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] >>\nendobj\n",
+    );
+    let mut versioned = b"%PDF-2.0".to_vec();
+    versioned.extend_from_slice(bytes.get(8..).unwrap_or_default());
+    versioned
+}
+
 /// A deck stating Table 29's `/PageMode /FullScreen`, whose one slide is a link to a URI over the
 /// whole page: under `--links=ask` the click's question is held while the window presents (ADR
 /// 2309), the C window's form of the toolkits' drive step 106.
@@ -539,6 +555,51 @@ fn a_c_program_drives_a_window_one_call_per_thing_that_happened() {
     what_the_titles_say(&said);
     let union = written_to(private, "quorra_window_union_fixture.pdf", &union_fixture());
     the_declined_page_is_titled(&program, &union);
+    let enforced = written_to(
+        private,
+        "quorra_window_enforced_fixture.pdf",
+        &enforced_fixture(),
+    );
+    the_enforced_scaling_is_held_where_the_level_obeys(&program, &enforced);
+}
+
+/// §12.2's `/Enforce` reaches a C caller's own dialogue, through a window's `PRINT` record and a
+/// viewer's `QUORRA_EVENT_PRINTING` alike (ADR 2908). Table 147: the names in `/Enforce` "shall
+/// not be overridden by subsequent selections in the application user interface", and the
+/// reader's level decides whether this reader obeys (ADR 2840's table): `off` and `warn` leave the
+/// scaling the reader's, `on` holds it, `ask` asks once and its `no` holds it. Held, the scaling the
+/// caller keeps is the document's `/PrintScaling /None` — `QUORRA_PRINT_SCALING_NONE`, 1 — and
+/// unheld it is `APP_DEFAULT`, 0, the caller's own. The unheld levels are the control (trap 13).
+fn the_enforced_scaling_is_held_where_the_level_obeys(program: &Path, enforced: &Path) {
+    let ran = Command::new(program)
+        .arg("--enforced")
+        .arg(enforced)
+        .output()
+        .expect("the program runs");
+    let said = String::from_utf8_lossy(&ran.stdout).into_owned();
+    println!("{said}");
+    assert!(
+        ran.status.success(),
+        "the C program failed on the enforcing document:\n{}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    for (level, questions, held) in [
+        ("off", 0, false),
+        ("warn", 0, false),
+        ("on", 0, true),
+        ("ask, no", 1, true),
+        ("ask, yes", 1, false),
+    ] {
+        let (held, scaling) = (u8::from(held), u8::from(held));
+        let window = format!(
+            "window enforced {level}: {questions} question(s), 1 print(s), held {held}, \
+             scaling {scaling}\n"
+        );
+        assert!(said.contains(&window), "missing {window:?} in:\n{said}");
+        let viewer =
+            format!("viewer enforced {level}: 1 grant(s), held {held}, scaling {scaling};");
+        assert!(said.contains(&viewer), "missing {viewer:?} in:\n{said}");
+    }
 }
 
 /// `bytes` written as `name` in the private test directory, and its path.

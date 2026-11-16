@@ -268,11 +268,11 @@ A normal round can advance or close each of these today; there is no missing sur
 package, no cross-round architecture. Membership is re-derived from the ledger rather than carried: a
 row is in this bucket when its note names none of those three.
 
-- §12.2 — `partial`: Table 147's `/Enforce` names preferences "that shall not be overridden by
-  subsequent selections in the application user interface", and it is reported rather than obeyed.
-  It is a document restriction, so it attaches to the reader's four-level policy; the build is that
-  attachment, and `doc/questions/Q834` section 2 asks only for its default level (ADR 2814).
-
+§12.2 was here, and is `departed` again on `/HideMenubar` alone, the reading ADR 1622 gave it: Table
+147's `/Enforce` is a restriction at the reader's four levels (`doc/questions/A834`, ADR 2840), and where
+the level holds the print scaling every dialogue that offers one locks it — `quorra-qt`'s control,
+GTK's own dialogue by its scale capability and the job's scale, and a C caller's through
+`quorra_owed_print_scaling` and `quorra_event_printing_scaling` (ADR 2908).
 
 §9.9.2 was here, and is `implemented`, with §9.9 above it: a save names every subset it constructs or
 imports whole from an FDF, and an archive conversion every one it embeds or constructs, through one

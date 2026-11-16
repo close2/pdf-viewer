@@ -1284,6 +1284,37 @@ pub unsafe extern "C" fn quorra_owed_print(
     }
 }
 
+/// A `PRINT` record's §12.2 `/Enforce`: whether the reader's level holds the print scaling, and
+/// the `QUORRA_PRINT_SCALING_*` the caller's dialogue locks its scaling control to where it does
+/// (ADR 2908); `QUORRA_WRONG_KIND` for another record.
+///
+/// # Safety
+///
+/// See the module documentation. Both out-parameters are writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_owed_print_scaling(
+    owed: *const Owing,
+    index: usize,
+    held: *mut bool,
+    scaling: *mut u32,
+) -> c_int {
+    let Some(owed) = owed.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match owed.print_scaling(index) {
+        Ok((holds, kept)) => {
+            if let Some(held) = held.as_mut() {
+                *held = holds;
+            }
+            if let Some(scaling) = scaling.as_mut() {
+                *scaling = kept as u32;
+            }
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
 /// A chrome notification's one-shot panel request: -1 closes, a tab index opens.
 /// `NoAnswer` preserves the reader's pane choice. The record lives until the batch is freed.
 ///

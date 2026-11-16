@@ -465,7 +465,8 @@ processor backend drew — the same backend the oracle certifies — into the to
 winit host has no toolkit dialogue at all and shows what would print, saying so (ADRs 1179, 1180,
 1203). The resolution is the printer's, clamped to 150–600 dots per inch with 300 where none is
 reported, and §12.2's half of Table 147 — scaling, duplex, tray, page range, copies — is what a
-dialogue opens on. **And the two entries of it that decide pixels decide them**: a page carries
+dialogue opens on; where the reader's level obeys `/Enforce`, the Qt and GTK dialogues lock their
+scale to the document's and a C caller is handed the scaling to lock (ADRs 2840, 2908). **And the two entries of it that decide pixels decide them**: a page carries
 §14.11.2's boundaries twice, `Page::print_box` and `Page::print_clip_box` beside `display_box` and
 `clip_box`, and `Page::render_for_printing` selects between the pairs where the print operation
 stated `Purpose::Print` — so a document naming `/PrintArea /MediaBox` lays a wider square onto paper

@@ -1093,8 +1093,8 @@ impl NativeWindow for Window {
                 &pdf_model::viewer_preferences::ViewerPreferences::default(),
             ),
         };
-        // §12.2's `/Enforce` where the reader's level obeys it: a C caller's own dialogue is the
-        // one to hold, and this sentence is what it is told (ADR 2840).
+        // §12.2's `/Enforce` where the reader's level obeys it: said, and the record carries the
+        // scaling a C caller's own dialogue locks its control to (ADRs 2840, 2908).
         if let Some(note) = defaults.held_note(scaling_held) {
             self.say(note);
         }
@@ -1109,6 +1109,7 @@ impl NativeWindow for Window {
         self.owing.owe(Owed::Print {
             pages,
             degraded: fidelity == viewer_core::Fidelity::Degraded,
+            held: defaults.held_scaling(scaling_held),
             words: words.clone(),
         });
         self.say(&words);

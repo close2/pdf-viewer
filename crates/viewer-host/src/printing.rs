@@ -477,9 +477,8 @@ impl Defaults {
     /// `held` is `Event::Printing`'s `scaling_held`, the reader's level for
     /// `pdf_model::restriction::Operation::OverridePreference` answered by `viewer_core` (ADR
     /// 2840). `None` where it does not hold, because at `warn` the core's `Event::Warned` has said
-    /// what the document asked and at `off` nothing is owed. A toolkit whose dialogue can lock its
-    /// scaling control locks it as well; one that cannot is held by this sentence, said before the
-    /// dialogue opens on the document's scaling.
+    /// what the document asked and at `off` nothing is owed. It is said before the dialogue opens,
+    /// and the dialogue then locks its scaling control to [`Self::held_scaling`] (ADR 2908).
     #[must_use]
     pub fn held_note(&self, held: bool) -> Option<&'static str> {
         (held && self.scaling_enforced).then_some(
@@ -487,6 +486,21 @@ impl Defaults {
              and your level obeys it: the dialogue opens on the scaling it states, and the print \
              keeps it",
         )
+    }
+
+    /// The scaling a print dialogue must keep, where the reader's level holds it.
+    ///
+    /// `held` is `Event::Printing`'s `scaling_held` (ADR 2840). `Some` only where it is true and
+    /// the document's `/Enforce` names `/PrintScaling`, and then it is the document's own
+    /// `/PrintScaling`: §12.2, Table 147's `/Enforce` names preferences "that shall not be
+    /// overridden by subsequent selections in the application user interface". Table 148 admits
+    /// the name only where that entry states a valid value other than `AppDefault`, so the one
+    /// answer today is [`PrintScaling::NoScaling`]; it is read from the document rather than
+    /// assumed, so that the hosts and the C caller keep what the file states. `None` leaves the
+    /// scaling the reader's. Each window locks its own control to it (ADR 2908).
+    #[must_use]
+    pub fn held_scaling(&self, held: bool) -> Option<PrintScaling> {
+        (held && self.scaling_enforced).then_some(self.scaling)
     }
 }
 
@@ -705,6 +719,11 @@ mod tests {
             None,
             "a level that does not hold says nothing here; the core's events say the rest"
         );
+        // Table 147's `/Enforce`: the value held is the document's own `/PrintScaling`, and
+        // only where the level holds it and the document enforces it.
+        assert_eq!(stated.held_scaling(true), Some(PrintScaling::NoScaling));
+        assert_eq!(stated.held_scaling(false), None);
+        assert_eq!(silent.held_scaling(true), None);
         // One-based, inclusive at both ends, and the gap between the pairs is a gap.
         for (page, inside) in [(1, false), (2, true), (4, true), (5, false), (9, true)] {
             assert_eq!(

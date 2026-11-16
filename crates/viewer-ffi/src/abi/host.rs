@@ -361,6 +361,36 @@ pub unsafe extern "C" fn quorra_event_printing(
     }
 }
 
+/// A `QUORRA_EVENT_PRINTING`'s §12.2 `/Enforce`: whether the reader's level holds the print
+/// scaling, and the `QUORRA_PRINT_SCALING_*` a caller's dialogue keeps where it does (ADR 2908).
+///
+/// # Safety
+///
+/// See the module documentation. Both out-parameters are writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_event_printing_scaling(
+    events: *const Events,
+    index: usize,
+    held: *mut bool,
+    scaling: *mut u32,
+) -> c_int {
+    let Some(events) = events.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match events.printing_scaling(index) {
+        Ok((holds, kept)) => {
+            if let Some(held) = held.as_mut() {
+                *held = holds;
+            }
+            if let Some(scaling) = scaling.as_mut() {
+                *scaling = kept as u32;
+            }
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
 /// The end of the print operation `quorra_print` began — §8.11.4.5's revert.
 ///
 /// Sent whether the job finished or the person cancelled: the clause's sentence is about the

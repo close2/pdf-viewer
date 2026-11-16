@@ -1088,6 +1088,13 @@ int32_t quorra_print_placed(quorra_viewer *viewer, const float *media, float sca
  * that writes a document may be offered (ADR 1203). */
 int32_t quorra_event_printing(const quorra_events *events, size_t index, size_t *pages,
                        bool *degraded);
+/* The same event's §12.2 /Enforce: whether the reader's level holds the print scaling — Table
+ * 147's "shall not be overridden by subsequent selections in the application user interface" —
+ * and the QUORRA_PRINT_SCALING_* the caller's dialogue keeps where it does, its scaling control
+ * locked: NONE, the one value Table 148 lets /Enforce name. APP_DEFAULT where nothing is held,
+ * the caller's own default and the reader's choice (ADR 2908). */
+int32_t quorra_event_printing_scaling(const quorra_events *events, size_t index, bool *held,
+                       uint32_t *scaling);
 /* The end of that operation — §8.11.4.5's "then all groups shall revert to their prior states".
  * Sent whether the job finished or the person cancelled; harmless where none is running. */
 int32_t quorra_print_finish(quorra_viewer *viewer, quorra_events **events);
@@ -2334,6 +2341,11 @@ int32_t quorra_owed_script_text(const quorra_owed *owed, size_t index, uint32_t 
                                 size_t cap, size_t *needed);
 /* A PRINT record's pages, and whether §7.6.4.2's bit 12 limits the quality. */
 int32_t quorra_owed_print(const quorra_owed *owed, size_t index, size_t *pages, bool *degraded);
+/* A PRINT record's §12.2 /Enforce, as quorra_event_printing_scaling answers it: whether the
+ * scaling is held, and the document's QUORRA_PRINT_SCALING_* the caller's dialogue locks its
+ * scaling control to (ADR 2908). */
+int32_t quorra_owed_print_scaling(const quorra_owed *owed, size_t index, bool *held,
+                                  uint32_t *scaling);
 /* A REPAINT record's QUORRA_REPAINT_* bits, and whether its picture `frame` has pixels the caller
  * has not been handed (QUORRA_OUT_OF_RANGE past the pictures shown): copy only those. */
 int32_t quorra_owed_repaint(const quorra_owed *owed, size_t index, uint32_t *changed);
