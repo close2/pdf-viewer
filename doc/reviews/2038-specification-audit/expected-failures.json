@@ -408,6 +408,12 @@
       "test": "type4_null_separates_operands_and_operators_like_the_other_five_white_spaces",
       "finding": "2038-B45",
       "log": "calculator-lexical-wave42.log"
+    },
+    {
+      "binary": "pdf-transform::archive_external_components_spec_audit",
+      "test": "archive_report_preserves_all_components_at_and_beyond_the_parser_limit",
+      "finding": "2038-B46",
+      "log": "combined-wave43c.log"
     }
   ]
 }

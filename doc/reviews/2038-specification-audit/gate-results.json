@@ -1367,6 +1367,24 @@
       "log": "quality-wave42.log",
       "exit": 0,
       "scope": "pdf-colour all-targets Clippy PASS."
+    },
+    {
+      "log": "combined-wave43c.log",
+      "run": 4,
+      "passed": 3,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Final two q/Q CPU controls, filtered checksum and archive component regression. Earlier stream-checksum43 compile-only failures fixed;43b3PASS and external-components43 1FAIL reproduced here after lint cleanup."
+    },
+    {
+      "log": "quality-wave43b.log",
+      "exit": 0,
+      "scope": "pdf-model all-targets Clippy PASS after fixture formatting and redundant expect correction."
+    },
+    {
+      "log": "quality-transform-wave43b.log",
+      "exit": 0,
+      "scope": "pdf-transform all-targets Clippy PASS after XObject markup and justified test-helper panic expectation."
     }
   ],
   "prior_expected_failures": {

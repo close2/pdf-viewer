@@ -1746,5 +1746,57 @@
       "0749",
       "0733"
     ]
+  },
+  {
+    "id": "2038-B46",
+    "kind": "file-specification-component-limit",
+    "clauses": [
+      "7.11.2.1"
+    ],
+    "summary": "Public archive external-data report silently merges file-path components after256.",
+    "evidence": "Exact-xref page-reachable external Form stream, PDF/A-4 target identification. 256 x components preserved;257 yields256 with final x/x. Named report retains full shown string but changes byte components.",
+    "execution": "combined-wave43c.log:1FAIL;256 control and no-recovery/cut-chain guards pass.",
+    "scope": "In-memory ExternalData report only. No file opened, no PDF/A-validity claim, no requirement for unbounded support. Truthful limit/refusal is an acceptable future contract.",
+    "adrs": [
+      "1199",
+      "1155"
+    ]
+  },
+  {
+    "id": "2038-T62",
+    "kind": "passing-regression",
+    "clauses": [
+      "7.11.4.1"
+    ],
+    "summary": "Filtered attachment checksum matches decoded bytes and rejects encoded Flate bytes.",
+    "evidence": "Exact-xref name-tree attachment,19-byte literal decoded payload,27-byte fixed zlib stream, independently verified MD5. Model predicate and decoder exercised together.",
+    "execution": "combined-wave43c.log:1PASS.",
+    "scope": "No public Extract command or filesystem writing; checksum is not security validation."
+  },
+  {
+    "id": "2038-T63",
+    "kind": "passing-regression",
+    "clauses": [
+      "7.7.3.3",
+      "7.8.2",
+      "8.4.2"
+    ],
+    "summary": "Balanced q/Q preserves graphics state across page Contents array members.",
+    "evidence": "Two exact-xref raw streams: explicit blue before q, red after; painting after Q is blue, painting before Q is red. Complete interpretation and CPU pixel controls.",
+    "execution": "combined-wave43c.log:2PASS.",
+    "scope": "Ordinary sequential path; no parallel or GPU certification."
+  },
+  {
+    "id": "2038-D37",
+    "kind": "source-comment-inaccuracy",
+    "clauses": [
+      "7.7.3.3"
+    ],
+    "summary": "Page content comment says a lexical token may split across array members, contrary to Table31.",
+    "evidence": "page.rs687\u2013688; primary120/105 permits divisions only at lexical-token boundaries. Reader inserts LF and current cross-stream controls pass.",
+    "scope": "Documentation finding only; no production comment rewritten.",
+    "adrs": [
+      "0365"
+    ]
   }
 ]

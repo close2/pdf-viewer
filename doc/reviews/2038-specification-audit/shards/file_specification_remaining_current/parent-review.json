@@ -1,0 +1,10 @@
+{
+  "source": "Parent read primary147\u2013148 file strings and153\u2013154 Tables44/45. Actual annotations155,156,481,382,598 checked. CheckSum is byte string; dates note refers to original filesystem dates where supported; embedded streams use EF/RF with EmbeddedFiles optional unless otherwise required.",
+  "execution": "combined-wave43c.log: filtered checksum PASS and public archive component-limit FAIL. 256-part control passes;257 becomes256 with final x/x. Actual ExternalData::Named consumer is observed; no network/filesystem resolution.",
+  "fixture": "Exact xrefs, no recovery/cut chain. Archive fixture has PDF/A-4 target identification and intentionally forbidden external-stream data; it is not a claim of PDF/A conformance. The rendered Form is reachable from a page. Payload Flate bytes and both MD5 digests independently checked with Python zlib/hashlib.",
+  "qualification": "Bounded support is allowed if truthfully reported. Existing API returns a normal Named value without a component-loss indicator; the test pins its current success-shaped contract and should evolve if explicit limit reporting is added. No requirement for unlimited path allocation.",
+  "assertions": "Filtered attachment model test decodes literal payload and checks the digest against decoded bytes and rejects compressed bytes. It does not invoke public Command::Extract or filesystem writing. The draft constant-digest inequality was removed as redundant; actual predicate checks discriminate.",
+  "decisions": "Retain ADR0076 lazy listing, ADR0145 extraction-time checksum, ADR1155 restricted host fetch and ADR1199 caller-owned resolution. Central FileSpec reuse remains sound but propagates silent component mutation.",
+  "correction": "Earlier file_specs_current residual claiming no production components consumer is false: archive/external.rs::names consumes it. FileSpec-only duplicate draft not promoted.",
+  "quality": "Final model and transform all-targets Clippy PASS. Initial draft compile failures were missing Rasterizer trait and Arc slice comparison; lint issues fixed."
+}

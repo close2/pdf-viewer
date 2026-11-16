@@ -1,0 +1,22 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "adr": "0365",
+      "question": "Does the window reader alter page Contents array semantics while avoiding whole-stream allocation?",
+      "reconsideration": "Retain. ContentReader::for_page uses one Window over the ordered parts; the producer emits an LF separator on each actual part boundary, and a single interpreter consumes the reader. The existing two-deflated-part operator-split test and BDC/EMC cross-part test support this path. Table 31 requires whitespace between parts and stream ordering; the bounded streaming choice does not change that abstraction.",
+      "limit": "The audit did not re-run ADR's census or performance measurements. Its old prose in page.rs that 'a token may even be split across the boundary' is inaccurate as a statement about lexical tokens; Table 31 requires divisions at token boundaries. What may cross parts is a multi-token instruction/operator context (e.g., operands then operator), not a token split."
+    },
+    {
+      "adr": "1880",
+      "question": "Does division after q/Q-restoring state evidence complete §8.4.2 behavior across the Contents sequence?",
+      "reconsideration": "Retain the ADR's bounded parallel-read design as a separate policy/performance decision. Its division planner deliberately cuts only at safe state points and declines pages with state it cannot carry. This does not establish that the ordinary sequential page reader preserves an explicitly balanced q in one Contents part and Q in another; the drafted test isolates that source-required sequence case.",
+      "limit": "No claim about parallel-read partitions or display-list joins beyond the ADR's reported evidence."
+    },
+    {
+      "topic": "ledger_mapping",
+      "question": "Are current ledger rows enough for this bounded scope?",
+      "reconsideration": "Existing ledger rows cover sequential_content_execution (7.8.2) and q_pushes_entire_graphics_state/Q_pops_latest_state/producer_q_Q_balance (8.4.2). Their tests assert semantics but do not currently identify a q/Q pair spanning page Contents parts. Add the draft only as an assertion gap; no implementation defect is established."
+    }
+  ]
+}

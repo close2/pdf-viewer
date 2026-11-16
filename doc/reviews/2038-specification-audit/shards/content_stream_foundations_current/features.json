@@ -1,0 +1,31 @@
+{
+  "baseline": "b901326c",
+  "scope": "Partial review of effective EC3 \u00a77.8.2 page-content sequencing; Table 31 /Contents-array assembly; \u00a78.4.2 cross-stream q/Q balance and q/Q state semantics. \u00a78.1, \u00a78.4.3.1 and \u00a78.5.1 reviewed as context only. Does not certify all graphics/text operators, forms, other content-stream kinds, graphics state fields, or writer paths.",
+  "features": [
+    {
+      "feature": "page_contents_array_is_one_ordered_stream",
+      "source": "ISO 32000-2+EC3 Table31 Contents row physical120/105;7.8.2 physical125\u2013126/110\u2013111.",
+      "rule": "A single stream or ordered array describes the page. Array members have the effect of one stream with at least one whitespace character inserted between streams. Division is only at lexical-token boundaries and unrelated to logical page organization; a writer must not create an empty Contents array. The consumer need not preserve the array structure.",
+      "effective_errata": "No direct change to this rule found. EC3 #9 removes a phrase in \u00a77.8.3 extending page resource association to Contents array elements; it does not undo Table 31's one-stream semantics. Errata #320 is unrelated Table 31 /B bead order.",
+      "implementation": "crates/pdf-model/src/content/reader.rs::ContentReader::for_page / Window::produce/end_part maintain one reader and insert LF between actual stream parts; page.rs::Page::content_with_report drains the same reader; content/run.rs interprets the reader sequentially.",
+      "assertion_review": "content_window.rs::two_deflated_parts_are_one_stream_across_the_join tests ordered operands/operator across two Flate streams; optional_content.rs::a_marked_content_section_may_span_two_parts_of_the_contents_array proves sequence-level state through BDC/EMC; hostile_budgets.rs tests operands/operator distributed over three parts within total bound. The new q/Q cross-part raster draft was run by the parent: both restoration and red-control assertions PASS. Existing reader window/refill tests concern intra-stream windows, not array boundaries.",
+      "verdict": "implementation path is source-aligned; explicit graphics-state cross-array integration assertion gap drafted",
+      "limitations": "The Table 31 wording permits splitting only at lexical-token boundaries. It does not require consumers to preserve an array. No conclusion about all content operators or all public rendering backends."
+    },
+    {
+      "feature": "q_Q_stack_semantics_and_balance_across_page_array",
+      "source": "8.4.2 physical175/160 requires entire-state q/Q push/pop and balance across the page stream sequence. Actual EC3#368 annotations are physical175 cross-reference and322 insertion requiring Tm/Tlm within text objects;997 is AnnexQ and was an incorrect draft locator.",
+      "implementation": "content/run/graphics.rs performs push/pop; run/machine.rs tracks state and text matrices across dispatch. The page's ContentReader is shared across the stream parts, so q/Q are not reset by Window::end_part.",
+      "assertion_review": "line_parameters.rs checks restored line cap/join/miter in a single stream; graphics_stack_paths_audit.rs checks nested state and clip restoration in one stream; text_state.rs checks Issue #368 within a text object; coordinate_graphics_state_spec_audit.rs checks CTM restoration in one stream. No located valid fixture splits a balanced q...Q pair between /Contents parts.",
+      "verdict": "the required cross-array grammar is implemented by shared reader/stack; targeted assertion gap drafted",
+      "limitations": "Table 31's array rule is page-specific. Balance is a producer requirement and does not imply a reader must reject malformed unmatched q/Q. The draft uses balanced, valid operators."
+    },
+    {
+      "feature": "adjacent_introductions",
+      "source": "\u00a78.1 physical p.160 / printed p.145; \u00a78.4.3.1 physical p.175 / printed p.160; \u00a78.5.1 physical p.184 / printed p.169.",
+      "rule": "Reviewed only to ensure scope boundary: \u00a78.1 introduction describes operator families, \u00a78.4.3.1 introduces Table 51 parameters, and \u00a78.5.1 defines path/clipping context. \u00a78.5.2.1 clarifies current path is not part of graphics state and is not saved/restored by q/Q (physical p.184 / printed p.169).",
+      "implementation_and_assertions": "Graphics/path ownership was reviewed against coordinates_graphics_state_current; malformed q/Q while a path object is open is already correctly qualified there as robustness only. No new finding or broad certification here.",
+      "verdict": "context-only; no new gap asserted"
+    }
+  ]
+}

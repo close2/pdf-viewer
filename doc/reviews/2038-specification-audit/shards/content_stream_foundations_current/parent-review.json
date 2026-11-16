@@ -1,0 +1,7 @@
+{
+  "source": "Parent read Table31 Contents120/105,7.8.2 125\u2013126/110\u2013111,8.4.2 175/160. Actual#368 annotations175 and322 correct draft997 locator.",
+  "execution": "combined-wave43c.log: both new CPU cross-Contents q/Q controls PASS, with exact xref and complete interpretation guards. The blue restored-state target and red pre-pop control derive independently from explicit RGB operands.",
+  "finding": "D37: page.rs687\u2013688 says a token may split across a Contents boundary, whereas Table31 permits divisions only between lexical tokens. Code inserts whitespace correctly; no runtime defect established.",
+  "decision": "Retain ADR0365 shared bounded reader and ADR1880 safe parallel division, without recertifying performance or parallel paths. New test exercises ordinary sequential interpretation.",
+  "scope": "7.8 heading has no independent prose before7.8.1. Adjacent8.1/8.4.3.1/8.5.1 are context-only and not advanced by this shard. No all-operator or whole-state certification."
+}

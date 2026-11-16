@@ -1,0 +1,87 @@
+{
+  "baseline": "b901326c",
+  "source": "ISO 32000-2:2020 as amended by Errata Collection 3",
+  "scope": "Bounded review of §7.11.2.1/.2 simple specification strings and §7.11.4.1 embedded stream tables 44–45. General dictionary precedence and associated-file carrier families were reviewed in sibling shards and are not recertified here.",
+  "source_locations": [
+    {"physical_pages": [147, 148], "printed_pages": [132, 133], "text": "§7.11.2.1 component separator, escape representation, byte preservation; §7.11.2.2 absolute/relative distinction and relative URL constraints."},
+    {"physical_page": 149, "printed_page": 134, "text": "§7.11.2.2 continued dot-dot cancellation example; Table 43 begins afterward."},
+    {"physical_page": 152, "printed_page": 137, "text": "§7.11.4.1 embedded file stream routes, optional processing note, and name-tree/EF placement."},
+    {"physical_page": 153, "printed_page": 138, "text": "Table 44 stream dictionary Type/Subtype/Params and Table 45 parameter Size/CreationDate/ModDate/CheckSum entries begin."},
+    {"physical_page": 154, "printed_page": 139, "text": "Table 45 continuation, including ModDate for associated files and 16-byte MD5 CheckSum over uncompressed embedded bytes."},
+    {"physical_page": 153, "printed_page": 138, "text": "Primary PDF annotation Issue #155 is attached to the Table44 Subtype row at physical153/printed138. Its effective EC3 replacement narrows the producer MIME-type form to RFC2046 section2 top-level type/description without parameters."},
+    {"physical_page": 153, "printed_page": 138, "text": "Primary PDF #481 replaces the earlier name-tree/EF inclusion bullets, making EmbeddedFiles optional unless another clause requires it; #156 adds associated-file and RichMedia routes."},
+    {"physical_page": 154, "printed_page": 139, "text": "Primary PDF #382 changes Table45 CheckSum type to byte string. #598 adds NOTE 2: CreationDate/ModDate are intended filesystem dates when the embedded file is included, if supported by the host system."}
+  ],
+  "features": [
+    {
+      "id": "simple_spec_component_grammar",
+      "clause": "§7.11.2.1",
+      "source_feature": "A slash divides component substrings; any component may be empty. A literal slash within a component is escaped by a reverse solidus, which itself is doubled in the string representation; the escape reverse solidus is removed during processing. Components remain bytes without interpretation/conversion when passed to an OS.",
+      "errata": "No direct EC3 amendment identified.",
+      "ledger": "§7.11.2.1 is implemented; its ledger note cites escaping and empty components.",
+      "code": "crates/pdf-model/src/file_spec.rs::FileSpec::components; `MAX_COMPONENTS` is a hard cap of 256 parts.",
+      "tests": [
+        "file_spec.rs::a_literal_slash_inside_a_component_is_escaped_by_a_reverse_solidus checks the clause example (`in\\/out`→`in/out`).",
+        "file_spec.rs::an_empty_component_is_a_component checks leading and doubled separators.",
+        "file_specifications_audit.rs checks a complete exact-xref simple string; byte values remain bytes.",
+        "Draft file_spec_component_limit.rs compares 256-component positive control against 257 valid components with an independent split oracle.",
+        "Draft archive_external_components.rs sends the same 256/257 pair through the public archive ExternalData::Named path."
+      ],
+      "assertion_meaning": "Existing tests discriminate escaping and empty component handling. The proposed 257-part case isolates a different boundary: implementation's limit causes a later slash to be appended as a literal byte after the component vector reaches 256, merging fields instead of preserving the source separators. The second draft sends that parsed value through `pdf_transform::archive::external_stream_data` for an external `/F` reached from a page's Form XObject; the only expected user-facing value is the report, not a fetch.",
+      "verdict": "Escaping and empty-component behavior have direct controls. The silent >256 component collapse is a scoped FileSpec and archive-report representation defect candidate; no clause limit supports 256.",
+      "residuals": ["`pdf-transform/src/archive/external.rs::names` includes components and absolute status in public ExternalData during archive remediation; this path does not itself open a file.", "The API returns a vector with no truncation/shortfall indicator. A resource guard could refuse/report overlong component lists rather than silently reinterpret their separators.", "Drafts are not executed by this auditor; no reader host path or filesystem behavior is asserted."]
+    },
+    {
+      "id": "absolute_relative_resolution",
+      "clause": "§7.11.2.2",
+      "source_feature": "A leading slash makes a simple spec absolute; otherwise it is relative to the containing PDF. For non-URL systems, use containing directory plus relative path; successive `..` components cancel a preceding ordinary component where one exists. URL-relative specs are converted by RFC3986 and constrained to path syntax with no scheme, network authority, fragment, query, or parameters.",
+      "errata": "No direct EC3 amendment identified.",
+      "ledger": "§7.11.2.2 is marked implemented with the two source examples and URL-component restriction.",
+      "code": "crates/pdf-model/src/file_spec.rs::is_absolute, resolve_against, is_valid_relative_url; archive transformation reports components/absolute separately.",
+      "tests": [
+        "file_spec.rs::a_relative_specification_replaces_the_containing_files_name and ::two_periods_cancel_the_component_before_them assert source Examples 1 and 2.",
+        "file_spec.rs::an_absolute_specification_starts_at_the_root asserts absolute and relative controls.",
+        "file_spec.rs::a_url_specification_is_not_split_into_components and ::a_relative_url_specification_may_be_a_path_and_nothing_else cover URL distinction/restrictions."
+      ],
+      "assertion_meaning": "These are direct source-derived byte-vector assertions and include absolute/relative controls. The tests do not open or normalize a host path. The URL algorithm is delegated to RFC3986, with local validation of the file-spec restrictions.",
+      "verdict": "Source examples and named URL restrictions are implemented in sampled API behavior.",
+      "residuals": ["No broad test of arbitrarily deep `..` sequences; the separate 256-component cap can limit such paths too.", "This audit does not certify every platform's path conversion, because the model retains bytes and host policy restricts resolution."]
+    },
+    {
+      "id": "embedded_file_inclusion_and_optional_processing",
+      "clause": "§7.11.4.1",
+      "source_feature": "Embedded file content is included in the PDF for portability/convenience and need not be directly processed by every PDF processor. It may be reached through a FileSpec /EF route, or document-level /EmbeddedFiles name tree whose specs point through /EF. A file attachment annotation uses the EF route and still identifies a filesystem location.",
+      "errata": "EC3 #481 replaces the earlier name-tree/embedded stream sentence: /EmbeddedFiles is optional unless another provision requires it. #156 adds associated-file and RichMedia routes. #391 clarifies the associated-file route via AF/MCAF. These amendments affect carrier context, not the sampled reader's deferred extraction behavior.",
+      "ledger": "§7.11.4.1 implemented for name-tree listing and annotation attachments; extraction is a user/host action, not eager document processing.",
+      "code": "crates/pdf-model/src/attachment.rs::attachments/of_annotation/read discovers and carries streams; viewer host owns extraction write action.",
+      "tests": ["embedded_files_spec_audit.rs related-file pair test and attachment writer tests; attachments_filed.rs asserts document-level and annotation attachment reachability before and after save."],
+      "assertion_meaning": "The tests assert discoverability, name/description/subtype/bytes and round-trip reachability. They do not imply automatic extraction to disk. Source explicitly allows processors not to process embedded contents directly.",
+      "verdict": "No missing reader duty from deferred extraction established; sampled list/EF routes are exercised.",
+      "residuals": ["All exact container variants in §7.11.4.1 are not recertified in this shard; no new associated-file carrier review.", "`/Desc` is a SHOULD for UI, while Table43's requirements on filespecs in EmbeddedFiles are covered by the sibling FileSpec audit."]
+    },
+    {
+      "id": "table44_embedded_stream_dictionary",
+      "clause": "§7.11.4.1 Table 44",
+      "source_feature": "Every stream has Table5 entries including Length/Filter. EmbeddedFile stream Type is optional but if present must be EmbeddedFile. Subtype is optional except required for associated files and has a MIME form constrained for producers; Params is optional except required for associated files.",
+      "errata": "EC3 #155 narrows Subtype producer syntax to RFC2046 section2 top-level type/description without MIME parameters, applying to writers; the reader carries the subtype as written. #481/#391 affect associated-file route context, not stream decoding mechanics.",
+      "ledger": "§7.11.4.1/table rows are claimed implemented in stream construction, parsing and attachments.",
+      "code": "crates/pdf-model/src/attachment.rs::read retains Subtype and stream; attachment/filing.rs::embedded_file_stream writes Type, optional Subtype, Length and Params.",
+      "tests": ["embedded_files_spec_audit.rs::embedded_file_stream_writes_type_and_params_dictionary checks literal payload, exact length, subtype and Type; attachment tests assert parsed subtype."],
+      "assertion_meaning": "The writer's Type and payload are directly asserted. The reader retains stored subtype without applying #155's producer-only grammar as a rejection filter. AssociatedFile-required fields are exercised by associated-file examples under separate owner scope.",
+      "verdict": "No reader failure established; Table44 requiredness conditions are producer constraints and not rejection requirements.",
+      "residuals": ["This shard does not require a reader to reject wrong `/Type` or invalid MIME syntax; doing so would drop legacy data without a source reader mandate.", "Generic stream Length/filter framing is primarily owned by §7.3.8 and filter shards; this scope only checks a well-formed embedded stream context."]
+    },
+    {
+      "id": "table45_parameter_and_checksum_semantics",
+      "clause": "§7.11.4.1 Table 45",
+      "source_feature": "Size is optional uncompressed byte count; CreationDate optional; ModDate optional normally but required for associated file; CheckSum optional 16-byte MD5 digest of the uncompressed embedded-file bytes, and is explicitly not a security mechanism.",
+      "errata": "EC3 #382 changes CheckSum's Table45 type to byte string; this is consistent with the 16-byte digest representation and does not change uncompressed-byte scope. #598 adds NOTE 2 that CreationDate/ModDate are intended filesystem dates of the embedded file when included, if supported by the host system. The date note is conditional host behavior, not a new mandatory reader requirement.",
+      "ledger": "Attachment parsing carries Size/dates/checksum; extraction-side checksum_matches compares caller-supplied decoded bytes to the MD5 statement.",
+      "code": "crates/pdf-model/src/attachment.rs::read, Attachment::checksum_matches and checksum_matches; attachment/filing.rs writes Size/CheckSum from uncompressed input bytes.",
+      "tests": ["attachment.rs::a_stated_checksum_is_answered_against_the_bytes uses an independent md5sum digest for raw stream; attachment_filed.rs round-trips payload and checksum; embedded_files_spec_audit.rs checks literal writer digest.", "Draft embedded_flate_checksum.rs adds an exact-xref FlateDecode attachment with independent compressed/uncompressed vectors and digest."],
+      "assertion_meaning": "Existing tests establish MD5 comparison and writer output for payload equal to stream bytes. Proposed filtered case distinguishes Table45's uncompressed digest from an incorrect digest of Flate-coded PDF bytes: decode output is literal payload-after-flate, `/Size=19`, `/Length=27`, the payload's independent MD5 is 29f52318023f658f29a80b071b8c2d62, and the compressed bytes have another digest.",
+      "verdict": "Raw payload checksum path is tested; a filtered-stream context assertion is a useful coverage gap, not an observed implementation bug.",
+      "residuals": ["Neither proposed draft is executed by this auditor; parent should validate PDF syntax and expected decode.", "The reader reports a bad stated checksum rather than refusing bytes; source calls it a checksum, not security control.", "Associated-file ModDate requirement is covered by sibling §14.13 tests and is not re-opened here. EC3 #598's filesystem-date note applies only if the embedding host supports it."]
+    }
+  ]
+}

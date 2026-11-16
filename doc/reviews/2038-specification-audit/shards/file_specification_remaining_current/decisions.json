@@ -1,0 +1,29 @@
+{
+  "reviews": [
+    {
+      "adr": "0076",
+      "title": "The files inside the file",
+      "review": "Retain list-first/no eager decode behavior. §7.11.4.1 says embedded streams need not be processed by every processor, and the list path should not inflate every attachment on document open. This does not waive a checksum assertion when the extraction path already has decoded bytes; ADR 0145 is the later owner for that path."
+    },
+    {
+      "adr": "0145",
+      "title": "Taking a file out of a document",
+      "review": "Retain checksum-at-extraction and host-owned writing. The Table45 checksum is over uncompressed data and explicitly not a security mechanism. Existing raw-payload assertions prove MD5 but do not distinguish decoding from checking compressed stream bytes; proposed embedded_flate_checksum.rs is a targeted public regression for the missing combination."
+    },
+    {
+      "adr": "1155",
+      "title": "A link is a program this machine starts, so the reader says whether it may",
+      "review": "The no-direct-opening boundary remains sound. The component-count finding concerns the value carried in ExternalData and its interpretation, not opening an arbitrary document-selected path; the host's separate one-component rule still decides what may be fetched."
+    },
+    {
+      "adr": "1199",
+      "title": "The bytes a stream points at are the caller's to fetch",
+      "review": "The archive transformation deliberately reuses FileSpec parsing, so string-grammar losses are observable in an actual report even though this model code does not open anything. `ExternalData::Named` carries both shown string and byte components/absolute bit. This makes the 256-component silent separator merge more than dead helper behavior, while the one-component host policy constrains actual fetches."
+    },
+    {
+      "adr": "0223",
+      "title": "A panel is eleven answers, and none of them is a number",
+      "review": "Relevant only as API scope: a confined host carries attachment metadata without the stream; extract events supply bytes later. The checksum predicate is intentionally a separate cross-boundary operation. The proposed regression stays inside pdf-model and checks decoded bytes available to the extraction consumer; it does not alter confined wire policy."
+    }
+  ]
+}
