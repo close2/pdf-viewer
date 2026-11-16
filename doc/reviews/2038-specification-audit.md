@@ -20,9 +20,33 @@ and public consumers independently of execution. Then expand into previously
 pending features and selected ADR decisions. The first new shard covers logical
 structure and attributes, including effective clause numbering.
 
-Fresh sandbox workers have built successfully. An 11-crate baseline suite is
-running with 6,518 selected tests and 55 skipped; no current pass/fail conclusion
-is recorded yet. Old failing logs are historical evidence only.
+All **72 prior failing assertions now pass** at this baseline, including the three
+GTK cases run under Xvfb. The broad 11-crate run selected 6,518 tests: 6,508 passed
+and ten failed while opening one missing corpus witness. After linking the existing
+corpus into this worktree, those exact ten passed. The separate GTK library run
+passed all 20 tests. There were 55 skipped tests in the broad run. Execution and
+source/assertion reviews remain separate in the evidence files; none of these
+counts certifies complete feature coverage.
+
+The 72 scoped reviews revisit parts of 51 ledger clauses. Parent review corrected
+historical-log confusion and obsolete ADR residuals before recording the current
+assessment. In particular, Qt choices now retain an uncommitted selection; archive
+and imported-FDF subset naming have successor implementations (ADRs 2838 and 2862).
+Their old residual notes are not evidence of current defects.
+
+New assertion work has already found a remaining speech gap: `/Alt` and `/E`
+Unicode language escapes leave the spoken language at the prevailing `/Lang`.
+Both controlled tests fail with `en-US` instead of `es`. A three-run `/ActualText`
+control passes, including multibyte offsets; ADR 2812's mid-string residual is
+obsolete for that path. These are two failing assertions on related handling,
+not a count of independent defects.
+
+Date regressions now classify their known valid/invalid fixtures independently
+of the parser also used by the writer. FDF callback tests explicitly compare
+execution positions, with the `After`/`AfterPermsReady` ordering identified as
+ADR 2816's choice rather than a separately stated ISO order. These strengthened
+assertions pass. Structure bounds, collection schema cells and a PDF-level JBIG2
+filter chain are the next tests under review and execution.
 
 The owner-authorized redaction-overlay change is recorded in A842 and ADR 2868;
 the MaxLen change is recorded in A834 and ADR 2840. Their changed assertions must

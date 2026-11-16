@@ -1,0 +1,110 @@
+[
+  {
+    "adr": "2811",
+    "decision": "upheld_for_assigned_case",
+    "basis": "ISO 32000-2 §7.10.5.1 defers Type 4 operator semantics to PLRM3; the local primary PLRM3 source at §3.6.4 says shifted-in bits are zero, and Appendix B specifies the implementation integer. The current arm performs a logical 32-bit right shift; the assigned test distinguishes it from sign extension with a positive control.",
+    "scope_limit": "This review verifies the assigned negative right-shift case, not all calculator operators or all Annex B.3 semantics.",
+    "reviewer": "Luna high with parent corrections",
+    "group": "core_fixes"
+  },
+  {
+    "adr": "2815",
+    "decision": "mostly_upheld_date_interpretation_question",
+    "basis": "Annex I.2 supports choosing the most recent version after insertion (worded should); Table 29 catalog Version can override the unchanged header. Table 349 expressly requires ModDate when Catalog PieceInfo is present. §7.9.4 requires the prefix/year, ordered optional fields and field ranges; the implemented parser correctly rejects the two assigned malformed values. The parser also enforces Gregorian month lengths. The source says its format closely follows ASN.1; ITU-T X.680 §38.4.1 defines ASN.1 DATE with ISO 8601 YMD notation, but the PDF clause does not expressly incorporate every ISO 8601 value constraint. Treat month-specific day limits as an open interpretation question, not a proven conformance defect.",
+    "review_note": "crates/pdf-transform/tests/annex_i_insert_version.rs around line 90 retains a stale comment claiming the test still exposes the missing version upgrade, despite the implemented upgrade and passing target assertion.",
+    "reviewer": "Luna high with parent corrections",
+    "group": "core_fixes"
+  },
+  {
+    "adr": "2820",
+    "decision": "upheld_with_scope_limits",
+    "basis": "Table 45 requires Params/ModDate for an associated EmbeddedFile, and current attach returns before publishing one when no source Info date exists. Annex Q.2 applies the four predicates to graphical elements rendered; §11.6.3 selects the first recognized blend mode. The state-carrying implementation and two target tests align with those narrow claims.",
+    "scope_limit": "The pattern repair assertions concern malformed input and project preservation policy only; no ISO reader-conformance claim follows. The two Annex Q tests cover only selected state/array examples.",
+    "reviewer": "Luna high with parent corrections",
+    "group": "core_fixes"
+  },
+  {
+    "adr": "2813",
+    "decision": "Absent Link /H defaults to I while a stated /D remains eligible under §12.5.5; absent Widget /H defaults to I and the non-P widget mode suppresses /D under Table 191.",
+    "review": "The tests and code implement the two tables separately. Link and Widget cannot be collapsed into a shared has_down default. This is well-supported by the differing table language.",
+    "residuals": [
+      "The widget reading treats the default I as a mode 'other than P' for Table 191's override sentence; semantic fit is strong but the sentence does not explicitly say 'default'."
+    ],
+    "verdict": "retain, with rationale scoped to these table rows",
+    "reviewer": "Luna high with parent corrections",
+    "group": "model_fixes"
+  },
+  {
+    "adr": "2818",
+    "decision": "Use literal /L coordinate pairs for /LE endpoints when /LL is present.",
+    "review": "Table 178's first/second coordinate-pair wording supports the literal mapping. The implementation's missing-AP construction tests use exact-xref fixtures but are not producer-conformance witnesses. The ADR itself correctly records that an alternate reading of 'endpoints defined by' including the offset remains an owner question; the selected endpoint geometry should not be certified as uniquely compelled.",
+    "residuals": [
+      "Resolve the owner question before removing ADR 0192's alternate interpretation from the decision record."
+    ],
+    "verdict": "retain provisionally; keep ambiguity explicit",
+    "reviewer": "Luna high with parent corrections",
+    "group": "model_fixes"
+  },
+  {
+    "adr": "2818",
+    "decision": "Underline follows the text-frame bottom edge and its bar is centered on that edge.",
+    "review": "Table 182 establishes orientation with the x1-y1 to x2-y2 edge and quadrilateral order; the test verifies the orientation edge. The bar thickness/location is not specified and ADR 2818 correctly labels centering as a rendering choice.",
+    "residuals": [
+      "The chosen centered bar extends outside the quadrilateral; this is a documented choice and needs owner acceptance if geometry outside the QuadPoints/Rect is consequential."
+    ],
+    "verdict": "retain orientation correction; retain centering as explicit choice",
+    "reviewer": "Luna high with parent corrections",
+    "group": "model_fixes"
+  },
+  {
+    "adr": "2816",
+    "decision": "One FDF page dictionary with multiple Templates adds one page; implementation layers all template sources using first source geometry.",
+    "review": "Table 251's one page dictionary / Templates relation supports count=1; the test independently checks parsed page/template cardinalities and has a two-page positive control. The specific layering, geometry source, and painting order are implementation choices rather than clause requirements.",
+    "residuals": [
+      "The assigned assertion proves cardinality only; it does not validate composition geometry or visual stacking."
+    ],
+    "verdict": "retain cardinality fix; keep composition choice qualified",
+    "reviewer": "Luna high with parent corrections",
+    "group": "model_fixes"
+  },
+  {
+    "adr": "2817",
+    "decision": "Use Type 1 CFF glyph-name route for Type1 font dictionaries over OpenType CFF, and honor knockout for mask groups where representable.",
+    "review": "§9.9.1's first bullet explicitly routes Type 1+CFF to §9.6.5.2; the decoy test distinguishes the competing cmap route. §11.5.3 permits knockout groups for soft masks and the pixel control isolates knockout overlap.",
+    "residuals": [
+      "Soft-mask implementation intentionally leaves non-isolated blend/backdrop and other constructions unsupported; assigned test covers an isolated DeviceGray group only."
+    ],
+    "verdict": "retain narrowly; do not infer whole-clause support",
+    "reviewer": "Luna high with parent corrections",
+    "group": "model_fixes"
+  },
+  {
+    "adr": "2812",
+    "decision": "Required image dictionary inconsistency errors; diagnostics for malformed hidden state lookup; named-page mismatch reporting.",
+    "review": "The assigned malformed-image cases have an express §8.9.5.1 error requirement and assert an incomplete interpretation. Hidden missing gs and named-page diagnostics are explicitly policy/API findings, not mandatory reader rejections; the report correctly qualifies them.",
+    "residuals": [
+      "Image tests assert incompleteness, not a specific error class; hidden-state case is deliberately malformed and only establishes project reporting behavior."
+    ],
+    "verdict": "retain with explicit split between normative error and project policy",
+    "reviewer": "Luna high with parent corrections",
+    "group": "model_fixes"
+  },
+  {
+    "adr": "2814",
+    "review": "Partial only: assigned destination geometry, page-label consumer, link active region, catalog OpenAction, PV/PI event dispatch, one link action chain, Stamp note window, attachment description precedence, and signature/timestamp discovery claims reviewed per failing assertion. The first seven plus Stamp/attachment and timestamp cases have clause-level evidence; ordinary SigFlags enumeration remains overclaimed as noted in findings. OpenAction, PV/PI and action-chain conclusions do not certify all Table 29/197 or all action routes.",
+    "reviewer": "Luna high with parent corrections",
+    "group": "viewer_fixes"
+  },
+  {
+    "adr": "2816",
+    "review": "Partial: native GTK MaxLen controls, two Qt choice commit paths and FDF scripts. All assigned cases pass at b901326c. Existing FDF assertions did not explicitly compare After and AfterPermsReady positions; added an assertion of ADR 2816 ordering, separately from Table 248 rights readiness, which remains unobserved. No whole-ADR certification.",
+    "reviewer": "Luna high with parent corrections",
+    "group": "viewer_fixes"
+  },
+  {
+    "adr": "2819",
+    "review": "Not reviewed: no assigned failing assertion concerns page-tree Count; excluded from this shard.",
+    "reviewer": "Luna high with parent corrections",
+    "group": "viewer_fixes"
+  }
+]

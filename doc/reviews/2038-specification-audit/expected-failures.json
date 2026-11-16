@@ -1,0 +1,17 @@
+{
+  "warning": "Audit failures are evidenced gaps, not waived defects or distinct-defect counts. Compare exact test identities within each run scope.",
+  "failures": [
+    {
+      "binary": "pdf-model::text_strings_spec_audit",
+      "test": "an_alternate_description_language_escape_overrides_the_property_language",
+      "finding": "2038-B01",
+      "log": "round2-targets-wave1.log"
+    },
+    {
+      "binary": "pdf-model::text_strings_spec_audit",
+      "test": "an_expansion_language_escape_overrides_the_property_language",
+      "finding": "2038-B02",
+      "log": "round2-targets-wave1.log"
+    }
+  ]
+}

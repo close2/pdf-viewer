@@ -341,10 +341,16 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "basic_objects"
+    ],
+    "reviewed_assertions": [
+      "pdf-syntax::spec_basic_objects::a_cold_wrong_generation_reference_is_undefined",
+      "pdf-syntax::spec_basic_objects::a_warm_wrong_generation_reference_is_undefined"
     ]
   },
   {
@@ -353,10 +359,16 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "basic_objects"
+    ],
+    "reviewed_assertions": [
+      "pdf-syntax::spec_basic_objects::a_cold_wrong_generation_reference_is_undefined",
+      "pdf-syntax::spec_basic_objects::a_warm_wrong_generation_reference_is_undefined"
     ]
   },
   {
@@ -399,10 +411,16 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "filters_ascii_runlength"
+    ],
+    "reviewed_assertions": [
+      "pdf-syntax::ascii85_runlength_boundaries::ascii85_tilde_followed_by_anything_but_greater_than_is_an_error",
+      "pdf-syntax::ascii85_runlength_boundaries::ascii85_windowed_reader_reports_a_malformed_eod_marker"
     ]
   },
   {
@@ -612,10 +630,15 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "file_structure_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-syntax::file_structure_audit::an_incremental_update_repeats_a_second_class_trailer_entry"
     ]
   },
   {
@@ -1058,11 +1081,17 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "catalog_pages_audit",
       "viewer_preferences_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-transform::annex_i_insert_version::inserting_a_newer_pdf_uses_the_newer_version",
+      "viewer-core::action_triggers_spec_audit::catalog_open_action_executes_a_supported_non_goto_action"
     ]
   },
   {
@@ -1263,10 +1292,16 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "text_strings"
+    ],
+    "reviewed_assertions": [
+      "pdf-model::text_strings_spec_audit::a_text_string_language_escape_overrides_property_list_language",
+      "pdf-model::text_strings_spec_audit::a_text_string_language_escape_overrides_the_catalog_language"
     ]
   },
   {
@@ -1275,10 +1310,15 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "text_strings"
+    ],
+    "reviewed_assertions": [
+      "pdf-model::text_strings_spec_audit::a_pdfdocencoded_fdf_status_is_not_mistaken_for_a_unicode_marker"
     ]
   },
   {
@@ -1311,10 +1351,17 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "dates"
+    ],
+    "reviewed_assertions": [
+      "pdf-transform::archive::associated_files_date_audit::associated_archive_file_does_not_omit_the_table45_required_modification_date",
+      "pdf-transform::date_spec_audit::metadata_editing_does_not_publish_an_incomplete_numeric_field",
+      "pdf-transform::date_spec_audit::metadata_editing_does_not_publish_an_out_of_range_month"
     ]
   },
   {
@@ -1405,10 +1452,15 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "functions_general_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-colour::functions_spec_audit::stitching_domain_start_bound_uses_its_explicit_degenerate_encode_value"
     ]
   },
   {
@@ -1429,10 +1481,15 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "functions_calculator_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-colour::calculator_operators_spec_audit::type4_right_bitshift_inserts_zero_bits_for_negative_values"
     ]
   },
   {
@@ -1523,10 +1580,15 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "filespec_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-model::file_specification_writer_audit::document_home_file_spec_has_table43_desc"
     ]
   },
   {
@@ -1547,11 +1609,16 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "associated_files_audit",
       "embedded_files_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-transform::archive::associated_files_date_audit::associated_archive_file_does_not_omit_the_table45_required_modification_date"
     ]
   },
   {
@@ -1796,10 +1863,15 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "graphics_pilot"
+    ],
+    "reviewed_assertions": [
+      "pdf-archive::survey::graphics_state::annex_q_audit_tests::a_q2_transparent_state_restored_before_painting_does_not_mark_the_page"
     ]
   },
   {
@@ -1916,11 +1988,16 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "extgstate_defaults",
       "graphics_pilot"
+    ],
+    "reviewed_assertions": [
+      "pdf-archive::survey::graphics_state::annex_q_audit_tests::a_q2_transparent_state_restored_before_painting_does_not_mark_the_page"
     ]
   },
   {
@@ -2357,9 +2434,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
+    "prior_artifacts": [],
+    "reviewed_assertions": [
+      "pdf-model::type3_residual_audit::d1_ignores_color_related_extgstate_changes_and_continues"
+    ]
   },
   {
     "clause": "8.7",
@@ -2411,11 +2493,17 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "pattern_resource_repair_audit",
       "tiling_patterns_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-transform::archive::reader_resources::pattern_resource_audit::part2_pattern_resource_repair_preserves_the_readers_marks_or_refuses",
+      "pdf-transform::archive::reader_resources::pattern_resource_audit::part4_pattern_resource_repair_preserves_the_readers_marks_or_refuses"
     ]
   },
   {
@@ -2672,12 +2760,19 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "image_dictionary_consistency_audit",
       "image_masking_audit",
       "image_samples_decode_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-model::image_dictionary_consistency_audit::an_image_decode_array_with_fewer_pairs_than_its_colour_space_errors",
+      "pdf-model::image_dictionary_consistency_audit::an_image_decode_array_with_extra_pairs_for_its_colour_space_errors",
+      "pdf-model::image_masking_audit::an_image_mask_with_more_than_one_bit_per_component_reports_inconsistency"
     ]
   },
   {
@@ -2745,10 +2840,15 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "image_masking_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-model::image_masking_audit::ec3_image_mask_ignores_its_own_mask_and_colour_space_entries"
     ]
   },
   {
@@ -2956,9 +3056,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
+    "prior_artifacts": [],
+    "reviewed_assertions": [
+      "pdf-model::content_resources_audit::hidden_gs_lookup_that_changes_visible_state_is_reported"
+    ]
   },
   {
     "clause": "8.11.3.2",
@@ -3407,9 +3512,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
+    "prior_artifacts": [],
+    "reviewed_assertions": [
+      "pdf-model::opentype_selection_audit::opentype_cff_under_simple_type1_uses_encoding_glyph_names_and_cff_charset"
+    ]
   },
   {
     "clause": "9.6.5.3",
@@ -3430,9 +3540,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
+    "prior_artifacts": [],
+    "reviewed_assertions": [
+      "pdf-model::opentype_selection_audit::opentype_cff_under_simple_type1_uses_encoding_glyph_names_and_cff_charset"
+    ]
   },
   {
     "clause": "9.7",
@@ -3702,13 +3817,18 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "cidfont_cmap_validation_audit",
       "font_paint_type_audit",
       "font_programs_audit",
       "opentype_selection_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-model::opentype_selection_audit::opentype_cff_under_simple_type1_uses_encoding_glyph_names_and_cff_charset"
     ]
   },
   {
@@ -3717,11 +3837,16 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "font_programs_audit",
       "font_subset_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-model::variable_text::subset_collision_audit::appearance_writer_allocates_distinct_tags_for_sibling_subsets"
     ]
   },
   {
@@ -4395,10 +4520,15 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "transparency_groups_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-model::soft_mask_dictionary_audit::a_luminosity_soft_mask_respects_a_knockout_group_against_normal_control"
     ]
   },
   {
@@ -4465,11 +4595,17 @@
     "ledger_status": "departed",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "departed",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "soft_mask_derivation_audit",
       "soft_mask_dictionary_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-model::soft_mask_dictionary_audit::a_luminosity_soft_mask_respects_a_knockout_group_against_normal_control",
+      "pdf-model::soft_mask_dictionary_audit::a_luminosity_soft_mask_respects_a_knockout_group_against_normal_control"
     ]
   },
   {
@@ -4508,9 +4644,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
+    "prior_artifacts": [],
+    "reviewed_assertions": [
+      "pdf-archive::survey::graphics_state::annex_q_audit_tests::q2_blend_mode_arrays_use_the_first_recognised_mode"
+    ]
   },
   {
     "clause": "11.6.4",
@@ -4827,11 +4968,19 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "destinations_audit",
       "destinations_residual_audit"
+    ],
+    "reviewed_assertions": [
+      "viewer-core::destinations_residual_audit::fitbh_fits_the_content_width_and_places_top_in_default_user_space",
+      "viewer-core::destinations_residual_audit::fitbv_fits_the_content_height_and_transforms_left_from_user_space",
+      "viewer-core::destinations_residual_audit::xyz_null_coordinates_and_zero_zoom_retain_the_current_window_values",
+      "viewer-core::destinations_residual_audit::xyz_null_coordinates_retain_user_position_when_zoom_changes_on_the_same_page"
     ]
   },
   {
@@ -4947,10 +5096,15 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "outlines_labels_audit"
+    ],
+    "reviewed_assertions": [
+      "viewer-host::page_labels_audit::an_explicit_empty_page_label_is_not_replaced_by_the_unlabelled_fallback"
     ]
   },
   {
@@ -5042,12 +5196,17 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "annotation_flags_audit",
       "annotation_lock_policy_audit",
       "annotation_oc_flags_audit"
+    ],
+    "reviewed_assertions": [
+      "viewer-core::annotation_print_geometry_audit::a_screen_nozoom_flag_does_not_shrink_the_printed_annotation_at_view_zoom"
     ]
   },
   {
@@ -5069,10 +5228,20 @@
     "ledger_status": "departed",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "departed",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "annotation_appearance_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-model::link_highlighting_residual_audit::an_unstated_link_mode_still_defaults_to_invert_when_a_down_appearance_exists",
+      "pdf-model::annotation_appearance_audit::printing_uses_normal_even_if_the_view_state_carries_a_pressed_pointer",
+      "pdf-model::widget_annotation_spec_audit::omitted_widget_h_retains_the_table_191_invert_default_even_with_a_down_stream",
+      "pdf-model::variable_text_resource_merge_audit::a_new_variable_text_appearance_uses_origin_and_widget_dimensions",
+      "viewer-core::annotation_print_appearance_audit::public_print_query_uses_normal_after_pointer_press_selected_down",
+      "viewer-core::annotation_print_geometry_audit::a_screen_nozoom_flag_does_not_shrink_the_printed_annotation_at_view_zoom"
     ]
   },
   {
@@ -5103,11 +5272,16 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "markup_annotation_audit",
       "popup_annotation_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-model::markup_annotation_audit::writer_uses_cr_for_contents_paragraphs"
     ]
   },
   {
@@ -5140,11 +5314,16 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "link_annotations_audit",
       "link_annotations_residual_audit"
+    ],
+    "reviewed_assertions": [
+      "viewer-core::link_quadpoints_audit::link_pressed_highlight_uses_quadpoints_active_region_not_the_larger_rect"
     ]
   },
   {
@@ -5189,10 +5368,17 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "polygon_polyline_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-model::polygon_polyline_spec_audit::polyline_ic_fills_closed_endings_but_not_open_endings",
+      "pdf-model::polygon_polyline_spec_audit::polygon_path_strokes_its_closing_edge_while_polyline_path_stays_open",
+      "pdf-model::polygon_polyline_spec_audit::polyline_first_ending_is_at_first_vertex_not_second_vertex"
     ]
   },
   {
@@ -5225,10 +5411,15 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "caret_stamp_annotation_audit"
+    ],
+    "reviewed_assertions": [
+      "viewer-core::stamp_popup_spec_audit::opening_a_stamp_without_a_popup_reference_still_displays_its_associated_note"
     ]
   },
   {
@@ -5261,10 +5452,15 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "file_attachment_annotation_audit"
+    ],
+    "reviewed_assertions": [
+      "viewer-core::file_attachment_annotation_audit::a_present_empty_attachment_contents_does_not_reveal_the_filespec_description"
     ]
   },
   {
@@ -5400,11 +5596,16 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "action_dictionaries_audit",
       "action_triggers_audit"
+    ],
+    "reviewed_assertions": [
+      "viewer-core::action_triggers_spec_audit::catalog_open_action_executes_a_supported_non_goto_action"
     ]
   },
   {
@@ -5413,12 +5614,18 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "action_dictionaries_audit",
       "archive_action_promotion_audit",
       "mixed_action_order_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-model::action_next_occurrences_audit::next_array_reads_each_occurrence_even_when_two_entries_share_an_object",
+      "viewer-core::mixed_action_order_audit::a_next_script_observes_preceding_non_script_action_state"
     ]
   },
   {
@@ -5427,13 +5634,20 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "action_triggers_audit",
       "choice_commit_host_audit",
       "document_trigger_timing_residual_audit",
       "page_visibility_triggers_audit"
+    ],
+    "reviewed_assertions": [
+      "viewer-core::page_visibility_triggers_audit::newly_visible_neighbor_gets_pv_before_it_becomes_current",
+      "viewer-core::page_visibility_triggers_audit::page_remaining_visible_does_not_get_pi_when_current_page_changes",
+      "viewer-qt::host::tests::choice_commit_audit::an_explicit_choice_commit_runs_the_acroform_validate_action"
     ]
   },
   {
@@ -5666,10 +5880,16 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "interactive_form_structure_audit"
+    ],
+    "reviewed_assertions": [
+      "viewer-core::sigflags_discovery_audit::absent_sigflags_does_not_hide_a_candidate_from_the_public_signature_api",
+      "viewer-core::sigflags_discovery_audit::zero_sigflags_does_not_hide_a_candidate_from_the_public_signature_api"
     ]
   },
   {
@@ -5712,13 +5932,19 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "variable_text_da_tm_audit",
       "variable_text_field_audit",
       "variable_text_resource_metric_audit",
       "variable_text_tx_splice_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-model::variable_text_resource_merge_audit::a_new_variable_text_appearance_uses_origin_and_widget_dimensions",
+      "pdf-model::variable_text_resource_metric_audit::saved_quadding_uses_the_font_that_the_appearance_resource_name_resolves_to"
     ]
   },
   {
@@ -5807,10 +6033,17 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "text_choice_fields_audit"
+    ],
+    "reviewed_assertions": [
+      "viewer-gtk::controls::max_len_audit::multiline_entry_obeys_maxlen_and_remains_unlimited_when_unspecified",
+      "viewer-gtk::controls::max_len_audit::password_entry_obeys_maxlen_and_remains_unlimited_when_unspecified",
+      "viewer-gtk::controls::max_len_audit::zero_maxlen_rejects_insertion_instead_of_using_gtk_zero_as_unlimited"
     ]
   },
   {
@@ -5819,11 +6052,17 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "choice_commit_host_audit",
       "text_choice_fields_audit"
+    ],
+    "reviewed_assertions": [
+      "viewer-qt::host::tests::choice_commit_audit::an_explicit_choice_commit_runs_the_acroform_validate_action",
+      "viewer-qt::host::tests::choice_commit_audit::commit_on_selection_runs_the_acroform_validate_action_in_the_qt_choice_callback"
     ]
   },
   {
@@ -5902,10 +6141,16 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "named_pages_residual_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-model::named_pages_spec_audit::a_template_without_type_is_reported_as_not_a_template",
+      "pdf-model::named_pages_spec_audit::a_template_with_non_name_type_is_reported_as_not_a_template"
     ]
   },
   {
@@ -5994,11 +6239,16 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "fdf_script_order_audit",
       "named_pages_residual_audit"
+    ],
+    "reviewed_assertions": [
+      "viewer-core::fdf_script_order_audit::fdf_doc_before_after_and_after_perms_scripts_reach_the_import_runner_in_order"
     ]
   },
   {
@@ -6007,11 +6257,17 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "fdf_absent_value_audit",
       "fdf_field_dictionary_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-model::fdf_field_dictionary_audit::imported_choice_options_replace_the_target_options",
+      "pdf-model::fdf_field_dictionary_audit::imported_choice_options_reach_the_form_control_before_saving"
     ]
   },
   {
@@ -6373,9 +6629,15 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
+    "prior_artifacts": [],
+    "reviewed_assertions": [
+      "viewer-core::sigflags_discovery_audit::document_timestamp_existence_is_examined_when_sigflags_is_explicitly_zero",
+      "viewer-core::sigflags_discovery_audit::document_timestamp_existence_scans_signature_fields_even_without_sigflags_bit_one"
+    ]
   },
   {
     "clause": "12.8.5.3",
@@ -7441,10 +7703,15 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "metadata_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-transform::metadata_requirements_audit::pieceinfo_keeps_required_moddate_when_update_requests_removal"
     ]
   },
   {
@@ -7475,9 +7742,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
+    "prior_artifacts": [],
+    "reviewed_assertions": [
+      "pdf-transform::metadata_requirements_audit::pieceinfo_keeps_required_moddate_when_update_requests_removal"
+    ]
   },
   {
     "clause": "14.6",
@@ -8343,9 +8615,15 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
+    "prior_artifacts": [],
+    "reviewed_assertions": [
+      "pdf-model::text_strings_spec_audit::a_text_string_language_escape_overrides_property_list_language",
+      "pdf-model::text_strings_spec_audit::a_text_string_language_escape_overrides_the_catalog_language"
+    ]
   },
   {
     "clause": "14.9.2.2",
@@ -8363,9 +8641,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
+    "prior_artifacts": [],
+    "reviewed_assertions": [
+      "pdf-model::text_strings_spec_audit::a_text_string_language_escape_overrides_property_list_language"
+    ]
   },
   {
     "clause": "14.9.2.4",
@@ -8877,10 +9160,15 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-assertion-review",
+    "current_artifacts": [
+      "prior-assertion-reviews.json"
+    ],
     "prior_artifacts": [
       "associated_files_audit"
+    ],
+    "reviewed_assertions": [
+      "pdf-transform::archive::associated_files_date_audit::associated_archive_file_does_not_omit_the_table45_required_modification_date"
     ]
   },
   {

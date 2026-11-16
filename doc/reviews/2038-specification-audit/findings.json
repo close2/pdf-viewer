@@ -1,0 +1,72 @@
+[
+  {
+    "id": "2038-T01",
+    "kind": "test-oracle-gap",
+    "clauses": [
+      "7.9.4"
+    ],
+    "summary": "Date producer regressions shared Date::parse with the updated writer, allowing a common parser regression to validate both sides.",
+    "source": "ISO §7.9.4, printed p118; month range and complete ordered fields.",
+    "code": "crates/pdf-transform/src/update.rs:1572; crates/pdf-transform/tests/date_spec_audit.rs:42",
+    "change": "Classify valid fixtures independently and require successful output to differ from each known-invalid input. Retain valid-input identity controls and parsed output validity.",
+    "execution": "3 date assertions PASS, round2-targets-wave1.log",
+    "remaining": "A normalized output still uses Date::parse for general validity; the independent guard covers republication of the two exact invalid values. No mutation run yet."
+  },
+  {
+    "id": "2038-T02",
+    "kind": "test-order-gap",
+    "clauses": [
+      "12.7.8.3.1"
+    ],
+    "summary": "FDF script test observed callbacks and field values without explicitly comparing Before/After and After/AfterPermsReady positions.",
+    "source": "Table248, printed p563; ADR2816 §5 chooses After before AfterPermsReady when rights are already determined.",
+    "code": "crates/viewer-core/tests/fdf_script_order_audit.rs:229; crates/pdf-model/src/view/fields.rs:31",
+    "change": "Added direct order comparisons using the existing shared callback log. Labeled the second comparison as ADR2816 policy.",
+    "execution": "PASS, round2-targets-wave1.log",
+    "remaining": "Actual usage-rights readiness is not observable through this test runner. No whole-Table248 proof."
+  },
+  {
+    "id": "2038-T03",
+    "kind": "stale-decision-residual",
+    "clauses": [
+      "7.9.2.2.2",
+      "14.9.4"
+    ],
+    "summary": "ADR2812 says mid-string language changes are not split, but current ActualText code preserves and consumes multiple offset runs.",
+    "source": "§7.9.2.2.2; §14.9.4 printed p801; EC3 changes on nearby pages do not remove language overrides.",
+    "code": "crates/pdf-model/src/content/run/marked_ops.rs:177,247",
+    "change": "Added a speech assertion for three languages within one ActualText string, with non-ASCII characters before boundaries and an unescaped control. Historical ADR remains unchanged.",
+    "execution": "PASS, actual_text_language_changes_split_the_spoken_runs_inside_one_string",
+    "remaining": "Covers one UTF-16BE sequence and public speech result, not every text-string encoding or consumer."
+  },
+  {
+    "id": "2038-B01",
+    "kind": "behavior-gap",
+    "clauses": [
+      "7.9.2.2.2",
+      "14.9.3"
+    ],
+    "summary": "An Alt Unicode language escape is stripped from spoken text but does not override the property-list Lang.",
+    "source": "§7.9.2.2.2; §14.9.3 printed p800; §14.9.4 printed p801 explicitly treats alternate descriptions as other language-escaped text strings. Nearby EC3 issues483/364/356 concern other ActualText provisions.",
+    "code": "crates/pdf-model/src/content/marked.rs:472; crates/pdf-model/src/accessibility.rs:182",
+    "test": "pdf-model::text_strings_spec_audit::an_alternate_description_language_escape_overrides_the_property_language",
+    "execution": "FAIL: en-US instead of es; round2-targets-wave1.log",
+    "controls": "Exact-xref/no-recovery source, complete interpretation, real glyph drawn, ordinary Alt actually substitutes hola/en-US, escaped Alt still speaks hola.",
+    "remaining": "Same omitted-language handling as expansion; does not prove all structure-element/annotation consumers."
+  },
+  {
+    "id": "2038-B02",
+    "kind": "behavior-gap",
+    "clauses": [
+      "7.9.2.2.2",
+      "14.9.5"
+    ],
+    "summary": "An expansion E Unicode language escape does not override the property-list Lang.",
+    "source": "§14.9.5 printed p802 expressly requires the Unicode escape to override prevailing Lang; applicable page annotations checked.",
+    "code": "crates/pdf-model/src/content/marked.rs:473; crates/pdf-model/src/accessibility.rs:182",
+    "test": "pdf-model::text_strings_spec_audit::an_expansion_language_escape_overrides_the_property_language",
+    "execution": "FAIL: en-US instead of es; round2-targets-wave1.log",
+    "controls": "Exact-xref/no-recovery source, complete interpretation, real glyph drawn, ordinary E actually substitutes hola/en-US, escaped E still speaks hola.",
+    "remaining": "Same underlying path as Alt; two failing assertions are not two distinct-defect claims."
+  }
+]

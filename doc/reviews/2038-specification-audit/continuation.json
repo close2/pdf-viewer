@@ -3,15 +3,25 @@
   "baseline": "b901326c230faa5d2cb288016339b9d5c6288527",
   "previous_audit": "1983-specification-audit",
   "current_execution": {
-    "broad": "running; 6518 selected tests, 55 skipped, 11 crates",
-    "sandbox_workers": "fresh build passed"
+    "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
+    "gtk": "20/20 passed under Xvfb",
+    "prior_regressions": "72/72 pass by exact binary/test identities",
+    "later_targets": "wave1 13run11pass2expectedfail; wave2 running",
+    "quality": "first Clippy found FDF test crossed100lines; factored assertions, recheck pending"
   },
   "review": {
-    "prior_failures": 72,
-    "model_assertion_review": "32 agent-reviewed; parent review in progress",
-    "core_assertion_review": "16 in progress",
-    "viewer_assertion_review": "24 in progress; historical log/current baseline distinction being corrected",
-    "new_shard": "logical structure and attributes"
+    "prior_failure_assertions": 72,
+    "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
+    "new_shards_ready_for_parent_review": [
+      "logical_structure",
+      "fax_jbig2",
+      "collections"
+    ],
+    "active_shards": [
+      "tagged_layout",
+      "encryption",
+      "colour_conversion"
+    ]
   },
   "remaining": [
     "Reconcile all 72 prior failing assertions with current execution and source/assertion review.",
@@ -24,6 +34,8 @@
     "weekly_used_at_start": 29,
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
-    "remaining_reserved": 15
+    "remaining_reserved": 15,
+    "last_weekly_used_percent": 30,
+    "last_read_utc": "2026-11-16T08:08:14Z"
   }
 }
