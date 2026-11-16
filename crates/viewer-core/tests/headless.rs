@@ -10722,3 +10722,92 @@ fn structure_actualtext_replaces_a_ligature_in_accessibility() {
         "{nodes:?}"
     );
 }
+
+/// One Span owns two adjacent content items, and its replacement covers their combined text.
+fn with_actualtext_over_two_items(replace: bool, nested: bool) -> Vec<u8> {
+    let content = "BT /F1 24 Tf 10 40 Td /Span <</MCID 0>> BDC (A) Tj EMC /Span <</MCID 1>> BDC (9) Tj EMC ET\n";
+    let cmap = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def /CMapName /Audit def /CMapType 2 def 1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfchar <41> <FB01> endbfchar endcmap CMapName currentdict /CMap defineresource pop end end";
+    let replacement = if replace { "/ActualText (fi9)" } else { "" };
+    let kids = if nested { "[13 0 R 14 0 R]" } else { "[0 1]" };
+    let owners = if nested {
+        "[13 0 R 14 0 R]"
+    } else {
+        "[10 0 R 10 0 R]"
+    };
+    let mut objects = vec![
+        "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 7 0 R /MarkInfo << /Marked true >> >>".to_owned(),
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 160 80] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> /StructParents 0 >>".to_owned(),
+        format!("<< /Length {} >>\nstream\n{content}endstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding << /BaseEncoding /WinAnsiEncoding /Differences [65 /fi] >> /ToUnicode 6 0 R >>".to_owned(),
+        format!("<< /Length {} >>\nstream\n{cmap}\nendstream", cmap.len()),
+        "<< /Type /StructTreeRoot /K 8 0 R /ParentTree 11 0 R /ParentTreeNextKey 1 /Namespaces [12 0 R] >>".to_owned(),
+        "<< /Type /StructElem /S /Document /NS 12 0 R /P 7 0 R /K 9 0 R >>".to_owned(),
+        "<< /Type /StructElem /S /P /NS 12 0 R /P 8 0 R /K 10 0 R >>".to_owned(),
+        format!("<< /Type /StructElem /S /Span /NS 12 0 R /P 9 0 R /Pg 3 0 R /K {kids} {replacement} >>"),
+        format!("<< /Nums [0 {owners}] >>"),
+        "<< /Type /Namespace /NS (http://iso.org/pdf2/ssn) >>".to_owned(),
+    ];
+    if nested {
+        objects.push(
+            "<< /Type /StructElem /S /Span /NS 12 0 R /P 10 0 R /Pg 3 0 R /K 0 >>".to_owned(),
+        );
+        objects.push(
+            "<< /Type /StructElem /S /Span /NS 12 0 R /P 10 0 R /Pg 3 0 R /K 1 >>".to_owned(),
+        );
+    }
+    let mut out = String::from("%PDF-2.0\n");
+    let mut offsets = Vec::new();
+    for (index, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        let _ = writeln!(out, "{} 0 obj\n{body}\nendobj", index.saturating_add(1));
+    }
+    let xref = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}\n0000000000 65535 f ");
+    for offset in offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// Same pixels and visible text-equivalent replacement, with an independent no-replacement control.
+fn actualtext_over_two_items_selection(nested: bool) -> String {
+    let (mut raw, raw_raster) =
+        open_for_actualtext_test(with_actualtext_over_two_items(false, nested));
+    raw.handle(Command::Select(Selection::All)).for_each(drop);
+    let Answer::Selected(raw_text) = raw.query(Query::Selection) else {
+        panic!("raw ligature text");
+    };
+    assert_eq!(raw_text.text.trim(), "ﬁ9");
+    let (mut replaced, raster) =
+        open_for_actualtext_test(with_actualtext_over_two_items(true, nested));
+    assert_eq!(
+        raster.data, raw_raster.data,
+        "replacement does not change the drawing"
+    );
+    replaced
+        .handle(Command::Select(Selection::All))
+        .for_each(drop);
+    let Answer::Selected(text) = replaced.query(Query::Selection) else {
+        panic!("replaced text");
+    };
+    text.text.trim().to_owned()
+}
+
+/// §14.9.4 substitutes for the entire element, once, even when it owns two content items.
+#[test]
+fn structure_actualtext_replaces_two_owned_content_items_once() {
+    assert_eq!(actualtext_over_two_items_selection(false), "fi9");
+}
+
+/// The element encloses descendant content too. This is replacement of the whole subtree,
+/// not inheritance of the `ActualText` property onto each descendant element.
+#[test]
+fn structure_actualtext_replaces_content_enclosed_in_descendant_elements() {
+    assert_eq!(actualtext_over_two_items_selection(true), "fi9");
+}

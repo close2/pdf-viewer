@@ -70,6 +70,16 @@ conflict premise: official issue #432 was withdrawn in favor of #593 before the 
 was written. The static PDF retains stale accepted annotations. Source links and
 chronology are recorded in finding D03; the added public AA/BB label control passes.
 
+Further controlled tests bring the current total to fifteen failing assertions:
+sampled functions collapse a tiny nonzero domain, a base image accepts a nonnumeric
+Decode endpoint without error, and structure-level `ActualText` is duplicated over
+two direct content items or omitted when those items belong to descendants. These
+last two assertions share one substitution-design finding. An exact-xref paired
+font fallback test passes, including independent glyph positions and refusal reporting.
+The PLRM3 review also qualifies 32-bit shifts as local policy, while reaffirming
+mandatory zero-fill. Deferred Type4 faults still lack host warning integration, a
+limit already acknowledged by the ledger and ADR2848.
+
 The owner-authorized redaction-overlay change is recorded in A842 and ADR 2868;
 the MaxLen change is recorded in A834 and ADR 2840. Their changed assertions must
 be assessed against those current decisions rather than treated as unauthorized

@@ -1,0 +1,145 @@
+{
+  "review_scope": "Bounded source/assertion review. Parent findings and gate-results supersede draft execution statements. No whole-clause certification.",
+  "reviewer_record": {
+    "baseline": "b901326c",
+    "comparison": "4015a9ae..b901326c",
+    "features": [
+      {
+        "id": "unreadable_embedded_program_uses_absent_program_route",
+        "clause": [
+          "ISO 32000-2:2020 §9.5",
+          "§9.8.1",
+          "§9.9.1",
+          "§9.7.4.2",
+          "§9.7.5.2"
+        ],
+        "normative_effect": "The PDF clauses provide information usable to substitute when a program is unavailable, but do not mandate substitute behavior for an unreadable program. §9.9 defines embedded-program organization/conformance; §9.7.4.2 and §9.7.5.2 constrain composite selection and Identity-H/V combinations.",
+        "implementation": [
+          "crates/pdf-font/src/loading.rs::LoadedFont::substitute_for_unreadable",
+          "crates/pdf-font/src/loading.rs::without_program",
+          "crates/pdf-model/src/content/font.rs::load_font"
+        ],
+        "assertions": [
+          "crates/pdf-model/tests/unreadable_program_substitute.rs::a_simple_font_whose_program_is_unreadable_draws_its_text_from_a_substitute",
+          "::the_unreadable_program_is_still_reported",
+          "::a_composite_font_whose_program_is_unreadable_draws_through_its_to_unicode",
+          "::a_composite_font_with_no_route_to_a_substitute_still_draws_nothing",
+          "::the_forbidden_identity_combination_is_unchanged",
+          "::the_witnesses_draw_their_text",
+          "crates/pdf-model/tests/refused_font_metrics.rs::keeping_the_metrics_does_not_quiet_the_refusal"
+        ],
+        "verdict": "Behavior is an owner-ratified product choice (A837/Q837, ADR 2870), not a reader requirement directly imposed by §9.5/§9.8.1. The simple-font test proves some ink/text, but its hand-built file has no xref and no recovery assertion; it does not provide an independent no-program route control or prove equal advances/geometry. Composite no-ToUnicode case is described as Adobe-Identity while fixture actually declares Registry Adobe / Ordering Identity; validity/routing should be verified from implementation and exact xref before relying on it. Identity-H no-program negative control is otherwise useful.",
+        "test_changes_since_prior": "Three new integration modules/tests were added at this comparison. unreadable_program_substitute.rs and substitute_unreached_codes.rs construct PDFs without xref tables. refused_font_metrics.rs changed its fixture interpretation to inspect LoadedFont::metrics_only directly and added an assertion that the page reports substitute use; it no longer verifies the displayed next-font origin in the updated tests.",
+        "residuals": [
+          "No independent valid-xref behavioral pair demonstrates unreadable-program fallback equals the same dictionary with no program while keeping the refusal visible.",
+          "Composite fallback test skips when the machine does not offer an addressable substitute, so it is conditional coverage, not universally asserted."
+        ],
+        "related_adrs": [
+          "0007",
+          "1094",
+          "2619",
+          "2636",
+          "2830",
+          "2870",
+          "2871"
+        ]
+      },
+      {
+        "id": "substitute_simple_font_widths_and_stretch",
+        "clause": [
+          "ISO 32000-2:2020 §9.2.4",
+          "§9.6.2.1 Table 109",
+          "§9.8.1 Table 120"
+        ],
+        "normative_effect": "Table 109 requires dictionary widths to be consistent with the embedded program's actual widths, and defines dictionary advance values; §9.2.4 positions by widths. The font descriptor provides substitution information but does not specify an algorithm for substitute outline shaping. Condensing a chosen substitute to widths is ADR 0358 policy, not an explicit normative signature.",
+        "implementation": [
+          "crates/pdf-font/src/metrics.rs::substitute_stretch",
+          "crates/pdf-font/src/loading/drawing.rs::build_outline",
+          "crates/pdf-font/src/loading/findings.rs::stretch",
+          "crates/pdf-font/src/substituted.rs"
+        ],
+        "assertions": [
+          "crates/pdf-font/src/metrics.rs::substitute_stretch_tests::a_substitute_is_condensed_to_the_widths_the_file_states",
+          "crates/pdf-model/tests/substituted_shapes.rs::a_substituted_face_fits_the_widths_the_file_states",
+          "::the_scale_derived_from_the_widths_agrees_with_the_stated_stem",
+          "crates/pdf-model/tests/simple_font_widths_audit.rs"
+        ],
+        "verdict": "Direct outline-width/height expectations use deterministic Times-Roman and explicit 722 versus 361 em-width values, and the model-level witness checks width bounds against stated widths plus an independent /StemV check. These are more than assertion of the derived stretch value. However, the behavior of the scale itself remains the documented ADR 0358 choice because the clause binds widths/displacement, not exact substituted contours.",
+        "test_changes_since_prior": "The new unreadable-program tests exercise marks/text but do not assert advance geometry. refused_font_metrics.rs replaced visible placement checks with direct metrics_only advance checks (800/1000 and default zero), while adding refusal/substitute wording assertions. Existing substituted_shapes and simple_font_widths tests provide geometric/consumer checks outside the new additions.",
+        "residuals": [
+          "No current assigned test compares a malformed embedded-program fixture's rendered glyph origins and pixels against an exact-xref otherwise-identical font with the FontFile key removed.",
+          "The arbitrary stretch policy boundaries (median, scale floor, condense-only) are not normative obligations; retain as ratified ADR scope."
+        ],
+        "related_adrs": [
+          "0007",
+          "0152",
+          "0358",
+          "1441",
+          "2262",
+          "2687",
+          "2870",
+          "2870 Q859"
+        ]
+      },
+      {
+        "id": "cff_outline_restating_for_pdfa_fitting",
+        "clause": [
+          "ISO 32000-2:2020 §9.2.4",
+          "§9.6.2.1 Table 109",
+          "Adobe Technical Note 5177 §§2, 3.1, 3.2, 4.1-4.3, 4.7"
+        ],
+        "normative_effect": "For converter output, preserve the selected fitting in the embedded CFF/OpenType program. PDF text positioning still uses dictionary advances; CFF charstrings also state widths, while OpenType hmtx carries advances. Exact CFF restatement strategy and rounding/refusal limits are implementation choices constrained by preservation requirements.",
+        "implementation": [
+          "crates/pdf-font/src/cff.rs::with_outlines_scaled",
+          "crates/pdf-font/src/stretch_cff.rs::cff_outlines",
+          "crates/pdf-font/src/restate.rs",
+          "crates/pdf-transform/src/archive/fonts/described.rs"
+        ],
+        "assertions": [
+          "crates/pdf-font/src/cff_stretch_tests.rs (synthetic charstring expected-byte assertions)",
+          "crates/pdf-font/src/stretch_cff_tests.rs::every_shipped_cff_face_draws_its_outlines_at_the_windows_scale",
+          "::the_read_back_refuses_a_cff_outline_that_was_not_scaled",
+          "::every_urw_face_on_this_machine_takes_its_fitting",
+          "crates/pdf-transform/tests/archive/machine_face.rs::a_machines_cff_face_fitted_horizontally_is_embedded_with_its_fitting"
+        ],
+        "verdict": "The writer has direct synthetic expected charstring bytes, width-preservation tests, and read-back over every glyph of shipped faces; it does not rely on a different renderer. Runtime substitute outline scaling is independently exercised by the deterministic simple-font outline extent test. The archive integration assertion is a selected representative integration, while library readback covers shipped face glyphs.",
+        "test_changes_since_prior": "CFF Type 2 charstring scaling and OpenType wrapper fitting tests are new in this range, plus CFF restatement machinery; no tests here establish a PDF-standard-mandated substituted shape.",
+        "residuals": [
+          "The proof criterion permits only missing zero-length horizontal lines; that is implementation proof policy and should stay separate from a claim that ISO prescribes contour-by-contour scaling.",
+          "No added independent PDF viewer rendering comparison is appropriate or used as normative evidence."
+        ],
+        "related_adrs": [
+          "0358",
+          "0988",
+          "2262",
+          "2642",
+          "2769",
+          "2789"
+        ]
+      },
+      {
+        "id": "type1_cff_inside_opentype_uses_name_encoding",
+        "clause": [
+          "ISO 32000-2:2020 §9.6.5.2",
+          "§9.9.1 OpenType glyph-discovery bullets"
+        ],
+        "normative_effect": "For Type 1 fonts using CFF tables, glyph descriptions are found using §9.6.5.2 name encoding, not the TrueType/cmap route. This is direct explicit processor routing language.",
+        "implementation": [
+          "crates/pdf-font/src/loading/opening.rs::type1_cff_in_opentype",
+          "crates/pdf-font/src/loading/opening.rs::load_simple"
+        ],
+        "assertions": [
+          "crates/pdf-model/tests/opentype_selection_audit.rs::opentype_cff_under_simple_type1_uses_encoding_glyph_names_and_cff_charset",
+          "::the_same_cff_as_type1c_honours_the_symbolic_fonts_explicit_encoding"
+        ],
+        "verdict": "Direct public-PDF coverage exists and is strong: exact xref is asserted, embedded synthetic OpenType CFF uses a `post` v3 table without names and a conflicting Macintosh cmap, while PDF Differences request suffixed names; selected GIDs `[2, 1]` distinguish encoding-name→CFF-charset from cmap selection or suffix stripping. Bare Type1C control uses the same CFF bytes and reaches the same glyph IDs. The current code follows §9.9.1's explicit Type 1/CFF routing bullet. Test existed before this code comparison; no test edits in the changed range.",
+        "test_changes_since_prior": "No changes to opentype_selection_audit.rs in 4015a9ae..b901326c; its current exact-xref assertions directly exercise this newly added branch and serve as a control.",
+        "residuals": [],
+        "related_adrs": [
+          "2817",
+          "2642"
+        ]
+      }
+    ]
+  }
+}

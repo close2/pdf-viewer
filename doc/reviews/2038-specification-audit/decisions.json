@@ -2,8 +2,8 @@
   {
     "adr": "2811",
     "decision": "upheld_for_assigned_case",
-    "basis": "ISO 32000-2 §7.10.5.1 defers Type 4 operator semantics to PLRM3; the local primary PLRM3 source at §3.6.4 says shifted-in bits are zero, and Appendix B specifies the implementation integer. The current arm performs a logical 32-bit right shift; the assigned test distinguishes it from sign extension with a positive control.",
-    "scope_limit": "This review verifies the assigned negative right-shift case, not all calculator operators or all Annex B.3 semantics.",
+    "basis": "ISO §7.10.5 delegates operator semantics to PLRM3. §8.2 p539 requires shifted-in zero bits. Correction after deeper review: §3.3.1 and AppendixB.1 describe architecture-dependent/typical limits, not universal 32-bit width. The current i32 model is implementation policy; see D04 and functions_current/decisions.json.",
+    "scope_limit": "Assigned negative right-shift behavior is supported; exact width and wide-shift results are local policy. Real-operand truncation is malformed-input recovery.",
     "reviewer": "Luna high with parent corrections",
     "group": "core_fixes"
   },

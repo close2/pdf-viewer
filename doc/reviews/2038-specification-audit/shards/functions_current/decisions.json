@@ -1,0 +1,41 @@
+{
+  "review_scope": "Bounded source/assertion review. Parent findings and gate-results supersede draft execution statements. No whole-clause certification.",
+  "reviewer_record": {
+    "decisions": [
+      {
+        "adr": "2848",
+        "review": "partly confirmed; bounded coverage limit remains",
+        "basis": "Current code registers type-4 fault cells at parse time inside thread-local watch scopes; interpreted pages report faults after eager evaluation and retain cells for type-1 grids evaluated later. Model assertions exercise tint transforms, image, transfer, black generation, mesh, and post-draw type-1 shading with conforming controls. This matches §7.10.5.3's three stated runtime errors where those paths actually evaluate the function. ADR 2848 explicitly records the GPU/reporting gap and overbroad low-bit image-table sampling. Those remain limits, not silently solved claims.",
+        "source": "ISO 32000-2 §7.10.5.3 printed p. 131; doc/adr/2848-a-pages-type-4-faults-are-asked-of-what-it-parsed.md; doc/adr/2849-the-gpu-type-4-evaluator-is-left-unpriced.md"
+      },
+      {
+        "adr": "2849",
+        "review": "deferred premise remains accurate for GPU execution",
+        "basis": "This shard found no GPU-side fault word/readback in the changed implementation; the GPU Type 4 path still does not record run-time faults. CPU-side watcher integration does not close that path. Treat this as an explicit deferred scope and do not claim complete cross-backend error reporting.",
+        "source": "doc/adr/2849-the-gpu-type-4-evaluator-is-left-unpriced.md; ISO 32000-2 §7.10.5.3 printed p. 131"
+      },
+      {
+        "adr": "2811",
+        "review": "zero-fill premise reaffirmed; width claim corrected",
+        "basis": "The primary PLRM3 §8.2 p.539 says bits shifted in are zero and both operands must be integers, so logical right-shift behavior is source-backed; however, §3.3.1 says machine integer representation can depend on CPU, and Appendix B.1 pp.738–739 labels 32-bit limits typical for Adobe implementations on 32-bit machines and says they do not necessarily apply to all implementations. Current i32 results are a local implementation choice, not a universal 32-bit mandate. The existing unit test has exact i32 expectations; the public test only checks a negative right shift becomes nonnegative, which is appropriately width-agnostic.",
+        "source": "Adobe PLRM3 §3.3.1 printed p. 38; §8.2 bitshift printed p. 539; Appendix B.1/Table B.1 printed pp. 738–739; local copy hash 6b29e79e4ab64aaa61a3fb27a0f36838c01f2530362873ac316bdb493a1bab6b at /home/cl/projects/pdf-viewer/scratchpad/r1983/spec-audit/source/PLRM3.pdf; ISO §7.10.5.2 and Annex B.3.; code also independently confirms local i32 implementation: crates/pdf-colour/src/function.rs::Operator::Bitshift",
+        "residuals": [
+          "Do not claim exact shift>=32 results are universal PostScript requirements.",
+          "Real shift operands are typecheck under PLRM3 §8.2, but current evaluator truncates them; malformed-operand error signaling remains unimplemented."
+        ]
+      },
+      {
+        "adr": "1636",
+        "review": "choice reaffirmed with valid-fixture coverage and bounded edge finding",
+        "basis": "§7.10.2/Table 39 specifies cubic spline interpolation but no end condition. ADR 1636 chooses a tensor-product not-a-knot spline; code evaluates that choice and source-directed unit fixtures reproduce a known cubic and compare end pieces against an independent Lagrange calculation. This does not make the chosen spline normative. The same shared interpolation helper has a separate defect for nonzero spans below f32::EPSILON; the new draft covers it.",
+        "source": "ISO 32000-2 §7.10.2 printed pp. 125–127; doc/adr/1636-the-cubic-spline-is-not-a-knot.md; crates/pdf-colour/src/function/cubic_spline.rs"
+      },
+      {
+        "adr": "0371",
+        "review": "operator type-conversion choice not source-conformant for bitshift operands",
+        "basis": "PLRM3 §8.2 bitshift specifies `int1 shift` and raises typecheck unless both operands are integers. The current evaluator calls Value::integer, which truncates a real operand; the unit test `an_integer_operator_truncates_a_real_operand` specifically expects `{ 1.5 3 bitshift }` to yield 8. This is an infallible-evaluator recovery behavior for malformed input, not the delegated operator semantics. No valid-input change is recommended by this observation alone.",
+        "source": "Adobe PLRM3 §8.2 bitshift printed p. 539; crates/pdf-colour/src/function.rs::Value::integer and test `an_integer_operator_truncates_a_real_operand`; ISO 32000-2 §7.10.5.2"
+      }
+    ]
+  }
+}

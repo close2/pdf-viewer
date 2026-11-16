@@ -131,6 +131,40 @@
       "failed": 0,
       "skipped": 144,
       "exit": 0
+    },
+    {
+      "log": "round2-targets-wave6.log",
+      "scope": "sampled narrow domain, Decode numeric types, font fallback paired control",
+      "run": 3,
+      "passed": 1,
+      "failed": 2,
+      "skipped": 10,
+      "exit": 100
+    },
+    {
+      "log": "round2-targets-wave7.log",
+      "scope": "structure ActualText direct multi-item and three single-item controls",
+      "run": 4,
+      "passed": 3,
+      "failed": 1,
+      "skipped": 144,
+      "exit": 100
+    },
+    {
+      "log": "round2-targets-wave8.log",
+      "scope": "wave6 plus strengthened domain control and five structure ActualText tests",
+      "run": 8,
+      "passed": 4,
+      "failed": 4,
+      "skipped": 154,
+      "exit": 100,
+      "expected_failures": 4,
+      "unexpected_failures": 0
+    },
+    {
+      "log": "wave67-quality-recheck2.log",
+      "scope": "6 touched crates all-targets Clippy -Dwarnings; earlier test lint failures corrected",
+      "exit": 0
     }
   ],
   "prior_expected_failures": {

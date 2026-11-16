@@ -1,0 +1,63 @@
+{
+  "review_scope": "Bounded source/assertion review. Parent findings and gate-results supersede draft execution statements. No whole-clause certification.",
+  "reviewer_record": {
+    "selected_adr_reviews": [
+      {
+        "adr": "0358",
+        "decision_review": "The clause supports dictionary advances and requires consistency with the embedded font program. It does not specify a substitute's contour geometry or mandate width-based stretching. Condensing only, median scale estimation, and lower-bound refusal are project policy, supported by the documented shape rationale and witnesses; describe as ADR policy, not ISO conformance. The deterministic `Times-Roman` 722/361 outline test plus model-level width/stem checks provide concrete geometry assertions.",
+        "evidence": [
+          "§9.2.4",
+          "§9.6.2.1 Table 109",
+          "§9.8.1",
+          "crates/pdf-font/src/metrics.rs::substitute_stretch_tests",
+          "crates/pdf-model/tests/substituted_shapes.rs"
+        ]
+      },
+      {
+        "adr": "2870",
+        "decision_review": "§9.5 and §9.8.1 describe substitute-enabling information when a program is unavailable; they do not say a reader shall substitute when it cannot parse a present stream. Q837/A837 ratifies that product policy. Keep the unreadable-program refusal visible, and route the temporary substitute from a descriptor copy with program keys removed. The exclusion of a readable program with no encoding-reached glyph is important to preserve producer-authored blank behavior.",
+        "evidence": [
+          "doc/questions/Q837",
+          "doc/questions/A837",
+          "crates/pdf-font/src/loading.rs::substitute_for_unreadable",
+          "crates/pdf-model/src/content/font.rs::load_font"
+        ]
+      },
+      {
+        "adr": "2871",
+        "decision_review": "Archive counterpart is out of this window test shard; acknowledge as the converter's parallel policy but do not infer its correctness from viewer assertions. The conversion fixture/render evidence lives in pdf-transform tests and its own proof route.",
+        "evidence": [
+          "doc/adr/2871-a-cut-program-the-window-draws-from-a-substitute-is-written-as-that-substitute.md"
+        ]
+      },
+      {
+        "adr": "2789",
+        "decision_review": "CFF/OpenType horizontal outline rewriting is archive/conversion behavior, not required reader behavior. Its CFF charstring tests compare direct expected serialized programs; the OpenType wrapper proof reads every shipped outline back through skrifa and verifies widths. The rounding and zero-length-line exception are internal proof/refusal policy, not ISO-specified contour semantics.",
+        "evidence": [
+          "doc/adr/2789-a-cff-face-is-embedded-with-the-fitting-the-window-drew-it-at.md",
+          "crates/pdf-font/src/cff_stretch_tests.rs",
+          "crates/pdf-font/src/stretch_cff_tests.rs",
+          "crates/pdf-transform/tests/archive/machine_face.rs"
+        ]
+      },
+      {
+        "adr": "2642",
+        "decision_review": "§9.2.4 says the text-space horizontal displacement is the width; Table 109 requires declared widths consistent with actual program widths. For OpenType CFF, hmtx and charstrings can both carry advance data. Rewriting charstring widths alongside hmtx is supported by the separate Adobe format semantics and readback assertions. Keep converter restatement distinct from viewer's substituted-shape choice.",
+        "evidence": [
+          "doc/adr/2642-an-opentype-program-with-postscript-outlines-states-each-advance-twice-and-both-are-read-and-restated.md",
+          "crates/pdf-font/src/restate.rs",
+          "crates/pdf-font/src/cff.rs"
+        ]
+      },
+      {
+        "adr": "2687 / Q859",
+        "decision_review": "The current distinction between absent-program substitute metrics and metrics-only refusal is a deliberate unresolved choice. Q859 explicitly records the literal /MissingWidth default interpretation versus the current similar-standard-face metrics and recommends keeping the latter, with no answer yet. Do not state this branch is settled by Table 109 or Table 120; report Q859 as open and current assertions as a pinned policy.",
+        "evidence": [
+          "doc/questions/Q859",
+          "crates/pdf-font/src/metrics.rs::a_substitute_with_no_widths_keeps_the_resembling_standard_metrics",
+          "crates/pdf-model/tests/refused_font_metrics.rs"
+        ]
+      }
+    ]
+  }
+}

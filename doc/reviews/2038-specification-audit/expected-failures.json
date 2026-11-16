@@ -66,6 +66,30 @@
       "test": "stitching_treats_signed_zero_domain_and_bound_as_the_same_degenerate_endpoint",
       "finding": "2038-B09",
       "log": "round2-targets-wave5.log"
+    },
+    {
+      "binary": "pdf-colour::sampled_functions_spec_audit",
+      "test": "sampled_interpolation_preserves_a_small_but_nonzero_domain_span",
+      "finding": "2038-B10",
+      "log": "round2-targets-wave8.log"
+    },
+    {
+      "binary": "pdf-model::decode_element_types_audit",
+      "test": "decode_pairs_must_each_be_numbers",
+      "finding": "2038-B11",
+      "log": "round2-targets-wave8.log"
+    },
+    {
+      "binary": "viewer-core::headless",
+      "test": "structure_actualtext_replaces_two_owned_content_items_once",
+      "finding": "2038-B12",
+      "log": "round2-targets-wave8.log"
+    },
+    {
+      "binary": "viewer-core::headless",
+      "test": "structure_actualtext_replaces_content_enclosed_in_descendant_elements",
+      "finding": "2038-B12",
+      "log": "round2-targets-wave8.log"
     }
   ]
 }

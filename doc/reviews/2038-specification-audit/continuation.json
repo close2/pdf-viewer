@@ -6,17 +6,15 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "28run19pass9expectedfail; wave4 40run39pass1expectedfail; wave5 4run3pass1expectedfail. Eleven unique expected failures currently.",
+    "later_targets": "15 unique expected failures; wave8 had8run4pass4expectedfail. Full current target rerun pending.",
     "quality": "6 touched crates all-targets Clippy pass; previous rustdoc/conformance gates precede newest tests."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
-    "new_shards_ready_for_parent_review": [
-      "font_substitution_current"
-    ],
+    "new_shards_ready_for_parent_review": [],
     "active_shards": [
-      "functions_current",
+      "annex_d_encoding",
       "images_current",
       "forms_current"
     ],
@@ -29,7 +27,9 @@
       "colour_conversion",
       "xref_streams",
       "navigation",
-      "structure_types"
+      "structure_types",
+      "functions_current",
+      "font_substitution_current"
     ]
   },
   "remaining": [
@@ -44,6 +44,6 @@
     "ceiling": 85,
     "remaining_reserved": 15,
     "last_weekly_used_percent": 32,
-    "last_read_utc": "2026-11-16T08:45:34Z"
+    "last_read_utc": "2026-11-16T10:32:20Z"
   }
 }

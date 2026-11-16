@@ -276,5 +276,88 @@
     "basis": "#432 reopened2025-08-14 and lost ISO-approved status when closed duplicate2025-11-10. #593 agreed2025-10-23, completed2025-11-10. Current Table161 repeats letters. These dates predate ADR0601 (2026-08-25); the static PDF retains stale accepted overlay annotations.",
     "execution": "PASS public QueryPageLabel→host PageEntry AA/BB assertion, wave4.",
     "remaining": "Historical ADR and licensed source remain unchanged; primary issue pages checked by parent. No claim the resolution occurred after the ADR."
+  },
+  {
+    "id": "2038-B10",
+    "kind": "behavior-gap",
+    "clauses": [
+      "7.10.1",
+      "7.10.2"
+    ],
+    "summary": "Sampled-function interpolation collapses small nonzero domains to the low endpoint.",
+    "source": "§7.10.1 affine interpolation formula; §7.10.2 sample coordinate encoding, printed pp123–127. No epsilon-based degeneracy rule.",
+    "code": "crates/pdf-colour/src/function.rs::interpolate:1326",
+    "test": "pdf-colour::sampled_functions_spec_audit::sampled_interpolation_preserves_a_small_but_nonzero_domain_span",
+    "execution": "FAIL: Domain[0,1e-8] yields [0,0,0] at start/mid/end, instead of independently specified samples [0,100,200]. Normal Domain[0,1] control passes; wave8.",
+    "controls": "Exact xref; same sample bytes, Encode, Decode and Range; only domain scale changes. Endpoints are representable distinct f32 values.",
+    "remaining": "Type0 direct public evaluator; downstream affected rendering not separately reproduced."
+  },
+  {
+    "id": "2038-B11",
+    "kind": "behavior-gap",
+    "clauses": [
+      "8.9.5.1",
+      "8.9.5.2"
+    ],
+    "summary": "Base image Decode array accepts a nonnumeric element when its raw array length has the expected pair count.",
+    "source": "Table87 requires numeric Decode entries; §8.9.5.1 expressly requires errors for inconsistent base image entries. Not a generic claim that every malformed PDF must be rejected.",
+    "code": "crates/pdf-model/src/image/dispatch.rs::inconsistent_entries; image/space.rs::Decode::read",
+    "test": "pdf-model::decode_element_types_audit::decode_pairs_must_each_be_numbers",
+    "execution": "FAIL: [0 1 null 1 0 1] is reported complete with no unsupported entries; waves6/8.",
+    "controls": "Exact xref; valid [0 1 0 1 0 1] RGB control renders independently stated opaque red at center. Only one endpoint changes type.",
+    "remaining": "Base RGB image; soft-mask/alternate dictionaries and other malformed fields are not certified."
+  },
+  {
+    "id": "2038-B12",
+    "kind": "behavior-gap",
+    "clauses": [
+      "14.9.4",
+      "14.7.2"
+    ],
+    "summary": "Structure ActualText is applied per directly owned MCID instead of once over all content enclosed by the element.",
+    "source": "§14.9.4 printed p801: character substitution for the content enclosed by the structure element. EC3 #483 permits Artifact property lists; #364 adds a spacing example; neither narrows structure replacement to one direct item.",
+    "code": "crates/pdf-model/src/content/marked.rs::accessibility; content/run/marked_ops.rs",
+    "tests": [
+      "viewer-core::headless::structure_actualtext_replaces_two_owned_content_items_once",
+      "viewer-core::headless::structure_actualtext_replaces_content_enclosed_in_descendant_elements"
+    ],
+    "execution": "Both FAIL wave8: two direct MCIDs yield fi9fi9; descendant-owned MCIDs retain U+FB01+9. Both should yield fi9 once.",
+    "controls": "Public selection, valid exact-xref PDF2 namespace/ParentTree; visible fi ligature then 9, independent ToUnicode/raw U+FB01+9 control and identical raster with/without replacement. Three single-content-item consumers pass.",
+    "remaining": "Two manifestations of the same direct-MCID substitution design; not two independent defect claims. Cross-page elements not tested."
+  },
+  {
+    "id": "2038-T11",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "9.5",
+      "9.8.1"
+    ],
+    "summary": "Unreadable embedded-program fallback previously lacked an exact-xref same-host absent-program rendering/placement control.",
+    "source": "ADR2870/A837 product recovery choice; ISO substitution metadata does not mandate this unreadable-program recovery.",
+    "test": "pdf-model::unreadable_program_fallback_control_audit::unreadable_program_falls_back_like_absent_program_and_keeps_its_report",
+    "execution": "PASS waves6/8: same pixels/text/origins, independently calculated second glyph x34.012, actual ink, original refusal retained and incomplete status.",
+    "remaining": "Simple TrueType font fallback only; platform-specific composite fallback and all substitute shape policies not certified."
+  },
+  {
+    "id": "2038-D04",
+    "kind": "decision-premise-qualification",
+    "clauses": [
+      "7.10.5.2"
+    ],
+    "summary": "ADR2811 and the earlier current-round decision record overstate PLRM3 as universally requiring 32-bit bitshift arithmetic.",
+    "source": "PLRM3 §8.2 bitshift p539 requires zero-fill and integer operands; §3.3.1 p38 and AppendixB.1 pp738–739 describe architecture-dependent/typical limits.",
+    "assessment": "Keep logical shifts. Qualify exact i32 results and shift>=32 behavior as local implementation width; original current-round decision record corrected.",
+    "remaining": "Real bitshift operands are typecheck in PLRM3 but truncated by current evaluator; malformed-input recovery is not valid operator semantics. No production change."
+  },
+  {
+    "id": "2038-D05",
+    "kind": "acknowledged-integration-limit",
+    "clauses": [
+      "7.10.5.3"
+    ],
+    "summary": "Post-draw Type4 grid-fault model API has no viewer host call site.",
+    "code": "Interpretation::function_faults_after_drawing; viewer-core::report",
+    "assessment": "Model test proves deferred faults can be read; it does not prove visible viewer warnings. ADR2848 and ledger already acknowledge host integration, ADR2849 defers GPU fault readback.",
+    "remaining": "Existing implemented status must not be interpreted as complete cross-backend/user-visible error reporting. No newly invented host contract or red test."
   }
 ]
