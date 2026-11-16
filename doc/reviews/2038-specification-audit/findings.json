@@ -1111,5 +1111,83 @@
     "summary": "Algorithm2.B has a natural stopping bound at counter287, while code caps256 and returns the partial hash.",
     "evidence": "Static predicate inspection: last E byte is at most255; at287 threshold is255. Source gives a statistical typical count, not256limit.",
     "remaining": "No valid input requiring>256 found; not an execution-confirmed authentication defect. Reconsider cap against natural bound rather than unbounded-work rationale."
+  },
+  {
+    "id": "2038-B30",
+    "kind": "behavior-and-incorrect-test-oracle",
+    "clauses": [
+      "14.9.2.2",
+      "14.9.2.3"
+    ],
+    "summary": "Present-empty Lang is discarded as absent, so unknown-language scopes inherit catalog, outer Span or ancestor languages.",
+    "source": "Primary812/797 distinguishes unknown empty identifier from missing-entry inheritance; #105 catalog invalid recovery does not erase valid-empty scope.",
+    "evidence": "Corrected existing test fails fr versusNone. New nested fixture fails es-MX for empty Span andde-DE for empty structure; positive/absence/resumption controls retained.",
+    "remaining": "Keep unknown override distinct while resolving; no mandated sentinel or production API chosen."
+  },
+  {
+    "id": "2038-B31",
+    "kind": "implementation-consumer-gap",
+    "clauses": [
+      "14.9.2.1",
+      "14.9.3",
+      "14.9.5"
+    ],
+    "summary": "Structure-level Alt/E Unicode language escapes are stripped from phrase text but not applied to the public accessibility node language.",
+    "evidence": "Two public viewer regressions return inheriteden-US instead ofes; ordinary sibling/extraction/no-recovery/complete/settled-render controls pass.",
+    "remaining": "Distinct consumer path from marked-property B01/B02. Multiple language segments in one phrase remain untested."
+  },
+  {
+    "id": "2038-B32",
+    "kind": "limit-misreported-as-absence",
+    "clauses": [
+      "8.10.4.1"
+    ],
+    "summary": "Reference page-label search stops at4096pages and reports a present page4097 as absent.",
+    "evidence": "Nearlabel4096andnumeric4097controlsPASS; late label producesproxy and false NoSuchPage detail.",
+    "remaining": "Test permits successful import or accurate bounded-search report; no unbounded work required."
+  },
+  {
+    "id": "2038-T43",
+    "kind": "public-integration-and-fixture-gap",
+    "clauses": [
+      "14.9.2.3"
+    ],
+    "summary": "Example3 language precedence had only manually resolved unit spans; existing structure-language fixtures lacked reciprocal hierarchy fields.",
+    "change": "Add valid MCID/ParentTree public nested precedence/resumption control; repair P/K/Pg links, no-recovery guard and label malformed-cycle policy.",
+    "execution": "Example3 and repaired valid-language controlsPASS; separateB30fails."
+  },
+  {
+    "id": "2038-T44",
+    "kind": "independent-numeric-oracle-gap",
+    "clauses": [
+      "11.3.3",
+      "11.3.5.2",
+      "11.3.5.3"
+    ],
+    "summary": "Opaque blend tests do not exercise full compositing with both alpha values fractional.",
+    "change": "Independent literal Normal,Multiply,Color RGBA calculations at interiorpixel; transparent medium isolates composition.",
+    "execution": "Final1test3modesPASS.",
+    "remaining": "CPU display-list path only; no all-backend/all-group proof."
+  },
+  {
+    "id": "2038-T45",
+    "kind": "public-integration-test-gap",
+    "clauses": [
+      "8.10.4.2"
+    ],
+    "summary": "Cited print test covered job resolution but contained no reference XObject.",
+    "change": "Public supplied-target PrintPage blue versus unsuppliedproxyred control.",
+    "execution": "PASS.",
+    "remaining": "Pins permitted product choice, not mandatory target-over-proxy output."
+  },
+  {
+    "id": "2038-D19",
+    "kind": "source-policy-boundary",
+    "clauses": [
+      "8.10.4.1"
+    ],
+    "summary": "ID-only matching is a product policy; required F, optional ID and embedded-target permission need distinct capability accounting.",
+    "source": "Table95 primary290\u2013291, ADR1101,14.4 confidence/changed-version semantics.",
+    "change": "Retain no arbitrary path opening. Reconsider offered-name/no-ID and embedded-target capability separately; no source-mandated multi-candidate priority inferred."
   }
 ]

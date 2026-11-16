@@ -1,0 +1,8 @@
+{
+  "source": "Parent read primary811\u2013814 and817; #330 physical812 explicitly permits Unicode Lang string representation as literal/hex. Pronunciation is817/802, not816/801; hierarchy rule begins812/797, examples continue813\u2013814. Read ADR0063/0724, current structure language/text_entry, marked Accessible::or_nothing and viewer accessibility text_entry. Historical no-consumer statement must be understood at its date; present host consumer exists.",
+  "assertions": "Corrected existing empty-Lang oracle, which previously required inheritance; it now fails fr versus unknown. Added nested empty Span/empty structure regression: wrong es-MX and de-DE respectively; absent/control/fr/resumption distinguish routes. Example3 passes after parent repaired missing BT/Tf/ET draft and added complete guard. Repaired P/K links in two old valid-language fixtures, labelled cycle test malformed-policy, added shared no-recovery guard. Parent extended Alt-only draft to separate Alt and E public Viewer tests, settled CPU render and complete/extraction controls; both fail en-US versus es while ordinary sibling inherits correctly.",
+  "execution": "language-final-wave27e.log27run25PASS2expectedFAIL after fixture repairs; language-composite-wave27b.log includes2public structure phrase FAIL. No TTS/phoneme processing claim;817 expressly allows ignoring hints.",
+  "limits": "One escaped language for a whole phrase; arbitrary mixed-language phrase representation remains residual. Existing minimal unrelated fixtures are not globally certified.",
+  "baseline": "b901326c",
+  "limit": "Partial source/assertion review, not whole-clause certification."
+}

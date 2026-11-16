@@ -1,0 +1,8 @@
+{
+  "source": "Parent read primary290\u2013291/Table95, no annotations on these pages; #463physical288 applies StructParent(s), not Ref. Read ADR1101 and current Supply/page_index/report path. Table95 Page label has no4096cutoff; code truncates search and reports NoSuchPage. Print output choice explicitly permissive.",
+  "assertions": "Promoted exact-xref4097-page target: near4096green and numeric4097blue both fully interpreted; label4097redproxy falsely reports file has no page. Test permits successful blue import or truthful limit report, not false missing-page. Promoted public References\u2192Print\u2192PrintPage pixels: suppliedblue/no-supplyred PASS. Parent bounded render settlement. No arbitrary path access introduced.",
+  "execution": "reference-wave27f.log2run1PASS1expectedFAIL; nearby/numeric controls pass before limit failure.",
+  "limits": "Optional-ID/F matching and embedded targets remain source/product capability questions; exact-pair-first ordering probe not promoted as normative failure. Native print spooler and all imported-annotation flag combinations remain untested.",
+  "baseline": "b901326c",
+  "limit": "Partial source/assertion review, not whole-clause certification."
+}

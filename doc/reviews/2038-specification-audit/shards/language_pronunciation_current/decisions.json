@@ -1,0 +1,53 @@
+{
+  "scope_note": "Selected decision review only; no whole-ADR certification. Parent-owned B01/B02 marked-content Alt/E escape cases were not duplicated; a separate structure-element Alt/E phrase consumer was sampled.",
+  "decisions": [
+    {
+      "adr": "0063",
+      "topic": "Interpreting §14.9 language and speech spans",
+      "review": "The core split between extraction replacement (`ActualText`) and speech substitutions (`Alt`/`E`) remains consistent with the normative distinction. Its no-consumer statement is stale: later ADR 0134 records the AccessibilityTree node contract, ADR 0214 maps it to AccessKit, and ADR 0623 documents native host consumption. The 64-parent language walk is an implementation limit, not a standard-defined maximum.",
+      "disposition": "Retain hierarchy reasoning; update any current claim of no accessibility consumer and avoid treating a 64-depth silent fallback as normatively complete."
+    },
+    {
+      "adr": "0134",
+      "topic": "Structure tree consumer boundary",
+      "review": "Resolved language reaches `AccessibilityNode.language`; later host integration means that is a real consumer path, not only stored metadata. The one-language node field is not sufficient to represent multiple language runs inside a structure-level replacement phrase.",
+      "disposition": "Language override failure candidate is specific to structure-level Alt/E text-string escapes; do not generalize beyond that bounded path."
+    },
+    {
+      "adr": "0214 and 0623",
+      "topic": "Native accessibility host consumption",
+      "review": "Selected callgraph confirms viewer-accessibility sets the language on the platform node, and the host/AT-SPI bridge consumes the tree. This substantiates user-visible impact for node-language metadata. No TTS engine or phoneme pronunciation support is implied.",
+      "disposition": "Treat ordinary node language as public behavior; pronunciation-hint omission remains allowed by §14.9.6."
+    },
+    {
+      "adr": "0063, 0724",
+      "topic": "Explicit empty language versus absent-entry inheritance",
+      "review": "The source gives empty language identifier its own meaning (unknown), while §14.9.2.3 inherits only where an entry is absent. Current text_entry and property-list handling discard empty strings and the resolved Option<String> channel makes an explicit unknown indistinguishable from absence. This is independent of EC3 #105, which extends absent/invalid recovery at the catalog only.",
+      "disposition": "Revise the current assertion that an empty identifier states nothing/inherits. The draft expects the existing public unknown representation None at the empty scope while preserving explicit outer/absent-scope languages; implementation needs override state during hierarchy resolution, not a language-tag sentinel."
+    },
+    {
+      "adr": "0134, 0214, 0623",
+      "topic": "Structure-element Alt/E language escape reaches host node",
+      "review": "Host AccessibilityTree is a real consumer, but the selected structure phrase route decodes the phrase without forwarding text_string_languages offsets; node language is inherited from structure ancestry. This is separate from the parent-owned marked-content Alt/E tests.",
+      "disposition": "Draft exact-xref public viewer test with one escaped language over an Alt phrase, ordinary sibling under inherited language, and independent extraction assertion. Treat as unexecuted candidate until parent validates/runs."
+    },
+    {
+      "adr": "0724",
+      "topic": "Invalid catalog language recovery",
+      "review": "Its special unknown result follows EC3 #105 and is properly applied at catalog `/Lang`. The code does not extend this recovery to structure or Span tags; the source provides no equivalent child-entry reader rule, so no broader unknown/rejection obligation is inferred.",
+      "disposition": "Retain catalog-only invalid recovery boundary."
+    },
+    {
+      "adr": "0896",
+      "topic": "Well-formed language identifier versus registry validation",
+      "review": "The grammar-only tag check is consistent with BCP 47 Language-Tag syntax and avoids conflating a moving registry check with grammar. No source or assertion in this shard supports a stricter registry-based rejection requirement.",
+      "disposition": "No change proposed."
+    },
+    {
+      "adr": "1106, 1946, 1960",
+      "topic": "Host-selected language and media alternate arrays",
+      "review": "The interface-language value feeds §14.9.2.4 media alternate matching. The array search follows the exact-then-prefix-then-default source order. The producer's unique-pair constraint does not justify reader rejection of duplicates or malformed arrays.",
+      "disposition": "No reader defect found in sampled valid array cases; preserve explicit distinction between required matching and optional default use."
+    }
+  ]
+}

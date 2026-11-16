@@ -234,6 +234,36 @@
       "test": "flattened_field_description_is_not_lost_before_the_accessibility_consumer",
       "finding": "2038-B29",
       "log": "print-field-wave26.log"
+    },
+    {
+      "binary": "pdf-model::accessibility",
+      "test": "an_empty_language_identifier_explicitly_states_unknown",
+      "finding": "2038-B30",
+      "log": "language-final-wave27e.log"
+    },
+    {
+      "binary": "pdf-model::accessibility",
+      "test": "an_explicitly_unknown_language_shadows_outer_and_ancestral_languages_then_resumes",
+      "finding": "2038-B30",
+      "log": "language-final-wave27e.log"
+    },
+    {
+      "binary": "viewer-core::structure_phrase_language_spec_audit",
+      "test": "structure_alt_escape_overrides_ancestral_language",
+      "finding": "2038-B31",
+      "log": "language-composite-wave27b.log"
+    },
+    {
+      "binary": "viewer-core::structure_phrase_language_spec_audit",
+      "test": "structure_expansion_escape_overrides_ancestral_language",
+      "finding": "2038-B31",
+      "log": "language-composite-wave27b.log"
+    },
+    {
+      "binary": "pdf-model::reference_page_label_limit_spec_audit",
+      "test": "a_present_page_label_beyond_the_search_bound_is_not_reported_as_a_missing_page",
+      "finding": "2038-B32",
+      "log": "reference-wave27f.log"
     }
   ]
 }

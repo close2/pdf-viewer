@@ -931,6 +931,68 @@
       "log": "quality-wave26.log",
       "exit": 0,
       "scope": "pdf-syntax/viewer-core all-targets Clippy -Dwarnings"
+    },
+    {
+      "log": "language-composite-wave27.log",
+      "exit": 137,
+      "scope": "Build hit8GiB process-tree bound; no test results. Reduced CARGO_BUILD_JOBS to2."
+    },
+    {
+      "log": "language-composite-wave27b.log",
+      "run": 30,
+      "passed": 25,
+      "failed": 5,
+      "exit": 100,
+      "scope": "Four language failures reproduced; fifth was invalid white-medium compositing setup, corrected before promotion."
+    },
+    {
+      "log": "composite-wave27d.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Final MediumNONE composite with Normal/Multiply/Color independent formulas"
+    },
+    {
+      "log": "language-final-wave27e.log",
+      "run": 27,
+      "passed": 25,
+      "failed": 2,
+      "expected_failures": 2,
+      "unexpected_failures": 0,
+      "exit": 101,
+      "scope": "Final model language fixtures and corrected empty-Lang oracle"
+    },
+    {
+      "log": "reference-wave27f.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "expected_failures": 1,
+      "unexpected_failures": 0,
+      "exit": 100,
+      "scope": "Public reference print controlPASS; late page label false absenceFAIL"
+    },
+    {
+      "log": "quality-wave27g.log",
+      "exit": 101,
+      "scope": "Draft reference-test lint errors corrected"
+    },
+    {
+      "log": "quality-wave27h.log",
+      "exit": 0,
+      "scope": "Final model/core/render-cpu all-targets Clippy -Dwarnings"
+    },
+    {
+      "log": "nine-crate-wave27.log",
+      "run": 6723,
+      "passed": 6679,
+      "failed": 44,
+      "expected_failures": 44,
+      "unexpected_failures": 0,
+      "skipped": 55,
+      "exit": 100,
+      "scope": "Nine crates: pdf-syntax/font/model/signature/transform/colour, viewer-core/host, render-cpu. Exact binary/test failure identities equal all44manifest entries; no missing or extra failures. CARGO_BUILD_JOBS2; bounded8GiB process tree, peak5.93GiB;4test threads."
     }
   ],
   "prior_expected_failures": {

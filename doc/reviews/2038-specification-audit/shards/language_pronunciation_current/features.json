@@ -1,0 +1,90 @@
+{
+  "scope": "Bounded review of ISO 32000-2:2020(E) §§14.9.2.1–14.9.2.4 and §14.9.6, with Table 354/355 properties and only directly relevant EC3. Does not recertify marked-content escape tests B01/B02 or alternate/replacement behavior generally.",
+  "features": [
+    {
+      "clause": "14.9.2.1, 14.9.2.3",
+      "title": "Catalog, structure ancestry, and nested sequence language precedence",
+      "source": "Primary printed pp.796–799 / physical pp.811–814. Catalog Lang is the default; structure-element Lang applies to its content and its ActualText/Alt/E; missing element Lang is inherited from a parent; nested structure/marked content overrides; structure language takes precedence when structured content is nested inside a different non-structured language. EXAMPLE 3 is a Span(es-MX) enclosing structured MCID whose element says en-US.",
+      "errata": "EC3 #105 amends only Table 29 catalog /Lang: absent or invalid catalog tag means unknown. It does not state this recovery for structure-element or Span tags. No other direct amendment to §14.9.2.1/.3 found.",
+      "ledger": "doc/conformance/ledger.toml §§14.9.2.1 and 14.9.2.3, both implemented. Linked test coverage is narrower than code and current test suite: ledger .2.1 names element-supplies; .2.3 names element inheritance. Additional public tests exist for catalog default, Span-over-catalog, nested Span over structure, ancestry inheritance and malformed catalog. ADR 0063 gives hierarchy rationale; ADR 0134/0325 and ADR 0623 carry the accessibility tree to hosts.",
+      "implementation": "pdf_model::structure::document_language reads catalog Lang and validates BCP 47 grammar; structure::language searches element then /P ancestry (bounded at 64). content/marked.rs reads Lang per property list, falling back independently to MCID's structure element and inherited language. pdf_model::accessibility::speech composes nested described spans with inner language winning. viewer-core AccessibilityNode carries resolved language and viewer-accessibility sets the native node language.",
+      "assertions": "accessibility.rs public tests: a_span_overrides_the_documents_language (catalog + Span, expected runs), a_structure_element_supplies_the_language_of_its_sequence (structure en plus inner Span es), a_structure_element_inherits_a_language_from_its_ancestry (two-parent chain), a_cycle_in_the_structure_ancestry_terminates (malformed cycle, not valid-input behavior), and catalog invalid/empty controls. Unit speech test checks inner language wins and outer language resumes, but manually supplied spans do not prove MCID/parent-tree integration. Scratch draft runs source EXAMPLE 3 end-to-end with exact xref/no-recovery and expected es-MX / en-US / es-MX spans. The separate explicit-empty case is drafted in empty_lang_shadows_outer.rs to distinguish a present empty entry (source meaning unknown) from an absent entry (inheritance).",
+      "verdict": "Catalog, nested property and ancestry paths are implemented and have public assertions. The direct source EXAMPLE 3 precedence case is covered by unit-level speech logic, but current public fixtures do not establish that exact nesting; scratch draft adds it. A distinct semantic gap is likely: present empty /Lang must mean unknown, while absent /Lang inherits; the public Option<String> language channel and present-entry decoding currently collapse these states.",
+      "residuals": "Existing accessibility fixture helper builds exact offsets but does not assert was_recovered; new draft asserts no recovery. Structure ancestry is capped at 64 with no explicit diagnostic; this is a resource-limit/metadata-loss boundary rather than an ISO-prescribed reader rejection, and is not classified as a conformance failure here. Invalid non-catalog tags are preserved as stated; #105's special recovery is catalog-only. Explicit-empty semantics are not expressible through the current resolved-language Option alone; draft tests require unknown to override outer/ancestral values without imposing a new sentinel representation.",
+      "related_adrs": [
+        "ADR 0063",
+        "ADR 0134",
+        "ADR 0325",
+        "ADR 0623",
+        "ADR 0724"
+      ]
+    },
+    {
+      "clause": "14.9.2.2; 14.9.2.1; 7.9.2.2.2",
+      "title": "Language identifiers, empty/invalid values, and Unicode escape override",
+      "source": "Primary printed pp.797–798 / physical pp.812–813. Language identifiers are empty (unknown) or BCP 47 Language-Tags; the primary text also states that UTF-16BE or UTF-8 text strings can carry language escapes; tag matching is case-insensitive; nonlinguistic content should use zxx. Unicode text strings may contain a language escape that overrides prevailing Lang. Catalog-specific absent/invalid recovery is from EC3 #105.",
+      "errata": "EC3 #105 is confined to catalog Table 29 /Lang, not all Lang entries. No direct erratum to 14.9.2.2 found.",
+      "ledger": "§14.9.2.2 ledger row implemented; tests accessibility.rs::an_empty_language_identifier_states_nothing, ::an_invalid_catalog_language_is_unknown and structure/tests.rs::a_language_tag_is_judged_by_bcp_47s_grammar. Text-string escape tests are assigned separately to §7.9.2.2.2; current round's B01/B02 evidence establishes ActualText escape handling and separately failing marked-content Alt/E escape cases.",
+      "implementation": "Catalog Lang uses the BCP 47 grammar check. Structure::text_entry decodes /Lang as a regular text entry and discards empty values, while marked_ops::accessibility and content::MarkedContent::accessibility also convert an empty property-list Lang to None; the resolved speaker/node language uses Option<String>, so it cannot distinguish present-empty (unknown) from absent (inherit). Unicode escape offsets are parsed by pdf-syntax::text_string_languages and marked-content replacement runs preserve them; marked-content Alt/E and structure-element Alt/E decode/strip escapes but do not carry escaped language onward. The structure-element phrase route is distinct from parent-owned marked Alt/E failures.",
+      "assertions": "Catalog invalid text, empty Span Lang under a catalog default, accepted/refused grammar cases and catalog/Span/ActualText language cases are directly asserted. Existing an_empty_language_identifier_states_nothing specifically expects an empty Span to inherit fr, although §14.9.2.2 says empty denotes unknown; this is not a source-backed positive control. Draft empty_lang_shadows_outer.rs contrasts absent outer/nested tags, present empty Span and structure-element tags, explicit French, and outer resumption. Draft structure_alt_language_escape.rs uses a valid child under /Lang(en-US) ancestry, an ordinary Alt sibling control and an escaped Alt target inside a public viewer AccessibilityTree query; it independently checks raw extraction remains ordinary text.",
+      "verdict": "The empty-tag behavior is a concrete likely conformance gap: source distinguishes an absent entry, which inherits under §14.9.2.3, from an empty entry, which means language unknown under §14.9.2.2. Current Option-based resolution discards that distinction, and the existing test codifies inheritance. Proposed public regression states expected unknown as None (the API’s existing representation), independently verifies positive languages, and verifies outer language resumes after the nested scope. Structure-element Alt/E Unicode escape loss is a separate probable consumer gap, drafted but not yet executed.",
+      "residuals": "No implementation-specific sentinel should be assumed: current public Option<String> models unknown as None, but preserving explicit unknown through nested scope may need a separate override state until scopes resolve. Catalog #105 is catalog-only; invalid nonempty child tags remain outside this finding. Draft structure-element Alt escape has not been run; it checks one whole-phrase language, not multiple language runs inside an accessibility node. Marked-content Alt/E escape cases remain parent-owned.",
+      "related_adrs": [
+        "ADR 0724",
+        "ADR 0896",
+        "ADR 2812"
+      ]
+    },
+    {
+      "clause": "14.9.2.1–.3, 7.9.2.2.2",
+      "title": "Unknown language override and structure Alt/E text-string escapes",
+      "source": "§14.9.2.2 (printed p.797 / physical p.812): empty text string means language unknown. §14.9.2.3 (printed pp.798–799 / physical pp.813–814): inheritance applies when a language entry is absent, and inner sequence/element values override; Example 3 requires structure language to win inside an outer different-language Span. §14.9.2.1 says the structure element Lang applies to Alt/E, while §7.9.2.2.2 allows Unicode text-string escapes to override prevailing Lang.",
+      "errata": "EC3 #105 special absent/invalid rule is Table29 catalog /Lang only and does not erase the empty-child-entry semantics or extend the recovery to Span/structure entries.",
+      "ledger": "Existing ledger §14.9.2.2 is implemented; its current assertion an_empty_language_identifier_states_nothing expects inheritance and should be reconciled against the source distinction. §14.9.2.1/.3 rows claim language handling but the linked public assertions do not test these two combinations. Unicode escaped structure-element Alt/E is distinct from the parent-owned marked-content B01/B02 candidates.",
+      "implementation": "pdf-model::structure::text_entry discards empty /Lang as None; marked_ops and MarkedContent::accessibility likewise represent a present empty Lang as None. accessibility::speech and AccessibilityNode.language consume Option<String>, conflating no statement (inherit) with an explicit unknown override. In viewer-core structure Alt/E, text_entry strips the escape sequence, while the node language is computed from structure ancestry without calling text_string_languages on the phrase.",
+      "assertions": "empty_lang_shadows_outer.rs proposes an exact-xref public model test with positive outer es-MX, empty nested Span, empty structure-element Lang under de-DE ancestry, explicit fr-FR control, and resumed es-MX; expects `None` only in the two empty scopes. structure_alt_language_escape.rs proposes public Viewer AccessibilityTree query for an Alt escaped as UTF-16BE ESC es ESC tomato; its sibling ordinary Alt inherits en-US from a Sect ancestor while catalog is fr-FR. Both check no recovery; the second verifies raw extracted text remains control/target.",
+      "verdict": "Likely substantive reader/output gap for explicit-empty unknown scope, with an existing contrary assertion. The public language type can represent unknown as None but cannot distinguish it from no statement during hierarchy resolution; a scope-level override marker may be required. Structure Alt/E escape is a plausible distinct metadata loss in an implemented consumer path, not executed yet.",
+      "residuals": "Drafts are not run. Empty language case requires resolving override state before yielding existing public None; do not introduce a literal tag sentinel. Structure Alt/E draft covers one whole phrase and valid ancestry, not partial/multiple-language node phrases. No pronunciation hint behavior is owed under §14.9.6.",
+      "related_adrs": [
+        "ADR 0063",
+        "ADR 0134",
+        "ADR 0214",
+        "ADR 0724",
+        "ADR 0896"
+      ]
+    },
+    {
+      "clause": "14.9.2.4; Tables 285 and 288",
+      "title": "Multi-language text arrays for media alternate text",
+      "source": "Primary printed p.799 / physical p.814 and continuation printed p.800 / physical p.815. Producer array contains string pairs, first language ID and second associated text; language ID shall not repeat; unknown ID is ignored; empty ID denotes default text. Reader searches exact case-insensitive match, then first prefix match in array order where target language leads and next array character is hyphen, then may use default text.",
+      "errata": "No direct EC3 change to §14.9.2.4 found. Its references to Table 285/288 are where the arrays are used.",
+      "ledger": "§14.9.2.4 row implemented in doc/conformance/ledger.toml; source crates/pdf-model/src/media.rs::alternate; tests media.rs::a_multi_language_text_array_is_searched_as_the_clause_states and viewer-core/tests/renditions.rs end-to-end handoff.",
+      "implementation": "alternate reads complete pairs, prefers exact case-insensitive match, then scans increasing array order for a hyphen-delimited prefix, then empty-tag default. It is called while forming media clip reports for host language. Structurally invalid arrays are tolerated by dropping incomplete/non-string pairs; duplicate ID producer violations are not rejected.",
+      "assertions": "The named unit test uses the standard EXAMPLE pair list and asserts exact case-insensitive match, `en`→`en-US` prefix, no reverse prefix (`en-US` does not match `en`), French exact, default fallback and no requested language default. A rendition test asserts the chosen alternate reaches the viewer handoff.",
+      "verdict": "Core search rule has source-derived direct tests plus a public report path. Producer constraints (pairs and unique language IDs) should not be treated as required reader rejection; no observed valid-input gap in this bounded sample.",
+      "residuals": "No tests for first-of-multiple-prefix ordering or duplicate-ID malformed arrays; not needed to claim the inspected EXAMPLE behavior. The default is specified as may be used, so its use is a product choice the ledger records rather than a mandatory output in every unmatched case.",
+      "related_adrs": [
+        "ADR 1946",
+        "ADR 1960",
+        "ADR 1106"
+      ]
+    },
+    {
+      "clause": "14.9.6; Table 355; Table 354",
+      "title": "Pronunciation hint properties and processing permission",
+      "source": "Primary §14.9.6 printed p.802 / physical p.817. Table 355 printed p.726 / physical p.741 defines PhoneticAlphabet (PDF 2.0; default ipa, inheritable to children, child can override; other values allowed) and Phoneme (PDF 2.0; exact replacement for the element and descendants, interpreted with alphabet in effect). Table 354 printed p.724 / physical p.739 defines PronunciationLexicons. §14.9.6 expressly says a PDF processor is not required to process pronunciation hints.",
+      "errata": "No EC3 correction to §14.9.6, Table 354 /PronunciationLexicons, or Table 355 /PhoneticAlphabet and /Phoneme found. Other EC3 insertions on Tables 354/355 concern namespaces, not these entries.",
+      "ledger": "§14.9.6 ledger row is implemented on the clause's explicit permission, with language/Unicode speech as the supported alternative. Code is pdf-model/src/accessibility.rs and structure.rs. structure/tests.rs::a_phoneme_is_read_past_and_the_language_and_unicode_text_answered_in_its_place asserts /Lang and /Alt answer while `/Phoneme` is not returned.",
+      "implementation": "No parser or consumer for the PhoneticAlphabet/Phoneme or PronunciationLexicons entries was found. Language and Unicode text flow through the accessibility tree and native consumer. viewer-accessibility/tree.rs maps the language into AccessKit language metadata.",
+      "assertions": "The Phoneme unit test creates a model-only Document with a PDF 2.0 declaration, then asserts role, language, alternate-description text and absence of the phoneme from returned generic structure values. Its element omits required hierarchy entries and the trailer omits PDF 2.0 ID, so it is not a valid producer fixture; it does not invoke viewer-core speech or a native TTS provider. Since processing is expressly optional, no TTS assertion is owed.",
+      "verdict": "Ignoring pronunciation hints is conforming under §14.9.6's explicit permission. The test shows a deliberate no-processing decision and proves nearby Lang/Alt reading; it should not be described as proof of PLS parsing or a TTS result.",
+      "residuals": "No PLS files or phonetic alphabets are processed; no standards obligation to add that. Producer-side semantics/defaults for those optional entries were source-read but are not a reader behavior claim. Test does not assert PDF 2.0 fixture's trailer ID or xref recovery; no new draft needed for an optional behavior whose entire processing is permitted to be omitted.",
+      "related_adrs": [
+        "ADR 0063",
+        "ADR 0134",
+        "ADR 0214",
+        "ADR 0623"
+      ]
+    }
+  ]
+}

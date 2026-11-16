@@ -1,0 +1,8 @@
+{
+  "source": "Parent primary405 basic formula,417 alpha union,428group summary; #345407/408 says figures not pixel/colour precise; #688428 corrects two a symbols to alpha. Read ADR0047 and0237; corrected agent characterization of0237: restricted Normal nonisolated result cancels accumulator to (1-w)B+wE(B), not universally storing general-form variables. No full group proof asserted.",
+  "assertions": "Independent alpha_b=.4,alpha_s=.5\u2192.7; Multiply[89,71,166,179], Normal[124,84,189,179]. Parent added nonseparable Color: Lum_b=.362,Lum_s=.445,B=(.517,.217,.717), full formula\u2192[118,78,183,179]. \u00b11byte quantization. Initial draft used default white medium and failed with alpha255; corrected fixture to Medium::NONE, not renderer. Final all3modesPASS.",
+  "execution": "composite-wave27d.log1PASS final extended test. First white-medium draft failure excluded from behavior manifest. Initial multi-crate build hit8GiB ceiling; rerun CARGO_BUILD_JOBS=2 completed safely.",
+  "limits": "CPU public display-list compositor, not new PDF interpreter/GPU coverage. No inference from illustrative standard figures.",
+  "baseline": "b901326c",
+  "limit": "Partial source/assertion review, not whole-clause certification."
+}

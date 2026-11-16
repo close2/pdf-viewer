@@ -12,20 +12,18 @@ The report and machine-readable continuation are in
 `doc/reviews/2038-specification-audit.md` and its evidence directory.
 
 **Evidence so far.** All 72 previous failing assertions pass. Current tests expose
-39 failing assertions, grouped by behavior and qualified where interpretation is
+44 failing assertions, grouped by behavior and qualified where interpretation is
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
-The shard index links partial reviews to 436 ledger rows; 447 remain pending in
+The shard index links partial reviews to 460 ledger rows; 423 remain pending in
 this round. No entire clause is certified merely because referenced tests pass.
 A shared-parser date mutation was killed and restored. Independent JP2 fixture
 regeneration matches the embedded hashes. Selected ADR conclusions are retained,
 qualified, or reconsidered with primary-source reasoning.
 
-**Gates.** Wave22, eight crates: nextest 6,435 run, 6,399 pass, exactly the 36 expected
-failures, 55 skipped. Current touched-crate all-targets Clippy and formatting pass.
-Earlier rustdoc/conformance, baseline and GTK runs are recorded separately; they
-do not certify later changes. CID, parser-boundary and nested associated-file controls pass;
-GoToR/GoToE, FitR/FitB and ICC fallback fail; actions/IsMap pass. Wave20 adds three
-choice/ToUnicode and PrintField failures; transfer/font, AnnexO, stroke, Type1, signed-lock and password controls pass.
+**Gates.** Wave27, nine crates: nextest 6,723 run, 6,679 pass, exactly the 44 expected
+failures by binary/test identity, 55 skipped. No missing or additional failures.
+Touched-crate all-targets Clippy and formatting pass. Earlier rustdoc/conformance,
+baseline and GTK runs retain their recorded scope and do not certify later changes.
 
 The next checkpoint adds AGL sequence/unknown-component failures and public text/search
 controls, four passing mesh pixel assertions, and genuine PAdES report/tamper tests.

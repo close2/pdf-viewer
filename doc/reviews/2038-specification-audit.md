@@ -253,6 +253,19 @@ ListNumbering classification and the Algorithm2.B256-round cap receive separate,
 qualified decision findings. No high-round authentication failure is claimed.
 Partial reviews reach436rows, with447pending; syntax/core all-targets Clippy passes.
 
+The language/compositing/reference checkpoint corrects an oracle that expected empty
+Lang to inherit: source says unknown. Two model regressions and two structure Alt/E
+escape regressions fail; inheritance, explicit-language and resumption controls pass.
+A reference label on page4097 is falsely reported absent despite successful numeric
+selection; the test allows a truthful resource-limit report. The manifest reaches44.
+Independent fractional-alpha Normal/Multiply/Color formulas pass after removing the
+draft's white medium; that preliminary failure was a fixture error. Public reference
+printing passes with supplied-target/proxy controls. Primary #330, #345 and #688 were
+checked directly where the errata inventory was incomplete. Partial reviews reach460
+rows, with423pending; model/core/render-cpu all-targets Clippy passes. The final
+nine-crate refresh runs6,723tests:6,679pass, exactly44manifest failures and55skipped.
+Exact binary/test identities match, with no additional or missing failures.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks

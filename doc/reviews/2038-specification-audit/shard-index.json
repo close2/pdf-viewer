@@ -3,6 +3,53 @@
   "numbering": "Logical content items use published ledger owners14.7.5.1.1/.2/.3/.4 for effective EC3 .2/.3/.4/.5; navigator owner12.3.6 maps effective12.3.5.3. JBIG2 external Annex D is not ISO PDF Annex D.",
   "shards": [
     {
+      "shard": "language_pronunciation_current",
+      "artifact": "shards/language_pronunciation_current/features.json",
+      "ledger_owners": [
+        "14.9.2.1",
+        "14.9.2.2",
+        "14.9.2.3",
+        "14.9.2.4",
+        "14.9.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "transparency_compositing_current",
+      "artifact": "shards/transparency_compositing_current/features.json",
+      "ledger_owners": [
+        "11.3.3",
+        "11.3.4",
+        "11.3.5",
+        "11.3.5.1",
+        "11.3.5.2",
+        "11.3.5.3",
+        "11.3.6",
+        "11.3.7",
+        "11.3.7.1",
+        "11.3.7.2",
+        "11.3.7.3",
+        "11.3.8",
+        "11.4.4",
+        "11.4.5",
+        "11.4.7",
+        "11.4.8",
+        "11.6.4.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "reference_xobjects_current",
+      "artifact": "shards/reference_xobjects_current/features.json",
+      "ledger_owners": [
+        "8.10.4",
+        "8.10.4.1",
+        "8.10.4.2",
+        "8.10.4.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
       "shard": "standard_security_algorithms_current",
       "artifact": "shards/standard_security_algorithms_current/features.json",
       "ledger_owners": [
