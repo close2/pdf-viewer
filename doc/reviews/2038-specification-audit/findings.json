@@ -222,7 +222,8 @@
     "test": "viewer-core::named_destination_tables_audit::a_string_destination_uses_the_name_tree_even_when_the_dictionary_has_the_same_key",
     "execution": "FAIL: string (chapter) selects dictionary page instead of tree page; wave4. Name and escaped-name cases pass.",
     "controls": "Exact xref, both tables coexist; direct-array page/geometry controls pass before activation.",
-    "remaining": "The implementation deliberately interprets alternatively as allowing dictionary-first fallback for either object type. This finding uses the clause\u2019s type-specific correspondence; there is no separately worded cross-table collision-priority sentence. Reconsider the interpretation explicitly. Remote destinations and all absent-table fallbacks are not adjudicated."
+    "remaining": "The implementation deliberately interprets alternatively as allowing dictionary-first fallback for either object type. This finding uses the clause\u2019s type-specific correspondence; there is no separately worded cross-table collision-priority sentence. Reconsider the interpretation explicitly. Remote destinations and all absent-table fallbacks are not adjudicated.",
+    "disposition": "Unresolved interpretation: type correspondence is explicit, same-byte collision priority is not separately prescribed."
   },
   {
     "id": "2038-B09",
@@ -757,7 +758,8 @@
     "code": "open/destinations.rs::apply_view corner-only placement.",
     "decision": "ADR0162 geometry table and test inference contradict source; reopen centering only.",
     "execution": "Corrected existing FitR and new vertical/horizontal FitB assertions FAIL. At300x400, box[100,600,300,700] requires scale1.5/origin(-150,-25), observed(-150,-150). Matched-aspect controls pass. Whole-page Fit centering control PASS.",
-    "limits": "No claim that all destination modes or all local coordinate transformations are wrong."
+    "limits": "No claim that all destination modes or all local coordinate transformations are wrong.",
+    "source_force": "EC3#536 makes smaller-factor selection SHOULD-level. The separate instruction to center unused viewport space remains; the finding concerns that centering."
   },
   {
     "id": "2038-B25",
@@ -1632,13 +1634,13 @@
   },
   {
     "id": "2038-B42",
-    "kind": "qualified-interpretation-regression",
+    "kind": "unresolved-comparison-policy",
     "clauses": [
       "12.8.2.4"
     ],
     "summary": "A selected field renamed after signing is classified outside Include(Name) when its value changes.",
     "evidence": "Stable indirect object6 is named from current state first, so Other replaces the signed Name identity. Stable-name selected and distinct-outside controls pass.",
-    "source_qualification": "Signed selection implies binding to the signed field, but Table259 does not expressly prescribe cross-revision rename identity. Treat as a likely comparison API defect, not unequivocal ISO conformance failure.",
+    "source_qualification": "Table259 and EC3#33 prescribe fully qualified names but do not expressly settle identity across a /T rename. The signed-time selector interpretation remains plausible, but is an unresolved comparison policy, not an established ISO defect.",
     "execution": "signature-time-field-wave37b.log:1FAIL",
     "scope": "Comparison API only. Placeholder CMS and minimal widget fixture do not establish signature validity, full PDF conformance, or viewer enforcement.",
     "adr": "1096"
@@ -2228,5 +2230,26 @@
     ],
     "summary": "A deterministic Open event test now checks missing-object notes reach the host before RenderReady and remain queryable.",
     "execution": "One new testPASS;4binarytestsPASS;coreClippyPASS."
+  },
+  {
+    "id": "2038-T85",
+    "kind": "test-oracle-improvement",
+    "clauses": [
+      "8.6.5.3"
+    ],
+    "summary": "Independent public CalRGB literal pixels complement a shared-helper identity oracle.",
+    "execution": "New test PASS. Seeded zero-transfer mutation survives the old identity, but existing CalGray and new CalRGB both fail; restored source yields three PASS.",
+    "limits": "Existing suite already catches this mutation; no runtime colour failure."
+  },
+  {
+    "id": "2038-T86",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "12.5.3",
+      "12.5.5"
+    ],
+    "summary": "Combined NoZoom/NoRotate with rotating AP Matrix and nonzero BBox now has independent literal pixel extents.",
+    "execution": "New test PASS; model all-targets Clippy PASS.",
+    "limits": "Fresh interpretation only; not annotation replacement/cache or print certification."
   }
 ]

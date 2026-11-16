@@ -3,6 +3,42 @@
   "numbering": "Logical content items use published ledger owners14.7.5.1.1/.2/.3/.4 for effective EC3 .2/.3/.4/.5; navigator owner12.3.6 maps effective12.3.5.3. JBIG2 external Annex D is not ISO PDF Annex D.",
   "shards": [
     {
+      "shard": "shared_oracle_assertions_current",
+      "artifact": "shards/shared_oracle_assertions_current/features.json",
+      "ledger_owners": [
+        "8.6.5.3",
+        "8.6.4",
+        "8.6.6.6",
+        "8.9.3",
+        "8.9.4",
+        "9.6.2.1",
+        "9.6.5.4",
+        "9.9.1",
+        "8.5.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annotation_view_flags_current",
+      "artifact": "shards/annotation_view_flags_current/features.json",
+      "ledger_owners": [
+        "12.5.3",
+        "12.5.5"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "qualified_failure_second_review_current",
+      "artifact": "shards/qualified_failure_second_review_current/features.json",
+      "ledger_owners": [
+        "12.3.2.4",
+        "12.3.2.2",
+        "12.8.2.3",
+        "12.8.2.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
       "shard": "silent_fixture_skip_current",
       "artifact": "shards/silent_fixture_skip_current/features.json",
       "ledger_owners": [

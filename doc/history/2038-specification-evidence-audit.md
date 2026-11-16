@@ -16,7 +16,7 @@ The report and machine-readable continuation are in
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
 The shard index links partial reviews to all883 ledger rows, each still partial. Feature residuals remain
 inside reviewed rows. No entire clause is certified merely because referenced tests pass.
-A shared-parser date mutation was killed and restored. Independent JP2 fixture
+Date and colour mutations were restored; independent tests catch them. Independent JP2 fixture
 regeneration matches embedded hashes. Selected ADR conclusions are retained,
 qualified, or reconsidered with primary-source reasoning.
 
@@ -34,7 +34,7 @@ indirect-value equivalence and remaining consumer assertions.
 UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage55%;ceiling85%.
 
 TSA keyCompromise time selection fails with genuine signed material; FieldMDP
-rename coverage fails under a qualified interpretation. Signature/core Clippy passes.
+rename coverage is an unresolved policy probe. Independent colour/annotation tests pass.
 Alpha, filtered-checksum and cross-Contents controls pass; archive path cap fails. Model/transform Clippy pass.
 Current CRL and historical OCSP applicability witnesses fail; both positive controls pass.
 Matrix2D/header search/old-version linearization fail; two fixture skips hide behind PASS.

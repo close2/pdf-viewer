@@ -1,0 +1,29 @@
+{
+  "scope": "Selected review of ADR/finding rationale only; no ADR or production edits made.",
+  "reviews": [
+    {
+      "finding": "2038-B08",
+      "decision": "QUALIFY / unresolved interpretation",
+      "rationale": "The source maps name objects to Catalog /Dests and string objects to the name tree, but permits the latter as an alternative and does not define same-byte cross-table collision precedence. Current dictionary-first behavior is observed, but string-tree priority is not a clearly stated ISO requirement.",
+      "adr_action": "Do not reopen an ADR as a proven conformance failure from this test alone. If owner policy expects typed lookup isolation, record that as an explicit product interpretation and ledger note."
+    },
+    {
+      "finding": "2038-B24",
+      "decision": "RETAIN / narrow source-backed centering mismatch",
+      "rationale": "Table 149 explicitly says to center the fitted FitR rectangle and FitB bounding box when the viewport dimension is unused. #536 changes smaller-factor wording to SHOULD. This affects the modal strength of scale selection, not the separate centering instruction.",
+      "adr_action": "Reconsider ADR 0162's corner-placement rationale for FitR/FitB. Keep it narrowly about these modes and do not characterize the SHOULD as a SHALL."
+    },
+    {
+      "finding": "2038-B40",
+      "decision": "RETAIN / adopted-policy regression, not mandatory conformance failure",
+      "rationale": "The fixture and public save path validly show an annotation edit outside rights while the UR3 association remains. The effective source recommends removal with SHOULD. The product has implemented this recommended withdrawal behavior for its other checked save cases, so a missed operation in that adopted policy is concrete.",
+      "adr_action": "Reconsider ADR 0159's operation predicate in light of annotation writing. Preserve the modal and PDF-version qualification."
+    },
+    {
+      "finding": "2038-B42",
+      "decision": "WITHDRAW as a settled ISO failure; retain as unresolved API question",
+      "rationale": "Issue #33 establishes fully qualified field-name strings, not identity binding across a /T rename. The test is structural, not cryptographically signed, and the comparison API itself disclaims verification. No viewer validation consumer was found.",
+      "adr_action": "Do not amend ADR 1096 on this evidence alone. A future policy decision needs source or contract language for cross-revision field identity and, if making a signature-verdict claim, an authenticated fixture and consumer."
+    }
+  ]
+}

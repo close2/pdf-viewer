@@ -1,0 +1,81 @@
+[
+  {
+    "candidate": 1,
+    "feature": "CalRGB full-chain identity test shares the production RGB-output helper",
+    "source": "\u00a78.6.5.3 Table 63: decoded A/B/C gamma values are multiplied by the stated column-major Matrix to XYZ; IEC 61966-2-1 defines the sRGB output transfer used by this implementation. The ledger row is implemented and cites `calrgb_stating_srgbs_own_parameters_is_the_identity`.",
+    "assertion": "In `crates/pdf-colour/src/colour.rs::calrgb_stating_srgbs_own_parameters_is_the_identity`, expected = `bytes(ColourSpace::Rgb.to_rgb(&input.map(|value| super::cie::gamma(value.powf(2.2))))`; actual = `bytes(space.to_rgb(&input))` for CalRGB with sRGB primaries/gamma.",
+    "oracle_assessment": "Metamorphic test, not an independent end-to-end numeric oracle: expected shares `cie::gamma` and the production RGB output route. It strongly checks CalRGB's decode/matrix/adaptation chain, but a common defect in the final sRGB encoder could affect both values.",
+    "other_independent_assertions": [
+      "`calrgb_reads_its_matrix_one_column_per_component` distinguishes a transpose with pure red/blue directions",
+      "`calgray_is_a_luminance_and_must_be_encoded_for_the_display` has literal sRGB outputs",
+      "`a_linear_map_is_exact_from_its_corners` covers the display-list color cube"
+    ],
+    "verdict": "No conformance failure shown. A small independent public literal sample would improve oracle diversity; scratch draft provided.",
+    "execution": "Parent added public literal CalRGB sample test: PASS. Constant-zero gamma mutation: old CalRGB identity PASS; existing literal CalGray and new literal CalRGB FAIL. Source restored byte-for-byte; all three PASS. This demonstrates a blind spot in one oracle, not the whole existing suite.",
+    "external_source": "ICC sRGB interpretation, section A.8: https://registry.color.org/rgb-registry/files/sRGB.pdf. Parent independently calculated unquantized bytes [47.5026,18.5681,4.5241] and [128.4860,61.4676,25.9658]. Rounded matrix justifies tolerance of one byte."
+  },
+  {
+    "candidate": 2,
+    "feature": "CMYK JPEG sample is compared against a value from the production CMYK converter",
+    "source": "\u00a78.9.5.2 Table 88 supplies DeviceCMYK's default identity Decode; \u00a77.4.8 delegates JPEG marker transforms; device conversion is the separate implementation choice discussed under \u00a710.4.2.5. Ledger \u00a78.6.4 points to `a_cmyk_jpegs_samples_are_the_colour_spaces_and_not_the_decoders`.",
+    "assertion": "`crates/pdf-model/tests/colour_paths.rs::a_cmyk_jpegs_samples_are_the_colour_spaces_and_not_the_decoders` extracts raw sample (122,55,14,1), computes expected bytes using `pdf_model::colour::ColourSpace::Cmyk.to_rgb`, and compares the actual image's first raster sample to that same helper's result.",
+    "oracle_assessment": "This expected value shares the conversion under test, so alone it cannot validate the CMYK-to-sRGB formula. It does independently establish that the embedded samples are non-inverted and excludes the standalone-JPEG complement (133,200,241,254)/black mistake.",
+    "other_independent_assertions": [
+      "`pdf-colour/src/colour.rs::the_process_inks_are_the_published_ink_appearances` pins selected CMYK colors to literal values"
+    ],
+    "verdict": "Legitimate integration/orientation check, not sole evidence for converter correctness. The sibling literal CMYK test supplies independent converter anchors; no new draft needed.",
+    "parent_scope": "The current test compares to a shared CMYK converter; its comment discusses external decoder inversion, but the test body does not execute two external decoders."
+  },
+  {
+    "candidate": 3,
+    "feature": "Multitone examples use paired-route equality instead of a literal output pixel",
+    "source": "\u00a78.6.6.6 examples 1, 3\u20135 provide Indexed/DeviceN lookup entries and tint-transform behavior; the source explicitly leaves Example 2's formula to the reader. Ledger row is implemented and describes these as worked-example execution.",
+    "assertion": "`crates/pdf-model/tests/multitone_examples.rs::example_1s_duotone_is_its_entrys_cyan_and_black_in_device_cmyk`, `example_3s_black_and_gold_draw_as_the_calrgb_components_their_entry_carries`, and `example_5s_quadtone_draws_as_the_last_three_components_of_its_entry` compare a raster from the example space against a reference space containing the corresponding direct components. The latter two also require distinct table entries to render different colors.",
+    "oracle_assessment": "Metamorphic route comparison, not an independent pixel oracle: both routes share the final color conversion and device rasterizer. It is nevertheless a discriminating integration oracle for Indexed lookup, DeviceN components and tint-function composition; common device-conversion errors are outside the specific feature being tested.",
+    "other_independent_assertions": [
+      "DeviceCMYK literal outputs are pinned in `the_process_inks_are_the_published_ink_appearances`",
+      "source table/transform values are written explicitly in the fixture comments and arrays"
+    ],
+    "verdict": "Assertions match the ledger's narrow claim that the printed examples' routes agree; do not describe them as absolute device-color oracles. No clear missing requirement warrants a draft."
+  },
+  {
+    "candidate": 4,
+    "feature": "Low-bit decoded RGB image samples",
+    "source": "\u00a78.9.3's image sample layout plus \u00a78.9.5.2 Decode semantics. Effective Decode pair is per component; rows restart on byte boundaries.",
+    "assertion": "`crates/pdf-model/tests/image_samples_decode_audit.rs::low_bit_rgb_samples_are_interleaved_per_pixel` specifies the encoded nibble sequence and asserts four literal RGB pixel triples after applying different Decode ranges to R/G/B.",
+    "oracle_assessment": "Independent literal expected values are manually derivable from the encoded bit stream, component order and Decode pairs; no production decode helper generates expected pixels. Pixel centers avoid boundaries.",
+    "verdict": "Strong, non-circular assertion for this specific 2-bit RGB/row-padding case. It does not certify other bit depths or layouts."
+  },
+  {
+    "candidate": 5,
+    "feature": "Image unit-square mapping and CTM transforms",
+    "source": "\u00a78.9.4 states image sample coordinates map onto the unit square; the graphics CTM then transforms it.",
+    "assertion": "`crates/pdf-model/tests/image_coordinates_audit.rs::non_square_source_grid_maps_row_major_onto_the_transformed_unit_square`, `a_reflected_image_reverses_columns_without_reversing_rows`, and `image_cells_follow_both_columns_of_a_skewed_ctm` sample literal primary-color cells and white exterior pixels from source bytes that are enumerated in the fixture.",
+    "oracle_assessment": "Independent sample/color and geometry expectations; the expected pixel triples are literal source sample values, not calculated by the image mapper. Distinct reflected/skewed fixtures test transform orientation.",
+    "verdict": "Strong oracle for the cited placement cases; no shared expected helper found."
+  },
+  {
+    "candidate": 6,
+    "feature": "Simple TrueType width-array placement",
+    "source": "\u00a79.2.4 text positioning and \u00a79.6.2.1 Table 109 Widths indexed from FirstChar.",
+    "assertion": "`crates/pdf-model/tests/simple_font_widths_audit.rs::embedded_truetype_widths_are_indexed_from_firstchar_and_place_each_glyph` asserts literal glyph origins 10, 26.008, 42.016, 59.344 from stated widths [667,667,722,722] at 24-point text size.",
+    "oracle_assessment": "Independent arithmetic from the PDF's integer widths and text size; the test does not call `LoadedFont::advance` to compute expected origins. Separate comments compare hmtx source advances to ensure fixture widths are compatible.",
+    "verdict": "Strong assertion for Widths indexing/placement. No circular oracle found."
+  },
+  {
+    "candidate": 7,
+    "feature": "TrueType/OpenType glyph-name routing and Differences selection",
+    "source": "\u00a79.6.5.4 and \u00a79.9.1's simple-font TrueType/OpenType mapping bullets; Type 1/CFF uses \u00a79.6.5.2's name-keyed route.",
+    "assertion": "`crates/pdf-model/tests/opentype_selection_audit.rs::opentype_glyf_under_simple_truetype_uses_the_glyph_name_cmap_route` expects GIDs [2,1]; the CFF counterpart expects [2,1] and has a bare-Type1C control.",
+    "oracle_assessment": "Expected IDs are independent of the font loader: `fixtures/opentype-selection/generate.py` declares glyph order `.notdef,A,B` for Glyf and `.notdef,two,two.sups,A,B` for CFF, and the PDF swaps names. Tests also require nonempty outline commands. This is a PDF/font-parser consumer assertion but does not rasterize page pixels.",
+    "verdict": "Good discriminating glyph-selection oracle; consumer-path limitation is explicit and acceptable for the font mapping claim."
+  },
+  {
+    "candidate": 8,
+    "feature": "Path operator equivalence and close/stroke geometry",
+    "source": "\u00a78.5.3 Table 59 path-painting operators: `s` closes then strokes; `h S` is the expanded control.",
+    "assertion": "`crates/pdf-model/tests/path_painting_audit.rs::close_and_stroke_matches_explicit_close_then_stroke` compares command results for `s` vs `h S`, then asserts a literal path sequence ending in `Close`; combined fill/stroke tests additionally assert exact path commands, fill rule, and command order.",
+    "oracle_assessment": "Equivalence is metamorphic through the same interpreter, but the literal PathCommand expectation is independent and would catch both routes returning a wrong shared path. This is not a vacuous equality-only check.",
+    "verdict": "Strong evidence for path closure/operator command geometry. No additional geometry oracle needed."
+  }
+]

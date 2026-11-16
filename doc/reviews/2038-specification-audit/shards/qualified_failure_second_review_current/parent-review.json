@@ -1,0 +1,6 @@
+{
+  "review": "Read current four findings and B42 actual fixture, Comparison::against_field_mdp, current ledger row and ADR1096. Read Table259 physical592; prior verified#33 source preserved.",
+  "corrections": "B08/B40 were already explicitly qualified. B42 already disclaimed authenticated signature validity and viewer enforcement; do not describe the prior finding as an unqualified ISO failure. The ledger does not explicitly assert signed-time rename identity.",
+  "disposition": "B08 unresolved interpretation; B24 retain centering with#536 SHOULD scale-selection distinction; B40 retain adopted policy; B42 unresolved comparison-policy probe. Keep reproducible failing tests, but their count is not a count of confirmed mandatory ISO defects.",
+  "limits": "No new runtime checks were needed for documentation-only reclassification; broad64 already reproduces the exact assertions. No ADR/ledger edits."
+}

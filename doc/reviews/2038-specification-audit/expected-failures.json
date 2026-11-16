@@ -59,7 +59,8 @@
       "binary": "viewer-core::named_destination_tables_audit",
       "test": "a_string_destination_uses_the_name_tree_even_when_the_dictionary_has_the_same_key",
       "finding": "2038-B08",
-      "log": "round2-targets-wave4.log"
+      "log": "round2-targets-wave4.log",
+      "disposition": "Unresolved interpretation/policy probe; not a confirmed mandatory ISO defect."
     },
     {
       "binary": "pdf-colour::functions_spec_audit",
@@ -389,7 +390,8 @@
       "binary": "pdf-signature",
       "test": "revision::tests::field_mdp_signed_name_spec_audit::a_fieldmdp_selection_keeps_the_signed_field_identity_across_a_rename",
       "finding": "2038-B42",
-      "log": "signature-time-field-wave37b.log"
+      "log": "signature-time-field-wave37b.log",
+      "disposition": "Unresolved interpretation/policy probe; not a confirmed mandatory ISO defect."
     },
     {
       "binary": "viewer-accessibility::interleaved_struct_content_spec_audit",

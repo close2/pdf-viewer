@@ -2651,7 +2651,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/graphics_transparency_framing_current/features.json"
+      "shards/graphics_transparency_framing_current/features.json",
+      "shards/shared_oracle_assertions_current/features.json"
     ],
     "prior_artifacts": [
       "path_painting"
@@ -2826,7 +2827,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/text_colour_optional_framing_current/features.json"
+      "shards/text_colour_optional_framing_current/features.json",
+      "shards/shared_oracle_assertions_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -2931,7 +2933,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/colour_spaces_current/features.json"
+      "shards/colour_spaces_current/features.json",
+      "shards/shared_oracle_assertions_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -3103,7 +3106,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/text_colour_optional_framing_current/features.json"
+      "shards/text_colour_optional_framing_current/features.json",
+      "shards/shared_oracle_assertions_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -3506,7 +3510,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/images_samples_interpolation_current/features.json"
+      "shards/images_samples_interpolation_current/features.json",
+      "shards/shared_oracle_assertions_current/features.json"
     ],
     "prior_artifacts": [
       "image_samples_decode_audit"
@@ -3521,7 +3526,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/images_samples_interpolation_current/features.json"
+      "shards/images_samples_interpolation_current/features.json",
+      "shards/shared_oracle_assertions_current/features.json"
     ],
     "prior_artifacts": [
       "image_coordinates_audit"
@@ -4406,7 +4412,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/font_substitution_current/features.json",
-      "shards/indirect_font_values_current/features.json"
+      "shards/indirect_font_values_current/features.json",
+      "shards/shared_oracle_assertions_current/features.json"
     ],
     "prior_artifacts": [
       "simple_font_widths_audit"
@@ -4554,7 +4561,8 @@
       "shards/annex_d_encoding/features.json",
       "shards/simple_font_encodings_current/features.json",
       "shards/simple_font_encoding_residual_current/features.json",
-      "shards/indirect_differences_current/features.json"
+      "shards/indirect_differences_current/features.json",
+      "shards/shared_oracle_assertions_current/features.json"
     ],
     "prior_artifacts": [],
     "reviewed_assertions": [
@@ -4921,7 +4929,8 @@
       "prior-assertion-reviews.json",
       "shards/font_substitution_current/features.json",
       "shards/font_dictionaries_current/features.json",
-      "shards/cid_opentype_current/features.json"
+      "shards/cid_opentype_current/features.json",
+      "shards/shared_oracle_assertions_current/features.json"
     ],
     "prior_artifacts": [
       "cidfont_cmap_validation_audit",
@@ -6405,7 +6414,8 @@
       "shards/navigation/features.json",
       "shards/destinations_current_followup/features.json",
       "shards/navigation_geometry_residual_current/features.json",
-      "shards/errata_interactive_batch_current/features.json"
+      "shards/errata_interactive_batch_current/features.json",
+      "shards/qualified_failure_second_review_current/features.json"
     ],
     "prior_artifacts": [
       "destinations_audit",
@@ -6443,7 +6453,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/navigation/features.json",
-      "shards/navigation_geometry_residual_current/features.json"
+      "shards/navigation_geometry_residual_current/features.json",
+      "shards/qualified_failure_second_review_current/features.json"
     ],
     "prior_artifacts": [
       "destinations_audit"
@@ -6701,7 +6712,8 @@
     "current_artifacts": [
       "prior-assertion-reviews.json",
       "shards/annotation_common_current/features.json",
-      "shards/indirect_annotation_parameters_current/features.json"
+      "shards/indirect_annotation_parameters_current/features.json",
+      "shards/annotation_view_flags_current/features.json"
     ],
     "prior_artifacts": [
       "annotation_flags_audit",
@@ -6742,7 +6754,8 @@
       "shards/appearance_state_residual_current/features.json",
       "shards/departure_decisions_residual_current/features.json",
       "shards/stored_ap_blend_residual_current/features.json",
-      "shards/indirect_annotation_parameters_current/features.json"
+      "shards/indirect_annotation_parameters_current/features.json",
+      "shards/annotation_view_flags_current/features.json"
     ],
     "prior_artifacts": [
       "annotation_appearance_audit"
@@ -8191,7 +8204,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/usage_rights_current/features.json"
+      "shards/usage_rights_current/features.json",
+      "shards/qualified_failure_second_review_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -8204,7 +8218,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/field_mdp_identity_current/features.json"
+      "shards/field_mdp_identity_current/features.json",
+      "shards/qualified_failure_second_review_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."

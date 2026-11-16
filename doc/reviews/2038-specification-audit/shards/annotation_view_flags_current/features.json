@@ -1,0 +1,49 @@
+{
+  "baseline": "b901326c",
+  "source": "doc/ISO_32000-2_sponsored_EC3.pdf; primary EC3 PDF, footer-checked source locators",
+  "scope": [
+    "12.5.3 NoZoom/NoRotate geometry",
+    "12.5.5 appearance mapping interaction"
+  ],
+  "features": [
+    {
+      "clause": "12.5.3 Table 167 and following prose",
+      "feature": "NoZoom / NoRotate preserve the annotation upper-left Rect corner while adjusting the other corners in screen space",
+      "source_location": "Physical486/printed471 Table167; following prose and Figure78 physical487/printed472.",
+      "source_rule": "NoZoom keeps apparent size independent of page magnification. NoRotate keeps the appearance's orientation when the page rotates through the page object's /Rotate. In either case the upper-left corner of /Rect remains fixed in default user space; the processor performs the transform without changing /Rect.",
+      "errata": "No relevant EC3 annotation found for this rule. Issue #422, elsewhere in \u00a712.5.5's checkbox example, is typographic and does not alter this geometry.",
+      "ledger": "12.5.3 implemented; its tests include annotations.rs::a_no_rotate_annotation_pivots_about_its_own_corner and ::a_no_zoom_annotation_keeps_its_size_when_the_page_is_magnified",
+      "code": "annotation.rs::ViewGeometry::adjustment composes around min-x/max-y of Rect; content/annotations.rs supplies Page.rotate and screen magnification (Print supplies None); adjustment is composed onto the entire annotation before page base transform.",
+      "existing_assertions": [
+        "a_no_rotate_annotation_pivots_about_its_own_corner: /Rotate 90, off-origin Rect [40 40 70 70], asymmetric AP; asserts on/off pixels and literal extent",
+        "a_no_zoom_annotation_keeps_its_size_when_the_page_is_magnified: zoom 2, 0.5 and unstated scale, literal extent; unflagged Square control",
+        "a_text_markup_annotation_scales_with_the_text_it_marks: subtype override and Square control",
+        "a_text_annotation_behaves_as_though_both_flags_were_set: subtype override",
+        "a_page_says_whether_its_marks_depend_on_the_magnification: view-dependent reporting"
+      ],
+      "verdict": "The separate NoZoom and NoRotate behaviors are already meaningfully tested. I found a narrower combination gap: the public pixel tests do not combine both flags with a non-identity AP Matrix and off-origin BBox. The prose expressly requires any whole-annotation transform to apply to its appearance, so this is a useful composition regression, not evidence of a current behavior failure.",
+      "draft": "crates/pdf-model/tests/annotation_view_matrix_spec_audit.rs",
+      "residuals": "No separate arbitrary viewer-rotation API was found in this path; this implementation takes page.rotate from the in-file /Rotate. The normative trigger quoted here is page rotation by changing /Rotate, not a host-only screen rotation. This review does not certify every annotation subtype's flag override or print behavior.",
+      "execution": "New public pixel test PASS; model all-targets Clippy PASS."
+    },
+    {
+      "clause": "12.5.5 Algorithm: appearance streams",
+      "feature": "Transform appearance BBox through AP Matrix, align the transformed box to Rect, then apply whole-annotation NoZoom/NoRotate adjustment",
+      "source_location": "Physical489/printed474, appearance mapping algorithm and whole-annotation transform paragraph.",
+      "source_rule": "Steps 1\u20133 transform BBox with Matrix, compute A to align that transformed extent to Rect, and concatenate Matrix with A. The next paragraph says the annotation may be further scaled/rotated for NoZoom/NoRotate and that any transform applied to the annotation as a whole shall be applied to the appearance within it.",
+      "errata": "No relevant EC3 correction to the mapping algorithm located. Issue #422 affects italicization in an example, not this rule.",
+      "ledger": "12.5.5 departed only for its recorded BM/ca/CA transparency interpretation; placement is explicitly implemented and named by annotations.rs tests.",
+      "code": "appearance.rs::placement computes transformed appearance extent and alignment; content/annotations.rs::draw_annotation composes adjust.transform before the page base transform; annotation.rs::decide supplies whole-annotation adjustment.",
+      "existing_assertions": [
+        "annotations.rs::an_appearance_is_scaled_and_translated_onto_the_annotation_rectangle",
+        "annotations.rs::a_rotating_matrix_is_measured_before_the_scale_is_computed",
+        "annotations.rs::a_no_zoom_annotation_keeps_its_size_when_the_page_is_magnified",
+        "annotations.rs::a_no_rotate_annotation_pivots_about_its_own_corner"
+      ],
+      "verdict": "The existing tests separately establish AP Matrix/BBox placement and each view flag, but do not establish their composition in one rendered annotation. The draft adds that missing orthogonal combination with literal affine geometry.",
+      "draft": "crates/pdf-model/tests/annotation_view_matrix_spec_audit.rs",
+      "residuals": "Draft has not been compiled or executed by this agent; parent should verify fixture validity, exact alpha extents, and no-recovery assertion. It intentionally does not claim a NoZoom defect.",
+      "execution": "New public pixel test PASS; model all-targets Clippy PASS."
+    }
+  ]
+}

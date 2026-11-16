@@ -1777,6 +1777,34 @@
       "skipped": 58,
       "exit": 100,
       "scope": "Eleven crates, exactmanifest identities. Passing count includes early returns; see D45."
+    },
+    {
+      "log": "literal-appearance-wave65b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "gamma-mutated65.log",
+      "run": 3,
+      "passed": 1,
+      "failed": 2,
+      "exit": 100,
+      "scope": "Intentional temporary mutation, not baseline failures"
+    },
+    {
+      "log": "gamma-restored65.log",
+      "run": 3,
+      "passed": 3,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Exact production source restoration verified"
+    },
+    {
+      "log": "quality-model-wave65c.log",
+      "exit": 0,
+      "scope": "Model all-targets Clippy"
     }
   ],
   "prior_expected_failures": {

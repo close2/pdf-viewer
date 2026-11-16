@@ -1,0 +1,7 @@
+{
+  "review": "Read actual assertions in all eight candidates, plus fixture glyph order and existing CalGray literals. Metamorphic comparisons are meaningful for route composition; no claim that every shared helper makes a test useless.",
+  "new_test": "Exact-xref PDF, no recovery, complete interpretation, two CalRGB samples and DeviceRGB control. Literal expected bytes independently derived from ICC transfer equation; no production helper in expected values.",
+  "mutation": "Replaced gamma with value*0.0 temporarily. Selected old identity survived; existing CalGray and new public pixel test killed the mutation. Restored exact source SHA and reran all three successfully.",
+  "corrections": "Draft Vec<u8> writer import corrected to io::Write. Rounded D65 matrix is not claimed to be an exact IEC matrix. CMYK test does not itself execute external decoders.",
+  "limits": "This is one seeded defect, not a mutation score or proof that all output conversion defects are caught. No production change."
+}

@@ -11,11 +11,12 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (64)
+## Current checkpoint (65)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **80 assertions**, grouped into behavior findings rather
-than 80 independent defects. All 72 failures from the prior audit pass at this baseline.
+than 80 independent defects. B08 and B42 remain unresolved interpretation/policy
+probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
 The refreshed broad run, wave64, covered eleven crates: **7,218 tests ran, 7,142 passed,
 and exactly the 76 recorded in-scope assertions failed; 58 were skipped**.
 Exact binary/test identities match the manifest, with no extra or missing failures.
@@ -122,6 +123,13 @@ A new deterministic Open report-event test passes; core Clippy passes. Four othe
 producer witnesses initially called absent are present in the audit worktree and
 pass selected execution; the reviewer had inspected the owner checkout. Broad64
 matches all76 in-scope failures, with no unexpected or missing identities.
+
+Checkpoint65 adds passing independent CalRGB pixel samples and a combined annotation
+NoZoom/NoRotate test with a rotating appearance matrix. A temporary zero-transfer
+mutation survives the old CalRGB identity oracle, but both an existing CalGray test
+and the new pixel test catch it. Exact source restoration and all three passing
+checks are recorded. Model Clippy passes. Second review keeps B08/B42 explicitly
+unresolved, B40 an adopted SHOULD policy, and B24 narrowly about centering.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

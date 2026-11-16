@@ -11,18 +11,21 @@
     "script_engine": "247PASS4ignored plus separate corpus2PASS249filtered. Corpus counters documented; semantic/error provenance follow-up active.",
     "rendition_and_font": "B49/B50:7new tests,5PASS2FAIL;73total expected failures,70in eleven-crate scope+3GPU. Model/core Clippy PASS.",
     "optional_and_save": "Wave51 final4run3PASS1FAIL; manifest74 (71eleven-crate scope+3GPU). Model/core/signature Clippy PASS.",
-    "residual_consumers": "Wave52:Matrix2D1engineFAIL; appearance1PASS, navigation3PASS, outlineUI1PASS; existingLZWtest extended andPASS. Manifest75=71eleven-crate+3GPU+1engine. FivecrateClippyPASS. Wave54 adds2syntaxPASS after broad53, strengthens existingBMtestPASS; syntax/modelClippyPASS. Manifest75unchanged. Wave55newcore4run3PASS1FAIL;manifest76=72broadscope+3GPU+1engine. Broad53 predates this newfailure; no newbroadrun claimed. Core/syntaxClippyPASS. Wave56syntax4run2PASS2FAIL; manifest78=74broadscope+3GPU+1engine. SyntaxClippyPASS. Wave57adds4PASSannotation/link/function/CalGray; model+colourClippyPASS. Manifest78unchanged. Wave58adds2PASSgraphicsstatepixels;modelClippyPASS;manifest78unchanged. Wave59 adds two passing font metric tests; font all-targets Clippy passes. Manifest remains 78. Wave61 adds two passing composite-string/class-map tests; model all-targets Clippy passes. Manifest remains 78; broad59 predates these two. Wave62 adds two passing public shading pixel tests; model Clippy passes. Broad59 predates four passing tests from61/62. Wave63 adds BU1PASS,Differences2PASS,versionfloor1PASS2FAIL. Manifest80=76 broad-scope+3GPU+1engine. Broad59 predates ten new tests through63; model/transformClippyPASS. Wave64 adds one passing Open event test and reproduces two hidden fixture skips. Four other producer witnesses are present and execute. CoreClippyPASS; manifest80unchanged."
+    "residual_consumers": "Wave52:Matrix2D1engineFAIL; appearance1PASS, navigation3PASS, outlineUI1PASS; existingLZWtest extended andPASS. Manifest75=71eleven-crate+3GPU+1engine. FivecrateClippyPASS. Wave54 adds2syntaxPASS after broad53, strengthens existingBMtestPASS; syntax/modelClippyPASS. Manifest75unchanged. Wave55newcore4run3PASS1FAIL;manifest76=72broadscope+3GPU+1engine. Broad53 predates this newfailure; no newbroadrun claimed. Core/syntaxClippyPASS. Wave56syntax4run2PASS2FAIL; manifest78=74broadscope+3GPU+1engine. SyntaxClippyPASS. Wave57adds4PASSannotation/link/function/CalGray; model+colourClippyPASS. Manifest78unchanged. Wave58adds2PASSgraphicsstatepixels;modelClippyPASS;manifest78unchanged. Wave59 adds two passing font metric tests; font all-targets Clippy passes. Manifest remains 78. Wave61 adds two passing composite-string/class-map tests; model all-targets Clippy passes. Manifest remains 78; broad59 predates these two. Wave62 adds two passing public shading pixel tests; model Clippy passes. Broad59 predates four passing tests from61/62. Wave63 adds BU1PASS,Differences2PASS,versionfloor1PASS2FAIL. Manifest80=76 broad-scope+3GPU+1engine. Broad59 predates ten new tests through63; model/transformClippyPASS. Wave64 adds one passing Open event test and reproduces two hidden fixture skips. Four other producer witnesses are present and execute. CoreClippyPASS; manifest80unchanged. Wave65 adds two passing independent CalRGB/combined annotation geometry tests. Seeded gamma mutation confirms one shared-oracle blind spot and existing independent coverage. ModelClippyPASS. Manifest80 includes unresolved B08/B42 probes."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
-      "errata_disposition_crosswalk_current",
-      "annotation_view_flags_current",
-      "qualified_failure_second_review_current"
+      "indirect_file_parameters_current",
+      "annotation_visibility_print_current",
+      "print_scaling_policy_current"
     ],
     "recorded_shards": [
+      "shared_oracle_assertions_current",
+      "annotation_view_flags_current",
+      "qualified_failure_second_review_current",
       "silent_fixture_skip_current",
       "errata_media_annex_batch_current",
       "indirect_differences_current",
@@ -186,7 +189,7 @@
   },
   "remaining": [
     "All 883 rows remain partially reviewed. Current work checks uncited EC3 annotation candidates against primary pages, effective wording, code and actual assertions.",
-    "shared_oracle_assertions_current complete in scratch, awaits parent review and optional CalRGB literal draft. Errata disposition crosswalk and qualified failure second review underway; NoZoom/NoRotate consumer review active.",
+    "Errata disposition crosswalk and revocation second-review ready for parent review. Follow-ups inspect file parameters, annotation visibility and print policy consumers.",
     "Literal issue citation candidates are discovery metadata only, not counts of missing features. Selected batches remain under parent source review.",
     "Indirect Differences names, Matrix2D methods/semantics and deeper feature/assertion combinations remain residuals.",
     "Stop new dispatch near 81%; preserve 15% weekly allowance at 85%."
@@ -197,6 +200,6 @@
     "ceiling": 85,
     "remaining_reserved": 15,
     "last_weekly_used_percent": 55,
-    "last_read_utc": "2026-11-16T21:38:20.356364+00:00"
+    "last_read_utc": "2026-11-16T21:53:13.352112+00:00"
   }
 }

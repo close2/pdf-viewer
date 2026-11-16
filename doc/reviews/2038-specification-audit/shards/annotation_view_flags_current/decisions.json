@@ -1,0 +1,22 @@
+{
+  "reviews": [
+    {
+      "topic": "ADR 0168 / ADR 0777 NoZoom and NoRotate view adjustment",
+      "current_code": [
+        "ViewGeometry::adjustment is anchored at the upper-left default-user-space corner (min x, max y), uses page.rotate for inverse rotation, and scales by reciprocal logical magnification only for screen interpretation.",
+        "draw_annotation applies the adjustment to the whole appearance before the page base transform, matching \u00a712.5.5's explicit whole-annotation sentence.",
+        "The page reports view-dependence for NoZoom so zoom can re-interpret, while NoRotate depends on the file's /Rotate and is not separately view-dependent."
+      ],
+      "decision": "ADR 0168's central architecture premise remains valid: /Rotate is document geometry and NoZoom is the view-dependent case. Existing named tests support each flag independently. A combined AP Matrix/BBox pixel test is a targeted missing composition assertion; no runtime failure observed.",
+      "scope_boundary": "\u00a712.5.3 names rotation by changing the page dictionary's Rotate entry. A host rotation independent of /Rotate is not established by this cited requirement. The public model currently passes Page.rotate, not an arbitrary viewport rotation.",
+      "source_basis": "Primary Table167 physical486/471; following prose physical487/472; appearance algorithm physical489/474. Parent corrected draft locators."
+    },
+    {
+      "topic": "ADR 2813 NoZoom on screen versus print",
+      "current_code": [
+        "content/annotations.rs supplies magnification None for Purpose::Print."
+      ],
+      "decision": "Consistent with current ledger interpretation and source scope; this shard did not reopen print scaling. NoZoom tests in annotations.rs exercise screen magnification."
+    }
+  ]
+}
