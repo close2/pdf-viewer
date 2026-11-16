@@ -455,3 +455,67 @@ fn a_tokens_qualification_and_listing_are_reported_from_the_lists() {
     assert_eq!(eu_qualified, EuQualified::TokenNotEstablished);
     assert!(listed.is_empty(), "the absence d) i) asks to be expressed");
 }
+
+/// h) against ETSI TS 119 312 clause 9.2: "A hash function used to compute the imprint of a
+/// message placed in a time-stamp token should never be a legacy mechanism at the time of time
+/// stamp creation." The report asks Table 1 about every token it takes as a time, after the suite's
+/// own components. The fixture is the timestamp module's two-revision document, whose second
+/// document timestamp covers the first: asked about the first, d) ii) 2) takes the second's token
+/// as a time, and its `messageImprint` is SHA-256, which Table 1 lists as recommended. The suite is
+/// set by hand, because what is pinned here is the token's component and not the suite's.
+#[test]
+fn every_tokens_imprint_hash_is_asked_of_table_1_in_the_report() {
+    use super::ts_119_312::Component;
+    use crate::timestamp::chain;
+    use crate::timestamp::tests::fixtures::two_timestamps;
+    let document = pdf_syntax::Document::open(two_timestamps(false)).expect("the fixture opens");
+    let found = crate::signature::signatures(&document);
+    let anchors = TrustAnchors::none();
+    let chain = chain(&document, &anchors, &[], &Material::none(), AT);
+    let authenticity = Authenticity::Verified {
+        digest: Digest::Sha256,
+        family: Family::Rsa,
+        key_bits: 3_072,
+        over: Signed::TheDocumentsBytes,
+    };
+    let report = Report::of(&Asked {
+        signature: &found[0],
+        authenticity: &authenticity,
+        when: BestSignatureTime::now(AT),
+        chain: &chain,
+        index: 0,
+        material: &Material::none(),
+        anchors: &anchors,
+        now: AT,
+        signatures: &found,
+        lists: &[],
+    });
+    assert_eq!(
+        report
+            .times
+            .iter()
+            .filter(|timing| timing.kind == TimeKind::DocumentTimestamp)
+            .count(),
+        1,
+        "the later timestamp is the one time stamp over the first: {:?}",
+        report.times
+    );
+    let security = report.security.expect("a suite was reached");
+    let imprints: Vec<&Component> = security
+        .components
+        .iter()
+        .filter(|component| component.rule == Rule::TimeStampImprints)
+        .collect();
+    assert_eq!(
+        imprints,
+        [&Component {
+            rule: Rule::TimeStampImprints,
+            listed: Some(("SHA-256", Class::Recommended)),
+        }]
+    );
+    assert_eq!(
+        security.components.last().map(|component| component.rule),
+        Some(Rule::TimeStampImprints),
+        "the token's component follows the suite's"
+    );
+}

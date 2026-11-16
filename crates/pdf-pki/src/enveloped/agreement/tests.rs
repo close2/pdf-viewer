@@ -202,17 +202,12 @@ fn the_entry_whose_rid_names_the_certificate_is_the_one_matched() {
     );
 }
 
-/// What this reader does not run is refused with its name, never read as "not a recipient":
-/// 1-Pass ECMQV's `mqvSinglePass-sha256kdf-scheme` (RFC 5753 section 8 makes it "OPTIONAL"); an
+/// What this reader does not run is refused with its name, never read as "not a recipient": an
 /// `originatorKey` whose `namedCurve` is not the recipient's (section 6.2.2's recipients "use the
 /// same ... domain parameters"); an AES wrap stated with parameters, which RFC 3565 section 2.3.2
 /// says "MUST be absent"; and an RSA key for a key-agreement recipient.
 #[test]
 fn what_is_not_run_is_refused_by_name() {
-    assert_eq!(
-        open(fixture!("kari-p256-mqv.der"), "p256"),
-        Err(EnvelopeError::KeyAgreement("1.3.132.1.15.1".to_owned()))
-    );
     assert!(matches!(
         open(fixture!("kari-p256-wrong-curve.der"), "p256"),
         Err(EnvelopeError::Malformed(reason)) if reason.contains("another curve")
@@ -306,5 +301,81 @@ fn the_kdf_is_sec_1_s_counter_mode_hash() {
     assert_eq!(
         x963_kdf::<Sha256>(&z, info, 16),
         x963_kdf::<Sha256>(&z, info, 32)[..16]
+    );
+}
+
+/// RFC 5753 section 3.2.3's receiving agent under 1-Pass ECMQV, over every variation `gen_mqv.py`
+/// wrote: section 7.1.4's five `mqvSinglePass-*` hashes; each AES wrap of section 7.1.5; the
+/// sender's static key named by `issuerAndSerialNumber` and by `subjectKeyIdentifier` with its
+/// certificate in `originatorInfo` (section 3.2.1: "It SHOULD be one of the alternatives,
+/// `issuerAndSerialNumber` or `subjectKeyIdentifier`") and carried as `originatorKey`; the
+/// `ephemeralPublicKey`'s parameters absent, NULL and `namedCurve` (section 3.2.1: "MUST be absent,
+/// `ECParameters`, or NULL"); an `addedukm`, which section 7.2 puts in `entityUInfo`; and the five
+/// curves. The generator ran SEC 1 section 3.4's primitive as the sender with a static and an
+/// ephemeral key and the recipient's static key as both of V's (SEC 1 section 5.2), checked against
+/// NIST's responder vectors before writing anything; each opens to the plaintext it put in.
+#[test]
+fn each_generated_one_pass_mqv_envelope_opens_to_its_plaintext() {
+    let cases: [(&[u8], &str); 8] = [
+        (fixture!("mqv-p256-sha256-aes256.der"), "p256"),
+        (fixture!("mqv-p256-sha1-aes128-addedukm-ski.der"), "p256"),
+        (
+            fixture!("mqv-p256-sha224-aes192-originator-key-null.der"),
+            "p256",
+        ),
+        (fixture!("mqv-p256-sha512-named.der"), "p256"),
+        (fixture!("mqv-p384-sha384-aes256.der"), "p384"),
+        (fixture!("mqv-p521-sha512-aes256.der"), "p521"),
+        (fixture!("mqv-bp256-sha256-aes128.der"), "bp256"),
+        (fixture!("mqv-bp384-sha384-aes256.der"), "bp384"),
+    ];
+    for (envelope, curve) in cases {
+        assert_eq!(open(envelope, curve).unwrap(), PLAIN, "{curve}");
+    }
+}
+
+/// What section 3.2.1 requires of a 1-Pass ECMQV recipient, each failure on its own fixture where
+/// only that member differs from `mqv-p256-sha256-aes256.der`:
+///
+/// - "ukm MUST be present", and without it there is no ephemeral key: malformed, by name;
+/// - the `ephemeralPublicKey` named on P-384 for a P-256 recipient: malformed, by name;
+/// - section 7.2's "the entityUInfo contains the octet string addedukm" — an envelope whose sender
+///   put the whole `ukm` in `entityUInfo` derived another key, and does not open.
+#[test]
+fn a_one_pass_mqv_recipient_reads_its_ukm_as_section_3_2_1_states_it() {
+    assert!(matches!(
+        open(fixture!("mqv-p256-no-ukm.der"), "p256"),
+        Err(EnvelopeError::Malformed(reason)) if reason.contains("section 3.2.1")
+    ));
+    assert!(matches!(
+        open(fixture!("mqv-p256-ephemeral-wrong-curve.der"), "p256"),
+        Err(EnvelopeError::Malformed(reason)) if reason.contains("another curve")
+    ));
+    assert_eq!(
+        open(fixture!("mqv-p256-entity-info-is-ukm.der"), "p256"),
+        Err(EnvelopeError::Decryption)
+    );
+}
+
+/// RFC 5480 section 2.1.2: a key "restricted to the respective algorithm" by `id-ecMQV` opens a
+/// 1-Pass ECMQV recipient and is refused a Diffie–Hellman one by name, and one restricted by
+/// `id-ecDH` the other way round (`gen_mqv.py`'s `p256.ecmqv.p8.der` and `p256.ecdh.p8.der`, the
+/// P-256 recipient's key under each identifier).
+#[test]
+fn a_restricted_key_opens_only_its_own_scheme_s_recipient() {
+    let certificate = x509::parse(recipient("p256").0).unwrap();
+    let mqv_only = PrivateKey::from_der(fixture!("p256.ecmqv.p8.der")).unwrap();
+    let dh_only = PrivateKey::from_der(fixture!("p256.ecdh.p8.der")).unwrap();
+    let mqv = parse(fixture!("mqv-p256-sha256-aes256.der")).unwrap();
+    let dh = parse(fixture!("kari-p256-sha256-aes256.der")).unwrap();
+    assert_eq!(mqv.open(&certificate, &mqv_only).unwrap(), PLAIN);
+    assert_eq!(
+        dh.open(&certificate, &mqv_only),
+        Err(EnvelopeError::KeyKind("Diffie-Hellman key-agreement"))
+    );
+    assert_eq!(dh.open(&certificate, &dh_only).unwrap(), PLAIN);
+    assert_eq!(
+        mqv.open(&certificate, &dh_only),
+        Err(EnvelopeError::KeyKind("1-Pass ECMQV key-agreement"))
     );
 }

@@ -167,7 +167,7 @@ impl Scheme {
     pub const fn of(family: Family) -> Self {
         match family {
             Family::Rsa => Self::RsaPkcs1v15,
-            Family::RsaPss => Self::RsaPss,
+            Family::RsaPss { .. } => Self::RsaPss,
             Family::Dsa => Self::Dsa,
             Family::Ecdsa(_) => Self::Ecdsa,
             Family::EdDsa(eddsa::Curve::Ed25519) => Self::Ed25519,
@@ -682,6 +682,8 @@ pub enum Rule {
     RsaKeySizes,
     /// TS 119 312 Table 7, the DSA key's sizes.
     DsaKeySizes,
+    /// Clause 9.2's rule on the hash of a time-stamp token's imprint, asked of Table 1.
+    TimeStampImprints,
 }
 
 impl Rule {
@@ -696,6 +698,7 @@ impl Rule {
             Self::EqualLengths => "clause 7.3",
             Self::RsaKeySizes => "Table 6, clause 8.4",
             Self::DsaKeySizes => "Table 7, clause 8.4",
+            Self::TimeStampImprints => "Table 1, clause 9.2",
         }
     }
 }
@@ -794,8 +797,19 @@ impl Assessment {
     pub fn of(asked: &Asked) -> Self {
         let scheme = Scheme::of(asked.family);
         let hash = Hash::of(asked.digest);
+        // Table 4's two RSASSA-PSS rows are named by MGF1's hash — "rsa-pss with
+        // mgf1SHA2-Identifier" and "... mgf1SHA3-Identifier" — and list the message digests. A row
+        // admits a PSS signature whose digest and MGF1 hash are both among its hashes; any other
+        // pairing, Annex D Table D.3's discontinued `mgf1SHA-1Identifier` among them, is in no row
+        // (ADR 2905).
+        let mask = match asked.family {
+            Family::RsaPss { mask } => Some(Hash::of(mask)),
+            _ => None,
+        };
         let suite = SIGNATURE_SUITES.iter().find(|suite| {
-            suite.scheme == scheme && hash.is_some_and(|hash| suite.hashes.contains(&hash))
+            suite.scheme == scheme
+                && hash.is_some_and(|hash| suite.hashes.contains(&hash))
+                && mask.is_none_or(|mask| mask.is_some_and(|mask| suite.hashes.contains(&mask)))
         });
         let mut components = Vec::new();
         let mut issues = Vec::new();
@@ -865,6 +879,43 @@ impl Assessment {
             }
         }
         Self { components, issues }
+    }
+
+    /// Clause 9.2: "A hash function used to compute the imprint of a message placed in a
+    /// time-stamp token should never be a legacy mechanism at the time of time stamp creation."
+    ///
+    /// Each token's `messageImprint` hash asks Table 1 and adds one component: a hash no row lists
+    /// is [`Issue::NotListed`] — the document does not admit it at all, which is further from
+    /// recommended than legacy — and one whose row is legacy, phased out or not, is
+    /// [`Issue::Legacy`]. The classes are this version's, and a class only ever moves from
+    /// recommended towards legacy, so a hash legacy now was no better when an earlier token was
+    /// made, and one recommended now was recommended then (ADR 2905). Table 1's one legacy row is
+    /// SHA-224, which no time-stamp token this reader takes as a time is computed with, so the
+    /// rule's issue today is the unlisted one.
+    pub fn imprints(&mut self, tokens: &[Digest]) {
+        for &digest in tokens {
+            let listed = Hash::of(digest).and_then(|hash| {
+                HASH_FUNCTIONS
+                    .iter()
+                    .find(|row| row.hash == hash)
+                    .map(|row| (row.name, row.class))
+            });
+            self.components.push(Component {
+                rule: Rule::TimeStampImprints,
+                listed,
+            });
+            match listed {
+                None => self.issues.push(Issue::NotListed(Rule::TimeStampImprints)),
+                Some((entry, class @ Class::Legacy { .. })) => {
+                    self.issues.push(Issue::Legacy {
+                        rule: Rule::TimeStampImprints,
+                        entry,
+                        class,
+                    });
+                }
+                Some((_, Class::Recommended)) => {}
+            }
+        }
     }
 }
 

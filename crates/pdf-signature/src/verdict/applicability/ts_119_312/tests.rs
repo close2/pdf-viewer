@@ -256,7 +256,14 @@ fn a_class_is_phased_out_after_the_31_december_of_its_year() {
 /// issue, and each table's row is named.
 #[test]
 fn a_recommended_suite_raises_no_issue() {
-    let assessment = assess(Digest::Sha256, Family::RsaPss, 3_072, None);
+    let assessment = assess(
+        Digest::Sha256,
+        Family::RsaPss {
+            mask: Digest::Sha256,
+        },
+        3_072,
+        None,
+    );
     let r = Class::Recommended;
     assert_eq!(
         assessment.components,
@@ -286,7 +293,14 @@ fn a_recommended_suite_raises_no_issue() {
 /// row.
 #[test]
 fn an_rsa_modulus_is_sized_by_table_6() {
-    let legacy = assess(Digest::Sha256, Family::RsaPss, 2_048, None);
+    let legacy = assess(
+        Digest::Sha256,
+        Family::RsaPss {
+            mask: Digest::Sha256,
+        },
+        2_048,
+        None,
+    );
     assert_eq!(
         legacy.issues,
         [Issue::Legacy {
@@ -295,7 +309,14 @@ fn an_rsa_modulus_is_sized_by_table_6() {
             class: Class::legacy_until(2026),
         }]
     );
-    let short = assess(Digest::Sha256, Family::RsaPss, 1_024, None);
+    let short = assess(
+        Digest::Sha256,
+        Family::RsaPss {
+            mask: Digest::Sha256,
+        },
+        1_024,
+        None,
+    );
     assert_eq!(short.issues, [Issue::NotListed(Rule::RsaKeySizes)]);
     // The bounds: 1 900 is in the legacy row, 2 999 too, 3 000 in the recommended one.
     assert!(RSA_KEY_SIZES[0].admits(1_900, None));
@@ -311,8 +332,19 @@ fn an_rsa_modulus_is_sized_by_table_6() {
 fn a_phase_out_is_compared_with_both_instants() {
     let entry = "at least 1 900 and below 3 000 bits";
     let class = Class::legacy_until(2026);
-    let at =
-        |signed, now| assess_at(Digest::Sha256, Family::RsaPss, 2_048, None, signed, now).issues;
+    let at = |signed, now| {
+        assess_at(
+            Digest::Sha256,
+            Family::RsaPss {
+                mask: Digest::Sha256,
+            },
+            2_048,
+            None,
+            signed,
+            now,
+        )
+        .issues
+    };
     assert_eq!(
         at(OCTOBER_2026, JANUARY_2027),
         [Issue::PhasedOut {
@@ -368,7 +400,14 @@ fn pkcs1_v1_5_is_legacy_by_table_2_and_table_4() {
 /// an RSA suite with a SHA-3 digest is in Table 1 but in no RSA PKCS #1 v1.5 row of Table 4.
 #[test]
 fn a_digest_no_table_lists_is_said() {
-    let sha1 = assess(Digest::Sha1, Family::RsaPss, 3_072, None);
+    let sha1 = assess(
+        Digest::Sha1,
+        Family::RsaPss {
+            mask: Digest::Sha256,
+        },
+        3_072,
+        None,
+    );
     assert_eq!(
         sha1.issues,
         [
@@ -488,4 +527,93 @@ fn a_dsa_key_is_sized_by_both_of_its_primes() {
         assess(Digest::Sha256, Family::Dsa, 3_072, None).issues,
         [Issue::SubgroupNotMeasured]
     );
+}
+
+/// Table 4's RSASSA-PSS rows are named by MGF1's hash — "rsa-pss with mgf1SHA2-Identifier" and
+/// "rsa-pss with mgf1SHA3-Identifier" — and list the message digests, so a row admits a signature
+/// whose digest and MGF1 hash are both among its hashes. One pairing per member, everything else
+/// equal: SHA-256 under MGF1-SHA-256 and SHA3-256 under MGF1-SHA3-256 are each their own row; MGF1
+/// over SHA-1 is Annex D Table D.3's discontinued `mgf1SHA-1Identifier` and in no row; a SHA-256
+/// digest under MGF1-SHA3-256, and the reverse, are in neither row.
+#[test]
+fn table_4_s_pss_row_is_chosen_by_mgf1_s_hash_as_well_as_the_digest() {
+    let row = |digest: Digest, mask: Digest| {
+        assess(digest, Family::RsaPss { mask }, 3_072, None)
+            .components
+            .into_iter()
+            .find(|component| component.rule == Rule::SignatureSuites)
+            .and_then(|component| component.listed)
+            .map(|(name, _)| name)
+    };
+    assert_eq!(
+        row(Digest::Sha256, Digest::Sha256),
+        Some("rsa-pss with mgf1SHA2-Identifier")
+    );
+    assert_eq!(
+        row(Digest::Sha384, Digest::Sha512),
+        Some("rsa-pss with mgf1SHA2-Identifier")
+    );
+    assert_eq!(
+        row(Digest::Sha3_256, Digest::Sha3_256),
+        Some("rsa-pss with mgf1SHA3-Identifier")
+    );
+    assert_eq!(row(Digest::Sha256, Digest::Sha1), None);
+    assert_eq!(row(Digest::Sha256, Digest::Sha3_256), None);
+    assert_eq!(row(Digest::Sha3_256, Digest::Sha256), None);
+    // The unlisted pairing is the issue, and only the suite's: Table 1 lists the digest.
+    assert_eq!(
+        assess(
+            Digest::Sha256,
+            Family::RsaPss { mask: Digest::Sha1 },
+            3_072,
+            None
+        )
+        .issues,
+        [Issue::NotListed(Rule::SignatureSuites)]
+    );
+}
+
+/// Clause 9.2: "A hash function used to compute the imprint of a message placed in a time-stamp
+/// token should never be a legacy mechanism at the time of time stamp creation." Each token's
+/// imprint hash asks Table 1: SHA-256 and SHA3-512 are recommended and raise nothing; SHA-1 and
+/// MD5 are in no row, so the document does not admit them at all, each said once per token; and
+/// a token adds a component whatever it raises, after the suite's own.
+#[test]
+fn a_time_stamp_imprint_s_hash_is_asked_of_table_1() {
+    let suite = || {
+        assess(
+            Digest::Sha256,
+            Family::RsaPss {
+                mask: Digest::Sha256,
+            },
+            3_072,
+            None,
+        )
+    };
+    let mut recommended = suite();
+    recommended.imprints(&[Digest::Sha256, Digest::Sha3_512]);
+    assert_eq!(recommended.issues, []);
+    assert_eq!(
+        recommended.components[4..],
+        [
+            Component {
+                rule: Rule::TimeStampImprints,
+                listed: Some(("SHA-256", Class::Recommended)),
+            },
+            Component {
+                rule: Rule::TimeStampImprints,
+                listed: Some(("SHA3-512", Class::Recommended)),
+            },
+        ]
+    );
+    let mut unlisted = suite();
+    unlisted.imprints(&[Digest::Sha1, Digest::Sha256, Digest::Md5]);
+    assert_eq!(
+        unlisted.issues,
+        [
+            Issue::NotListed(Rule::TimeStampImprints),
+            Issue::NotListed(Rule::TimeStampImprints),
+        ]
+    );
+    assert_eq!(Rule::TimeStampImprints.citation(), "Table 1, clause 9.2");
 }

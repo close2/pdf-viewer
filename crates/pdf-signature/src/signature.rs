@@ -718,8 +718,13 @@ pub enum Authenticity {
 pub enum Family {
     /// "RSA Algorithm Support", as RFC 8017's RSASSA-PKCS1-v1_5.
     Rsa,
-    /// The same family under RFC 8017's other padding, RSASSA-PSS ([`crate::pss`]).
-    RsaPss,
+    /// The same family under RFC 8017's other padding, RSASSA-PSS ([`crate::pss`]), with the hash
+    /// its mask generation function MGF1 ran under (RFC 4055 section 3.1's `maskGenAlgorithm`),
+    /// which ETSI TS 119 312 Table 4 names its rows by.
+    RsaPss {
+        /// MGF1's hash.
+        mask: Digest,
+    },
     /// "DSA Algorithm Support", as FIPS 186-4 section 4.7.
     Dsa,
     /// "ECDSA Algorithm Support", on the curve ISO/TS 32002 Table 3 names ([`crate::ecdsa`]).
@@ -735,7 +740,7 @@ impl Family {
     pub fn name(self) -> &'static str {
         match self {
             Self::Rsa => "RSA (PKCS #1 v1.5)",
-            Self::RsaPss => "RSA (RSASSA-PSS)",
+            Self::RsaPss { .. } => "RSA (RSASSA-PSS)",
             Self::Dsa => "DSA",
             Self::Ecdsa(ecdsa::Curve::P256) => "ECDSA (P-256)",
             Self::Ecdsa(ecdsa::Curve::P384) => "ECDSA (P-384)",
@@ -2502,7 +2507,9 @@ pub(crate) fn authenticity_of(cms: &SignedData<'_>, detached: Detached<'_>) -> A
             };
             (
                 parameters.hash,
-                Family::RsaPss,
+                Family::RsaPss {
+                    mask: parameters.mgf_hash,
+                },
                 pss::verify(key, cms.signature, parameters, &computed)
                     .map_err(Authenticity::Refused)
                     .map(|verified| (verified, key.bits())),
@@ -5663,7 +5670,9 @@ mod tests {
             signature.authenticity(&FileBytes::from(file)),
             Authenticity::Verified {
                 digest: Digest::Sha256,
-                family: Family::RsaPss,
+                family: Family::RsaPss {
+                    mask: Digest::Sha256
+                },
                 key_bits: 2048,
                 over: Signed::TheDocumentsBytes,
             },
@@ -5673,7 +5682,9 @@ mod tests {
             signature.authenticity(&FileBytes::from(b"the signed byteS")),
             Authenticity::NotUnderThatKey {
                 digest: Digest::Sha256,
-                family: Family::RsaPss,
+                family: Family::RsaPss {
+                    mask: Digest::Sha256
+                },
                 key_bits: 2048,
                 over: Signed::TheDocumentsBytes,
             }

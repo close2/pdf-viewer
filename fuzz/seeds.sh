@@ -229,6 +229,7 @@ for found in re.findall(rb"/Recipients \[<([0-9a-f]+)>", data):
     sys.stdout.buffer.write(bytes.fromhex(found.decode()))' "$pdf" > "$root/$t/$(basename "$pdf" .pdf)"
         done
         cp --update=none "$tree"/crates/pdf-pki/tests/envelopes/kari/kari-*.der \
+            "$tree"/crates/pdf-pki/tests/envelopes/kari/mqv-*.der \
             "$tree"/crates/pdf-pki/tests/envelopes/kari/openssl-*.der "$root/$t/"
         ;;
     rsa_private_key) cp --update=none "$tree"/crates/pdf-syntax/tests/public_key_witnesses/*.key.der "$root/$t/" ;;

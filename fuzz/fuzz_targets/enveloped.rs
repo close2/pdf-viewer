@@ -11,7 +11,7 @@
 //! **Parsing and opening terminate and never panic**, over any byte sequence, opened with two
 //! fixed test certificates and their keys — an RSA one for key transport and a P-256 one for key
 //! agreement (ADR 2821) — so that the RSA decryption, the padding check, the Diffie–Hellman
-//! primitive, the KDF, the key unwrap and the content cipher all see hostile input whenever a
+//! and 1-Pass ECMQV primitives (ADR 2904), the KDF, the key unwrap and the content cipher all see hostile input whenever a
 //! recipient matches, which a fuzzer reaches by copying a certificate's issuer and serial or its
 //! key identifier out of the dictionary below.
 //!

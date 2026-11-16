@@ -122,7 +122,8 @@ for c in json.load(sys.stdin)["crates"]:
         print(c["name"], c["max_version"], d)'; done
 ```
 
-**Last run on 2026-10-05**: `ed448-goldilocks` `0.14.0-pre.15` (0.9.0 its newest stable), no `bp512`
+**Last run on 2026-11-16**: the same answer — `ed448-goldilocks` `0.14.0-pre.15`, no
+`bp512`, no description naming an audit. **Run on 2026-10-05**: `ed448-goldilocks` `0.14.0-pre.15` (0.9.0 its newest stable), no `bp512`
 in the registry, and no description naming an audit — `minimal-ed448` and its mirror say
 *unaudited* and `aegis-crypto` says it is not independently audited. `ed448-goldilocks-plus` 0.18.1
 (`BSD-3-Clause`, `mikelodder7/Ed448-Goldilocks`, a stable line) does not count: its README says it
@@ -229,14 +230,14 @@ per-stream recipient list. `crates/pdf-syntax/tests/public_key_witnesses.rs` ope
 four `PDFBox` witnesses with their keystores' keys, and documents a script writes test s3, s4 and the
 per-stream list. A host supplies the reader's certificate and key (`--recipient-certificate`,
 `--recipient-key`, `quorra_recipient_key`; ADR 2822), so ADR 2801's order is built. **What is left is
-effort only**: 1-Pass ECMQV and keys on brainpoolP512r1 are refused by name; RSAES-OAEP and the
-Triple DES key wrap run (ADRs 2826, 2827). §7.6.5.1, §7.6.5.2 and
+effort only**: keys on brainpoolP512r1 are refused by name; RSAES-OAEP, the Triple DES key wrap and
+1-Pass ECMQV run (ADRs 2826, 2827, 2904). §7.6.5.1, §7.6.5.2 and
 §7.6.6 left the map: the three rows are `implemented`.
 
 - §7.6.5.3 — `partial`: all seven envelope ciphers and both digests run, the stream-level seed
   included, and both certificate-bound recipient kinds open (RSA key transport, elliptic-curve key
-  agreement, under RSAES-PKCS1-v1_5 or RSAES-OAEP and any of the four key wraps); 1-Pass ECMQV and
-  brainpoolP512r1 are refused by name.
+  agreement by Diffie–Hellman or 1-Pass ECMQV, under RSAES-PKCS1-v1_5 or RSAES-OAEP and any of the
+  four key wraps); brainpoolP512r1 is refused by name.
 
 **`doc/questions/`, and what each answer holds in this map.** `tools/state.sh questions` prints
 the parity and names the open ones. The owner's answers of 2026-09-22 are built: A98's client sends

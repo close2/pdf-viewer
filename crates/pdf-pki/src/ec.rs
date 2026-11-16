@@ -11,6 +11,15 @@
 //! on has cofactor 1 (SEC 2's `h = 01` for P-256, P-384 and P-521; RFC 5639 section 3's `h = 1` for
 //! the Brainpool curves), so one primitive serves both.
 //!
+//! RFC 5753 section 3.2's 1-Pass ECMQV is the other scheme it names: "method C(1, 2, ECC MQV)
+//! from \[SP800-56A]", whose sender contributes a static and an ephemeral key and whose recipient
+//! only its static one. [`PrivateKey::agree_one_pass_mqv`] is SEC 1 section 3.4's "Elliptic Curve
+//! MQV Primitive" run by that recipient, with its static key pair standing as its second pair too:
+//! SEC 1 section 5.2 makes `Q2,V = Q1,V` "the default choice in the absence of any indication
+//! otherwise" for a 1-pass variant, and SP 800-56A section 5.7.2.3.2 has the static-only party use
+//! "his static private key as his second private key". The arithmetic is the curve package's own
+//! scalar field and group law; what this module writes is the primitive's seven steps.
+//!
 //! # The private key is an input, and it is a secret
 //!
 //! It arrives as bytes a host supplied, never from the document (ADR 1134): RFC 5915's
@@ -41,6 +50,8 @@ use crate::x509::EcCurve;
 const ID_EC_PUBLIC_KEY: &[u8] = const_oid::db::rfc5912::ID_EC_PUBLIC_KEY.as_bytes();
 /// RFC 5480 section 2.1.2's `id-ecDH`, a key "restricted to" Elliptic Curve Diffie-Hellman.
 const ID_EC_DH: &[u8] = const_oid::db::rfc5912::ID_EC_DH.as_bytes();
+/// RFC 5480 section 2.1.2's `id-ecMQV`, a key restricted to Elliptic Curve Menezes-Qu-Vanstone.
+const ID_EC_MQV: &[u8] = const_oid::db::rfc5912::ID_EC_MQV.as_bytes();
 
 /// SEC 1 section 2.3.3's leading octets this module accepts on a point: 0x02 and 0x03 for the
 /// compressed form, 0x04 for the uncompressed one.
@@ -76,6 +87,23 @@ pub enum EcError {
     /// the identity, or is in the hybrid form RFC 5753 section 7.2 forbids.
     #[error("the public point is not a point on the private key's curve")]
     Point,
+    /// The key's `OneAsymmetricKey` restricts it to the other scheme (RFC 5480 section 2.1.2);
+    /// the string names the scheme the key is restricted to.
+    #[error("the private key is restricted to {0}")]
+    Restricted(&'static str),
+}
+
+/// The scheme RFC 5480 section 2.1.2's algorithm identifier restricts a key to, if any: "The
+/// id-ecDH and id-ecMQV algorithm identifiers are used to indicate the key is restricted to the
+/// respective algorithm".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Restriction {
+    /// `id-ecPublicKey`, or an RFC 5915 `ECPrivateKey` with no algorithm around it: either scheme.
+    Unrestricted,
+    /// `id-ecDH`: Elliptic Curve Diffie-Hellman only.
+    DiffieHellman,
+    /// `id-ecMQV`: Elliptic Curve Menezes-Qu-Vanstone only.
+    Mqv,
 }
 
 impl From<DerError> for EcError {
@@ -104,6 +132,8 @@ pub struct PrivateKey {
     curve: EcCurve,
     /// The secret scalar `d`.
     scalar: Scalar,
+    /// The scheme the key's algorithm identifier restricts it to.
+    restriction: Restriction,
 }
 
 impl std::fmt::Debug for PrivateKey {
@@ -144,15 +174,17 @@ impl PrivateKey {
             SEQUENCE => {
                 // RFC 5915 section 1: "id-ecPublicKey, id-ecDH, or id-ecMQV (from [RFC5480])
                 // with the namedCurve as the parameters in the privateKeyAlgorithm field".
-                // `id-ecMQV` restricts the key to ECMQV, which this reader does not run.
                 let mut algorithm = second.children()?;
                 let identifier = algorithm
                     .next_value()?
                     .and_then(|value| value.object_identifier())
                     .ok_or(EcError::Malformed("privateKeyAlgorithm"))?;
-                if identifier != ID_EC_PUBLIC_KEY && identifier != ID_EC_DH {
-                    return Err(EcError::NotEc);
-                }
+                let restriction = match identifier {
+                    ID_EC_PUBLIC_KEY => Restriction::Unrestricted,
+                    ID_EC_DH => Restriction::DiffieHellman,
+                    ID_EC_MQV => Restriction::Mqv,
+                    _ => return Err(EcError::NotEc),
+                };
                 let named = algorithm
                     .next_value()?
                     .and_then(|value| value.object_identifier())
@@ -162,7 +194,9 @@ impl PrivateKey {
                     .next_value()?
                     .filter(|value| value.identifier == OCTET_STRING)
                     .ok_or(EcError::Malformed("PrivateKeyInfo.privateKey"))?;
-                Self::from_ec_private_key(single(inner.contents)?, Some(named))
+                let mut key = Self::from_ec_private_key(single(inner.contents)?, Some(named))?;
+                key.restriction = restriction;
+                Ok(key)
             }
             OCTET_STRING => Self::from_ec_private_key(outer, None),
             _ => Err(EcError::NotEc),
@@ -224,13 +258,23 @@ impl PrivateKey {
             EcCurve::BrainpoolP384r1 => Scalar::BrainpoolP384r1(secret(octets)?),
             EcCurve::BrainpoolP512r1 => return Err(EcError::Curve(curve.name().to_owned())),
         };
-        Ok(Self { curve, scalar })
+        Ok(Self {
+            curve,
+            scalar,
+            restriction: Restriction::Unrestricted,
+        })
     }
 
     /// The curve the key is on.
     #[must_use]
     pub fn curve(&self) -> EcCurve {
         self.curve
+    }
+
+    /// The scheme the key's algorithm identifier restricts it to.
+    #[must_use]
+    pub fn restriction(&self) -> Restriction {
+        self.restriction
     }
 
     /// SEC 1 section 3.3.1's Elliptic Curve Diffie-Hellman Primitive: `z`, the x-coordinate of
@@ -246,8 +290,11 @@ impl PrivateKey {
     /// # Errors
     ///
     /// [`EcError::Point`] where `point` is not a point on this key's curve other than the
-    /// identity, or is in the hybrid form.
+    /// identity, or is in the hybrid form; [`EcError::Restricted`] for a key restricted to ECMQV.
     pub fn agree(&self, point: &[u8]) -> Result<Vec<u8>, EcError> {
+        if self.restriction == Restriction::Mqv {
+            return Err(EcError::Restricted("ECMQV"));
+        }
         if !point.first().is_some_and(|form| POINT_FORMS.contains(form)) {
             return Err(EcError::Point);
         }
@@ -257,6 +304,52 @@ impl PrivateKey {
             Scalar::P521(secret) => agree_on(secret, point),
             Scalar::BrainpoolP256r1(secret) => agree_on(secret, point),
             Scalar::BrainpoolP384r1(secret) => agree_on(secret, point),
+        }
+    }
+
+    /// SEC 1 section 3.4's Elliptic Curve MQV Primitive, run by the static-only party of a 1-pass
+    /// scheme: `z`, the x-coordinate of `P`, as section 2.3.5's field-element octet string.
+    ///
+    /// This key is both of the computing party's key pairs, `(d1,U, Q1,U)` and `(d2,U, Q2,U)`
+    /// (SEC 1 section 5.2; SP 800-56A section 5.7.2.3.2), and `Q1,V` and `Q2,V` are the other
+    /// party's: `static_point` its static public key and `ephemeral_point` its ephemeral one, in
+    /// section 2.3.3's encoding. With `d = d1,U = d2,U` the steps read:
+    ///
+    /// 2. `Q̄2,U = (x(Q2,U) mod 2^⌈(log2 n)/2⌉) + 2^⌈(log2 n)/2⌉`;
+    /// 3. `s = d2,U + Q̄2,U · d1,U mod n`;
+    /// 4. `Q̄2,V`, the same of `x(Q2,V)`;
+    /// 5. `P = h·s·(Q2,V + Q̄2,V · Q1,V)`, where `h` is 1 on every curve this module computes on;
+    /// 6. "Check that P ≠ O. If P = O, output 'invalid' and stop";
+    /// 7. "Output z = xP as the shared secret field element."
+    ///
+    /// The primitive asks of `Q1,V` and `Q2,V` only that they be "partially valid", which on a
+    /// curve of cofactor 1 is the point on the curve and not the identity — what decoding them
+    /// checks.
+    ///
+    /// # Errors
+    ///
+    /// [`EcError::Point`] where either point is not a point on this key's curve other than the
+    /// identity, is in the hybrid form, or step 6 finds `P = O`; [`EcError::Restricted`] for a key
+    /// restricted to Diffie-Hellman.
+    pub fn agree_one_pass_mqv(
+        &self,
+        static_point: &[u8],
+        ephemeral_point: &[u8],
+    ) -> Result<Vec<u8>, EcError> {
+        if self.restriction == Restriction::DiffieHellman {
+            return Err(EcError::Restricted("ECDH"));
+        }
+        for point in [static_point, ephemeral_point] {
+            if !point.first().is_some_and(|form| POINT_FORMS.contains(form)) {
+                return Err(EcError::Point);
+            }
+        }
+        match &self.scalar {
+            Scalar::P256(secret) => mqv_on(secret, static_point, ephemeral_point),
+            Scalar::P384(secret) => mqv_on(secret, static_point, ephemeral_point),
+            Scalar::P521(secret) => mqv_on(secret, static_point, ephemeral_point),
+            Scalar::BrainpoolP256r1(secret) => mqv_on(secret, static_point, ephemeral_point),
+            Scalar::BrainpoolP384r1(secret) => mqv_on(secret, static_point, ephemeral_point),
         }
     }
 }
@@ -300,6 +393,69 @@ where
     // SEC 1 section 2.3.5: the field element as an octet string of the field's width.
     let x: FieldBytes<C> = product.to_affine().x();
     Ok(x.to_vec())
+}
+
+/// The 1-pass MQV primitive, once the curve is a type.
+fn mqv_on<C>(
+    secret: &SecretKey<C>,
+    static_point: &[u8],
+    ephemeral_point: &[u8],
+) -> Result<Vec<u8>, EcError>
+where
+    C: CurveArithmetic,
+    AffinePoint<C>:
+        FromSec1Point<C> + ToSec1Point<C> + AffineCoordinates<FieldRepr = FieldBytes<C>>,
+    FieldBytesSize<C>: ModulusSize,
+{
+    let other_static = PublicKey::<C>::from_sec1_bytes(static_point).map_err(|_| EcError::Point)?;
+    let other_ephemeral =
+        PublicKey::<C>::from_sec1_bytes(ephemeral_point).map_err(|_| EcError::Point)?;
+    let d: C::Scalar = *secret.to_nonzero_scalar();
+    // Steps 2 and 3, with this key as the second pair: `Q2,U` is this key's own public point.
+    let own_bar = associate::<C>(&secret.public_key().as_affine().x());
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "arithmetic in the scalar field and the curve's group, which is modular and cannot overflow"
+    )]
+    let product: ProjectivePoint<C> = {
+        let s = d + own_bar * d;
+        // Steps 4 and 5.
+        let other_bar = associate::<C>(&other_ephemeral.as_affine().x());
+        (other_ephemeral.to_projective() + other_static.to_projective() * other_bar) * s
+    };
+    // Step 6. `s` is zero, or `Q2,V + Q̄2,V · Q1,V` the identity, only for keys chosen against
+    // each other; the clause states the check, so it is made.
+    if bool::from(p256::elliptic_curve::group::Group::is_identity(&product)) {
+        return Err(EcError::Point);
+    }
+    // Step 7, as section 2.3.5's octet string of the field's width.
+    let x: FieldBytes<C> = product.to_affine().x();
+    Ok(x.to_vec())
+}
+
+/// SEC 1 section 3.4 steps 2 and 4: the integer `(x mod 2^⌈(log2 n)/2⌉) + 2^⌈(log2 n)/2⌉`, where
+/// `x` is a point's x-coordinate in section 2.3.5's big-endian octets, as a scalar.
+///
+/// `n` lies strictly between `2^(L−1)` and `2^L` for its bit length `L`, so `⌈(log2 n)/2⌉` is
+/// `⌈L/2⌉`: 128 on P-256 and brainpoolP256r1, 192 on P-384 and brainpoolP384r1, 261 on P-521.
+/// The value is below `2^(⌈L/2⌉+1)`, far below `n`, so taking it modulo `n` leaves it as it is.
+fn associate<C: CurveArithmetic>(x: &FieldBytes<C>) -> C::Scalar {
+    use p256::elliptic_curve::bigint::BitOps as _;
+    use p256::elliptic_curve::ops::Reduce as _;
+    let half = C::ORDER.as_ref().bits().div_ceil(2);
+    // The low `half` bits of `x`, read from the last octet up, then bit `half` set.
+    let mut bytes = FieldBytes::<C>::default();
+    let width = bytes.len();
+    let whole = usize::try_from(half / 8).unwrap_or(usize::MAX);
+    let partial = half % 8;
+    let from = width.saturating_sub(whole);
+    bytes[from..].copy_from_slice(&x[from..]);
+    if let Some(at) = from.checked_sub(1) {
+        // `partial` is below 8, so the shift stays inside the octet.
+        let bit = 1u8 << partial;
+        bytes[at] = (x[at] & bit.wrapping_sub(1)) | bit;
+    }
+    C::Scalar::reduce(&bytes)
 }
 
 /// The single DER value `bytes` holds.

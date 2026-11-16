@@ -1060,6 +1060,18 @@ values are unmodified but for joining the lines they were printed on, each file 
 none is near a fifth of its document. Prose from the three is paraphrased in source, never quoted,
 because the quotation gate reads quotation marks as ISO 32000-2's.
 
+## NIST CAVP's one-pass MQV vectors, the known answers for 1-Pass ECMQV
+
+`crates/pdf-pki/src/ec/tests.rs` holds three vectors — `dsIUT`, `QsCAVS`, `QeCAVS` and `Z` of one
+passing vector each on P-256, P-384 and P-521 — from the Cryptographic Algorithm Validation Program's
+`KASTestVectorsECC2016.zip` (fetched 2026-11-16 from `csrc.nist.gov`'s CAVP key-management page,
+SHA-256 `8f13bb02feb1daf5cc003d16c25faf6c2ed6176390c42a87381743614a04266a`), file `Key Confirmation/ECC One Pass MQV Scheme/
+KASValidityTest_ECCOnePassMQV_KDFConcat_KC_resp_rcpt_ulat.fax`, `COUNT` 3, 0 and 4 of parameter sets
+EC, ED and EE (ADR 2904). **Terms**: the program's validation files are a work of the United States
+government (NIST), not subject to copyright in the United States (17 U.S.C. section 105); the values
+are copied unmodified but for dropping two leading zero octets of the P-521 ones, and the test names
+their source. The zip itself stays in a round's scratch directory.
+
 ## The Unicode Character Database, and `unicode-bidi`, for a right-to-left field value
 
 §12.7.4.3's construction draws a field's value, and a value in Arabic needs the Unicode Standard's

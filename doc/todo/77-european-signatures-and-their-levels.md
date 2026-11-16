@@ -133,10 +133,10 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
 
 ## 2. What is left, in order
 
-3. **TS 119 172-4 REQ-4.5-01 h)**'s remainder (ADR 2896): Table 4's RSASSA-PSS row is chosen by
-   the message digest because `Authenticity` does not carry MGF1's hash; TS 119 312 clauses 9.3 and
-   9.5's key lifetimes over a certificate's validity and clause 9.2's time-stamp imprint rule are not
-   asked; no national rules are held.
+3. **TS 119 172-4 REQ-4.5-01 h)**'s remainder (ADRs 2896, 2905): TS 119 312 clauses 9.3 and 9.5's
+   key lifetimes over a certificate's validity are not asked, and no national rules are held. Table
+   4's RSASSA-PSS row is chosen by the digest and MGF1's hash together, and clause 9.2's imprint rule
+   is asked of Table 1 for every token taken as a time (ADR 2905).
 4. **The fetch's remainder.** GPR-4.0-03's *should* — go on past a failed `https` validation with
    a warning — is not taken: the client has no unvalidated mode, and a failed connection is said as
    the location not fetched (re-read 2026-11-16, ADR 2886). A list a policy's `TAsInTrustedList`

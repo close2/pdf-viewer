@@ -230,3 +230,122 @@ fn both_encodings_of_a_generated_key_read_on_its_curve() {
         );
     }
 }
+
+/// SEC 1 section 3.4's primitive, run by the static-only party of SP 800-56A's One-Pass MQV,
+/// against NIST's own validation vectors for that scheme.
+///
+/// The Cryptographic Algorithm Validation Program's `KASTestVectorsECC2016` holds, under "ECC One
+/// Pass MQV Scheme", `KASValidityTest_ECCOnePassMQV_KDFConcat_KC_resp_rcpt_ulat.fax`: the
+/// implementation under test is the responder, which "has only a static key pair" (SP 800-56A
+/// section 5.7.2.3.2), and each vector gives its static key `dsIUT`, the initiator's static and
+/// ephemeral public keys `QsCAVS` and `QeCAVS`, and `Z`, the shared secret the primitive yields. The
+/// first vector each of the P-256, P-384 and P-521 sections marks `Result = P` is taken (`COUNT =
+/// 3`, `0` and `4`); the P-521 values are printed there in 68 octets, and the two leading zero
+/// octets are dropped to the field's 66. `Z` is SEC 1's `z`.
+#[test]
+fn the_one_pass_mqv_primitive_reproduces_nist_s_responder_vectors() {
+    let vectors = [
+        (
+            EcCurve::P256,
+            "81115bc5afe90c273b5f0896a09cdd6368305a4c80ca3bf1564b57b622e712eb",
+            (
+                "4f123bb72966aeb537a382480821eaec5b0b51cdfa06d659f59cbbe7b94fb399",
+                "e71b8f0e851f1e431f419c51592ce60863ebc074c1b7c384b25621dc31fb5821",
+            ),
+            (
+                "142892998ee2bef5d07bbacf2351ab6a656d6d933fa39f036f010565bc7205e2",
+                "94a766e25784bf23d428c2f4bc1c834f7c80102d63781b867207fa62efc5dd6b",
+            ),
+            "018aaf3d643486ff0d087da13c7c86dba89c7d5b59a8c196d9aa63274c207b91",
+        ),
+        (
+            EcCurve::P384,
+            "1ea8a7725ec4ec72849c68e79f4f57ee8571a9f313b54eb93dfad941f0b7350eb8c70efcb9c4df50669074ccaf5546ca",
+            (
+                "2c64a811859a0b9503a4a3569bef2849d6c1beae8b50d001708f689c9b777ab567a42dcf8930ba0e2fc332ec8a660ad1",
+                "bf6c2fb8f407d36adeeab42d7dbb05f4ef5c7b5fd39ba3dc351fded981d09b5e4919d3a375c1f41e23c12e7b62d5ffd6",
+            ),
+            (
+                "5d3e89cb6bf30ed027e2d33167046fd7155a54c23f6e748948b18911c5a49150b45508bada3f95852750d819184045e9",
+                "b25ccfb6c6be546d2b1394d231b1149faca17d71cb7a7fdcebea7a5a4fc35ba1814e5e8e6503d6e8691e63448af181da",
+            ),
+            "b82bdd3bd7b397bf2cccfdd057012bb5f62f6c89beaca5339e2449e3cdb553c65b1e5734f2bc64accc2f9488f2f173af",
+        ),
+        (
+            EcCurve::P521,
+            "014d72457709aeb639d142940115624f959b9b429251fed66ab153315efe7eeb2432a5bfcaecd3a75c107502f9768b0a1601641536d79d18a86f723e7b68ecf962f6",
+            (
+                "01f6f0b3a795b819590cdb4d8fe6d684ec967e6d61a9598b025fd0a2c25ffdcf219adda284c74219cb23af15ad876429c860927214060008f9b117e22b2d6d0619fa",
+                "01649a7733f1f5112a0b72449d7971fc205e31bbb16ff040cad222fb7d3cdbd20dae82b5639888f2c5c14dd1e4d733aeb3372a150fbdf70363bf75c64f56ea734b7d",
+            ),
+            (
+                "0179b7b6878ab57daf872fef53b4e1d8fcdde2ef47380141fc291672428e460a30cd278b46e874f7cff2983aae226cf560571e02632395c87269f6c674a93688eaba",
+                "004db3ccfbbf736fa118a01bfa77dfc0c3d13da5b2b601b96db51679a9b2f14e6e49554211f830f02850d3c4d5ed62a245b2bf4010818568ff7fc069b7fc0793e16e",
+            ),
+            "00292c3faee0083f014c221fb259bc0ce209fd664ed0e4ba845477220e098ebc4743f5269321eae10e76e62317e10a240c35e5c1bf68356f2a3e9aa59b4f0efbbf81",
+        ),
+    ];
+    for (curve, scalar, (static_x, static_y), (ephemeral_x, ephemeral_y), z) in vectors {
+        let key = PrivateKey::from_der(&ec_private_key(curve, &hex(scalar))).unwrap();
+        let shared = key
+            .agree_one_pass_mqv(
+                &uncompressed(static_x, static_y),
+                &uncompressed(ephemeral_x, ephemeral_y),
+            )
+            .unwrap();
+        assert_eq!(shared, hex(z), "{}", curve.name());
+        // The two public keys play different parts in step 5, so exchanging them is another
+        // product: the primitive is not symmetric in the sender's keys.
+        assert_ne!(
+            key.agree_one_pass_mqv(
+                &uncompressed(ephemeral_x, ephemeral_y),
+                &uncompressed(static_x, static_y),
+            )
+            .unwrap(),
+            hex(z),
+            "{}",
+            curve.name()
+        );
+    }
+}
+
+/// RFC 5480 section 2.1.2: "The id-ecDH and id-ecMQV algorithm identifiers are used to indicate
+/// the key is restricted to the respective algorithm". A key whose `OneAsymmetricKey` names
+/// `id-ecMQV` runs the MQV primitive and refuses Diffie–Hellman, and one naming `id-ecDH` the other
+/// way round; the bare `ECPrivateKey` and `id-ecPublicKey` run both.
+#[test]
+fn a_restricted_key_runs_only_its_own_scheme() {
+    let scalar = hex("81115bc5afe90c273b5f0896a09cdd6368305a4c80ca3bf1564b57b622e712eb");
+    let bare = ec_private_key(EcCurve::P256, &scalar);
+    let wrapped = |algorithm: &[u8]| {
+        let mut identifier = tlv(0x06, algorithm);
+        identifier.extend(tlv(0x06, EcCurve::P256.oid().as_bytes()));
+        let mut body = tlv(0x02, &[0]);
+        body.extend(tlv(0x30, &identifier));
+        body.extend(tlv(0x04, &bare));
+        tlv(0x30, &body)
+    };
+    let point = uncompressed(
+        "4f123bb72966aeb537a382480821eaec5b0b51cdfa06d659f59cbbe7b94fb399",
+        "e71b8f0e851f1e431f419c51592ce60863ebc074c1b7c384b25621dc31fb5821",
+    );
+    let mqv_only = PrivateKey::from_der(&wrapped(super::ID_EC_MQV)).unwrap();
+    assert_eq!(mqv_only.restriction(), super::Restriction::Mqv);
+    assert_eq!(mqv_only.agree(&point), Err(EcError::Restricted("ECMQV")));
+    assert!(mqv_only.agree_one_pass_mqv(&point, &point).is_ok());
+    let dh_only = PrivateKey::from_der(&wrapped(super::ID_EC_DH)).unwrap();
+    assert_eq!(dh_only.restriction(), super::Restriction::DiffieHellman);
+    assert!(dh_only.agree(&point).is_ok());
+    assert_eq!(
+        dh_only.agree_one_pass_mqv(&point, &point),
+        Err(EcError::Restricted("ECDH"))
+    );
+    for key in [
+        PrivateKey::from_der(&bare).unwrap(),
+        PrivateKey::from_der(&wrapped(super::ID_EC_PUBLIC_KEY)).unwrap(),
+    ] {
+        assert_eq!(key.restriction(), super::Restriction::Unrestricted);
+        assert!(key.agree(&point).is_ok());
+        assert!(key.agree_one_pass_mqv(&point, &point).is_ok());
+    }
+}

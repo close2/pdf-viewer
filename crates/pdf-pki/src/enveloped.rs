@@ -115,8 +115,8 @@ pub enum EnvelopeError {
     /// form.
     #[error("the recipient's key is encrypted under {0}, which this reader does not decrypt")]
     KeyTransport(String),
-    /// The recipient is a key-agreement one under a scheme this reader does not run — 1-Pass
-    /// ECMQV, or an originator key that is not `id-ecPublicKey` — the string is the object
+    /// The recipient is a key-agreement one under a scheme other than RFC 5753 section 7.1.4's
+    /// fifteen, or with an originator key that is not `id-ecPublicKey`; the string is the object
     /// identifier in dotted form.
     #[error("the recipient's key is agreed under {0}, which this reader does not run")]
     KeyAgreement(String),

@@ -351,10 +351,12 @@ impl Report {
         };
         let cms = asked.signature.signed_data().ok();
         let mut times = Vec::new();
+        // The imprint digest of each time-stamp token taken as a time (TS 119 312 clause 9.2).
+        let mut imprints = Vec::new();
         claimed(asked.signature, cms.as_ref(), &mut times);
-        document_timestamps(asked, &mut times);
+        document_timestamps(asked, &mut times, &mut imprints);
         if let Some(cms) = &cms {
-            signature_timestamp(cms, asked, &mut times);
+            signature_timestamp(cms, asked, &mut times, &mut imprints);
         }
         if let Some(Ok(certificate)) = &parsed {
             revocation_times(certificate, asked.material, &mut times);
@@ -385,7 +387,11 @@ impl Report {
                 now: asked.now,
             })),
             _ => None,
-        };
+        }
+        .map(|mut assessment| {
+            assessment.imprints(&imprints);
+            assessment
+        });
         Self {
             scope: Scope::EuQualifiedUsingTrustedLists,
             signer,
@@ -457,7 +463,7 @@ fn claimed(signature: &Signature, cms: Option<&SignedData<'_>>, times: &mut Vec<
 }
 
 /// d) ii) 2): every document timestamp whose range covers this signature's revision.
-fn document_timestamps(asked: &Asked<'_, '_>, times: &mut Vec<Timing>) {
+fn document_timestamps(asked: &Asked<'_, '_>, times: &mut Vec<Timing>, imprints: &mut Vec<Digest>) {
     for link in asked
         .chain
         .links
@@ -469,6 +475,7 @@ fn document_timestamps(asked: &Asked<'_, '_>, times: &mut Vec<Timing>) {
                 .signatures
                 .get(link.signature)
                 .and_then(|signature| signature.signed_data().ok());
+            imprints.push(claim.imprint_digest);
             times.push(Timing {
                 kind: TimeKind::DocumentTimestamp,
                 at: claim.gen_time,
@@ -479,7 +486,12 @@ fn document_timestamps(asked: &Asked<'_, '_>, times: &mut Vec<Timing>) {
 }
 
 /// d) ii) 3): the signature timestamp attribute, where it reads and is about this signature.
-fn signature_timestamp(cms: &SignedData<'_>, asked: &Asked<'_, '_>, times: &mut Vec<Timing>) {
+fn signature_timestamp(
+    cms: &SignedData<'_>,
+    asked: &Asked<'_, '_>,
+    times: &mut Vec<Timing>,
+    imprints: &mut Vec<Digest>,
+) {
     let Some(Ok(attribute)) = timestamp::signature_timestamp(cms) else {
         return;
     };
@@ -497,6 +509,7 @@ fn signature_timestamp(cms: &SignedData<'_>, asked: &Asked<'_, '_>, times: &mut 
         return;
     };
     let token_cms = timestamp::signature_timestamp_token(cms).and_then(Result::ok);
+    imprints.push(attribute.claim.imprint_digest);
     times.push(Timing {
         kind: TimeKind::SignatureTimestamp,
         at: attribute.claim.gen_time,

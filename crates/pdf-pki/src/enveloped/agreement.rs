@@ -9,13 +9,16 @@
 //!
 //! # What is run, and what is refused by name
 //!
-//! RFC 5753 section 7.1.4 names fifteen key-agreement identifiers. The ten
-//! `dhSinglePass-stdDH-*` and `dhSinglePass-cofactorDH-*` ones are run, each with its own hash
-//! (section 7.1.8: "dhSinglePass-stdDH-sha256kdf-scheme uses the KDF from \[SEC1] but uses
-//! SHA-256 instead of SHA-1"); the cofactor form is the standard form on every curve
-//! [`crate::ec`] computes on. The five `mqvSinglePass-*` are 1-Pass ECMQV, which section 8 makes
-//! "OPTIONAL" and which needs the sender's static key and arithmetic no reviewed package here
-//! offers; they are refused with their identifier, as is any other. All four of section 7.1.5's
+//! RFC 5753 section 7.1.4 names fifteen key-agreement identifiers, and all fifteen are run, each
+//! with its own hash (section 7.1.8: "dhSinglePass-stdDH-sha256kdf-scheme uses the KDF from
+//! \[SEC1] but uses SHA-256 instead of SHA-1"). The ten `dhSinglePass-stdDH-*` and
+//! `dhSinglePass-cofactorDH-*` are section 3.1's Diffie–Hellman, the cofactor form being the
+//! standard form on every curve [`crate::ec`] computes on. The five `mqvSinglePass-*` are section
+//! 3.2's 1-Pass ECMQV (ADR 2904): the sender's static key is the one `originator` names, its
+//! ephemeral key is in `ukm`'s `MQVuserKeyingMaterial`, SEC 1 section 3.4's primitive combines
+//! them with the recipient's static key ([`ec::PrivateKey::agree_one_pass_mqv`]), and
+//! `entityUInfo` is that structure's `addedukm` rather than the `ukm` itself (section 7.2). Any
+//! other identifier is refused with its name. All four of section 7.1.5's
 //! key-wrap algorithms are run: the three AES ones (ADR 2821) and `id-alg-CMS3DESwrap`, RFC 3217
 //! section 3's Triple-DES wrap, a "MAY" in section 8 (ADR 2827).
 
@@ -57,6 +60,16 @@ const COFACTOR_SHA384: &[u8] =
 /// `dhSinglePass-cofactorDH-sha512kdf-scheme`, `{ secg-scheme 14 3 }`.
 const COFACTOR_SHA512: &[u8] =
     const_oid::db::rfc5753::DH_SINGLE_PASS_COFACTOR_DH_SHA_512_KDF_SCHEME.as_bytes();
+/// `mqvSinglePass-sha1kdf-scheme`, `{ x9-63-scheme 16 }`.
+const MQV_SHA1: &[u8] = const_oid::db::rfc5753::MQV_SINGLE_PASS_SHA_1_KDF_SCHEME.as_bytes();
+/// `mqvSinglePass-sha224kdf-scheme`, `{ secg-scheme 15 0 }`.
+const MQV_SHA224: &[u8] = const_oid::db::rfc5753::MQV_SINGLE_PASS_SHA_224_KDF_SCHEME.as_bytes();
+/// `mqvSinglePass-sha256kdf-scheme`, `{ secg-scheme 15 1 }`.
+const MQV_SHA256: &[u8] = const_oid::db::rfc5753::MQV_SINGLE_PASS_SHA_256_KDF_SCHEME.as_bytes();
+/// `mqvSinglePass-sha384kdf-scheme`, `{ secg-scheme 15 2 }`.
+const MQV_SHA384: &[u8] = const_oid::db::rfc5753::MQV_SINGLE_PASS_SHA_384_KDF_SCHEME.as_bytes();
+/// `mqvSinglePass-sha512kdf-scheme`, `{ secg-scheme 15 3 }`.
+const MQV_SHA512: &[u8] = const_oid::db::rfc5753::MQV_SINGLE_PASS_SHA_512_KDF_SCHEME.as_bytes();
 
 /// RFC 3565 section 2.3.2's `id-aes128-wrap`, `{ aes 5 }`.
 pub const ID_AES128_WRAP: &[u8] = const_oid::db::rfc5911::ID_AES_128_WRAP.as_bytes();
@@ -259,6 +272,15 @@ const CONSTRUCTED: u8 = 0x20;
 /// X.690's universal tag for `BIT STRING`.
 const BIT_STRING: u8 = 0x03;
 
+/// Which of RFC 5753's two key-agreement schemes an identifier names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scheme {
+    /// Section 3.1's ephemeral-static Diffie–Hellman, `dhSinglePass-*`.
+    DiffieHellman,
+    /// Section 3.2's 1-Pass ECMQV, `mqvSinglePass-*`.
+    OnePassMqv,
+}
+
 /// The hash SEC 1 section 3.6.1's KDF runs under, as the key-agreement identifier names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum KdfHash {
@@ -275,14 +297,22 @@ enum KdfHash {
 }
 
 impl KdfHash {
-    /// The hash a `dhSinglePass-*` identifier names, or `None` for any other identifier.
-    fn of(algorithm: &[u8]) -> Option<Self> {
+    /// The scheme and hash one of section 7.1.4's fifteen identifiers names, or `None` for any
+    /// other identifier.
+    fn of(algorithm: &[u8]) -> Option<(Scheme, Self)> {
+        let dh = Scheme::DiffieHellman;
+        let mqv = Scheme::OnePassMqv;
         Some(match algorithm {
-            STD_SHA1 | COFACTOR_SHA1 => Self::Sha1,
-            STD_SHA224 | COFACTOR_SHA224 => Self::Sha224,
-            STD_SHA256 | COFACTOR_SHA256 => Self::Sha256,
-            STD_SHA384 | COFACTOR_SHA384 => Self::Sha384,
-            STD_SHA512 | COFACTOR_SHA512 => Self::Sha512,
+            STD_SHA1 | COFACTOR_SHA1 => (dh, Self::Sha1),
+            STD_SHA224 | COFACTOR_SHA224 => (dh, Self::Sha224),
+            STD_SHA256 | COFACTOR_SHA256 => (dh, Self::Sha256),
+            STD_SHA384 | COFACTOR_SHA384 => (dh, Self::Sha384),
+            STD_SHA512 | COFACTOR_SHA512 => (dh, Self::Sha512),
+            MQV_SHA1 => (mqv, Self::Sha1),
+            MQV_SHA224 => (mqv, Self::Sha224),
+            MQV_SHA256 => (mqv, Self::Sha256),
+            MQV_SHA384 => (mqv, Self::Sha384),
+            MQV_SHA512 => (mqv, Self::Sha512),
             _ => return None,
         })
     }
@@ -332,8 +362,19 @@ impl KeyAgreement<'_> {
         key: &ec::PrivateKey,
         originator_certificates: &[Value<'_>],
     ) -> Result<Vec<u8>, EnvelopeError> {
-        let hash = KdfHash::of(self.algorithm)
+        let (scheme, hash) = KdfHash::of(self.algorithm)
             .ok_or_else(|| EnvelopeError::KeyAgreement(dotted(self.algorithm)))?;
+        // RFC 5480 section 2.1.2: a key whose algorithm is `id-ecDH` or `id-ecMQV` is "restricted
+        // to the respective algorithm".
+        match (scheme, key.restriction()) {
+            (Scheme::DiffieHellman, ec::Restriction::Mqv) => {
+                return Err(EnvelopeError::KeyKind("Diffie-Hellman key-agreement"));
+            }
+            (Scheme::OnePassMqv, ec::Restriction::DiffieHellman) => {
+                return Err(EnvelopeError::KeyKind("1-Pass ECMQV key-agreement"));
+            }
+            _ => {}
+        }
         let wrap = KeyWrap::of(self.wrap_algorithm)
             .ok_or_else(|| EnvelopeError::KeyWrap(dotted(self.wrap_algorithm)))?;
         match wrap {
@@ -372,13 +413,33 @@ impl KeyAgreement<'_> {
         }
         let kek_octets = wrap.kek_octets();
         let point = self.originator_point(key.curve(), originator_certificates)?;
-        // SEC 1 section 3.3.1; a point that is not on the key's curve is a key that does not
-        // open this recipient, the one error every such failure is.
-        let z = key.agree(point).map_err(|_| EnvelopeError::Decryption)?;
+        // A point that is not on the key's curve is a key that does not open this recipient, the
+        // one error every such failure is.
+        let (z, entity_info) = match scheme {
+            // SEC 1 section 3.3.1, and "the entityUInfo field contains the octet string ukm".
+            Scheme::DiffieHellman => (
+                key.agree(point).map_err(|_| EnvelopeError::Decryption)?,
+                self.ukm.clone(),
+            ),
+            // Section 3.2.3: the receiving agent "retrieves the static and ephemeral EC public
+            // keys of the originator, from the originator and ukm fields", and "the entityUInfo
+            // contains the octet string addedukm" (section 7.2).
+            Scheme::OnePassMqv => {
+                let ukm = self.ukm.as_deref().ok_or(EnvelopeError::Malformed(
+                    "a 1-Pass ECMQV recipient without the ukm RFC 5753 section 3.2.1 says MUST be present",
+                ))?;
+                let material = mqv_user_keying_material(ukm, key.curve())?;
+                (
+                    key.agree_one_pass_mqv(point, &material.ephemeral)
+                        .map_err(|_| EnvelopeError::Decryption)?,
+                    material.added_ukm,
+                )
+            }
+        };
         let info = shared_info(
             self.wrap_algorithm,
             wrap == KeyWrap::TripleDes,
-            self.ukm.as_deref(),
+            entity_info.as_deref(),
             kek_octets,
         );
         let kek = match hash {
@@ -410,27 +471,7 @@ impl KeyAgreement<'_> {
             } => {
                 // RFC 5753 section 3.1.1: "The originatorKey algorithm field MUST contain the
                 // id-ecPublicKey object identifier".
-                if algorithm != ID_EC_PUBLIC_KEY {
-                    return Err(EnvelopeError::KeyAgreement(dotted(algorithm)));
-                }
-                // "The parameters associated with id-ecPublicKey MUST be absent, ECParameters,
-                // or NULL ... If the parameters are ECParameters, then they MUST be namedCurve."
-                // Absent or NULL, the curve is the recipient's — section 6.2.2's recipients "use
-                // the same key agreement algorithm and domain parameters" — and named, it must be.
-                if let Some(parameters) = parameters
-                    && parameters.identifier != crate::der::NULL
-                {
-                    let named = parameters
-                        .object_identifier()
-                        .ok_or(EnvelopeError::Malformed(
-                            "originatorKey's parameters are neither NULL nor a namedCurve",
-                        ))?;
-                    if named != curve.oid().as_bytes() {
-                        return Err(EnvelopeError::Malformed(
-                            "originatorKey names another curve than the recipient's key",
-                        ));
-                    }
-                }
+                ec_public_key(algorithm, parameters, curve)?;
                 Ok(point)
             }
             Originator::Certificate(identifier) => {
@@ -454,6 +495,99 @@ impl KeyAgreement<'_> {
             }
         }
     }
+}
+
+/// What sections 3.1.1 and 3.2.1 require of an `OriginatorPublicKey`'s algorithm, for the
+/// sender's key under either scheme: `id-ecPublicKey`, whose parameters "MUST be absent,
+/// `ECParameters`, or NULL ... If the parameters are `ECParameters`, then they MUST be `namedCurve`."
+/// Absent or NULL, the curve is the recipient's — section 6.2.2's recipients "use the same key
+/// agreement algorithm and domain parameters" — and named, it must be.
+fn ec_public_key(
+    algorithm: &[u8],
+    parameters: Option<Value<'_>>,
+    curve: EcCurve,
+) -> Result<(), EnvelopeError> {
+    if algorithm != ID_EC_PUBLIC_KEY {
+        return Err(EnvelopeError::KeyAgreement(dotted(algorithm)));
+    }
+    if let Some(parameters) = parameters
+        && parameters.identifier != crate::der::NULL
+    {
+        let named = parameters
+            .object_identifier()
+            .ok_or(EnvelopeError::Malformed(
+                "an originator key's parameters are neither NULL nor a namedCurve",
+            ))?;
+        if named != curve.oid().as_bytes() {
+            return Err(EnvelopeError::Malformed(
+                "an originator key names another curve than the recipient's key",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// RFC 5753 section 7.2's `MQVuserKeyingMaterial`, read out of `ukm`.
+struct MqvUserKeyingMaterial {
+    /// `ephemeralPublicKey`'s `publicKey`: the sender's ephemeral `ECPoint`.
+    ephemeral: Vec<u8>,
+    /// `addedukm`'s octets, where present.
+    added_ukm: Option<Vec<u8>>,
+}
+
+/// Reads `ukm` as section 7.2's
+///
+/// ```text
+/// MQVuserKeyingMaterial ::= SEQUENCE {
+///   ephemeralPublicKey      OriginatorPublicKey,
+///   addedukm            [0] EXPLICIT UserKeyingMaterial OPTIONAL  }
+/// ```
+///
+/// with section 3.2.1's requirements on `ephemeralPublicKey`: its algorithm "MUST contain the
+/// id-ecPublicKey object identifier" with the parameters [`ec_public_key`] reads, and its
+/// `publicKey` "MUST contain the DER encoding of the ASN.1 type `ECPoint`".
+fn mqv_user_keying_material(
+    ukm: &[u8],
+    curve: EcCurve,
+) -> Result<MqvUserKeyingMaterial, EnvelopeError> {
+    let outer = crate::der::Reader::new(ukm)?
+        .next_value()?
+        .filter(|value| value.identifier == SEQUENCE)
+        .ok_or(EnvelopeError::Malformed("MQVuserKeyingMaterial"))?;
+    let mut members = outer.children()?;
+    // "OriginatorPublicKey ::= SEQUENCE { algorithm AlgorithmIdentifier, publicKey BIT STRING }".
+    let key = expect(
+        &mut members,
+        SEQUENCE,
+        "MQVuserKeyingMaterial.ephemeralPublicKey",
+    )?;
+    let mut parts = key.children()?;
+    let mut algorithm = expect(&mut parts, SEQUENCE, "ephemeralPublicKey.algorithm")?.children()?;
+    let identifier = algorithm
+        .next_value()?
+        .and_then(|value| value.object_identifier())
+        .ok_or(EnvelopeError::Malformed("ephemeralPublicKey.algorithm"))?;
+    ec_public_key(identifier, algorithm.next_value()?, curve)?;
+    let bits = expect(&mut parts, BIT_STRING, "ephemeralPublicKey.publicKey")?;
+    let Some((0, point)) = bits.contents.split_first() else {
+        return Err(EnvelopeError::Malformed("ephemeralPublicKey.publicKey"));
+    };
+    let added_ukm = match members.next_value()? {
+        Some(added) if added.is_context(0) && added.is_constructed() => {
+            let inner = added
+                .children()?
+                .next_value()?
+                .filter(|value| value.identifier & !CONSTRUCTED == OCTET_STRING)
+                .ok_or(EnvelopeError::Malformed("MQVuserKeyingMaterial.addedukm"))?;
+            Some(octets(inner)?)
+        }
+        Some(_) => return Err(EnvelopeError::Malformed("MQVuserKeyingMaterial.addedukm")),
+        None => None,
+    };
+    Ok(MqvUserKeyingMaterial {
+        ephemeral: point.to_vec(),
+        added_ukm,
+    })
 }
 
 /// The DER of RFC 5753 section 7.2's `ECC-CMS-SharedInfo` for a key wrapped under

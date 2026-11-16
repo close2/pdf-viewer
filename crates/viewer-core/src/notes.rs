@@ -2966,6 +2966,7 @@ fn security_sentence(
         Rule::SignatureSuites | Rule::EqualLengths => "combination of digest and algorithm",
         Rule::RsaKeySizes => "modulus's size",
         Rule::DsaKeySizes => "key's sizes",
+        Rule::TimeStampImprints => "time-stamp token's imprint hash",
     };
     let phase_out = |class: Class| match class {
         Class::Recommended => String::new(),
