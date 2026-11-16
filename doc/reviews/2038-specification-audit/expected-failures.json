@@ -132,6 +132,12 @@
       "test": "find_matches_the_full_agl_string_for_one_glyph",
       "finding": "2038-B15",
       "log": "round2-targets-wave10c.log"
+    },
+    {
+      "binary": "pdf-signature::docmdp_dts_carveout",
+      "test": "valid_docmdp_p1_and_dts_only_revision_are_within_the_carveout",
+      "finding": "2038-B18",
+      "log": "docmdp-dts-wave13b.log"
     }
   ]
 }

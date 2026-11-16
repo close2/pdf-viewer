@@ -1,0 +1,39 @@
+# §§7.7.3 and 7.8 page-tree/resource audit
+
+Bounded review of the effective ISO 32000-2:2020 text consolidated with EC3, Tables 30, 31, 33 and 34; the related §7.3 null/reference rules; current ledger rows 7.7.3 through 7.8.3; `doc/errata-read.md`; implementation and named assertions in page-tree, page-geometry, content-window, contents-entry, content-resource, Type 3 and missing-resource tests. The sampled rows are all marked `implemented`; that label is a ledger claim, not evidence for every entry in Table 31/34. This is not whole-clause certification.
+
+## Page tree and page dictionary
+
+§7.7.3.1 says readers shall be prepared to handle any page tree shape built from the specified node and page objects. Table 30 defines required node entries and requires writer-consistent Count; it also says Kids determine descendants. Current `Pages` walks Kids, has depth/node bounds and damaged-tree recovery. `page_geometry::a_page_tree_of_any_shape_yields_its_pages_in_the_order_its_kids_arrays_give` and the broad `page_tree_nodes.rs` set assert ordering, unusual shapes, queries, and selected corrupt trees. Bounds are implementation limits, not ISO constants. Duplicate node/page references and required fields that a writer violates do not imply a prescribed reader rejection policy.
+
+Table 31 identifies which attributes may inherit; §7.7.3.4 sets nearest-ancestor, as-is inheritance and defaults. Only Resources, MediaBox, CropBox and Rotate inherit. `inherited_resources_spec_audit.rs` asserts that an intermediate Resources dictionary shadows the root one and that an explicit empty Resources value blocks inheritance. `page_geometry.rs::a_user_unit_on_an_ancestor_is_not_inherited` checks MediaBox and Rotate inheritance alongside non-inheritable UserUnit; `an_unusable_media_box_falls_back_to_the_ancestors_rather_than_erasing_it` checks the reader's local recovery for bad media boxes. `content_resources_audit.rs::inherited_page_resources_resolve_the_page_content_stream` exercises inherited resources in actual execution but has only one ancestor level. Draft `drafts/inherited_resources_render.rs` adds a root-vs-intermediate same-name `/Mark` public-output pair: root-only yields red as control; with an intermediate dictionary, blue must win whole. It calculates stream lengths, uses an exact xref and asserts `was_recovered() == false`; it remains unrun.
+
+The source's required `/Type`, `/Parent`, `/Resources` and `/MediaBox`, plus writer consistency requirements, are not automatic mandatory error contracts for the reader. The page model's report/substitution policy for a missing/bad media box is independently documented and tested. Linearized files require page attributes explicit in page dictionaries, which is a writer-format validity constraint handled in the separate Annex F shard; do not treat ordinary inheritance as a reader failure on that basis.
+
+## Contents as a single sequential stream
+
+Table 31 makes `/Contents` optional and says absent means empty; `/Contents` null has §7.3.9's equivalence to omission. It permits a single stream or array, with the array's effect as parts in order joined by at least one whitespace character. Writer constraints say splits occur on lexical-token boundaries and no empty array is produced; consuming/producing apps need not preserve the array structure. §7.8.2 requires sequential interpretation. EC3 Issue #9 strikes only a redundant phrase in §7.8.3 because §7.8.2 already treats the array as one stream; it does not change the rule.
+
+Tests strongly exercise the semantics: `content_window.rs::two_deflated_parts_are_one_stream_across_the_join` splits operands from `re f`, then asserts both rectangles draw and no issues; `hostile_budgets.rs::contents_parts_inside_the_bound_are_one_stream` splits state, operands, and operator over three parts and checks the resulting command; its paired over-limit test expects a named local refusal. `contents_entry.rs` distinguishes absent, null, unreachable, nonstream, valid empty, and partially damaged parts. These assertions test byte/order/draw behavior and reports rather than only the return from the parser.
+
+ADR 0306 is source-supported in taking the aggregate content as one stream for applying a local total byte ceiling. The ISO defines the unit and required join whitespace but not the number 1000/default stream ceiling or the local TooLarge report. Writer-invalid empty arrays do not create an ISO reader-error obligation. No additional Contents draft seemed more valuable than the unrun multi-level resource consumer test.
+
+## Resource dictionaries
+
+§7.8.1 describes a stream/resource dictionary pair as self-contained. §7.8.3 scopes resource names to a content stream, associates page streams with page or inherited resources, Type3 glyph descriptions with their four-step current lookup order, and other stream kinds with their own Resources; EC3 #128 adds the glyph stream dictionary as step one. For historical files omitting form/Type3 Resources, EC3 Note 3 records the earlier page-resource fallback. Current tests check the new Type3 own-resource step; form/page fallback, nested forms, Type3 shown inside a form, no fallback for required tiling-pattern Resources, same-name nested resource resolution, and name-byte distinctions are individually asserted. `each_content_stream_uses_its_own_same_named_xobject_resource` checks red page control, green nested target, then red restored page lookup, so it catches both wrong dictionary and failure to restore scope.
+
+Table 34's seven active resource categories are delegated to their feature clauses; ProcSet is deprecated in PDF 2.0/advisory and the renderer does not implement PostScript output. This pass did not re-certify every category. Undefined named-resource reports are project policy built atop producer requirements to define resources. Do not require a specific error string or full rejection because the producer wrote a malformed resource dictionary unless the relevant operator has an independent normative obligation.
+
+## Source errata and selected ADRs
+
+EC3 #9 removes redundant array wording from §7.8.3 but leaves Table 31 and §7.8.2 intact. EC3 #128 adds Type3 glyph stream Resources as step one and rewrites the old broad fallback as a note. EC3 #106/#619 concern Table31 `/ID`, not page rendering or inheritance. `doc/errata-read.md` locates Table31 around printed page 121 and §7.8.3 around printed page 127; processed Markdown lines in feature records are separate stable locators.
+
+ADR 0306's bound follows the single-stream unit but keeps the particular ceiling as code policy. ADR 0365's window is an implementation strategy tested through output/report behavior. ADR 0115's resource identity key reflects dictionary-scoped name semantics, with actual red/green/red output assertions. ADR 1059's page fallback/no-pattern-fallback decision aligns with the current erratum and compatibility wording, while its recovery details remain design choices. None of these ADRs substitutes for the feature-level assertion trace above.
+
+## Remaining limits
+
+- Run the multi-level runtime inherited-resource draft before promoting its evidence.
+- The audit sampled inherited MediaBox/Rotate and direct/indirect Resources, but did not trace inherited CropBox through the public renderer.
+- Page-tree graph errors and implementation bounds are not independently certified by this shard.
+- Table31's other fields (annotations, group, user unit, output intents, associated files, DPart, boxes) are handled under their own ledger clauses and were not re-audited as a complete table.
+- Table34 category-specific resolution beyond the representative XObject and Type3 cases remains out of this bounded pass.

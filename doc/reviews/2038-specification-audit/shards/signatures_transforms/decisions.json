@@ -1,0 +1,40 @@
+{
+  "baseline": "b901326c",
+  "reviews": [
+    {
+      "adr": "0907",
+      "title": "A requirement written as a statement of fact",
+      "decision": "Accepted; says \u00a712.8.5.3's DocMDP rule is met by construction because the operation-restriction path does not consult DSS/DTS.",
+      "evidence_recheck": "That path alone is not the whole signature-transform consumer. `viewer-core::notes::modifications` calls `revision::Comparison` for a signature carrying DocMDP; `revision.rs::classify_one` recognizes a /Type /DocTimeStamp object but leaves newly added signature field and catalog/AcroForm registration outside the validation-material set. Thus an otherwise DTS-only incremental update becomes Mixed/Unrankable. The carveout is not established by the no-consultation property of `restriction::asserted`. Parent execution confirms the valid DTS-only fixture is refused as `NotClassified` with seven unrankable objects; the valid mixed-change control is also not reported as permitted.",
+      "reconsideration": "Reopen narrowly for DTS registration in Table 257 comparison. Existing DSS-only and DSS+page-change tests show the intended update-scoped behavior; the standalone `drafts/docmdp_dts_carveout.rs` test adds cryptographically verified DTS-only and mixed controls through public APIs. Do not challenge the separate rule that modification permissions are enforced by operation policy."
+    },
+    {
+      "adr": "0159",
+      "title": "A usage rights signature a save outgrows",
+      "decision": "Accepted; reads UR rights for supported operations and withdraws the /Perms /UR3 association when a save exceeds them.",
+      "evidence_recheck": "Current public Report's `every_signature` explicitly adds the UR3 signature dictionary referenced by /Perms even though it is not a field value. It goes through normal integrity/authenticity/trust reporting. `UsageRights` parsing alone is not used as a cryptographic verdict; Report has a separate signature evaluation. The save-removal behavior is a SHOULD path and has a mutation test with inside/outside rights controls.",
+      "reconsideration": "No contrary implementation evidence found. Preserve distinction between host restriction policy, signature validation, and writer-side withdrawal. Table 263's positive 'enable additional rights' path is not a feature this reader must provide because it exposes no otherwise-disabled feature."
+    },
+    {
+      "adr": "0803",
+      "title": "Every bit named, the four levels in one place, and a file on a page or taken out",
+      "decision": "Accepted; callers choose per-operation restriction levels, default off.",
+      "evidence_recheck": "Current RestrictionPolicy default still sets operation restrictions off. This is an explicit product policy and does not excuse/report away the independent DocMDP signature-validation transform; Report has a separate revision comparison.",
+      "reconsideration": "No change to the owner policy is inferred. The identified DTS gap is in transform classification, not in the choice of restriction-policy default."
+    },
+    {
+      "adr": "1067",
+      "title": "Revocation is read from the file, and absence of evidence is never Good",
+      "decision": "Accepted; DSS collateral is decoded and applied as revocation evidence, with absent/unusable evidence distinguished from Good.",
+      "evidence_recheck": "`SecurityStore::material` applies all decoded DSS CRL/OCSP candidates and revocation tests use issuer-signed data plus invalid controls. The path must be anchored before a Good/valid result is constructible. VRI is retained as a record and is not used to narrow the candidates.",
+      "reconsideration": "No assertion of revocation success from DSS counts. VRI search preference in \u00a712.8.4.5 is SHOULD, so whole-store use is a recommendation departure, not a mandatory violation."
+    },
+    {
+      "adr": "1071",
+      "title": "A timestamp is established by what comes after it",
+      "decision": "Accepted; only an established TSA authority makes a token time usable; later timestamps must cover the earlier token and material needed for the chain.",
+      "evidence_recheck": "Current timestamp tests include actual token and trust cases and the two-timestamp/material coverage control; Report labels a token time as its claim when authority was not established.",
+      "reconsideration": "No change recommended. This evidence validates timestamp-time semantics but does not prove DocMDP's Table 257 DTS-only update carveout; that is the separate uncovered transform."
+    }
+  ]
+}

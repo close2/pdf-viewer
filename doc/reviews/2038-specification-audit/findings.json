@@ -436,5 +436,33 @@
     "controls": "Fixture has ESSCertIDv2 matching signer, exact whole-file ByteRange excluding Contents, fixed valid certificate/time, injected host anchor. Parent independently extracts actual PDF ranges/CMS: OpenSSL passes valid and rejects one-byte same-range tamper.",
     "limits": "No failing Open-execution test: public API has no verifier-call counter, and absence of a note does not itself prove checks were not run. Tests establish Report behavior only. Unknown revocation is explicitly accepted and asserted, not claimed good.",
     "decision": "ADRs1044/0215 explain startup deferral but do not waive this normative trigger; performance and source obligations require reconciliation. Host-owned trust anchors remain a valid policy boundary."
+  },
+  {
+    "id": "2038-D06",
+    "kind": "stale-ledger-policy-description",
+    "clauses": [
+      "8.9.7"
+    ],
+    "summary": "Ledger says real inline-image dimensions truncate, while current helper and ADR0912 round nearest.",
+    "evidence": "integer_entry::dimension/nearest_u32; inline_images fractional dimension test refuses insufficient samples for rounded3x3 instead of truncating2x2.",
+    "assessment": "Documentation drift for malformed-input recovery, not a valid-input ISO defect. Ledger untouched under audit scope.",
+    "execution": "page-inline-wave13.log40/40PASS includes fractional case"
+  },
+  {
+    "id": "2038-B18",
+    "kind": "behavior-gap",
+    "clauses": [
+      "12.8.2.2.1",
+      "12.8.2.2.2",
+      "12.8.5.2",
+      "12.8.5.3"
+    ],
+    "summary": "A genuine timestamp-only incremental update is unclassified under DocMDP P1 rather than disregarded.",
+    "source": "Table 257 printed p574; §12.8.5.3 printed p591. An incremental update containing only the data needed for DTS/DSS does not count as a document change.",
+    "code": "pdf-signature/revision.rs classify_one/dispositions recognizes the timestamp dictionary and DSS, but not its required field/page/catalog registration. viewer-core notes::modifications consumes the comparison.",
+    "evidence": "docmdp_dts_carveout::valid_docmdp_p1_and_dts_only_revision_are_within_the_carveout fails with NotClassified for 7 objects. The genuine timestamp plus page-change control passes. Both signatures pass Rust integrity/authenticity; parent extraction and OpenSSL verification of the actual ranges also pass.",
+    "decision": "ADR 0907 explains the restriction path; that argument does not establish correctness of the separate comparison consumer.",
+    "execution": "docmdp-dts-wave13b.log: 1 PASS, 1 expected FAIL.",
+    "limits": "The fixture uses local test certificates and does not assert public trust or revocation status. The entire LTV profile and other transforms are not certified."
   }
 ]

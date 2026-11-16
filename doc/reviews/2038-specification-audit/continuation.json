@@ -6,17 +6,20 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "22 expected failing assertions total; wave10c11run6pass5expectedfail. Prior six-crate5358 run predates new tests.",
-    "quality": "Prior6crate quality plus new pdf-font/pdf-model/viewer-core all-targetsClippy pass; new fixture/test full package check pending."
+    "later_targets": "Eight-crate wave13: 6381 run, 6358 passed, exactly all 23 expected failing identities, 55 skipped. DTS-only comparison fails; separately timestamped page-change control passes.",
+    "quality": "New pdf-syntax/pdf-model/pdf-signature all-targets Clippy with warnings denied passes; workspace formatted. Earlier six-crate docs/conformance checks remain recorded separately."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
-    "new_shards_ready_for_parent_review": [],
+    "new_shards_ready_for_parent_review": [
+      "font_dictionaries_current",
+      "annotation_types_current"
+    ],
     "active_shards": [
-      "page_resources_current",
-      "public_key_encryption_current",
-      "signatures_transforms"
+      "cid_opentype_current",
+      "metadata_current",
+      "fdf_current"
     ],
     "recorded_shards": [
       "logical_structure",
@@ -40,10 +43,15 @@
       "named_actions_current",
       "paths_current",
       "optional_content_current",
-      "media_viability"
+      "media_viability",
+      "page_resources_current",
+      "inline_images_current",
+      "public_key_encryption_current",
+      "transparency_groups_current",
+      "signatures_transforms"
     ],
-    "partial_current_rows": 217,
-    "pending_current_rows": 666
+    "partial_current_rows": 247,
+    "pending_current_rows": 636
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",
@@ -56,7 +64,7 @@
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 34,
-    "last_read_utc": "2026-11-16T11:18:24Z"
+    "last_weekly_used_percent": 35,
+    "last_read_utc": "2026-11-16T11:32:37Z"
   }
 }

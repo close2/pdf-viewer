@@ -17,12 +17,12 @@
 //!
 //! §11.4.6's knockout is drawn rather than reported — with the element's shape stated apart
 //! from its alpha where the two differ (ADR 0234) — and the tests below measure it against
-//! the clause's own two-stage arithmetic at the pixel. What is still *not* implemented is
-//! reported: a non-isolated group whose elements blend, a group blending colour space that is
-//! not the device's, and the knockout elements whose shape one alpha channel cannot be
-//! separated from. The conditions those reports fire on are pinned below, because a report
-//! that names a page where the output cannot differ costs that page its place in the oracle's
-//! comparison (see `doc/HANDOVER.md`, trap 11).
+//! the clause's own two-stage arithmetic at the pixel. Later tests also exercise non-isolated
+//! blending and groups with their own blending colour spaces. Assertions about unsupported
+//! combinations are scoped to their fixtures; they do not mean those entire feature families
+//! are unimplemented. The diagnostic conditions matter because a report that names a page
+//! where the output cannot differ costs that page its place in the oracle's comparison
+//! (see `doc/HANDOVER.md`, trap 11).
 
 #![expect(
     clippy::expect_used,

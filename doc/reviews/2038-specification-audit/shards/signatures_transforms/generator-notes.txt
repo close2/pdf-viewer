@@ -1,0 +1,80 @@
+Genuine exact-xref DocMDP + DTS fixtures, regenerated offline on 2026-11-16 with OpenSSL 4.1.0.
+
+`base-signed.pdf` is a PDF 2.0 one-page document with a valid `/ETSI.CAdES.detached` certification
+signature and `/Reference` `/DocMDP` transform `/P 1`. Its ByteRange is `0 588 16974 357` and
+covers the complete initial revision except the Contents hex string. The CMS contains a matching
+`signingCertificateV2` (ESSCertIDv2); the signer cert is test-only and self-signed. The certification
+signature field is a zero-size widget registered in both AcroForm `/Fields` and page `/Annots`, with
+`/Type /Annot`, `/Subtype /Widget`, and `/F 4`. The trailers have PDF 2.0 `/ID` arrays of two
+16-byte hex strings; the first ID is preserved across the incremental update and the second changes.
+
+`dts-only.pdf` appends a second revision that adds another `/FT /Sig` field/widget to AcroForm, adds
+that zero-size widget to page `/Annots` while preserving the certification widget, adds a
+`/Type /DocTimeStamp` signature, and adds a catalog `/DSS` with the signer and TSA DER certificates.
+The timestamp widget uses `/Type /Annot`, `/F 4`, and `/Rect [0 0 0 0]`, so it has no visual
+appearance. The timestamp is an RFC 3161 TimeStampToken from a local test TSA certificate with
+critical `id-kp-timeStamping` EKU. Its ByteRange is `0 17851 34237 2160` and covers the complete
+second revision except the Contents value.
+
+`dts-plus-page-change.pdf` is the mixed-update control. It has the same byte length, xref layout,
+ByteRanges, timestamp field, DSS, and valid token. Its page MediaBox in the same update changes one
+digit from `[0 0 200 200]` to `[0 0 201 200]`; the modified page remains covered by that file's own
+valid timestamp. Thus this is a DocMDP carveout control, not a broken-token control.
+
+Both signer and TSA certificates are valid from `2026-11-16 11:26:33 UTC` through
+`2036-11-13 11:26:33 UTC`. Both RFC 3161 tokens have `genTime` `2026-11-16 11:26:33 UTC` and a
+one-second accuracy. If a viewer test needs a fixed policy instant for certificate-path validation,
+Unix `1,800,000,000` (`2027-01-15 08:00 UTC`) lies inside both certificate intervals. OpenSSL's
+timestamp verification uses each token's signed `genTime` for token validation. Static DER/PDF
+files have these fixed times; regeneration uses current time and is semantic, not byte-identical.
+
+The TSA and signer are private-key test fixtures, not public authorities or real credentials. The
+generation script creates new keys under the supplied output directory and does not require or copy
+any real key. The checked-in fixture includes only public certificates and signed artifacts; it
+contains no private key. The fixture has no CRL/OCSP material and does not assert revocation status
+or a public trust chain. Its authenticity checks establish signatures under the certificates in
+the PDF, not trust in a public identity.
+
+Rebuild into a throwaway directory with:
+
+```sh
+python3 doc/reviews/2038-specification-audit/shards/signatures_transforms/generate_fixture.py /tmp/docmdp-dts-fixture
+```
+
+The generator builds both exact-xref revisions, signs the base CMS, then obtains each timestamp over
+the complete revision's ByteRange. It runs independent OpenSSL and qpdf checks. CMS `signingTime`
+and RFC 3161 `genTime` are generated from the current clock, and both keys are fresh, so regenerated
+output is not byte-identical. It prints the generated certificate validity.
+
+Independent commands run against the checked-in fixture:
+
+```sh
+openssl cms -verify -binary -inform DER -in signer-cms.der \
+  -content signing-input.bin -CAfile signer-cert.pem -out /dev/null
+# CMS Verification successful
+openssl ts -verify -token_in -in dts-only-token.der \
+  -data dts-only-input.bin -CAfile tsa-cert.pem
+# Verification: OK
+openssl ts -verify -token_in -in dts-plus-page-change-token.der \
+  -data dts-plus-page-change-input.bin -CAfile tsa-cert.pem
+# Verification: OK
+qpdf --check base-signed.pdf
+qpdf --check dts-only.pdf
+qpdf --check dts-plus-page-change.pdf
+# each: no syntax or stream encoding errors found
+openssl cms -cmsout -print -inform DER -in signer-cms.der
+# includes id-smime-aa-signingCertificateV2
+```
+
+SHA-256 hashes: `base-signed.pdf`
+`67a40af31184bad04a901bbb2ae12c716a597f9c7032a871c7f37881f82eb6ce`; `dts-only.pdf`
+`f88255ed673a1781a13d4e66c5c8e8d7422c4ea5ee12509dbb79467ba4cfd199`;
+`dts-plus-page-change.pdf`
+`bfdf818a216f7ed24a1a578ed283bba41b84b6216fd2dc9783824a8903d2f723`. qpdf checks establish
+syntax/stream acceptance only; they do not establish every semantic requirement of ISO 32000.
+
+The Rust integration test additionally calls public signature integrity and authenticity APIs on
+the base signature and document timestamp. The generator is semantic, not byte-deterministic: it
+creates ephemeral private keys and current-time certificates/tokens.
+
+Parent promotion uses only public PDFs/certificates under crates/pdf-signature/tests/fixtures/docmdp_dts. verify_fixture.py independently extracts actual ranges and checks OpenSSL CMS/timestamp signatures plus qpdf syntax. Companion input/token files are generated scratch artifacts, not committed fixtures. Refreshed fixture test: one expected failure (DTS-only NotClassified,7objects), mixed page-change passes; both signatures pass Rust integrity/authenticity.

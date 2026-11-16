@@ -1,0 +1,79 @@
+{
+  "baseline": "b901326c",
+  "scope": "Current public-key security handler implementation for published §7.6.5.1–.3, as changed since 4015a9ae; Table 27 / §7.6.6 behavior included only where it supplies the s5 path. This is a bounded source/assertion audit, not cryptographic certification.",
+  "effective_numbering": {
+    "published_source": "The supplied 2020 PDF prints §7.6.5.1 General, §7.6.5.2 Public-key encryption dictionary, and §7.6.5.3 Public-key encryption algorithms.",
+    "ec3": "Errata Collection 3 issue #196 inserts a new §7.6.5.3 Public-key security permissions below Table 23's note and says current text and Table 24 remain unchanged. Thus the printed algorithms subsection is effectively .4; this audit retains printed numbering when citing the original text and flags the EC3 shift.",
+    "source_locations": "ISO 32000-2 sponsored EC3 PDF physical pp. 101–103 (printed pp. 86–88); digital text verified on physical pp. 101–103. Table 23 and Table 24 are on physical p. 102; algorithm material begins on p. 102 and continues to p. 103. Companion extraction: doc/md/ISO_32000-2_sponsored_EC3.md:2847–2945. Errata: doc/errata-read.md:464."
+  },
+  "features": [
+    {
+      "clause": "7.6.5.1",
+      "requirement": "Reader scans recipient list for the encrypted content and attempts to match a certificate belonging to the user; matching private key decrypts the envelope. Only specified recipients can open the corresponding encrypted document/content.",
+      "implementation": "crates/pdf-syntax/src/crypt/public_key.rs:454–494 scans CMS lists in order and opens the first matching recipient; pdf-pki handles CMS recipient matching/decryption; viewer-core and viewer-host supply the user's certificate/private key. No match is RecipientRequired; matched recipient with non-opening key is RecipientKey.",
+      "assertions": [
+        "crates/pdf-syntax/tests/public_key_witnesses.rs::each_witness_opens_with_its_keystore_s_key_and_shows_its_text",
+        "::a_reader_the_recipient_list_does_not_name_is_asked_for_a_certificate",
+        "::a_certificate_with_the_wrong_private_key_is_refused_as_the_key",
+        "::an_elliptic_curve_recipient_opens_a_key_agreement_list",
+        "crates/viewer-core/tests/recipient_key.rs named-certificate, no-key, wrong-key and EC-key cases"
+      ],
+      "verdict": "Supported by current implementation and meaningful positive/negative assertions for listed witnesses and both RSA and EC recipient kinds. Scope does not establish complete X.509/RFC 5652 conformance.",
+      "residuals": [
+        "The host's certificate/private-key pairing is parsed but not proven at RecipientKey construction; actual envelope open catches a mismatched key. No requirement in the reviewed PDF text mandates eager pair checking.",
+        "No current assertion audited here establishes that every applicable CMS recipient identifier form and certificate-name edge case is covered end to end. pdf-pki unit tests cover issuer/serial and SKI matching, but this shard did not exhaust RFC 5652/X.509.",
+        "Parent's current baseline suite run is pending; this report evaluates source and assertion bodies, not execution."
+      ]
+    },
+    {
+      "clause": "7.6.5.2 / Table 23",
+      "requirement": "Public-key handler Filter; permitted SubFilter s3/s4 when not using crypt filters, s5 when using crypt filters. Table 23 Recipients is required for s3/s4, byte-string CMS array, one object per unique permission set, first matching recipient-list permissions win. s5 recipient lists live in crypt-filter dictionary. Table 24 permission word is unsigned 32-bit, low-order numbered position 1, with processor ignore positions specified in the paragraph.",
+      "implementation": "SubFilter parsing and version pairing in public_key.rs:132–173; s3/s4 lists from Table 23 in :174–185; s5 lists through Table 27 filter_lists in :272ff; scan first match in :454ff; permission word parsing in :496ff and Table 24 mapping in :512ff plus Permissions::from_flags in crypt.rs:260ff.",
+      "assertions": [
+        "public_key_witnesses.rs::a_recipient_list_in_the_encryption_dictionary_opens_at_s3_and_s4 covers real CMS and page plaintext controls, with bits 3 and 5 set, revision 2/3 and several negative permissions",
+        "four PDFBox s5 witnesses cover page plaintext and AES-128/AES-256, including EncryptMetadata false witnesses",
+        "public_key_witnesses.rs stream-recipient cases cover the s5/Table 27 route and per-stream access timing"
+      ],
+      "verdict": "Core data path is visibly implemented and has genuine CMS-backed positives. Current test assertions do not individually pin every Table 24 permission bit, ignored bit 10, ignored non-listed bits, and s3/s4/s5 revision mapping at the public-key adapter. A focused helper-level draft and a separate downstream owner-consumer assertion are supplied; they are not public-adapter/CMS tests.",
+      "residuals": [
+        "The synthetic s3/s4 PDFs and stream-recipient PDFs are checked-in generated artifacts; their generator scripts are referenced as retained with prior rounds but are absent from the current tree, reducing fixture reproducibility from this checkout.",
+        "No claim is made here about malformed-recipient recovery semantics or all malformed Filter/SubFilter pairings."
+      ]
+    },
+    {
+      "clause": "7.6.5.3 as printed in 2020; effective .4 after EC3 #196",
+      "requirement": "CMS envelope yields a 20-byte seed followed by four permission bytes most-significant first for document-level case. Specified envelope and key-transport algorithms and parameters; file key digest uses seed, recipient list bytes in array order, and four FF bytes when document metadata is plaintext; truncate digest to key width. s3 permissions revision 2; s4 and s5 revision 3. The stream-own-recipient case omits permission bytes per Table 27 and uses its own key path.",
+      "implementation": "seed_and_permissions :496–507, permissions :512–516, file_key :522ff; PDFBox witnesses and OpenSSL-generated s3/s4/KARI/stream fixtures in public_key_witnesses.rs; pdf-pki includes the implemented AES and deprecated ciphers, RSA v1.5/OAEP, EC key agreement and wraps. ADR 2827 records remaining 1-Pass ECMQV and brainpoolP512r1 effort refusals.",
+      "assertions": [
+        "PDFBox four-document test checks independent expected page text and revision 3; two exposed-metadata documents discriminate the four-FF digest input",
+        "s3/s4 test checks independent fixture text, s3 revision 2 and s4 revision 3",
+        "KARI fixture checks expected page text, permissions and nonrecipient control",
+        "pdf-pki RFC vectors and OpenSSL-produced envelope tests provide separate known-answer/interoperability controls for listed algorithm components"
+      ],
+      "verdict": "Source-derived key and permission processing has substantial independent controls across representative branches; no blanket certification of all algorithm parameter combinations is inferred.",
+      "residuals": [
+        "The s3/s4 and KARI generator scripts are not present in this tree, though fixture tests describe their source algorithms. This limits independent fixture regeneration.",
+        "The current source/assertion audit does not exhaust each envelope cipher, key length, digest-width edge, certificate encoding, RSA parameter, EC curve/hash/wrap cross-product, or metadata/filter combination. Primitive RFC vectors help but are not a complete PDF handler cross-product.",
+        "The permission mapping's direct all-bit oracle is missing in checked-in public-key tests; see draft. That unit-level draft does not test byte-order parsing or CMS/PDF integration.",
+        "Table 24 says processors ignore bit 10, but writers shall always set it to 1 for old-reader compatibility. Its assistive-technology carveout is separately attached to bit 5, and the checked-in public-key witness assertions do not test the accessibility consumer path.",
+        "EC3 #196 renumbering must remain visible in ledger/ADR wording: the original printed .3 is algorithm material now effectively .4, with inserted permissions subclause .3."
+      ]
+    },
+    {
+      "clause": "Table 27 / §7.6.6 boundary",
+      "requirement": "For s5, document-level recipient lists are in the referenced crypt filter array; stream-specific Crypt decode-parameter filter may have one CMS string with a 20-byte seed and no four-byte permissions. Authorization timing affects whether failure is at document open or stream access.",
+      "implementation": "public_key.rs::filter_lists, ::own_key, and ::public_key; stream selector integration in Encryption / stream decryption.",
+      "assertions": [
+        "a_stream_s_own_crypt_filter_decrypts_under_its_own_recipients_key",
+        "a_reader_the_stream_s_own_list_does_not_name_is_refused_that_stream"
+      ],
+      "verdict": "Selected Table 27 behavior is exercised with real generated CMS controls and stream text. Not a complete §7.6.6 audit.",
+      "residuals": ["No V5 stream-own-list witness was identified in the reviewed ADR/test descriptions; ADR 2810 explicitly notes its V5 branch is reasoned rather than witnessed."]
+    }
+  ],
+  "change_since_4015a9ae": {
+    "source_diff": "git diff 4015a9ae..b901326c shows public_key.rs added (559 lines) and public_key_witnesses.rs expanded by 430 insertions / 19 deletions; the source and tests are new/changed in this baseline range.",
+    "test_change_review": "Assertions now include real s3/s4 CMS-backed PDFs, Table 27 stream-owned recipient cases, EC KARI, no-recipient/wrong-key controls, and actual PDFBox witnesses. The s3/s4 and generated stream/KARI artifact generator scripts are not in this checkout. Existing test comments cite prior-round retained scripts, which is provenance rather than an independently rerunnable fixture build."
+  },
+  "execution": "No Cargo commands run by this shard. Parent's b901326c suite execution is separate and pending/owned by parent."
+}

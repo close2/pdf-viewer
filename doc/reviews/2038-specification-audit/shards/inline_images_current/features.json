@@ -1,0 +1,38 @@
+{
+  "scope": "\u00a78.9.7 Tables90\u201392, current scanner/image consumer and assertion bodies. Partial review only.",
+  "primary_source": "Local ISO PDF/MD plus EC3#3 abbreviation precedence, #19 default-device spaces, #20 first-decoded ASCII filter separator exception, #306 uppercase I.",
+  "errata_url": "https://pdf-issues.pdfa.org/32000-2-2020/clause08.html",
+  "ledger": [
+    "8.9.7"
+  ],
+  "features": [
+    {
+      "feature": "Key/value abbreviations, precedence and unlisted entries",
+      "assertions": "inline_images_dictionary_audit explicitly tests W/Width and I/Interpolate both orders, ignored SMask, Indexed-family I. Eight-image corpus comparison additionally requires nonwhite first image and all equal; it alone is not universal all-key proof.",
+      "verdict": "Meaningful complementary literal/value and rendering invariance controls. Table91 Intent and every conflicting key pair not exhaustively tested."
+    },
+    {
+      "feature": "Data extent and continuation",
+      "assertions": "inline_images tests computed unfiltered grid with embedded EI; stated length and wrong-length policy; filter EOD including ASCII85 encoded EI, runlength literal EI, JPEG thumbnail EOI, fax pattern and buffer cut. Exact resumed suffix/marker drawings and decoded samples are independent expected outputs.",
+      "verdict": "Supported sampled valid extents; malformed fallback and 16MiB window are policy. Prior fax RTC claim qualification T06 still applies."
+    },
+    {
+      "feature": "Separator and raw binary sample preservation",
+      "assertions": "New inline_images_residual_audit::inline_data_keeps_whitespace_and_delimiter_samples_after_one_separator checks all six Table1 separators against nine leading sample bytes, except CR+LF pair (53 cases). Exact sample bytes and resume suffix asserted.",
+      "verdict": "PASS. Does not treat sample percent as comment or discard leading whitespace.",
+      "residual": "ADR0019 treats CRLF as one EOL. Whether this consumes a valid LF sample after a one-byte CR separator is an interpretation question: \u00a78.9.7 says single whitespace character/next byte, \u00a77.2.3 says CRLF one EOL. No disputed normative failing assertion promoted."
+    },
+    {
+      "feature": "Colour space/resource/default and mask exception",
+      "assertions": "Existing literal RGB quadrants plus post-image marker; named/raw-byte resources; mask true withoutCS red/transparent samples; DefaultGray both named equivalent and differing ordinary gray control; LZW literal sample decoder and EOD; ASCII85 delimiter immediately afterID decoded literal sample. Additional public pixel tests verify reserved G/DeviceGray names ignore same-named resources while Custom resolves the same CalGray space, and Indexed I/RGB expansion renders both literal red/blue palette entries.",
+      "verdict": "Meaningful sampled consumer controls. No exhaustive defaultRGB/CMYK shadow-name matrix."
+    },
+    {
+      "feature": "Producer-only restrictions and recovery choices",
+      "evidence": "4096byte maximum is SHOULD advice, not mandatory reader refusal. PDF2 L required on producer; forbidden JPX/JBIG2/Crypt and real dimensions are malformed inputs, not valid-feature nonimplementation. Current integer_entry rounds nearest; ledger still says truncation.",
+      "verdict": "Document stale recovery-policy description separately, not valid-input rendering defect."
+    }
+  ],
+  "execution": "page-inline-wave13.log40/40PASS across7binaries includes new resource test and prior source-derived inline tests. inline-extra-wave13.log: 7/7 PASS including both additional controls.",
+  "limits": "No whole-row certification; filter/colour backends have separate shards and unresolved findings. CRLF ambiguity preserved, not silently specified by tests."
+}

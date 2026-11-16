@@ -1,0 +1,67 @@
+{
+  "baseline": "b901326c",
+  "selected_adrs": [
+    {
+      "adr": "2801",
+      "decision": "Shared pdf-pki below pdf-syntax and pdf-signature; build authorized by A800, keep private key as host input.",
+      "review": "Supported by the inspected dependency direction and host integration. A800/Q800 and A168 confirm this trigger is lifted; earlier A66 wait state is stale. The four PDFBox witnesses are test material, not evidence of a real user's recipient key.",
+      "residuals": ["This shard did not assess security properties of the full ASN.1/cryptographic stack or secret-memory guarantees beyond public API and ADR assertions."]
+    },
+    {
+      "adr": "2802",
+      "decision": "Use SubFilter to choose s3/s4/s5 format and recipient-list location; read Table 23/24, first matching list, metadata digest input and revisions.",
+      "review": "Core choices align with §7.6.5.2 and Table 23 and the inspected implementation. Table 20 distinguishes the handler name in Filter from SubFilter's cryptographic format; this audit did not establish a requirement to reject any particular Filter name beyond requiring a public-key handler. No issue is raised solely from ADR wording that says format is determined by SubFilter.",
+      "residuals": ["Per-bit Table 24 proof is thinner in checked-in PDF-handler tests than the ledger says; focused test draft supplied.", "No exhaustive malformed or mixed-recipient-list order fixture was independently examined in this shard."]
+    },
+    {
+      "adr": "2809",
+      "decision": "Read the four deprecated envelope ciphers as well as three AES widths, with algorithm-specific parameters.",
+      "review": "Consistent with the clause: deprecated algorithms remain listed as usable envelope algorithms, while deprecation is not treated as a reader refusal instruction. ADR cites algorithm-specific known answers and independently produced CMS envelopes. This shard did not rerun or recertify those vectors.",
+      "residuals": ["Not a complete algorithm-by-algorithm code review; parent suite execution remains separate."]
+    },
+    {
+      "adr": "2810",
+      "decision": "Crypt filters reached through a stream's Crypt decode parameters can derive and use a per-filter recipient key; permission bytes are absent in that case; query AuthEvent per key.",
+      "review": "The source text in Table 27 and §7.6.5.3 supports distinct document and stream cases, and the code/test path exercises stream-local authorization. ADR explicitly qualifies the V5 stream-local branch as reasoned rather than witnessed; preserve that qualifier. The local witness scripts are not in the checkout, a reproducibility gap, not proof the artifacts are invalid.",
+      "residuals": ["No V5 stream-own-recipient fixture inspected. The all-CF-entry/eager-own-key behavior is outside this bounded shard's settled evidence and should not be upgraded to a normative claim here."]
+    },
+    {
+      "adr": "2821",
+      "decision": "Support CMS key agreement with the selected five EC curves and AES wraps; refuse optional ECMQV and unavailable brainpoolP512.",
+      "review": "The real KARI positive fixture and RSA nonrecipient control are useful evidence for one EC path; standards vectors and separate pdf-pki tests support primitive choices. ADR appropriately distinguishes remaining implementation scope from required conformance. No full curve/scheme matrix is established here.",
+      "residuals": ["Current handler-level KARI witness covers P-256, not every supported curve/hash/wrap combination."]
+    },
+    {
+      "adr": "2822",
+      "decision": "Hold recipient certificate/key as viewer policy state and carry secret input to the worker; prompt on no matching recipient.",
+      "review": "The inspected public viewer-core tests and host source establish actual consumer handoff, not merely an exposed API. This is product policy/API behavior, not a PDF normative obligation. No visible warning/prompt UI path was exhaustively followed for every host in this shard.",
+      "residuals": ["Host UI rendering and confined-host behavior were not tested here."]
+    },
+    {
+      "adr": "2826",
+      "decision": "Read RSAES-OAEP with stated parameters and the RFC 3560 defaults.",
+      "review": "The decision is supported by the cited RFC standards and external-envelope assertions described by ADR. It is beyond this shard's detailed algorithm audit; do not infer all OAEP/hash combinations from the §7.6.5 fixture set.",
+      "residuals": ["No OAEP vector or parameter edge was independently rederived here."]
+    },
+    {
+      "adr": "2827",
+      "decision": "Implement Triple-DES key wrap; leave optional one-pass ECMQV and brainpoolP512r1 for effort/package reasons.",
+      "review": "The explicit scope and rationale were checked. These are bounded support choices; this shard makes no product-policy assertion that every optional scheme must be implemented.",
+      "residuals": ["Triple-DES wrap vectors/envelopes were not independently rerun here."]
+    }
+  ],
+  "errata": [
+    {
+      "issue": "EC3 #196",
+      "decision": "The inserted effective §7.6.5.3 permissions heading leaves current text and Table 24 unchanged; published .3 algorithm citation becomes effective .4.",
+      "review": "Confirmed against doc/errata-read.md:464 and the effective source structure. Keep published clause numbering explicit in row citations and explain effective renumbering.",
+      "residuals": []
+    },
+    {
+      "issue": "EC3 #16",
+      "decision": "Table 27 Recipients is byte string or array, rather than text string or array.",
+      "review": "Directly affects the s5 digest path because CMS object bytes are hashed; code consumes raw PDF string bytes. Treat as Table 27 / §7.6.6 cross-reference, not as a correction to Table 23's array shape.",
+      "residuals": []
+    }
+  ]
+}

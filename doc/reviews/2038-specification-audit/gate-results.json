@@ -323,6 +323,98 @@
       "scope": "AnnexD parent read-only full-table comparison",
       "exit": 0,
       "artifact": "shards/annex_d_encoding/parent-comparison.json"
+    },
+    {
+      "log": "page-inline-wave13.log",
+      "run": 40,
+      "passed": 40,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "inline-extra-wave13.log",
+      "run": 7,
+      "passed": 7,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "transparency-repeated-wave13.log",
+      "run": 82,
+      "passed": 82,
+      "failed": 0,
+      "skipped": 1,
+      "exit": 0
+    },
+    {
+      "log": "pubkey-permissions-wave13.log",
+      "run": 14,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 3070,
+      "exit": 0
+    },
+    {
+      "log": "docmdp-dts-wave13.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "expected_failures": 1,
+      "exit": 100,
+      "qualification": "Preliminary fixture; superseded by wave13b after ID/widget/xref cleanup."
+    },
+    {
+      "log": "docmdp-dts-wave13b.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "expected_failures": 1,
+      "unexpected_failures": 0,
+      "exit": 100
+    },
+    {
+      "log": "wave13-quality.log",
+      "scope": "pdf-model all-targets Clippy",
+      "exit": 0
+    },
+    {
+      "log": "wave13b-quality.log",
+      "scope": "Unfulfilled test lint expectation; corrected",
+      "exit": 101
+    },
+    {
+      "log": "wave13c-quality.log",
+      "scope": "pdf-syntax/pdf-model/pdf-signature all-targets Clippy -Dwarnings",
+      "exit": 0
+    },
+    {
+      "scope": "Refreshed genuine DocMDP/DTS fixture verification",
+      "artifact": "shards/signatures_transforms/verify_fixture.py",
+      "exit": 0
+    },
+    {
+      "log": "six-crate-wave13.log",
+      "scope": "pdf-font, pdf-model, pdf-signature, pdf-syntax, pdf-transform, viewer-core; all tests; RUSTFLAGS=-Dwarnings",
+      "run": 5831,
+      "passed": 5814,
+      "failed": 17,
+      "skipped": 53,
+      "exit": 100,
+      "expected_failures": 17,
+      "unexpected_failures": 0,
+      "comparison": "Exact binary/test identities match the scoped expected-failures manifest."
+    },
+    {
+      "log": "host-colour-wave13.log",
+      "scope": "pdf-colour, viewer-host; all tests; RUSTFLAGS=-Dwarnings",
+      "run": 550,
+      "passed": 544,
+      "failed": 6,
+      "skipped": 2,
+      "exit": 100,
+      "expected_failures": 6,
+      "unexpected_failures": 0,
+      "comparison": "Exact binary/test identities match the scoped expected-failures manifest."
     }
   ],
   "prior_expected_failures": {

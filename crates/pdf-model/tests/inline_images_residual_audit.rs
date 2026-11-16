@@ -222,3 +222,68 @@ fn ascii85_final_filter_can_start_at_id_with_a_delimiter() {
         assert_eq!(content.get(scan.resume..), Some(&b" q Q"[..]));
     }
 }
+
+/// Table 1 whitespace bytes may delimit ID; after that single separator,
+/// unfiltered bytes (including whitespace and percent signs) are image samples.
+/// CR followed by LF is deliberately excluded here: ADR 0019 consumes that pair
+/// as one EOL marker, and its interaction with the single-character rule needs
+/// a separate interpretation decision.
+#[test]
+fn inline_data_keeps_whitespace_and_delimiter_samples_after_one_separator() {
+    for separator in [0, 9, 10, 12, 13, 32] {
+        for first in [0, 9, 10, 12, 13, 32, b'%', b'(', b'/'] {
+            if separator == 13 && first == 10 {
+                continue;
+            }
+            let samples = [first, 0xff, 0x7f];
+            let mut content = b"BI /W 3 /H 1 /BPC 8 /CS /G ID".to_vec();
+            content.push(separator);
+            content.extend_from_slice(&samples);
+            content.extend_from_slice(b" EI q Q");
+            let document = Document::open(fixture(&content, "")).expect("exact-xref PDF");
+            assert!(!document.was_recovered());
+            let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+            let scan = pdf_model::inline_image::scan(&document, &content, 2, &page.resources, true);
+            let image = scan.image.expect("inline image scans");
+            assert_eq!(
+                image.data.as_ref(),
+                samples,
+                "separator {separator}, first sample {first}"
+            );
+            assert_eq!(content.get(scan.resume..), Some(&b" q Q"[..]));
+        }
+    }
+}
+
+/// The reserved device name cannot be redirected by a same-named resource,
+/// while a nonreserved name can resolve that very same resource colour space.
+#[test]
+fn inline_device_name_ignores_a_same_named_colour_space_resource() {
+    let cal_gray = "[/CalGray << /WhitePoint [0.9505 1 1.089] /Gamma 4 >>]";
+    let resources =
+        format!("/ColorSpace << /G {cal_gray} /DeviceGray {cal_gray} /Custom {cal_gray} >>");
+    let content = |name: &str| {
+        let mut bytes =
+            format!("q 40 0 0 40 0 0 cm BI /W 1 /H 1 /BPC 8 /CS /{name} ID ").into_bytes();
+        bytes.extend_from_slice(b"\x80 EI Q");
+        bytes
+    };
+    for name in ["G", "DeviceGray"] {
+        assert_eq!(
+            pixel(&render(&content(name), &resources), 20, 20),
+            [128, 128, 128, 255]
+        );
+    }
+    assert!(pixel(&render(&content("Custom"), &resources), 20, 20)[0].abs_diff(128) > 20);
+}
+
+/// Table 92's Indexed-family abbreviation reaches unpacking and the literal RGB
+/// palette, independently of merely checking its expanded dictionary name.
+#[test]
+fn inline_indexed_abbreviations_render_both_literal_palette_entries() {
+    let content =
+        b"q 40 0 0 40 0 0 cm BI /W 2 /H 1 /BPC 1 /CS [/I /RGB 1 <ff00000000ff>] ID \x40 EI Q";
+    let raster = render(content, "");
+    assert_eq!(pixel(&raster, 10, 20), [255, 0, 0, 255]);
+    assert_eq!(pixel(&raster, 30, 20), [0, 0, 255, 255]);
+}

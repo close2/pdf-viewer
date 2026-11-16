@@ -125,6 +125,17 @@ test comments are corrected. Parent reproduction confirms the sampled Annex D
 full encoding tables, including note-defined assignments. The index now links
 partial evidence to 217 ledger rows; 666 remain pending in this round.
 
+The timestamp-only DocMDP comparison now adds one failing assertion, bringing
+the manifest to 23. Both signatures in each fixture pass integrity and key checks;
+the independently signed page-change companion is correctly refused. Parent
+verification extracts the actual PDF ranges and checks OpenSSL CMS/RFC3161 tokens.
+Page-resource inheritance, inline-image byte/name controls, repeated transparency
+group invocation, and public-key permission controls pass. A stale inline-image
+rounding description and transparency-test header are recorded separately from
+behavioral defects. Partial evidence now reaches 247 rows; 636 remain pending.
+The eight-crate broad run has 6,358 passes, exactly all 23 expected failing
+identities, and 55 skips. Current touched-crate Clippy and formatting pass.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks
@@ -133,5 +144,5 @@ to leave 15%; stop new dispatch near 81% used and reserve the interval through
 not a known fixed token conversion. Preserve unfinished work explicitly rather
 than reduce review quality.
 
-No production code, ledger statuses, or historical audit records are changed by
-this audit. Tests and findings will be committed and pushed in reviewable batches.
+No production behavior, ledger statuses, or historical audit records are changed
+by this audit. A test-only module hook exposes no new production API. Tests and findings will be committed and pushed in reviewable batches.
