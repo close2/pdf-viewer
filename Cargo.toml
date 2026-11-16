@@ -747,9 +747,19 @@ panic = "abort"
 #
 # `[profile.bench]` sets `debug = true` on its own line below, so profiling and the callgrind
 # counters are unaffected by either.
+#
+# `split-debuginfo = "unpacked"` — each object's line tables stay in a `.dwo` file beside it in
+# `deps/` instead of being copied into every executable that links it. The workspace links about
+# 825 test binaries and 240 examples, and three quarters of their bytes were debug sections, most
+# of them the same dependency graph's line tables repeated in each (ADR 2912 has the measurement).
+# A panic's backtrace still names file and line, because the standard library's symboliser
+# follows each skeleton unit to its `.dwo`. What it costs: a test binary copied out of its build
+# directory loses those lines, and the standard library's own tables, which ship precompiled,
+# still travel inside every binary.
 [profile.dev]
 debug = "line-tables-only"
 opt-level = 1
+split-debuginfo = "unpacked"
 
 # The corpus gates' profile: release-grade optimisation, cheap linking.
 #
