@@ -1,0 +1,8 @@
+{
+  "source": "Parent read physical558\u2013560/Table235/236 and #131, source default appearance and submit/import boundaries; ADR0284 distinguishes lock and cryptographic questions. RestrictionPolicy Off is explicit owner policy, not a normative signature-validation conclusion.",
+  "assertions": "Old forms_data stub remains useful for parser/policy selection but is labelled accurately. Parent rejected initial draft PDF1.7 CAdES and text-field default-appearance/font assumptions; final PDF2.0 uses explicit Off/On checkbox appearances with no font. Exact-xref/no-recovery, unchanged SHA256 integrity, Include(name), other and unsigned controls pass. Added viewer edit refusal under On plus actual unchanged field value, unlisted/unsigned edit success and explicit Off override.",
+  "fixture": "Committed signed-field-lock/README.md has final hashes, byte ranges and regeneration provenance. Parent extracted Contents and actual ByteRange content with pikepdf then independently verified OpenSSL CMS. Scratch draft hashes and text fields are superseded by final checkbox fixtures. No public trust/revocation claim.",
+  "execution": "Model signed-lock1PASS in font-shading-lock-wave25.log; public viewer edit1PASS in viewer-lock-wave25.log. All/Exclude and P remain parser/policy-only signed witnesses.",
+  "baseline": "b901326c",
+  "limit": "Partial source/assertion review, not whole-clause certification."
+}

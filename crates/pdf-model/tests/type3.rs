@@ -33,13 +33,15 @@ use pdf_syntax::Document;
 /// `font_matrix`, `widths` and the two glyph descriptions are what the individual tests
 /// vary; `content` is the page's own content stream, which selects the font and shows text.
 struct Fixture<'a> {
+    /// Font-level box, in glyph space. The standard example's fill-only glyphs fit this box.
+    font_bbox: &'a str,
     font_matrix: &'a str,
     widths: &'a str,
     square: &'a str,
     triangle: &'a str,
     content: &'a str,
-    /// The font dictionary's `/Encoding` value, verbatim. §9.6.5.1 permits a name here as
-    /// well as a dictionary, so this is a string rather than a fixed reference.
+    /// The font dictionary's `/Encoding` value, verbatim. This string also supports deliberate
+    /// direct-name tolerance cases; conforming Type 3 fixtures use an encoding dictionary.
     encoding: &'a str,
     /// The `/CharProcs` dictionary's body, verbatim, so that a named encoding's glyph names
     /// can be the keys.
@@ -51,6 +53,7 @@ impl Default for Fixture<'_> {
     /// filled square and a filled triangle.
     fn default() -> Self {
         Self {
+            font_bbox: "[0 0 750 750]",
             font_matrix: "[0.001 0 0 0.001 0 0]",
             widths: "[1000 1000]",
             square: "1000 0 0 0 750 750 d1\n0 0 750 750 re f",
@@ -66,6 +69,7 @@ impl Fixture<'_> {
     /// Assembles the fixture into PDF bytes.
     fn build(&self) -> Vec<u8> {
         let Self {
+            font_bbox,
             font_matrix,
             widths,
             square,
@@ -80,7 +84,7 @@ impl Fixture<'_> {
              3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
              /Resources << /Font << /FT3 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
              4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
-             5 0 obj\n<< /Type /Font /Subtype /Type3 /FontBBox [0 0 750 750] \
+             5 0 obj\n<< /Type /Font /Subtype /Type3 /FontBBox {font_bbox} \
              /FontMatrix {font_matrix} /CharProcs 7 0 R /Encoding {encoding} \
              /FirstChar 97 /LastChar 98 /Widths {widths} >>\nendobj\n\
              6 0 obj\n<< /Type /Encoding /Differences [97 /square /triangle] >>\nendobj\n\
@@ -115,6 +119,7 @@ impl Fixture<'_> {
     /// Interprets the fixture's page one.
     fn interpret(&self) -> pdf_model::Interpretation {
         let document = Document::open(self.build()).expect("the fixture is a valid PDF");
+        assert!(!document.was_recovered(), "fixture xref offsets are exact");
         let page = pdf_model::Pages::new(&document).get(0).expect("page one");
         pdf_model::interpret(&document, &page)
     }
@@ -275,7 +280,7 @@ fn a_d1_description_takes_its_colour_from_the_page_and_a_d0_one_does_not() {
 #[test]
 fn an_uncoloured_glyph_strokes_in_the_stroking_colour_it_inherited() {
     let interpretation = Fixture {
-        square: "1000 0 0 0 750 750 d1\n50 w\n30 30 690 690 re S",
+        square: "1000 0 5 5 745 745 d1\n50 w\n0 J\n0 j\n[] 0 d\n10 M\n30 30 690 690 re S",
         content: "1 0 0 rg 0 1 0 RG BT /FT3 10 Tf 0 0 Td (a) Tj ET",
         ..Fixture::default()
     }
@@ -308,7 +313,8 @@ fn an_uncoloured_glyph_strokes_in_the_stroking_colour_it_inherited() {
 #[test]
 fn an_uncoloured_glyph_that_fills_and_strokes_uses_both_inherited_colours() {
     let interpretation = Fixture {
-        square: "1000 0 0 0 750 750 d1\n72 w\n0 0 750 750 re B",
+        font_bbox: "[-36 -36 786 786]",
+        square: "1000 0 -36 -36 786 786 d1\n72 w\n0 J\n0 j\n[] 0 d\n10 M\n0 0 750 750 re B",
         content: "0.2 0.8 0.0 rg 0.1 0.4 0.0 RG BT /FT3 15 Tf 0 0 Td (a) Tj ET",
         ..Fixture::default()
     }
@@ -616,6 +622,8 @@ fn a_glyph_description_finds_the_resources_its_own_stream_names() {
 #[test]
 fn an_inline_image_is_a_glyph_description_s_marks_like_any_other_operator() {
     let interpretation = Fixture {
+        // The image reaches x=950; the other glyph reaches y=750.
+        font_bbox: "[0 0 950 750]",
         square: "1000 0 d0\nq 750 0 200 375 0 0 cm\nBI /W 2 /H 2 /CS /G /BPC 8 /F /AHx ID \
                  00ffff00> EI\nQ",
         content: "BT /FT3 10 Tf 0 0 Td (a) Tj ET",
@@ -688,8 +696,10 @@ fn a_d1_glyph_description_drops_an_image_and_keeps_an_image_mask() {
     );
 }
 
-/// A named encoding is an encoding: §9.6.4's step a) delegates to §9.6.5, and §9.6.5.1 lets
-/// the entry be a name.
+/// Tolerance test only: this direct-name `/Encoding` violates Type 3 Table 110, which
+/// requires an encoding dictionary. It records permissive reader behavior for existing files; it
+/// is not valid-input conformance evidence, and ISO does not require acceptance or rejection of
+/// this malformed form.
 ///
 /// Table 110's `/Encoding` cell requires a dictionary *of the file*. §9.6.4's step a) is what a
 /// processor runs:
@@ -727,16 +737,9 @@ fn a_named_encoding_maps_codes_to_glyph_names_out_of_annex_d() {
     );
 }
 
-/// The names a named encoding produces are Annex D's, so a `/CharProcs` keyed by the font's
-/// own procedure names reaches none of them and paints nothing.
-///
-/// This is the other half of the clause and it is what stops the change above from being a guess.
-/// §9.6.4's step b):
-///
-/// > If the name is not present as a key in CharProcs , no glyph shall be painted.
-///
-/// So the encoding decides the *name* and `/CharProcs` decides whether there is a glyph. The page
-/// is complete either way — a code that paints nothing is the clause's own outcome, not a failure.
+/// Tolerance test only: as above, this direct-name `/Encoding` violates Table 110's Type 3
+/// dictionary requirement. The known Annex D names discriminate permissive behavior; this is not
+/// an assertion that a producer may use the named form.
 #[test]
 fn a_named_encodings_names_that_char_procs_has_no_key_for_paint_nothing() {
     let interpretation = Fixture {
@@ -755,12 +758,9 @@ fn a_named_encodings_names_that_char_procs_has_no_key_for_paint_nothing() {
     );
 }
 
-/// An `/Encoding` name this reader has no table for is still no encoding, and the font is
-/// refused rather than drawn from a table it invented.
-///
-/// §9.6.5.1 lists three predefined encodings and this tree accepts `StandardEncoding` beside
-/// them; anything else names a mapping the standard does not define, so there is nothing to
-/// look a code up in. The refusal is trap 5: what cannot be drawn stays loud.
+/// Tolerance/report-policy test only: this direct-name `/Encoding` violates Type 3 Table
+/// 110's required dictionary form. No conformance conclusion follows from refusing this malformed
+/// font. For conforming Type 3 inputs, use an encoding dictionary with a complete Differences map.
 #[test]
 fn an_encoding_name_that_is_not_a_predefined_encoding_is_no_encoding() {
     let interpretation = Fixture {

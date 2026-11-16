@@ -235,6 +235,16 @@ earliest-word fragment-search test is absent from its ledger references, not abs
 from the test suite. Partial reviews reach403rows, with480pending. The manifest
 remains36; viewer-core/render-raster all-targets Clippy passes.
 
+The Type1/Type3/form-lock checkpoint adds a combined shading Matrix/BBox/Background
+control with independent RGB interior values, corrects Type3 fixture extents and
+labels named-Encoding tolerance accurately. A genuinely signed CAdES fixture now
+proves Include lock selection and public edit refusal under enforcement, with
+unlisted, unsigned and explicit reader-override controls. All61selected model tests
+and the viewer edit test pass. All/Exclude/P still need genuine signed witnesses.
+AntiAlias no-read remains an interpretation residual: an optional entry and no
+fixed filter kernel do not establish permission to ignore true. Partial reviews
+reach414rows, with469pending. Model/core all-targets Clippy passes; manifest remains36.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks

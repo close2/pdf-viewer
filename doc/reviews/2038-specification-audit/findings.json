@@ -1013,5 +1013,50 @@
     "code": "crates/viewer-core/tests/annex_o_open_parameters_audit.rs::fragment_search_word_list_selects_earliest_text_occurrence",
     "change": "Record missing link; do not classify it as missing implementation or missing test.",
     "remaining": "Caption #700 correction is distinct from existing published-number citation policy and earlier literal-prefix triage."
+  },
+  {
+    "id": "2038-T39",
+    "kind": "public-integration-test-gap",
+    "clauses": [
+      "8.7.4.5.2",
+      "8.7.4.2"
+    ],
+    "summary": "Type1 Matrix, target-space BBox and Background lacked a combined public raster discriminator.",
+    "change": "Added independently derived RGB interiors, target-clip exterior, pattern Background and direct-sh transparent-domain controls.",
+    "execution": "PASS;43shading tests pass.",
+    "remaining": "No exhaustive function/colour/filter coverage."
+  },
+  {
+    "id": "2038-T40",
+    "kind": "test-fixture-validity-gap",
+    "clauses": [
+      "9.6.4",
+      "9.6.5.3"
+    ],
+    "summary": "Type3 stroked and transformed-image fixture bounds omitted actual extents; named-Encoding witnesses were not labelled as producer-invalid tolerance.",
+    "change": "Correct FontBBox/d1 extents, explicit stroking parameters and no-recovery guard; label compatibility tests.",
+    "execution": "17PASS.",
+    "remaining": "Real successful MMType1 instance remains a coverage gap; bounds outside behavior is implementation-dependent, not required clipping."
+  },
+  {
+    "id": "2038-T41",
+    "kind": "test-fixture-validity-gap",
+    "clauses": [
+      "12.7.5.5"
+    ],
+    "summary": "Positive signed-field lock tests used a V dictionary without Contents and meaningless ByteRange.",
+    "change": "Label stub parser/policy coverage; add independently signed CAdES Include(name) and unsigned control, verify integrity and restrictions, then actual public Viewer edits under On/Off.",
+    "execution": "Model1PASS and viewer1PASS, independently extracted CMS verifies.",
+    "remaining": "All/Exclude/P still need genuinely signed positive witnesses. No certificate trust/revocation claim."
+  },
+  {
+    "id": "2038-D15",
+    "kind": "source-interpretation-residual",
+    "clauses": [
+      "8.7.4.5.1"
+    ],
+    "summary": "Optional AntiAlias flag is currently unread; optional dictionary entry and absence of a fixed filter kernel do not establish permission to ignore true.",
+    "source": "Table77 physical245\u2013246; ADR1765 reviewed.",
+    "change": "Preserve unresolved consumer/interpretation question; no ungrounded exact-pixel failure or confirmed defect asserted."
   }
 ]

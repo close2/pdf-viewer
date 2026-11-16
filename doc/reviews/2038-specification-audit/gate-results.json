@@ -882,6 +882,32 @@
       "log": "quality-wave24c.log",
       "scope": "viewer-core and render-raster all-targets Clippy -Dwarnings",
       "exit": 0
+    },
+    {
+      "log": "font-shading-lock-wave25.log",
+      "scope": "All43shadings,17Type3,1genuine signed-lock model controls",
+      "run": 61,
+      "passed": 61,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "viewer-lock-wave25.log",
+      "scope": "Actual signed Include lock edit refusal plus unlisted, unsigned and Off controls",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave25.log",
+      "scope": "Draft test doc-markdown errors corrected",
+      "exit": 101
+    },
+    {
+      "log": "quality-wave25b.log",
+      "scope": "pdf-model/viewer-core all-targets Clippy -Dwarnings",
+      "exit": 0
     }
   ],
   "prior_expected_failures": {

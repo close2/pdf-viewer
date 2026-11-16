@@ -638,18 +638,14 @@ fn a_read_only_field_refuses_a_person_and_not_an_import() {
     assert!(after.contains("imported"), "{after:?}");
 }
 
-/// The same form with a signature field carrying §12.7.5.5's `/Lock`, signed or not.
+/// A parser/policy fixture for §12.7.5.5's `/Lock` actions and optional `/P`.
 ///
-/// `action` is Table 236's `/Action` verbatim, so a caller can hand it a name the table does not
-/// define; `fields` is the `/Fields` array's contents, empty for `/All`. `signed` decides whether
-/// the signature field states a `/V` — which is the clause's own condition, "after this signature
-/// has been **signed**", and the only thing that separates a lock that binds from an instruction
-/// to whatever will do the signing.
-///
-/// The signature dictionary is the smallest one `signature::read` accepts: a `/ByteRange` and
-/// nothing else. It signs nothing and verifies as nothing, which is exactly right here — this is
-/// a test of what a field lock *asserts*, and §12.8.1's three questions about the signature
-/// itself are a different clause with its own fixtures.
+/// `action` is Table 236's `/Action`, `fields` supplies the names, and `signed` selects
+/// whether `/V` is present. The present value is deliberately only a signature stub:
+/// its `/ByteRange` is not meaningful and it has no `/Contents`. These tests establish
+/// how that stub is classified, not that a genuinely signed field activates a lock.
+/// `signature_field_lock_spec_audit` supplies the independently verified `CAdES` witness;
+/// viewer-core's `signed_field_lock_spec_audit` checks actual edit refusal and controls.
 fn form_locking(action: &str, fields: &[&str], signed: bool, permission: Option<i64>) -> Vec<u8> {
     let form = String::from_utf8(form()).expect("the fixture is ASCII");
     let with_field = form.replace("/Fields [5 0 R 6 0 R]", "/Fields [5 0 R 6 0 R 8 0 R]");
@@ -687,7 +683,8 @@ fn form_locking(action: &str, fields: &[&str], signed: bool, permission: Option<
 ///
 /// **Nothing in the corpus states one**, which is trap 8's shape and why this is a hand-built
 /// file: six of the 974 documents carry a signature and none of the six carries a `/Lock`. So the
-/// fixture is the only witness there is, and each case below is one line of the table.
+/// fixture exercises each action as a parser/policy control. The genuine signature and
+/// public edit controls now live in the separate spec-audit tests named above.
 ///
 /// The last case is the clause's own condition rather than the table's, and it is the one a
 /// reader is most likely to get wrong: an *unsigned* signature field with a `/Lock` locks

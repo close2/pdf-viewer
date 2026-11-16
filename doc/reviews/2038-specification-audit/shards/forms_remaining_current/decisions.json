@@ -1,0 +1,39 @@
+{
+  "reviews": [
+    {
+      "adr": "0284",
+      "decision_slice": "Read signature-field /Lock as a restriction on field values after its signature is signed; keep unsigned-field lock entries inert.",
+      "evidence": "EC3 §12.7.5.5 prose below Table 235, printed p.544; `pdf-signature::signature::field_locks`; `restriction::asserted`; `forms_data.rs::form_locking` and the new `drafts/signature_field_lock_valid_cades.rs` with a genuine exact-xref CAdES fixture and unsigned control.",
+      "verdict": "The core distinction remains supported. The existing lock test's alleged signed control is not a valid signature dictionary under Table 255 because it omits required `/Contents`; withdraw that test as proof of the signed condition until parent runs/promotes the valid CAdES witness. This is a test-fixture defect, not yet a demonstrated implementation defect. Do not reject ADR 0284 wholesale.",
+      "whole_adr_review": false
+    },
+    {
+      "adr": "1156",
+      "decision_slice": "Treat Table 236 /P as a reader permission over incremental changes and compose it with other restrictions.",
+      "evidence": "EC3 Table 236 /P, printed pp.544–545; EC3 #131 carveout; `field_lock_permissions` and `restriction::asserted`; current /P tests share the incomplete `form_locking` signature fixture.",
+      "verdict": "The source rationale remains convincing: /P explicitly governs following incremental changes, while its no-effect sentence applies when /P is absent; #131 adds the narrowly scoped DSS/DTS-only carveout and is already covered in the signature-transform shard. The current tests need a conforming signed-field witness before they prove applied /P behavior. The fresh lock fixture does not include /P, so this shard neither revalidates nor overturns ADR 1156's behavior.",
+      "whole_adr_review": false
+    },
+    {
+      "adr": "1261",
+      "decision_slice": "Treat §12.7.6.1 as recognition of the three form action types; locate each effect in its child clause.",
+      "evidence": "EC3 §12.7.6.1 printed p.552; `action.rs::each_of_the_three_form_action_types_reaches_its_own_answer`; child reset, submit and import tests.",
+      "verdict": "Preserve. The parent clause lists action types and says support is in addition to §12.6.4; child behavior evidence is appropriately distributed, and parent-level action classification is tested directly.",
+      "whole_adr_review": false
+    },
+    {
+      "adr": "1062",
+      "decision_slice": "Compose the submit request in the model and transmit it from the host under the host's submission policy.",
+      "evidence": "EC3 §12.7.6.2 Tables 239–240, printed pp.552–555; `pdf-model/tests/submission.rs`; `viewer-host/tests/submit.rs` loopback assertions; current `form_actions_spec_audit.rs`.",
+      "verdict": "Preserve the model/host boundary. The loopback tests compare transmitted data with the composed request, and the action clause does not override the host's policy. Keep bit 11 ExclNonUserAnnots as explicit limited behavior because the current-user match is determined by the remote server; the implementation's report/withheld subset is a limitation, not proof of conformance for a server that has a user identity.",
+      "whole_adr_review": false
+    },
+    {
+      "adr": "1108",
+      "decision_slice": "Support XFDF as the standards-named import/submission representation, including the acquired annotation input path.",
+      "evidence": "EC3 §12.7.6.2 XFDF format row and §12.7.6.4 import sentence; `forms_data.rs` FDF/XFDF values; `xfdf.rs`; `viewer-core/tests/fdf_*` action and supply-path controls; current Adobe XFDF 3.0 source acquisition recorded in repository history.",
+      "verdict": "No contrary evidence found. Current tests distinguish XFDF import from only parsing the action and include actual host-supply routes. The clause's support language does not make a file-system path choice normative. This review did not re-open the format schema or certify every XFDF annotation subtype.",
+      "whole_adr_review": false
+    }
+  ]
+}

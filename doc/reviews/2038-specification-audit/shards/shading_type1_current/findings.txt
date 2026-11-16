@@ -1,0 +1,27 @@
+# Type 1 function-based shading audit
+
+Scope: effective PDF 2.0 / EC3 §§8.7.4.1, .2, .4, .5.1 and .5.2, with emphasis on Type 1 Domain/Matrix/Background and common BBox/AntiAlias behavior. The neighboring Type 2–7 work is not recertified here.
+
+## Result
+
+No confirmed normative defect found in the reviewed Type 1 behavior. A targeted public-raster coverage gap remains: the common `/BBox` assertion uses a Type 2 shading, while Type 1 tests separately cover a rotated Domain, Type 1 Matrix colors and Background, but no test I found composes a nonidentity Type 1 `/Matrix`, `/BBox`, and the domain exterior in one observable fixture. I drafted that seam under `drafts/type1_matrix_bbox_background.rs`; a direct-`sh` control also checks the clause's ignored-Background rule. Draft is unexecuted and parent review is pending.
+
+## Primary source and errata
+
+The primary EC3 PDF defines §8.7.4.1 on printed p.228 / physical p.243, §8.7.4.2 on p.229 / p.244, Table 77 on pp.230–231 / pp.245–246, §8.7.4.4 on pp.231–232 / pp.246–247, §8.7.4.5.1 on p.232 / p.247, and §8.7.4.5.2 plus Table 78 on p.233 / p.248. These locations were cross-checked against `scratchpad/r2038/spec-audit/ec3-parent-layout.txt`. The PDF pages' annotations are internal cross-reference Links only; there are no editorial annotations on these provisions. `doc/errata-read.md` contains no applicable correction.
+
+Table 77 makes `/BBox` a temporary clip in addition to the current clip. It allows zero width or height to paint one pixel. The Type 1 rule says Matrix maps the Domain rectangle to a rectangle or parallelogram in target space; points inside the shading bounding box but outside that transformed Domain receive Background when present, and are otherwise unpainted. Table 77 says Background is only used as part of a shading pattern, while Table 76 expressly says `sh` ignores it. The Type 1 producer restriction against Indexed applies to conforming files; it does not prove an obligation for a reader to reject an Indexed Type 1 dictionary. Table 77 describes `/AntiAlias` as an optional flag indicating whether to filter and defaults it to false; its NOTE discusses device sampling and cost. I found no separate source sentence authorizing a reader to ignore a true value. Its exact behavior remains a coverage/interpretation question here: the source supplies no fixed filter kernel or pixel oracle, so this pass does not establish a defect or certify the current no-read behavior.
+
+## Ledger, code and assertions
+
+The feature-ledger rows for §§8.7.4.1, .2, .3, .4, .5, .5.1 and .5.2 are marked implemented. They map Type 1 Domain and Matrix into the display list; `crates/pdf-colour/src/shading.rs::function_based` parses the four Domain values or the unit-square default and stores the function source; `Cache::build` supplies identity Matrix when absent. `crates/pdf-render/src/shading.rs::Shading::sampled_at` maps its unit grid over Domain, then applies shading and caller transforms. In `crates/pdf-model/src/content/pattern/shading.rs`, pattern painting applies the BBox clip and, for Type 1 without Background, a transformed domain parallelogram clip. With Background the domain clip is not applied, leaving the rasterizer to paint the required wash. Direct `sh` uses a separate route.
+
+Assertions inspected in `crates/pdf-model/tests/shadings.rs` are substantive public PDF-to-raster tests: `a_function_based_shadings_domain_is_a_parallelogram_and_marks_nothing_outside_it` checks a rotated Type 1 domain and an unrotated painting control; `a_function_based_shading_maps_its_domain_through_its_matrix` checks function-derived red/green values before and after matrix translation; `a_function_based_shadings_background_fills_its_bounding_box_outside_the_domain` compares Type 1 pattern renders with and without Background; `a_function_based_shadings_discontinuity_lands_at_the_device_pixel` checks an independently understandable step function and edge/end controls; and `a_function_based_shadings_grid_is_the_same_however_it_is_divided` checks whole versus partitioned sampling plus non-vacuous output. Fixtures use hand-built exact-offset xrefs and assert complete interpretation. The common `a_shadings_bbox_clips_what_it_paints` test uses Type 2 and thus is cross-type evidence, not a direct assertion of Type 1 Matrix × BBox coordinates. I did not run tests; parent serializes execution.
+
+The type1 pattern Background test and the direct-sh Background test have complementary source-derived expectations, but the latter currently exercises an axial shading. The draft combines Type 1, nonidentity Matrix, BBox, and Background in a pattern path; its same-dictionary `sh` control expects Background to be ignored. This is a coverage proposal, not a failure report.
+
+## Decisions and residual scope
+
+See `decisions.json` for focused reconsideration of ADRs 0037, 0150, 0339, 0408, 0529 and 1765. The main qualification is test scope: the direct BBox public test is Type 2, and test names or the implemented ledger row do not themselves establish Type 1 integration. ADR 0037's analogy between AntiAlias and flatness is not a source authorization to ignore the flag; the flatness provision has its own explicit ignore permission, which I did not find for Table 77.
+
+Not assessed: exhaustive Type 1 FunctionType 0–4 arithmetic, every permitted ColorSpace, malformed-function recovery policy, all caller transforms, producer behavior, full Type 2–7 coverage, or fixed AntiAlias output. These are intentionally outside this bounded pass.

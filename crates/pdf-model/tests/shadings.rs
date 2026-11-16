@@ -2177,3 +2177,77 @@ fn a_shading_operator_inside_a_tiling_cell_paints_at_every_site() {
         "the mesh is red throughout: {left:?}"
     );
 }
+
+/// Type 1 Matrix maps the Domain while `BBox` remains a target-space clip.
+#[test]
+fn a_function_based_shading_intersects_its_matrix_domain_with_target_bbox() {
+    let shading = "<< /ShadingType 1 /ColorSpace /DeviceRGB \
+        /Domain [0 1 0 1] /Matrix [20 20 -20 20 50 30] \
+        /BBox [35 35 65 65] /Background [0 1 1] /Function 7 0 R >>";
+
+    let checked = |content: &str| {
+        let bytes = pdf_with_extra(shading, content, DOMAIN_AS_COLOUR);
+        let document = Document::open(bytes.clone()).expect("valid exact-xref shading fixture");
+        assert!(
+            !document.was_recovered(),
+            "fixture xref is used without recovery"
+        );
+        render(bytes)
+    };
+
+    // The target domain is a diamond centered at (50, 50), with vertices
+    // (50,30), (70,50), (50,70), (30,50). The BBox is the target-space square
+    // 35..65. Pattern painting uses the full page as the area to paint.
+    let pattern = checked("/Pattern cs /P0 scn 0 0 100 100 re f");
+    assert_eq!(
+        pixel(&pattern, 50, 50).3,
+        255,
+        "center lies in BBox and mapped Domain"
+    );
+    assert_eq!(
+        pixel(&pattern, 60, 50).3,
+        255,
+        "interior point lies in both regions"
+    );
+    assert_eq!(
+        pixel(&pattern, 68, 50).3,
+        0,
+        "mapped Domain point outside target BBox is clipped"
+    );
+    assert_eq!(
+        pixel(&pattern, 36, 36),
+        (0, 255, 255, 255),
+        "inside BBox but outside the mapped Domain receives Background"
+    );
+
+    // Inverse of Matrix: u=(x+y-80)/40, v=(y-x+20)/40. Pixel centres
+    // (50.5,49.5) and (60.5,49.5) therefore give RGB (128,121,0) and (191,57,0).
+    // Distinguish function colour from an opaque background-only implementation.
+    for (x, expected) in [(50, (128u8, 121u8)), (60, (191u8, 57u8))] {
+        let (red, green, blue, alpha) = pixel(&pattern, x, 50);
+        assert!(
+            red.abs_diff(expected.0) <= 2 && green.abs_diff(expected.1) <= 2,
+            "inverse-Matrix colour at x={x}: ({red},{green}), expected {expected:?}"
+        );
+        assert_eq!((blue, alpha), (0, 255));
+    }
+
+    // Table 76 says `sh` ignores Background. The same point is in its current clip and
+    // the BBox, but outside the Type 1 mapped Domain, so it must remain unpainted.
+    let direct = checked("/Sh0 sh");
+    assert_eq!(
+        pixel(&direct, 50, 50).3,
+        255,
+        "direct sh still paints the mapped-domain center"
+    );
+    assert_eq!(
+        pixel(&direct, 68, 50).3,
+        0,
+        "direct sh remains clipped by target BBox"
+    );
+    assert_eq!(
+        pixel(&direct, 36, 36).3,
+        0,
+        "direct sh ignores the shading Background"
+    );
+}
