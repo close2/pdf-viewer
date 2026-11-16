@@ -414,6 +414,12 @@
       "test": "archive_report_preserves_all_components_at_and_beyond_the_parser_limit",
       "finding": "2038-B46",
       "log": "combined-wave43c.log"
+    },
+    {
+      "binary": "viewer-core::historical_ocsp_report_spec_audit",
+      "test": "an_ocsp_response_produced_before_the_trusted_past_time_cannot_support_the_path",
+      "finding": "2038-B47",
+      "log": "historical-ocsp-wave46b.log"
     }
   ]
 }

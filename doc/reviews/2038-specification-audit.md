@@ -11,16 +11,16 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (45)
+## Current checkpoint (46)
 
-Partial reviews now cover **779 of 883 ledger rows**, with 104 pending. The current
-failure manifest contains **69 assertions**, grouped into behavior findings rather
-than 69 independent defects. All 72 failures from the prior audit pass at this baseline.
+Partial reviews now cover **784 of 883 ledger rows**, with 99 pending. The current
+failure manifest contains **70 assertions**, grouped into behavior findings rather
+than 70 independent defects. All 72 failures from the prior audit pass at this baseline.
 The latest broad run, wave38b, covered eleven crates: **7,158 tests ran, 7,096 passed,
 and exactly the 62 then-recorded in-scope assertions failed; 58 were skipped**.
 Exact identities matched the manifest; three GPU failures were recorded separately.
-Subsequent targeted runs add four expected failures and eight passing tests. The current
-manifest therefore has 66 failures in those eleven crates and three GPU failures.
+Subsequent targeted runs add five expected failures and nine passing tests. The current
+manifest therefore has 67 failures in those eleven crates and three GPU failures.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 
@@ -101,6 +101,11 @@ are mapped to their detailed owners; no aggregate status certifies every child.
 Checkpoint 45 maps graphics, transparency and interactive overview clauses to
 their detailed assertion owners. It adds no failure or execution claim. Source
 locators and earlier draft statuses are qualified in each parent review.
+
+Checkpoint 46 confirms historical OCSP applicability failure through the public
+signature report. The later-response control passes; independent cryptographic
+checks verify both fixtures. Rendering overview review also records stale aggregate
+black-generation rationale against the current implementation and successor ADRs.
 
 These are partial feature reviews, not whole-clause certification. The paragraphs
 below preserve earlier checkpoint evidence. Weekly usage was 48% at the latest check;

@@ -1,0 +1,7 @@
+{
+  "source": "Parent read physical599/584: historical OCSP appropriateness requires producedAt after trusted past instant, separately from capture before signer expiry. No generic current-time OCSP rule is inferred.",
+  "execution": "historical-ocsp-wave46b.log:2run1PASS1FAIL. Late-produced control passes; early-produced response falsely supports locally valid report at trusted genTime. Both ByteRange/CMS/certificate-binding/token-imprint guards pass. Initial wave46 failed only on test report-string capitalization and is not behavior evidence.",
+  "independent_checks": "Parent extracted actual PDF signed ByteRanges and CMS/token. OpenSSL verified CMS/path at genTime, token signature/imprint at fixed host, OCSP signatures/CertID and TSA CRL; qpdf syntax checks pass. Same signed revision in both inputs. DER framing helper is shared with generator; cryptographic verification is independently performed by OpenSSL.",
+  "quality": "quality-wave46.log:viewer-core all-targets Clippy PASS.",
+  "limits": "Offline supplied anchors/clock and RevocationMustBeGood. Separate document and TSA issuers prevent TSA CRL from masking document OCSP applicability. No authenticated timestamp over appended DSS; capture-time verification is a separate residual, not inferred from producedAt. No network/OS trust or whole signature certification."
+}

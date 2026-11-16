@@ -1,0 +1,13 @@
+{
+  "decisions": [
+    {
+      "adr": "1069,1207,2549",
+      "assessment": "Do not retain the old no-replacement-step premise as current. ADR1207 supersedes1069, and2549 makes the stated pair replace even a profile-backed default for DeviceRGB into DeviceCMYK. The source explicit functions and timing support this correction. Preserve ICCBased-target exclusion and caller-owned scope. Defaults are implementation choices, not a unique nominal-pair mandate.",
+      "assertions": "transparency_groups::a_device_rgb_colour_into_the_output_intents_press_is_separated_by_the_stated_functions compares worked CMYK inks, requires unstated control to differ, and tests ICCBased control and inline image. a_device_rgb_group_into_the_output_intents_press_takes_the_pair_at_the_do checks independent inks and a differing unstated control. Nested ICCBased parent test explicitly permits a separate unsupported group report; it is not complete rendering proof."
+    },
+    {
+      "adr": "1535,1622",
+      "assessment": "Retain the distinction between headings, conditional device requirements and permitted branch choices. Qualify old aggregate rationale against current explicit-function branch and current stage-specific assertions; a heading marked implemented does not certify all its children."
+    }
+  ]
+}

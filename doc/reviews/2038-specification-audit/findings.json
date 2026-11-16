@@ -1810,5 +1810,32 @@
     "evidence": "Exact-xref PDF2.0: d0 red-image controls, d1 explicit-white no-paint targets, d1 inherited-blue stencils with white outside controls. Complete interpretation; actual CPU pixels.",
     "execution": "type3-image-wave44.log:2PASS. Model all-targets Clippy PASS.",
     "scope": "No GPU, inline-image, soft-mask-group or full ignored-operator list certification."
+  },
+  {
+    "id": "2038-B47",
+    "kind": "historical-ocsp-applicability",
+    "clauses": [
+      "12.8.3.4.8"
+    ],
+    "summary": "Public historical signature report accepts GOOD OCSP produced before the trusted past timestamp.",
+    "evidence": "Same signed PDF revision and genuine RFC3161 token. Separate document/TSA anchors. Both issuer-signed GOOD responses have windows bracketing genTime; early producedAt fails source condition but report calls signature locally valid. Late control passes.",
+    "execution": "historical-ocsp-wave46b.log:1PASS1FAIL; independent OpenSSL verification and qpdf checks pass; viewer-core all-targets Clippy PASS.",
+    "scope": "Historical public Report under supplied anchors/clock and RevocationMustBeGood. Capture before signer expiry remains a separate provenance question; producedAt is not capture time.",
+    "adrs": [
+      "1112",
+      "1071",
+      "1067"
+    ]
+  },
+  {
+    "id": "2038-D38",
+    "kind": "aggregate-rationale-drift",
+    "clauses": [
+      "10.4",
+      "10.4.2"
+    ],
+    "summary": "Aggregate classic-conversion notes retain nominal-cancellation/ADR1069 framing despite the current explicit BG/UCR branch.",
+    "evidence": "to_cmyk_at DeviceRGB+generation calls separate; ADR1207 supersedes1069 and ADR2549 applies stated pair over profile default. Leaf notes and discriminating public tests describe this branch.",
+    "disposition": "Qualify aggregate evidence rationale; no production defect or ledger-status change inferred. Historical ADRs remain unchanged."
   }
 ]

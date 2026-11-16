@@ -1,0 +1,27 @@
+# Historical PAdES OCSP producedAt applicability
+
+## Source and question
+
+ISO 32000-2:2020 + EC3 §12.8.3.4.8 (physical p.599 / printed p.584) specifies historical signer-path revocation checking at the past UTC instant indicated by a valid CAdES signature timestamp. For OCSP, it separately says the response is appropriate only if it was captured before the signer's certificate expires and its signed `producedAt` is after that past UTC time. EC3 does not change these requirements. The second condition is a signed date in the response; it must not be conflated with the first condition's capture provenance.
+
+The source-derived test question is narrow: with an established historical time `T`, an authorized Good response whose `thisUpdate <= T < nextUpdate` still cannot support historical Good when `producedAt <= T`; the otherwise equivalent positive control has `producedAt > T`. The test does not claim that producedAt proves when the response was captured.
+
+## Implementation and existing assertions
+
+`BasicResponse` preserves `produced_at`, and each `SingleResponse` preserves `this_update` and `next_update`. `revocation::from_response` authenticates the response signer, matches the certificate identifier, handles Revoked/Unknown distinctly, then checks `Issuance::admits(single.this_update)` and the asked instant against `nextUpdate`. It does not inspect `response.produced_at`. `trust::Search::walk` calls `status_within` at its supplied instant; the public viewer report computes that instant from the trusted signature timestamp in `notes::signatures` and then calls `Signature::trust`.
+
+The ledger marks §12.8.3.4.8 implemented and describes the trusted-token historical instant, but omits the explicit OCSP producedAt predicate. `an_ocsp_response_the_issuer_signed_is_read_and_believed` proves issuer-signed Good and Revoked response handling. The delegated responder test proves authorization and a changed-certificate control. Neither crosses a trusted timestamp with response producedAt. Those parser/status witnesses do not certify the historical PAdES timing condition.
+
+## Public fixture and controls
+
+`drafts/build_public_fixture.sh` creates ephemeral test-only keys under a trapped temporary directory; it writes only public PDFs/certificates/responses/CRL into its required fresh output directory. The checked-in scratch fixture was generated with that script and independently checked. `early.pdf` and `late.pdf` share the same signed revision, CAdES signer, real RFC 3161 signature-time-stamp token, ByteRange, and exact xref chain. A later incremental DSS update carries the response and TSA CRL. The OCSP response stream is swapped in that DSS update. The response windows differ by five seconds, but both independently satisfy `thisUpdate < T < nextUpdate`; status, authorization, signature, timestamp and anchor inputs remain fixed.
+
+The document signer is issued by a separately supplied document-CA anchor; the TSA is issued directly by another root. The root's Good CRL covers the TSA path but cannot answer revocation for the document signer, so it cannot hide an inappropriate document-signer OCSP response. Both response signatures, issuer/certificate ID match, and Good status are independently verified with OpenSSL. Both responses have `thisUpdate < T < nextUpdate`; the timestamp genTime `T` is 2026-11-16 17:09:09 UTC, early `thisUpdate`/`nextUpdate` are 16:59:06/18:09:06 UTC and its signed producedAt is 17:09:06 UTC, while late `thisUpdate`/`nextUpdate` are 16:59:11/18:09:11 UTC and its signed producedAt is 17:09:11 UTC. OpenSSL verified the RFC 3161 token and its imprint/query, the CMS signature bytes, both signer paths at `T`, the TSA CRL signature, and each OCSP response. qpdf reports no syntax/stream errors for either PDF. These controls establish genuine cryptographic inputs; they are not proof of all PDF semantic conformance.
+
+`drafts/ocsp_producedat_report.rs` is a standalone public `Command::Report` test. Both branches require the PDF ByteRange digest, CMS signature, SigningCertificateV2 binding, timestamp imprint and reported historical time to pass. The late response is the positive local-valid control. The early response is expected not to support a locally valid historical path under .8. No Cargo command was run by this shard.
+
+## Capture-time limit and remaining scope
+
+The fixture's response and appended DSS were produced in 2026 while the signer certificate remains valid through 2036. However, no trusted timestamp covers that appended DSS revision. The fixture is a local regression witness for the signed producedAt condition, not an authenticated capture-before-expiry witness for arbitrary files. That separate .8 predicate remains open: a robust end-to-end test needs trusted evidence that the OCSP bytes were present before signer expiry. A response producedAt value alone cannot establish that fact.
+
+The source locator above is the defining paragraph's physical page and printed footer, not the page where a cross-reference happens to land. No whole-clause compliance conclusion is made here.

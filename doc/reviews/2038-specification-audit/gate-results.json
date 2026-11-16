@@ -1398,6 +1398,24 @@
       "log": "quality-wave44.log",
       "exit": 0,
       "scope": "pdf-model all-targets Clippy PASS."
+    },
+    {
+      "log": "historical-ocsp-wave46b.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Public historical OCSP producedAt pair. Initial46 failed both on case-sensitive report guard; corrected46b passes crypto guards and isolates early-response failure."
+    },
+    {
+      "log": "quality-wave46.log",
+      "exit": 0,
+      "scope": "viewer-core all-targets Clippy PASS."
+    },
+    {
+      "log": "historical-ocsp-independent46.log",
+      "exit": 0,
+      "scope": "Parent actual ByteRange/CMS/path/token/OCSP/CRL verification with OpenSSL and qpdf syntax checks."
     }
   ],
   "prior_expected_failures": {

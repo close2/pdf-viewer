@@ -1,0 +1,38 @@
+{
+  "baseline": "b901326c",
+  "scope": "10.1,10.3,10.4,10.4.2,10.8 framing and selected assertion/ADR reconciliation. No whole rendering certification.",
+  "source": "Primary PDF physical375\u2013379 / printed360\u2013364; physical400\u2013401 / printed385\u2013386. Actual annotations: #181 physical376 replaces dated ICC reference by appropriate Table66 specification; #640 physical377 changes grey spelling to gray, not arithmetic.",
+  "features": [
+    {
+      "clauses": [
+        "10.1"
+      ],
+      "source": "Physical375/360. Conditional four-stage rendering overview; assumed devices count too; PDF halftoning is explicitly conditional. Notes distinguish simulated and simulating devices.",
+      "evidence": "colour_paths::a_cmyk_colour_is_the_same_however_it_is_drawn only asserts inter-route consistency with quantization tolerance. It is useful regression evidence but cannot alone establish correct colorimetry, transfer order, scan conversion or all rendering stages. Detailed owners include colour_conversion, rendering_intent_transfer_current, scan_conversion_current and halftones_separations_current. T08 adds independent BG/UCR-to-CMYK-to-native-transfer arithmetic.",
+      "verdict": "Map to stage-specific evidence; do not present the cited consistency test as a full pipeline oracle."
+    },
+    {
+      "clauses": [
+        "10.3",
+        "10.4",
+        "10.4.2"
+      ],
+      "source": "Headings physical376\u2013377/361\u2013362 add no algorithm beyond child clauses. 10.3.2 conditional recommendation for native CMYK is distinct from a CMYK blending group on an RGB output device. 10.4.2.1 recommends the ICC route while permitting classic conversions.",
+      "evidence": "colour_conversion reviewed detailed algorithms and public consumers. Parent re-read current to_cmyk_at: DeviceRGB with Some(generation) evaluates separate; without it, the press conversion runs. ADR2549 and public transparency_groups tests distinguish explicit pair, profile-default and ICCBased-target cases.",
+      "verdict": "Aggregate ledger prose describing RGB-to-CMYK only as a cancelling nominal identity and citing ADR1069 is stale as a description of current coverage. Detailed leaf notes later describe the actual explicit pair branch. This is an evidence-rationale qualification, not a missing runtime branch or a requested status change."
+    },
+    {
+      "clauses": [
+        "10.8"
+      ],
+      "source": "Heading physical400/385; 10.8.1 leaves generating separations to software; 10.8.3 physical401/386 defines optional simulation with SHOULD matching its steps.",
+      "evidence": "colour_paths::two_separations_multiply_in_flat_xyz uses independent linearization/product/regamma arithmetic: two sRGB .5 separations yield 60, not merely equality to implementation. spot_planes::the_separation_is_the_drawn_page_and_off_makes_none checks list carriers and preference gating, not actual pixel output by itself. Sibling spot-plane and CPU tests supply different stages.",
+      "verdict": "Retain optional simulation scope. The aggregate test list includes genuine independent arithmetic, but no single carrier assertion establishes the whole page output."
+    }
+  ],
+  "limits": [
+    "No new tests executed in this framing shard. T08 outcomes remain in parent records.",
+    "Historical ADRs remain unchanged; successors govern current behavior.",
+    "No new behavior failure claimed."
+  ]
+}
