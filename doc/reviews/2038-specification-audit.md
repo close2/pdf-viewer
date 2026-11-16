@@ -11,14 +11,15 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (63)
+## Current checkpoint (64)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **80 assertions**, grouped into behavior findings rather
 than 80 independent defects. All 72 failures from the prior audit pass at this baseline.
-The refreshed broad run, wave59, covered eleven crates: **7,207 tests ran, 7,133 passed,
-and exactly the 74 recorded in-scope assertions failed; 58 were skipped**.
+The refreshed broad run, wave64, covered eleven crates: **7,218 tests ran, 7,142 passed,
+and exactly the 76 recorded in-scope assertions failed; 58 were skipped**.
 Exact binary/test identities match the manifest, with no extra or missing failures.
+Passing status includes successful early returns; two are reproduced under D45.
 Three GPU failures and one engine-only Matrix2D availability failure under the adopted
 A193 reference scope are recorded separately. The new outline-panel raster test also
 passes separately; an existing LZW test was strengthened.
@@ -113,6 +114,14 @@ passes. The manifest now has80 assertions,76 in broad scope; wave59 predates the
 additions. The remaining23 literal errata candidates were reviewed, including a
 source cross-reference conflict at #179. Zero absent issue-number citations does
 not establish complete semantic coverage; a disposition crosswalk is underway.
+
+Checkpoint64 confirms two runnerPASS results skip their missing named fixture
+inside a present corpus. Passing counts are therefore not assertion-execution
+counts. The current habit distinguishes this from an absent optional corpus.
+A new deterministic Open report-event test passes; core Clippy passes. Four other
+producer witnesses initially called absent are present in the audit worktree and
+pass selected execution; the reviewer had inspected the owner checkout. Broad64
+matches all76 in-scope failures, with no unexpected or missing identities.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

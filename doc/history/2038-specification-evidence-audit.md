@@ -20,7 +20,7 @@ A shared-parser date mutation was killed and restored. Independent JP2 fixture
 regeneration matches embedded hashes. Selected ADR conclusions are retained,
 qualified, or reconsidered with primary-source reasoning.
 
-**Gates.** Wave59, eleven packages:7,207run,7,133pass, exactly74expected
+**Gates.** Wave64, eleven packages:7,218run,7,142pass, exactly76expected
 failures by binary/test identity,58skipped. Three GPU and one engine-only failure are outside that scope.
 Wave49 adds247passing engine-enabled script/worker tests; both crate Clippy checks pass.
 
@@ -31,10 +31,10 @@ composites overlapping same-object geometry twice. Literal measurement, join/fil
 WritingMode and new-file ID controls pass. The stroke failure also reaches PDF and three GPU lanes; CMYK-image OP passes.
 Embedded-font, Type3 image and corrected FDF controls pass. Next scopes cover
 indirect-value equivalence and remaining consumer assertions.
-UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage54%;ceiling85%.
+UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage55%;ceiling85%.
 
 TSA keyCompromise time selection fails with genuine signed material; FieldMDP
 rename coverage fails under a qualified interpretation. Signature/core Clippy passes.
 Alpha, filtered-checksum and cross-Contents controls pass; archive path cap fails. Model/transform Clippy pass.
 Current CRL and historical OCSP applicability witnesses fail; both positive controls pass.
-Matrix2D missing under A193; header search and old-version linearization fail; controls pass.
+Matrix2D/header search/old-version linearization fail; two fixture skips hide behind PASS.

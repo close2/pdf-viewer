@@ -1739,6 +1739,44 @@
       "log": "quality-transform-wave63.log",
       "exit": 0,
       "scope": "Transform all-targets Clippy"
+    },
+    {
+      "log": "open-report-wave64b.log",
+      "run": 4,
+      "passed": 4,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "fixture-skips-wave64.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 154,
+      "exit": 0,
+      "warning": "Both selectedPASS results are successful early returns with printed skip messages; no behavioral assertion reached."
+    },
+    {
+      "log": "present-corpus-controls-wave64.log",
+      "run": 4,
+      "passed": 4,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Four actual present producer witnesses; no skip messages in success output."
+    },
+    {
+      "log": "quality-core-wave64.log",
+      "exit": 0,
+      "scope": "Core all-targets Clippy"
+    },
+    {
+      "log": "eleven-crate-wave64.log",
+      "run": 7218,
+      "passed": 7142,
+      "failed": 76,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Eleven crates, exactmanifest identities. Passing count includes early returns; see D45."
     }
   ],
   "prior_expected_failures": {

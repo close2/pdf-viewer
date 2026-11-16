@@ -2208,5 +2208,25 @@
     ],
     "summary": "Indirect Differences integer/name members now reach literal embedded-font glyph IDs and metrics.",
     "execution": "Two tests pass; model Clippy passes."
+  },
+  {
+    "id": "2038-D45",
+    "kind": "assertion-execution-gap",
+    "clauses": [
+      "I.1",
+      "9.3.6"
+    ],
+    "summary": "Two tests report PASS after skipping absent issue1155.pdf in a present corpus; one is cited by implemented ledgerI.1.",
+    "execution": "Both successful early returns reproduced with success output. Present974-PDF corpus confirmed. Current repository rule distinguishes missing file from absent corpus.",
+    "limits": "Related invisible-text behavior has deterministic coverage; new reporting control passes. Four optional corpus absence claims were withdrawn after correct-worktree checks."
+  },
+  {
+    "id": "2038-T84",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "I.1"
+    ],
+    "summary": "A deterministic Open event test now checks missing-object notes reach the host before RenderReady and remain queryable.",
+    "execution": "One new testPASS;4binarytestsPASS;coreClippyPASS."
   }
 ]

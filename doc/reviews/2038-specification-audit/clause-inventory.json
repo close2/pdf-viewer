@@ -4230,7 +4230,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/text_state_current/features.json",
-      "shards/errata_font_text_batch_current/features.json"
+      "shards/errata_font_text_batch_current/features.json",
+      "shards/silent_fixture_skip_current/features.json"
     ],
     "prior_artifacts": [
       "text_state_audit",
@@ -4991,7 +4992,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/annex_d_encoding/features.json",
-      "shards/text_extraction_cmaps_current/features.json"
+      "shards/text_extraction_cmaps_current/features.json",
+      "shards/silent_fixture_skip_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -6488,7 +6490,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/interactive_framing_current/features.json",
-      "shards/errata_font_annotation_reference_batch_current/features.json"
+      "shards/errata_font_annotation_reference_batch_current/features.json",
+      "shards/silent_fixture_skip_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -6586,7 +6589,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/outlines_threads_current/features.json"
+      "shards/outlines_threads_current/features.json",
+      "shards/silent_fixture_skip_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -12434,7 +12438,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/annex_i_k_current/features.json"
+      "shards/annex_i_k_current/features.json",
+      "shards/silent_fixture_skip_current/features.json"
     ],
     "prior_artifacts": [
       "annex_i_audit"
