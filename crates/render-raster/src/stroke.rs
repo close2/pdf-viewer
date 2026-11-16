@@ -204,18 +204,56 @@ pub(crate) fn encode(
 /// runs. raster fits a stroke at its own encode, per placement (ADR 2553), but the dashes are cut
 /// here in path space, so a dashed stroke the fit takes is fitted here as the oracle fits it, and
 /// the scene that holds it is this view's.
+///
+/// **A decline is an answer of this view too** (ADR 2902). The fit's bounds are device measures —
+/// a width under [`pdf_render::FIT_BELOW`] device pixels, a vertex not already on a pixel centre —
+/// so the dashes a stroke under `/SA` keeps unfitted here are cut where another view's build would
+/// cut them only where that view declines as well: the scene keeps the question as an
+/// [`UnfittedDashes`] and another view asks it again before it keeps the scene. A stroke without
+/// `/SA` is declined at every view by the fit's first test, and asks nothing.
 fn fitted_for_dashing(
     enc: &mut Encoder<'_>,
-    path: &Path,
+    path: &Arc<Path>,
     transform: Transform,
     s: &Stroke,
 ) -> Option<pdf_render::GridFit> {
-    if s.dash_array.is_empty() {
+    if s.dash_array.is_empty() || !s.adjust {
         return None;
     }
-    let fitted = pdf_render::grid_fit(path, s, transform.then(enc.target().transform))?;
+    let Some(fitted) = pdf_render::grid_fit(path, s, transform.then(enc.target().transform)) else {
+        enc.keep_mark(KeptMark::Unfitted(UnfittedDashes {
+            path: Arc::clone(path),
+            transform,
+            stroke: s.clone(),
+        }));
+        return None;
+    };
     enc.consume_view();
     Some(fitted)
+}
+
+/// A dashed stroke under `/SA` whose §10.7.5 fit the scene's view declined, kept so that another
+/// view asks the fit again before it keeps the scene (ADR 2902).
+///
+/// Where [`pdf_render::grid_fit`] declines at another view too, a build there dashes the command's
+/// own path in path space exactly as this scene did, so the kept scene is that build; where it
+/// takes, a build there dashes the fitted path, whose corners have moved along the segments they
+/// end and carried every dash after them, and the scene is rebuilt.
+///
+/// [`pdf_render::grid_fit`]: fn@pdf_render::grid_fit
+#[derive(Debug, Clone)]
+pub(crate) struct UnfittedDashes {
+    path: Arc<Path>,
+    transform: Transform,
+    /// The command's stroke: its width, `/SA` and dash pattern.
+    stroke: Stroke,
+}
+
+impl UnfittedDashes {
+    /// Whether the fit declines at a view placing the page by `view` as well.
+    fn declines_at(&self, view: Transform) -> bool {
+        pdf_render::grid_fit(&self.path, &self.stroke, self.transform.then(view)).is_none()
+    }
 }
 
 /// A stroke of one straight segment, drawn as one [`raster_scene::Command::Line`] — its exact area
@@ -328,13 +366,15 @@ fn keep_marks(
 }
 
 /// A question a scene answered at the view it was built at, kept so that another view asks it
-/// again before it keeps the scene (ADRs 1877, 2884).
+/// again before it keeps the scene (ADRs 1877, 2884, 2902).
 #[derive(Debug, Clone)]
 pub(crate) enum KeptMark {
     /// A round dot the scene drew as a line.
     Line(DotAsLine),
     /// The marks §8.5.3.2's splits made, as the scene stated them.
     Stated(StatedMarks),
+    /// A dashed stroke whose §10.7.5 fit the scene's view declined.
+    Unfitted(UnfittedDashes),
 }
 
 impl KeptMark {
@@ -344,6 +384,7 @@ impl KeptMark {
         match self {
             Self::Line(dot) => dot.is_line_at(view),
             Self::Stated(marks) => marks.holds_at(view),
+            Self::Unfitted(dashes) => dashes.declines_at(view),
         }
     }
 }
@@ -358,10 +399,11 @@ impl KeptMark {
 /// these marks to the bit — the circles and squares are the path's own points at that width, the
 /// coverage the mark's — so the kept scene is that build.
 ///
-/// **What keeping them buys** (`examples/dotted_zoom`, ADR 2884): on a page of 150 dotted leaders,
-/// 27 750 marks, a zoom step kept its scene at 10.7–19.8 ms a frame where the same step rebuilt it
-/// at 31.7–42.1 ms, the scene phase 0.01 ms against 7.5–11.9 (release, five rounds, minimum of
-/// each, on the software adapter). The cost is this record per stroke that made marks, and asking it again at each view.
+/// **What keeping them buys** (`examples/dotted_zoom`, ADRs 2884 and 2902): on a page of 150 dotted
+/// leaders, 27 750 marks, a zoom step kept its scene at 6.8–13.6 ms a frame where the same step
+/// rebuilt it at 28.7–30.2 ms, the scene phase 0.01 ms against 7.6–10.0 (release, five rounds,
+/// minimum of each, on the RX 580 through RADV at a load of 2.4). The cost is this record per
+/// stroke that made marks, and asking it again at each view.
 #[derive(Debug, Clone)]
 pub(crate) struct StatedMarks {
     transform: Transform,

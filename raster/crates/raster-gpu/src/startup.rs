@@ -561,7 +561,7 @@ pub fn create_instance_with(backends: wgpu::Backends) -> wgpu::Instance {
 }
 
 /// The flags every instance raster makes carries: the build's own, less the validation of
-/// indirect calls, which raster does not make.
+/// indirect calls, which raster does not make, and less `DEBUG`, which names objects to the loader.
 ///
 /// **`VALIDATION_INDIRECT_CALL` is a pipeline compiled before the device is usable.** With
 /// it set, `wgpu` builds two compute pipelines inside `request_device` — one to check an
@@ -577,9 +577,21 @@ pub fn create_instance_with(backends: wgpu::Backends) -> wgpu::Instance {
 /// below holds the crate to that. A change that records an indirect call takes this flag back
 /// with it. Debug builds keep the build's other validation, which is the build's choice and
 /// not a bring-up figure.
+///
+/// **`DEBUG` is the one flag whose calls a Vulkan loader cannot take beside another thread's
+/// device.** It enables `VK_EXT_debug_utils`, and through it `wgpu` names every object it makes
+/// — a bind group, a pipeline, each command buffer it opens — with `vkSetDebugUtilsObjectNameEXT`.
+/// The Khronos loader (1.4.309 here, and its `main` as read) answers that call by walking every
+/// instance's list of logical devices under its instance-list lock, while `vkCreateDevice` and
+/// `vkDestroyDevice` on another thread add to and remove from that list without taking it. A test
+/// binary holding devices on parallel threads died of it with `SIGSEGV` inside `libvulkan` on the
+/// RX 580, with no test failing: each core held one thread naming an object and another inside
+/// `vkCreateDevice` or `vkDestroyDevice`. A release build sets no `DEBUG`, so this costs a debug
+/// build only its object names, and the validation layer's messages their route through `wgpu`'s
+/// log: the layer still validates, and reports on its own default output (the caller's ADR 2903).
 fn instance_flags() -> wgpu::InstanceFlags {
     wgpu::InstanceFlags::from_build_config()
-        .difference(wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL)
+        .difference(wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL | wgpu::InstanceFlags::DEBUG)
 }
 
 /// The instance a launch brings its device up on: the platform's primary backends, and

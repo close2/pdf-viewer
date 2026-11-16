@@ -285,8 +285,9 @@ struct Retained {
     /// the frame's extent — the scene survives every zoom, scroll and resize.
     view_free: bool,
     /// The questions the scene answered at its view, by the page each is on — the round dots it
-    /// drew as lines and the marks §8.5.3.2's splits stated: a view-free scene is kept at another
-    /// view only where that view answers every one the same (ADRs 1877, 2884).
+    /// drew as lines, the marks §8.5.3.2's splits stated and the dashed strokes §10.7.5's fit
+    /// declined: a view-free scene is kept at another view only where that view answers every one
+    /// the same (ADRs 1877, 2884, 2902).
     marks: Vec<(usize, crate::stroke::KeptMark)>,
     /// The pages this scene was built from — **the identities, and the pins that make them ones**.
     ///
@@ -343,7 +344,8 @@ impl Retained {
                 && key.raster.is_none()
                 && self.key.pages.len() == key.pages.len()
                 // … and every question it answered at its view is answered the same at this one:
-                // its dots drawn as lines (ADR 1877), its split marks as stated (ADR 2884).
+                // its dots drawn as lines (ADR 1877), its split marks as stated (ADR 2884), its
+                // dashed strokes under `/SA` unfitted (ADR 2902).
                 && self.marks.iter().all(|(page, mark)| {
                     frame
                         .pages
