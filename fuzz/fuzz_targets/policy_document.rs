@@ -77,6 +77,7 @@ fn facts() -> [SignerFacts<'static>; 2] {
         certificate_signature_algorithm: Some(SHA256_RSA.to_vec()),
         path_at: None,
         material: Material::default(),
+        lists: None,
     };
     [
         at(None),

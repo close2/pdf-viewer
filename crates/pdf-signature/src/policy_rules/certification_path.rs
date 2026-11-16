@@ -23,8 +23,20 @@
 //! indeterminate (step 2 a), a trust point past the instant it was reliable until is indeterminate
 //! (steps 1 a and 3), and a chain that RFC 5280 section 6.1 refuses is a failure of the path. A
 //! condition is met only where a path validated to a trust point within its length, and it is
-//! *not evaluated* — never met — where an anchor the policy names by trusted-list reference is one
-//! this program cannot read, because a trusted list is fetched from a network it does not use.
+//! *not evaluated* — never met — where an anchor this program could not examine might have met it.
+//!
+//! # Trust anchors in a trusted list
+//!
+//! TS 119 172-2 clause 4.22.2.1 b) lets a trust point give its anchors as a reference to a TS
+//! 119 612 list. They are the certificates [`crate::trusted_list::anchors`] determines from the
+//! lists a host supplied ([`SignerFacts::lists`]), each a trust point with the referencing one's
+//! other members and the reference's own reliable-until instant; this program fetches no list, so
+//! a reference to a list the host did not supply, or to one it refused, is an anchor not examined
+//! (ADR 2874). A list holds every service a territory supervises, so only the anchors whose subject
+//! is the issuer of a certificate the path could be built from are tried: RFC 5280 section 6.1
+//! closes a path on an anchor whose name is the topmost issuer, and [`crate::trust`] compares those
+//! names as octets, so an anchor no certificate names as its issuer cannot end any path the search
+//! could build.
 //!
 //! # A certification path the policy mandates
 //!
@@ -60,6 +72,7 @@ use crate::ess::{self, CertificateHash, Version};
 use crate::revocation::Material;
 use crate::timestamp::Unestablished;
 use crate::trust::{self, PathInputs, PathRefusal, Purpose, Trust, TrustAnchors, names};
+use crate::trusted_list::anchors::{ListReference, Supplied};
 use crate::x509::{self, Certificate, Instant};
 
 /// The most trust points searched for one condition.
@@ -96,7 +109,7 @@ impl Authorities {
         if searched >= MAX_AUTHORITY_SEARCHES {
             return Search {
                 found: Found::PastSearchBound,
-                unexamined: trees.points.len().saturating_add(trees.trusted_lists),
+                unexamined: trees.points.len().saturating_add(trees.listed.len()),
                 path: None,
             };
         }
@@ -126,14 +139,52 @@ pub struct TrustPoint<'a> {
     pub mandated_path: Option<Vec<Cow<'a, [u8]>>>,
 }
 
+/// One of TS 119 172-2 clause 4.22.5's `CertificateTrustPoint`s with one trust anchor given by
+/// reference to a trusted list (clause 4.22.2.1 b)): the reference, and the trust point's other
+/// members, which every anchor the list determines is a trust point with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListedTrustPoint<'a> {
+    /// The reference, with the service types and statuses that filter what it holds.
+    pub reference: ListReference,
+    /// Clause 4.22.2.1 b)'s instant until which the anchors in the list are reliable; TS 119
+    /// 172-3's ASN.1 states none.
+    pub reliable_until: Option<Stated>,
+    /// `pathLenConstraint`, as [`TrustPoint::path_length`].
+    pub path_length: Option<i64>,
+    /// As [`TrustPoint::inputs`].
+    pub inputs: PathInputs,
+    /// As [`TrustPoint::unprocessed`].
+    pub unprocessed: Vec<&'static str>,
+    /// As [`TrustPoint::mandated_path`].
+    pub mandated_path: Option<Vec<Cow<'a, [u8]>>>,
+}
+
+impl ListedTrustPoint<'_> {
+    /// The trust point one of the list's anchors is, owned.
+    fn point(&self, certificate: Vec<u8>) -> TrustPoint<'static> {
+        TrustPoint {
+            certificate: Cow::Owned(certificate),
+            path_length: self.path_length,
+            reliable_until: self.reliable_until.clone(),
+            inputs: self.inputs.clone(),
+            unprocessed: self.unprocessed.clone(),
+            mandated_path: self.mandated_path.as_ref().map(|path| {
+                path.iter()
+                    .map(|certificate| Cow::Owned(certificate.to_vec()))
+                    .collect()
+            }),
+        }
+    }
+}
+
 /// A `CertificateTrustTrees`: the trust points one condition admits.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TrustTrees<'a> {
     /// The trust points whose anchor is a certificate.
     pub points: Vec<TrustPoint<'a>>,
-    /// How many trust anchors are given as a reference to a trusted list (TS 119 172-2 clause
-    /// 4.22.2.1 b)), which this program does not fetch.
-    pub trusted_lists: usize,
+    /// The trust points whose anchors are given as a reference to a trusted list (TS 119 172-2
+    /// clause 4.22.2.1 b)), determined from the lists a host supplied.
+    pub listed: Vec<ListedTrustPoint<'a>>,
 }
 
 /// What the search for a path to a policy's trust points found.
@@ -160,6 +211,9 @@ pub enum Found {
         /// trust point its content contradicted and which yielded to it (TS 119 172-2 clause
         /// 4.22.5.1 item 5); `None` where the path is built over the signature's certificates.
         mandated: Option<Vec<&'static str>>,
+        /// The reference of the trusted list that determined the anchor the path ended at (TS 119
+        /// 172-2 clause 4.22.2.1 b)); `None` where the anchor is a certificate the policy states.
+        through_list: Option<String>,
     },
     /// A path validated over the certificates the trust point mandates, but this many of them are
     /// not on it, so it is not the path the policy says shall be used.
@@ -395,7 +449,7 @@ pub(super) fn instant(facts: &SignerFacts<'_>) -> Option<Instant> {
 /// Searches for a path from the signer's certificate to one of `trees`' trust points.
 #[must_use]
 pub fn search(trees: &TrustTrees<'_>, cms: &SignedData<'_>, facts: &SignerFacts<'_>) -> Search {
-    search_from(trees, cms, instant(facts), Purpose::Unstated)
+    search_from(trees, cms, instant(facts), Purpose::Unstated, facts.lists)
 }
 
 /// Searches for a path from the certificate of the authority that issued the signature's
@@ -427,13 +481,21 @@ pub fn search_authority(
     if info.imprint_digest.compute(&[cms.signature]) != info.imprint {
         return outcome(Found::TimestampAboutAnotherSignature);
     }
-    search_from(trees, &token, instant(facts), Purpose::TimeStamping)
+    search_from(
+        trees,
+        &token,
+        instant(facts),
+        Purpose::TimeStamping,
+        facts.lists,
+    )
 }
 
-/// Trust anchors a search will not reach: trusted-list references and points past the bound.
+/// Trust anchors a search that stops before the trust points will not reach: each trusted-list
+/// reference, and the certificate trust points past the bound.
 fn unsearched(trees: &TrustTrees<'_>) -> usize {
     trees
-        .trusted_lists
+        .listed
+        .len()
         .saturating_add(trees.points.len().saturating_sub(MAX_TRUST_POINTS))
 }
 
@@ -443,38 +505,63 @@ fn search_from(
     cms: &SignedData<'_>,
     at: Option<Instant>,
     purpose: Purpose,
+    lists: Option<Supplied<'_>>,
 ) -> Search {
     search_target(
         trees,
         cms,
         crate::signature::signer_certificate(cms),
-        at,
-        purpose,
+        Asked { at, purpose, lists },
     )
 }
 
+/// What one search is asked under besides the trust points: the instant, the key purpose, and
+/// the lists trusted-list references are resolved against.
+#[derive(Clone, Copy)]
+struct Asked<'l> {
+    at: Option<Instant>,
+    purpose: Purpose,
+    lists: Option<Supplied<'l>>,
+}
+
 /// Searches for a path from `certificate`, one of those `cms` carries, to one of `trees`' trust
-/// points at `at`: RFC 5755 section 5 item 2's path of an attribute authority's certificate,
-/// which no extended key usage restricts.
+/// points at `at`, trusted-list references resolved against `lists`: RFC 5755 section 5 item 2's
+/// path of an attribute authority's certificate, which no extended key usage restricts.
 #[must_use]
 pub fn search_certificate(
     trees: &TrustTrees<'_>,
     cms: &SignedData<'_>,
     certificate: crate::der::Value<'_>,
     at: Option<Instant>,
+    lists: Option<Supplied<'_>>,
 ) -> Search {
-    search_target(trees, cms, Some(certificate), at, Purpose::Unstated)
+    search_target(
+        trees,
+        cms,
+        Some(certificate),
+        Asked {
+            at,
+            purpose: Purpose::Unstated,
+            lists,
+        },
+    )
 }
 
 /// The search from `signer` over the certificates `cms` carries.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one walk over the trust points that keeps the first outcome of each kind, and the \
+              order those outcomes are ranked in after it; split apart, the five accumulators \
+              would travel between functions and the ranking would be read away from the walk"
+)]
 fn search_target(
     trees: &TrustTrees<'_>,
     cms: &SignedData<'_>,
     signer: Option<crate::der::Value<'_>>,
-    at: Option<Instant>,
-    purpose: Purpose,
+    asked: Asked<'_>,
 ) -> Search {
-    let mut unexamined = unsearched(trees);
+    let Asked { at, purpose, lists } = asked;
+    let unexamined = unsearched(trees);
     let outcome = |found, unexamined| Search {
         found,
         unexamined,
@@ -498,12 +585,14 @@ fn search_target(
         .take(trust::MAX_CANDIDATES)
         .filter_map(|value| x509::read(*value).ok().map(|read| (value.encoding(), read)))
         .collect();
+    let listed = listed_points(trees, lists, &target, &carried);
+    let (points, mut unexamined) = listed.beside(trees);
     let mut readable = 0_usize;
     let mut longer = None;
     let mut not_followed = None;
     let mut refused = None;
     let mut past = None;
-    for point in trees.points.iter().take(MAX_TRUST_POINTS) {
+    for (point, through_list) in points.into_iter().take(MAX_TRUST_POINTS) {
         let Ok(anchor) = x509::parse(&point.certificate) else {
             unexamined = unexamined.saturating_add(1);
             continue;
@@ -553,7 +642,7 @@ fn search_target(
                     }
                 }
                 return Search {
-                    found: reached(point, length, policies, evaluated, yielded),
+                    found: reached(point, length, policies, evaluated, yielded, through_list),
                     unexamined,
                     path: Some(path),
                 };
@@ -575,7 +664,7 @@ fn search_target(
         (Some((refusal, named)), _) if !is_limit(&refusal) => Found::Refused(refusal, named),
         (_, Some(until)) => Found::PastReliable { until },
         (Some((refusal, named)), None) => Found::Refused(refusal, named),
-        (None, None) if readable == 0 => Found::NoTrustPoint,
+        (None, None) if readable == 0 && !listed.determined => Found::NoTrustPoint,
         (None, None) => Found::NoChain,
     };
     outcome(found, unexamined)
@@ -583,13 +672,15 @@ fn search_target(
 
 /// [`Found::Reached`] for a path validated to `point`, with the members section 6.1 evaluated, the
 /// policies the path is valid for where the trust point states an acceptable set, and the members
-/// that yielded where the path is the one it mandates.
+/// that yielded where the path is the one it mandates, and the reference of the trusted list that
+/// determined the trust point where one did.
 fn reached(
     point: &TrustPoint<'_>,
     length: usize,
     policies: trust::Policies,
     evaluated: Vec<&'static str>,
     yielded: Vec<&'static str>,
+    through_list: Option<&str>,
 ) -> Found {
     Found::Reached {
         length,
@@ -601,7 +692,87 @@ fn reached(
             .is_some()
             .then_some(policies.user_constrained),
         mandated: point.mandated_path.is_some().then_some(yielded),
+        through_list: through_list.map(str::to_owned),
     }
+}
+
+/// The trust points [`TrustTrees::listed`]'s references determine, each with its reference, and
+/// the anchors not examined.
+struct Listed<'r> {
+    points: Vec<(TrustPoint<'static>, &'r str)>,
+    /// References not resolved, and specific lists a referenced list of trusted lists points at
+    /// that were not supplied, one each; references past [`MAX_TRUST_POINTS`].
+    unexamined: usize,
+    /// Whether any reference was resolved, so that the policy's anchors were determined even where
+    /// none of them could end a path.
+    determined: bool,
+}
+
+impl Listed<'_> {
+    /// `trees`' certificate trust points and these, each with the reference that determined it,
+    /// and the anchors not examined: these' own, and every trust point past [`MAX_TRUST_POINTS`].
+    fn beside<'t>(
+        &'t self,
+        trees: &'t TrustTrees<'_>,
+    ) -> (Vec<(&'t TrustPoint<'t>, Option<&'t str>)>, usize) {
+        let points: Vec<(&TrustPoint<'_>, Option<&str>)> = trees
+            .points
+            .iter()
+            .map(|point| (point, None))
+            .chain(
+                self.points
+                    .iter()
+                    .map(|(point, reference)| (point, Some(*reference))),
+            )
+            .collect();
+        let unexamined = self
+            .unexamined
+            .saturating_add(points.len().saturating_sub(MAX_TRUST_POINTS));
+        (points, unexamined)
+    }
+}
+
+/// Clause 4.22.2.1 b)'s anchors for each of `trees`' references, through
+/// [`crate::trusted_list::anchors`], kept where one could end a path from `target` over
+/// `carried` or over the trust point's mandated certificates: its subject is the issuer one of
+/// them names (module documentation).
+fn listed_points<'r>(
+    trees: &'r TrustTrees<'_>,
+    lists: Option<Supplied<'_>>,
+    target: &Certificate<'_>,
+    carried: &[(&[u8], Certificate<'_>)],
+) -> Listed<'r> {
+    let mut listed = Listed {
+        points: Vec::new(),
+        unexamined: trees.listed.len().saturating_sub(MAX_TRUST_POINTS),
+        determined: false,
+    };
+    for point in trees.listed.iter().take(MAX_TRUST_POINTS) {
+        let Some(Ok(determined)) = lists.map(|lists| lists.anchors(&point.reference)) else {
+            listed.unexamined = listed.unexamined.saturating_add(1);
+            continue;
+        };
+        listed.determined = true;
+        listed.unexamined = listed.unexamined.saturating_add(determined.missing.len());
+        let mandated: Vec<Certificate<'_>> = point
+            .mandated_path
+            .iter()
+            .flatten()
+            .filter_map(|encoding| x509::parse(encoding).ok())
+            .collect();
+        let issuers: Vec<&[u8]> = std::iter::once(target.issuer)
+            .chain(carried.iter().map(|(_, read)| read.issuer))
+            .chain(mandated.iter().map(|read| read.issuer))
+            .collect();
+        for certificate in determined.certificates {
+            if x509::parse(&certificate).is_ok_and(|read| issuers.contains(&read.subject)) {
+                listed
+                    .points
+                    .push((point.point(certificate), point.reference.reference.as_str()));
+            }
+        }
+    }
+    listed
 }
 
 /// One trust point's validation, as [`search_target`] judges it.
@@ -898,15 +1069,19 @@ pub(super) fn path_words(
             evaluated,
             policies,
             mandated,
-        } => reached_words(
-            f,
-            *length,
-            whose,
-            unprocessed,
-            evaluated,
-            policies.as_deref(),
-            mandated.as_deref(),
-        )?,
+            through_list,
+        } => {
+            reached_words(
+                f,
+                *length,
+                whose,
+                unprocessed,
+                evaluated,
+                policies.as_deref(),
+                mandated.as_deref(),
+            )?;
+            listed_words(f, through_list.as_deref())?;
+        }
         Found::MandatedPathNotFollowed { left_off } => write!(
             f,
             "a path from {whose} certificate validates to one of the policy's own trust points over the certificates that trust point mandates, but {left_off} of them are not on it, so it is not the certification path TS 119 172-2 clause 4.22.5.1 item 5 says shall be used"
@@ -945,10 +1120,21 @@ pub(super) fn path_words(
     {
         write!(
             f,
-            "; {unexamined} of its trust anchors were not searched — a trusted-list reference this program does not fetch, a certificate it does not read, or one past the {MAX_TRUST_POINTS} it searches"
+            "; {unexamined} of its trust anchors were not searched — a trusted list it references that you did not supply or that was not authenticated, a certificate it does not read, or one past the {MAX_TRUST_POINTS} it searches"
         )?;
     }
     Ok(())
+}
+
+/// Where a path ended at an anchor a trusted list determined, which list (clause 4.22.2.1 b)).
+fn listed_words(f: &mut std::fmt::Formatter<'_>, through_list: Option<&str>) -> std::fmt::Result {
+    match through_list {
+        Some(reference) => write!(
+            f,
+            "; that trust point's anchor is the certificate of a service the trusted list {reference} the policy references holds, determined from the lists you supplied (TS 119 172-2 clause 4.22.2.1 b))"
+        ),
+        None => Ok(()),
+    }
 }
 
 /// The sentence's middle for [`Found::Reached`].

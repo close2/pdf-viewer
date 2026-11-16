@@ -135,7 +135,7 @@ fn trees(point: &[u8]) -> TrustTrees<'_> {
             unprocessed: Vec::new(),
             mandated_path: None,
         }],
-        trusted_lists: 0,
+        listed: Vec::new(),
     }
 }
 

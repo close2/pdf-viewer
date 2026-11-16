@@ -56,7 +56,7 @@ use std::collections::BTreeSet;
 
 use std::borrow::Cow;
 
-use super::certification_path::{self, Path, Search, TrustPoint, TrustTrees};
+use super::certification_path::{self, ListedTrustPoint, Path, Search, TrustPoint, TrustTrees};
 use super::duration::Duration;
 use super::revocation_checks::{self, Freshness};
 use super::signer_attributes::{self, Accepted, Mandated, SetConstraints};
@@ -68,6 +68,7 @@ use super::{
 use crate::cms::{self, Digest, SignedData};
 use crate::der::{self, INTEGER, OBJECT_IDENTIFIER, OCTET_STRING, SEQUENCE, Value};
 use crate::signature::name;
+use crate::trusted_list::anchors::ListReference;
 use crate::x509;
 
 /// `BOOLEAN`, primitive and universal.
@@ -614,8 +615,9 @@ fn read_revocation_requirement(
     })
 }
 
-/// Clause 4.22.5's `CertificateTrustTrees`: one [`TrustPoint`] per certificate trust anchor, each
-/// with its trust point's constraints, and a count of the anchors given by trusted-list reference.
+/// Clause 4.22.5's `CertificateTrustTrees`: one [`TrustPoint`] per certificate trust anchor and one
+/// [`ListedTrustPoint`] per clause 4.22.2.2 `TAsInTrustedList`, each with its trust point's
+/// constraints. `TAsInTrustedList` states no reliable-until instant in this syntax.
 ///
 /// `acceptablePolicySet`, `nameConstraints` and `policyConstraints` are RFC 5280 section 6.1.1's
 /// inputs, read as TR 102 272's are (ADR 2724). `userCertPath`'s `path` is the certification path
@@ -709,12 +711,51 @@ pub(super) fn read_trust_trees<'a>(
                         mandated_path: mandated_path.clone(),
                     });
                 }
-                IA5_STRING => trees.trusted_lists = trees.trusted_lists.saturating_add(1),
+                IA5_STRING => {
+                    let reference = read_list_reference(&first, &mut parts, budget)?;
+                    trees.listed.push(ListedTrustPoint {
+                        reference,
+                        reliable_until: None,
+                        path_length,
+                        inputs: inputs.clone(),
+                        unprocessed: unprocessed.clone(),
+                        mandated_path: mandated_path.clone(),
+                    });
+                }
                 _ => return Err(malformed("TrustAnchor")),
             }
         }
     }
     Ok(trees)
+}
+
+/// Clause 4.22.2.2's `TAsInTrustedList`, from its `uri` (`first`) and the rest of its members:
+/// `serviceTypes [0]` and `serviceStatuses [1]`, each an `EXPLICIT`-tagged non-empty `SEQUENCE OF
+/// IA5String`, in that order and each at most once.
+fn read_list_reference(
+    first: &Value<'_>,
+    rest: &mut der::Reader<'_>,
+    budget: &mut Budget,
+) -> Result<ListReference, PolicyDocumentError> {
+    let reference = text(first, IA5_STRING, "TAsInTrustedList.uri")?.to_owned();
+    let mut service_types = None;
+    let mut statuses = None;
+    while let Some(member) = rest.next_value()? {
+        let (slot, name) = match context_number(&member) {
+            Some(0) if service_types.is_none() && statuses.is_none() => {
+                (&mut service_types, "TAsInTrustedList.serviceTypes")
+            }
+            Some(1) if statuses.is_none() => (&mut statuses, "TAsInTrustedList.serviceStatuses"),
+            _ => return Err(malformed("TAsInTrustedList")),
+        };
+        let listed = texts(&explicit(&member, name)?, IA5_STRING, true, name, budget)?;
+        *slot = Some(listed.into_iter().map(str::to_owned).collect());
+    }
+    Ok(ListReference {
+        reference,
+        service_types,
+        statuses,
+    })
 }
 
 /// An `Other`'s `otherId`.

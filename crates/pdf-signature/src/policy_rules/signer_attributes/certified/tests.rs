@@ -30,7 +30,7 @@ pub(in crate::policy_rules) fn trees(certificates: &[&[u8]]) -> TrustTrees<'stat
                 mandated_path: None,
             })
             .collect(),
-        trusted_lists: 0,
+        listed: Vec::new(),
     }
 }
 
@@ -80,6 +80,7 @@ fn judged(
         signer_path: Some(&signer_path),
         at: Some(at),
         revocation,
+        lists: None,
     };
     judge(value(&bytes), &signature, conditions).outcome
 }
@@ -178,7 +179,7 @@ fn what_this_program_cannot_decide_is_named_not_guessed() {
             WITHIN,
             false
         ),
-        Outcome::Undecided(Undecided::Path(Found::NoChain, 0))
+        Outcome::Undecided(Undecided::Path(found, 0)) if *found == Found::NoChain
     ));
     // Every condition holds, and the policy requires a revocation check this program does not make.
     assert_eq!(

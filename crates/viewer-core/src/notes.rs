@@ -796,6 +796,10 @@ fn signatures(
             timestamps,
             copies,
             lists,
+            supplied: pdf_signature::trusted_list::anchors::Supplied {
+                reading: &list_reading,
+                now: trust.anchors.at(),
+            },
             chain: &chain,
             index,
             now: trust.anchors.at(),
@@ -868,6 +872,10 @@ struct Asked<'a> {
     copies: &'a [FetchedCopy],
     /// The trusted lists the host supplied that read (ETSI TS 119 612).
     lists: &'a [pdf_signature::trusted_list::TrustedList],
+    /// The same reading with the host's names for its files and its instant: what a policy's
+    /// trust anchors given by reference to a trusted list are determined from (ETSI TS 119 172-2
+    /// clause 4.22.2.1 b), ADR 2874).
+    supplied: pdf_signature::trusted_list::anchors::Supplied<'a>,
     /// §12.8.5's chain, whose links name the signatures they cover by position.
     chain: &'a pdf_signature::timestamp::Chain,
     /// This signature's position among the document's signature dictionaries.
@@ -1783,8 +1791,11 @@ fn signature_policy(
         &policy,
         cms,
         asked.copies,
-        path_instant(asked),
-        asked.material,
+        PolicyAsked {
+            path_at: path_instant(asked),
+            material: asked.material,
+            lists: asked.supplied,
+        },
         notes,
     );
 }
@@ -1794,7 +1805,16 @@ fn signature_policy(
 /// where it did not — the policy's search then falls back to a covering signature timestamp's
 /// instant, or says it had none.
 fn path_instant(asked: &Asked<'_>) -> Option<pdf_signature::x509::Instant> {
-    (!asked.anchors.is_empty()).then(|| asked.when.at())
+    (!asked.anchors.is_empty() || !asked.lists.is_empty()).then(|| asked.when.at())
+}
+
+/// What a policy's constraints are enforced under besides the signature: the instant its paths are
+/// validated at, the revocation material, and the host's trusted lists.
+#[derive(Clone, Copy)]
+struct PolicyAsked<'a> {
+    path_at: Option<pdf_signature::x509::Instant>,
+    material: &'a pdf_signature::revocation::Material<'a>,
+    lists: pdf_signature::trusted_list::anchors::Supplied<'a>,
 }
 
 /// §12.8.3.4.4's "shall enforce signature policy constraints", said one constraint at a time.
@@ -1812,16 +1832,18 @@ fn policy_constraints(
     policy: &pdf_signature::policy::SignaturePolicy<'_>,
     cms: &pdf_signature::cms::SignedData<'_>,
     copies: &[FetchedCopy],
-    path_at: Option<pdf_signature::x509::Instant>,
-    material: &pdf_signature::revocation::Material<'_>,
+    asked: PolicyAsked<'_>,
     notes: &mut Vec<String>,
 ) {
     use pdf_signature::policy_rules::{Enforcement, NotEnforced, SignerFacts, enforce};
 
     // A trust condition's mandated revocation checks are answered from §12.8.4's store as well as
-    // from the signer's own archival attribute (ADR 2720).
-    let facts = SignerFacts::of(cms).with_material(material);
-    let facts = match path_at {
+    // from the signer's own archival attribute (ADR 2720), and a trust point's anchors given by
+    // reference to a trusted list from the host's lists (ADR 2874).
+    let facts = SignerFacts::of(cms)
+        .with_material(asked.material)
+        .with_lists(asked.lists);
+    let facts = match asked.path_at {
         Some(at) => facts.validated_at(at),
         None => facts,
     };
@@ -1993,6 +2015,7 @@ fn policy_findings(
     copies: &[FetchedCopy],
     at: pdf_signature::x509::Instant,
     material: &pdf_signature::revocation::Material<'_>,
+    lists: pdf_signature::trusted_list::anchors::Supplied<'_>,
 ) -> Vec<pdf_signature::policy_rules::Finding> {
     use pdf_signature::policy_rules::{Enforcement, SignerFacts, enforce, enforce_fetched};
 
@@ -2004,7 +2027,8 @@ fn policy_findings(
     };
     let facts = SignerFacts::of(&cms)
         .validated_at(at)
-        .with_material(material);
+        .with_material(material)
+        .with_lists(lists);
     if let Enforcement::Enforced { findings, .. } = enforce(&policy, &cms, &facts) {
         return findings;
     }
@@ -2434,6 +2458,7 @@ fn verdicts(
         asked.copies,
         asked.when.at(),
         asked.material,
+        asked.supplied,
     ));
     // **Which instant the path was asked about, and on whose word** — said whichever answer it is,
     // because "valid" without it reads as *valid now* and that is the one thing this program never
@@ -4440,6 +4465,17 @@ mod tests {
     /// signatures' policy, with SHA-1 `digest` and, where `url` is given, clause 5.2.9.2's URL
     /// qualifier. Nothing in it verifies: the policy is read whether or not the signature does.
     fn policy_cms(digest: &[u8], url: Option<&str>) -> Vec<u8> {
+        policy_cms_carrying(digest, url, &[], (&der(0x30, &[]), &[1]))
+    }
+
+    /// [`policy_cms`] carrying `certificates`, its signer named by `signer`'s issuer `Name` and
+    /// serial number contents.
+    fn policy_cms_carrying(
+        digest: &[u8],
+        url: Option<&str>,
+        certificates: &[&[u8]],
+        signer: (&[u8], &[u8]),
+    ) -> Vec<u8> {
         const SIGNED_DATA: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x02];
         const DATA: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x01];
         const SHA256: &[u8] = &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01];
@@ -4473,7 +4509,7 @@ mod tests {
             0x30,
             &[
                 der(0x02, &[1]),
-                der(0x30, &[der(0x30, &[]), der(0x02, &[1])].concat()),
+                der(0x30, &[signer.0.to_vec(), der(0x02, signer.1)].concat()),
                 algorithm(SHA256),
                 der(0xa0, &attribute),
                 der(0x30, &[der(0x06, RSA), der(0x05, &[])].concat()),
@@ -4481,16 +4517,16 @@ mod tests {
             ]
             .concat(),
         );
-        let signed_data = der(
-            0x30,
-            &[
-                der(0x02, &[1]),
-                der(0x31, &algorithm(SHA256)),
-                algorithm(DATA),
-                der(0x31, &signer_info),
-            ]
-            .concat(),
-        );
+        let mut members = vec![
+            der(0x02, &[1]),
+            der(0x31, &algorithm(SHA256)),
+            algorithm(DATA),
+        ];
+        if !certificates.is_empty() {
+            members.push(der(0xa0, &certificates.concat()));
+        }
+        members.push(der(0x31, &signer_info));
+        let signed_data = der(0x30, &members.concat());
         der(
             0x30,
             &[der(0x06, SIGNED_DATA), der(0xa0, &signed_data)].concat(),
@@ -4499,9 +4535,14 @@ mod tests {
 
     /// A one-page document signed under [`policy_cms`].
     fn signed_under_a_policy(url: Option<&str>) -> Vec<u8> {
+        signed_with_cms(&policy_cms(&[0x5a; 20], url))
+    }
+
+    /// A one-page document whose one signature's `/Contents` is `cms`.
+    fn signed_with_cms(cms: &[u8]) -> Vec<u8> {
         use std::fmt::Write as _;
         let mut contents = String::new();
-        for octet in policy_cms(&[0x5a; 20], url) {
+        for octet in cms {
             let _ = write!(contents, "{octet:02x}");
         }
         signed_document(
@@ -4555,6 +4596,195 @@ mod tests {
             said.notes
         );
         assert!(said.published.is_empty(), "{:?}", said.published);
+    }
+
+    /// A root `openssl` issued for this test, 2026 to 2036, and the signer it issued (serial
+    /// `0x2029`), every key generated for this project (`/home/quorra/scratch/agent/r2029/gen/gen.sh`).
+    const A_LISTED_ROOT: &str = "\
+    3082032930820211a00302010202145ac2d793dc00b8d54a4e000a20dbd702cc\
+    c02925300d06092a864886f70d01010b0500301c311a301806035504030c1172\
+    32303239206c697374656420726f6f74301e170d323631313136303034373032\
+    5a170d3336313131333030343730325a301c311a301806035504030c11723230\
+    3239206c697374656420726f6f7430820122300d06092a864886f70d01010105\
+    000382010f003082010a0282010100be2eb4b5e8b2d0c12b43b5c91c592a8af6\
+    27e4e9763928bf13d8603837e4a32f324e14663870f46e6f8764a197d14ff593\
+    30ebe6a9012bca294e07a5a37b5501bcc00c71a01f4c7f5e4e65500ac0ccfc64\
+    f42c71832b93d8c7496fce08573620b82e32a37b7ab624adf5f427d2e6a3fdf1\
+    9079442c923f78f7627a2ed9e90b0c32df88ce7372e3b926d621c0f4e9beb1ec\
+    de27c9f1544e4ffd458b2a13bbc736705cb36c0f6a475de6ba602992c84deec4\
+    10b6500a0042eb10ac27fdf28409798b51a9d4fa9421bc8a3053a6f69a1f007f\
+    6095a68b713b86630a90fd5378babd91cfa17b7dd7dec7332a4f0ed918855547\
+    18e57513ba3d4de87031d69373de6b0203010001a3633061301d0603551d0e04\
+    16041477f60d6688813408bbf3bcb08250463c238b69fc301f0603551d230418\
+    3016801477f60d6688813408bbf3bcb08250463c238b69fc300f0603551d1301\
+    01ff040530030101ff300e0603551d0f0101ff040403020106300d06092a8648\
+    86f70d01010b050003820101001f90164639c8bc7fec6085936e2826e7929f77\
+    be5d3dc634d53352698a42a83bd98fc8f95e8cc3027b2c16091bbd341e745c59\
+    b2c1fd3048b4f9c6209064c349b98365325eaf7138b6208eac161eec08cd6d52\
+    5168c3651f49199e6a7ecad839be4bca6e2a8a4298ec3ee55a25527781d0169a\
+    e1161dccdd51d73f6907d697621fa453f20d1dc71db0bc8ae066f6fcd4fc729e\
+    209dc70b2e05d34d561b7aad68cdabfbc330b7fde3e5d0e58cda4566f2ccbb6a\
+    dd1c1bb2ef43f82e5541b55e9fd7184fe58cdffd94874d7a96673a8697b8d3b5\
+    3f7f0b6bdb4ebe1e2bcf1b7d516b540a4a46820d6668d09ce30bc007d382f62a\
+    e0e99b891b979002f7bf0955fb\
+    ";
+    const ITS_SIGNER: &str = "\
+    3082030f308201f7a00302010202022029300d06092a864886f70d01010b0500\
+    301c311a301806035504030c117232303239206c697374656420726f6f74301e\
+    170d3236313131363030343730325a170d3335303230323030343730325a3017\
+    3115301306035504030c0c7232303239207369676e657230820122300d06092a\
+    864886f70d01010105000382010f003082010a0282010100b9517bcef8d9e106\
+    bd8fc9adb9f49d66e8db49b1cdb3d0286316ad0fc4b596448d1a76566c72dd5d\
+    f0352423cb1b39cf72240ab07f0a4e75a617dfe1a37e15e1d8b10fd62766dff2\
+    b7d4ec666c7137e9e9092f48bebdf7196a3eada7b45566580dd64bc8b7794176\
+    d7a4eb7caeec0944058be1f50879ca35923003b3b72100fc71e621258f7d6803\
+    e3dd7f2aad7c5914ca8bd58a48a6e6c3d72c6671fa5f500f39f22c67d92eba87\
+    5d09ff8104619a5f8665e8a734f5c22a698088039b0e4217cd0238678f131108\
+    bf1aff26fc0a1fc14f2381d8336905b98dee227d0edf7e1de25c2289d1ad2bcd\
+    dd18693ac5cbe19a090402c81db4b4de29880b202e4035d30203010001a36030\
+    5e300c0603551d130101ff04023000300e0603551d0f0101ff0404030206c030\
+    1d0603551d0e041604142913d3b45cc729914dcadf9db57d9a597d867dd7301f\
+    0603551d2304183016801477f60d6688813408bbf3bcb08250463c238b69fc30\
+    0d06092a864886f70d01010b05000382010100a1cbc1371925f1702bfbc599a3\
+    bcd47e45db2e2c30515bc2f3d56ee3357a22a2320baa980f6fa5c15a4e377e35\
+    b77476f1f814b4f4f9599bf1f4d3dbe375ca64ce517fde3401774f7bea2764c9\
+    5a8ae3a538517dae386404b07a99452e1243394efec92bacdb543adb7cbbd66c\
+    a2287ddca3906fb50cff63ae08020e887359ae3df4ac8b3a1f2d83db947e60f1\
+    506cf0c4ece517d081b517a5c05859c71496bd21f2f0227c7930049d9de46480\
+    c54c022d3406d66b607aa398f0bb2712f3d03ff3e04962c938acc476da706e89\
+    e8c319927b87f76a542e4c9e343237a2112c03052009ff6baaaa778df7f36cf9\
+    4e7cc96eb95d5504cf851e8e4addbbd47023b5\
+    ";
+
+    /// RFC 4648 section 4's alphabet, padded, which TS 119 612 clause 5.5.3 and XML Schema's
+    /// `base64Binary` both write.
+    fn base64(bytes: &[u8]) -> String {
+        const ALPHABET: &[u8; 64] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for chunk in bytes.chunks(3) {
+            let mut padded = [0_u8; 3];
+            padded[..chunk.len()].copy_from_slice(chunk);
+            let word = u32::from_be_bytes([0, padded[0], padded[1], padded[2]]);
+            for (at, shift) in [18_u32, 12, 6, 0].into_iter().enumerate() {
+                out.push(if at <= chunk.len() {
+                    char::from(ALPHABET[(word >> shift & 63) as usize])
+                } else {
+                    '='
+                });
+            }
+        }
+        out
+    }
+
+    /// **ETSI TS 119 172-2 clause 4.22.2.1 b)'s anchors are determined from the lists a host
+    /// supplied** (ADR 2874): a signature made under a policy whose one trust point is a reference
+    /// to Austria's list, a copy of that policy fetched and bound by the digest the signer signed,
+    /// and the list naming the root that issued the signer as a granted `CA/QC` service's identity.
+    /// The policy's signing-certificate trust condition is met, and the sentence names the list.
+    ///
+    /// **The calibration is the same reading with no list supplied** (trap 13): the reference is
+    /// then an anchor not examined, so the condition is not evaluated, and the sentence says why.
+    #[test]
+    fn a_policys_trusted_list_anchor_is_judged_against_the_hosts_lists() {
+        let root = hex(A_LISTED_ROOT);
+        let signer = hex(ITS_SIGNER);
+        let leaf = pdf_signature::x509::parse(&signer).expect("the fixture signer");
+        let policy = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<SignaturePolicy xmlns="http://uri.etsi.org/19172/v1.1.1#" xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
+  <Digest>
+    <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+    <ds:DigestValue>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</ds:DigestValue>
+    <ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+  </Digest>
+  <PolicyComponents>
+    <GeneralDetails>
+      <SigPolicyDetails>
+        <PolicyIdentifier>urn:oid:2.16.724.1.3.1.1.2.1.9</PolicyIdentifier>
+        <PolicyName><tsl:Name xmlns:tsl="http://uri.etsi.org/02231/v2#" xml:lang="en">tests</tsl:Name></PolicyName>
+      </SigPolicyDetails>
+      <OtherDetails><DateOfIssue>2025-12-01T00:00:00Z</DateOfIssue>
+        <SigningPeriod><NotBefore>2026-01-01T00:00:00Z</NotBefore></SigningPeriod></OtherDetails>
+    </GeneralDetails>
+    <PolicyRules><PolicyRule><SigningCertRules><SigningCertTrustConditions><SignerTrustTrees>
+      <CertificateTrustPoint><TrustAnchors><TAsInTrustedList>
+        <TLReference>https://example.at/tl.xml</TLReference>
+        <ServiceTypes><tsl:URI xmlns:tsl="http://uri.etsi.org/02231/v2#">{}</tsl:URI></ServiceTypes>
+      </TAsInTrustedList></TrustAnchors></CertificateTrustPoint></SignerTrustTrees>
+      <SignerRevTrust><CertificateRevReq><EndRevReq>nocheck</EndRevReq><CACerts>nocheck</CACerts>
+      </CertificateRevReq></SignerRevTrust></SigningCertTrustConditions></SigningCertRules>
+    </PolicyRule></PolicyRules>
+  </PolicyComponents>
+</SignaturePolicy>"#,
+            pdf_signature::trusted_list::CA_QC
+        );
+        let digest = pdf_signature::cms::Digest::Sha1.compute(&[policy.as_bytes()]);
+        let url = "http://127.0.0.1:9/policy.xml";
+        let document = Document::open(signed_with_cms(&policy_cms_carrying(
+            &digest,
+            Some(url),
+            &[&signer],
+            (&der(0x30, leaf.issuer), leaf.serial_number),
+        )))
+        .expect("a valid file");
+        let list = format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
+             <tsl:TrustServiceStatusList xmlns:tsl=\"{}\" TSLTag=\"http://uri.etsi.org/19612/TSLTag\">\
+             <tsl:SchemeInformation><tsl:TSLVersionIdentifier>6</tsl:TSLVersionIdentifier>\
+             <tsl:TSLSequenceNumber>1</tsl:TSLSequenceNumber><tsl:SchemeTerritory>AT</tsl:SchemeTerritory>\
+             <tsl:ListIssueDateTime>2026-11-01T00:00:00Z</tsl:ListIssueDateTime>\
+             <tsl:NextUpdate><tsl:dateTime>2027-05-01T00:00:00Z</tsl:dateTime></tsl:NextUpdate>\
+             </tsl:SchemeInformation><tsl:TrustServiceProviderList><tsl:TrustServiceProvider>\
+             <tsl:TSPInformation><tsl:TSPName><tsl:Name xml:lang=\"en\">A provider</tsl:Name></tsl:TSPName>\
+             </tsl:TSPInformation><tsl:TSPServices><tsl:TSPService><tsl:ServiceInformation>\
+             <tsl:ServiceTypeIdentifier>{}</tsl:ServiceTypeIdentifier>\
+             <tsl:ServiceName><tsl:Name xml:lang=\"en\">Qualified certificates</tsl:Name></tsl:ServiceName>\
+             <tsl:ServiceDigitalIdentity><tsl:DigitalId><tsl:X509Certificate>{}</tsl:X509Certificate>\
+             </tsl:DigitalId></tsl:ServiceDigitalIdentity><tsl:ServiceStatus>{}</tsl:ServiceStatus>\
+             <tsl:StatusStartingTime>2024-01-01T00:00:00Z</tsl:StatusStartingTime>\
+             </tsl:ServiceInformation></tsl:TSPService></tsl:TSPServices></tsl:TrustServiceProvider>\
+             </tsl:TrustServiceProviderList></tsl:TrustServiceStatusList>",
+            pdf_signature::trusted_list::NAMESPACE,
+            pdf_signature::trusted_list::CA_QC,
+            base64(&root),
+            pdf_signature::trusted_list::GRANTED,
+        );
+        // 2027-01-01T00:00:00Z: inside the signer's validity, the list's period and the grant.
+        let at = pdf_signature::x509::Instant::from_unix_seconds(1_798_761_600);
+        let policy_of = |lists: Vec<(String, Vec<u8>)>| crate::TrustPolicy {
+            // A host given lists and no anchor directory carries its clock with them (ADR 2842).
+            anchors: pdf_signature::trust::Supply::of(Vec::new(), "no directory".to_owned(), at),
+            acceptance: pdf_signature::verdict::Acceptance::RevocationMustBeGood,
+            lists: pdf_signature::trusted_list::Lists::of(lists, "the tests".to_owned()),
+        };
+        let published = about(&document, &policy_of(Vec::new())).published;
+        let copies = [super::FetchedCopy {
+            published: published.first().expect("the URL qualifier's copy").clone(),
+            octets: policy.clone().into_bytes(),
+        }];
+        let trust_sentence = |lists: Vec<(String, Vec<u8>)>| {
+            super::about(&document, &policy_of(lists), &copies)
+                .notes
+                .into_iter()
+                .find(|note| note.contains("signing certificate trust condition"))
+                .expect("the trust condition is said")
+        };
+        let listed = trust_sentence(vec![("tl.xml".to_owned(), list.into_bytes())]);
+        assert!(listed.contains("trust condition is met"), "{listed}");
+        assert!(
+            listed.contains("the trusted list https://example.at/tl.xml the policy references"),
+            "{listed}"
+        );
+        let unsupplied = trust_sentence(Vec::new());
+        assert!(
+            unsupplied.contains("trust condition is not evaluated"),
+            "{unsupplied}"
+        );
+        assert!(
+            unsupplied.contains("1 of its trust anchors were not searched"),
+            "{unsupplied}"
+        );
     }
 
     /// The event comes from `Command::Report`, after the sentences, once per asking, and not at

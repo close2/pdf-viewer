@@ -840,6 +840,87 @@ fn the_xml_signing_certificate_trust_conditions_are_judged_on_the_path() {
     );
 }
 
+/// Clause 4.22.2.1 b) in the XML syntax: `TAsInTrustedList`'s `TLReference`, its `ServiceTypes`
+/// and `ServiceStatuses` (TS 119 612's `NonEmptyURIListType`, in that specification's namespace)
+/// and its `reliableUntil` read, and the anchors judged against the lists a host supplied: the
+/// root is the identity of Austria's granted `CA/QC` service there.
+#[test]
+fn the_xml_trusted_list_anchor_is_determined_from_the_hosts_lists() {
+    use crate::policy_rules::certification_path::tests::{WITHIN, cms, hierarchy, listing};
+    use crate::trusted_list::{CA_QC, GRANTED, NAMESPACE as TSL, anchors::Supplied};
+    let held = hierarchy();
+    let signed = cms(&held.signer, &held.intermediate);
+    let lists = listing(&held.root);
+    let conditions = |anchor: &str| {
+        rule(
+            &format!(
+                "<SigningCertRules><SigningCertTrustConditions><SignerTrustTrees>\
+                 <CertificateTrustPoint><TrustAnchors>{anchor}</TrustAnchors>\
+                 </CertificateTrustPoint></SignerTrustTrees><SignerRevTrust><CertificateRevReq>\
+                 <EndRevReq>nocheck</EndRevReq><CACerts>nocheck</CACerts></CertificateRevReq>\
+                 </SignerRevTrust></SigningCertTrustConditions></SigningCertRules>"
+            ),
+            None,
+        )
+    };
+    let trust =
+        |c: &policy_rules::Constraint| matches!(c, policy_rules::Constraint::TrustPath { .. });
+    let facts = facts(None).validated_at(WITHIN).with_lists(Supplied {
+        reading: &lists,
+        now: WITHIN,
+    });
+    let verdicts =
+        |anchor: &str| verdict_of(&judged(&[conditions(anchor)], &signed, &facts), trust);
+    let uris = |local: &str, uris: &[&str]| {
+        let listed = uris
+            .iter()
+            .map(|uri| format!("<tsl:URI xmlns:tsl=\"{TSL}\">{uri}</tsl:URI>"))
+            .collect::<Vec<_>>()
+            .concat();
+        format!("<{local}>{listed}</{local}>")
+    };
+    let reference = "<TLReference>https://example.at/tl.xml</TLReference>";
+    assert_eq!(
+        verdicts(&format!("<TAsInTrustedList>{reference}</TAsInTrustedList>")),
+        [Verdict::Met],
+        "step 1: every service's certificate, the root's among them"
+    );
+    assert_eq!(
+        verdicts(&format!(
+            "<TAsInTrustedList>{reference}{}{}</TAsInTrustedList>",
+            uris("ServiceTypes", &[CA_QC]),
+            uris("ServiceStatuses", &[GRANTED])
+        )),
+        [Verdict::Met],
+        "steps 2 and 3: a CA/QC service granted at current time"
+    );
+    assert_eq!(
+        verdicts(&format!(
+            "<TAsInTrustedList>{reference}{}</TAsInTrustedList>",
+            uris(
+                "ServiceTypes",
+                &["http://uri.etsi.org/TrstSvc/Svctype/TSA/QTST"]
+            )
+        )),
+        [Verdict::NotEvaluated],
+        "step 2: no service of that type, so no anchor ends the path"
+    );
+    assert_eq!(
+        verdicts(&format!(
+            r#"<TAsInTrustedList reliableUntil="2026-01-01T00:00:00Z">{reference}</TAsInTrustedList>"#
+        )),
+        [Verdict::NotEvaluated],
+        "the tuple's instant: past it the list's anchors are not relied on"
+    );
+    assert_eq!(
+        verdicts(
+            "<TAsInTrustedList><TLReference>https://example.fr/fr.xml</TLReference></TAsInTrustedList>"
+        ),
+        [Verdict::NotEvaluated],
+        "a list the host did not supply"
+    );
+}
+
 /// Clause 4.22.5.1 item 5's `UseCertPath` in the XML syntax: `X509Certificate`s are the path the
 /// trust point mandates, built over in place of the signature's certificates, and `AsInSignature`
 /// is the signature's own path (ADR 2781).

@@ -1,8 +1,9 @@
 # 77 — European signatures, their levels, and *locally valid*
 
 Status: **open** — locally valid, the list reader, the lists' authentication, RSASSA-PSS subject
-keys, the QC statements, TS 119 615 clauses 4.4 and 4.5, TS 119 172-4 clause 4.4.2's level and most of
-clause 4.5's report are built (ADRs 2834, 2835, 2842, 2843, 2852, 2853, 2864, 2865, 2866, 2872);
+keys, the QC statements, TS 119 615 clauses 4.4 and 4.5, TS 119 172-4 clause 4.4.2's level, most of
+clause 4.5's report and a policy's trusted-list anchors are built (ADRs 2834, 2835, 2842, 2843, 2852,
+2853, 2864, 2865, 2866, 2872, 2874);
 section 2 is the order for the rest.
 Priority: the owner's, 2026-11-06, `doc/questions/A800` item 3: "we should be able to validate all
 european digital signatures and be able to tell the user the different levels of signatures QES,
@@ -77,18 +78,25 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
   warning wherever lists were given. `verdict::level`'s join is pinned end to end by a listed
   signer whose issuer's CRL was issued after the best signature time (`TOTAL-PASSED`), with the
   same signer and an earlier CRL as its control.
+- **A policy's trusted-list anchors** (ADR 2874). `trusted_list::anchors`: TS 119 172-2 clause
+  4.22.2.1 b)'s three steps — the services' certificates of the referenced specific list, or of every
+  specific list a referenced list of trusted lists points at, filtered by the stated service types
+  and by the stated statuses at the host's current time — over the host's files by ADR 2842's names.
+  Both policy syntaxes read `TAsInTrustedList` whole; each anchor is a trust point of the
+  referencing one (`certification_path::ListedTrustPoint`), a reference not resolved or a pointed-to
+  list not supplied is counted unsearched, and `viewer_core::notes` names the list that determined
+  the anchor a path ended at.
 
 ## 2. What is left, in order
 
 3. **TS 119 172-4 REQ-4.5-01**'s remainder: a)'s text verbatim, which waits on
    `doc/questions/Q855` (ETSI's notice, ADR 1085); h)'s potential security issues, assessed against
    ETSI TS 119 312's tables once they are fetched and transcribed (free from ETSI, never tracked;
-   the fetch answered 403 on 2026-11-15). d)'s qualified-time-stamp answer is item 7's.
+   the fetch answered 403 on 2026-11-15, and `doc/questions/Q856` asks the owner to supply it).
+   d)'s qualified-time-stamp answer is item 7's.
 4. **The list of trusted lists fetched** by a host at A98's `Submissions` level through ADR 1728's
    port, `ask` by default — a transmission, never the confined worker's — keying each file by its
    URI as ADR 2842's names do, and persisting PRO-4.1.4-16 and -17's configuration updates.
-5. **§12.8.3.4.4's `TAsInTrustedList`** (TS 119 172-2 clause 4.22.2.1 b)) evaluated against the
-   lists a host supplied, which ADR 2782 named and the reader now makes possible.
 6. **A C host** supplies lists: one `viewer-ffi` call beside the anchors' (`abi/host.rs`), and the
    FFI counts with it.
 7. **Time stamps' authorities** in a list (TS 119 615 clause 4.7) for the document timestamp chain,

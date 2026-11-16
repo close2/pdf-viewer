@@ -1314,6 +1314,10 @@ pub struct SignerFacts<'m> {
     /// §12.8.3.3.2's attribute the signer signed, and §12.8.4's store where a caller adds it with
     /// [`Self::with_material`].
     pub material: Material<'m>,
+    /// The trusted lists a host supplied, which a trust point's anchors given by reference to a
+    /// list are determined from (ETSI TS 119 172-2 clause 4.22.2.1 b), ADR 2874); `None` where a
+    /// caller added none with [`Self::with_lists`], and then every such anchor is not examined.
+    pub lists: Option<crate::trusted_list::anchors::Supplied<'m>>,
 }
 
 impl<'m> SignerFacts<'m> {
@@ -1341,7 +1345,15 @@ impl<'m> SignerFacts<'m> {
                 .map(|certificate| certificate.signature_algorithm.to_vec()),
             path_at: None,
             material: crate::revocation::archived(cms),
+            lists: None,
         }
+    }
+
+    /// These facts with the trusted lists a host supplied, as read at the host's instant.
+    #[must_use]
+    pub const fn with_lists(mut self, lists: crate::trusted_list::anchors::Supplied<'m>) -> Self {
+        self.lists = Some(lists);
+        self
     }
 
     /// These facts with `material` added to the revocation material — §12.8.4's document security

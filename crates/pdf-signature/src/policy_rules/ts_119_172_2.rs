@@ -46,7 +46,7 @@
 use const_oid::ObjectIdentifier;
 use const_oid::db::rfc5912;
 
-use super::certification_path::{TrustPoint, TrustTrees};
+use super::certification_path::{ListedTrustPoint, TrustPoint, TrustTrees};
 use super::duration::Duration;
 use super::revocation_checks::{self, Freshness};
 use super::signer_attributes::{Accepted, Mandated, SetConstraints};
@@ -61,6 +61,7 @@ use super::{
     signing_period,
 };
 use crate::cms::SignedData;
+use crate::trusted_list::anchors::ListReference;
 use crate::xml::{self, Element, Tree, XmlError, base64, date_time};
 
 /// Clause 4.1.2's namespace, as the schema prints it and as the clause's own list prints it —
@@ -162,6 +163,8 @@ enum Space {
     Policy,
     /// XML Signature's.
     Signature,
+    /// TS 119 612's, which clause 4.22.2.2's URI lists are written in.
+    TrustedList,
     /// Any other, or none.
     Other,
 }
@@ -172,6 +175,8 @@ fn space(element: &Element) -> Space {
         Space::Policy
     } else if element.namespace == XMLDSIG_NAMESPACE {
         Space::Signature
+    } else if element.namespace == crate::trusted_list::NAMESPACE {
+        Space::TrustedList
     } else {
         Space::Other
     }
@@ -500,7 +505,7 @@ impl<'t> Reader<'t> {
     }
 
     /// Clause 4.22.5's `CertificateTrustTreesType`: one trust point per certificate trust anchor,
-    /// and a count of the anchors given by trusted-list reference.
+    /// and one listed trust point per clause 4.22.2.1 b) reference to a trusted list.
     fn trust_trees(&mut self, trees: usize) -> Result<TrustTrees<'t>, PolicyDocumentError> {
         let mut out = TrustTrees::default();
         for point in self.all(trees, Space::Policy, "CertificateTrustPoint")? {
@@ -538,20 +543,8 @@ impl<'t> Reader<'t> {
                 self.budget.take()?;
                 let certificate =
                     base64(&self.element(anchor)?.text).ok_or(malformed("X509CertificateBased"))?;
-                let reliable_until = self
-                    .element(anchor)?
-                    .attributes
-                    .iter()
-                    .find(|(name, _)| name == "reliableUntil")
-                    .map(|(_, spelled)| {
-                        date_time(spelled.trim())
-                            .map(|instant| Stated {
-                                instant,
-                                spelled: spelled.trim().to_owned(),
-                            })
-                            .ok_or(malformed("X509CertificateBased.reliableUntil"))
-                    })
-                    .transpose()?;
+                let reliable_until =
+                    self.reliable_until(anchor, "X509CertificateBased.reliableUntil")?;
                 out.points.push(TrustPoint {
                     certificate: std::borrow::Cow::Owned(certificate),
                     path_length,
@@ -561,10 +554,77 @@ impl<'t> Reader<'t> {
                     mandated_path: mandated_path.clone(),
                 });
             }
-            let lists = self.all(anchors, Space::Policy, "TAsInTrustedList")?.len();
-            out.trusted_lists = out.trusted_lists.saturating_add(lists);
+            for listed in self.all(anchors, Space::Policy, "TAsInTrustedList")? {
+                self.budget.take()?;
+                let reference = self
+                    .text_of(listed, "TLReference", "TAsInTrustedList.TLReference")?
+                    .to_owned();
+                let service_types = self.uri_list(listed, "ServiceTypes")?;
+                let statuses = self.uri_list(listed, "ServiceStatuses")?;
+                let reliable_until =
+                    self.reliable_until(listed, "TAsInTrustedList.reliableUntil")?;
+                out.listed.push(ListedTrustPoint {
+                    reference: ListReference {
+                        reference,
+                        service_types,
+                        statuses,
+                    },
+                    reliable_until,
+                    path_length,
+                    inputs: inputs.clone(),
+                    unprocessed: unprocessed.clone(),
+                    mandated_path: mandated_path.clone(),
+                });
+            }
         }
         Ok(out)
+    }
+
+    /// Clause 4.22.2.2's `reliableUntil` attribute of `anchor`, an `xs:dateTime`, where present.
+    fn reliable_until(
+        &self,
+        anchor: usize,
+        member: &'static str,
+    ) -> Result<Option<Stated>, PolicyDocumentError> {
+        self.element(anchor)?
+            .attributes
+            .iter()
+            .find(|(name, _)| name == "reliableUntil")
+            .map(|(_, spelled)| {
+                date_time(spelled.trim())
+                    .map(|instant| Stated {
+                        instant,
+                        spelled: spelled.trim().to_owned(),
+                    })
+                    .ok_or(malformed(member))
+            })
+            .transpose()
+    }
+
+    /// A child of `parent` named `local` of TS 119 612's `NonEmptyURIListType`, which clause
+    /// 4.22.2.2's `ServiceTypes` and `ServiceStatuses` are: one `URI` or more in that
+    /// specification's namespace, each charged to the budget; `None` where the child is absent.
+    fn uri_list(
+        &mut self,
+        parent: usize,
+        local: &'static str,
+    ) -> Result<Option<Vec<String>>, PolicyDocumentError> {
+        let Some(list) = self.optional(parent, local)? else {
+            return Ok(None);
+        };
+        let mut uris = Vec::new();
+        for uri in self.all(list, Space::TrustedList, "URI")? {
+            self.budget.take()?;
+            let text = self.text(uri)?;
+            if text.is_empty() {
+                return Err(malformed("TAsInTrustedList URI"));
+            }
+            uris.push(text.to_owned());
+        }
+        if uris.is_empty() {
+            return Err(malformed("TAsInTrustedList URI list"));
+        }
+        Ok(Some(uris))
     }
 
     /// Clause 4.22.3's `NameConstraintsType`: each `GeneralSubTree`'s base is the DER of a

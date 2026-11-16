@@ -481,6 +481,7 @@ fn judge_certificates<'a>(
         signer_path: context.signer_path,
         at: super::certification_path::instant(context.facts),
         revocation,
+        lists: context.facts.lists,
     };
     carried
         .certified

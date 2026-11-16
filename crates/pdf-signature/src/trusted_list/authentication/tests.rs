@@ -16,7 +16,7 @@ const NOW: i64 = 1_794_441_600;
 /// 2027-01-01T00:00:00Z, after it.
 const LATE: i64 = 1_798_761_600;
 
-fn pointer(territory: &str, location: &str, keys: &[Key]) -> String {
+pub(crate) fn pointer(territory: &str, location: &str, keys: &[Key]) -> String {
     let identities = keys
         .iter()
         .map(|key| {
@@ -40,7 +40,7 @@ fn pointer(territory: &str, location: &str, keys: &[Key]) -> String {
 
 /// Clause 5.3's scheme fields, canonically written, with `uris` as clause 5.3.7's and `pointers`
 /// as clause 5.3.13's, and `rest` after the scheme information.
-fn scheme(territory: &str, uris: &[&str], pointers: &str, rest: &str) -> String {
+pub(crate) fn scheme(territory: &str, uris: &[&str], pointers: &str, rest: &str) -> String {
     let uris = uris
         .iter()
         .map(|uri| {

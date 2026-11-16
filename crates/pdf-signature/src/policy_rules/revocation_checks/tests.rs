@@ -302,7 +302,7 @@ fn trees(point: &[u8]) -> TrustTrees<'_> {
             unprocessed: Vec::new(),
             mandated_path: None,
         }],
-        trusted_lists: 0,
+        listed: Vec::new(),
     }
 }
 
@@ -363,6 +363,7 @@ fn the_time_stamping_authoritys_own_path_reaches_the_policys_trust_point() {
             evaluated: Vec::new(),
             policies: None,
             mandated: None,
+            through_list: None,
         },
         "the authority and the intermediate, validated under the root"
     );

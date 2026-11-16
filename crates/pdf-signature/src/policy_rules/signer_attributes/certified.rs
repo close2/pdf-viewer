@@ -47,8 +47,9 @@ pub enum Invalid {
     SignerPath,
     /// No carried certificate of the issuer's name verifies its signature (condition 2).
     Signature,
-    /// The issuer's path to the trust trees is refused (conditions 2 and 4).
-    Path(Found, usize),
+    /// The issuer's path to the trust trees is refused (conditions 2 and 4). Boxed because a
+    /// search's finding is many times the size of every other variant.
+    Path(Box<Found>, usize),
     /// The issuer's certificate is a CA's (condition 3, section 4.5).
     IssuerIsCa,
     /// The issuer's key usage refuses signatures (condition 3, section 4.5).
@@ -76,8 +77,8 @@ pub enum Undecided {
     Algorithm(String),
     /// The set of constraints states no trust trees for attribute authorities.
     NoTrustTrees,
-    /// The issuer's path to the trust trees is not decided.
-    Path(Found, usize),
+    /// The issuer's path to the trust trees is not decided. Boxed as [`Invalid::Path`] is.
+    Path(Box<Found>, usize),
     /// No instant was given to evaluate at.
     NoInstant,
     /// It is targeted (condition 6).
@@ -224,6 +225,8 @@ pub(crate) struct Conditions<'c> {
     pub at: Option<Instant>,
     /// Whether the policy requires the certificate's revocation checked.
     pub revocation: bool,
+    /// The trusted lists a trust tree's references are determined from, where a host supplied any.
+    pub lists: Option<crate::trusted_list::anchors::Supplied<'c>>,
 }
 
 /// The types of an attribute certificate's attributes, where it reads.
@@ -485,11 +488,15 @@ fn path(
     conditions: Conditions<'_>,
 ) -> Result<(), Result<Invalid, Undecided>> {
     let trees = conditions.trees.ok_or(Err(Undecided::NoTrustTrees))?;
-    let search = certification_path::search_certificate(trees, cms, issuer, conditions.at);
+    let search =
+        certification_path::search_certificate(trees, cms, issuer, conditions.at, conditions.lists);
     match search.verdict() {
         Verdict::Met => Ok(()),
-        Verdict::Broken => Err(Ok(Invalid::Path(search.found, search.unexamined))),
-        Verdict::NotEvaluated => Err(Err(Undecided::Path(search.found, search.unexamined))),
+        Verdict::Broken => Err(Ok(Invalid::Path(Box::new(search.found), search.unexamined))),
+        Verdict::NotEvaluated => Err(Err(Undecided::Path(
+            Box::new(search.found),
+            search.unexamined,
+        ))),
     }
 }
 

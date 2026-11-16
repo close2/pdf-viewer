@@ -41,6 +41,7 @@ use crate::verdict::Listing;
 use crate::x509::{self, Certificate, Instant};
 use crate::xml::{self, Element, Tree, XmlError, base64, date_time};
 
+pub mod anchors;
 pub mod authentication;
 pub mod determination;
 pub mod qualifications;
@@ -632,7 +633,7 @@ impl Lists {
                 }
             };
             match &lotl {
-                None => reading.lists.push(list),
+                None => reading.push(name, list),
                 Some(_) if list.territory == "EU" => {}
                 // PRO-4.2.4-02: the LOTL's indications become the list's.
                 Some(Err(outcome)) => {
@@ -652,7 +653,7 @@ impl Lists {
                             if !outcome.sub_status.is_empty() {
                                 reading.warnings.push((name.clone(), outcome));
                             }
-                            reading.lists.push(list);
+                            reading.push(name, list);
                         }
                         Err(outcome) => reading
                             .refused
@@ -662,7 +663,11 @@ impl Lists {
             }
         }
         reading.lotl = lotl.map(|outcome| match outcome {
-            Ok(authenticated) => (authenticated.list.sequence_number, authenticated.outcome),
+            Ok(authenticated) => {
+                let sequence_number = authenticated.list.sequence_number;
+                reading.authenticated_lotl = Some((lotl_name.to_owned(), authenticated.list));
+                (sequence_number, authenticated.outcome)
+            }
             Err(outcome) => (0, outcome),
         });
         reading
@@ -670,7 +675,7 @@ impl Lists {
 }
 
 /// What [`Lists::read`] made of the host's files.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Reading {
     /// The lists that read and, where clauses 4.1 and 4.2 ran, were authenticated.
     pub lists: Vec<TrustedList>,
@@ -681,6 +686,34 @@ pub struct Reading {
     pub lotl: Option<(u64, Outcome)>,
     /// The authenticated lists whose clause 4.2 outcome carries a warning, by the host's name.
     pub warnings: Vec<(String, Outcome)>,
+    /// The host's name for each of [`Self::lists`], in the same order, which is what a policy's
+    /// reference to a list is resolved by ([`anchors`]).
+    names: Vec<String>,
+    /// The list of trusted lists clause 4.1 authenticated, with the host's name for it: clause
+    /// 4.1's input and not searched for a signer's issuer, but the list a policy may reference
+    /// (ETSI TS 119 172-2 clause 4.22.2.1 b)).
+    authenticated_lotl: Option<(String, TrustedList)>,
+}
+
+impl Reading {
+    /// Appends a list that read and was authenticated, under the host's name for it.
+    fn push(&mut self, name: &str, list: TrustedList) {
+        self.lists.push(list);
+        self.names.push(name.to_owned());
+    }
+
+    /// Each list that read and was authenticated, with the host's name for it.
+    pub fn named(&self) -> impl Iterator<Item = (&str, &TrustedList)> {
+        self.names.iter().map(String::as_str).zip(&self.lists)
+    }
+
+    /// The list of trusted lists clause 4.1 authenticated, with the host's name for it.
+    #[must_use]
+    pub fn authenticated_lotl(&self) -> Option<(&str, &TrustedList)> {
+        self.authenticated_lotl
+            .as_ref()
+            .map(|(name, list)| (name.as_str(), list))
+    }
 }
 
 /// Whether `element` is the list namespace's `local`.

@@ -717,6 +717,70 @@ fn the_signing_certificate_trust_conditions_are_judged_on_a_path_to_the_policys_
     );
 }
 
+/// Clause 4.22.2.2's `TAsInTrustedList` in the ASN.1 syntax, whose semantics clause 4.22.2.1
+/// takes from TS 119 172-2's: the `uri`, and the `serviceTypes [0]` and `serviceStatuses [1]` lists
+/// of the module's `EXPLICIT` tags, judged against the lists a host supplied, where the root is the
+/// identity of Austria's granted `CA/QC` service.
+#[test]
+fn the_asn1_trusted_list_anchor_is_determined_from_the_hosts_lists() {
+    use crate::policy_rules::certification_path::tests::{WITHIN, cms, hierarchy, listing};
+    use crate::trusted_list::{CA_QC, GRANTED, anchors::Supplied};
+    let held = hierarchy();
+    let signed = cms(&held.signer, &held.intermediate);
+    let lists = listing(&held.root);
+    let no_check = seq(&[seq(&[enumeration(4), enumeration(4)])]);
+    let rule = |anchor: Vec<u8>| {
+        basic(
+            6,
+            &seq(&[
+                seq(&[seq(&[seq(&[seq(&[anchor])])]), no_check.clone()]),
+                enumeration(1),
+            ]),
+            None,
+        )
+    };
+    let trust =
+        |c: &policy_rules::Constraint| matches!(c, policy_rules::Constraint::TrustPath { .. });
+    let facts = facts(None).validated_at(WITHIN).with_lists(Supplied {
+        reading: &lists,
+        now: WITHIN,
+    });
+    let verdicts = |members: Vec<Vec<u8>>| {
+        let mut anchor = vec![ia5("https://example.at/tl.xml")];
+        anchor.extend(members);
+        verdict_of(&judged(&[rule(seq(&anchor))], &signed, &facts), trust)
+    };
+    let strings = |uris: &[&str]| seq(&uris.iter().map(|uri| ia5(uri)).collect::<Vec<_>>());
+    assert_eq!(verdicts(vec![]), [Verdict::Met], "step 1");
+    assert_eq!(
+        verdicts(vec![
+            tagged(0, &strings(&[CA_QC])),
+            tagged(1, &strings(&[GRANTED]))
+        ]),
+        [Verdict::Met],
+        "steps 2 and 3"
+    );
+    assert_eq!(
+        verdicts(vec![tagged(
+            1,
+            &strings(&["http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/withdrawn"])
+        )]),
+        [Verdict::NotEvaluated],
+        "step 3: the root's service is granted, not withdrawn, at current time"
+    );
+    // The same anchors with no list supplied: the reference is counted, not examined.
+    let unsupplied = judged(
+        &[rule(seq(&[ia5("https://example.at/tl.xml")]))],
+        &signed,
+        &facts_without_lists(),
+    );
+    assert_eq!(verdict_of(&unsupplied, trust), [Verdict::NotEvaluated]);
+}
+
+fn facts_without_lists() -> SignerFacts<'static> {
+    facts(None).validated_at(certification_path::tests::WITHIN)
+}
+
 /// Clause 4.22.5.1 item 5's `userCertPath` `path [1]` names the certification path to be used,
 /// which the search builds over in place of the signature's certificates (ADR 2781): over a
 /// signature carrying the signer's certificate alone, the policy's intermediate completes the path,

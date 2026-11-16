@@ -203,6 +203,7 @@ pub(super) fn facts(at: Option<&str>) -> SignerFacts<'static> {
         certificate_signature_algorithm: Some(SHA256_RSA.to_vec()),
         path_at: None,
         material: Material::none(),
+        lists: None,
     }
 }
 

@@ -66,7 +66,7 @@ fn point(certificate: &[u8]) -> TrustPoint<'_> {
 fn trees(points: Vec<TrustPoint<'_>>) -> TrustTrees<'_> {
     TrustTrees {
         points,
-        trusted_lists: 0,
+        listed: Vec::new(),
     }
 }
 
@@ -100,6 +100,7 @@ fn a_path_to_the_policys_own_trust_point_meets_the_condition() {
             evaluated: Vec::new(),
             policies: None,
             mandated: None,
+            through_list: None,
         },
         "TR 102 272 clause 6.6.1: the trust point starts path processing, and RFC 5280 section 6.1 validates the signer and its intermediate under it"
     );
@@ -171,7 +172,7 @@ fn a_chain_rfc_5280_refuses_is_broken_unless_another_anchor_was_not_searched() {
     // A trusted-list anchor might have validated another path, so the same refusal beside one is
     // not called broken.
     let with_list = TrustTrees {
-        trusted_lists: 1,
+        listed: vec![listed("https://example.invalid/tl.xml")],
         ..one
     };
     let found = searched(&with_list, &held, &at(AFTER_THE_SIGNER_EXPIRED));
@@ -325,6 +326,7 @@ fn a_mandated_path_supplies_the_certificates_the_signature_does_not_carry() {
             evaluated: Vec::new(),
             policies: None,
             mandated: Some(Vec::new()),
+            through_list: None,
         }
     );
     assert_eq!(found.verdict(), Verdict::Met);
@@ -397,6 +399,7 @@ fn a_mandated_path_has_preference_over_the_components_it_contradicts() {
             evaluated: Vec::new(),
             policies: None,
             mandated: Some(vec!["pathLenConstraint"]),
+            through_list: None,
         }
     );
     assert_eq!(found.verdict(), Verdict::Met);
@@ -465,4 +468,167 @@ fn a_stated_acceptable_policy_set_requires_the_path_to_be_valid_for_one_of_its_p
     // The control: no set stated, so section 6.1.1 (c)'s `any-policy` and no explicit policy.
     let found = searched(&trees(vec![stated(None)]), &held, &at(WITHIN));
     assert_eq!(found.verdict(), Verdict::Met);
+}
+
+/// A trust point whose one anchor is a reference to the trusted list at `uri` (TS 119 172-2 clause
+/// 4.22.2.1 b)), with no other member.
+pub(crate) fn listed(uri: &str) -> super::ListedTrustPoint<'static> {
+    super::ListedTrustPoint {
+        reference: crate::trusted_list::anchors::ListReference {
+            reference: uri.to_owned(),
+            service_types: None,
+            statuses: None,
+        },
+        reliable_until: None,
+        path_length: None,
+        inputs: crate::trust::PathInputs::default(),
+        unprocessed: Vec::new(),
+        mandated_path: None,
+    }
+}
+
+/// A host's lists, vouched for: Austria's at `tl.xml`, one provider whose `CA/QC` service, granted
+/// from 2024, has `identity` as its digital identity.
+pub(crate) fn listing(identity: &[u8]) -> crate::trusted_list::Reading {
+    use crate::trusted_list::tests::{GRANTED_AT_LATER, Written, list_xml};
+    let service = Written {
+        identity: Some(identity),
+        ..GRANTED_AT_LATER
+    };
+    crate::trusted_list::Lists::of(
+        vec![(
+            "tl.xml".to_owned(),
+            list_xml("AT", &[("A provider", &[service])]).into_bytes(),
+        )],
+        "the tests".to_owned(),
+    )
+    .read(WITHIN)
+}
+
+/// The facts at `instant` with `reading` as the host's lists, read at [`WITHIN`].
+fn with_lists(instant: Instant, reading: &crate::trusted_list::Reading) -> SignerFacts<'_> {
+    at(instant).with_lists(crate::trusted_list::anchors::Supplied {
+        reading,
+        now: WITHIN,
+    })
+}
+
+/// Clause 4.22.2.1 b) with no certificate trust point beside it: the root is a service's identity
+/// in the list the policy references, so it is an anchor, and the path to it meets the condition
+/// and says which list determined it.
+#[test]
+fn an_anchor_a_referenced_trusted_list_determines_meets_the_condition() {
+    let held = hierarchy();
+    let lists = listing(&held.root);
+    let only_listed = TrustTrees {
+        points: Vec::new(),
+        listed: vec![listed("https://example.at/tl.xml")],
+    };
+    let found = searched(&only_listed, &held, &with_lists(WITHIN, &lists));
+    assert_eq!(
+        found.found,
+        Found::Reached {
+            length: 2,
+            unprocessed: Vec::new(),
+            evaluated: Vec::new(),
+            policies: None,
+            mandated: None,
+            through_list: Some("https://example.at/tl.xml".to_owned()),
+        }
+    );
+    assert_eq!(found.verdict(), Verdict::Met);
+    assert_eq!(found.unexamined, 0);
+    // The control: the same trust trees with no list supplied leave the reference unexamined.
+    let unsupplied = searched(&only_listed, &held, &at(WITHIN));
+    assert_eq!(unsupplied.verdict(), Verdict::NotEvaluated);
+    assert_eq!(unsupplied.unexamined, 1);
+    // And a reference to a list the host did not supply — no file carries its last path segment
+    // (ADR 2842) — is not examined either.
+    let elsewhere = TrustTrees {
+        points: Vec::new(),
+        listed: vec![listed("https://example.fr/fr.xml")],
+    };
+    let found = searched(&elsewhere, &held, &with_lists(WITHIN, &lists));
+    assert_eq!(found.verdict(), Verdict::NotEvaluated);
+    assert_eq!(found.unexamined, 1);
+}
+
+/// A listed anchor is a trust point like a stated one: a path RFC 5280 section 6.1 refuses under
+/// it is broken, and the reference's reliable-until instant puts it past relying on (EN 319 102-1
+/// clause 5.2.6.4).
+#[test]
+fn a_listed_anchor_refuses_and_expires_as_a_stated_one_does() {
+    let held = hierarchy();
+    let lists = listing(&held.root);
+    let one = TrustTrees {
+        points: Vec::new(),
+        listed: vec![listed("https://example.at/tl.xml")],
+    };
+    let refused = searched(&one, &held, &with_lists(AFTER_THE_SIGNER_EXPIRED, &lists));
+    assert!(matches!(
+        refused.found,
+        Found::Refused(PathRefusal::NotCurrent, _)
+    ));
+    assert_eq!(refused.verdict(), Verdict::Broken);
+    let mut sunset = listed("https://example.at/tl.xml");
+    sunset.reliable_until = Some(Stated {
+        instant: Instant::from_unix_seconds(1_767_225_600),
+        spelled: "2026-01-01T00:00:00Z".to_owned(),
+    });
+    let past = searched(
+        &TrustTrees {
+            points: Vec::new(),
+            listed: vec![sunset],
+        },
+        &held,
+        &with_lists(WITHIN, &lists),
+    );
+    assert_eq!(
+        past.found,
+        Found::PastReliable {
+            until: "2026-01-01T00:00:00Z".to_owned()
+        }
+    );
+    assert_eq!(past.verdict(), Verdict::NotEvaluated);
+}
+
+/// Steps 2 and 3 filter the anchors: a type or a status the root's service does not have leaves
+/// no anchor that ends the path, which is no chain — never broken, since the anchors were the
+/// policy's to choose. A listed certificate that issued nothing on the path is not tried at all.
+#[test]
+fn a_filtered_or_unrelated_listed_anchor_ends_no_path() {
+    let held = hierarchy();
+    let lists = listing(&held.root);
+    let mut typed = listed("https://example.at/tl.xml");
+    typed.reference.service_types = Some(vec![
+        "http://uri.etsi.org/TrstSvc/Svctype/TSA/QTST".to_owned(),
+    ]);
+    let mut withdrawn = listed("https://example.at/tl.xml");
+    withdrawn.reference.statuses = Some(vec![
+        "http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/withdrawn".to_owned(),
+    ]);
+    for point in [typed, withdrawn] {
+        let found = searched(
+            &TrustTrees {
+                points: Vec::new(),
+                listed: vec![point],
+            },
+            &held,
+            &with_lists(WITHIN, &lists),
+        );
+        assert_eq!(found.found, Found::NoChain);
+        assert_eq!(found.verdict(), Verdict::NotEvaluated);
+        assert_eq!(found.unexamined, 0);
+    }
+    // The signer's own certificate as the listed identity issued no certificate on the path.
+    let unrelated = listing(&held.signer);
+    let found = searched(
+        &TrustTrees {
+            points: Vec::new(),
+            listed: vec![listed("https://example.at/tl.xml")],
+        },
+        &held,
+        &with_lists(WITHIN, &unrelated),
+    );
+    assert_eq!(found.found, Found::NoChain);
 }
