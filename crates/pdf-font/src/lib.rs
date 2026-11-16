@@ -66,5 +66,7 @@ pub use crate::loading::{
     CharacterGlyph, FontError, LoadedFont, NOTDEF_GLYPH, NamingGap, OutlineRefused, UnreachedCode,
     without_program,
 };
-pub use crate::metrics::{VerticalDisplacements, descriptor_flags, measured_extent};
+pub use crate::metrics::{
+    SuppliedWidths, VerticalDisplacements, descriptor_flags, measured_extent,
+};
 pub use crate::sfnt::{composite_cycle, repaired_font_program};

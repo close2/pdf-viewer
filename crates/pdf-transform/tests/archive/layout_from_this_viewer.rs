@@ -313,12 +313,97 @@ fn the_report_does_not_say_the_face_agrees_with_widths_the_file_never_stated() {
     let text = conversion(&report).render();
     assert!(
         text.contains(
-            "the file states no widths for it, so the face's own advances are written as its widths"
+            "the file states no widths for it, so the widths this viewer laid it out by are written as its own"
         ),
         "{text}"
     );
     assert!(
         !text.contains("the face's own advances are the widths the file states"),
         "{text}"
+    );
+}
+
+/// A page showing `Hello` in a simple font outside the fourteen that states a descriptor and no
+/// `/Widths`, embedding no program: `issue5470.pdf`'s shape (`doc/questions/Q859`).
+fn a_font_with_a_descriptor_and_no_widths(subtype: &str) -> Vec<u8> {
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (Hello) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            format!(
+                "<< /Type /Font /Subtype /{subtype} /BaseFont /Arial /FirstChar 32 \
+                 /LastChar 255 /Encoding /WinAnsiEncoding /FontDescriptor 7 0 R >>"
+            ),
+            "<< /Type /FontDescriptor /FontName /Arial /Flags 32 /ItalicAngle 0 /StemV 80 \
+             /FontBBox [-665 -325 2000 1006] /Ascent 905 /Descent -212 /CapHeight 716 >>"
+                .to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+#[test]
+fn a_font_with_a_descriptor_and_no_widths_converts_under_the_loss_at_the_windows_advances() {
+    // ISO 32000-2 Table 109 requires `/Widths` of `/Arial`, which is not one of §9.6.2.2's
+    // fourteen; the window lays it out by Helvetica's published metrics, the font's name and flags
+    // resembling it (`doc/questions/A859`, ADR 2898), and the output states exactly that layout:
+    // every one of the 256 codes advances in the output as it did in the source.
+    for subtype in ["TrueType", "Type1"] {
+        let source = a_font_with_a_descriptor_and_no_widths(subtype);
+        let drawn = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("it opens");
+        let dict = drawn
+            .get(ObjectId::new(6, 0))
+            .as_dict()
+            .cloned()
+            .expect("font");
+        let before = pdf_font::LoadedFont::load(&drawn, &dict, "F1").expect("the source loads");
+        assert!(before.supplied_widths().is_some(), "{subtype}");
+        for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+            let (report, output) = converted(&source, target);
+            let font = conversion(&report).substituted.first().expect("one font");
+            assert!(
+                font.losses.contains(Loss::LayoutFromThisViewer),
+                "{subtype} {target}: {}",
+                font.losses.words()
+            );
+            let (held, dict) = described_font(&output);
+            let after = pdf_font::LoadedFont::load(&held, &dict, "F1").expect("the output loads");
+            for code in 0..=u8::MAX {
+                let code = pdf_font::Code::single_byte(code);
+                let (was, is) = (before.advance(code), after.advance(code));
+                assert!(
+                    (was - is).abs() < 0.001,
+                    "{subtype} {target} code {}: {was} em before, {is} em after",
+                    code.value()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn without_the_loss_a_font_with_a_descriptor_and_no_widths_is_not_written() {
+    let source = a_font_with_a_descriptor_and_no_widths("TrueType");
+    let mut partial = every_font_loss();
+    partial.layout_from_this_viewer = false;
+    let (report, output) = convert(&source, Target::Two(Level::B), partial);
+    assert!(output.is_none(), "nothing is written");
+    let Decision::Unauthorised { losses, .. } = decision(&report, "fonts/font-programs-embedded")
+    else {
+        panic!(
+            "the font requirement waits on the loss: {:?}",
+            decision(&report, "fonts/font-programs-embedded")
+        );
+    };
+    assert!(
+        losses.contains(Loss::LayoutFromThisViewer),
+        "{}",
+        losses.words()
     );
 }

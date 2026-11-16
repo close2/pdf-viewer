@@ -358,6 +358,12 @@ winner = "first"
 [site."fonts/font-programs-embedded"]
 try = ["append-statement", "discard"]
 
+# A simple font outside the standard 14 that states a descriptor and no /Widths is given the widths
+# this viewer lays it out by, the loss `layout-from-this-viewer` (doc/questions/A859,
+# doc/adr/2898), stated on the appended page with its font where one is composed.
+[site."fonts/simple-font-states-its-widths"]
+try = ["append-statement", "discard"]
+
 # An ActualText holding a Unicode Private Use character, which ISO 19005-4 section 6.2.10.8 forbids:
 # where an object states it the entry is removed and the content is read as its own text (ISO 32000-2
 # 14.9.4), the loss `actual-text-private-use`. `append-statement` lists each structure element or

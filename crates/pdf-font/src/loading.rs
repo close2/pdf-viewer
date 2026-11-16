@@ -16,7 +16,7 @@ use crate::composite::{CidToGlyph, composite_cmap};
 use crate::glyph_class::Decision;
 use crate::glyph_names::GlyphNames;
 use crate::metrics::{
-    NO_STRETCH, Vertical, composite_widths, missing_width, narrow, vertical_extent,
+    NO_STRETCH, SuppliedWidths, Vertical, composite_widths, missing_width, narrow, vertical_extent,
 };
 use crate::name_keyed::NameKeyed;
 use crate::program::{Program, parsed_type1, simple_units_per_em};
@@ -785,6 +785,9 @@ pub struct LoadedFont {
     /// and the fact is kept so that a page drawn short by that reading can say the file asked for
     /// both (ADR 1411). Always false for a composite font, whose descriptor selects no encoding.
     symbolic_flags_conflict: bool,
+    /// Where a simple font outside §9.6.2.2's fourteen that states no `/Widths` took its
+    /// advances; `None` for every font that states them or that Table 109 lets omit them.
+    supplied_widths: Option<SuppliedWidths>,
     /// Cached outlines: a page reuses the same few dozen glyphs constantly, and
     /// re-extracting each one would dominate the render.
     outlines: Mutex<OutlineCache>,
@@ -1040,6 +1043,10 @@ impl LoadedFont {
             glyph_names: None,
             notdef: None,
             symbolic_flags_conflict: false,
+            // ADR 2898's order is not taken here: the owner's audit pins Table 120's
+            // `/MissingWidth` for a metrics-only font stating no `/Widths`, and whether A859
+            // reaches this route is `doc/questions/Q868`'s.
+            supplied_widths: None,
             reader_chosen: CodeSet::default(),
             outlines: Mutex::new(BTreeMap::new()),
             codes_by_character: OnceLock::new(),

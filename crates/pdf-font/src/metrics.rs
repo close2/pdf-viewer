@@ -3,7 +3,8 @@
 //! Advances first, in ISO 32000-2's own order of authority: a simple font's `/Widths`
 //! (§9.6.2.1) or a composite font's `/W` (§9.7.4.3), then — for the standard 14, which Table
 //! 109 lets state neither — §9.6.2.2's published metrics, and last the substitute program's
-//! own charstrings. Whatever shapes the page ends up drawn in, these are the numbers it is
+//! own charstrings. A substitute outside the fourteen that states no `/Widths` is missing what
+//! Table 109 requires, and is laid out by the order ADR 2898 chose on that defect. Whatever shapes the page ends up drawn in, these are the numbers it is
 //! laid out by, which is why they are resolved once at load time rather than taken from
 //! whichever face happened to answer.
 //!
@@ -62,6 +63,8 @@ pub(crate) struct SimpleMetrics<'a> {
     /// request, or for an embedded program under one of the standard 14 names, that name's
     /// (`opening::published_metrics`, `doc/adr/2687`).
     pub(crate) published: Option<substitute::Request>,
+    /// Whether the font is one of §9.6.2.2's fourteen, which Table 109 lets omit `/Widths`.
+    pub(crate) within_the_fourteen: bool,
     /// The glyph name each code selects, when the font has names.
     pub(crate) names: Option<&'a GlyphNames>,
     /// The font program.
@@ -148,42 +151,96 @@ mod declared_range_tests {
     }
 }
 
-/// Builds a simple font's advance table, in thousandths of an em.
+/// Builds a simple font's advance table, in thousandths of an em, and says where it came from
+/// when the document stated none and a substitute stands in.
 ///
-/// Three sources, in descending order of authority. `/Widths` is the document's own
-/// statement and always wins — [`stated_widths`] is what the caller hands in. Failing that,
-/// which only the standard 14 are allowed to do, the specification's published metrics for
-/// the face apply, which keeps the layout a property of the document rather than of this
-/// machine; that holds for an embedded program under one of the fourteen names as much as for
-/// a substitute (`SimpleMetrics::published`). Anything still unanswered falls to the program's
-/// own advances, which in practice means glyphs outside the standard character set.
+/// `/Widths` is the document's own statement and always wins — [`stated_widths`] is what the
+/// caller hands in, and a font that states it has nothing to record. Failing that, the published
+/// metrics of the face named or resembled answer (`SimpleMetrics::published`), which keeps the
+/// layout a property of the document rather than of this machine.
+///
+/// **Inside §9.6.2.2's fourteen**, which Table 109 lets omit `/Widths` ("Required; optional in
+/// PDF 1.0-1.7 for the standard 14 fonts"), the program this reader draws answers what the
+/// published metrics do not name (`.notdef` above all, `issue4304`): that is the layout the table
+/// admits, so nothing is recorded (ADR 0007, ADR 2687).
+///
+/// **A substitute outside the fourteen** is missing an array the table requires, and the file
+/// states no layout. The owner's order on that defect (`doc/questions/A859`, ADR 2898) is the
+/// resembling standard font's published metrics and then Table 120's `/MissingWidth`, which
+/// [`crate::LoadedFont::advance`] supplies as the default width: the substitute face's own
+/// advances are no statement of the file's and are not a step. The second answer records what
+/// the metrics answered, for the report the caller owes and the archive's
+/// `layout-from-this-viewer`. A font whose own program is drawn keeps Table 120 for every code
+/// until `doc/questions/Q868` is answered.
 ///
 /// Resolved once here rather than at each lookup, so [`crate::LoadedFont::advance`] stays free of
 /// work and of allocation on the per-character path.
 pub(crate) fn simple_widths(
     stated: BTreeMap<u32, f32>,
     font: SimpleMetrics<'_>,
-) -> BTreeMap<u32, f32> {
-    let mut widths = stated;
-    let Some(request) = font.published.filter(|_| widths.is_empty()) else {
-        return widths;
+) -> (BTreeMap<u32, f32>, Option<SuppliedWidths>) {
+    let Some(request) = font.published.filter(|_| stated.is_empty()) else {
+        return (stated, None);
     };
-
     let standard = standard_metrics::StandardFont::for_request(request);
-    if let Some(names) = font.names {
-        for (code, glyph_name) in names.iter().enumerate() {
-            let Ok(code) = u32::try_from(code) else {
-                continue;
-            };
-            if let Some(width) = standard.width(glyph_name.as_ref()) {
-                widths.insert(code, width);
-            }
-        }
+    let mut widths = resembling_widths(standard, font.names);
+    if font.substituted.is_some() && !font.within_the_fourteen {
+        let supplied = SuppliedWidths {
+            from_standard: widths.len(),
+            standard,
+        };
+        return (widths, Some(supplied));
     }
     for (code, width) in program_widths(font, |code, _| !widths.contains_key(&code)) {
         widths.entry(code).or_insert(width);
     }
+    (widths, None)
+}
+
+/// The published advance of each code's glyph name in the standard face `standard`, for the codes
+/// whose name that face's metrics carry (§9.6.2.2's fourteen, `standard_metrics`).
+pub(crate) fn resembling_widths(
+    standard: standard_metrics::StandardFont,
+    names: Option<&GlyphNames>,
+) -> BTreeMap<u32, f32> {
+    let mut widths = BTreeMap::new();
+    for (code, glyph_name) in names.into_iter().flat_map(|names| names.iter().enumerate()) {
+        let Ok(code) = u32::try_from(code) else {
+            continue;
+        };
+        if let Some(width) = standard.width(glyph_name.as_ref()) {
+            widths.insert(code, width);
+        }
+    }
     widths
+}
+
+/// Where a simple font outside §9.6.2.2's fourteen that states no `/Widths` takes its advances.
+///
+/// ISO 32000-2 §9.6.2.1's Table 109 makes `/Widths` "Required; optional in PDF 1.0-1.7 for the
+/// standard 14 fonts", so such a font is missing an entry the standard requires and states no
+/// layout of its own. The advances it is drawn at are this reader's choice on the file's defect
+/// (`doc/questions/A859`, ADR 2898), and this says which steps of that choice answered: a caller
+/// reports it ([`Self::detail`]) and the archive writes it as the layout this viewer drew.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SuppliedWidths {
+    /// Codes whose advance is the published metric of [`Self::standard`] for the code's name.
+    pub from_standard: usize,
+    /// The standard font whose metrics the font's name and descriptor resemble.
+    pub standard: standard_metrics::StandardFont,
+}
+
+impl SuppliedWidths {
+    /// The sentence a page owes for a font laid out this way, naming `font` as the page did.
+    #[must_use]
+    pub fn detail(&self, font: &str) -> String {
+        format!(
+            "font {font} states no /Widths, which ISO 32000-2 Table 109 requires outside the \
+             fourteen standard fonts, so its layout is this viewer's: {} codes by {:?}'s \
+             published metrics and every other code by Table 120's /MissingWidth",
+            self.from_standard, self.standard
+        )
+    }
 }
 
 /// The horizontal scale a substituted face's *outlines* are drawn at.
@@ -300,10 +357,11 @@ pub(crate) fn simple_advances(
     document: &Document,
     dict: &Dictionary,
     font: SimpleMetrics<'_>,
-) -> (BTreeMap<u32, f32>, f32) {
+) -> (BTreeMap<u32, f32>, f32, Option<SuppliedWidths>) {
     let stated = stated_widths(document, dict);
     let stretch = substitute_stretch(&stated, font);
-    (simple_widths(stated, font), stretch)
+    let (widths, supplied) = simple_widths(stated, font);
+    (widths, stretch, supplied)
 }
 
 /// A face drawn as it is: the answer for every font that is not a substitute.
@@ -1014,6 +1072,7 @@ mod flag_tests {
 #[cfg(test)]
 mod substituted_width_tests {
     use crate::fixture::font_dictionary;
+    use crate::standard_metrics::StandardFont;
     use crate::{Code, LoadedFont};
 
     /// A code the published metrics do not name takes the substitute program's own advance.
@@ -1044,18 +1103,25 @@ mod substituted_width_tests {
         assert!((font.advance(Code::single_byte(32)) - 0.250).abs() < 1e-6);
     }
 
-    /// A substitute outside the fourteen that states no `/Widths` is laid out by the published
-    /// metrics of the standard font its request resembles — ADR 0007's documented choice for a
-    /// file missing an entry Table 109 requires — with or without a descriptor: `/Arial` is sans
-    /// serif, and Helvetica's `A` is 667. Whether a descriptor's `/MissingWidth` (Table 120,
-    /// default 0) should answer instead is `doc/questions/Q859`'s; read literally it puts every
-    /// glyph of `issue5470.pdf`'s line at one point.
+    /// A substitute outside the fourteen that states no `/Widths` is laid out by ADR 2898's order
+    /// (`doc/questions/A859`): it embeds no program, so the published metrics of the standard font
+    /// its request resembles come first — `/Arial` is sans serif, and Helvetica's `A` is 667 — and
+    /// Table 120's `/MissingWidth` answers a code they do not name. The face's own advance is no
+    /// statement of the file's and is not a step: Helvetica's metrics name no `afii10017`
+    /// (Cyrillic А), so it is the descriptor's 333 whatever the face this machine offers states.
     #[test]
     fn a_substitute_with_no_widths_keeps_the_resembling_standard_metrics() {
-        for entries in [
-            "/BaseFont /Arial",
-            "/BaseFont /Arial /FontDescriptor << /Type /FontDescriptor /FontName /Arial \
-             /Flags 32 >>",
+        for (entries, missing) in [
+            (
+                "/BaseFont /Arial /Encoding << /Differences [66 /afii10017] >>",
+                0.0,
+            ),
+            (
+                "/BaseFont /Arial /Encoding << /Differences [66 /afii10017] >> \
+                 /FontDescriptor << /Type /FontDescriptor /FontName /Arial /Flags 32 \
+                 /MissingWidth 333 >>",
+                0.333,
+            ),
         ] {
             let (document, dict) = font_dictionary(entries);
             let font = LoadedFont::load(&document, &dict, "F1").expect("a substitute loads");
@@ -1064,7 +1130,53 @@ mod substituted_width_tests {
                 (font.advance(Code::single_byte(b'A')) - 0.667).abs() < 1e-6,
                 "{entries}"
             );
+            assert!(
+                (font.advance(Code::single_byte(66)) - missing).abs() < 1e-6,
+                "{entries}: {}",
+                font.advance(Code::single_byte(66))
+            );
+            let supplied = font.supplied_widths().expect("the layout is this reader's");
+            assert_eq!(supplied.standard, StandardFont::Helvetica, "{entries}");
         }
+    }
+
+    /// The control: an embedded program stating `/Widths` is laid out by them, and nothing is this
+    /// reader's. The program is the compiled-in Symbol face filed as `/Type1C` under `/Arial`.
+    #[test]
+    fn an_embedded_program_that_states_widths_is_laid_out_by_them() {
+        let font = embedded_symbol_as_arial("/FirstChar 65 /LastChar 67 /Widths [500 500 500]");
+        for code in 65..=67 {
+            assert!((font.advance(Code::single_byte(code)) - 0.5).abs() < 1e-6);
+        }
+        assert_eq!(font.supplied_widths(), None);
+    }
+
+    /// The Symbol face embedded as `/FontFile3 /Subtype /Type1C` under `/BaseFont /Arial`, with a
+    /// `/Differences` reaching `A` (65), `Alpha` (66) and `g123` (67), `/MissingWidth 333` and the
+    /// further entries `widths`.
+    fn embedded_symbol_as_arial(widths: &str) -> LoadedFont {
+        let program = crate::standard::face(crate::substitute::Request {
+            family: crate::substitute::Family::Symbol,
+            bold: false,
+            italic: false,
+            standard: true,
+        })
+        .0;
+        let font = format!(
+            "1 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Arial {widths} \
+             /Encoding << /Differences [65 /A /Alpha /g123] >> /FontDescriptor << \
+             /Type /FontDescriptor /FontName /Arial /Flags 32 /MissingWidth 333 \
+             /FontFile3 2 0 R >> >>\nendobj\n"
+        );
+        let mut stream = format!(
+            "2 0 obj\n<< /Subtype /Type1C /Length {} >>\nstream\n",
+            program.len()
+        )
+        .into_bytes();
+        stream.extend_from_slice(program);
+        stream.extend_from_slice(b"\nendstream\nendobj\n");
+        let (document, dict) = crate::fixture::document_of(&[font.as_bytes(), &stream]);
+        LoadedFont::load(&document, &dict, "F1").expect("the Symbol face reads")
     }
 
     /// The control: a `Type1` dictionary under one of the fourteen keeps §9.6.2.2's metrics,

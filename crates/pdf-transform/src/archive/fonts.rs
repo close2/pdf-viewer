@@ -1357,6 +1357,16 @@ fn embed_pass(
         // would move every line of the page, so the program is asked again through the same two
         // readers a caller holding nothing but bytes has.
         proves(&program, face.format(), &widths, &BTreeMap::new())?;
+        // The proofs below read the output as it is written, and a font stating no `/Widths` is
+        // written with the ones the window lays it out by (Table 109's all-or-none, below), so
+        // the restatement they read states them too: without them the read-back font advances by
+        // `/MissingWidth` where the window used the published metrics (ADR 2899).
+        let restated = restated.map(|mut restatement| {
+            if document.get_key(&used.dict, "Widths").is_null() {
+                state_laid_out_widths(&mut restatement.entries, &font);
+            }
+            restatement
+        });
         // A machine's face the dictionary already admits is held to the viewer's drawing by the
         // same proof a restatement is, over the file's own descriptor (`doc/adr/2773`).
         if let (Face::Machine(_, _, shipped), None) = (&face, &restated) {
@@ -1453,7 +1463,7 @@ fn embed_pass(
         if document.get_key(&used.dict, "Widths").is_null() {
             state_laid_out_widths(&mut entries, &font);
         }
-        let (losses, fitting) = match (drawn, &fitting_written) {
+        let (mut losses, fitting) = match (drawn, &fitting_written) {
             // No shape is drawn, so no face's shapes and no fitting are lost or written: the loss
             // is the program the file held and the substitute another reader may have drawn.
             _ if emptied => (Losses::one(Loss::UnreadableProgram), None),
@@ -1461,6 +1471,13 @@ fn embed_pass(
             (None, None) => (Losses::default(), None),
             (Some(drawn), None) => described::losses_of(drawn, &font),
         };
+        // A font outside the fourteen that states no `/Widths` is laid out by this viewer's
+        // choice on the file's defect (Table 109; `doc/questions/A859`, ADR 2898), and the array
+        // written above is that layout, so it is the loss `layout-from-this-viewer` as it is on
+        // the no-descriptor route.
+        if font.supplied_widths().is_some() {
+            losses = losses.with(Loss::LayoutFromThisViewer);
+        }
         substitutes.done.push(SubstitutedFont {
             resource: used.name.clone(),
             requested,

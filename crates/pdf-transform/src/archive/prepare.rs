@@ -538,6 +538,15 @@ pub(super) struct Provenance<'a> {
 }
 
 impl Prepared {
+    /// Whether the widths the fonts row writes include this viewer's layout of a font outside
+    /// §9.6.2.2's fourteen that stated none, the loss `layout-from-this-viewer` (ADR 2898).
+    pub(super) fn widths_from_this_viewer(&self) -> bool {
+        self.owed
+            .font_widths
+            .as_ref()
+            .is_ok_and(super::font_widths::WidthArrays::lays_out_by_this_viewer)
+    }
+
     /// The streams written absent under `undecodable-stream`, where the filter row's preparation
     /// ran and found any (`doc/adr/2689`).
     pub(super) fn undecodable(&self) -> Option<&super::undecodable::Undecodable> {

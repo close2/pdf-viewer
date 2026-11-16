@@ -344,10 +344,10 @@ const FOUND_BY_SCANNING: [&str; 5] = [
 ///
 /// The groups follow [`whose_defect`]'s partition — the mechanism that decides each document is
 /// the most-owed one it carries — and the sentence beside a group is the clause it rests on. Of the
-/// fifty-nine, none is this reader's — `freetext_no_appearance.pdf`, the last, draws since ADRs
+/// sixty-five, none is this reader's — `freetext_no_appearance.pdf`, the last, draws since ADRs
 /// 1413 and 1414 set its Arabic joined and right to left in a face from the machine; four are no
-/// route the standard states; fifty-five are the file's (ADR 1401, ADR 1411).
-const INCOMPLETE: [&str; 59] = [
+/// route the standard states; sixty-one are the file's (ADR 1401, ADR 1411).
+const INCOMPLETE: [&str; 65] = [
     // ── The file's: §9.7.5.2, "[t]he Identity-H and Identity-V CMaps shall not be used with a
     // non-embedded font". Every one is a `CIDFontType2` naming a system face (Arial, Calibri,
     // Times New Roman …) whose CIDs are that face's glyph indices, which §9.7.4.2 says are "not
@@ -462,6 +462,17 @@ const INCOMPLETE: [&str; 59] = [
     // read as Symbolic, §9.6.5.4 ignores the `/Encoding` and the (3, 0) subtable reaches an empty
     // `G` where the `/Differences` named `/Ccedilla` (`oracle.rs` has it).
     "issue20232.pdf",
+    // ── The file's: §9.6.2.1's Table 109 makes `/Widths` "Required; optional in PDF 1.0-1.7 for
+    // the standard 14 fonts", and each of these draws a simple font outside the fourteen, from a
+    // substitute, that states none: the line is laid out by the resembling standard font's
+    // published metrics and then Table 120's `/MissingWidth`, which is this reader's choice on
+    // the defect and said (`doc/questions/A859`, ADR 2898).
+    "issue5470.pdf",
+    "issue6069.pdf",
+    "issue6106.pdf",
+    "issue6108.pdf",
+    "issue2391-2.pdf",
+    "issue18099_reduced.pdf",
     // ── Neither one: §9.6.5.4's last sentence, "a PDF processor may supply a mapping of its
     // choosing", over a code no route maps. Code 0 through `MacRomanEncoding`, which names
     // nothing there, into a (1, 0) subtable holding code 165 alone; this reader's choice is no
@@ -808,6 +819,12 @@ fn a_font_refusal(detail: &str) -> Option<(Whose, &'static str)> {
         _ if has("carries no CID-to-Unicode table") => (
             Whose::ThisReader,
             "a character collection beyond the four §9.7.5.2 requires",
+        ),
+        // ADR 2898: Table 109 requires `/Widths` outside §9.6.2.2's fourteen, so a font that
+        // states none states no layout, and the one drawn is this reader's choice on the defect.
+        _ if has("states no /Widths, which ISO 32000-2 Table 109 requires") => (
+            Whose::TheFile,
+            "a simple font outside the fourteen that states no /Widths (Table 109)",
         ),
         _ if has("no /Font resource named") => (
             Whose::TheFile,

@@ -20,9 +20,11 @@
 //! for: ISO 32000-1 Table 111 lets only a standard 14 font leave them out, and then with
 //! `/FontDescriptor` too, and ISO 32000-2's Table 109 lets none. For one of the fourteen names
 //! those advances are the standard's published metrics, which §9.6.2.1 makes a processor provide
-//! when the entries are absent, and otherwise `/MissingWidth`, which Table 109 sends every code
-//! outside a stated range to; either way the numbers written are the ones the page is already
-//! drawn by (`doc/adr/2686`). A dictionary with no descriptor is the embedding route's where the
+//! when the entries are absent; outside the fourteen the array is required and missing, and a
+//! font the window draws from a substitute is laid out by the order this reader chose on that
+//! defect — the resembling standard font's published metrics, then `/MissingWidth` — which is the
+//! loss `layout-from-this-viewer` (`doc/questions/A859`, ADR 2898). Either way the numbers written are
+//! the ones the page is already drawn by (`doc/adr/2686`). A dictionary with no descriptor is the embedding route's where the
 //! font is drawn, which writes the four entries with the program it embeds; one drawn only in
 //! rendering mode 3, which no route embeds, is given the three and a descriptor of the face this
 //! reader substitutes for it, with no program ([`super::fonts::undrawn`], `doc/adr/2688`).
@@ -48,9 +50,19 @@ pub(super) struct WidthArrays {
     /// The descriptors written for fonts drawn only in mode 3, at the spare numbers `stated`
     /// names them by.
     pub(super) written: BTreeMap<ObjectId, Object>,
+    /// The fonts of `stated` outside §9.6.2.2's fourteen whose widths are this viewer's layout
+    /// rather than the standard's: a font Table 109 required to state `/Widths` and that stated
+    /// none ([`LoadedFont::supplied_widths`], ADR 2898), which costs the loss
+    /// `layout-from-this-viewer`.
+    pub(super) this_viewers: BTreeSet<ObjectId>,
 }
 
 impl WidthArrays {
+    /// Whether any font given its widths was given this viewer's layout.
+    pub(super) fn lays_out_by_this_viewer(&self) -> bool {
+        !self.this_viewers.is_empty()
+    }
+
     /// The entries written into the font object `id`, and the rewrite that writes them.
     pub(super) fn of(&self, id: ObjectId) -> Option<(&Dictionary, Rewrite)> {
         self.at
@@ -237,6 +249,11 @@ fn laid_out(
             .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
         let mut entries = described.entries;
         entries.insert(Name::new(&b"FontDescriptor"[..]), Object::Reference(at));
+        if LoadedFont::load(document, dict, &name)
+            .is_ok_and(|font| font.supplied_widths().is_some())
+        {
+            out.this_viewers.insert(id);
+        }
         out.stated.insert(id, entries);
         out.written
             .insert(at, Object::Dictionary(described.descriptor));
@@ -246,6 +263,9 @@ fn laid_out(
         LoadedFont::load(document, dict, &name).map_err(|_| Because::NotBuiltYet(NOT_LAID_OUT))?;
     let mut entries = Dictionary::new();
     super::fonts::state_laid_out_widths(&mut entries, &font);
+    if font.supplied_widths().is_some() {
+        out.this_viewers.insert(id);
+    }
     out.stated.insert(id, entries);
     Ok(())
 }

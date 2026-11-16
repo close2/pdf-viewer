@@ -15,8 +15,8 @@ use pdf_syntax::object::ObjectId;
 use pdf_syntax::{Document, Limits};
 
 use super::{
-    Authorisations, Conforming, Level, Rewrite, Target, Verdict, conversion, convert, decision,
-    holds, stream,
+    Authorisations, Conforming, Decision, Level, Loss, Rewrite, Target, Verdict, conversion,
+    convert, decision, holds, stream,
 };
 
 const WIDTHS: &str = "fonts/widths-agree-with-the-program";
@@ -302,9 +302,15 @@ fn laid_out_and_read(bytes: &[u8]) -> Vec<(u32, String)> {
 /// entries, to `target`, and holds the output to the descriptor `doc/adr/2688` writes: Table 120's
 /// required entries, `/FontName` the dictionary's `/BaseFont`, no program, `flags` from the face
 /// substituted for it, and every code advancing and reading as it did.
-fn described_without_a_program(source: &[u8], target: Target, base_font: &[u8], flags: i64) {
+fn described_without_a_program(
+    source: &[u8],
+    target: Target,
+    base_font: &[u8],
+    flags: i64,
+    authorised: Authorisations,
+) {
     let before = laid_out_and_read(source);
-    let (report, output) = convert(source, target, Authorisations::default());
+    let (report, output) = convert(source, target, authorised);
     assert_eq!(
         decision(&report, STATED).rewrite(),
         Some(Rewrite::FontWidthsStated),
@@ -408,6 +414,7 @@ fn a_standard_font_drawn_only_in_mode_three_with_no_entries_is_given_a_descripto
         Target::Four(pdf_archive::Flavour::Plain),
         b"Helvetica",
         32,
+        Authorisations::default(),
     );
 }
 
@@ -431,6 +438,28 @@ fn a_truetype_font_drawn_only_in_mode_three_with_no_entries_is_given_a_descripto
             .map(|failed| failed.id)
             .collect();
         assert!(failed.contains(&STATED), "{target:?}: {failed:?}");
-        described_without_a_program(&source, target, b"Arial", 32);
+        // Outside the fourteen the widths are this viewer's layout (`doc/questions/A859`, ADR
+        // 2898), so the row waits on `layout-from-this-viewer` and is taken once it is granted.
+        let (report, output) = convert(&source, target, Authorisations::default());
+        assert!(
+            output.is_none(),
+            "{target:?}: nothing is written without the loss"
+        );
+        assert!(
+            matches!(
+                decision(&report, STATED),
+                Decision::Unauthorised { losses, .. } if losses.contains(Loss::LayoutFromThisViewer)
+            ),
+            "{target:?}: {:?}",
+            decision(&report, STATED)
+        );
+        described_without_a_program(&source, target, b"Arial", 32, the_layout_granted());
     }
+}
+
+/// Every loss granted but none: then `layout-from-this-viewer`.
+fn the_layout_granted() -> Authorisations {
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::LayoutFromThisViewer);
+    authorised
 }

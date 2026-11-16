@@ -44,7 +44,9 @@ fn pdf_with(annotation: &str, form: &str, extra: &str) -> Vec<u8> {
     pdf_with_fonts(annotation, form, extra, "")
 }
 
-/// The same, with more `/DR` fonts named beside the two.
+/// The same, with more `/DR` fonts named beside the two. A font outside §9.6.2.2's fourteen states
+/// its `/Widths`, which ISO 32000-2 §9.6.2.1's Table 109 requires of it: a fixture that omitted them
+/// would be reported for that defect (ADR 2898) besides whatever the test is about.
 fn pdf_with_fonts(annotation: &str, form: &str, extra: &str, fonts: &str) -> Vec<u8> {
     pdf_with_catalog("", annotation, form, extra, fonts)
 }
@@ -1265,7 +1267,8 @@ fn a_width_is_set_in_the_face_whose_descriptor_states_it() {
          /DA (/Helv 12 Tf 0 g) >>",
         "",
         "8 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Condensed \
-         /Encoding /WinAnsiEncoding /FontDescriptor 9 0 R >>\nendobj\n\
+         /Encoding /WinAnsiEncoding /FirstChar 97 /LastChar 98 /Widths [500 500] \
+         /FontDescriptor 9 0 R >>\nendobj\n\
          9 0 obj\n<< /Type /FontDescriptor /FontName /Helvetica-Condensed \
          /FontFamily (Helvetica) /FontStretch /Condensed /FontWeight 400 /Flags 32 \
          /FontBBox [0 -200 800 900] /ItalicAngle 0 /Ascent 750 /Descent -250 /CapHeight 700 \
@@ -1294,7 +1297,8 @@ fn a_width_no_face_states_is_set_in_the_nearest_one() {
             ),
             "",
             "8 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Condensed \
-             /Encoding /WinAnsiEncoding /FontDescriptor 9 0 R >>\nendobj\n\
+             /Encoding /WinAnsiEncoding /FirstChar 97 /LastChar 98 /Widths [500 500] \
+             /FontDescriptor 9 0 R >>\nendobj\n\
              9 0 obj\n<< /Type /FontDescriptor /FontName /Helvetica-Condensed \
              /FontFamily (Helvetica) /FontStretch /Condensed /FontWeight 400 /Flags 32 \
              /FontBBox [0 -200 800 900] /ItalicAngle 0 /Ascent 750 /Descent -250 /CapHeight 700 \
@@ -1969,8 +1973,11 @@ fn pair_kerning_in_a_face_without_pairs_is_said() {
              /DA (/Ar 12 Tf 0 g) >>"
         ),
         "",
-        "8 0 obj\n<< /Type /Font /Subtype /TrueType /BaseFont /Arial \
-         /Encoding /WinAnsiEncoding >>\nendobj\n",
+        &format!(
+            "8 0 obj\n<< /Type /Font /Subtype /TrueType /BaseFont /Arial \
+             /Encoding /WinAnsiEncoding /FirstChar 65 /LastChar 86 /Widths [{}] >>\nendobj\n",
+            ["667"; 22].join(" ")
+        ),
         "/Ar 8 0 R",
     );
     let (reports, raster) = draw(bytes);

@@ -376,9 +376,9 @@ remedy = "discard"
 # And a font this viewer draws from the face this program ships, narrowed to the file's widths
 # (ADR 0358): embedding the face unmodified keeps every position and every glyph and draws each at
 # the face's own width — the loss `substitute-stretch`, which the owner allowed this profile in
-# doc/questions/A566. A simple font outside the standard 14 that states neither a descriptor nor
-# `/Widths` is embedded with the widths this viewer lays it out by, the loss
-# `layout-from-this-viewer` (doc/questions/A687, doc/adr/2504). One decision carries every loss the
+# doc/questions/A566. A simple font outside the standard 14 that states no `/Widths` is embedded
+# with the widths this viewer lays it out by, the loss `layout-from-this-viewer`
+# (doc/questions/A687, doc/adr/2504, doc/questions/A859, doc/adr/2898). One decision carries every loss the
 # embedding incurs, so this one `discard` authorises them all, and the report and the file's own
 # xmpMM:History name each font with what it lost and the scale it was drawn at (doc/adr/2262).
 # The same `discard` carries the photographed page: `text-as-image` for the page of an
@@ -399,6 +399,13 @@ remedy = "discard"
 # ---------------------------------------------------------------------------------------------
 
 [site."fonts/font-programs-embedded"]
+remedy = "discard"
+
+# A simple font outside the standard 14 that states a descriptor and no /Widths, which ISO 32000-2
+# Table 109 requires of it, is given the widths this viewer lays it out by: the published metrics
+# of the standard font its name resembles, else its /MissingWidth. A print carries that layout, so this profile takes it, the loss
+# `layout-from-this-viewer` (doc/questions/A859, doc/adr/2898).
+[site."fonts/simple-font-states-its-widths"]
 remedy = "discard"
 
 # An ActualText entry holding a Unicode Private Use character, which ISO 19005-4 section 6.2.10.8

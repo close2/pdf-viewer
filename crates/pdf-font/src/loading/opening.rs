@@ -140,13 +140,14 @@ impl LoadedFont {
         let metrics = SimpleMetrics {
             substituted: requested,
             published: requested.or_else(|| published_metrics(document, dict, descriptor)),
+            within_the_fourteen: within_the_fourteen(document, dict),
             names: names.as_ref(),
             data: &data,
             program,
             mapping: &mapping,
             units_per_em,
         };
-        let (widths, stretch) = simple_advances(document, dict, metrics);
+        let (widths, stretch, supplied_widths) = simple_advances(document, dict, metrics);
         let default_width = missing_width(document, descriptor);
 
         Ok(Self {
@@ -170,6 +171,7 @@ impl LoadedFont {
             glyph_names: names,
             notdef,
             symbolic_flags_conflict: both_symbol_flags(document, descriptor),
+            supplied_widths,
             reader_chosen,
             // §9.8.3.3's `/FD` is Table 122's, an entry of a `CIDFont`'s descriptor, and §9.8.3
             // says so: a simple font's descriptor has no glyph classes to override anything for.
@@ -396,6 +398,8 @@ impl LoadedFont {
             // §9.6.5.4 is a *simple* font's subclause: a composite font's codes reach glyphs
             // through §9.7.6.2 and §9.7.4.2, neither of which offers the processor a choice.
             symbolic_flags_conflict: false,
+            // `/Widths` is a simple font's entry; a composite font's `/DW` defaults (Table 115).
+            supplied_widths: None,
             reader_chosen: CodeSet::default(),
             widths: composite_widths(document, &descendant),
             default_width,
@@ -447,29 +451,36 @@ fn type1_cff_in_opentype(
 ///
 /// ISO 32000-2 Table 109 makes `/Widths` "Required; optional in PDF 1.0-1.7 for the standard 14
 /// fonts", so a `Type1` dictionary under one of the fourteen names of §9.6.2.2
-/// ([`crate::standard::is_standard_name`]) that states no `/Widths` is a file the table admits,
-/// and §6.3.2.2 still has the page rendered as defined — which needs the advances the dictionary
-/// left out. The compatibility sentence beneath Table 109 that once said so outright was replaced
-/// by a cross-reference in Errata Collection 3 (Issues #47 and #48), so it is not quoted here as
-/// the warrant; the table's permission is. Table 109's `/MissingWidth` for every code would put
-/// every glyph at one advance, so the fourteen's published widths are the ones read, a descriptor
-/// and a program beside them or not (`doc/adr/2687`, whose quotation the same errata retired). A
-/// substitute already carries its request and is not asked again.
+/// ([`within_the_fourteen`]) that states no `/Widths` is a file the table admits, and §6.3.2.2
+/// still has the page rendered as defined — which needs the advances the dictionary left out. The
+/// compatibility sentence beneath Table 109 that once said so outright was replaced by a
+/// cross-reference in Errata Collection 3 (Issues #47 and #48), so it is not quoted here as the
+/// warrant; the table's permission is. Table 109's `/MissingWidth` for every code would put every
+/// glyph at one advance, so the fourteen's published widths are the ones read, a descriptor and a
+/// program beside them or not (`doc/adr/2687`, whose quotation the same errata retired). A
+/// substitute already carries its request and is not asked again. An embedded program outside the
+/// fourteen keeps `/MissingWidth` until `doc/questions/Q868` is answered.
 fn published_metrics(
     document: &Document,
     dict: &Dictionary,
     descriptor: Option<&Dictionary>,
 ) -> Option<substitute::Request> {
+    let standard =
+        within_the_fourteen(document, dict) && document.get_key(dict, "Widths").is_null();
+    standard.then(|| substitute::Request::derive(document, dict, descriptor))
+}
+
+/// Whether `dict` is one of §9.6.2.2's fourteen: a `Type1` font under one of their names
+/// ([`crate::standard::is_standard_name`]), the fonts Table 109 lets omit `/Widths`.
+pub(crate) fn within_the_fourteen(document: &Document, dict: &Dictionary) -> bool {
     let name = |key: &str| {
         document
             .get_key(dict, key)
             .as_name()
             .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned())
     };
-    let standard = name("Subtype").as_deref() == Some("Type1")
+    name("Subtype").as_deref() == Some("Type1")
         && name("BaseFont")
             .as_deref()
             .is_some_and(crate::standard::is_standard_name)
-        && document.get_key(dict, "Widths").is_null();
-    standard.then(|| substitute::Request::derive(document, dict, descriptor))
 }

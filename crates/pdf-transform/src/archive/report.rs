@@ -2134,13 +2134,13 @@ impl Conversion {
             );
             for font in &self.substituted {
                 // A font that stated no widths has none for the face's advances to agree with:
-                // the widths written are this viewer's layout (`doc/adr/2504`).
+                // the widths written are this viewer's layout (`doc/adr/2504`, ADR 2898).
                 let route = if font
                     .losses
                     .contains(super::decision::Loss::LayoutFromThisViewer)
                 {
-                    "the file states no widths for it, so the face's own advances are written as \
-                     its widths"
+                    "the file states no widths for it, so the widths this viewer laid it out by \
+                     are written as its own"
                 } else {
                     font.route.describe()
                 };

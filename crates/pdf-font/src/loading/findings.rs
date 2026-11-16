@@ -104,6 +104,21 @@ impl LoadedFont {
         self.symbolic_flags_conflict
     }
 
+    /// Where this font's advances came from, when it is a simple font outside §9.6.2.2's
+    /// fourteen that states no `/Widths` — an entry ISO 32000-2 Table 109 requires of it.
+    ///
+    /// `Some` means the layout is this reader's choice on the file's defect (ADR 2898,
+    /// `doc/questions/A859`): a page that shows the font owes the sentence
+    /// [`SuppliedWidths::detail`] words, and an archive that writes the missing array writes this
+    /// reader's layout. `None` for every font that states its widths, every font of the fourteen,
+    /// and every composite font.
+    ///
+    /// [`SuppliedWidths::detail`]: crate::SuppliedWidths::detail
+    #[must_use]
+    pub fn supplied_widths(&self) -> Option<crate::SuppliedWidths> {
+        self.supplied_widths
+    }
+
     /// The horizontal scale this font's outlines are drawn at, one being the face as it is.
     ///
     /// A substituted face's glyphs are as wide as *its* designer drew them, inside advances the

@@ -847,6 +847,7 @@ impl Interpreter<'_> {
         self.note_char_procs_damage(&font, name);
         self.note_cmap_truncation(&font);
         self.note_to_unicode_truncation(&font);
+        self.note_supplied_widths(&font, name, true);
         self.fonts.insert(key.clone(), Some(font.clone()));
         Some(Some(font))
     }
@@ -862,6 +863,35 @@ impl Interpreter<'_> {
         {
             let detail = damage.detail(name);
             self.note(Unsupported::Font { detail });
+        }
+    }
+
+    /// Says that a simple font outside §9.6.2.2's fourteen states no `/Widths`, and what laid it
+    /// out instead.
+    ///
+    /// ISO 32000-2 §9.6.2.1's Table 109 makes the array "Required; optional in PDF 1.0-1.7 for the
+    /// standard 14 fonts", so such a file states no layout, and the advances the page is drawn at
+    /// are this reader's choice on its defect (`doc/questions/A859`, ADR 2898). The page is
+    /// therefore not drawn as its producer specified, and says so out loud rather than drawing a
+    /// plausible line in silence (trap 5). Said once per font per page, as the other notes here.
+    ///
+    /// **Not for this reader's own stand-in.** A construction (§12.7.4.3) whose `/DA` names a
+    /// font `/DR` lacks carries a dictionary this program invented, written directly into the
+    /// construction's resources (`appearance::with_stand_in_font`, ADR 0112): its want of widths is
+    /// no statement of the file's, and the construction already says what stood in. So a font
+    /// that is no object of the file, met in a stream nothing can name, is not reported here.
+    /// The cost is a file's own direct font in `/DR` used by a construction, which goes unsaid; a
+    /// file's direct font anywhere else is reported.
+    fn note_supplied_widths(&mut self, font: &Font, name: &str, referenced: bool) {
+        if !referenced && matches!(self.stream, super::report::ContentStream::Unnameable) {
+            return;
+        }
+        if let Font::Program(program) = font
+            && let Some(supplied) = program.supplied_widths()
+        {
+            self.note(Unsupported::Font {
+                detail: supplied.detail(name),
+            });
         }
     }
 
@@ -926,6 +956,7 @@ impl Interpreter<'_> {
                 let font = Font::Program(Arc::new(font));
                 self.note_cmap_truncation(&font);
                 self.note_to_unicode_truncation(&font);
+                self.note_supplied_widths(&font, name, key.is_some());
                 Some(font)
             }
             // A Type 3 font has no program for `pdf-font` to read: its glyphs are content
@@ -970,6 +1001,7 @@ impl Interpreter<'_> {
                     let font = Font::Program(Arc::new(substitute));
                     self.note_cmap_truncation(&font);
                     self.note_to_unicode_truncation(&font);
+                    self.note_supplied_widths(&font, name, key.is_some());
                     return self.kept(key, Some(font), true);
                 }
                 self.note(Unsupported::Font {

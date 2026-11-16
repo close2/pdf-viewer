@@ -172,7 +172,9 @@ Table 116's rule and a `CFF ` face the window drew written as a bare CID-keyed s
 empty glyph's width the face's em of 256 units cannot state within 6.2.11.5's thousandth
 (`issue15053`, `mixedfonts`); `issue2128r` on 6.1.8's names; a
 standard font stated by name alone (`described`), whose documents also lose
-`layout-from-this-viewer`; a simple font's subset, which needs a compacting CFF writer; (b) for `substitute-stretch`, **built** (ADR 2769): the shipped `glyf` face
+`layout-from-this-viewer` — as does, since A859 (ADR 2899), every simple font outside the fourteen
+that states a descriptor and no `/Widths`, on the embedding route and at
+`fonts/simple-font-states-its-widths`, where `as-shown` stops by its default; a simple font's subset, which needs a compacting CFF writer; (b) for `substitute-stretch`, **built** (ADR 2769): the shipped `glyf` face
 goes in with the window's horizontal fitting (ADR 0358) written into its outlines, wherever the
 profile withholds the loss; a profile that authorises it keeps A566's unmodified face (ADR 2770);
 and **built for a machine's OpenType CFF face** (ADR 2789): each charstring run and stated again

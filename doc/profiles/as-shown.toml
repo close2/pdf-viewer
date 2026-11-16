@@ -437,7 +437,10 @@ remedy = "preserve"
 #                                  doc/adr/2262), and the stop stays;
 #                                  where it set a font the file describes by nothing at the metrics
 #                                  its name resembles, the widths written are the viewer's, the loss
-#                                  layout-from-this-viewer (A687, doc/adr/2504);
+#                                  layout-from-this-viewer (A687, doc/adr/2504), and the default stop
+#                                  holds the same loss at fonts/simple-font-states-its-widths, for a
+#                                  font outside the fourteen that states a descriptor and no /Widths
+#                                  (A859, doc/adr/2898);
 #                                  a page photographed for text no reader can name is answered
 #                                  above, by text-as-image alone (doc/adr/2394), and an
 #                                  Adobe-Identity font proved to draw as the window drew it by

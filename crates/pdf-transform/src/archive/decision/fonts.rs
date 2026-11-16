@@ -145,9 +145,9 @@ pub(super) const REMEDIES: &[Remedy] = &[
             Rewrite::FontWidthsStated,
             "a font that stated a FontDescriptor and not all of FirstChar, LastChar and Widths is \
              given the three, as the advances this viewer laid its glyphs out by: for one of the \
-             standard 14 names its published metrics, otherwise the descriptor's MissingWidth. \
-             The page's marks do not move here; a reader that laid the source out by its font \
-             program instead would see the glyphs move where the program's widths differ. A font \
+             standard 14 names its published metrics. Outside the fourteen the file states no \
+             layout, and the widths written are this viewer's, which is the loss \
+             layout-from-this-viewer. The page's marks do not move here. A font \
              used only in text rendering mode 3 that stated no FontDescriptor is given the three \
              and a descriptor of the face this viewer substitutes for it, with no program: it \
              paints nothing, and its text and the positions of its glyphs are the ones this \
@@ -303,20 +303,28 @@ pub(super) const REMEDIES: &[Remedy] = &[
 ];
 
 /// This family's rows of [`super::CONDITIONAL`].
-pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[(
-    "fonts/font-programs-embedded",
-    Conditional::PerDocument(
-        Losses::one(Loss::MachineFace)
-            .with(Loss::SubstituteStretch)
-            .with(Loss::GlyphsFromToUnicode)
-            .with(Loss::LayoutFromThisViewer)
-            .with(Loss::TextAsImage)
-            .with(Loss::PageAsImage)
-            .with(Loss::TaggingOfPhotographedPages)
-            .with(Loss::OptionalContentOfPhotographedPages)
-            .with(Loss::UnreadableProgram),
+pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
+    // A font outside the fourteen that states no `/Widths` is given this viewer's layout, and
+    // every other font the row reaches loses nothing (`doc/questions/A859`, ADR 2898).
+    (
+        "fonts/simple-font-states-its-widths",
+        Conditional::PerDocument(Losses::one(Loss::LayoutFromThisViewer)),
     ),
-)];
+    (
+        "fonts/font-programs-embedded",
+        Conditional::PerDocument(
+            Losses::one(Loss::MachineFace)
+                .with(Loss::SubstituteStretch)
+                .with(Loss::GlyphsFromToUnicode)
+                .with(Loss::LayoutFromThisViewer)
+                .with(Loss::TextAsImage)
+                .with(Loss::PageAsImage)
+                .with(Loss::TaggingOfPhotographedPages)
+                .with(Loss::OptionalContentOfPhotographedPages)
+                .with(Loss::UnreadableProgram),
+        ),
+    ),
+];
 
 /// This family's rows of [`super::REFUSED_BY_NAME`].
 pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[

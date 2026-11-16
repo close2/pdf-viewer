@@ -867,13 +867,15 @@ impl Loss {
                  producer's program with --font to keep its own glyphs instead"
             }
             Self::LayoutFromThisViewer => {
-                "a simple font the file names, outside the fourteen standard fonts, that states \
-                 neither a FontDescriptor nor Widths is embedded with the shipped face this \
-                 viewer draws it from, and the widths this viewer lays it out by are written as \
-                 the font's own: the standard states no layout for such a name, so another \
-                 reader may have set the same text at the advances of the face the name \
-                 denotes. Every mark sits where this viewer's window put it. A font that \
-                 names no BaseFont is given one equal to the descriptor's FontName"
+                "a simple font outside the fourteen standard fonts that states no Widths, which \
+                 the standard requires of it, is given the widths this viewer lays it out by as \
+                 the font's own: the published metrics of the standard font its name resembles, \
+                 else its MissingWidth. The file states \
+                 no layout, so another reader may have set the same text at other advances. \
+                 Every mark sits where this viewer's window put it. A font that states no \
+                 FontDescriptor either is embedded with the shipped face this viewer draws it \
+                 from, and one that names no BaseFont is given one equal to the descriptor's \
+                 FontName"
             }
             Self::PressAssumed => {
                 "a file that draws in DeviceCMYK beside an RGB destination profile is given a \
@@ -2336,6 +2338,15 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
         // of it. `Prepared::obstacle` is where that question is asked, once.
         Answer::Mechanical(Rewrite::RunWrittenAsDrawn) => {
             content_stream_fences::run_written_as_drawn(authorised, prepared)
+        }
+        // A font outside §9.6.2.2's fourteen that stated no `/Widths` is given this viewer's
+        // layout, the loss `layout-from-this-viewer`, as `CONDITIONAL` says (ADR 2898).
+        Answer::Stated(_, Rewrite::FontWidthsStated, _) if prepared.widths_from_this_viewer() => {
+            answer_of(
+                Answer::Loses(Loss::LayoutFromThisViewer, Rewrite::FontWidthsStated),
+                authorised,
+                prepared,
+            )
         }
         // A filter name that is no abbreviation is the loss `undecodable-stream` (`doc/adr/2689`).
         Answer::Stated(_, Rewrite::FilterNamesSpelledOut, _)
