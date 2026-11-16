@@ -1,0 +1,26 @@
+{
+  "scope": "Selected architecture decisions relevant to reading embedded-file dictionaries and exposing them through the attachment consumer.",
+  "decisions": [
+    {
+      "adr": "ADR 0104 — A file specification is read whole and opened never",
+      "review": "The separation remains sound: FileSpec interprets specification values, while /EF, /RF, and /AFRelationship are handled by the owning attachment code. Current FileSpec and attachment consumers use Document::get_key for the selected values, so no narrower direct-only parsing assumption appears in this split. The ADR did not itself establish a direct/indirect regression for nested attachment fields."
+    },
+    {
+      "adr": "ADR 0076 — The files inside the file",
+      "review": "Listing the embedded-file metadata without eagerly decoding streams remains consistent with §7.11.4.1's convenience statement. Resolving an indirect Params or EF object is object access, not eager extraction or decoding, so the decision does not justify skipping those references."
+    },
+    {
+      "adr": "ADR 0145 — Taking a file out of a document",
+      "review": "Checksum evaluation after bytes have been decoded remains consistent with Table 45's uncompressed-byte definition. This audit does not challenge checksum matching; it checks whether an indirect CheckSum value arrives at the same existing predicate. The candidate asserts that through Attachment::checksum_matches without changing the extraction boundary."
+    },
+    {
+      "adr": "ADR 0077 — One array in seven places",
+      "review": "Preserving AFRelationship as descriptive metadata remains source-aligned; Table 43 NOTE 3 says it does not explicitly provide processing instructions. The candidate checks that an indirect name is still preserved as the enum's semantic relationship, not that the relationship triggers behavior."
+    },
+    {
+      "adr": "ADR 0254 — Three populations of quotation, and only one of them had a gate",
+      "review": "EC3 wording changes cited in this audit are interpreted narrowly: #155 is a producer MIME constraint, #382 updates the CheckSum type, and #598 qualifies intended filesystem dates by host support. None is used to infer a reader-side rejection or direct-only rule."
+    }
+  ],
+  "selected_reconsideration": "No accepted decision needs reversal. The residual is explicit consumer assertion coverage, not observed behavior failure or a reason to alter the parsing architecture."
+}

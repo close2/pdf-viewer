@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (66)
+## Current checkpoint (67)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **80 assertions**, grouped into behavior findings rather
@@ -138,6 +138,13 @@ with automated record shapes explicitly separated from semantic coverage. The
 named-destination grouped correction now has an explicit bounded disposition.
 Second review retains the three revocation findings with their existing consumer,
 current-versus-historical-time and capture-provenance limits. No new failures.
+
+Checkpoint67 adds three passing tests for annotation print/hover interaction,
+actual raster-export visibility policy, and indirect embedded-file parameters.
+Literal pixels, dates, payloads and checksums supply independent expectations.
+A draft legacy EF/Unix case was excluded because current Table43 permits F/UF
+keys there. Model/transform Clippy passes; the 80-assertion manifest is unchanged.
+The broad64 run predates five passing additions through checkpoint67.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

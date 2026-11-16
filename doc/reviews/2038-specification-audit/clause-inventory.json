@@ -459,7 +459,8 @@
       "shards/indirect_graphics_state_current/features.json",
       "shards/indirect_font_values_current/features.json",
       "shards/indirect_shading_values_current/features.json",
-      "shards/indirect_differences_current/features.json"
+      "shards/indirect_differences_current/features.json",
+      "shards/indirect_file_parameters_current/features.json"
     ],
     "prior_artifacts": [
       "basic_objects"
@@ -2037,7 +2038,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "prior-assertion-reviews.json",
-      "shards/file_specs_current/features.json"
+      "shards/file_specs_current/features.json",
+      "shards/indirect_file_parameters_current/features.json"
     ],
     "prior_artifacts": [
       "filespec_audit"
@@ -2072,7 +2074,8 @@
     "current_artifacts": [
       "prior-assertion-reviews.json",
       "shards/file_specs_current/features.json",
-      "shards/file_specification_remaining_current/features.json"
+      "shards/file_specification_remaining_current/features.json",
+      "shards/indirect_file_parameters_current/features.json"
     ],
     "prior_artifacts": [
       "associated_files_audit",
@@ -6694,7 +6697,8 @@
       "shards/departure_decisions_residual_current/features.json",
       "shards/stored_ap_blend_residual_current/features.json",
       "shards/indirect_annotation_parameters_current/features.json",
-      "shards/errata_interactive_batch_current/features.json"
+      "shards/errata_interactive_batch_current/features.json",
+      "shards/annotation_visibility_print_current/features.json"
     ],
     "prior_artifacts": [
       "annotation_appearance_audit",
@@ -6715,7 +6719,8 @@
       "prior-assertion-reviews.json",
       "shards/annotation_common_current/features.json",
       "shards/indirect_annotation_parameters_current/features.json",
-      "shards/annotation_view_flags_current/features.json"
+      "shards/annotation_view_flags_current/features.json",
+      "shards/annotation_visibility_print_current/features.json"
     ],
     "prior_artifacts": [
       "annotation_flags_audit",
@@ -11862,7 +11867,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "prior-assertion-reviews.json",
-      "shards/file_specs_current/features.json"
+      "shards/file_specs_current/features.json",
+      "shards/indirect_file_parameters_current/features.json"
     ],
     "prior_artifacts": [
       "associated_files_audit"

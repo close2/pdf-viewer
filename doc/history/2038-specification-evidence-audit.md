@@ -30,8 +30,8 @@ versions affect neither reports nor processing restrictions. A transparent strok
 composites overlapping same-object geometry twice. Literal measurement, join/fill,
 WritingMode and new-file ID controls pass. The stroke failure also reaches PDF and three GPU lanes; CMYK-image OP passes.
 Embedded-font, Type3 image and corrected FDF controls pass. Next scopes cover
-indirect-value equivalence and remaining consumer assertions.
-UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage55%;ceiling85%.
+toolkit print defaults and remaining errata/consumer assertions.
+UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage56%;ceiling85%.
 
 TSA keyCompromise time selection fails with genuine signed material; FieldMDP
 rename coverage is an unresolved policy probe. Independent colour/annotation tests pass.

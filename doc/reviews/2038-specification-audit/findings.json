@@ -2265,5 +2265,27 @@
     "evidence": "Early165 + late207 - overlap16 =356; direct primary/Subj360. Missing48,71,288,336. Current360census is correct.",
     "disposition": "New reproducible crosswalk records all primary/Subj IDs; preserve historical snapshots and explicitly qualify their all-marker claims.",
     "limits": "An index omission is not a missing implementation feature. Grouped source dispositions exist for48/71 and now explicitly288;336matrix coverage remains partial."
+  },
+  {
+    "id": "2038-T87",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "12.5.3"
+    ],
+    "summary": "Print/hover interaction and actual raster-export NoView policy now have independent pixel controls.",
+    "execution": "Two testsPASS; model/transformClippyPASS.",
+    "limits": "Export-as-screen is ADR1179 policy; native print dialog/printer not exercised."
+  },
+  {
+    "id": "2038-T88",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "7.3.10",
+      "7.11.3",
+      "7.11.4.1"
+    ],
+    "summary": "Indirect file specification and embedded-file parameter values now reach literal attachment consumer assertions.",
+    "execution": "One testPASS; model/transformClippyPASS.",
+    "limits": "Listing/metadata/decoded bytes only; legacy EF/Unix draft excluded as outside current Table43 permitted keys."
   }
 ]

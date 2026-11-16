@@ -1,0 +1,15 @@
+{
+  "reviews": [
+    {
+      "topic": "ADR 1179 device-specific annotation flags and export policy",
+      "decision": "Current code matches the chosen screen/print split: Hidden wins globally; Print is consulted only for Purpose::Print; NoView/ToggleNoView are consulted for View and Export. The model test matrix and viewer-core print command provide independent public-consumer evidence for core screen/print requirements.",
+      "export_scope": "Table 167 names screen and paper, not export. The current raster exporter emits a format without optional content and uses Purpose::Export for OCG state; ADR 1179 deliberately carries the screen flag reading into that output rather than allowing a paper-only Print sentence to govern exported pixels. This is an explicit policy decision. The actual transform render route is documented and implemented but has no flag-specific raster assertion found in the audited tests.",
+      "related_adrs": ["doc/adr/1179-table-167-states-two-answers-and-the-output-decides-which.md", "doc/adr/0177-the-pointer-is-on-an-annotation-not-on-a-link.md", "doc/adr/1721-getannots-filters-are-table-167-as-the-page-is-drawn-and-a-note-s-text-is-a-reader-s-edit.md"],
+      "recommendation": "Promote narrowly scoped tests: a model-level print/hover control for ToggleNoView and a render-verb output comparison for NoView. Treat the latter as protecting ADR 1179's product choice, not as an ISO gap."
+    },
+    {
+      "topic": "EC3 errata / unknown subtype fallback",
+      "decision": "No Table 167 correction was located. EC3 Issue #1 changes §12.5.2's unknown-annotation reference to §12.5.5 and Table 167's Invisible/Hidden bit positions; current unknown subtype tests and the standard-vs-unknown Invisible test should remain the evidence for that cross-reference."
+    }
+  ]
+}

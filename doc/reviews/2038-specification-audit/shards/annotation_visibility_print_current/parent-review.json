@@ -1,0 +1,7 @@
+{
+  "source": "Read Table167 physical486\u2013487 and ADR1179. Export-as-screen is explicit product policy, not a third ISO device requirement.",
+  "existing_tests": "Read actual print_intent matrix/no-AP test, annotation ToggleNoView test and public printing test. Distinguish marks counts from pixels.",
+  "new_tests": "Model tests both XOR directions across View/Print/Export; Print ignores hover, while screen reacts. Exact-xref and complete interpretation guarded. Public transform API writes PNG for NoView+Print, Print-only and absent annotation; independent red/white pixels prevent equal-wrong-output success.",
+  "corrections": "Draft title mentioned Hidden without testing it; renamed. Strengthened alpha-only/equality-only observations with literal pixels. Added support module and fixed import placement. No new failure.",
+  "limits": "No native dialog or printer driven. Export has no pointer state. Widget/form/selection and archive rewrites remain outside these new assertions."
+}
