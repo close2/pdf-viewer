@@ -2096,5 +2096,17 @@
     "summary": "Added indirectfunctionnumericarrays andCalGrayWhitePoint/Gamma controls with independentoracles.",
     "execution": "2newPASS; sevenfunctioninput-outputpairs, exactparsedcolourparameters/equivalence, boundedneutralestimate.",
     "limits": "Rejectedinitialcolourprecisionfailure; no newconformancefailure."
+  },
+  {
+    "id": "2038-T77",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "7.3.10",
+      "8.4.5",
+      "11.6.3"
+    ],
+    "summary": "Nested indirect dasharray/members/nondefaultphase and blendnames/alpha now have literalpixelcontrols.",
+    "execution": "2newPASS; modelalltargetsClippyPASS.",
+    "limits": "SelectedordinaryExtGStatevalues only. No allparametercertificate."
   }
 ]

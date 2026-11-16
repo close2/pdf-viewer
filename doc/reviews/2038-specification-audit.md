@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (57)
+## Current checkpoint (58)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **78 assertions**, grouped into behavior findings rather
@@ -77,6 +77,10 @@ NoView, GoTo link targets, sampled-function mappings, and CalGray parameters.
 The function fixture uses nondefault values that make each tested field observable.
 A too-tight colour precision assertion was rejected; exact reference equivalence
 and parsed values still pass. Model and colour Clippy checks pass.
+
+Checkpoint58 adds two passing graphics-state pixel tests. Nested indirect dash
+values use a nonzero phase that makes default fallback observable; indirect blend
+names and alpha preserve the independently calculated composite. Model Clippy passes.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

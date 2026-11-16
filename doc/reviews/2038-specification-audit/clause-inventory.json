@@ -453,7 +453,8 @@
       "shards/file_structure_current/features.json",
       "shards/indirect_filter_parameters_current/features.json",
       "shards/indirect_annotation_parameters_current/features.json",
-      "shards/indirect_function_colour_current/features.json"
+      "shards/indirect_function_colour_current/features.json",
+      "shards/indirect_graphics_state_current/features.json"
     ],
     "prior_artifacts": [
       "basic_objects"
@@ -2523,9 +2524,10 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "partial-current-assertion-review",
+    "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "prior-assertion-reviews.json"
+      "prior-assertion-reviews.json",
+      "shards/indirect_graphics_state_current/features.json"
     ],
     "prior_artifacts": [
       "extgstate_defaults",
@@ -2533,7 +2535,8 @@
     ],
     "reviewed_assertions": [
       "pdf-archive::survey::graphics_state::annex_q_audit_tests::a_q2_transparent_state_restored_before_painting_does_not_mark_the_page"
-    ]
+    ],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "8.5",
@@ -5917,7 +5920,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "prior-assertion-reviews.json",
-      "shards/transparency_groups_current/features.json"
+      "shards/transparency_groups_current/features.json",
+      "shards/indirect_graphics_state_current/features.json"
     ],
     "prior_artifacts": [],
     "reviewed_assertions": [
