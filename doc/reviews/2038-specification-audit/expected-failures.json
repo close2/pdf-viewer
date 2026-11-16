@@ -469,6 +469,18 @@
       "test": "indirect_columns_number_keeps_the_same_decoded_samples",
       "finding": "2038-B54",
       "log": "indirect-filters-wave56b.log"
+    },
+    {
+      "binary": "pdf-transform::linearize",
+      "test": "linearizing_pdf_1_0_refuses_or_raises_the_header_to_the_ec3_floor",
+      "finding": "2038-B55",
+      "log": "linearization-floor-wave63b.log"
+    },
+    {
+      "binary": "pdf-transform::linearize",
+      "test": "linearizing_pdf_1_1_refuses_or_raises_the_header_to_the_ec3_floor",
+      "finding": "2038-B55",
+      "log": "linearization-floor-wave63b.log"
     }
   ]
 }

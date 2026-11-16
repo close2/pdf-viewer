@@ -2168,5 +2168,45 @@
     ],
     "summary": "Axial and radial shading now have public pixel controls for nested indirect Coords, Domain, Extend and BBox values.",
     "execution": "Two tests pass, including nondefault domains and both extension boolean polarities."
+  },
+  {
+    "id": "2038-B55",
+    "kind": "behavior-gap",
+    "clauses": [
+      "F.3.2"
+    ],
+    "summary": "Classic-table linearization retains PDF1.0/1.1 headers below the corrected EC3 #331 floor1.2.",
+    "execution": "Two failing public optimize tests, with passing1.2 control. Unrecovered output is verified linearized before checking its version.",
+    "limits": "Producer eligibility under the admitted optional Annex F writer; no mandatory fast-reader claim. Refusal or version promotion are both accepted by tests."
+  },
+  {
+    "id": "2038-D44",
+    "kind": "source-inconsistency",
+    "clauses": [
+      "13.2.4.2",
+      "13.2.4.3"
+    ],
+    "summary": "EC3 #179 redirects Table285 data MH to section Table289, conflicting with explicit adjacent BU prose/Table287.",
+    "resolution": "Retain qualification and direct BU consumer interpretation; seek standards clarification before treating the contradictory cross-reference as an independent algorithm requirement."
+  },
+  {
+    "id": "2038-T82",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "13.2.4.2"
+    ],
+    "summary": "Media data BU now has MH refusal, BE reported-loss and absent-preference controls at the public viability judge.",
+    "execution": "One new test passes;22 in binary pass with exact-xref/no-recovery guard."
+  },
+  {
+    "id": "2038-T83",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "7.3.10",
+      "9.6.5.1",
+      "9.6.5.4"
+    ],
+    "summary": "Indirect Differences integer/name members now reach literal embedded-font glyph IDs and metrics.",
+    "execution": "Two tests pass; model Clippy passes."
   }
 ]

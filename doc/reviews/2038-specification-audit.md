@@ -11,11 +11,11 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (62)
+## Current checkpoint (63)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
-failure manifest contains **78 assertions**, grouped into behavior findings rather
-than 78 independent defects. All 72 failures from the prior audit pass at this baseline.
+failure manifest contains **80 assertions**, grouped into behavior findings rather
+than 80 independent defects. All 72 failures from the prior audit pass at this baseline.
 The refreshed broad run, wave59, covered eleven crates: **7,207 tests ran, 7,133 passed,
 and exactly the 74 recorded in-scope assertions failed; 58 were skipped**.
 Exact binary/test identities match the manifest, with no extra or missing failures.
@@ -105,6 +105,14 @@ including nondefault domains and both extension boolean polarities. Model Clippy
 passes. Twelve further errata groups were reviewed. Current FDF code already
 implements the #173 distinction; #4 changes a deprecation note, not the signing
 condition. No new behavior failure is established; the manifest remains 78.
+
+Checkpoint63 adds two failing old-version linearization assertions: PDF1.0/1.1
+headers remain unchanged below EC3 #331's floor1.2; the1.2 control passes.
+Media base-URL and indirect font Differences controls pass. Model/transform Clippy
+passes. The manifest now has80 assertions,76 in broad scope; wave59 predates these
+additions. The remaining23 literal errata candidates were reviewed, including a
+source cross-reference conflict at #179. Zero absent issue-number citations does
+not establish complete semantic coverage; a disposition crosswalk is underway.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

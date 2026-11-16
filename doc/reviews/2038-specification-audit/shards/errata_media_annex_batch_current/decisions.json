@@ -1,0 +1,63 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "topic": "3D and RichMedia amendments #18,#38,#39,#50,#91,#145,#150,#283,#362,#645,#690",
+      "sources": [
+        "doc/scope-ratifications.md, Clause 13 ratification (A254/RFC 0009 \u00a711 question 2)",
+        "doc/adr/1946*",
+        "doc/adr/2400*"
+      ],
+      "assessment": "The current ratification admits producer-supplied still appearances, media viability/handoff, and the movie poster path; it excludes audio/video playback and U3D/PRC artwork rendering until the named triggers. The audited amendments change scene colour, projections, node state, 3D measurements, or active RichMedia view behavior. They do not erase generic inactive-state AP handling. Keep the existing scope boundary and do not create required rendering tests from these active scene edits."
+    },
+    {
+      "topic": "Media clip section/data cross-reference #179",
+      "sources": [
+        "ISO 32000-2 EC3 physical 637/printed 622, Table 285 and annotation #179",
+        "\u00a713.2.4.2 physical 636\u2013638/printed 621\u2013623, Table 287 and following BU paragraph",
+        "\u00a713.2.4.3 physical 638\u2013640/printed 623\u2013625, Table 289",
+        "doc/adr/1960*"
+      ],
+      "assessment": "Do not blindly apply the replaced Table 287 reference as a new set of Table 289 fields for media data. Table 285 remains a data dictionary, the immediate data-specific BU prose expressly cites Table 287, Table 287 defines absolute-URL BU, and Table 289 defines section B/E offsets. The implementation's handoff-specific non-honoring choice can be tested from the clear BU prose. The cross-reference itself remains an owner/specification question; no implementation defect is alleged."
+    },
+    {
+      "topic": "Annex F amendments #153,#331,#389,#687,#699",
+      "sources": [
+        "scratchpad/r2038/spec-audit/annex_f_linearization/findings.txt",
+        "doc/adr/1293*",
+        "doc/adr/1225*"
+      ],
+      "assessment": "Retain optional Annex F writer and declined reader fast path. Correct the current F.3.2 version-preservation rationale: #331 raises the eligible floor to1.2, while old classic-table inputs preserve1.0/1.1. Parent confirmed two failing public optimize assertions and a passing1.2 control. ADR1293 construction/placement choices are not invalidated wholesale."
+    },
+    {
+      "topic": "Numeric grammar attachment #327",
+      "sources": [
+        "doc/adr/0733-what-the-lexer-admits-that-the-clause-does-not.md",
+        "ISO 32000-2 EC3 \u00a77.3.3 attachments, appended sheet at physical PDF page 1004"
+      ],
+      "assessment": "Parent read the actual attached text grammars: optional sign, integer digits, or decimal point with digits on at least one side. They specify fixed-format producer syntax; do not infer mandatory reader rejection of exponent notation solely from them."
+    },
+    {
+      "topic": "Deprecated Web Capture #222",
+      "sources": [
+        "ISO 32000-2 \u00a714.10 physical 827/printed 812 and \u00a73.15; doc/conformance/ledger.toml \u00a714.10"
+      ],
+      "assessment": "The corrected Table 394 cross-reference is within the deprecated Web Capture feature, for which the ledger follows \u00a714.10.1 and \u00a73.15's processor instruction to ignore. The application's explicit transform stripping is separately tested. This is not used to expand clause 13 exclusions into unrelated syntax or attachment behavior."
+    },
+    {
+      "topic": "Annex H amendments #402,#415,#425,#563",
+      "sources": [
+        "ISO 32000-2 Annex H primary pages identified in features.json",
+        "doc/conformance/ledger.toml \u00a714.3.2",
+        "doc/adr/0733-what-the-lexer-admits-that-the-clause-does-not.md"
+      ],
+      "assessment": "These are edits to informative examples or editor notes. Any underlying behavior is tested against its normative owner: XMP reading/saving under \u00a714.3, content operators under Tables 50/352 and structure dictionaries under clause 14. They do not make the example bytes an independent reader MUST-reject requirement. The existing saving test records the product's stronger preservation choice without deriving it from Annex H."
+    }
+  ],
+  "limitations": [
+    "Only selected issue premises and related ADRs were reconsidered; no ADR was changed.",
+    "#179's Table 285 cross-reference remains unresolved against the adjacent media-data-specific Table 287 prose; #331's older-input linearization behavior is untested.",
+    "No test execution occurred in this shard."
+  ],
+  "parent_execution": "The initial reviewer ran no tests; parent later ran BU and version-floor controls and Clippy, recorded in gate-results.json."
+}
