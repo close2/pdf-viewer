@@ -2047,5 +2047,28 @@
     ],
     "summary": "Cross-reference module claimed all cases required by valid PDFs despite malformed W and deliberate recovery/departure fixtures.",
     "resolution": "Module comment corrected. #500 zero-second-W witness is conservative recovery policy; Table17 forbids that producer representation. No productiondefect claimed."
+  },
+  {
+    "id": "2038-B54",
+    "kind": "behavior-gap",
+    "clauses": [
+      "7.3.10",
+      "7.4.4.3",
+      "7.4.4.4"
+    ],
+    "summary": "Indirect numeric DecodeParms values are treated as defaults: Predictor15 remains differenced, Columns3 refuses otherwise valid stream.",
+    "execution": "Two literal directcontrolsPASS; separate indirectPredictor andColumns testsFAIL. OuterFilter/DecodeParmsreferencecontrolsPASS.",
+    "limits": "Ordinary data stream only; xref-specific directness exception excluded. No blanket allcodec/allparameter failure claim."
+  },
+  {
+    "id": "2038-T74",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "7.3.10",
+      "7.4.1"
+    ],
+    "summary": "Outer indirect Filter/DecodeParms dictionaries, arrays and members now have public decoded-byte controls.",
+    "execution": "Two new testsPASS. B54 separately owns unresolved numericdictionaryvalues.",
+    "limits": "Fixture data is not used as a page contentprogram; no rastercertificate."
   }
 ]

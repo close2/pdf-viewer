@@ -450,7 +450,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "prior-assertion-reviews.json",
-      "shards/file_structure_current/features.json"
+      "shards/file_structure_current/features.json",
+      "shards/indirect_filter_parameters_current/features.json"
     ],
     "prior_artifacts": [
       "basic_objects"
@@ -482,7 +483,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/syntax_streams_filters_current/features.json"
+      "shards/syntax_streams_filters_current/features.json",
+      "shards/indirect_filter_parameters_current/features.json"
     ],
     "prior_artifacts": [
       "stream_objects_audit"
@@ -579,7 +581,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/predictors_current/features.json"
+      "shards/predictors_current/features.json",
+      "shards/indirect_filter_parameters_current/features.json"
     ],
     "prior_artifacts": [
       "flate_lzw_predictors"
@@ -594,7 +597,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/predictors_current/features.json"
+      "shards/predictors_current/features.json",
+      "shards/indirect_filter_parameters_current/features.json"
     ],
     "prior_artifacts": [
       "flate_lzw_predictors"
@@ -855,7 +859,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/xref_streams/features.json",
-      "shards/errata_early_behavior_current/features.json"
+      "shards/errata_early_behavior_current/features.json",
+      "shards/indirect_filter_parameters_current/features.json"
     ],
     "prior_artifacts": [
       "object_xref_streams"

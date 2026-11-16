@@ -11,11 +11,11 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (55)
+## Current checkpoint (56)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
-failure manifest contains **76 assertions**, grouped into behavior findings rather
-than 76 independent defects. All 72 failures from the prior audit pass at this baseline.
+failure manifest contains **78 assertions**, grouped into behavior findings rather
+than 78 independent defects. All 72 failures from the prior audit pass at this baseline.
 The refreshed broad run, wave53, covered eleven crates: **7,189 tests ran, 7,118 passed,
 and exactly the 71 recorded in-scope assertions failed; 58 were skipped**.
 Exact binary/test identities match the manifest, with no extra or missing failures.
@@ -65,6 +65,12 @@ The broad53 run predates this new failure. All eight partial and two writer-side
 rows retain their qualified status after review. The audit's earlier Annex L
 bidirectional paraphrases are corrected: P may parent Table, and WP may parent
 Figure; the reverse edges are forbidden by the checked matrix cells.
+
+Checkpoint56 finds two failures within one parameter-resolution gap: indirect
+`Predictor` and `Columns` values change decoding despite identical direct controls.
+Two outer dictionary/array representation tests pass. These are ordinary data
+streams, so the special direct-only rule for cross-reference streams does not apply.
+Syntax Clippy passes; the failure manifest now has 78 entries, 74 in the broad scope.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

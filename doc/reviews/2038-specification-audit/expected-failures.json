@@ -457,6 +457,18 @@
       "test": "conflicting_scope_with_headers_does_not_terminate_the_adopted_column_search",
       "finding": "2038-B53",
       "log": "table-scope-wave55c.log"
+    },
+    {
+      "binary": "pdf-syntax::indirect_filter_parameters_spec_audit",
+      "test": "indirect_predictor_number_keeps_the_same_decoded_samples",
+      "finding": "2038-B54",
+      "log": "indirect-filters-wave56b.log"
+    },
+    {
+      "binary": "pdf-syntax::indirect_filter_parameters_spec_audit",
+      "test": "indirect_columns_number_keeps_the_same_decoded_samples",
+      "finding": "2038-B54",
+      "log": "indirect-filters-wave56b.log"
     }
   ]
 }

@@ -1,0 +1,8 @@
+{
+  "source": "Parent freshly read equivalence physical49/34, Table8 physical55/40 and56/41, predictorprose; checked relevant overlayobjects. #366 explanatorynote separates parameter from imagekey; does not impose directness. #246 object1927 expands xref-specific directness to Table5values; ordinarydata stream is notxref.",
+  "fixture": "Copied two agent outerrepresentation tests, removed pageContents reference to arbitrary samplebytes, then added separate indirectPredictor andColumns numericcontrols. Every fixture exactxref, no recovery. Expectedbytes[10,20,30,11,22,33] derived manually from PNGNone+Uprows. Compressor used onlytoencode, nevertoformexpectedanswer.",
+  "execution": "indirect-filters-wave56b4run2PASS2FAIL. Predictor actual[0,10,20,30,2,1,2,3]; Columns decoded_stream_dataNone, so final byteassertion not reached. DirectcontrolsPASS inboth failures. SyntaxalltargetsClippyPASS after inclusive-range lintfix.",
+  "implementation": "Inspected Document::decode_parms and filter::decode_with_parms_reported: outerreferencesresolved, dictionaryscalarvaluesnotresolved before integerconversion/defaults.",
+  "strength": "Valid ordinary-stream mandatory semantics mismatch, distinct from malformedxrefrecovery policy and xrefdirect-only bootstrap rule.",
+  "limits": "Not all numericparameters/codecs, arbitraryreferencechains or fullimage/rasterpath certification. Public decoded-stream consumer tested. Nullsource attribution and initial page locator corrected."
+}

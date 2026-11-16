@@ -1612,6 +1612,19 @@
       "log": "quality-core-syntax-wave55b.log",
       "exit": 0,
       "scope": "Bothcrates alltargetsClippyPASS after justified testfixture arithmetic expect."
+    },
+    {
+      "log": "indirect-filters-wave56b.log",
+      "run": 4,
+      "passed": 2,
+      "failed": 2,
+      "exit": 100,
+      "scope": "Final4tests: twoouterformsPASS,two numericreferenceFAIL; first56run onlytwoouterPASS."
+    },
+    {
+      "log": "quality-syntax-wave56b.log",
+      "exit": 0,
+      "scope": "SyntaxalltargetsClippyPASS; initial56inclusive-range testlintfixed."
     }
   ],
   "prior_expected_failures": {
