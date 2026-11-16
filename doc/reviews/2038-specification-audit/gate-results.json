@@ -1064,6 +1064,43 @@
       "log": "quality-wave29h.log",
       "exit": 0,
       "scope": "Final model/core all-targets Clippy -Dwarnings."
+    },
+    {
+      "log": "ruby-wave30.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Composed Ruby accessibility consumer roles, order and Japanese strings; not parser/layout/bus."
+    },
+    {
+      "log": "transparency-wave30.log",
+      "run": 4,
+      "passed": 2,
+      "failed": 2,
+      "exit": 101,
+      "scope": "Initial detector run: confirmed CA regression and provisional state-only soft-mask probe fail; BM and nested-resource controls pass."
+    },
+    {
+      "log": "transparency-probe-wave30b.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "exit": 101,
+      "scope": "Unresolved mask oracle probe, after painted/opaque controls. Scratch only; not a manifest defect."
+    },
+    {
+      "log": "quality-wave30c.log",
+      "exit": 0,
+      "scope": "Final archive/accessibility all-targets Clippy -Dwarnings after removing unresolved-oracle probe."
+    },
+    {
+      "log": "transparency-final-wave30d.log",
+      "run": 3,
+      "passed": 2,
+      "failed": 1,
+      "exit": 101,
+      "scope": "Final committed detector tests: exactly B35 CA failure; BM and nested legacy-resource controls pass."
     }
   ],
   "prior_expected_failures": {

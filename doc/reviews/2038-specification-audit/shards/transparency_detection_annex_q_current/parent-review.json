@@ -1,0 +1,8 @@
+{
+  "source": "Parent read primary997\u2013998Q.1\u2013Q.5, actual#51/#295, Table166CAphysical485 andca484, #23/#34APparagraph corrections, survey pages/graphics_state/xobjects and archive graphics consumer. Detector applies optional method adopted by subset validation, not an unconditional rendering feature.",
+  "assertions": "Opaque-AP/CA.5FAIL; absentCA/CA1/nonNormalBMcontrols pass before failure. SeparateBMpositivePASS. Legacy nested-form page-resource alpha.5versus1controlPASS; parent changed header to1.7 and explicitly labels missingResources compatibility, not validPDF2producer evidence. AddedPDF2IDs to annotation/mask fixtures; exactxrefandstopped-short guards.",
+  "provisional": "State-only soft-mask probe also returns transparent, after painted-positive and opaque-negative controls pass (transparency-probe-wave30b.log). Retained scratch probe/evidence but removed unresolved-oracle regression from committed suite: Q.2rendered-element population versus Q.1otherwise-involved/softmaskevaluation needs further adjudication. No production fix or claim this proves a normative defect.",
+  "limits": "Archive graphics code consumes thisbool for blending-space/output-intent diagnostics; fullconformingPDF/Afixture not tested. Survey limits under separate active review. No compositing-math certification.",
+  "baseline": "b901326c",
+  "scope": "Partial reviewed features/assertions only. Parent qualifications supersede draft wording."
+}

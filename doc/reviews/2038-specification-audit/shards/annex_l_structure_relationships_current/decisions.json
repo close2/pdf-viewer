@@ -1,0 +1,41 @@
+{
+  "scope_note": "Selected decisions relevant to this shard; no blanket re-ratification of the ADRs.",
+  "decisions": [
+    {
+      "adr": "0273",
+      "topic": "EC3 numbering of Link versus Ruby/Warichu",
+      "review": "The erratum inserts Link as §14.8.4.7.3 and moves existing Ruby/Warichu text to §14.8.4.7.4. Current ledger and tests use the effective number. The child-sequence wording remains unchanged.",
+      "disposition": "Retain the numbering correction and audit Ruby/Warichu against unchanged Table 369 text."
+    },
+    {
+      "adr": "2384",
+      "topic": "Accessibility representation of structure attributes and Ruby roles",
+      "review": "Its assertion that RB's Ruby and RT's RubyAnnotation cross disagrees with current code. `role.rs` maps Ruby→Role::Ruby, RT→Role::RubyAnnotation, RB→Label; AccessKit 0.24.1 / AT-SPI adapter comments describe RubyAnnotation as an annotation node that may appear under Ruby. Existing accessibility tests do not pin the composed hierarchy. The attribute/layout decision for RubyAlign and RubyPosition remains a separate non-implemented layout limitation.",
+      "disposition": "Keep the stated layout-attribute boundary, but correct the stale role wording and add a consumer test for a valid Ruby assembly."
+    },
+    {
+      "adr": "1461",
+      "topic": "Writer-side scope of file conformance obligations",
+      "review": "Its principle applies: Table L.2 binds conforming output produced here. It does not imply that the reading path must reject every source file that violates a producer MUST.",
+      "disposition": "Retain, qualified by the narrow generated writer cases this shard inspected."
+    },
+    {
+      "adr": "1474",
+      "topic": "One PDF 2.0 Document wrapper when multiple source Documents merge",
+      "review": "The implementation and integration test establish one generated root→Document→Document relationship, including a custom role-mapped source case and a default-namespace positive control. This is one Table L.2 case, not a matrix validator.",
+      "disposition": "Retain; avoid describing the targeted tests as certification of all Table L.2 relations."
+    },
+    {
+      "adr": "0821 / 0834",
+      "topic": "Derived writer behavior versus carrying source structure",
+      "review": "These decisions explain why source elements are not generally rewritten or rejected during carry. A source-invalid relationship can persist without establishing that the reader is obliged to repair it; a newly constructed wrapper still has to be valid.",
+      "disposition": "Retain this boundary and report only generated-relationship evidence."
+    },
+    {
+      "adr": "0785 / 0786 / 0375",
+      "topic": "Other namespace and MathML reports",
+      "review": "The current notes path reports namespaces that cannot be role mapped and MathML `math` without Formula context. Effective EC3 changed the MathML version reference and enclosure sentence; code comments/test names correctly distinguish this from the older text. The second namespace requirement remains a writer-side vocabulary rule the project declines to enforce without a defined vocabulary inventory.",
+      "disposition": "Retain the narrow diagnostic policy and producer-versus-reader distinction; do not call the tests a MathML Core validator."
+    }
+  ]
+}

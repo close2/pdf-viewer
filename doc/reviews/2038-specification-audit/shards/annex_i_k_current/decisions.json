@@ -1,0 +1,25 @@
+{
+  "decisions": [
+    {
+      "adr": "1509",
+      "topic": "Annex I per-feature ignore/inform choices",
+      "review": "Still sound for the selected cases. The real reader tests show distinct choices and visible supported content; neither test generalizes to all features. No new normative test is justified by Annex I's discretionary wording."
+    },
+    {
+      "adr": "2815",
+      "topic": "I.2 warning text, insertion version, first-error recommendation",
+      "review": "The current code carries both warning clauses, raises version on insertion, and preserves the deliberate first-error recommendation departure. A834 item 4 ratifies reporting every unrecognized feature. The source says SHOULD for suppression, so this is an owner-backed recommendation choice, not a required defect. Caution: durable ledger wording that says the newer-version notice occurs before any page is drawn is stale; the host asks for Report after first frame. Annex I does not prescribe a stricter report timing, so this is documentation precision rather than a conformance failure."
+    },
+    {
+      "adr": "2430",
+      "topic": "K.1 notice and static/dynamic XFA boundary",
+      "review": "The distinction remains supported: a real hybrid is identified to the host and its AcroForm/XFA behavior is described; the permission to omit schema-generated pages is expressly reported. The checked-in public test exercises the host report, not merely a private message helper."
+    },
+    {
+      "adr": "2876",
+      "topic": "Future dynamic XFA page generation",
+      "review": "ADR 2876 supersedes the earlier dynamic-XFA exclusion: dynamic page generation is accepted and scheduled after ledger work, but is not yet built. K.1 permits a processor to omit schema-driven page generation, and that interim permission is currently exercised; record this as scheduled work rather than a scope exclusion. Keep the implementation's current fallback pages and report distinct from any claim that XFA-generated pages were materialized."
+    }
+  ],
+  "cross_shard_locator_correction": "For the separate output-intent review: §14.11.5 requirement is physical PDF p. 839 / printed p. 824; Table 401 is physical pp. 836-837 / printed pp. 821-822; Example 1 is physical p. 839 / printed p. 824."
+}

@@ -1269,5 +1269,69 @@
     "summary": "The #612 inventory misses its flat DParts-array correction; current comments still call nested arrays normative.",
     "evidence": "Primary851 #612 and current document_part.rs; reader already accepts flat references. Table409a is also held at appended primary1015, so historical unavailable-table reasoning is no longer current.",
     "disposition": "Correct present rationale and classify legacy positive fixtures accurately; no production behavior defect or mandatory old-shape rejection inferred."
+  },
+  {
+    "id": "2038-B35",
+    "kind": "implementation-detection-gap",
+    "clauses": [
+      "Q.2",
+      "12.5.2"
+    ],
+    "summary": "The page transparency detector counts annotation CA even when an explicit opaque appearance makes that value inapplicable.",
+    "source": "Table166CAphysical485/470: appearance carries transparency when present. AnnexQ#51addsBM, notCA.",
+    "evidence": "PublicSurveyreports transparent for validPDF2pushbuttonAPwithCA.5. AbsentCA/CA1opaque andBMMultiplytransparent controls pass; exactxrefandcompletewalkguard.",
+    "impact": "Archive graphics checks consume this detector when requiring blending space/outputintent; consumer code traced, fullPDF/Aconformance case not asserted."
+  },
+  {
+    "id": "2038-D22",
+    "kind": "ledger-evidence-wording-gap",
+    "clauses": [
+      "I.2"
+    ],
+    "summary": "Ledger says newer-version warning precedes drawing, but current host requestsReport after firstframe.",
+    "disposition": "Correct evidence wording when reconciling ledger. AnnexIsets no earlier timing. Owner-approved first-error reporting departure remains supported. DynamicXFAisaccepted/scheduled underADR2876, notexcluded."
+  },
+  {
+    "id": "2038-D23",
+    "kind": "adr-wording-gap",
+    "clauses": [
+      "14.8.4.7.4"
+    ],
+    "summary": "ADR 2384 says RB maps to Ruby; code maps Ruby to Ruby, RB to Label, and RT to RubyAnnotation.",
+    "disposition": "Keep the representation boundary; correct current rationale without rewriting the historical ADR. The new consumer test pins composed roles, order and text."
+  },
+  {
+    "id": "2038-T49",
+    "kind": "assertion-coverage-gap",
+    "clauses": [
+      "14.8.4.7.4"
+    ],
+    "summary": "Old Ruby tests proved inline classification and nonUnknown mapping, without asserting a composed accessible assembly.",
+    "change": "Added valid RB/RT ordering with literal roles and Japanese text at the accessibility consumer boundary.",
+    "execution": "1 PASS; this does not prove PDF parsing, layout or platform-bus behavior."
+  },
+  {
+    "id": "2038-T50",
+    "kind": "assertion-coverage-gap",
+    "clauses": [
+      "Q.3",
+      "7.8.3"
+    ],
+    "summary": "Nested form resource lookup had no selected public Survey transparency assertion.",
+    "change": "Added inherited-page alpha 0.5 versus 1 control with an outer own Resources dictionary and an inner legacy omission.",
+    "qualification": "Deliberate legacy fallback fixture; not a producer-conforming PDF 1.7/2.0 witness.",
+    "execution": "1 PASS."
+  },
+  {
+    "id": "2038-D24",
+    "kind": "provisional-source-interpretation",
+    "clauses": [
+      "Q.1",
+      "Q.2",
+      "Q.3"
+    ],
+    "summary": "Survey counts a soft-mask group when state is set but no graphical element is painted.",
+    "evidence": "Scratch probe fails after painted-positive and opaque-negative controls pass. The current walk enters G immediately at gs.",
+    "disposition": "Unresolved: rendered-element population versus otherwise-involved transparency and mask evaluation. Not added to the expected-failure manifest; no normative defect claim. Retain probe and next step in the shard."
   }
 ]

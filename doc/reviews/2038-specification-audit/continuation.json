@@ -6,22 +6,24 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "Eight-crate wave22:6435run,6399PASS,exactly36expectedFAIL,55skip; no missing or additional failure identities. Includes checkpoint22 AP tests. Wave23 adds five passing transfer/font controls; broad wave22 predates these. Wave24 adds two passing AnnexO controls and strengthens stroke-fit interior coverage, with two passing hardware-lane tests. Wave25:61model tests and1viewer signed-lock edit test pass; includes corrected Type3 fixtures and new Type1 geometry/colour discriminator. Wave26:password preprocessing1PASS; PrintField title1PASS and3new expected failures, current manifest39. Broad wave22 predates these. Wave27 adds4language failures and1page-label limit failure:manifest44. Formula testPASS after rejecting initial white-medium setup; public reference printPASS.  Final wave27 refresh:6723run6679PASS44expectedFAIL55skip; exact manifest equality, no missing or extra failures. Wave28 adds four passing navigation/state controls; broad wave27 predates them. Wave29:3passing controls and5new expected failures, manifest49. Broad wave27 predates waves28\u201329.",
-    "quality": "Checkpoint29 model/core all-targets Clippy -Dwarnings PASS; earlier gates retain recorded scope."
+    "later_targets": "Eight-crate wave22:6435run,6399PASS,exactly36expectedFAIL,55skip; no missing or additional failure identities. Includes checkpoint22 AP tests. Wave23 adds five passing transfer/font controls; broad wave22 predates these. Wave24 adds two passing AnnexO controls and strengthens stroke-fit interior coverage, with two passing hardware-lane tests. Wave25:61model tests and1viewer signed-lock edit test pass; includes corrected Type3 fixtures and new Type1 geometry/colour discriminator. Wave26:password preprocessing1PASS; PrintField title1PASS and3new expected failures, current manifest39. Broad wave22 predates these. Wave27 adds4language failures and1page-label limit failure:manifest44. Formula testPASS after rejecting initial white-medium setup; public reference printPASS.  Final wave27 refresh:6723run6679PASS44expectedFAIL55skip; exact manifest equality, no missing or extra failures. Wave28 adds four passing navigation/state controls; broad wave27 predates them. Wave29:3passing controls and5new expected failures, manifest49. Broad wave27 predates waves28\u201329. Wave30 adds Ruby and two transparency controls, with one new CA-detection failure: manifest50. Unresolved soft-mask probe remains scratch evidence, not a confirmed failure.",
+    "quality": "Checkpoint30 archive/accessibility all-targets Clippy -Dwarnings PASS; checkpoint29 model/core PASS."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [
-      "annex_i_k_current",
-      "annex_l_structure_relationships_current"
+      "dpart_limits_current"
     ],
     "active_shards": [
-      "dpart_limits_current",
+      "document_requirements_current",
       "tagged_content_tables_current",
-      "transparency_detection_annex_q_current"
+      "survey_limits_current"
     ],
     "recorded_shards": [
+      "annex_i_k_current",
+      "annex_l_structure_relationships_current",
+      "transparency_detection_annex_q_current",
       "output_intents_current",
       "empty_text_replacements_current",
       "compatibility_extensions_current",
@@ -97,8 +99,8 @@
       "font_substitution_current",
       "tagged_layout"
     ],
-    "partial_current_rows": 497,
-    "pending_current_rows": 386
+    "partial_current_rows": 509,
+    "pending_current_rows": 374
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",
@@ -111,7 +113,7 @@
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 42,
-    "last_read_utc": "2026-11-16T14:26:46.003472+00:00"
+    "last_weekly_used_percent": 43,
+    "last_read_utc": "2026-11-16T15:00:33.213208+00:00"
   }
 }

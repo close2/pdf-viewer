@@ -1,0 +1,43 @@
+{
+  "reviews": [
+    {
+      "decision": "Keep Annex Q detection scoped to PDF/A/archive and other selected subset processors",
+      "verdict": "Reaffirm ADR 1461. Q.1 uses shall for a processor applying the method, but the immediately following NOTE says base ISO 32000-2 does not require the method and subset standards may choose to mandate it. The viewer renderer need not call page_is_transparent for ordinary PDF rendering.",
+      "basis": "ISO 32000-2 Annex Q Q.1 physical 997 / printed 982; ISO 19005-2's own Annex A and ISO 19005-4's PDF 2.0 base method; ledger rows graphics/transparency-determined-by-the-parts-own-method and transparency blending-space checks; pdf-archive/src/table/graphics.rs consumers.",
+      "related_adrs": ["01461", "00981", "00964"],
+      "residuals": "The public Survey method is available to external callers, but this audit found no renderer consumer and does not certify every future external use."
+    },
+    {
+      "decision": "Do not count annotation CA as transparency when an AP stream is present",
+      "verdict": "The present implementation's annotation_is_transparent CA<1 branch conflicts with Table 166's express condition: CA/ca are regeneration inputs and their value shall not be used if an appearance stream exists. Issue #51 adds annotation BM, not CA. Promote the draft as a focused regression if parent confirms fixture details.",
+      "basis": "Table 166 physical 484 / printed 469 says annotation CA is ignored when AP exists and the AP specifies transparency; Annex Q Q.2 requires AP streams processed; accepted Issue #51 at physical 997 / printed 982 explicitly adds non-Normal annotation BM. `drafts/annotation_ca_and_state_scope.rs` has opaque AP and BM positive control.",
+      "related_adrs": ["01461", "02080"],
+      "residuals": "No assertion about absent AP regeneration. The test draft is not compiled or executed."
+    },
+    {
+      "decision": "Treat a soft-mask group set but never applied to a painted element as a candidate scope issue",
+      "verdict": "Q.2's stated population is graphical elements to be rendered; the current soft_mask path traverses the mask G from gs, and form() inserts the page result immediately for a transparency group. A mask-only, no-paint file may therefore be reported transparent. Keep as a source interpretation candidate pending parent/source review; do not label a settled nonconformance yet.",
+      "basis": "Annex Q Q.2 first sentence and four conditions; survey/graphics_state.rs::soft_mask and survey/xobjects.rs::form. The draft contrasts a gs-only page with a rendered element under the same mask and an opaque control.",
+      "related_adrs": ["01461", "02263"],
+      "residuals": "Whether a referenced mask group is itself 'otherwise involved in a transparency operation' before a target element is painted remains unresolved in this bounded review. Draft is unexecuted."
+    },
+    {
+      "decision": "Add a direct Q.3 nested-resource positive/control test if useful, without claiming a source defect",
+      "verdict": "The implementation appears source-consistent: page resources inherit from page-tree ancestors, and EC3 §7.8.3 says forms/fonts omitted Resources in earlier PDF versions inherit resources from the page where used, including nested forms. Existing resource-fallback tests test missing-name observability but not the Q transparency result. Draft provides a well-scoped assertion gap.",
+      "basis": "§7.8.3 physical 127 / printed 112; Q.3 physical 997 / printed 982; current survey pages/xobjects implementation; crates/pdf-archive/tests/resource_fallbacks.rs.",
+      "related_adrs": ["01059", "01055"],
+      "residuals": "Draft is unexecuted; producer version context is legacy omission, represented by the fixture's PDF 2.0 header for convenience. Its object relationships are explicit."
+    },
+    {
+      "decision": "Treat issue #295 as editorial only and issue #51 as a substantive effective correction",
+      "verdict": "Issue #51's accepted caret adds annotation /BM; the current test exercises it with Normal/absent controls. Issue #295 inserts 'if it was' in Q.5 and does not affect the Type 3 behavior. These direct annotation observations agree with, rather than undermine, the existing ADR/ledger conclusions.",
+      "basis": "Primary sponsored EC3 annotation objects 16428/16430 on physical 997, issue #51; object 8772 on physical 998, issue #295. Observed issue #51 annotation/reply dates June 15, 2022; issue #295 creation April 29, 2024 and modification April 16, 2026.",
+      "related_adrs": ["01461"],
+      "residuals": "No independent republishing history beyond annotation metadata and the incorporated source text was audited."
+    }
+  ],
+  "drafts": [
+    "drafts/annotation_ca_and_state_scope.rs",
+    "drafts/inherited_nested_form_resources.rs"
+  ]
+}

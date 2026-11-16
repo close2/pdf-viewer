@@ -294,6 +294,12 @@
       "test": "empty_structure_actualtext_suppresses_only_discretionary_hyphen",
       "finding": "2038-B34",
       "log": "empty-actualtext-wave29c.log"
+    },
+    {
+      "binary": "pdf-archive::transparency_detection_spec_audit",
+      "test": "annotation_ca_does_not_override_an_explicit_opaque_appearance",
+      "finding": "2038-B35",
+      "log": "transparency-final-wave30d.log"
     }
   ]
 }

@@ -1,0 +1,89 @@
+{
+  "baseline": "b901326c",
+  "scope": "ISO 32000-2 Annex Q Q.1–Q.5, page-level detection traversal, source optionality, PDF/A consumers; no re-audit of compositing arithmetic",
+  "source": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "locators": [
+      "Annex Q Q.1–Q.3: physical 997–998 / printed 982–983",
+      "Annex Q Q.4–Q.5: physical 998 / printed 983",
+      "Table 166 annotation CA/BM: physical 484–485 / printed 469–470",
+      "§7.8.3 form/page resource rules: physical 127 / printed 112"
+    ],
+    "direct_annotations": [
+      {
+        "issue": 51,
+        "location": "physical 997 / printed 982, annotation object 16428; its accepted/completed reply object 16430",
+        "date_observed": "annotation /M D:20220615120000+10'00'; reply /M same; /CreationDate D:20220615120000+10'00'",
+        "effect": "Adds the rule that any annotation with PDF 2.0 /BM other than Normal is considered to contain transparency, with a Table 166 cross-reference. It does not add annotation /CA to Annex Q."
+      },
+      {
+        "issue": 295,
+        "location": "physical 998 / printed 983, annotation object 8772",
+        "date_observed": "caret /CreationDate D:20240429120000+2'00'; /M D:20260416165630-05'00'",
+        "effect": "Inserts 'if it was' in Q.5 for grammar; no transparency-detection behavior changes."
+      }
+    ]
+  },
+  "features": [
+    {
+      "clause": "Annex Q Q.1",
+      "feature": "Page-wide transparency detection method and its normative reach",
+      "effective_source": "Annex Q is captioned normative and Q.1 says a PDF processor shall use the method. Its NOTE immediately says the method is not required by ISO 32000-2 itself and names subset standards that may choose to mandate it. The Annex Q existence does not make this page-wide API a general PDF 2.0 reader duty.",
+      "ledger": "Q/Q.1 rows claim implemented for the archive processor; ADR 1461 records that the detector serves ISO 19005-2 and ISO 19005-4 validation while ordinary rendering uses its own per-object compositing paths.",
+      "implementation_and_consumers": "Survey::page_is_transparent is a public pdf_archive API. The archive graphics predicates consume it to test ISO 19005-2 §6.2.10 and ISO 19005-4 §6.2.9 transparency/blending-space conditions. No renderer consumer was found.",
+      "assertions": "Q-targeted tests assert both positive and negative states through Survey; archive graphics tests assert the resulting PDF/A findings. This supports the archive use case, not every Q branch or general PDF 2.0 conformance.",
+      "verdict": "Scope claim and product placement are source-consistent. Q.1's shall applies when the processor implements/uses the method; its NOTE expressly leaves adoption optional for base PDF 2.0.",
+      "residuals": "A caller can observe Survey::stopped_short separately, but page_is_transparent itself is a bool. Annex Q behavior at configured traversal limits was not certified here."
+    },
+    {
+      "clause": "Annex Q Q.2",
+      "feature": "Graphics-state conditions are evaluated on rendered elements",
+      "effective_source": "For each graphical element to be rendered, its state counts if dictionary-valued SMask, ca<1, CA<1, or BM not Normal is present. State merely set and restored or used without rendering an element is outside that population. Type 1 tiling pattern resources are followed as forms; graphics-state inheritance/q/Q behavior stays relevant.",
+      "ledger": "Q.2 is implemented; the row describes the four predicates and traversal into patterns/annotation AP. Related q/Q state rules are implemented separately.",
+      "implementation": "survey/operators.rs marks transparency at Show, Invoke, Shade, Paint, and InlineImage operators when the carried state matches. survey/graphics_state.rs updates or resets the four conditions on gs; operators.rs restores state on Q. A soft-mask state is additionally traversed immediately from gs in graphics_state.rs::soft_mask.",
+      "assertions": "annex_q_audit_tests.rs covers alpha boundaries, Normal/Compatible/Multiply, BM arrays, SMask dictionary type, and a state restored before painting. survey.rs covers a nonpainting path and graphics-state persistence. Public Survey assertions exist for positive and negative Q cases.",
+      "verdict": "The ordinary state/operator path follows Q.2. A missing scope control is a valid mask dictionary set by gs but never used by a rendered element: soft_mask immediately calls form, whose Group test sets the page result. Draft `drafts/annotation_ca_and_state_scope.rs` tests that case against a subsequent-paint positive control; this candidate needs parent adjudication of whether Annex Q treats the unpainted mask group itself as involved in the operation.",
+      "residuals": "Soft-mask-without-paint result has not been executed. It is deliberately recorded as a candidate interpretation rather than a settled violation."
+    },
+    {
+      "clause": "Annex Q Q.2; §12.5.2 Table 166; EC3 Issue #51",
+      "feature": "Annotation-level transparency keys and appearance traversal",
+      "effective_source": "Q.2 requires every page annotation's appearance streams to be processed as a form. EC3 Issue #51 adds that an annotation dictionary /BM other than Normal means transparency. Table 166 separately defines /CA and /ca only for regenerating an annotation appearance and says their stated value shall not be used if the annotation has an appearance stream; that stream must specify its transparency.",
+      "ledger": "Q.2 ledger note includes annotation /BM under #51 and every AP entry/state. It does not distinguish annotation /CA from AP regeneration-only keys.",
+      "implementation": "survey/pages.rs visits every AP top-level entry and every stream in an appearance-state dictionary, then forms are passed through Q.3/Q.2. annotation_is_transparent checks blends(BM) OR CA<1 even when AP is present; it does not check `ca`.",
+      "assertions": "Existing test bodies cover an alpha state inside AP, an opaque AP control, every appearance state, and #51 annotation BM with Normal/absent controls. No annotation-level CA+explicit-AP assertion was found. Draft `drafts/annotation_ca_and_state_scope.rs::annotation_ca_does_not_override_an_explicit_opaque_appearance` uses a pushbutton Widget (where PDF 2.0 Table 166 permits CA), a valid opaque normal appearance, and no other transparency; a separate BM positive control exercises #51.",
+      "verdict": "Concrete over-detection: annotation_is_transparent treats /CA<1 as page transparency even with AP present, although Table 166 requires ignoring that producer-side regeneration value in this case. The actual AP is separately traversed. Issue #51's explicit extension is /BM; no source amendment found extending Q to annotation CA.",
+      "residuals": "No claim about annotation CA's effect when AP is legitimately absent and regenerated, nor about annotation visibility policy. The test draft is unexecuted."
+    },
+    {
+      "clause": "Annex Q Q.3; §7.8.3",
+      "feature": "Form XObject groups and recursive content/resource traversal",
+      "effective_source": "A used form whose Group dictionary has S /Transparency makes its page transparent; the form's content is then processed as Q.2. EC3 §7.8.3 says forms/fonts written under earlier versions without Resources inherit every referenced resource from the page on which used; this includes nested forms. A Type 1 pattern and annotation appearance also enter the same form-processing route.",
+      "ledger": "Q.3 implemented; Q.2 carries pattern and annotation paths. Resource fallback separately implemented under §7.8.3.",
+      "implementation": "survey/xobjects.rs::invoke follows Do forms. form() marks a transparency group and calls nested(); a missing form Resources entry falls back to the page's effective inherited Page.resources, not the invoking form's table. nested uses a per-page visited set, plus explicit depth/stream bounds.",
+      "assertions": "Existing Q tests distinguish Transparency vs non-Transparency Group and content state. resource_fallbacks.rs directly asserts nested form and page-dictionary resource resolution for missing names, but does not assert Annex Q transparency behavior through an inherited page resource in the inner form. Draft `drafts/inherited_nested_form_resources.rs` uses a page-tree-inherited ExtGState, an outer form with its own XObject-only resource dictionary, and an inner no-Resources form; ca=.5 / ca=1 are positive/negative controls.",
+      "verdict": "Implementation follows the source fallback; independent transparency-output assertion is a meaningful coverage addition, not evidence of a known code defect.",
+      "residuals": "Draft is unexecuted. No claim here certifies cycle/depth limits or malformed resource handling."
+    },
+    {
+      "clause": "Annex Q Q.4",
+      "feature": "Image XObject SMask stream and SMaskInData tests",
+      "effective_source": "An image XObject counts if its SMask entry is a stream, or if SMaskInData is greater than zero.",
+      "ledger": "Q.4 implemented.",
+      "implementation": "survey/xobjects.rs::image resolves SMask and checks Object::Stream; SMaskInData must parse as an integer >0.",
+      "assertions": "survey.rs tests SMask stream vs dictionary/null, SMaskInData 1 vs 0 vs absent. annex_q_audit_tests.rs repeats the stream-value type distinction.",
+      "verdict": "Covered at the listed type/value boundaries. The separate image's SMask is distinct from an ExtGState soft-mask dictionary.",
+      "residuals": "Inline images do not have an XObject's SMaskInData path; no new claim about invalid inline-image dictionaries."
+    },
+    {
+      "clause": "Annex Q Q.5",
+      "feature": "Type 3 CharProcs are followed as form XObjects for shown Type 3 text",
+      "effective_source": "For a graphical element representing text drawing, inspect its selected font type; when Type3, process each object in its CharProc array as a form under Q.3.",
+      "ledger": "Q.5 implemented.",
+      "implementation": "survey/fonts.rs follows each Type 3 CharProc after text shows the Type 3 font; downstream form walking tests group and nested Q.2 content.",
+      "assertions": "survey.rs::annex_q_processes_a_type_3_glyph_procedure_as_a_form and annex_q_audit_tests.rs::q5_processes_all_type3_charprocs_after_text_is_drawn include an unshown transparent procedure and an opaque mode control.",
+      "verdict": "The direct source clause and current targeted assertion align. EC3 Issue #295 is only a grammar insertion ('if it was'), not a behavioral change.",
+      "residuals": "No whole Type 3 or CharProc validity claim."
+    }
+  ]
+}

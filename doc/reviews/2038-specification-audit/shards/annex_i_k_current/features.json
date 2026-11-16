@@ -1,0 +1,72 @@
+{
+  "scope": "Review of ISO 32000-2:2020 Annex I (I.1-I.3) and Annex K (K.1-K.2), effective EC3 context, current ledger/code/assertions, and directly relevant ADR decisions. No general Annex E audit, no repeated BX/EX or media cases, and no claim of full XFA 3.3 conformance.",
+  "source_pages": {
+    "annex_i": "PDF physical pp. 951-952; printed pp. 936-937 (physical p. 953 / printed p. 938 begins Annex J and is outside scope)",
+    "annex_k": "PDF physical pp. 959-961; printed pp. 944-946",
+    "errata": "No direct Annex I or Annex K issue appears in doc/errata-read.md. Rendered primary pages 951-952 and 959-961 show no visible EC3 correction overlay. Issue #399 is a §7.7.2 catalog-version amendment relevant to I.2's version chain, not an Annex I erratum."
+  },
+  "features": [
+    {
+      "id": "I.1-feature-by-feature-choice",
+      "rule": "Processor may ignore or inform about an object it does not understand; the choice is per feature and discretionary.",
+      "source": "physical p. 951 / printed p. 936",
+      "code": ["crates/viewer-core/src/notes.rs", "crates/viewer-core/src/report.rs", "feature-specific Unsupported consumers"],
+      "assertions": ["crates/viewer-core/tests/objects_not_understood.rs::an_object_not_understood_is_said_and_what_is_understood_is_still_drawn", "crates/viewer-core/tests/objects_not_understood.rs::an_entry_not_understood_is_passed_over_in_silence"],
+      "assessment": "Two contrasting reader choices are exercised end-to-end: unknown image filter is named while understood fill draws; unknown page-dictionary key is silently passed over while both marks draw. This is selected evidence for the discretionary rule, not proof for all features."
+    },
+    {
+      "id": "I.2-effective-version-and-read-attempt",
+      "rule": "Use the PDF version stated by the file (header/catalog, including cumulative revisions); a processor shall attempt to read a file newer than it supports.",
+      "source": "physical pp. 951-952 / printed pp. 936-937; §7.7.2 Issue #399 governs catalog version across updates",
+      "code": ["crates/pdf-syntax/src/version.rs::Document::version", "crates/viewer-core/src/viewer/opening.rs"],
+      "assertions": ["crates/pdf-syntax/src/version.rs::the_catalogs_version_counts_only_when_it_is_later", "crates/viewer-core/tests/annex_i_newer_version.rs::a_newer_version_with_a_valid_xref_is_opened_and_its_page_is_drawn"],
+      "assessment": "The effective version is numeric and the reader does not gate opening on it. The strict PDF 2.1 fixture is parsed without recovery, opens, draws a black fill, then can be reported. This proves a bounded read attempt, not arbitrary future-feature support."
+    },
+    {
+      "id": "I.2-warning-recommendations",
+      "rule": "On a newer version or unprocessable document requirement, SHOULD warn both that reading may fail and that changing/saving may be unavailable. SHOULD notify on the first unrecognized-feature error and suppress later such errors; continue where possible.",
+      "source": "physical p. 952 / printed p. 937",
+      "code": ["crates/viewer-core/src/notes.rs", "crates/viewer-core/src/report.rs"],
+      "assertions": ["crates/viewer-core/tests/headless.rs::a_file_newer_than_this_program_says_so_when_it_is_asked", "crates/viewer-core/tests/objects_not_understood.rs::every_object_not_understood_is_said_not_only_the_first"],
+      "assessment": "The version and unmet-requirement messages carry both warning clauses. The first-error suppression recommendation is intentionally declined: all unrecognized features remain reported as structured items; the owner adopted that choice in doc/questions/A834 item 4 and ADR 2815 §2. The exception classes in the source (I/O, memory, command failure) are therefore not the basis for a global suppression claim."
+    },
+    {
+      "id": "I.2-writer-version-rules",
+      "rule": "Writer SHOULD preserve a source version newer than it supports; MAY raise an older version if it writes newer features; when inserting another PDF, SHOULD use the newer input version.",
+      "source": "physical p. 952 / printed p. 937",
+      "code": ["crates/pdf-syntax/src/write.rs", "crates/pdf-transform/src/update.rs::raise_version", "crates/pdf-transform/src/archive/header.rs"],
+      "assertions": ["crates/pdf-transform/tests/annex_i_insert_version.rs::inserting_an_older_pdf_keeps_the_destination_version", "crates/pdf-transform/tests/annex_i_insert_version.rs::inserting_a_newer_pdf_uses_the_newer_version", "crates/pdf-transform/tests/annex_i_insert_version.rs (both input orders)", "crates/pdf-transform/tests/archive.rs::a_source_later_than_the_standard_is_written_as_part_four_with_its_header_kept"],
+      "assessment": "Incremental update preserves source bytes/header, insertion raises catalog /Version to the greater effective input version, and archive has a named PDF/A-4 conversion exception retaining source history. The optional bump where newer features are added is not an independent duty absent such a writer case."
+    },
+    {
+      "id": "I.3-compatibility-cases",
+      "rule": "Unknown entries in existing dictionaries can be ignored as absent. Some features cannot be ignored and give little choice but error; some features can degrade silently. These are descriptive compatibility cases, not a universal command to reject or report all unknown input.",
+      "source": "physical p. 952 / printed p. 937",
+      "code": ["feature-specific consumers and reporting path"],
+      "assertions": ["crates/viewer-core/tests/objects_not_understood.rs (unknown dictionary entry and unknown filter)", "crates/pdf-model/tests/annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance", "crates/pdf-model/tests/shadings.rs::an_unknown_shading_type_is_reported"],
+      "assessment": "The existing assertion set includes passed-over dictionary data, an unsupported object report, and feature-specific fallback/report cases. It does not certify all silently degraded or impossible-to-ignore features."
+    },
+    {
+      "id": "K.1-xfa-notice-and-dynamic-layout-permission",
+      "rule": "Annex K is deprecated in PDF 2.0. An interactive processor supporting XFA shall clearly identify interaction with an XFA form. A processor may choose not to implement schema-driven page generation; whether generated pages are materialized is implementation-dependent.",
+      "source": "physical p. 959 / printed p. 944",
+      "code": ["crates/pdf-model/src/xfa.rs::stated", "crates/viewer-core/src/notes.rs::xfa_form"],
+      "assertions": ["crates/viewer-core/tests/xfa_annex_k_audit.rs::a_hybrid_xfa_report_reaches_the_host_with_its_identity", "crates/viewer-core/src/notes.rs::an_xfa_form_is_said_to_be_one_and_what_of_it_is_carried_out"],
+      "assessment": "A checked-in hybrid PDF opens on the normal viewer path, and the host's Report receives a clear XFA identity plus the AcroForm/XFA behavior actually carried out. Dynamic XFA page generation is accepted and scheduled after ledger work by ADR 2876, but not yet built; the report identifies the currently exercised interim K.1 permission to omit it. Current policy does not silently claim generated layout."
+    },
+    {
+      "id": "K.2-resource-and-hybrid-writer-boundary",
+      "rule": "XFA is an XML stream or packet array. The resource carries template/data/config information. When creating or modifying XFA PDF, a writer keeps AcroForm entries consistent, includes field objects, maps names through XFA SOM, keeps field /V and XFA data consistent, and avoids field annotation /A or /AA where XFA supplies actions.",
+      "source": "physical pp. 959-961 / printed pp. 944-946",
+      "code": ["crates/pdf-model/src/xfa.rs::Resource::read", "crates/pdf-model/src/xfa/datasets.rs", "crates/pdf-model/src/view/writing.rs", "crates/pdf-model/src/xfa/calculate", "crates/pdf-model/src/xfa/validate.rs", "crates/pdf-model/src/submission.rs"],
+      "assertions": ["crates/pdf-model/tests/xfa_resource_forms_audit.rs", "crates/pdf-model/tests/xfa_datasets.rs (checked-in hybrid corpus edits and reopen assertions)", "crates/pdf-formcalc/tests/hybrid_form.rs", "crates/viewer-core/tests/script_form.rs"],
+      "assessment": "Both resource encodings are read; hybrid field data is kept consistent on save, with reported limits. The corpus and authored-form tests assert actual values, calculations, validations, and host reporting. The PDF clause's writer constraints apply when those writer operations occur; they are not a reader-side requirement to reject a nonconforming hybrid. The audit does not claim all external XFA 3.3 behavior."
+    }
+  ],
+  "ledger_mapping": {
+    "rows": ["I", "I.1", "I.2", "I.3", "K", "K.1", "K.2"],
+    "current_status": "All seven rows are marked implemented in doc/conformance/ledger.toml. I and K aggregate their child rows. K.2's implementation is scoped by the static XFA ratification and the explicit dynamic-layout permission; dynamic generation is accepted and scheduled after ledger work, but not yet built; it is not a certification of the entire XFA 3.3 specification.",
+    "traceability": "doc/reviews/1983-specification-audit/features.json still has stale earlier I.2 warning notes in some records; the current ledger and ADR 2815 reflect the repaired two-part notices and the completed insertion-version rule. Annex E.1's older cross-reference still calls first-error suppression unreviewed, while current evidence documents the owner-approved departure."
+  },
+  "execution": "No Cargo commands run. Existing assertions and code were read; test pass/fail status is not inferred from names."
+}

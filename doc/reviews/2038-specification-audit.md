@@ -290,6 +290,17 @@ The current evidence records that correction without rewriting the historical AD
 Partial reviews now reach 497 rows, with 386 pending. Final model/core all-targets
 Clippy passes. The nine-crate wave27 run predates these changes.
 
+The annex checkpoint reaches 509 partially reviewed rows, with 374 pending, and
+50 expected failing assertions. The new failure is annotation CA counted as
+transparency despite an explicit opaque appearance; archive validation consumes
+that detector. Ruby role/order/text and nested legacy resource controls pass.
+A state-only soft-mask probe also reports transparency, but its source interpretation
+remains unresolved and is not in the failure manifest. Archive/accessibility
+all-targets Clippy passes. The latest broad run remains wave27 and predates this batch.
+Annex I's approved first-error reporting choice is retained; its ledger warning timing
+is stale. Dynamic XFA is accepted and scheduled under ADR2876, not excluded. Annex L
+review covers generated Document wrappers and updated matrix provenance, not all cells.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks
