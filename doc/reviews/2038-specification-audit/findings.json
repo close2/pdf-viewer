@@ -68,5 +68,107 @@
     "execution": "FAIL: en-US instead of es; round2-targets-wave1.log",
     "controls": "Exact-xref/no-recovery source, complete interpretation, real glyph drawn, ordinary E actually substitutes hola/en-US, escaped E still speaks hola.",
     "remaining": "Same underlying path as Alt; two failing assertions are not two distinct-defect claims."
+  },
+  {
+    "id": "2038-B03",
+    "kind": "behavior-gap",
+    "clauses": [
+      "14.7.2"
+    ],
+    "summary": "Structure traversal silently drops children beyond 65,536 without reporting truncation.",
+    "code": "crates/pdf-model/src/structure.rs; crates/pdf-model/src/structure/logical.rs",
+    "source": "Tree::walk public contract promises bounds are reported. This is an API reporting defect; ISO is not claimed to mandate unlimited processing or a particular error.",
+    "execution": "FAIL: 65,537 input elements; 65,536 returned; truncated=false. round2-targets-wave2.log",
+    "controls": "Exact-xref/no-recovery fixture; positive controls before failing assertion.",
+    "remaining": "Bounded consumer assertion; no whole-clause certification."
+  },
+  {
+    "id": "2038-B04",
+    "kind": "behavior-gap",
+    "clauses": [
+      "14.7.2"
+    ],
+    "summary": "Structure traversal silently stops a 70-level hierarchy at depth 64 without reporting truncation.",
+    "code": "crates/pdf-model/src/structure/logical.rs",
+    "source": "Same public reporting contract; small 3-level control passes.",
+    "execution": "FAIL: 70 input elements; 64 returned; truncated=false. round2-targets-wave2.log",
+    "controls": "Exact-xref/no-recovery fixture; positive controls before failing assertion.",
+    "remaining": "Bounded consumer assertion; no whole-clause certification."
+  },
+  {
+    "id": "2038-B05",
+    "kind": "behavior-gap",
+    "clauses": [
+      "12.3.5.1"
+    ],
+    "summary": "Details-view collection cells omit CI text, date and numeric values.",
+    "code": "crates/viewer-host/src/panel.rs:1338",
+    "source": "Table153 View D and Table155 schema fields; public Viewer query and shared host mapping. Three assertions share a missing mapping path.",
+    "execution": "FAIL: Author, Received and Rank cells empty; file name, description and decoded size controls pass. round2-targets-wave2.log",
+    "controls": "Exact-xref/no-recovery fixture; positive controls before failing assertion.",
+    "remaining": "Bounded consumer assertion; no whole-clause certification."
+  },
+  {
+    "id": "2038-B06",
+    "kind": "behavior-gap",
+    "clauses": [
+      "12.3.5.1"
+    ],
+    "summary": "Details-view collection cells omit compressed file size.",
+    "code": "crates/viewer-host/src/panel.rs:1338",
+    "source": "Table155 CompressedSize; exact encoded stream length differs from decoded Size.",
+    "execution": "FAIL: CompressedSize blank instead of 11; decoded Size 3 and decoded abc independently verified. round2-targets-wave2.log",
+    "controls": "Exact-xref/no-recovery fixture; positive controls before failing assertion.",
+    "remaining": "Bounded consumer assertion; no whole-clause certification."
+  },
+  {
+    "id": "2038-T04",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "14.7.6.1"
+    ],
+    "summary": "Selected attribute tests used dictionaries only. Added stream-valued attribute object with dictionary control.",
+    "source": "Printed p737 (physical752); attribute object may be dictionary or stream. EC3 #354 changes nearby owner terminology.",
+    "execution": "PASS: structure_attribute_stream_audit::an_attribute_object_stream_and_dictionary_are_both_read"
+  },
+  {
+    "id": "2038-T05",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "7.4.7"
+    ],
+    "summary": "Added PDF filter-chain integration for the ISO JBIG2 worked example; worker-only test did not cover DecodeParms alignment or indirect globals.",
+    "execution": "2 PASS: jbig2_filter_chain_audit",
+    "remaining": "Structural raster oracle checks two equal separated non-square cropped marks, dimensions, opaque binary gray. No independently specified full reference bitmap; absent-globals reporting is project policy."
+  },
+  {
+    "id": "2038-T06",
+    "kind": "test-claim-qualification",
+    "clauses": [
+      "7.4.6"
+    ],
+    "summary": "Existing EndOfBlock=true test has no RTC marker; it proves Rows is overridden at image Height, not consumption of a valid end marker.",
+    "source": "Table11; ccitt_bound.rs::end_of_block_true_ignores_a_short_rows_and_draws_the_whole_image",
+    "remaining": "Scratch RTC draft has a taller image grid than encoded data and assumes white missing rows. Do not promote as a wholly valid-image conformance oracle; distinguish decoder termination from shortfall rendering policy."
+  },
+  {
+    "id": "2038-D01",
+    "kind": "citation-drift",
+    "clauses": [
+      "14.7.5",
+      "12.3.5.3"
+    ],
+    "summary": "EC3 #452 renumbers structure content-item subclauses; #477 moves published 12.3.6 collection navigators to 12.3.5.3.",
+    "remaining": "Existing ledger ownership is present under published numbering. This is citation drift, not evidence of a missing feature. Historical records unchanged."
+  },
+  {
+    "id": "2038-D02",
+    "kind": "interpretation-follow-up",
+    "clauses": [
+      "12.3.5.1"
+    ],
+    "summary": "ADRs0202/0231 use row emphasis for the initial embedded collection document while leaving container content visible.",
+    "source": "Table153 D says the initial document is presented; Split furniture itself is optional.",
+    "remaining": "Reconsider whether row selection satisfies presentation of the embedded document; not counted as a confirmed failure. H/V/Position and default sort-array assertions remain unverified."
   }
 ]

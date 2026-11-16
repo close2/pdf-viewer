@@ -1,0 +1,50 @@
+{
+  "review_scope": "Bounded source and assertion review at b901326c. Neither whole-clause nor whole-ADR certification. Draft/run statements describe reviewer handoff; current execution and parent qualifications are in findings.json and gate-results.json.",
+  "reviewer_record": {
+    "selected_adr_reviews": [
+      {
+        "adr": "0202",
+        "decision": "Collections appear in existing Files panel; container page stays visible; no separate preview pane.",
+        "source": "§12.3.5.1 requires portable-collection presentation. Split view itself is MAY and its second side previews initial/current collection document. This supports optional furniture but does not prove that row emphasis alone presents embedded document content named by /D.",
+        "review": "Keep as product policy if owner confirms row emphasis satisfies /D for this viewer. Do not state this interpretation as unambiguous normative text."
+      },
+      {
+        "adr": "0231",
+        "decision": "Carry all /D fallback outcomes to host; emphasize selected row.",
+        "source": "Table 153 requires named entry to determine document initially presented; exact fallback values tested, but content display is not tested.",
+        "review": "Fallback resolution looks sound; revisit whether row emphasis is sufficient presentation."
+      },
+      {
+        "adr": "1215",
+        "decision": "Shared schema columns; details all fields, tile subset.",
+        "source": "Table 153 D all Schema info; Table 155 S/D/N stored in CI and CompressedSize from stream Length. panel::column_value returns no value for those four types.",
+        "review": "Confirmed scoped claim gap; implementation and integration test need correction. Does not invalidate unrelated ADR claims."
+      },
+      {
+        "adr": "1168",
+        "decision": "Compute sort at model/document seam and carry order to host.",
+        "source": "Tables 154-156; Query resolves CI and FileSpec values before panel.",
+        "review": "No sort defect found. Sort test evidence is not evidence of CI cell presentation."
+      },
+      {
+        "adr": "1252",
+        "decision": "Leave Split H/V/Position and Colors unused because split furniture is optional and host shows container page.",
+        "source": "Split prose says available area MAY split; colors are suggested/recommended. Table 158 gives concrete semantics when used; absent Split states a View-dependent preferred orientation.",
+        "review": "Plausible omission choice, but narrow blanket 'every other requirement executed'. Separate optional feature omission from semantics for implemented N and from any future support of H/V/Position."
+      },
+      {
+        "adr": "1251",
+        "decision": "Select and draw known navigator layouts.",
+        "source": "Effective §12.3.5.3/Table 160: reader selection/presentation statements mostly SHOULD; producer SHALL include standard name singly/final.",
+        "review": "No whole-ADR conclusion. Ensure producer constraints are not turned into reader rejection duties."
+      },
+      {
+        "adr": "0083",
+        "decision": "Keep published §12.3.6 because amended §12.3.5.3 is no ISO clause.",
+        "source": "Completed EC3 Issue #477 says all of §12.3.6 was moved/demoted to §12.3.5.3 Collection navigators.",
+        "review": "Effective-spec audit must accept the amended identity. Local citation gate may retain published references as a separate provenance convention."
+      }
+    ],
+    "whole_adr_certification": false
+  }
+}

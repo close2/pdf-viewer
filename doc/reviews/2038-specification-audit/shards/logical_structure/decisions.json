@@ -1,0 +1,73 @@
+{
+  "review_scope": "Bounded source and assertion review at b901326c. Neither whole-clause nor whole-ADR certification. Draft/run statements describe reviewer handoff; current execution and parent qualifications are in findings.json and gate-results.json.",
+  "reviewer_record": [
+    {
+      "adr": "0072",
+      "decision": "Namespace-scoped role resolution and attribute precedence follow the element's own namespace and ranked owner semantics.",
+      "review": "Retain for the exercised cases. Tests distinguish the root RoleMap from an element namespace's RoleMapNS and route a mapping to another namespace. Attribute priority tests cover selected standard owners, class and inherited/default values. The effective clause equates namespace owner names only when they correspond to Table 376 owner names; do not generalize that to arbitrary expanded URIs.",
+      "evidence": [
+        "crates/pdf-model/src/structure/roles.rs",
+        "crates/pdf-model/src/structure/attributes.rs",
+        "crates/pdf-model/src/structure/tests.rs::a_namespaces_own_role_map_is_the_one_that_applies",
+        "crates/pdf-model/src/structure/tests.rs::a_namespace_owner_ranks_where_the_clause_puts_the_owner_it_names"
+      ],
+      "residuals": "No certification of all Table 376 owners or all §14.8.5 owner-specific attributes."
+    },
+    {
+      "adr": "0078",
+      "decision": "Standard structure type names are recognized separately from role-map aliases.",
+      "review": "The sampled role-chain and cycle assertions support the implemented walk. ADR scope deliberately separates the type vocabulary from attribute behavior; this shard does not certify every standard type or downstream semantic consumer.",
+      "evidence": [
+        "crates/pdf-model/src/structure/roles.rs",
+        "crates/pdf-model/src/structure/tests.rs::the_structure_tree_reads_its_children_and_maps_their_roles",
+        "crates/pdf-model/src/structure/tests.rs::a_circular_role_map_stops_at_the_first_type_it_returns_to"
+      ],
+      "residuals": "Whole-vocabulary certification is outside this bounded audit."
+    },
+    {
+      "adr": "0079",
+      "decision": "Attribute attachment, owner ranking, class values, inheritance and defaults are exposed as separate precedence sources.",
+      "review": "Retain for the sampled attributes. The tests demonstrate owner-versus-class and class-versus-element cases; EC3 #289's later class-object precedence has a distinct test. A claim that all Table 376 owners or every Table 376/377 attribute is correct would exceed the evidence.",
+      "evidence": [
+        "crates/pdf-model/src/structure/attributes.rs",
+        "crates/pdf-model/src/structure/tests.rs::an_attribute_two_class_objects_state_goes_to_the_later_one",
+        "crates/pdf-model/src/structure/tests.rs::an_attributes_owner_and_its_ancestry_decide_which_value_applies"
+      ],
+      "residuals": "External/unrecognized owner behavior and exhaustive per-attribute defaults/inheritability remain bounded."
+    },
+    {
+      "adr": "0257",
+      "decision": "Resource limits bound logical structure traversal.",
+      "review": "The rationale for limits is sound, and the public Reading::truncated contract explicitly promises that a traversal cut short is not represented as complete. Current structure/logical.rs silently returns at MAX_DEPTH, while structure.rs children()/identified_children() silently take MAX_CHILDREN; only MAX_ELEMENTS sets Walk.truncated. This is a concrete reporting gap. The draft tests accept either complete traversal or an explicit truncation signal; no ISO reader-rejection requirement is inferred.",
+      "evidence": [
+        "crates/pdf-model/src/structure.rs:154,162,176,395,665",
+        "crates/pdf-model/src/structure/logical.rs:124-129",
+        "scratchpad/r2038/spec-audit/logical_structure/hierarchy_truncation_draft.rs"
+      ],
+      "residuals": "Draft tests not compiled or run under this read-only assignment."
+    },
+    {
+      "adr": "2028",
+      "decision": "A circular role-map walk returns a stable known standard role when one is encountered, or reports the unresolved cycle.",
+      "review": "The fixture supports the chosen stopping behavior and confirms cycle termination. The standard's NOTE 2 requires a chain to end in a standard type but does not specify a canonical repair for an invalid circular chain, so treat the first-known-role result as an implementation policy for malformed input, not a normative conformance rule.",
+      "evidence": [
+        "crates/pdf-model/src/structure/roles.rs:184,251",
+        "crates/pdf-model/src/structure/tests.rs::a_circular_role_map_stops_at_the_first_type_it_returns_to",
+        "crates/pdf-model/src/structure/tests.rs::a_type_that_is_not_standard_says_why"
+      ],
+      "residuals": "No rejection obligation for a malformed circular role map is claimed."
+    },
+    {
+      "adr": "2014",
+      "decision": "Read a structure type in the standard namespace it belongs to, after resolving its role map.",
+      "review": "The standard namespace/type routing is represented in current role resolution; EC3 clarifies that an unnamespaced element's final mapped name must be defined by the default namespace. The checked tests cover both namespace-specific map forms and standard-role/cycle outcomes, but this is not a complete audit of every PDF 1.7/PDF 2.0 vocabulary difference or malformed namespace recovery policy.",
+      "evidence": [
+        "crates/pdf-model/src/structure/roles.rs:42,85,184,251,276,338",
+        "crates/pdf-model/src/structure/tests.rs::a_namespaces_own_role_map_is_the_one_that_applies",
+        "crates/pdf-model/src/structure/tests.rs::a_role_map_may_lead_into_another_namespace",
+        "doc/adr/2014-a-structure-type-is-read-in-the-vocabulary-of-the-namespace-it-ends-in.md"
+      ],
+      "residuals": "No whole-vocabulary or malformed namespace recovery certification."
+    }
+  ]
+}

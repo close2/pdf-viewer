@@ -6,25 +6,29 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "wave1 13run11pass2expectedfail; wave2 running",
-    "quality": "first Clippy found FDF test crossed100lines; factored assertions, recheck pending"
+    "later_targets": "wave1 13run11pass2expectedfail; wave2 11run5pass6expectedfail",
+    "quality": "Touched4crate Clippy and fmt pass; rustdoc passed; conformance running. Earlier lint failures corrected in test helpers."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [
-      "logical_structure",
-      "fax_jbig2",
-      "collections"
-    ],
-    "active_shards": [
       "tagged_layout",
       "encryption",
       "colour_conversion"
+    ],
+    "active_shards": [
+      "structure_types",
+      "xref_streams",
+      "navigation"
+    ],
+    "recorded_shards": [
+      "logical_structure",
+      "fax_jbig2",
+      "collections"
     ]
   },
   "remaining": [
-    "Reconcile all 72 prior failing assertions with current execution and source/assertion review.",
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",
     "Expand feature-level coverage in previously pending source areas.",
     "Promote and run meaningful missing tests, with independent controls.",
@@ -35,7 +39,7 @@
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 30,
-    "last_read_utc": "2026-11-16T08:08:14Z"
+    "last_weekly_used_percent": 31,
+    "last_read_utc": "2026-11-16T08:18:08Z"
   }
 }

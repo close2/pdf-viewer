@@ -1,0 +1,29 @@
+{
+  "baseline": "b901326c",
+  "source": [
+    {
+      "path": "doc/ISO_32000-2_sponsored_EC3.pdf",
+      "sha256": "c7d4ec236794558d48205394d499a9791575b5f5794e39377382e633846a6f80",
+      "matches_previous": true
+    },
+    {
+      "path": "doc/md/ISO_32000-2_sponsored_EC3.md",
+      "sha256": "0524cdf83882816afa5eeabff0a5abfb52d27aa032fa55aec8f0d23e3819cd4e",
+      "matches_previous": true
+    }
+  ],
+  "ledger": {
+    "rows": 883,
+    "added_keys": [],
+    "removed_keys": []
+  },
+  "structural_inheritance": {
+    "basis": "Primary PDF, transcription and clause key population unchanged. Retain previous source structure census only: 411 table captions assigned to nearest ledger owners and eight normative annex roots. This does not establish every table entry/note/erratum is individually covered.",
+    "previous": "1983-specification-audit.md; local detailed source census: scratchpad/r1983/spec-audit/source/source_inventory.json"
+  },
+  "test_reference_path_check": {
+    "total": 4159,
+    "missing": [],
+    "limits": "File existence is neither symbol resolution nor assertion/behavior verification."
+  }
+}

@@ -12,6 +12,42 @@
       "test": "an_expansion_language_escape_overrides_the_property_language",
       "finding": "2038-B02",
       "log": "round2-targets-wave1.log"
+    },
+    {
+      "binary": "pdf-model::structure_limit_reporting_audit",
+      "test": "a_deep_hierarchy_is_either_read_whole_or_reported_truncated",
+      "finding": "2038-B04",
+      "log": "round2-targets-wave2.log"
+    },
+    {
+      "binary": "viewer-host::collection_schema_cells_audit",
+      "test": "details_view_presents_the_ci_text_value",
+      "finding": "2038-B05",
+      "log": "round2-targets-wave2.log"
+    },
+    {
+      "binary": "viewer-host::collection_schema_cells_audit",
+      "test": "details_view_presents_a_ci_date_cell",
+      "finding": "2038-B05",
+      "log": "round2-targets-wave2.log"
+    },
+    {
+      "binary": "viewer-host::collection_schema_cells_audit",
+      "test": "details_view_distinguishes_compressed_size_from_decoded_size",
+      "finding": "2038-B06",
+      "log": "round2-targets-wave2.log"
+    },
+    {
+      "binary": "viewer-host::collection_schema_cells_audit",
+      "test": "details_view_presents_the_ci_numeric_value",
+      "finding": "2038-B05",
+      "log": "round2-targets-wave2.log"
+    },
+    {
+      "binary": "pdf-model::structure_limit_reporting_audit",
+      "test": "a_large_k_array_is_either_read_whole_or_reported_truncated",
+      "finding": "2038-B03",
+      "log": "round2-targets-wave2.log"
     }
   ]
 }

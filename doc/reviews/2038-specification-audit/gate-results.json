@@ -44,6 +44,16 @@
       "exit": 100,
       "expected_failures": 2,
       "unexpected_failures": 0
+    },
+    {
+      "log": "round2-targets-wave2.log",
+      "scope": "Structure stream/limits, JBIG2 filter chain, collection cells, refactored FDF order",
+      "run": 11,
+      "passed": 5,
+      "failed": 6,
+      "exit": 100,
+      "expected_failures": 6,
+      "unexpected_failures": 0
     }
   ],
   "prior_expected_failures": {

@@ -270,6 +270,82 @@ fn a_text_string_language_escape_overrides_property_list_language() {
     );
 }
 
+/// Each escape governs subsequent text up to the next escape (§7.9.2.2.2).
+/// Non-ASCII text before both boundaries distinguishes UTF-8 byte offsets from character counts.
+#[test]
+fn actual_text_language_changes_split_the_spoken_runs_inside_one_string() {
+    let read = |hex: &str| {
+        interpretation(
+            &format!("BT /F1 12 Tf 10 50 Td /Span << /ActualText <{hex}> >> BDC (x) Tj EMC ET"),
+            "en-US",
+        )
+    };
+    let ordinary = read("FEFF00E900F100DF");
+    assert!(ordinary.is_complete(), "{:?}", ordinary.unsupported);
+    let control = ordinary.speech();
+    assert_eq!(control.len(), 1);
+    assert_eq!(control[0].text, "éñß");
+    assert_eq!(control[0].language.as_deref(), Some("en-US"));
+
+    // é, ESC es ESC, ñ, ESC de ESC, ß, all encoded as UTF-16BE.
+    let changed = read("FEFF00E9001B00650073001B00F1001B00640065001B00DF");
+    assert!(changed.is_complete(), "{:?}", changed.unsupported);
+    assert_eq!(changed.text, "éñß");
+    let speech = changed.speech();
+    let runs: Vec<_> = speech
+        .iter()
+        .map(|run| (run.text.as_str(), run.language.as_deref()))
+        .collect();
+    assert_eq!(
+        runs,
+        [("é", Some("en-US")), ("ñ", Some("es")), ("ß", Some("de"))]
+    );
+}
+
+fn spoken_substitution_language(property: &str) {
+    let read = |hex: &str| {
+        interpretation(
+            &format!(
+                "BT /F1 12 Tf 10 50 Td /Span << /Lang (en-US) /{property} <{hex}> >> BDC (x) Tj EMC ET"
+            ),
+            "de",
+        )
+    };
+    let ordinary = read("FEFF0068006F006C0061");
+    assert!(ordinary.is_complete(), "{:?}", ordinary.unsupported);
+    let control = ordinary.speech();
+    assert_eq!(control.len(), 1);
+    assert_eq!(
+        control[0].text.trim(),
+        "hola",
+        "the substitution is consumed"
+    );
+    assert_eq!(control[0].language.as_deref(), Some("en-US"));
+
+    let escaped = read("FEFF001B00650073001B0068006F006C0061");
+    assert!(escaped.is_complete(), "{:?}", escaped.unsupported);
+    let speech = escaped.speech();
+    assert_eq!(speech.len(), 1);
+    assert_eq!(speech[0].text.trim(), "hola");
+    assert_eq!(
+        speech[0].language.as_deref(),
+        Some("es"),
+        "the /{property} Unicode escape overrides the prevailing Lang"
+    );
+}
+
+/// §7.9.2.2.2 applies to alternate-description text strings (§14.9.3).
+#[test]
+fn an_alternate_description_language_escape_overrides_the_property_language() {
+    spoken_substitution_language("Alt");
+}
+
+/// §14.9.5 expressly requires the expansion's Unicode escape to override Lang.
+#[test]
+fn an_expansion_language_escape_overrides_the_property_language() {
+    spoken_substitution_language("E");
+}
+
 /// §7.9.2.3 and Table 246 require FDF `/Status` to use `PDFDocEncoding` specifically.
 #[test]
 fn a_pdfdocencoded_fdf_status_is_not_mistaken_for_a_unicode_marker() {
