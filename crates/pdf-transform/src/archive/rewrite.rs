@@ -1011,6 +1011,11 @@ pub enum Rewrite {
     /// Private Use Area is removed, which costs [`super::Loss::ActualTextPrivateUse`]
     /// (`super::actual_text`, `doc/adr/2889`).
     ActualTextRemoved,
+    /// ISO 19005-4 section 6.2.10.5: a Type 3 glyph procedure's `d0` or `d1` width is written as
+    /// its font's `/Widths` states it, a procedure two fonts reach at two widths copied for the
+    /// second, which costs [`super::Loss::Type3WidthAsDrawn`] (`super::type3_widths`,
+    /// `doc/adr/2907`).
+    Type3WidthRestated,
     /// The document information dictionary's entries are written into the XMP packet, and the
     /// dictionary goes.
     ///
@@ -1650,6 +1655,11 @@ impl Rewrite {
                 "an object's ActualText entry holding a character of the Unicode Private Use Area \
                  is removed, so ISO 32000-2 \u{a7}14.9.4 has the content read as its own text"
             }
+            Self::Type3WidthRestated => {
+                "a Type 3 glyph procedure's d0 or d1 width is written as its font's Widths states \
+                 it, as ISO 32000-2 Table 111 asks; a procedure two fonts reach at two widths is \
+                 copied for the second, and that font's CharProcs names the copy"
+            }
             Self::InformationMovedIntoThePacket => {
                 "the document information dictionary's entries are written into the XMP packet, \
                  each under the property Table 349's NOTE names for it, and the dictionary goes"
@@ -1875,6 +1885,7 @@ impl Rewrite {
             Self::ExternalDataEmbedded => "external-data-embedded",
             Self::PageBoundaryRemoved => "page-boundary-removed",
             Self::ActualTextRemoved => "actual-text-removed",
+            Self::Type3WidthRestated => "type3-width-restated",
             Self::InformationMovedIntoThePacket => "information-moved-into-the-packet",
             Self::PreservedAsAttachment => "preserved-as-attachment",
             Self::HiddenAnnotationShown => "hidden-annotation-shown",
@@ -2095,6 +2106,7 @@ impl<'a> Rewriter<'a> {
             external_data: prepared.external_data.as_ref().ok(),
             boundaries: prepared.boundaries.as_ref().ok(),
             actual_texts: prepared.actual_texts.as_ref().ok(),
+            type3_widths: prepared.type3_widths.as_ref().ok(),
         }
     }
 }
@@ -3122,6 +3134,9 @@ struct Rewriter<'a> {
     boundaries: Option<&'a super::boundaries::Boundaries>,
     /// The `/ActualText` entries removed (`super::actual_text`).
     actual_texts: Option<&'a super::actual_text::Removed>,
+    /// The Type 3 glyph procedures written with their fonts' widths, and the fonts given a
+    /// `/CharProcs` naming a copy (`super::type3_widths`).
+    type3_widths: Option<&'a super::type3_widths::Restated>,
 }
 
 impl Rewriter<'_> {
@@ -3415,6 +3430,29 @@ impl Rewriter<'_> {
         removed
     }
 
+    /// ISO 19005-4 section 6.2.10.5: a Type 3 font given a `/CharProcs` that names the copy of a
+    /// procedure reached at another width, and the `/Encoding` that renames a code for it
+    /// (`super::type3_widths`, `doc/adr/2907`).
+    fn give_type3_procedures(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(given) = self
+            .type3_widths
+            .filter(|_| self.wants(Rewrite::Type3WidthRestated))
+            .and_then(|restated| restated.char_procs.get(&id))
+        else {
+            return false;
+        };
+        for (key, value) in given.iter() {
+            out.insert(key.clone(), value.clone());
+        }
+        count(applied, Rewrite::Type3WidthRestated);
+        true
+    }
+
     /// A page that failed ISO 19005-2 section 6.1.13 at its media box, restated in larger units:
     /// its boxes, its `/UserUnit` and its `/Contents` bracketed, as the preparation decided
     /// (`super::larger_units`, `doc/adr/2888`). A photographed page's content leaves nothing open,
@@ -3602,6 +3640,7 @@ impl Rewriter<'_> {
         changed |= self.remove_descriptor_sets(id, out, applied);
         changed |= self.remove_page_boundaries(id, out, applied);
         changed |= self.remove_actual_text(id, out, applied);
+        changed |= self.give_type3_procedures(id, out, applied);
         changed |= self.write_cid_to_gid_map(id, out, applied);
         changed |= self.state_font_type(id, out, applied);
         changed |= self.restate_truetype_encoding(id, out, applied);

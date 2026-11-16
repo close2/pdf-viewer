@@ -77,6 +77,7 @@ pub(super) fn pages(
     input: &Report,
     survey: &Survey,
     drawn: Option<&super::as_drawn::Drawn>,
+    type3_restated: bool,
 ) -> Fenced {
     let mut found = Fenced::default();
     let mut annotations_reach: Option<BTreeSet<ObjectId>> = None;
@@ -120,6 +121,11 @@ pub(super) fn pages(
                     None => continue,
                 }
             } else if row == TYPE3_WIDTHS {
+                // Restated in the procedures where the profile granted that loss, which keeps the
+                // pages' text and takes their place (`super::type3_widths`, `doc/adr/2907`).
+                if type3_restated {
+                    continue;
+                }
                 let reached =
                     annotations_reach.get_or_insert_with(|| reached_from_annotations(document));
                 match type3_pages(document, judgement, reached) {

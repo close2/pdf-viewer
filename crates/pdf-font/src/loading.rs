@@ -21,7 +21,7 @@ use crate::metrics::{
 use crate::name_keyed::NameKeyed;
 use crate::program::{Program, parsed_type1, simple_units_per_em};
 use crate::runs::Runs;
-use crate::substituted::script_sample;
+use crate::substituted::{script_sample, substitute_encoding_names};
 use crate::vertical::Downward;
 use crate::{cff, encoding, metrics, predefined, substitute, tounicode, type1};
 use pdf_render::{Path, PathCommand, Point};
@@ -198,6 +198,9 @@ struct StatedMetrics {
     extent: (f32, f32),
     /// §9.7.4.3's `/W2` and `/DW2`, for a `CMap` whose writing mode is 1.
     vertical: Option<Vertical>,
+    /// Where a simple font outside §9.6.2.2's fourteen that states no `/Widths` takes its
+    /// advances ([`metrics::unprogrammed_widths`]).
+    supplied_widths: Option<SuppliedWidths>,
 }
 
 impl StatedMetrics {
@@ -212,13 +215,30 @@ impl StatedMetrics {
             // and Table 109 indexes `/Widths` by exactly those codes.
             let descriptor_object = document.get_key(dict, "FontDescriptor");
             let descriptor = descriptor_object.as_dict();
+            let mut widths = metrics::stated_widths(document, dict);
+            let mut supplied_widths = None;
+            // Table 109 requires `/Widths` outside §9.6.2.2's fourteen, and a font missing it
+            // is laid out by the order every route takes on that defect: with no program to ask,
+            // the published metrics of the standard font it resembles, then `/MissingWidth`
+            // (`doc/questions/A859`, `doc/questions/A868`, ADR 2898).
+            if widths.is_empty() && !opening::within_the_fourteen(document, dict) {
+                let request = substitute::Request::derive(document, dict, descriptor);
+                // An `/Encoding` this crate cannot read names no glyph, so the metrics answer
+                // no code and every code takes `/MissingWidth`; the count in the report says so,
+                // and the refusal that brought the font here is already the page's.
+                let names = substitute_encoding_names(document, dict, request, name).ok();
+                let (resembling, supplied) = metrics::unprogrammed_widths(request, names.as_ref());
+                widths = resembling;
+                supplied_widths = Some(supplied);
+            }
             return Some(Self {
                 mapping: CodeMapping::MetricsOnly { cmap: None },
-                widths: Runs::from_map(&metrics::stated_widths(document, dict)),
+                widths: Runs::from_map(&widths),
                 default_width: missing_width(document, descriptor),
                 extent: vertical_extent(document, descriptor),
                 // §9.2.4: a second set of metrics "is available only for composite fonts".
                 vertical: None,
+                supplied_widths,
             });
         }
 
@@ -256,6 +276,8 @@ impl StatedMetrics {
                 (Some(descendant), true) => Some(Vertical::read(document, descendant)),
                 _ => None,
             },
+            // Table 109's `/Widths` is a simple font's entry; a `CIDFont` states `/W` and `/DW`.
+            supplied_widths: None,
         })
     }
 }
@@ -1043,10 +1065,7 @@ impl LoadedFont {
             glyph_names: None,
             notdef: None,
             symbolic_flags_conflict: false,
-            // ADR 2898's order is not taken here: the owner's audit pins Table 120's
-            // `/MissingWidth` for a metrics-only font stating no `/Widths`, and whether A859
-            // reaches this route is `doc/questions/Q868`'s.
-            supplied_widths: None,
+            supplied_widths: stated.supplied_widths,
             reader_chosen: CodeSet::default(),
             outlines: Mutex::new(BTreeMap::new()),
             codes_by_character: OnceLock::new(),
@@ -2186,14 +2205,16 @@ mod simple_font_subtype_tests {
         );
     }
 
-    /// The program's own advance is a second number, and it is not the dictionary's.
+    /// The program's own advance is a second number, and with no `/Widths` it is the one laid out.
     ///
     /// The whole reason [`LoadedFont::program_advance`] exists: ISO 32000-2 §9.6.2.1's Table 109
     /// requires a file's stated widths to be "consistent with the actual widths given in the
     /// font program", and a check of that needs both statements. The fixture states no
-    /// `/Widths` at all, so Table 120's `/MissingWidth` default of 0 is the dictionary's answer
-    /// while the program's `hmtx` says 500 of its 1000 units per em — half an em apart, which
-    /// is what a caller comparing them has to be able to see.
+    /// `/Widths` at all, which Table 109 requires of a font outside §9.6.2.2's fourteen, so the
+    /// file states no layout and this reader's order on that defect answers (`doc/questions/A859`,
+    /// `doc/questions/A868`, ADR 2898): the program's own advance first — its `hmtx` says 500 of
+    /// its 1000 units per em — then the resembling standard font's metrics, then Table 120's
+    /// `/MissingWidth`. The font says it was laid out that way, which is the report a page owes.
     #[test]
     fn the_program_states_an_advance_of_its_own() {
         let (document, dict) = crate::fixture::symbolic_font_with_binary_program(
@@ -2202,10 +2223,6 @@ mod simple_font_subtype_tests {
         );
         let font = LoadedFont::load(&document, &dict, "F1").expect("the fixture font loads");
         let code = crate::Code::single_byte(0x41);
-        assert!(
-            (font.advance(code) - 0.0).abs() < 1e-6,
-            "the dictionary states none"
-        );
         let program = font
             .program_advance(code)
             .expect("the hmtx record is there");
@@ -2213,6 +2230,15 @@ mod simple_font_subtype_tests {
             (program - 0.5).abs() < 1e-6,
             "half an em, from hmtx: {program}"
         );
+        assert!(
+            (font.advance(code) - program).abs() < 1e-6,
+            "the dictionary states none, so the program's own advance is laid out: {}",
+            font.advance(code)
+        );
+        let supplied = font
+            .supplied_widths()
+            .expect("the missing /Widths is reported");
+        assert!(supplied.from_program >= 1, "{supplied:?}");
     }
 
     /// A bare Type 1 program states its advance in the charstring, and it is read there.
@@ -2247,6 +2273,42 @@ mod simple_font_subtype_tests {
             .program_advance(code)
             .expect("the charstring states a width");
         assert!((stated - 0.776_89).abs() < 1e-5, "{stated}");
+    }
+
+    /// A Type 1 program that states no `/Widths` is laid out by its own `hsbw` widths.
+    ///
+    /// ISO 32000-2 §9.6.2.1's Table 109 requires `/Widths` of `/Fixture`, which is not one of
+    /// §9.6.2.2's fourteen; the first step of this reader's order on that defect is the program's
+    /// own advance (`doc/questions/A859`, `doc/questions/A868`, ADR 2898, ADR 2906), and a Type 1
+    /// program states it in the charstring, read from the parse the font keeps. Code 66 reaches
+    /// `.notdef`, which states an advance about absence, so the program does not answer it and
+    /// neither do Helvetica's metrics, the descriptor resembling it: Table 120's default of 0 does.
+    #[test]
+    fn a_type1_program_stating_no_widths_is_laid_out_by_its_own_hsbw() {
+        use crate::type1::tests::{ENDCHAR, HSBW, number, plain_glyph, program};
+        let mut a = number(0);
+        a.extend(number(77689));
+        a.extend(number(100));
+        a.extend([12, 12, HSBW, ENDCHAR]);
+        let data = program(&plain_glyph(250), &a, &[]);
+        let font_object = b"1 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Fixture \
+            /Encoding << /Differences [66 /notInTheProgram] >> \
+            /FontDescriptor << /Type /FontDescriptor /FontName /Fixture /Flags 32 \
+            /FontFile 2 0 R >> >>\nendobj\n";
+        let mut stream = format!("2 0 obj\n<< /Length {} >>\nstream\n", data.len()).into_bytes();
+        stream.extend_from_slice(&data);
+        stream.extend_from_slice(b"\nendstream\nendobj\n");
+        let (document, dict) = crate::fixture::document_of(&[font_object, &stream]);
+        let font = LoadedFont::load(&document, &dict, "F1").expect("the fixture font loads");
+        assert!(!font.is_substituted(), "the embedded program is drawn");
+        let advance = font.advance(crate::Code::single_byte(0x41));
+        assert!((advance - 0.776_89).abs() < 1e-5, "hsbw's width: {advance}");
+        let unnamed = font.advance(crate::Code::single_byte(66));
+        assert!(unnamed.abs() < 1e-6, "Table 120's default: {unnamed}");
+        let supplied = font
+            .supplied_widths()
+            .expect("the missing /Widths is reported");
+        assert!(supplied.from_program >= 1, "{supplied:?}");
     }
 
     /// A code the program's own tables do not reach has no advance to compare against.

@@ -1080,6 +1080,12 @@ pub struct Conversion {
     /// pages, its content stream, its bytes and the number. Empty for every conversion whose
     /// content streams named no such run (`doc/adr/2638`).
     pub runs_written_as_drawn: Vec<super::WrittenRun>,
+    /// Every Type 3 glyph procedure's `d0` or `d1` width written as its font's `/Widths` states
+    /// it, the loss `type3-width-as-drawn`: each by its font, its glyph, the procedure written (the
+    /// producer's, or the copy made for a font reaching it at another width), the operand the
+    /// producer wrote and the width. Empty for every conversion whose procedures agreed with their
+    /// fonts (`doc/adr/2907`).
+    pub restated_type3_widths: Vec<super::RestatedType3Width>,
     /// Every stream whose filter no reader of the standard decodes, written as this reader drew
     /// it, absent, the loss `undecodable-stream`: each by its object, its role, the filters it
     /// states and its length. Empty for every conversion whose streams named no such filter
@@ -1359,6 +1365,15 @@ impl Conversion {
             (
                 "runs_written_as_drawn".to_owned(),
                 Value::Array(self.runs_written_as_drawn.iter().map(run_to_json).collect()),
+            ),
+            (
+                "restated_type3_widths".to_owned(),
+                Value::Array(
+                    self.restated_type3_widths
+                        .iter()
+                        .map(type3_width_to_json)
+                        .collect(),
+                ),
             ),
             (
                 "undecodable_streams".to_owned(),
@@ -2217,6 +2232,27 @@ impl Conversion {
                 );
             }
         }
+        if !self.restated_type3_widths.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} Type 3 glyph width(s) are written into their procedures' d0 or d1 as the \
+                 font's Widths states them, the width the page is laid out by, losing \
+                 type3-width-as-drawn:",
+                self.restated_type3_widths.len()
+            );
+            for written in &self.restated_type3_widths {
+                let _ = writeln!(
+                    out,
+                    "      /{} in object {} {}: {} {} written as {}",
+                    written.glyph,
+                    written.written_at.number,
+                    written.written_at.generation,
+                    written.operator,
+                    written.was,
+                    written.width
+                );
+            }
+        }
         if !self.undecodable_streams.is_empty() {
             let _ = writeln!(
                 out,
@@ -2628,6 +2664,21 @@ fn undecodable_to_json(stream: &super::UndecodableStream) -> Value {
                 .stated_on
                 .map_or(Value::Null, |page| integer(page.saturating_add(1))),
         ),
+    ])
+}
+
+/// One Type 3 width written, for the JSON report (`doc/adr/2907`).
+fn type3_width_to_json(written: &super::RestatedType3Width) -> Value {
+    let object =
+        |id: pdf_syntax::object::ObjectId| Value::text(format!("{} {}", id.number, id.generation));
+    Value::Object(vec![
+        ("font".to_owned(), written.font.map_or(Value::Null, object)),
+        ("glyph".to_owned(), Value::text(written.glyph.clone())),
+        ("procedure".to_owned(), object(written.procedure)),
+        ("written_at".to_owned(), object(written.written_at)),
+        ("operator".to_owned(), Value::text(written.operator.clone())),
+        ("was".to_owned(), Value::text(written.was.clone())),
+        ("width".to_owned(), Value::Number(written.width)),
     ])
 }
 

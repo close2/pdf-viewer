@@ -40,6 +40,15 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "fonts/actual-text-states-no-private-use",
         answer: Answer::Loses(Loss::ActualTextPrivateUse, Rewrite::ActualTextRemoved),
     },
+    // ISO 19005-4 section 6.2.10.5: a Type 3 glyph procedure's `d0` or `d1` width written as its
+    // font's `/Widths` states it, which ISO 32000-2 §9.6.4's Table 111 asks the operand to agree
+    // with and §9.2.4 already lays the page out by, at the loss `type3-width-as-drawn`; a
+    // procedure two fonts reach at two widths is copied for the second (`super::super::type3_widths`,
+    // `doc/adr/2907`, `doc/questions/A865`).
+    Remedy {
+        requirement: "fonts/type3-glyph-procedures-state-their-width",
+        answer: Answer::Loses(Loss::Type3WidthAsDrawn, Rewrite::Type3WidthRestated),
+    },
 ];
 
 /// This family's rows of [`super::CONDITIONAL`].
@@ -107,11 +116,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "graphics/rendering-intent-operator-names-one-of-four",
         Because::TheFence(RENDERING_INTENT_OPERAND),
     ),
-    // ISO 19005-4 section 6.2.10.5: the producer's page.
-    (
-        "fonts/type3-glyph-procedures-state-their-width",
-        Because::TheFence(TYPE3_WIDTH_IS_IN_THE_PROCEDURE),
-    ),
 ];
 
 /// Why show strings with no spaces between words are not repaired.
@@ -142,14 +146,6 @@ const RENDERING_INTENT_OPERAND: &str = "the rendering intent operator's operand 
      state's RI entry or an image dictionary's Intent entry is not refused for this reason: that \
      is an object, and doc/pdf-a-conversion-limits.md's own answer for it is a rewrite nobody \
      has built";
-
-/// Why a Type 3 glyph procedure's width is not reconciled with the font dictionary's.
-const TYPE3_WIDTH_IS_IN_THE_PROCEDURE: &str = "a Type 3 glyph procedure's d0 or d1 operands \
-     disagree with the width its font dictionary states, and both halves are closed. The \
-     operands are inside the glyph procedure, which is a content stream this verb carries byte \
-     for byte; and §9.2.4 makes the dictionary's widths what positions every glyph on the line, \
-     so doc/pdf-a-conversion-limits.md section 4.9 restates those never. Changing either moves \
-     marks on the page";
 
 /// The row whose repair ISO 32000-2 §7.3.4.3 states the result of.
 pub(super) const ODD_HEXADECIMAL_DIGITS: &str = "file-structure/hexadecimal-string-digits";

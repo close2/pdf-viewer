@@ -20,10 +20,11 @@
 //! for: ISO 32000-1 Table 111 lets only a standard 14 font leave them out, and then with
 //! `/FontDescriptor` too, and ISO 32000-2's Table 109 lets none. For one of the fourteen names
 //! those advances are the standard's published metrics, which §9.6.2.1 makes a processor provide
-//! when the entries are absent; outside the fourteen the array is required and missing, and a
-//! font the window draws from a substitute is laid out by the order this reader chose on that
-//! defect — the resembling standard font's published metrics, then `/MissingWidth` — which is the
-//! loss `layout-from-this-viewer` (`doc/questions/A859`, ADR 2898). Either way the numbers written are
+//! when the entries are absent; outside the fourteen the array is required and missing, and the
+//! font is laid out by the order this reader chose on that defect — an embedded program's own
+//! advances, then the resembling standard font's published metrics, then `/MissingWidth` — which is
+//! the loss `layout-from-this-viewer` (`doc/questions/A859`, `doc/questions/A868`, ADRs 2898 and
+//! 2906). Either way the numbers written are
 //! the ones the page is already drawn by (`doc/adr/2686`). A dictionary with no descriptor is the embedding route's where the
 //! font is drawn, which writes the four entries with the program it embeds; one drawn only in
 //! rendering mode 3, which no route embeds, is given the three and a descriptor of the face this

@@ -1606,6 +1606,8 @@ pub(super) struct Recording<'a> {
     pub(super) default_overprint_modes: Option<&'a str>,
     /// Which runs were written as the number this reader draws, where any were (`doc/adr/2638`).
     pub(super) as_drawn: Option<&'a str>,
+    /// Which Type 3 widths were written, and the operands they replaced (`doc/adr/2907`).
+    pub(super) type3_widths: Option<&'a str>,
     /// Which streams no reader decodes were written absent, where any were (`doc/adr/2689`).
     pub(super) undecodable: Option<&'a str>,
     /// What the source's header was, where it stated no version (`doc/adr/2558`).
@@ -1734,7 +1736,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         return Vec::new();
     };
     let non_empty = |text: &'a str| (!text.is_empty()).then_some(text);
-    let actions: [(&'a str, Option<&'a str>); 24] = [
+    let actions: [(&'a str, Option<&'a str>); 25] = [
         (DEFAULT_CMYK_ACTION, recording.default_cmyk),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.removals)),
         (REMOVED_PROPERTIES_ACTION, non_empty(recording.discards)),
@@ -1754,6 +1756,7 @@ fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
         (SMOOTHING_OFF_ACTION, recording.overprint_modes),
         (SMOOTHING_OFF_ACTION, recording.default_overprint_modes),
         (SMOOTHING_OFF_ACTION, recording.as_drawn),
+        (SMOOTHING_OFF_ACTION, recording.type3_widths),
         (SMOOTHING_OFF_ACTION, recording.undecodable),
         (HEADER_ACTION, recording.header),
         (CMAP_RESTATED_ACTION, recording.cmap),

@@ -585,11 +585,20 @@ pub enum Loss {
     /// entry leaves the content's own text, with no replacement claimed. What is lost is the
     /// value, and the report names each object and the value it held (`doc/adr/2889`).
     ActualTextPrivateUse,
+    /// ISO 19005-4 section 6.2.10.5: a Type 3 glyph procedure's `d0` or `d1` width is written as
+    /// the font's `/Widths` states it.
+    ///
+    /// ISO 32000-2 §9.6.4's Table 111 requires the operand to "be consistent with the
+    /// corresponding width in the font's Widths array", and §9.2.4 makes `/Widths` what advances
+    /// the text position, so the page draws as it did; what is lost is the operand the producer
+    /// wrote, which `xmpMM:History` keeps. A procedure two fonts reach at two widths is copied for
+    /// the second (`doc/adr/2907`, `doc/questions/A865`).
+    Type3WidthAsDrawn,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 38] = [
+    pub const ALL: [Self; 39] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -628,6 +637,7 @@ impl Loss {
         Self::UnreadableProgram,
         Self::StandInFace,
         Self::ActualTextPrivateUse,
+        Self::Type3WidthAsDrawn,
     ];
 
     /// The word a caller authorises it by.
@@ -672,6 +682,7 @@ impl Loss {
             Self::UnreadableProgram => "unreadable-program",
             Self::StandInFace => "stand-in-face",
             Self::ActualTextPrivateUse => "actual-text-private-use",
+            Self::Type3WidthAsDrawn => "type3-width-as-drawn",
         }
     }
 
@@ -970,6 +981,12 @@ impl Loss {
                  removed, so the content it covered is read as its own text with no replacement \
                  claimed; the report names each object and the value it held"
             }
+            Self::Type3WidthAsDrawn => {
+                "a Type 3 glyph procedure's d0 or d1 width is written as the font's Widths states \
+                 it, which is the width the page is already laid out by, so no mark moves; the \
+                 operand the producer wrote is gone from the procedure, and the file's own \
+                 history and the report keep it"
+            }
         }
     }
 
@@ -1143,6 +1160,8 @@ pub struct Authorisations {
     pub stand_in_face: bool,
     /// Whether [`Loss::ActualTextPrivateUse`] was authorised.
     pub actual_text_private_use: bool,
+    /// Whether [`Loss::Type3WidthAsDrawn`] was authorised.
+    pub type3_width_as_drawn: bool,
 }
 
 impl Authorisations {
@@ -1188,6 +1207,7 @@ impl Authorisations {
             Loss::UnreadableProgram => self.unreadable_program,
             Loss::StandInFace => self.stand_in_face,
             Loss::ActualTextPrivateUse => self.actual_text_private_use,
+            Loss::Type3WidthAsDrawn => self.type3_width_as_drawn,
         }
     }
 
@@ -1240,6 +1260,7 @@ impl Authorisations {
             Loss::UnreadableProgram => self.unreadable_program = true,
             Loss::StandInFace => self.stand_in_face = true,
             Loss::ActualTextPrivateUse => self.actual_text_private_use = true,
+            Loss::Type3WidthAsDrawn => self.type3_width_as_drawn = true,
         }
     }
 }

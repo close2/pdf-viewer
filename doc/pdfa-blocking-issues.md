@@ -105,21 +105,22 @@ column. R02 is built (ADR 2498) and no document reaches it.
 | order | remedy | frees at 2b | frees at 4 | stops under `as-shown`, 2b / 4 | what is left needs | built by, and what is left |
 |---|---|---|---|---|---|---|
 | 1 | R06b-the-other-part | 37 | 0 | 42 / 0 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses; a `%PDF-3.x` source is written at 4 (ADR 2692) |
-| 2 | R10-font-refiling | 4 | 4 | 6 / 6 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688), a glyf program under a CIDFontType0 (ADR 2716), a collection nothing reads (ADR 2717), a font written inside another object (ADR 2722), a code Annex D encodes twice in a glyf face (ADR 2723) |
-| 3 | R03-photograph | 3 | 2 | 52 / 53 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638, 2760, a Type 3 width on the pages reaching its font (ADR 2847); a font name with the program the conversion embeds (ADR 2846); a lone delimiter where no operand stands (ADR 2859); a MediaBox restated in larger units (ADR 2888); a Private Use `ActualText` an object states removed, and a transfer function's page photographed (ADR 2889), a `/TR2` or a halftone's function too (ADR 2893); left, a page this reader does not draw whole, by its cause (ADR 2760), a MediaBox with a side of no length, a name the file's own program carries; `as-shown` keeps ADR 2394's gate (A694 item 1) |
-| 4 | R08-unembedded-font-photograph | 8 | 8 | 31 / 31 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
-| 5 | R11-truetype-route | 5 | 5 | 6 / 6 | builds only | built: A694 item 3, ADR 2520 |
+| 2 | R10-font-refiling | 4 | 4 | 8 / 8 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688), a glyf program under a CIDFontType0 (ADR 2716), a collection nothing reads (ADR 2717), a font written inside another object (ADR 2722), a code Annex D encodes twice in a glyf face (ADR 2723) |
+| 3 | R11-truetype-route | 3 | 3 | 6 / 6 | builds only | built: A694 item 3, ADR 2520 |
+| 4 | R03-photograph | 4 | 3 | 52 / 51 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638, 2760, a Type 3 width on the pages reaching its font (ADR 2847), written into its procedure under both shipped profiles instead (A865, ADR 2907); a font name with the program the conversion embeds (ADR 2846); a lone delimiter where no operand stands (ADR 2859); a MediaBox restated in larger units (ADR 2888); a Private Use `ActualText` an object states removed, and a transfer function's page photographed (ADR 2889); left, a page this reader does not draw whole, by its cause (ADR 2760), a MediaBox with a side of no length, a name the file's own program carries; `as-shown` keeps ADR 2394's gate (A694 item 1) |
+| 5 | R08-unembedded-font-photograph | 8 | 8 | 31 / 31 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
 | 6 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
 | 7 | R03a-notdef-named | 2 | 2 | 6 / 3 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650, 2753; left, a code an embedded CMap reads as invalid in a CJK collection without ToUnicode |
 | 8 | R01-recovered-structure | 1 | 1 | 3 / 3 | builds only | built: ADRs 2502, 2503, 2551, 2596, 2670; each left is refused by its own sentence |
 | 9 | R07-undecodable-stream | 1 | 2 | 1 / 2 | builds only | built: ADR 2689; the `UnknownFilter` files' `%PDF-3.x` header, ADR 2692; left, an ICC profile written as its alternate |
-| 10 | R12-spot-colourant | 1 | 1 | 1 / 1 | builds only | built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490) |
-| 11 | R16-annotations-and-forms | 1 | 1 | 6 / 9 | builds only | built: a push button with no appearance dictionary (ADR 2751), an appearance dictionary stating no entry (ADR 2752), a signature widget answered as its rules were (ADR 2850), a hidden widget, a closed popup and an inert Invisible under the per-shape plan (ADR 2851), an appearance set in the stand-in for a `/DA` font `/DR` does not define (ADR 2858); left, named per site |
-| 12 | R05-press | 0 | 2 | 0 / 2 | builds only | A694 item 2: (a) built, ADR 2518; (b) built, ADR 2747; (c) built, ADR 2750: overprint mode 1 on a DeviceCMYK mark is ADR 1978's loss under the two shipped profiles; left, a mark blended in four components, ADR 1978's refusal |
-| 13 | R15-embedded-files | 0 | 2 | 3 / 7 | builds only | built: ADR 2536 |
-| 14 | R09-as-shown-font-losses | 0 | 0 | 11 / 11 | builds only | `as-shown` only; ADR 2490: (c) decided; (b) built for a `glyf` face, ADR 2769, and an OpenType CFF face, ADR 2789; (a) built for a simple font, whole, ADR 2773, and for a collection's composite font, a glyf subset, ADR 2807, a CID drawn as nothing given an empty glyph, ADR 2824, and a descriptor read off the face, ADR 2825, and for an Adobe-Identity font, a CFF face too, ADR 2828, its glyph choice admitted, A832 and ADR 2829, and a damaged program the window draws nothing from written drawing nothing, ADR 2830; left, (a) an empty glyph's width the face's em cannot state and a simple subset, and (b) for a bare CFF program |
-| 15 | X1-dynamic-xfa | — | — | 4 / 4 | exception | CLAUDE.md's exclusion; §K.1 |
-| 16 | X2-no-page-to-see | — | — | 6 / 6 | exception | the reader draws no page of it |
+| 10 | R08b-cjk-pack | 1 | 1 | 2 / 2 | built | ADR 2460: the census runs with the pack |
+| 11 | R12-spot-colourant | 1 | 1 | 1 / 1 | builds only | built for a PostScript calculator function: ADR 2690; left, a sampled transform, refused until its loss is named (ADR 2490) |
+| 12 | R16-annotations-and-forms | 1 | 1 | 6 / 9 | builds only | built: a push button with no appearance dictionary (ADR 2751), an appearance dictionary stating no entry (ADR 2752), a signature widget answered as its rules were (ADR 2850), a hidden widget, a closed popup and an inert Invisible under the per-shape plan (ADR 2851), an appearance set in the stand-in for a `/DA` font `/DR` does not define (ADR 2858); left, named per site |
+| 13 | R05-press | 0 | 2 | 0 / 2 | builds only | A694 item 2: (a) built, ADR 2518; (b) built, ADR 2747; (c) built, ADR 2750: overprint mode 1 on a DeviceCMYK mark is ADR 1978's loss under the two shipped profiles; left, a mark blended in four components, ADR 1978's refusal |
+| 14 | R15-embedded-files | 0 | 2 | 3 / 7 | builds only | built: ADR 2536 |
+| 15 | R09-as-shown-font-losses | 0 | 0 | 10 / 10 | builds only | `as-shown` only; ADR 2490: (c) decided; (b) built for a `glyf` face, ADR 2769, and an OpenType CFF face, ADR 2789; (a) built for a simple font, whole, ADR 2773, and for a collection's composite font, a glyf subset, ADR 2807, a CID drawn as nothing given an empty glyph, ADR 2824, and a descriptor read off the face, ADR 2825, and for an Adobe-Identity font, a CFF face too, ADR 2828, its glyph choice admitted, A832 and ADR 2829, and a damaged program the window draws nothing from written drawing nothing, ADR 2830; left, (a) an empty glyph's width the face's em cannot state and a simple subset, and (b) for a bare CFF program |
+| 16 | X1-dynamic-xfa | — | — | 4 / 4 | exception | CLAUDE.md's exclusion; §K.1 |
+| 17 | X2-no-page-to-see | — | — | 6 / 6 | exception | the reader draws no page of it |
 
 Under `as-shown` the largest rows are R03 and R08, each held by an answer of the owner's (A694 item
 1) rather than by a build, then R09 (its row of the table above, its simple fonts with a descriptor
@@ -384,11 +385,11 @@ answer the four JPEG 2000 sites with it, as the stating profiles did. Mitigation
 ADR 0816's fence is that the converter never edits a producer's content stream. A681 asks for it to
 be opened behind the remedy profiles; the answers below open it without editing a byte of one.
 
-**R03 — the fenced rows the photograph carries** (52 documents at 2b, 54 at 4; alone in 26 and
-29): an operator the base standard does not define (41 — the second-largest single reason), a
+**R03 — the fenced rows the photograph carries** (52 documents at 2b, 51 at 4; alone in 29 and
+36): an operator the base standard does not define (42 — the second-largest single reason), a
 UTF-8-invalid bound name (6), a MediaBox
 outside part 2's range (2), an inline image's `/I` (2), a hexadecimal string with a non-digit (1),
-a Type 3 width its `d0`/`d1` contradicts (3), an `ActualText` holding a Private Use character (2, part
+an `ActualText` holding a Private Use character (2, part
 4), a transfer function (1, `issue6931_reduced`, which draws a near-black negative without it). *A
 company* would print and scan. **Remedy**: the photographed page (ADR 2394) for the page that holds
 the fault, under `as-if-printed`, loss `text-as-image`; the other pages keep their text. `as-shown`
@@ -401,8 +402,10 @@ name); an `ActualText` an object states with a Private Use character is removed 
 `actual-text-private-use` under `as-shown` and `as-if-printed` (ADR 2889); and a transfer function's
 page is photographed under `as-if-printed`, drawn with §10.5's function applied (ADR 2889), and so is a
 `/TR2` other than `Default` or a halftone's `TransferFunction` (ADR 2893; no census document holds either);
-`state-every-loss` states the `ActualText` removal on its appended page (ADR 2892). A Type 3 width is
-photographed until Q865 is answered (restating `d0` from `/Widths`, behind ADR 0816's fence). The bound
+`state-every-loss` states the `ActualText` removal on its appended page (ADR 2892). A Type 3 glyph
+procedure's `d0`/`d1` width is written as its font's `/Widths` under the loss `type3-width-as-drawn` in
+both shipped profiles, a procedure reached at two widths copied, a code of one font given a suffixed
+name for its copy (A865, ADR 2907); `state-every-loss` keeps the photograph. The bound
 names a content stream never uses could still be renamed outright; part 4 has none of part 2's limits
 (R06b).
 A photographed page is one the window drew whole, its own bytes' faults apart (ADR 2516 decision

@@ -417,6 +417,14 @@ remedy = "discard"
 [site."fonts/actual-text-states-no-private-use"]
 remedy = "discard"
 
+# A Type 3 glyph procedure whose d0 or d1 width disagrees with its font's Widths, which ISO 19005-4
+# section 6.2.10.5 forbids. A print lays a Type 3 glyph out by its font's Widths (ISO 32000-2 9.2.4), never by
+# the operand, so the operand is written as the Widths entry and no mark moves; a procedure two fonts
+# reach at two widths is copied for the second. The loss `type3-width-as-drawn`: the operand the
+# producer wrote is kept in the file's xmpMM:History and the report (doc/adr/2907, doc/questions/A865).
+[site."fonts/type3-glyph-procedures-state-their-width"]
+remedy = "discard"
+
 # ---------------------------------------------------------------------------------------------
 # JPEG 2000 images outside the JPX baseline. A codestream with no boxes around it is given the JP2
 # file structure ISO 32000-2 7.4.9 has the filter expect, its bytes kept (doc/adr/2695); any other

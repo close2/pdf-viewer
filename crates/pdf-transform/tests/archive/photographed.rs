@@ -1381,11 +1381,13 @@ fn a_type3_font_whose_procedure_contradicts_its_width_is_photographed_with_the_p
     // ISO 19005-4 section 6.2.10.5: "the operands of the d0 and d1 operators of each CharProc
     // shall be consistent with the glyph's width"; here d0 says 500 and /Widths 1000. The fault
     // is reported at the font, which no page holds, so the pages are the ones whose resources
-    // reach it, and under `as-if-printed` they are photographed as the window draws them, the
-    // font leaving the output with their resources (ADR 2847).
+    // reach it, and under a profile that grants the photograph and not `type3-width-as-drawn` —
+    // `state-every-loss` — they are photographed as the window draws them, the font leaving the
+    // output with their resources (ADR 2847). The two shipped profiles grant the width instead
+    // and keep the text (ADR 2907, `type3_width_as_drawn.rs`).
     let source = a_type3_glyph_whose_procedure_contradicts_its_width();
     let target = Target::Four(pdf_archive::Flavour::Plain);
-    let (report, output) = convert_with_plan(&source, &printing("as-if-printed", target));
+    let (report, output) = convert_with_plan(&source, &printing("state-every-loss", target));
     assert!(
         conversion(&report).settled.is_empty(),
         "the first pass answers it, not ADR 2534's second"
@@ -1404,15 +1406,4 @@ fn a_type3_font_whose_procedure_contradicts_its_width_is_photographed_with_the_p
     assert_eq!(pages.len(), 1, "{pages:?}");
     assert_eq!(pages[0].page, 1);
     assert_eq!(pages[0].requirements, [TYPE3_WIDTHS]);
-    // `as-shown` keeps the fence's refusal (A694 item 1).
-    let (report, output) = convert_with_plan(&source, &printing("as-shown", target));
-    assert!(output.is_none());
-    assert!(
-        matches!(
-            decision(&report, TYPE3_WIDTHS),
-            Decision::Refused(pdf_transform::archive::Because::TheFence(_))
-        ),
-        "{:?}",
-        decision(&report, TYPE3_WIDTHS)
-    );
 }

@@ -108,10 +108,13 @@ pub(super) fn prepare_fonts(
     wants_metrics: Directions,
     // What the checker read: the survey, the input's report and the runs it read as operators
     // that were written as numbers (`doc/adr/2638`), so that their pages are not fenced.
-    (survey, input, drawn): (
+    // And whether the Type 3 widths are restated in their procedures (`doc/adr/2907`), so that
+    // their fonts' pages are not photographed for that row.
+    (survey, input, drawn, type3_restated): (
         Option<&Survey>,
         &pdf_archive::Report,
         Option<&super::super::as_drawn::Drawn>,
+        bool,
     ),
     defined: &BTreeMap<Vec<u8>, ObjectId>,
 ) -> PreparedFonts {
@@ -120,7 +123,9 @@ pub(super) fn prepare_fonts(
     // preparation a font asks for even when no font failed.
     let anywhere = plan.authorised.grants(Loss::PageAsImage) && fonts::Gate::admits(plan.target);
     let fenced = match survey {
-        Some(survey) if anywhere => super::super::fenced::pages(document, input, survey, drawn),
+        Some(survey) if anywhere => {
+            super::super::fenced::pages(document, input, survey, drawn, type3_restated)
+        }
         _ => super::super::fenced::Fenced::default(),
     };
     let substitutes = match (wants_substitutes || !fenced.pages.is_empty(), survey) {

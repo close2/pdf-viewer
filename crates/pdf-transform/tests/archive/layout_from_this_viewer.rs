@@ -407,3 +407,80 @@ fn without_the_loss_a_font_with_a_descriptor_and_no_widths_is_not_written() {
         losses.words()
     );
 }
+
+/// A page showing `Hello` in an embedded Liberation Sans that states a descriptor and no `/Widths`.
+fn an_embedded_program_with_no_widths() -> Vec<u8> {
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (Hello) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /TrueType /BaseFont /LiberationSans \
+             /Encoding /WinAnsiEncoding /FontDescriptor 7 0 R >>"
+                .to_owned(),
+            "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 /FontBBox [-543 -303 \
+             1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 /CapHeight 716 /StemV 80 \
+             /FontFile2 8 0 R >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![stream(
+            &format!("/Length {}", LIBERATION_SANS.len()),
+            LIBERATION_SANS,
+        )],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+#[test]
+fn an_embedded_program_with_no_widths_is_written_at_the_windows_advances_under_the_loss() {
+    // ISO 32000-2 Table 109 requires `/Widths` of `/LiberationSans`; the window lays it out by the
+    // embedded program's own advances first (`doc/questions/A859`, `doc/questions/A868`, ADR 2898,
+    // ADR 2906), and the output states exactly that layout under `layout-from-this-viewer`: every
+    // one of the 256 codes advances in the output as it did in the source, and the array written
+    // agrees with the program, as ISO 19005-2 section 6.2.11.5 asks.
+    let source = an_embedded_program_with_no_widths();
+    let drawn = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("it opens");
+    let dict = drawn
+        .get(ObjectId::new(6, 0))
+        .as_dict()
+        .cloned()
+        .expect("font");
+    let before = pdf_font::LoadedFont::load(&drawn, &dict, "F1").expect("the source loads");
+    assert!(!before.is_substituted(), "the program is drawn");
+    let supplied = before
+        .supplied_widths()
+        .expect("the missing /Widths is said");
+    assert!(supplied.from_program > 0, "{supplied:?}");
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (report, output) = converted(&source, target);
+        let Decision::Authorised { losses, .. } =
+            decision(&report, "fonts/simple-font-states-its-widths")
+        else {
+            panic!(
+                "{target}: {:?}",
+                decision(&report, "fonts/simple-font-states-its-widths")
+            );
+        };
+        assert!(
+            losses.contains(Loss::LayoutFromThisViewer),
+            "{target}: {}",
+            losses.words()
+        );
+        let (held, dict) = described_font(&output);
+        let after = pdf_font::LoadedFont::load(&held, &dict, "F1").expect("the output loads");
+        for code in 0..=u8::MAX {
+            let code = pdf_font::Code::single_byte(code);
+            let (was, is) = (before.advance(code), after.advance(code));
+            assert!(
+                (was - is).abs() < 0.001,
+                "{target} code {}: {was} em before, {is} em after",
+                code.value()
+            );
+        }
+    }
+}

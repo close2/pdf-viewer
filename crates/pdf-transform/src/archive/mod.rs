@@ -189,6 +189,7 @@ mod to_unicode;
 mod toml;
 mod transcode;
 mod transfer;
+mod type3_widths;
 mod undecodable;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -245,6 +246,7 @@ pub use rewrite::Rewrite;
 pub use signatures::{Reached, SourceSignature};
 pub use transcode::TranscodedImage;
 pub use transfer::RemovedTransferFunction;
+pub use type3_widths::RestatedType3Width;
 pub use undecodable::{Role as UndecodableRole, UndecodableStream};
 
 pub use external::{ExternalData, ExternalStream, external_stream_data};
@@ -811,6 +813,7 @@ fn conversion_before_deciding(
         restated_pages: Vec::new(),
         removed_actual_texts: Vec::new(),
         runs_written_as_drawn: Vec::new(),
+        restated_type3_widths: Vec::new(),
         undecodable_streams: Vec::new(),
         removed_transfer_functions: Vec::new(),
         shown_annotations: Vec::new(),
@@ -1802,6 +1805,15 @@ fn apply_the_decisions(
     {
         conversion.runs_written_as_drawn.clone_from(&drawn.runs);
     }
+    // `doc/adr/2907`: each Type 3 width written is named with its procedure, its glyph and the
+    // operand the producer wrote, because that operand is what went.
+    if wanted.contains(&Rewrite::Type3WidthRestated)
+        && let Ok(restated) = &prepared.type3_widths
+    {
+        conversion
+            .restated_type3_widths
+            .clone_from(&restated.widths);
+    }
     // `doc/adr/2689`: a stream written absent is named with its role, its filters and its length,
     // because its bytes are what went.
     if wanted.contains(&Rewrite::UndecodableStreamRemoved)
@@ -2059,7 +2071,8 @@ fn rewrites_wanted(
     let recorded_removal = wanted.contains(&Rewrite::TransferFunctionRemoved)
         || wanted.contains(&Rewrite::ParentTreeRebuilt)
         || wanted.contains(&Rewrite::HalftoneNameRemoved)
-        || wanted.contains(&Rewrite::OverprintModeZeroed);
+        || wanted.contains(&Rewrite::OverprintModeZeroed)
+        || wanted.contains(&Rewrite::Type3WidthRestated);
     if omit_identification || departed || configured || recorded_removal {
         wanted.insert(Rewrite::IdentificationSchema);
     }

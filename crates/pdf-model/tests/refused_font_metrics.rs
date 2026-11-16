@@ -141,14 +141,24 @@ fn helvetica_starts_at(widths: &str, missing_width: &str) -> f32 {
     *x
 }
 
-/// What [`LoadedFont::metrics_only`] advances the fixture's `/F1` by for `A`, in ems.
-fn metrics_only_advance(widths: &str, missing_width: &str) -> f32 {
+/// What [`LoadedFont::metrics_only`] makes of the fixture's `/F1`.
+fn metrics_only(widths: &str, missing_width: &str) -> LoadedFont {
     let document = Document::open(document(widths, missing_width)).expect("the fixture opens");
     let font = document.get(ObjectId::new(5, 0));
     let font = font.as_dict().expect("object 5 is the font");
     LoadedFont::metrics_only(&document, font, "F1")
         .expect("a simple font states its codes one byte each")
-        .advance(Code::single_byte(b'A'))
+}
+
+/// What [`LoadedFont::metrics_only`] advances the fixture's `/F1` by for `A`, in ems.
+fn metrics_only_advance(widths: &str, missing_width: &str) -> f32 {
+    metrics_only(widths, missing_width).advance(Code::single_byte(b'A'))
+}
+
+/// What it advances `/F1` by for code 1, which `StandardEncoding` names no glyph for (Annex D), so
+/// no standard font's published metrics answer it.
+fn unnamed_code_advance(widths: &str, missing_width: &str) -> f32 {
+    metrics_only(widths, missing_width).advance(Code::single_byte(1))
 }
 
 /// Table 109's `/Widths` places the next font's glyph, whatever drew the first one.
@@ -166,33 +176,67 @@ fn a_refused_program_still_advances_by_the_stated_width() {
     assert!((x - 25.0).abs() < 0.001, "20 + 500/1000 × 10 = 25, not {x}");
 }
 
-/// Table 120's `/MissingWidth` answers for a code `/Widths` does not reach.
+/// Table 120's `/MissingWidth` answers for a code nothing else states a width for.
 ///
 /// §9.8.1's table states it:
 ///
 /// > The width to use for character codes whose widths are not specified in a font dictionary's
 /// > Widths array.
 ///
-/// The same arithmetic one entry further out: 800 thousandths of an em.
+/// The fixture states no `/Widths`, which Table 109 requires of `/NotAFont`, so the file states no
+/// layout and this reader's order on that defect answers (`doc/questions/A859`,
+/// `doc/questions/A868`, ADR 2898): with no program to ask, `A` takes the published metric of the
+/// standard font the name and descriptor resemble — `/Flags 4` sets neither serif nor fixed pitch,
+/// so Helvetica, whose `A` is 667 — and a code those metrics do not name takes `/MissingWidth`,
+/// 800 thousandths of an em. The font says it was laid out that way.
 #[test]
 fn a_refused_program_falls_back_to_the_stated_missing_width() {
     let advance = metrics_only_advance("", "/MissingWidth 800");
-    assert!((advance - 0.8).abs() < 1e-6, "800/1000, not {advance}");
+    assert!(
+        (advance - 0.667).abs() < 1e-6,
+        "Helvetica's 667/1000, not {advance}"
+    );
+    let unnamed = unnamed_code_advance("", "/MissingWidth 800");
+    assert!((unnamed - 0.8).abs() < 1e-6, "800/1000, not {unnamed}");
+    let supplied = metrics_only("", "/MissingWidth 800")
+        .supplied_widths()
+        .expect("the missing /Widths is reported");
+    assert_eq!(supplied.from_program, 0, "there is no program to ask");
+    assert!(
+        supplied.detail("F1").contains("states no /Widths"),
+        "{}",
+        supplied.detail("F1")
+    );
 }
 
-/// The control: a font stating no width moves nothing, which is what the defect looked like.
+/// The control: a font stating no width moves a code no metrics name by nothing.
 ///
 /// Trap 13 — an instrument that cannot fail says nothing when it passes. Table 120 gives
-/// `/MissingWidth` a "[d]efault value: 0", so a dictionary that states neither entry displaces the
-/// pen by nothing. That is exactly the advance every arm above had before the metrics were kept,
-/// so an implementation that ignored the entries and one that had no metrics at all would be told
-/// apart by these three numbers.
+/// `/MissingWidth` a "[d]efault value: 0", so a code that neither `/Widths` nor the resembling
+/// published metrics answer displaces the pen by nothing, while `A` still takes Helvetica's 667
+/// (`doc/questions/A859`, `doc/questions/A868`, ADR 2898). An implementation that ignored the
+/// entries and one that had no metrics at all would be told apart by these numbers.
 #[test]
 fn a_refused_program_stating_no_width_advances_by_nothing() {
+    let unnamed = unnamed_code_advance("", "");
+    assert!(
+        unnamed.abs() < 1e-6,
+        "Table 120's default width is 0, so the pen does not move: {unnamed}"
+    );
     let advance = metrics_only_advance("", "");
     assert!(
-        advance.abs() < 1e-6,
-        "Table 120's default width is 0, so the pen does not move: {advance}"
+        (advance - 0.667).abs() < 1e-6,
+        "Helvetica's 667/1000 for A, not {advance}"
+    );
+    assert!(
+        metrics_only("", "").supplied_widths().is_some(),
+        "the missing /Widths is reported"
+    );
+    assert!(
+        metrics_only("/Widths [500]", "")
+            .supplied_widths()
+            .is_none(),
+        "and a font stating its widths is not"
     );
 }
 

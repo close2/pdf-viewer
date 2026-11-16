@@ -121,6 +121,15 @@ impl Rewriter<'_> {
         {
             return Rewritten::Changed(self.with_its_dictionary_rewritten(id, drawn, applied));
         }
+        // And once more for a Type 3 glyph procedure written with its font's width, which
+        // `super::super::type3_widths` refuses where any repair above also writes the stream
+        // (`doc/adr/2907`).
+        if self.wants(Rewrite::Type3WidthRestated)
+            && let Some(restated) = self.type3_widths.and_then(|restated| restated.at.get(&id))
+        {
+            count(applied, Rewrite::Type3WidthRestated);
+            return Rewritten::Changed(self.with_its_dictionary_rewritten(id, restated, applied));
+        }
         // **Five writers over one packet, and the last of them is what carries the others'
         // work.** `super::super::prepare` folds the replacement into the bytes the header cut starts
         // from, those into the property removal's, those into the container respelling's, those

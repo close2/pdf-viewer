@@ -147,6 +147,12 @@ const NO_PLACE_TO_RECORD_A_RUN: &str = "writing a run as the number this reader 
      each run in this file's own xmpMM:History, and this document's XMP packet will not take that \
      entry, so the runs stay as they are and no file is written (doc/adr/2638)";
 
+/// Why a Type 3 width was not written even though the loss was authorised.
+const NO_PLACE_TO_RECORD_A_TYPE3_WIDTH: &str = "writing a Type 3 glyph procedure's width as its \
+     font's Widths states it names each operand the producer wrote in this file's own \
+     xmpMM:History, and this document's XMP packet will not take that entry, so the procedures \
+     stay as they are (doc/adr/2907)";
+
 /// Why the target's header was not written over one stating no version ISO 32000-2 defines.
 /// Why a restated modification date was withdrawn even though it could have been carried out.
 const NO_PLACE_TO_RECORD_A_DATE: &str = "the catalog states a PieceInfo, so ISO 19005-4 section \
@@ -381,6 +387,8 @@ pub(super) struct Prepared {
     /// Whether the file's history can name each run written as the number this reader draws
     /// (`doc/adr/2638`).
     pub(super) as_drawn_recorded: Result<(), Because>,
+    /// Whether the file's history can name each Type 3 width written (`doc/adr/2907`).
+    pub(super) type3_widths_recorded: Result<(), Because>,
     /// What the file's history says the source's header was, where the source's header stated no
     /// version and the output's states the target's (`doc/adr/2558`): `Ok(None)` where nothing is
     /// recorded, an error where the packet will not take the entry.
@@ -400,6 +408,9 @@ pub(super) struct Prepared {
     /// The objects whose `/ActualText` holds a Private Use character, or why they are not
     /// answered by its removal (ISO 19005-4 section 6.2.10.8, `doc/adr/2889`).
     pub(super) actual_texts: Result<super::actual_text::Removed, Because>,
+    /// The Type 3 glyph procedures written with their fonts' widths, or why they are not (ISO
+    /// 19005-4 section 6.2.10.5, `doc/adr/2907`).
+    pub(super) type3_widths: Result<super::type3_widths::Restated, Because>,
     /// The content streams whose hexadecimal strings gain the final digit, or why none can.
     ///
     /// ISO 19005-2 section 6.1.6 and ISO 19005-4 section 6.1.5, inside a content stream: the
@@ -880,6 +891,30 @@ impl Prepared {
                 super::as_drawn::write(document, survey.as_ref(), hexadecimal.as_ref().ok())?;
             super::as_drawn::apart_from(drawn, languages.as_ref().ok())
         });
+        // After every other stream repair, for the same reason: a glyph procedure one of them
+        // writes keeps this row's refusal rather than being written twice (`super::type3_widths`).
+        // Prepared wherever the row failed, so that a profile that does not grant the loss is told
+        // which loss it is; written, recorded and kept from the photograph only where it does.
+        let type3_granted = plan.authorised.grants(Loss::Type3WidthAsDrawn);
+        let type3_widths = asked(wanted(Rewrite::Type3WidthRestated), || {
+            let restated = super::type3_widths::restate(document, survey.as_ref(), &mut spare)?;
+            let mut others = Vec::new();
+            if let Ok(completed) = &hexadecimal {
+                others.push(&completed.at);
+            }
+            if let Ok(restated) = &languages {
+                others.push(&restated.streams);
+            }
+            if let Ok(drawn) = &as_drawn {
+                others.push(&drawn.at);
+            }
+            let restated = super::type3_widths::apart_from(restated, &others)?;
+            Ok(if type3_granted {
+                restated
+            } else {
+                restated.unwritten()
+            })
+        });
         // **The replacement comes before every editor**, because a stream it replaces has no
         // producer bytes left for one to write into: ISO 19005-2 section 6.6.2.1's packet is
         // composed afresh where this tree cannot read the one the file holds, and the three
@@ -1082,7 +1117,15 @@ impl Prepared {
             &mut spare,
             wanted(Rewrite::SubstituteFontProgram),
             metric_directions(&failed),
-            (survey.as_ref(), input, as_drawn.as_ref().ok()),
+            (
+                survey.as_ref(),
+                input,
+                as_drawn.as_ref().ok(),
+                type3_granted
+                    && type3_widths
+                        .as_ref()
+                        .is_ok_and(super::type3_widths::Restated::writes_anything),
+            ),
             &standard_fonts,
         );
         // A stand-in `/DefaultCMYK` built only for page groups the photographs take off their
@@ -1293,6 +1336,19 @@ impl Prepared {
                 .map_or("", |judgement| judgement.citation.as_str());
             super::as_drawn::history(drawn, citation)
         });
+        // Each Type 3 width written is named in the same history, the operand the producer wrote
+        // kept there (`doc/adr/2907`).
+        let type3_history = type3_widths
+            .as_ref()
+            .ok()
+            .filter(|restated| type3_granted && restated.writes_anything())
+            .map(|restated| {
+                let citation = input
+                    .failures()
+                    .find(|judgement| judgement.id == super::type3_widths::SITE)
+                    .map_or("", |judgement| judgement.citation.as_str());
+                restated.history(citation)
+            });
         // The streams no reader decodes, each named in the same history before it is written
         // absent, a condition of the rewrite as smoothing's entry is of its own (`doc/adr/2689`).
         let undecodable = asked(wanted(Rewrite::FilterNamesSpelledOut), || {
@@ -1425,6 +1481,7 @@ impl Prepared {
                 overprint_modes: overprint_mode_history.as_deref(),
                 default_overprint_modes: default_overprint_history.as_deref(),
                 as_drawn: as_drawn_history.as_deref(),
+                type3_widths: type3_history.as_deref(),
                 undecodable: undecodable_history.as_deref(),
                 header: header_history.as_deref(),
                 parent_tree: parent_tree_history.as_deref(),
@@ -1567,6 +1624,10 @@ impl Prepared {
             Some(_) if !recorded_it => Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD_A_RUN)),
             _ => Ok(()),
         };
+        let type3_widths_recorded = match type3_history {
+            Some(_) if !recorded_it => Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD_A_TYPE3_WIDTH)),
+            _ => Ok(()),
+        };
         let header_recorded = match header_history {
             Some(_) if !recorded_it => Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD_HEADER)),
             history => Ok(history),
@@ -1701,6 +1762,7 @@ impl Prepared {
             halftone_names_recorded,
             overprint_modes_recorded,
             as_drawn_recorded,
+            type3_widths_recorded,
             header_recorded,
             hexadecimal,
             as_drawn,
@@ -1708,6 +1770,7 @@ impl Prepared {
             external_data,
             boundaries,
             actual_texts,
+            type3_widths,
             actions,
             forbidden_annotations,
             hidden_annotations,
@@ -1909,6 +1972,12 @@ impl Prepared {
             Rewrite::ExternalDataEmbedded => self.external_data.as_ref().err().copied(),
             Rewrite::PageBoundaryRemoved => self.boundaries.as_ref().err().copied(),
             Rewrite::ActualTextRemoved => self.actual_texts.as_ref().err().copied(),
+            Rewrite::Type3WidthRestated => self
+                .type3_widths
+                .as_ref()
+                .err()
+                .copied()
+                .or_else(|| self.type3_widths_recorded.as_ref().err().copied()),
             Rewrite::InformationMovedIntoThePacket => self.information.as_ref().err().copied(),
             Rewrite::PreservedAsAttachment => self.attached.as_ref().err().copied(),
             Rewrite::ForbiddenActionRemoved
@@ -1924,9 +1993,17 @@ impl Prepared {
         }
     }
 
+    /// The copies of Type 3 glyph procedures reached at a second width (`super::type3_widths`).
+    fn type3_copies(&self) -> impl Iterator<Item = (ObjectId, Object)> + '_ {
+        self.type3_widths
+            .iter()
+            .flat_map(|restated| restated.written.iter())
+            .map(|(id, object)| (*id, object.clone()))
+    }
+
     /// The objects the conversion adds, in the source's numbering, for `super::rewrite::enter` to find.
     pub(super) fn added(&self) -> BTreeMap<ObjectId, Object> {
-        let mut out = BTreeMap::new();
+        let mut out: BTreeMap<ObjectId, Object> = self.type3_copies().collect();
         if let Ok(intent) = &self.intent
             && let Some(object) = &intent.written
         {
@@ -2347,7 +2424,8 @@ struct TrueTypeRoutes {
 ///
 /// Every one of them needs `pdf_archive::survey::Survey`, which walks each page's content
 /// streams — so the walk is made once where any of them is wanted and not at all where none is.
-const SURVEYED: [Rewrite; 12] = [
+const SURVEYED: [Rewrite; 13] = [
+    Rewrite::Type3WidthRestated,
     Rewrite::PageResources,
     Rewrite::EmptyResourceDefined,
     Rewrite::MarkedLanguagesRestated,

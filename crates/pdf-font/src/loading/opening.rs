@@ -144,6 +144,8 @@ impl LoadedFont {
             names: names.as_ref(),
             data: &data,
             program,
+            type1: type1.as_ref(),
+            notdef,
             mapping: &mapping,
             units_per_em,
         };
@@ -446,7 +448,7 @@ fn type1_cff_in_opentype(
     }
 }
 
-/// The standard face whose published metrics position an embedded program's glyphs when its
+/// The standard face whose published metrics answer an embedded program's codes when its
 /// dictionary states no `/Widths`.
 ///
 /// ISO 32000-2 Table 109 makes `/Widths` "Required; optional in PDF 1.0-1.7 for the standard 14
@@ -457,17 +459,20 @@ fn type1_cff_in_opentype(
 /// cross-reference in Errata Collection 3 (Issues #47 and #48), so it is not quoted here as the
 /// warrant; the table's permission is. Table 109's `/MissingWidth` for every code would put every
 /// glyph at one advance, so the fourteen's published widths are the ones read, a descriptor and a
-/// program beside them or not (`doc/adr/2687`, whose quotation the same errata retired). A
-/// substitute already carries its request and is not asked again. An embedded program outside the
-/// fourteen keeps `/MissingWidth` until `doc/questions/Q868` is answered.
+/// program beside them or not (`doc/adr/2687`, whose quotation the same errata retired).
+///
+/// **Outside the fourteen** the request is the face the font's name and descriptor resemble, the
+/// second step of the order [`crate::metrics::simple_widths`] takes on a missing array, after the
+/// program's own advances (`doc/questions/A859`, ADR 2898): asked of every such font, since
+/// whether its array states anything is that function's question, and derived from the
+/// dictionary's names alone. A substitute already carries its request and is not asked again.
 fn published_metrics(
     document: &Document,
     dict: &Dictionary,
     descriptor: Option<&Dictionary>,
 ) -> Option<substitute::Request> {
-    let standard =
-        within_the_fourteen(document, dict) && document.get_key(dict, "Widths").is_null();
-    standard.then(|| substitute::Request::derive(document, dict, descriptor))
+    let asked = !within_the_fourteen(document, dict) || document.get_key(dict, "Widths").is_null();
+    asked.then(|| substitute::Request::derive(document, dict, descriptor))
 }
 
 /// Whether `dict` is one of §9.6.2.2's fourteen: a `Type1` font under one of their names

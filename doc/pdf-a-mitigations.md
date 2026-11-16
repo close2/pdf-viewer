@@ -13,6 +13,16 @@ follows is that bulk: every requirement this converter refuses today, with four 
 `doc/pdf-a-conversion-limits.md` is the companion and is not repeated here. Where it already argues
 a loss, this file cites its section and adds only what is new.
 
+**The corpus is evidence, and not the gate.** The owner, answering `doc/questions/Q865` on
+2026-11-16:
+
+> the corpus is not what counts!  Even if we have no document at all, we should consider such
+> mitigations.
+
+So a mitigation is weighed and built from what ISO 19005 and ISO 32000-2 require, and a census that
+finds no document reaching it is a fact about the corpora held, never a reason to leave an entry at
+*none* (ADR 2907).
+
 ## 0. How to read an entry
 
 Each entry answers the owner's four questions in a fixed order:
@@ -1810,16 +1820,21 @@ sessions 962, 966 and 976
 - **Departure** — **A**, and unnecessary.
 
 #### `fonts/type3-glyph-procedures-state-their-width`
-ISO 19005-4 6.2.10.5 · PDF/A-4, 4f, 4e · today `the-fence`
+ISO 19005-4 6.2.10.5 · PDF/A-4, 4f, 4e · **built in session 2045**, `discard` at
+`type3-width-as-drawn`
 
-- **Mitigation** — **none.** The `d0`/`d1` operands are inside the glyph procedure, which is a
-  content stream; and §9.2.4 makes the font dictionary's widths what positions every glyph on the
-  line, so restating those moves marks.
+- **Mitigation** — `discard`: the first operand of the procedure's `d0` or `d1` is written as the
+  font's `/Widths` entry, which ISO 32000-2's Table 111 requires it to be "consistent with", and
+  nothing else in the procedure changes. §9.2.4 makes `/Widths` what positions every glyph, so the
+  page draws as it did; the producer's operand is the loss, kept in `xmpMM:History` and the report.
+  A procedure two fonts reach at two widths is copied for the second and that font's `/CharProcs`
+  names the copy; one font reaching one procedure at two widths keeps the refusal (ADR 2907, opening
+  ADR 0816's fence for this one operand on the owner's word, `doc/questions/A865`).
 - **By target** — part 2 states no such rule (confirmed **A**).
-- **From a configuration** — nothing.
-- **Departure** — **B**, and safe: §9.2.4 makes the dictionary's widths authoritative for
-  positioning, so a departed file lays out exactly as it does today, disagreement and all. Not
-  narrowable in any useful declarative way.
+- **From a configuration** — `[site."fonts/type3-glyph-procedures-state-their-width"]` with
+  `remedy = "discard"`, which `as-shown` and `as-if-printed` carry; `state-every-loss` keeps ADR 2847's
+  photograph, and `refuse-any-loss` stops.
+- **Departure** — **B**, and safe, as before: a departed file lays out exactly as it does today.
 
 #### `fonts/non-symbolic-truetype-uses-a-standard-encoding`
 #### `fonts/symbolic-truetype-states-no-encoding`

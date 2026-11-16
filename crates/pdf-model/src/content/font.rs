@@ -1015,8 +1015,15 @@ impl Interpreter<'_> {
                 // and §9.4.4 still requires the text matrix to be updated for each of them.
                 // Dropping that moved the *next* font's glyphs, which is a page drawn wrong
                 // for a fault the page already reported elsewhere (ADR 1094).
-                dict.and_then(|dict| pdf_font::LoadedFont::metrics_only(self.document, dict, name))
-                    .map(|font| Font::Program(Arc::new(font)))
+                let font = dict
+                    .and_then(|dict| pdf_font::LoadedFont::metrics_only(self.document, dict, name))
+                    .map(|font| Font::Program(Arc::new(font)));
+                // Its codes still advance, and where the dictionary states no `/Widths` the
+                // advances are this reader's layout, said like every other route's (ADR 2898).
+                if let Some(font) = &font {
+                    self.note_supplied_widths(font, name, key.is_some());
+                }
+                font
             }
             // No dictionary: the caller hands the sentence to the text state, and the first show
             // under it says it (see `font`).

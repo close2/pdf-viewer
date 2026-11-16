@@ -60,8 +60,9 @@ pub(crate) struct SimpleMetrics<'a> {
     /// The substitution request, when the font is a stand-in.
     pub(crate) substituted: Option<substitute::Request>,
     /// Whose published metrics answer a font that states no `/Widths`: the substitution
-    /// request, or for an embedded program under one of the standard 14 names, that name's
-    /// (`opening::published_metrics`, `doc/adr/2687`).
+    /// request, or for an embedded program the request its name and descriptor make — under one
+    /// of the standard 14 names, that name's (`opening::published_metrics`, `doc/adr/2687`,
+    /// `doc/adr/2906`).
     pub(crate) published: Option<substitute::Request>,
     /// Whether the font is one of §9.6.2.2's fourteen, which Table 109 lets omit `/Widths`.
     pub(crate) within_the_fourteen: bool,
@@ -72,6 +73,12 @@ pub(crate) struct SimpleMetrics<'a> {
     /// Which reader parses `data`, since the advance a program states is read differently
     /// from an sfnt's `hmtx` and from a CFF charstring's leading width operand.
     pub(crate) program: Program,
+    /// The parse of a Type 1 `data`, whose `hsbw` widths bytes alone do not carry
+    /// ([`crate::type1::Program::horizontal_advance`]).
+    pub(crate) type1: Option<&'a crate::type1::Program>,
+    /// The glyph §9.6.5.2's `.notdef` names in a name-keyed program, which states an advance
+    /// about absence rather than about a character.
+    pub(crate) notdef: Option<u16>,
     pub(crate) mapping: &'a CodeMapping,
     pub(crate) units_per_em: f32,
 }
@@ -152,26 +159,24 @@ mod declared_range_tests {
 }
 
 /// Builds a simple font's advance table, in thousandths of an em, and says where it came from
-/// when the document stated none and a substitute stands in.
+/// when the document stated none outside §9.6.2.2's fourteen.
 ///
 /// `/Widths` is the document's own statement and always wins — [`stated_widths`] is what the
-/// caller hands in, and a font that states it has nothing to record. Failing that, the published
-/// metrics of the face named or resembled answer (`SimpleMetrics::published`), which keeps the
-/// layout a property of the document rather than of this machine.
+/// caller hands in, and a font that states it has nothing to record.
 ///
 /// **Inside §9.6.2.2's fourteen**, which Table 109 lets omit `/Widths` ("Required; optional in
-/// PDF 1.0-1.7 for the standard 14 fonts"), the program this reader draws answers what the
-/// published metrics do not name (`.notdef` above all, `issue4304`): that is the layout the table
-/// admits, so nothing is recorded (ADR 0007, ADR 2687).
+/// PDF 1.0-1.7 for the standard 14 fonts"), the published metrics answer first and the program
+/// this reader draws answers what they do not name (`.notdef` above all, `issue4304`): that is
+/// the layout the table admits, so nothing is recorded (ADR 0007, ADR 2687).
 ///
-/// **A substitute outside the fourteen** is missing an array the table requires, and the file
-/// states no layout. The owner's order on that defect (`doc/questions/A859`, ADR 2898) is the
-/// resembling standard font's published metrics and then Table 120's `/MissingWidth`, which
-/// [`crate::LoadedFont::advance`] supplies as the default width: the substitute face's own
-/// advances are no statement of the file's and are not a step. The second answer records what
-/// the metrics answered, for the report the caller owes and the archive's
-/// `layout-from-this-viewer`. A font whose own program is drawn keeps Table 120 for every code
-/// until `doc/questions/Q868` is answered.
+/// **Outside the fourteen** the font is missing an array the table requires, and the file states
+/// no layout. The owner's order on that defect (`doc/questions/A859`, ADR 2898), the same on every
+/// route: the embedded program's own advance for a code that reaches a glyph other than
+/// `.notdef` — Table 109's "consistent with the actual widths given in the font program" — then
+/// the resembling standard font's published metrics, then Table 120's `/MissingWidth`, which
+/// [`crate::LoadedFont::advance`] supplies as the default width. A substitute's face is no program
+/// of the file's and is not the first step. The second answer records which steps answered, for
+/// the report the caller owes and the archive's `layout-from-this-viewer`.
 ///
 /// Resolved once here rather than at each lookup, so [`crate::LoadedFont::advance`] stays free of
 /// work and of allocation on the per-character path.
@@ -183,18 +188,59 @@ pub(crate) fn simple_widths(
         return (stated, None);
     };
     let standard = standard_metrics::StandardFont::for_request(request);
-    let mut widths = resembling_widths(standard, font.names);
-    if font.substituted.is_some() && !font.within_the_fourteen {
-        let supplied = SuppliedWidths {
-            from_standard: widths.len(),
-            standard,
+    let resembling = resembling_widths(standard, font.names);
+    if font.within_the_fourteen {
+        let mut widths = resembling;
+        // An embedded Type 1 program under one of the fourteen names is not asked: a code the
+        // published metrics do not name keeps `/MissingWidth` there (ADR 2687), where a
+        // substitute's face answers `.notdef` (`issue4304`).
+        let asked = SimpleMetrics {
+            type1: None,
+            ..font
         };
-        return (widths, Some(supplied));
+        for (code, width) in program_widths(asked, |code, _| !widths.contains_key(&code)) {
+            widths.entry(code).or_insert(width);
+        }
+        return (widths, None);
     }
-    for (code, width) in program_widths(font, |code, _| !widths.contains_key(&code)) {
+    let mut widths = if font.substituted.is_some() {
+        BTreeMap::new()
+    } else {
+        program_widths(font, |_, glyph| {
+            glyph != crate::loading::NOTDEF_GLYPH && Some(glyph) != font.notdef
+        })
+    };
+    let from_program = widths.len();
+    for (code, width) in resembling {
         widths.entry(code).or_insert(width);
     }
-    (widths, None)
+    let supplied = SuppliedWidths {
+        from_program,
+        from_standard: widths.len().saturating_sub(from_program),
+        standard,
+    };
+    (widths, Some(supplied))
+}
+
+/// [`simple_widths`]'s order for a font with no program to ask: the published metrics of the
+/// standard font `request` resembles for each code's glyph name, and Table 120's `/MissingWidth`
+/// for the rest, said as [`SuppliedWidths`].
+///
+/// The metrics-only route's (ADR 1094): a program refused with no substitute to draw from still
+/// places its codes, and where the dictionary states no `/Widths` outside the fourteen the order
+/// on that defect is the one every other route takes (`doc/questions/A868`, ADR 2898).
+pub(crate) fn unprogrammed_widths(
+    request: substitute::Request,
+    names: Option<&GlyphNames>,
+) -> (BTreeMap<u32, f32>, SuppliedWidths) {
+    let standard = standard_metrics::StandardFont::for_request(request);
+    let widths = resembling_widths(standard, names);
+    let supplied = SuppliedWidths {
+        from_program: 0,
+        from_standard: widths.len(),
+        standard,
+    };
+    (widths, supplied)
 }
 
 /// The published advance of each code's glyph name in the standard face `standard`, for the codes
@@ -224,6 +270,8 @@ pub(crate) fn resembling_widths(
 /// reports it ([`Self::detail`]) and the archive writes it as the layout this viewer drew.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SuppliedWidths {
+    /// Codes whose advance is the embedded program's own, for the glyph the code reaches.
+    pub from_program: usize,
     /// Codes whose advance is the published metric of [`Self::standard`] for the code's name.
     pub from_standard: usize,
     /// The standard font whose metrics the font's name and descriptor resemble.
@@ -236,9 +284,10 @@ impl SuppliedWidths {
     pub fn detail(&self, font: &str) -> String {
         format!(
             "font {font} states no /Widths, which ISO 32000-2 Table 109 requires outside the \
-             fourteen standard fonts, so its layout is this viewer's: {} codes by {:?}'s \
-             published metrics and every other code by Table 120's /MissingWidth",
-            self.from_standard, self.standard
+             fourteen standard fonts, so its layout is this viewer's: {} codes by the font \
+             program's own advances, {} by {:?}'s published metrics and every other code by \
+             Table 120's /MissingWidth",
+            self.from_program, self.from_standard, self.standard
         )
     }
 }
@@ -378,7 +427,8 @@ const MIN_STRETCH: f32 = 0.5;
 /// Fills a width table from the font program's own advances, for the codes `wanted` accepts.
 ///
 /// Two callers, asking opposite questions of the same table. [`simple_widths`] asks it for the
-/// codes nothing else answered, which only the standard 14 can have; [`substitute_stretch`] asks
+/// codes of a font stating no `/Widths` — inside the fourteen the codes the published metrics left,
+/// outside them every code reaching a glyph other than `.notdef` — and [`substitute_stretch`] asks
 /// it for exactly the codes the document *did* state a width for, because the comparison is
 /// between the two statements. `wanted` is handed the glyph as well as the code so that the
 /// second can decline `.notdef` without this function deciding what that means.
@@ -423,10 +473,17 @@ fn program_widths(
             advances
         }
         // A substitute is never a bare Type 1 program: `substitute::Format` offers an sfnt
-        // or a bare CFF and nothing else. An *embedded* Type 1 reaches here only under one of
-        // the fourteen names with no `/Widths`, where the published metrics have answered every
-        // glyph they name, and a glyph they do not name keeps `/MissingWidth`.
-        Program::Type1 => return widths,
+        // or a bare CFF and nothing else, so this is an embedded one outside the fourteen, whose
+        // `hsbw` widths are read from the parse the font keeps.
+        Program::Type1 => {
+            let Some(program) = font.type1 else {
+                return widths;
+            };
+            asked
+                .iter()
+                .map(|(_, glyph)| program.horizontal_advance(*glyph).ok().flatten())
+                .collect()
+        }
     };
 
     for ((code, _), advance) in asked.iter().zip(advances) {
