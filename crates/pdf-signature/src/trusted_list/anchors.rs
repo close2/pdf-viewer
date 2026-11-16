@@ -139,19 +139,27 @@ impl<'l> Supplied<'l> {
         })
     }
 
-    /// The supplied list `reference` names: the file named its last path segment, else the list of
-    /// the territory of the list of trusted lists' pointer to it.
+    /// The supplied list `reference` names: the file a host stored from it, or the file named its
+    /// last path segment, else the list of the territory of the list of trusted lists' pointer to
+    /// it.
     fn resolve(self, reference: &str) -> Result<&'l TrustedList, Unresolved> {
         let reading = self.reading;
+        let stored = authentication::stored_name(reference);
         let name = authentication::file_name(reference);
-        if let Some((_, list)) = reading
-            .named()
-            .chain(reading.authenticated_lotl())
-            .find(|(file, _)| *file == name)
-        {
-            return Ok(list);
+        for wanted in [stored.as_str(), name] {
+            if let Some((_, list)) = reading
+                .named()
+                .chain(reading.authenticated_lotl())
+                .find(|(file, _)| *file == wanted)
+            {
+                return Ok(list);
+            }
         }
-        if reading.refused.iter().any(|(file, _)| file == name) {
+        if reading
+            .refused
+            .iter()
+            .any(|(file, _)| authentication::is_obtained_from(file, reference))
+        {
             return Err(Unresolved::Refused);
         }
         let pointed = self

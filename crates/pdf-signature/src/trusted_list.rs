@@ -45,6 +45,7 @@ pub mod anchors;
 pub mod authentication;
 pub mod determination;
 pub mod qualifications;
+pub mod refresh;
 pub mod time_stamp;
 
 pub use authentication::Outcome;
@@ -630,8 +631,17 @@ impl Lists {
     #[must_use]
     pub fn read(&self, at: Instant) -> Reading {
         let configuration = authentication::Configuration::of(self);
-        let lotl_name = authentication::file_name(&configuration.ojeu_lotl_loc);
-        let run = configuration.supplied || self.lists.iter().any(|(name, _)| name == lotl_name);
+        let run = configuration.supplied
+            || self.lists.iter().any(|(name, _)| {
+                authentication::is_obtained_from(name, &configuration.ojeu_lotl_loc)
+            });
+        let lotl_name = self
+            .lists
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .find(|name| *name == authentication::stored_name(&configuration.ojeu_lotl_loc))
+            .unwrap_or_else(|| authentication::file_name(&configuration.ojeu_lotl_loc))
+            .to_owned();
         let lotl = run.then(|| authentication::lotl(self, &configuration, at));
         let mut reading = Reading::default();
         for (name, octets) in &self.lists {
@@ -678,7 +688,7 @@ impl Lists {
         reading.lotl = lotl.map(|outcome| match outcome {
             Ok(authenticated) => {
                 let sequence_number = authenticated.list.sequence_number;
-                reading.authenticated_lotl = Some((lotl_name.to_owned(), authenticated.list));
+                reading.authenticated_lotl = Some((lotl_name, authenticated.list));
                 (sequence_number, authenticated.outcome)
             }
             Err(outcome) => (0, outcome),

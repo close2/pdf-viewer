@@ -159,12 +159,14 @@ pub const MACHINE_NOTE: &str = "for every document in this window";
 
 /// The first act under [`MACHINE`], and the name the sentences about its level use.
 ///
-/// Three requests under one level, and the name says each: §12.7.6.2's form, Table Annex O.4's
+/// Four requests under one level, and the name says each: §12.7.6.2's form, Table Annex O.4's
 /// `fdf` fetched from a server, which tells that server the document was opened here (ADR 1527),
-/// and the copy of a signature's policy document at the URL ETSI EN 319 122-1 clause 5.2.9.2's
+/// the copy of a signature's policy document at the URL ETSI EN 319 122-1 clause 5.2.9.2's
 /// qualifier names, which tells that server the document is being validated here (ADRs 1728,
-/// 1738).
-pub const SUBMITTING: &str = "sending a form, or fetching its data or a signature's policy";
+/// 1738), and the European Union's trusted lists, which tells their publishers this reader is
+/// checking signatures now (ADR 2882).
+pub const SUBMITTING: &str =
+    "sending a form, or fetching its data, a signature's policy or the trusted lists";
 
 /// One of the acts under [`MACHINE`].
 ///

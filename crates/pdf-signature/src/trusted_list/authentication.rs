@@ -29,11 +29,12 @@
 //! [`super::Authentication::VouchedForByTheHost`], said as such. Where it supplied either, the
 //! procedures run, and a list they do not authenticate is refused by name and not searched.
 //!
-//! # What is not done
+//! # Fetching, and the configuration's updates
 //!
-//! PRO-4.1.4-16 and -17 update the configuration from an authenticated LOTL; this crate keeps no
-//! state between readings, so the update is a host's, and the procedure's output is what was
-//! computed from the files given.
+//! A host that fetches the files itself stores each under [`stored_name`], the location whole,
+//! and that name is looked for first. What to fetch, what clause 4.1 and 4.2 make of it before
+//! anything is kept, and PRO-4.1.4-16 and -17's updates of the configuration are
+//! [`super::refresh`]'s, computed from the files; the host persists them (ADR 2882).
 
 use super::{Authentication, Lists, MAX_ENTRIES, MAX_LIST_OCTETS, TrustedList, XML_MIME_TYPE};
 use crate::x509::Instant;
@@ -147,7 +148,7 @@ impl Configuration {
 
 /// A DER certificate where the file begins with X.690's `SEQUENCE` tag, and otherwise every PEM
 /// `CERTIFICATE` block (RFC 7468 section 5) it holds.
-fn certificates_in(octets: &[u8]) -> Vec<Vec<u8>> {
+pub(super) fn certificates_in(octets: &[u8]) -> Vec<Vec<u8>> {
     const BEGIN: &str = "-----BEGIN CERTIFICATE-----";
     const END: &str = "-----END CERTIFICATE-----";
     if octets.first() == Some(&0x30) {
@@ -175,6 +176,31 @@ fn certificates_in(octets: &[u8]) -> Vec<Vec<u8>> {
     found
 }
 
+/// The name a host stores the file obtained from `uri` under when it fetched it itself: the URI
+/// whole, every octet outside RFC 3986 section 2.3's unreserved characters percent-encoded as its
+/// section 2.1 has it, so that two locations never share a name (ADR 2882) — three Member States'
+/// lists end `tsl.xml` — and the name says the location it came from.
+#[must_use]
+pub fn stored_name(uri: &str) -> String {
+    use std::fmt::Write as _;
+    let mut name = String::with_capacity(uri.len());
+    for octet in uri.bytes() {
+        if octet.is_ascii_alphanumeric() || matches!(octet, b'-' | b'.' | b'_' | b'~') {
+            name.push(char::from(octet));
+        } else {
+            // `fmt::Write for String` never answers `Err`: the discard is that infallibility.
+            let _ = write!(name, "%{octet:02X}");
+        }
+    }
+    name
+}
+
+/// Whether a supplied file named `name` is the file obtained from `uri`: [`stored_name`]'s, or
+/// the URI's last path segment, the name a copy a person saved by hand carries (ADR 2842).
+pub(super) fn is_obtained_from(name: &str, uri: &str) -> bool {
+    name == stored_name(uri) || name == file_name(uri)
+}
+
 /// The last path segment of a URI: the name a copy saved from it carries.
 pub(super) fn file_name(uri: &str) -> &str {
     let path = uri.split(['?', '#']).next().unwrap_or(uri);
@@ -183,7 +209,7 @@ pub(super) fn file_name(uri: &str) -> &str {
 
 /// RFC 3986's shape PRO-4.1.4-04 counts: the `https` scheme, an authority, and a non-empty path,
 /// ending `.xml` where `xml` holds.
-fn is_https_with_path(uri: &str, xml: bool) -> bool {
+pub(super) fn is_https_with_path(uri: &str, xml: bool) -> bool {
     let Some(rest) = uri.strip_prefix("https://") else {
         return false;
     };
@@ -197,7 +223,7 @@ fn is_https_with_path(uri: &str, xml: bool) -> bool {
 
 /// The certificates of the LOTL's pointer to itself, PRO-4.1.4-09 b): every tuple whose scheme
 /// territory qualifier is `EU`.
-fn eu_pointer_certificates(list: &TrustedList) -> Vec<Vec<u8>> {
+pub(super) fn eu_pointer_certificates(list: &TrustedList) -> Vec<Vec<u8>> {
     list.pointers
         .iter()
         .filter(|pointer| pointer.territory.as_deref() == Some("EU"))
@@ -205,14 +231,19 @@ fn eu_pointer_certificates(list: &TrustedList) -> Vec<Vec<u8>> {
         .collect()
 }
 
-/// The supplied octets of the file obtained from `uri`.
-fn obtained<'l>(lists: &'l Lists, uri: &str) -> Option<&'l [u8]> {
-    let name = file_name(uri);
-    lists
-        .lists()
-        .iter()
-        .find(|(file, _)| file == name)
-        .map(|(_, octets)| octets.as_slice())
+/// The supplied octets of the file obtained from `uri`: the one a host stored under
+/// [`stored_name`] first, because it names the location exactly, and else the one named the
+/// location's last path segment.
+pub(super) fn obtained<'l>(lists: &'l Lists, uri: &str) -> Option<&'l [u8]> {
+    let stored = stored_name(uri);
+    let by = |name: &str| {
+        lists
+            .lists()
+            .iter()
+            .find(|(file, _)| file == name)
+            .map(|(_, octets)| octets.as_slice())
+    };
+    by(&stored).or_else(|| by(file_name(uri)))
 }
 
 /// The validation PRO-4.1.4-07, PRO-4.1.4-11 e) and PRO-4.2.4-08 run: the list's signature under

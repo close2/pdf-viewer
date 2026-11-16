@@ -172,6 +172,7 @@ pub mod stand_in;
 pub mod status;
 pub mod submit;
 pub mod trace;
+pub mod trusted_list_fetch;
 pub mod wheel;
 
 pub use arrangement::next_layout;
