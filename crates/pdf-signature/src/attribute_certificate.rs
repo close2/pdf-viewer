@@ -110,6 +110,8 @@ pub struct AttributeCertificate<'a> {
     pub validity: Validity,
     /// The type of each attribute, as an object identifier's contents.
     pub types: Vec<&'a [u8]>,
+    /// Each attribute's `SET OF` values, in the order of [`Self::types`].
+    pub values: Vec<Value<'a>>,
     /// Whether section 4.3.2's target information extension is present.
     pub targeted: bool,
     /// Whether section 4.3.6's `noRevAvail` extension is present: the issuer's statement that no
@@ -244,9 +246,10 @@ fn read_issuer<'a>(issuer: &Value<'a>) -> Result<&'a [u8], Unreadable> {
         .ok_or(Unreadable::Malformed("issuer"))
 }
 
-/// `attributes`, section 4.2.7: each type, at least one, none twice.
-fn read_types<'a>(attributes: &Value<'a>) -> Result<Vec<&'a [u8]>, Unreadable> {
+/// `attributes`, section 4.2.7: each type, at least one, none twice, with its values.
+fn read_types<'a>(attributes: &Value<'a>) -> Result<(Vec<&'a [u8]>, Vec<Value<'a>>), Unreadable> {
     let mut types: Vec<&[u8]> = Vec::new();
+    let mut sets = Vec::new();
     for attribute in entries(attributes, MAX_ATTRIBUTES, "attributes")? {
         let mut members = (attribute.identifier == SEQUENCE)
             .then(|| attribute.children().ok())
@@ -258,11 +261,12 @@ fn read_types<'a>(attributes: &Value<'a>) -> Result<Vec<&'a [u8]>, Unreadable> {
             return Err(Unreadable::Malformed("attributes"));
         }
         types.push(kind);
+        sets.push(values);
     }
     if types.is_empty() {
         return Err(Unreadable::Malformed("attributes"));
     }
-    Ok(types)
+    Ok((types, sets))
 }
 
 /// `Extensions`: whether the certificate is targeted, and its first unsupported critical
@@ -379,7 +383,7 @@ pub fn read(certificate: Value<'_>) -> Result<AttributeCertificate<'_>, Unreadab
             not_after: instant()?,
         }
     };
-    let types = read_types(&member(&mut members, SEQUENCE, "attributes")?)?;
+    let (types, values) = read_types(&member(&mut members, SEQUENCE, "attributes")?)?;
     let mut targeted = false;
     let mut no_revocation = false;
     let mut unsupported_critical = None;
@@ -407,6 +411,7 @@ pub fn read(certificate: Value<'_>) -> Result<AttributeCertificate<'_>, Unreadab
         serial,
         validity,
         types,
+        values,
         targeted,
         no_revocation,
         unsupported_critical,

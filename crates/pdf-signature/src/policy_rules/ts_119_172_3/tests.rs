@@ -349,13 +349,19 @@ fn suite(algorithm: &[u8], usages: &[&str], key: Option<u32>, hash: Option<u32>)
 
 #[test]
 fn an_algorithm_a_suite_does_not_admit_or_a_key_too_short_is_broken() {
-    const TSTK: &str = "http://uri.etsi.org/19172/v1.1.1/Usage#Tstk";
+    // A usage this program does not judge: algorithms that generate revocation status data.
+    const REV_STAT_DATA: &str = "http://uri.etsi.org/19172/v1.1.1/Usage#RevStatData";
     let suites = |entries: &[Vec<u8>]| basic(11, &seq(entries), None);
     let found = judged(
         &[
             suites(&[
                 suite(SHA256, &[SIGNATURE_USAGE], None, Some(256)),
-                suite(SHA256_RSA, &[SIGNATURE_USAGE, TSTK], Some(3072), None),
+                suite(
+                    SHA256_RSA,
+                    &[SIGNATURE_USAGE, REV_STAT_DATA],
+                    Some(3072),
+                    None,
+                ),
                 suite(SHA256_RSA, &[SIGNING_CERT_USAGE[0]], None, None),
             ]),
             suites(&[suite(SHA256, &[SIGNATURE_USAGE], None, Some(384))]),
@@ -385,7 +391,7 @@ fn an_algorithm_a_suite_does_not_admit_or_a_key_too_short_is_broken() {
     assert_eq!(
         component_verdicts(
             &found,
-            |c| matches!(c, Constraint::SuiteUsage(u) if u == TSTK)
+            |c| matches!(c, Constraint::SuiteUsage(u) if u == REV_STAT_DATA)
         ),
         [Verdict::NotEvaluated]
     );
@@ -1244,5 +1250,86 @@ fn an_attribute_authority_is_held_to_the_suites_usage_for_attribute_certificates
         &signed,
         &facts(None),
     );
+    assert!(component_verdicts(&found, |c| matches!(c, Constraint::SuiteUsage(_))).is_empty());
+}
+
+#[test]
+fn a_time_stamping_authority_is_held_to_the_suites_usage_for_time_stamp_tokens() {
+    use crate::policy_rules::certification_path::tests::hex;
+    use crate::policy_rules::revocation_checks::tests::fixtures as minted;
+    use crate::policy_rules::tests::RSA_ENCRYPTION;
+    // TS 119 172-2 clause 4.29.1's usage for algorithms "used for generating time-stamp tokens",
+    // read by TS 119 172-3 clause 4.29 (ADR 2894). The minted token states `id-sha256` as its
+    // digest algorithm and `rsaEncryption` as its signature algorithm, and its authority's key is
+    // RSA 2048, the key that verifies it.
+    let token = hex(minted::TOKEN);
+    let bytes = cms::fixtures::detached_with_signature_timestamp(&[0x00; 32], &token);
+    let stamped = cms::signed_data(&bytes).expect("a SignedData");
+    let suites = |entries: &[Vec<u8>]| basic(11, &seq(entries), None);
+    let verdicts = |entries: &[Vec<u8>], signed: &SignedData<'_>| {
+        component_verdicts(&judged(&[suites(entries)], signed, &facts(None)), |c| {
+            matches!(
+                c,
+                Constraint::SuiteAlgorithm {
+                    usage: Usage::TimestampToken,
+                    ..
+                }
+            )
+        })
+    };
+    let digest = suite(SHA256, &[TSTK_USAGE], None, None);
+    assert_eq!(
+        verdicts(
+            &[
+                digest.clone(),
+                suite(RSA_ENCRYPTION, &[TSTK_USAGE], Some(2048), None)
+            ],
+            &stamped
+        ),
+        [Verdict::Met, Verdict::Met]
+    );
+    assert_eq!(
+        verdicts(
+            &[
+                digest.clone(),
+                suite(RSA_ENCRYPTION, &[TSTK_USAGE], Some(3072), None)
+            ],
+            &stamped
+        ),
+        [Verdict::Met, Verdict::Broken],
+        "a 3072-bit minimum the 2048-bit authority key is under"
+    );
+    // The authority's certificate is signed under SHA-256 with RSA; that is its issuer's
+    // algorithm, not the one the authority made the token with.
+    assert_eq!(
+        verdicts(
+            &[
+                digest.clone(),
+                suite(SHA256_RSA, &[TSTK_USAGE], Some(2048), None)
+            ],
+            &stamped
+        ),
+        [Verdict::Met, Verdict::Broken]
+    );
+    // Listed only for the signature, so not for time-stamp tokens.
+    assert_eq!(
+        verdicts(
+            &[
+                digest.clone(),
+                suite(RSA_ENCRYPTION, &[SIGNATURE_USAGE], None, None)
+            ],
+            &stamped
+        ),
+        [Verdict::Met, Verdict::Broken]
+    );
+    // No token: said only where an entry names the usage outright.
+    assert_eq!(
+        verdicts(std::slice::from_ref(&digest), &default_cms()),
+        [Verdict::Met]
+    );
+    // A list whose entries name other usages only says nothing of time-stamp tokens.
+    assert!(verdicts(&[suite(SHA256, &[SIGNATURE_USAGE], None, None)], &stamped).is_empty());
+    // The usage is no longer among those named and not evaluated.
+    let found = judged(&[suites(&[digest])], &stamped, &facts(None));
     assert!(component_verdicts(&found, |c| matches!(c, Constraint::SuiteUsage(_))).is_empty());
 }

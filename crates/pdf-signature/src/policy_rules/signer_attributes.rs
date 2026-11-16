@@ -24,9 +24,10 @@
 //! by [`certified`] under RFC 5755 section 5 and the trust trees the policy states (ADR 2797); it
 //! certifies an attribute only where it is valid, its chain's revocation checked where the policy
 //! requires it (ADR 2890). Named as not evaluated: a signed assertion, which is counted and never
-//! opened; and every constraint on an attribute's *value*, because two values of one
-//! attribute type are equal by that type's own matching rule (ITU-T X.501), which this program
-//! does not hold per type.
+//! opened; a TS 119 172 constraint on an attribute's value, whose form neither syntax defines;
+//! and a TR 102 272 value constraint where [`values`] cannot decide the comparison, because two
+//! values of one attribute type are equal by that type's own matching rule (ITU-T X.501), which
+//! this program holds for the types [`values`] lists.
 
 use super::certification_path::{Search, TrustTrees};
 use super::revocation_checks::{Requirement, Timing};
@@ -35,6 +36,7 @@ use super::{Constraint, Finding, SignerFacts, Verdict};
 use crate::cms::{self, SignedData};
 use crate::der::{SEQUENCE, Value};
 use crate::signature::name;
+use crate::trust::names::Match;
 
 /// At most this many claimed attributes, attribute certificates and signed assertions are read
 /// out of one signature; past it the signature's signer attributes are named unreadable rather
@@ -106,6 +108,8 @@ impl Accepted {
 pub struct Carried<'a> {
     /// The type of each claimed attribute, as the contents octets of its object identifier.
     pub claimed: Vec<&'a [u8]>,
+    /// Each claimed attribute's `SET OF` values, in the order of [`Self::claimed`].
+    pub claimed_values: Vec<Value<'a>>,
     /// Each attribute certificate, of either `CertifiedAttributesV2` alternative, as the
     /// `AttributeCertificate` its tag wraps.
     pub certified: Vec<Value<'a>>,
@@ -209,16 +213,26 @@ fn entries<'a>(list: &Value<'a>) -> Result<Vec<Value<'a>>, Unreadable> {
 }
 
 /// `ClaimedAttributes ::= SEQUENCE OF Attribute`, where `Attribute ::= SEQUENCE { attrType,
-/// attrValues SET OF }`: each attribute's type.
+/// attrValues SET OF }`: each attribute's type and its values.
 fn read_claimed<'a>(list: &Value<'a>, out: &mut Carried<'a>) -> Result<(), Unreadable> {
     for attribute in entries(list)? {
         charge(out)?;
-        let kind = (attribute.identifier == SEQUENCE)
-            .then(|| attribute.children().ok()?.next_value().ok()?)
+        let mut members = (attribute.identifier == SEQUENCE)
+            .then(|| attribute.children().ok())
             .flatten()
+            .ok_or(Unreadable::Malformed)?;
+        let mut next = || members.next_value().ok().flatten();
+        let kind = next()
             .and_then(|kind| kind.object_identifier())
             .ok_or(Unreadable::Malformed)?;
+        let values = next()
+            .filter(|values| values.identifier == crate::der::SET)
+            .ok_or(Unreadable::Malformed)?;
+        if next().is_some() {
+            return Err(Unreadable::Malformed);
+        }
         out.claimed.push(kind);
+        out.claimed_values.push(values);
     }
     Ok(())
 }
@@ -317,8 +331,8 @@ pub struct AttributeTrust<'a> {
     pub revocation: Option<Requirement>,
     /// `attributeTypeConstraints`, where stated.
     pub types: Option<Vec<&'a [u8]>>,
-    /// The type of each `attributeValueConstraints` entry, where stated.
-    pub value_types: Option<Vec<&'a [u8]>>,
+    /// `attributeValueConstraints`, where stated: each type with a value valid for it.
+    pub values: Option<Vec<values::Listed<'a>>>,
 }
 
 /// What one finding about signer attributes judged.
@@ -367,8 +381,8 @@ pub enum Check {
         /// The identifier, as a sentence names it.
         identifier: String,
     },
-    /// TR 102 272 clause 6.9's `attributeValueConstraints`, where a claimed attribute is of a
-    /// type only they name.
+    /// TR 102 272 clause 6.9's `attributeValueConstraints`, where an attribute of a type only they
+    /// name was compared with their values and the comparison is undefined (ADR 2895).
     ConditionValues,
 }
 
@@ -435,11 +449,11 @@ impl Check {
             ),
             Self::Values { identifier } => write!(
                 f,
-                "the policy's constraints on the value of signer attribute {identifier} are {verdict}: a value is compared by its type's own matching rule"
+                "the policy's constraints on the value of signer attribute {identifier} are {verdict}: TS 119 172-3 defines no form of such a constraint, and TS 119 172-2 leaves its content open"
             ),
             Self::ConditionValues => write!(
                 f,
-                "the attribute trust condition's constraints on attribute values are {verdict}: a value is compared by its type's own matching rule"
+                "the attribute trust condition's constraints on attribute values are {verdict}: a carried value is of a type whose equality matching rule this program does not hold, or one its preparation of the strings cannot decide"
             ),
         }
     }
@@ -516,13 +530,101 @@ fn certificate_findings(
     }
 }
 
+/// What [`judge_condition`] found of the attributes it considers: whether one is within the
+/// condition's constraints, whether one might be, and whether a comparison of values was undefined.
+struct Answers {
+    within: bool,
+    undecided: bool,
+    values_undecided: bool,
+}
+
+/// TR 102 272 clause 6.9's constraints over the claimed attributes `claimed` with their values,
+/// and the attribute certificates `judged` (ADR 2895).
+fn answers(
+    condition: &AttributeTrust<'_>,
+    claimed: &[&[u8]],
+    claimed_values: &[Value<'_>],
+    judged: &[certified::Judged<'_>],
+) -> Answers {
+    let listed = condition.values.as_deref().unwrap_or_default();
+    let named_type = |kind: &[u8]| {
+        condition
+            .types
+            .as_ref()
+            .is_some_and(|types| types.contains(&kind))
+    };
+    let unconstrained = condition.types.is_none() && condition.values.is_none();
+    // One attribute against the constraints: within where its type is named or nothing is
+    // constrained, else by its values where only `attributeValueConstraints` names its type.
+    let answer = |kind: &[u8], set: Option<&Value<'_>>| {
+        if unconstrained || named_type(kind) {
+            Match::Yes
+        } else if listed.iter().any(|entry| entry.kind == kind) {
+            set.map_or(Match::Undecided, |set| values::within(kind, set, listed))
+        } else {
+            Match::No
+        }
+    };
+    let by_value_undecided = |kind: &[u8], set: Option<&Value<'_>>| {
+        !unconstrained
+            && !named_type(kind)
+            && listed.iter().any(|entry| entry.kind == kind)
+            && answer(kind, set) == Match::Undecided
+    };
+    let claimed_pairs = claimed.iter().zip(claimed_values);
+    // The best answer an attribute certificate gives: one that was not read may carry anything.
+    let best = |judged: &certified::Judged<'_>| match &judged.types {
+        None => Match::Undecided,
+        Some(types) => types
+            .iter()
+            .enumerate()
+            .fold(Match::No, |best, (index, kind)| {
+                match (best, answer(kind, judged.values.get(index))) {
+                    (Match::Yes, _) | (_, Match::Yes) => Match::Yes,
+                    (Match::Undecided, _) | (_, Match::Undecided) => Match::Undecided,
+                    _ => Match::No,
+                }
+            }),
+    };
+    let valid = |judged: &&certified::Judged<'_>| judged.outcome == certified::Outcome::Valid;
+    let claimed_undecided = claimed_pairs
+        .clone()
+        .any(|(kind, set)| by_value_undecided(kind, Some(set)));
+    let certified_undecided = judged.iter().filter(valid).any(|judged| {
+        judged.types.as_ref().is_some_and(|types| {
+            types
+                .iter()
+                .enumerate()
+                .any(|(index, kind)| by_value_undecided(kind, judged.values.get(index)))
+        })
+    });
+    let within = claimed_pairs
+        .clone()
+        .any(|(kind, set)| answer(kind, Some(set)) == Match::Yes)
+        || judged
+            .iter()
+            .filter(valid)
+            .any(|judged| best(judged) == Match::Yes);
+    let undecided = claimed_undecided
+        || certified_undecided
+        || judged.iter().any(|judged| {
+            matches!(judged.outcome, certified::Outcome::Undecided(_)) && best(judged) != Match::No
+        });
+    Answers {
+        within,
+        undecided,
+        values_undecided: claimed_undecided || certified_undecided,
+    }
+}
+
 /// TR 102 272 clause 6.9's attribute trust condition.
 ///
 /// Where `attributeMandated` is true an attribute within the condition's constraints must be
 /// present: a claimed one, where the kind admits claimed attributes, or one a valid attribute
 /// certificate certifies, where it admits certified ones; within them where its type is among
-/// `attributeTypeConstraints` or no constraint is stated, and undecided where only
-/// `attributeValueConstraints` names its type. Clause 6.9 makes `howCertAttribute` say which
+/// `attributeTypeConstraints` or no constraint is stated, or where only `attributeValueConstraints`
+/// names its type and every value it carries is one of theirs by the type's equality matching
+/// rule ([`values`], ADR 2895), undecided where that comparison is. Clause 6.9 makes `howCertAttribute` say which
 /// attributes are considered, so a carried attribute of another kind is passed over. It makes
 /// `attrCertificateTrustTrees` the path conditions for any attribute certificate, the signing
 /// certificate's where it states none, so each attribute certificate of an admitted kind is judged
@@ -557,33 +659,23 @@ pub(super) fn judge_condition(
     } else {
         Vec::new()
     };
-    let stated = |list: &Option<Vec<&[u8]>>, kind: &[u8]| {
-        list.as_ref().is_some_and(|list| list.contains(&kind))
+    let claimed_values: &[Value<'_>] = if claimed.is_empty() {
+        &[]
+    } else {
+        &carried.claimed_values
     };
-    let unconstrained = condition.types.is_none() && condition.value_types.is_none();
-    let within = |kind: &[u8]| unconstrained || stated(&condition.types, kind);
-    let by_value =
-        |kind: &[u8]| !stated(&condition.types, kind) && stated(&condition.value_types, kind);
-    let claimed_by_value = claimed.iter().any(|kind| by_value(kind));
-    let certified_by_value = judged.iter().any(|judged| judged.certifies(by_value));
+    let found = answers(condition, claimed, claimed_values, &judged);
     if condition.mandated {
-        let verdict = if claimed.iter().any(|kind| within(kind))
-            || judged.iter().any(|judged| judged.certifies(within))
-        {
+        let verdict = if found.within {
             Verdict::Met
-        } else if claimed_by_value
-            || certified_by_value
-            || judged
-                .iter()
-                .any(|judged| judged.might_certify(|kind| within(kind) || by_value(kind)))
-        {
+        } else if found.undecided {
             Verdict::NotEvaluated
         } else {
             Verdict::Broken
         };
         out.push(finding(verdict, Check::Mandated { accepted }));
     }
-    if claimed_by_value || certified_by_value {
+    if found.values_undecided {
         out.push(finding(Verdict::NotEvaluated, Check::ConditionValues));
     }
     certificate_findings(&judged, |judged| Some(judged.outcome.verdict()), out);
@@ -751,6 +843,7 @@ fn level(
 }
 
 pub mod certified;
+pub mod values;
 
 #[cfg(test)]
 pub(super) mod tests;

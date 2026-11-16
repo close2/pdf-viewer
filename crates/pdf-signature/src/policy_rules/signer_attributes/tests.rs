@@ -378,7 +378,7 @@ fn a_condition_without_trees_of_its_own_takes_the_signing_certificates() {
         trust_trees: None,
         revocation: None,
         types,
-        value_types: None,
+        values: None,
     };
     let judge = |condition: &AttributeTrust<'_>, roots: &[&[u8]]| {
         with_hierarchy(&v2(&[], 1, 0), |signature, context, out| {

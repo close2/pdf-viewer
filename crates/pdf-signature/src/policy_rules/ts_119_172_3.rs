@@ -108,6 +108,11 @@ pub const PATH_CERT_USAGE: &str = "http://uri.etsi.org/19172/v1.1.1/Usage#PathCe
 /// authority (ADR 2891).
 pub const AA_CERT_USAGE: &str = "http://uri.etsi.org/19172/v1.1.1/Usage#AaCert";
 
+/// TS 119 172-2 clause 4.29.2's usage URI for algorithms that generate time-stamp tokens: here
+/// the token of the signature's `signature-time-stamp` attribute, which its time-stamping
+/// authority signed (ADR 2894).
+pub const TSTK_USAGE: &str = "http://uri.etsi.org/19172/v1.1.1/Usage#Tstk";
+
 /// Clause 4.14.2's `SigPolicyScope`: where the policy recommends a rule be used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scope {
@@ -1573,6 +1578,8 @@ pub enum Usage {
     /// [`AA_CERT_USAGE`]: the signature's attribute certificate of this ordinal, from one; `None`
     /// where it carries none, or its signer attributes do not read.
     AttributeCertificate(Option<usize>),
+    /// [`TSTK_USAGE`]: the signature's time-stamp token, where it carries one that reads.
+    TimestampToken,
 }
 
 /// A constraint of TS 119 172-3 that TR 102 272's vocabulary has no counterpart for.
@@ -2096,6 +2103,7 @@ fn judge_suites(
     }
     judge_path_suites(list, path, out);
     judge_attribute_suites(list, cms, out);
+    judge_token_suites(list, cms, out);
     for entry in list {
         if let Identifier::Uri(uri) = entry.algorithm {
             out.push(component(
@@ -2122,6 +2130,7 @@ fn judge_suites(
             if *usage != SIGNATURE_USAGE
                 && *usage != PATH_CERT_USAGE
                 && *usage != AA_CERT_USAGE
+                && *usage != TSTK_USAGE
                 && !SIGNING_CERT_USAGE.contains(usage)
             {
                 others.insert(*usage);
@@ -2268,6 +2277,69 @@ fn judge_attribute_suites(
             ),
             entry.is_some(),
             &[AA_CERT_USAGE],
+        ));
+    }
+}
+
+/// Clause 4.29's usage for algorithms that generate time-stamp tokens, over the token of the
+/// signature's `signature-time-stamp` attribute: its digest algorithm and its signature algorithm,
+/// as the signature usage judges the signature's own, the key length measured on the
+/// time-stamping authority's key where that key verifies the token (ADR 2894). An entry naming no
+/// usage names this one too (clause 4.29.1); a signature carrying no token is said only where an
+/// entry names the usage outright, as [`judge_attribute_suites`] says of attribute certificates.
+fn judge_token_suites(
+    list: &[AlgorithmConstraint<'_>],
+    cms: &SignedData<'_>,
+    out: &mut Vec<Finding>,
+) {
+    if !list.iter().any(|entry| names(entry, &[TSTK_USAGE])) {
+        return;
+    }
+    let unknown = |verdict| {
+        component(
+            verdict,
+            Constraint::SuiteAlgorithm {
+                usage: Usage::TimestampToken,
+                algorithm: None,
+                listed: false,
+                min_key_length: None,
+                key_bits: None,
+                min_hash_length: None,
+                hash_bits: None,
+            },
+        )
+    };
+    let made = match super::token_made(cms) {
+        super::TokenMade::NoneCarried => {
+            if list.iter().any(|entry| entry.usages.contains(&TSTK_USAGE)) {
+                out.push(unknown(Verdict::Met));
+            }
+            return;
+        }
+        super::TokenMade::Unread => {
+            out.push(unknown(Verdict::NotEvaluated));
+            return;
+        }
+        super::TokenMade::Read(made) => made,
+    };
+    for (used, is_signature) in [
+        (made.digest_algorithm, false),
+        (made.signature_algorithm, true),
+    ] {
+        let entry = list
+            .iter()
+            .find(|entry| entry.algorithm.is(used) && names(entry, &[TSTK_USAGE]));
+        out.push(undecided(
+            list,
+            suite_finding(
+                Usage::TimestampToken,
+                Some(used),
+                entry,
+                is_signature.then_some(made.key_bits).flatten(),
+                is_signature,
+            ),
+            entry.is_some(),
+            &[TSTK_USAGE],
         ));
     }
 }
@@ -2519,6 +2591,7 @@ fn suite_sentence(
         Usage::Signature => "the signature",
         Usage::SigningCertificate => "the signing certificate",
         Usage::PathCertificate => "a CA certificate on the path to the policy's trust point",
+        Usage::TimestampToken => "the signature's time-stamp token",
         Usage::AttributeCertificate(ordinal) => {
             let Some(ordinal) = ordinal else {
                 return write!(
@@ -2550,6 +2623,17 @@ fn suite_sentence(
                     "no CA certificate stands between the signing certificate and the policy's trust point"
                 } else {
                     "no path to the policy's own trust points validated"
+                }
+            );
+        }
+        if usage.ends_with("time-stamp token") {
+            return write!(
+                f,
+                "the policy's cryptographic suite rules for time-stamp tokens are {verdict}: {}",
+                if verdict == "met" {
+                    "the signature carries no time-stamp token"
+                } else {
+                    "the signature's time-stamp token does not read, so the algorithms its authority made it with are not known"
                 }
             );
         }

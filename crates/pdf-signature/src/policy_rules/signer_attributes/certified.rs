@@ -216,6 +216,9 @@ impl Outcome {
 pub struct Judged<'a> {
     /// The types of the attributes it carries; `None` where it was not read.
     pub types: Option<Vec<&'a [u8]>>,
+    /// Each attribute's `SET OF` values, in the order of [`Self::types`]; empty where it was not
+    /// read.
+    pub values: Vec<Value<'a>>,
     /// What section 5 found.
     pub outcome: Outcome,
 }
@@ -317,12 +320,14 @@ pub(super) fn judge<'a>(
         Err(Unreadable::TooMany(list)) => {
             return Judged {
                 types: None,
+                values: Vec::new(),
                 outcome: Outcome::Undecided(Undecided::TooMany(list)),
             };
         }
         Err(why) => {
             return Judged {
                 types: None,
+                values: Vec::new(),
                 outcome: Outcome::Invalid(Invalid::Unreadable(why)),
             };
         }
@@ -330,6 +335,7 @@ pub(super) fn judge<'a>(
     let outcome = outcome(&read, cms, conditions);
     Judged {
         types: Some(read.types),
+        values: read.values,
         outcome,
     }
 }

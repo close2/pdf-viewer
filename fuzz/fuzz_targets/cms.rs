@@ -127,8 +127,20 @@ fuzz_target!(|data: &[u8]| {
                 .saturating_add(carried.assertions)
                 <= signer_attributes::MAX_SIGNER_ATTRIBUTES
         );
+        // Each claimed attribute keeps its values beside its type, and an attribute is compared
+        // by value only through them (ADR 2895): the comparison is total over what was read.
+        assert_eq!(carried.claimed.len(), carried.claimed_values.len());
+        for (kind, values) in carried.claimed.iter().zip(&carried.claimed_values) {
+            inside(values.contents);
+            let listed = [signer_attributes::values::Listed {
+                kind,
+                value: *values,
+            }];
+            let _ = signer_attributes::values::within(kind, values, &listed);
+        }
         for certificate in &carried.certified {
             if let Ok(read) = attribute_certificate::read(*certificate) {
+                assert_eq!(read.types.len(), read.values.len());
                 assert!(read.types.len() <= attribute_certificate::MAX_ATTRIBUTES);
                 assert!(read.holder.entity.len() <= attribute_certificate::MAX_ENTRIES);
                 inside(read.info);

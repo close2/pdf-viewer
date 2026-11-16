@@ -90,10 +90,14 @@ permanent) or an owner decision to acquire a specification.
   Canonical XML 1.1, which `policy_rules::canonical_xml` computes (ADRs 2644, 2710); the constraints
   that rest on certification paths — the trust conditions against a policy's own trust points, the
   certificate-issuer algorithm constraints, the full-path requirements, an attribute certificate's
-  chain and the algorithm its authority signed it under — are evaluated (ADRs 2711, 2714, 2720,
-  2797, 2890, 2891). What is left is human-readable policies, a C caller's fetched copy, signed
-  assertions, constraints on a signer attribute's value, and a trusted-list anchor whose list nobody
-  supplied (ADRs 2725, 2782).
+  chain and the algorithm its authority signed it under, and the algorithms a time-stamping
+  authority made the signature's token with — are evaluated (ADRs 2711, 2714, 2720, 2797, 2890,
+  2891, 2894), and TR 102 272's constraints on a signer attribute's value are compared by each
+  type's X.520 equality rule where this tree holds it (ADR 2895). What is left is human-readable
+  policies, a C caller's fetched copy, a signed SAML assertion, which needs a SAML reader, a value
+  of a type whose rule is not held, and a trusted-list anchor whose list nobody supplied (ADRs 2725,
+  2782, 2895); a signed assertion of any other form and a TS 119 172 value constraint have no form
+  in the texts, and are limits.
 
 ISO/TS 32002's brainpoolP512r1 and Ed448 are not in this bucket: they are the tree's own under the
 owner's answer A170 (ADRs 1385 and 1386), so an upstream release is their *swap* condition rather

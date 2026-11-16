@@ -7,6 +7,8 @@ use crate::policy::Specification;
 pub(super) const SHA256: &[u8] = &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01];
 /// `sha256WithRSAEncryption`, 1.2.840.113549.1.1.11.
 pub(super) const SHA256_RSA: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B];
+/// `rsaEncryption`, 1.2.840.113549.1.1.1.
+pub(super) const RSA_ENCRYPTION: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01];
 /// A policy identifier of the tests' own, 1.2.3.4.
 pub(super) const POLICY: &[u8] = &[0x2A, 0x03, 0x04];
 /// A commitment type of the tests' own, 1.2.3.5.
@@ -748,8 +750,7 @@ fn the_caution_period_decides_which_material_answers_and_when_a_verifier_may_ask
 
 /// TR 102 272 clause 6.8 over the authority that issued the signature's time-stamp token: its own
 /// trust trees, its `ttsRevReq` answered per kind of certificate from the material beside the
-/// signature (clause 6.6.2), and clause 6.10's `tsaCertAlgorithmConstraints` on the authority's
-/// certificate (ADR 2720). The hierarchy is `revocation_checks`' minted one.
+/// signature (clause 6.6.2). The hierarchy is `revocation_checks`' minted one.
 #[test]
 fn the_time_stamp_trust_condition_is_judged_on_the_authoritys_own_path() {
     use crate::policy_rules::certification_path::tests::hex;
@@ -766,14 +767,12 @@ fn the_time_stamp_trust_condition_is_judged_on_the_authoritys_own_path() {
     // 2027-01-01T00:00:00Z, after every piece of the minted material was issued.
     let at = Instant::from_unix_seconds(1_798_761_600);
     let crl_check = || seq(&[tlv(ENUMERATED, &[0])]);
-    let rsa = |bits: &[u8]| seq(&[oid(SHA256_RSA), tlv(der::INTEGER, bits)]);
-    let judged = |material: &Material<'_>, minimum: &[u8]| {
+    let judged = |material: &Material<'_>| {
         let octets = Fixture {
             timestamp_condition: vec![
                 tagged(0, &seq(&[seq(&[hex(minted::ROOT)])])),
                 tagged(1, &seq(&[crl_check(), tagged(0, &crl_check())])),
             ],
-            issuer_algorithms: vec![tagged(4, &seq(&[rsa(minimum)]))],
             ..Fixture::default()
         }
         .octets();
@@ -785,34 +784,23 @@ fn the_time_stamp_trust_condition_is_judged_on_the_authoritys_own_path() {
         )
     };
     let stamp = |c: &Constraint| matches!(c, Constraint::TrustPath { condition, .. } | Constraint::RevocationCheck { condition, .. } if *condition == TIMESTAMP_TRUST);
-    let tsa = |c: &Constraint| matches!(c, Constraint::IssuerAlgorithm { member, .. } if *member == TSA_ALGORITHMS);
 
     let good = Material::read(&[&root_crl, &intermediate_crl], &[]);
-    let met = judged(&good, &[0x08, 0x00]);
+    let met = judged(&good);
     assert_eq!(
         verdict_of(&met, stamp),
         [Verdict::Met, Verdict::Met, Verdict::Met],
         "the authority's path to the condition's trust point, then clrCheck on the authority and on the intermediate"
     );
-    assert_eq!(
-        verdict_of(&met, tsa),
-        [Verdict::Met],
-        "the authority's certificate, issued under SHA-256 with RSA by a 2048-bit key"
-    );
-    assert_eq!(
-        verdict_of(&judged(&good, &[0x0C, 0x00]), tsa),
-        [Verdict::Broken],
-        "a 3072-bit minimum the 2048-bit issuer key is under"
-    );
 
     let listed = Material::read(&[&root_crl, &revoked], &[]);
     assert_eq!(
-        verdict_of(&judged(&listed, &[0x08, 0x00]), stamp),
+        verdict_of(&judged(&listed), stamp),
         [Verdict::Met, Verdict::Broken, Verdict::Met],
         "the intermediate's CRL lists the authority, revoked before the instant"
     );
     assert_eq!(
-        verdict_of(&judged(&Material::none(), &[0x08, 0x00]), stamp),
+        verdict_of(&judged(&Material::none()), stamp),
         [Verdict::Met, Verdict::NotEvaluated, Verdict::NotEvaluated],
         "no material answers either check, which is indeterminate rather than broken"
     );
@@ -829,13 +817,113 @@ fn the_time_stamp_trust_condition_is_judged_on_the_authoritys_own_path() {
     assert_eq!(verdict_of(&inherited, stamp), [Verdict::Met]);
 }
 
+/// TR 102 272 clause 6.10's `tsaCertAlgorithmConstraints`, read with TS 119 172-2 clause 4.29.1's
+/// usage for algorithms "used for generating time-stamp tokens", over the algorithms the authority
+/// made the signature's time-stamp token with (ADR 2894). The minted token states `id-sha256` as
+/// its digest algorithm and `rsaEncryption` as its signature algorithm, and the RSA 2048 key of
+/// the authority's certificate verifies it.
+#[test]
+fn a_time_stamping_authority_is_held_to_the_algorithms_clause_6_10_lists_for_its_tokens() {
+    use crate::policy_rules::certification_path::tests::{hex, value};
+    use crate::policy_rules::revocation_checks::tests::fixtures as minted;
+    let token = hex(minted::TOKEN);
+    let bytes = cms::fixtures::detached_with_signature_timestamp(&[0x00; 32], &token);
+    let stamped = cms::signed_data(&bytes).expect("a SignedData");
+    // The same token with the last octet of its signature value changed: it no longer verifies.
+    let mut forged = token.clone();
+    let last = forged.len() - 1;
+    forged[last] ^= 0x01;
+    let forged_bytes = cms::fixtures::detached_with_signature_timestamp(&[0x00; 32], &forged);
+    let unverified = cms::signed_data(&forged_bytes).expect("a SignedData");
+    let entry = |algorithm: &[u8], bits: Option<&[u8]>| {
+        let mut members = vec![oid(algorithm)];
+        members.extend(bits.map(|bits| tlv(der::INTEGER, bits)));
+        seq(&members)
+    };
+    let judged = |entries: &[Vec<u8>], signed: &SignedData<'_>| {
+        let octets = Fixture {
+            issuer_algorithms: vec![tagged(4, &seq(entries))],
+            ..Fixture::default()
+        }
+        .octets();
+        let document = PolicyDocument::parse(&octets).expect("a clause 6 document");
+        findings(&document, signed, &facts(None))
+            .into_iter()
+            .filter(|finding| matches!(finding.constraint, Constraint::TimestampAlgorithm(_)))
+            .map(|finding| (finding.verdict, finding.to_string()))
+            .collect::<Vec<_>>()
+    };
+    let verdicts = |found: Vec<(Verdict, String)>| {
+        found
+            .into_iter()
+            .map(|(verdict, _)| verdict)
+            .collect::<Vec<_>>()
+    };
+    let sha256 = entry(SHA256, None);
+    let at_least = |bits: &[u8]| entry(RSA_ENCRYPTION, Some(bits));
+    // Both listed, and the authority's 2048 bits meet a minimum of 2048.
+    let met = judged(&[sha256.clone(), at_least(&[0x08, 0x00])], &stamped);
+    assert_eq!(verdicts(met.clone()), [Verdict::Met, Verdict::Met]);
+    assert!(
+        met[1]
+            .1
+            .contains("2048 bits against the authority's key of 2048 bits"),
+        "{}",
+        met[1].1
+    );
+    // A minimum of 3072 the authority's key is under.
+    assert_eq!(
+        verdicts(judged(&[sha256.clone(), at_least(&[0x0C, 0x00])], &stamped)),
+        [Verdict::Met, Verdict::Broken]
+    );
+    // The digest algorithm unlisted.
+    assert_eq!(
+        verdicts(judged(&[entry(RSA_ENCRYPTION, None)], &stamped)),
+        [Verdict::Broken, Verdict::Met]
+    );
+    // SHA-256 with RSA is what the authority's certificate was issued under, by its issuer; the
+    // list constrains what the authority made, so it admits no algorithm of this token's signature.
+    assert_eq!(
+        verdicts(judged(
+            &[sha256.clone(), entry(SHA256_RSA, Some(&[0x08, 0x00]))],
+            &stamped
+        )),
+        [Verdict::Met, Verdict::Broken]
+    );
+    // A token that does not verify was still made with its algorithms, but no key is shown to
+    // have made it, so a minimum is not evaluated while the algorithms are still judged.
+    assert_eq!(
+        verdicts(judged(
+            &[sha256.clone(), at_least(&[0x08, 0x00])],
+            &unverified
+        )),
+        [Verdict::Met, Verdict::NotEvaluated]
+    );
+    assert_eq!(
+        verdicts(judged(&[entry(RSA_ENCRYPTION, None)], &unverified)),
+        [Verdict::Broken, Verdict::Met]
+    );
+    // No token: nothing for the list to constrain.
+    assert_eq!(
+        verdicts(judged(std::slice::from_ref(&sha256), &default_cms())),
+        [Verdict::Met]
+    );
+    // An attribute that holds no `SignedData`: what made it is not known.
+    let mut unread = default_cms();
+    let not_a_token = seq(&[]);
+    unread.signature_timestamp = Some(value(&not_a_token));
+    let found = judged(&[sha256], &unread);
+    assert_eq!(verdicts(found.clone()), [Verdict::NotEvaluated]);
+    assert!(found[0].1.contains("does not read"), "{}", found[0].1);
+}
+
 /// Clause 6.9's `AttributeTrustCondition`: `attributeMandated`, `howCertAttribute`, and the
 /// `attributeConstraints` lists given.
 fn attribute_condition(
     mandated: bool,
     how: u8,
     types: Option<&[&[u8]]>,
-    value_types: Option<&[&[u8]]>,
+    values: Option<&[(&[u8], &str)]>,
 ) -> Vec<Vec<u8>> {
     let mut members = vec![
         tlv(BOOLEAN, &[if mandated { 0xFF } else { 0x00 }]),
@@ -845,14 +933,14 @@ fn attribute_condition(
     if let Some(types) = types {
         lists.push(tagged(0, &identifiers(types)));
     }
-    if let Some(value_types) = value_types {
-        let pairs: Vec<_> = value_types
+    if let Some(values) = values {
+        let pairs: Vec<_> = values
             .iter()
-            .map(|kind| seq(&[oid(kind), tlv(0x0C, b"x")]))
+            .map(|(kind, text)| seq(&[oid(kind), tlv(0x0C, text.as_bytes())]))
             .collect();
         lists.push(tagged(1, &seq(&pairs)));
     }
-    if types.is_some() || value_types.is_some() {
+    if types.is_some() || values.is_some() {
         members.push(tagged(2, &seq(&lists)));
     }
     members
@@ -904,9 +992,9 @@ fn a_mandated_attribute_within_the_attribute_trust_condition_is_met_and_its_abse
 }
 
 #[test]
-fn a_certified_or_value_constrained_attribute_leaves_the_condition_not_evaluated() {
+fn a_certified_or_value_constrained_attribute_is_judged_by_its_validity_and_its_values() {
     use signer_attributes::Check;
-    use signer_attributes::tests::{TITLE, carrying, v2};
+    use signer_attributes::tests::{ROLE, TITLE, carrying, v2};
     let mandated =
         |c: &Constraint| matches!(c, Constraint::SignerAttribute(Check::Mandated { .. }));
     let named = |c: &Constraint| {
@@ -930,21 +1018,49 @@ fn a_certified_or_value_constrained_attribute_leaves_the_condition_not_evaluated
     );
     assert_eq!(verdict_of(&found, mandated), [Verdict::NotEvaluated]);
     assert_eq!(verdict_of(&found, named), [Verdict::NotEvaluated]);
-    // A claimed title that only `attributeValueConstraints` names is valid for one value only.
-    let by_value = Fixture {
-        attribute_condition: Some(attribute_condition(true, 0, None, Some(&[TITLE]))),
-        ..Fixture::default()
-    }
-    .octets();
-    let document = PolicyDocument::parse(&by_value).expect("a clause 6 document");
-    let value = v2(&[TITLE], 0, 0);
-    let found = findings(
-        &document,
-        &carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, &value),
-        &facts(None),
+    // A claimed attribute whose type only `attributeValueConstraints` names is within the
+    // condition where its value is a listed one by the type's equality matching rule (ADR 2895).
+    // The claimed fixture's value is the UTF8String "x".
+    let by_value = |values: &[(&[u8], &str)], claimed: &[&[u8]]| {
+        let octets = Fixture {
+            attribute_condition: Some(attribute_condition(true, 0, None, Some(values))),
+            ..Fixture::default()
+        }
+        .octets();
+        let document = PolicyDocument::parse(&octets).expect("a clause 6 document");
+        let value = v2(claimed, 0, 0);
+        let found = findings(
+            &document,
+            &carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, &value),
+            &facts(None),
+        );
+        (verdict_of(&found, mandated), verdict_of(&found, named))
+    };
+    // A title is a subtype of `name`, so X.520's `caseIgnoreMatch`: "X" is "x".
+    assert_eq!(
+        by_value(&[(TITLE, "X")], &[TITLE]),
+        (vec![Verdict::Met], vec![])
     );
-    assert_eq!(verdict_of(&found, mandated), [Verdict::NotEvaluated]);
-    assert_eq!(verdict_of(&found, named), [Verdict::NotEvaluated]);
+    assert_eq!(
+        by_value(&[(TITLE, "y"), (TITLE, " x ")], &[TITLE]),
+        (vec![Verdict::Met], vec![])
+    );
+    // A title the policy does not consider valid is not within the condition.
+    assert_eq!(
+        by_value(&[(TITLE, "y")], &[TITLE]),
+        (vec![Verdict::Broken], vec![])
+    );
+    // A role's rule is not X.520's, so whether "x" is "x" by it is undefined (X.501 clause
+    // 8.9.2.1 (a)): the condition is not evaluated and the comparison is named.
+    assert_eq!(
+        by_value(&[(ROLE, "x")], &[ROLE]),
+        (vec![Verdict::NotEvaluated], vec![Verdict::NotEvaluated])
+    );
+    // An undecided role does not outweigh a title that is within.
+    assert_eq!(
+        by_value(&[(ROLE, "x"), (TITLE, "x")], &[ROLE, TITLE]),
+        (vec![Verdict::Met], vec![Verdict::NotEvaluated])
+    );
     // Not mandated, and nothing certified carried: nothing to judge.
     let optional = Fixture {
         attribute_condition: Some(attribute_condition(false, 2, None, None)),

@@ -29,8 +29,8 @@
 //! information requirements of clause 6.5.1, and clause 6.10's `eeCertAlgorithmConstraints` and
 //! `caCertAlgorithmConstraints` against the issuers along that path. Clause 6.8's time-stamp trust
 //! condition is evaluated the same way on a path from the certificate of the authority that issued
-//! the signature's time-stamp token, with clause 6.10's `tsaCertAlgorithmConstraints` on that
-//! certificate, and clause 6.6.2's revocation checks of both conditions are answered per kind of
+//! the signature's time-stamp token, clause 6.10's `tsaCertAlgorithmConstraints` holds the
+//! algorithms that authority made the token with (ADR 2894), and clause 6.6.2's revocation checks of both conditions are answered per kind of
 //! certificate from the material beside the signature ([`revocation_checks`], ADR 2720), taking
 //! only material issued after clause 6.8's caution period where the policy states one; the
 //! signature time-stamp delay of clause 6.8 is held against the claimed signing time (ADR 2775).
@@ -103,7 +103,8 @@ pub const ATTRIBUTE_TRUST: &str = "attribute trust condition";
 pub const END_ENTITY_ALGORITHMS: &str = "eeCertAlgorithmConstraints";
 /// Clause 6.10's list for the issuers of CA certificates.
 pub const AUTHORITY_ALGORITHMS: &str = "caCertAlgorithmConstraints";
-/// Clause 6.10's list for the certificates of time-stamping authorities.
+/// Clause 6.10's list for time-stamping authorities: the algorithms one may make a time-stamp token
+/// with (ADR 2894).
 pub const TSA_ALGORITHMS: &str = "tsaCertAlgorithmConstraints";
 /// Clause 6.10's list for attribute authorities.
 pub const AA_ALGORITHMS: &str = "aaCertAlgorithmConstraints";
@@ -321,8 +322,9 @@ pub struct Rules<'a> {
     pub authority_algorithms: Option<Vec<AlgorithmAndLength<'a>>>,
     /// Clause 6.8's `timeStampTrustCondition`, where stated.
     pub timestamp_trust: Option<TimestampTrust<'a>>,
-    /// Clause 6.10's `tsaCertAlgorithmConstraints`, where stated.
-    pub authority_certificate_algorithms: Option<Vec<AlgorithmAndLength<'a>>>,
+    /// Clause 6.10's `tsaCertAlgorithmConstraints`, where stated: the algorithms a time-stamping
+    /// authority may make a time-stamp token with (ADR 2894).
+    pub timestamp_algorithms: Option<Vec<AlgorithmAndLength<'a>>>,
     /// Clause 6.10's `aaCertAlgorithmConstraints`, where stated: the algorithms an attribute
     /// authority may sign an attribute certificate under (ADR 2891).
     pub attribute_algorithms: Option<Vec<AlgorithmAndLength<'a>>>,
@@ -727,7 +729,7 @@ fn read_rules<'a>(
                             (&mut rules.attribute_algorithms, AA_ALGORITHMS)
                         }
                         (der::Class::ContextSpecific, 4) => {
-                            (&mut rules.authority_certificate_algorithms, TSA_ALGORITHMS)
+                            (&mut rules.timestamp_algorithms, TSA_ALGORITHMS)
                         }
                         _ => return Err(PolicyDocumentError::Malformed("algorithmConstraintSet")),
                     };
@@ -1112,7 +1114,7 @@ fn read_attribute_trust<'a>(
         trust_trees: None,
         revocation: None,
         types: None,
-        value_types: None,
+        values: None,
     };
     let mut previous = None;
     while let Some(member) = members.next_value()? {
@@ -1158,8 +1160,8 @@ fn read_attribute_trust<'a>(
                                 budget,
                             )?);
                         }
-                        (der::Class::ContextSpecific, 1) if out.value_types.is_none() => {
-                            out.value_types = Some(read_value_types(&list, budget)?);
+                        (der::Class::ContextSpecific, 1) if out.values.is_none() => {
+                            out.values = Some(read_values(&list, budget)?);
                         }
                         _ => return Err(PolicyDocumentError::Malformed("attributeConstraints")),
                     }
@@ -1170,29 +1172,36 @@ fn read_attribute_trust<'a>(
     Ok(out)
 }
 
-/// Clause 6.9's `attributeValueConstraints`: the type of each `AttributeTypeAndValue ::= SEQUENCE
-/// { type, value }`, kept; the value is not compared (`signer_attributes`).
-fn read_value_types<'a>(
+/// Clause 6.9's `attributeValueConstraints`: each `AttributeTypeAndValue ::= SEQUENCE { type,
+/// value }`, which `signer_attributes::values` compares a carried attribute's values against
+/// (ADR 2895).
+fn read_values<'a>(
     list: &Value<'a>,
     budget: &mut Budget,
-) -> Result<Vec<&'a [u8]>, PolicyDocumentError> {
+) -> Result<Vec<signer_attributes::values::Listed<'a>>, PolicyDocumentError> {
     let pairs = expect(
         Some(explicit(list, "attributeValueConstraints")?),
         SEQUENCE,
         "attributeValueConstraints",
     )?;
-    let mut types = Vec::new();
+    let mut listed = Vec::new();
     let mut entries = pairs.children()?;
     while let Some(pair) = entries.next_value()? {
         budget.take()?;
-        let kind = expect(Some(pair), SEQUENCE, "AttributeTypeAndValue")?
-            .children()?
+        let mut members = expect(Some(pair), SEQUENCE, "AttributeTypeAndValue")?.children()?;
+        let kind = members
             .next_value()?
             .and_then(|kind| kind.object_identifier())
             .ok_or(PolicyDocumentError::Malformed("AttributeTypeAndValue.type"))?;
-        types.push(kind);
+        let value = members.next_value()?.ok_or(PolicyDocumentError::Malformed(
+            "AttributeTypeAndValue.value",
+        ))?;
+        if members.next_value()?.is_some() {
+            return Err(PolicyDocumentError::Malformed("AttributeTypeAndValue"));
+        }
+        listed.push(signer_attributes::values::Listed { kind, value });
     }
-    Ok(types)
+    Ok(listed)
 }
 
 /// A one-octet `ENUMERATED`, which is every enumeration clause 6 defines.
@@ -1527,6 +1536,9 @@ pub enum Constraint {
     },
     /// One attribute certificate against clause 6.10's `aaCertAlgorithmConstraints` (ADR 2891).
     AttributeAlgorithm(AttributeIssuance),
+    /// One algorithm of the signature's time-stamp token against clause 6.10's
+    /// `tsaCertAlgorithmConstraints` (ADR 2894).
+    TimestampAlgorithm(TokenIssuance),
     /// A clause 6.11 extension, or a TS 119 172-3 `Other`, by its identifier.
     Extension(String),
     /// A constraint of TS 119 172-3's policy components with no counterpart in clause 6.
@@ -2018,6 +2030,9 @@ fn judge(
     if let Some(list) = &rules.attribute_algorithms {
         attribute_authority_findings(list, cms, out);
     }
+    if let Some(list) = &rules.timestamp_algorithms {
+        timestamp_authority_findings(list, cms, out);
+    }
 }
 
 /// Clauses 6.7 to 6.9's trust conditions: the signing-certificate and time-stamp conditions as
@@ -2211,25 +2226,13 @@ pub(super) fn trust_path_findings(
     }
 }
 
-/// Clause 6.10's end-entity and CA certificate-issuer lists, judged along the signer's path, and
-/// its time-stamping-authority list, judged on the authority's certificate along the authority's
-/// (ADR 2720).
+/// Clause 6.10's end-entity and CA certificate-issuer lists, judged along the signer's path.
 fn judge_issuers(
     rules: &Rules<'_>,
     facts: &SignerFacts<'_>,
     paths: Paths<'_>,
     out: &mut Vec<Finding>,
 ) {
-    if let Some(list) = &rules.authority_certificate_algorithms {
-        let authority = paths.authority.and_then(|search| search.path.as_ref());
-        let issued = authority.and_then(certification_path::Path::end_entity);
-        out.push(issuer_finding(
-            TSA_ALGORITHMS,
-            list,
-            issued.as_ref(),
-            authority.is_some(),
-        ));
-    }
     let path = paths.signer.and_then(|search| search.path.as_ref());
     if let Some(list) = &rules.end_entity_algorithms {
         let issued = facts
@@ -2270,6 +2273,182 @@ fn judge_issuers(
                 }
             }
         }
+    }
+}
+
+/// What made the token of a signature's `signature-time-stamp` attribute, as far as TR 102 272
+/// clause 6.10's `tsaCertAlgorithmConstraints` and TS 119 172-2 clause 4.29's time-stamp token
+/// usage ask (ADR 2894).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TokenAlgorithms<'a> {
+    /// The token's `digestAlgorithm`.
+    pub digest_algorithm: &'a [u8],
+    /// The token's `signatureAlgorithm`.
+    pub signature_algorithm: &'a [u8],
+    /// The length of the authority's key, where it is the key that verifies the token: steps 1 to
+    /// 3 of [`crate::timestamp::signature_timestamp_established`] passed, and the signer's
+    /// certificate states a key this program measures.
+    pub key_bits: Option<usize>,
+}
+
+/// Whether a signature carries a time-stamp token, and what made it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TokenMade<'a> {
+    /// The signature states no `signature-time-stamp` attribute.
+    NoneCarried,
+    /// It states one whose value is not a `SignedData`.
+    Unread,
+    /// The token read.
+    Read(TokenAlgorithms<'a>),
+}
+
+/// What made the token of `cms`'s `signature-time-stamp` attribute. A token whose signature does
+/// not verify was still made with the algorithms it states, so they are judged; only the key that
+/// made it is unknown, because no key is shown to have.
+pub(crate) fn token_made<'a>(cms: &SignedData<'a>) -> TokenMade<'a> {
+    let Some(attribute) = cms.signature_timestamp else {
+        return TokenMade::NoneCarried;
+    };
+    let Ok(token) = cms::signed_data(attribute.encoding()) else {
+        return TokenMade::Unread;
+    };
+    let key_bits = match crate::timestamp::signature_timestamp_token(cms) {
+        Some(Ok((verified, _))) => crate::signature::signer_certificate(&verified)
+            .and_then(|certificate| x509::read(certificate).ok())
+            .and_then(|certificate| key_bits(&certificate.public_key)),
+        _ => None,
+    };
+    TokenMade::Read(TokenAlgorithms {
+        digest_algorithm: token.digest_algorithm,
+        signature_algorithm: token.signature_algorithm,
+        key_bits,
+    })
+}
+
+/// What one of a time-stamp token's algorithms' [`Constraint::TimestampAlgorithm`] judged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TokenIssuance {
+    /// The signature carries no time-stamp token, so the list constrains nothing.
+    NoneCarried,
+    /// The signature's `signature-time-stamp` attribute does not hold a `SignedData`, so what made
+    /// the token is not known.
+    Unread,
+    /// One algorithm the authority made the token with.
+    Algorithm {
+        /// The algorithm, dotted.
+        algorithm: String,
+        /// Whether it is the token's signature algorithm, which a minimum key length applies to,
+        /// rather than its digest algorithm.
+        signature: bool,
+        /// The authority's key length in bits, where measured.
+        key_bits: Option<usize>,
+        /// Whether the list names the algorithm.
+        listed: bool,
+        /// The list's minimum key length for it, where stated and it is the signature algorithm.
+        min_key_length: Option<u32>,
+    },
+}
+
+impl TokenIssuance {
+    fn sentence(&self, f: &mut std::fmt::Formatter<'_>, verdict: &str) -> std::fmt::Result {
+        write!(f, "the policy's {TSA_ALGORITHMS} is {verdict}")?;
+        match self {
+            Self::NoneCarried => {
+                f.write_str(": the signature carries no time-stamp token for it to constrain")
+            }
+            Self::Unread => f.write_str(
+                ": the signature's time-stamp token does not read, so the algorithms its authority made it with are not known",
+            ),
+            Self::Algorithm {
+                algorithm,
+                signature,
+                key_bits,
+                listed,
+                min_key_length,
+            } => {
+                let role = if *signature { "signature" } else { "digest" };
+                write!(
+                    f,
+                    " for the {role} algorithm {algorithm} the signature's time-stamp token was made with"
+                )?;
+                if !listed {
+                    return f.write_str(", an algorithm the list does not name");
+                }
+                match (min_key_length, key_bits) {
+                    (Some(minimum), Some(bits)) => write!(
+                        f,
+                        ", the list's minimum being {minimum} bits against the authority's key of {bits} bits"
+                    ),
+                    (Some(minimum), None) => write!(
+                        f,
+                        ", the list's minimum being {minimum} bits, and no key this program measures is shown to have made the token"
+                    ),
+                    (None, _) => Ok(()),
+                }
+            }
+        }
+    }
+}
+
+/// TR 102 272 clause 6.10's `tsaCertAlgorithmConstraints` over the token of the signature's
+/// `signature-time-stamp` attribute: its digest algorithm and its signature algorithm must each be
+/// listed, and the authority's key at least the list's minimum for the signature algorithm, as
+/// `signerAlgorithmConstraints` holds the signer (ADR 2894). The member's comment names the
+/// time-stamping authority itself, where its two neighbours name the issuers of certificates, and
+/// TS 119 172-2 clause 4.29, which carries clause 6.10's lists forward, says so outright with its
+/// usage for algorithms "used for generating time-stamp tokens".
+fn timestamp_authority_findings(
+    list: &[AlgorithmAndLength<'_>],
+    cms: &SignedData<'_>,
+    out: &mut Vec<Finding>,
+) {
+    let made = match token_made(cms) {
+        TokenMade::NoneCarried => {
+            out.push(Finding {
+                verdict: Verdict::Met,
+                constraint: Constraint::TimestampAlgorithm(TokenIssuance::NoneCarried),
+            });
+            return;
+        }
+        TokenMade::Unread => {
+            out.push(Finding {
+                verdict: Verdict::NotEvaluated,
+                constraint: Constraint::TimestampAlgorithm(TokenIssuance::Unread),
+            });
+            return;
+        }
+        TokenMade::Read(made) => made,
+    };
+    for (used, signature) in [
+        (made.digest_algorithm, false),
+        (made.signature_algorithm, true),
+    ] {
+        let entry = list.iter().find(|entry| entry.algorithm == used);
+        let min_key_length = entry
+            .and_then(|entry| entry.min_key_length)
+            .filter(|_| signature);
+        let verdict = match (entry, min_key_length, made.key_bits) {
+            (None, _, _) => Verdict::Broken,
+            (Some(_), None, _) => Verdict::Met,
+            (Some(_), Some(_), None) => Verdict::NotEvaluated,
+            (Some(_), Some(minimum), Some(bits)) => {
+                if usize::try_from(minimum).is_ok_and(|minimum| bits >= minimum) {
+                    Verdict::Met
+                } else {
+                    Verdict::Broken
+                }
+            }
+        };
+        out.push(Finding {
+            verdict,
+            constraint: Constraint::TimestampAlgorithm(TokenIssuance::Algorithm {
+                algorithm: name(used),
+                signature,
+                key_bits: made.key_bits,
+                listed: entry.is_some(),
+                min_key_length,
+            }),
+        });
     }
 }
 
@@ -2546,7 +2725,8 @@ impl std::fmt::Display for Finding {
             | Constraint::ConditionMember { .. }
             | Constraint::AuthorityName { .. }
             | Constraint::IssuerAlgorithm { .. }
-            | Constraint::AttributeAlgorithm(_) => self.constraint.path_sentence(f, verdict),
+            | Constraint::AttributeAlgorithm(_)
+            | Constraint::TimestampAlgorithm(_) => self.constraint.path_sentence(f, verdict),
             Constraint::Extension(oid) => write!(
                 f,
                 "the policy's extension {oid} is {verdict}: its syntax is whatever its identifier names"
@@ -2622,6 +2802,7 @@ impl Constraint {
                 *min_key_length,
             ),
             Self::AttributeAlgorithm(issuance) => issuance.sentence(f, verdict),
+            Self::TimestampAlgorithm(issuance) => issuance.sentence(f, verdict),
             _ => Ok(()),
         }
     }

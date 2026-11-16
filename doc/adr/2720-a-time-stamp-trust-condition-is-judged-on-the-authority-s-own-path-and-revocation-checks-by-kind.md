@@ -1,6 +1,6 @@
 # 2720 — A time-stamp trust condition is judged on the authority's own path, and a mandated revocation check per kind of certificate
 
-Status: accepted. Session 1953. Context: ISO 32000-2 §12.8.3.4.4 ("… but shall enforce signature policy
+Status: accepted; its reading of `tsaCertAlgorithmConstraints` superseded by ADR 2894. Session 1953. Context: ISO 32000-2 §12.8.3.4.4 ("… but shall enforce signature policy
 constraints."); ETSI TR 102 272 clauses 6.6.2, 6.8 and 6.10; ETSI TS 119 172-2 clauses 4.23.2, 4.23.3 and 4.25.1,
 which TS 119 172-3 adopts for its ASN.1 syntax; ETSI EN 319 122-1 clause 5.3; RFC 3161 section 2.3; RFC 5280
 sections 5.3.2 and 6.1.3 (a)(3); ADRs 1067, 2714, 2715. The ETSI texts are cited and paraphrased (ADR 1085).

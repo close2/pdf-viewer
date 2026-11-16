@@ -333,5 +333,5 @@ fn read_info_long(info: &Info) -> Result<usize, Unreadable> {
         .next_value()
         .expect("well formed")
         .expect("one value");
-    read_types(&value).map(|types| types.len())
+    read_types(&value).map(|(types, _)| types.len())
 }
