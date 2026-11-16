@@ -1,0 +1,193 @@
+{
+  "source": {
+    "effective_spec": "ISO 32000-2:2020 as corrected by Errata Collection 3",
+    "verified_locators": [
+      {
+        "clause": "7.7.2",
+        "table": 29,
+        "printed_pages": "99\u2013100",
+        "physical_pages": "114\u2013115"
+      },
+      {
+        "clause": "12.2",
+        "tables": "147\u2013148",
+        "printed_pages": "437\u2013441",
+        "physical_pages": "452\u2013456"
+      },
+      {
+        "clause": "12.6.3",
+        "tables": "197\u2013200",
+        "printed_pages": "508\u2013510",
+        "physical_pages": "523\u2013525"
+      }
+    ],
+    "errata": "EC3 Issue #275 adds UseAttachments to Table 147's NonFullScreenPageMode choices; the current source text has that value."
+  },
+  "features": [
+    {
+      "id": "catalog-open-action",
+      "source": "Table 29 /OpenAction; \u00a712.6.1",
+      "requirement": "On document open, display the destination or perform the action. If absent, use the normal first-page/default view.",
+      "scope": "Reader and host behavior; destination is applied while opening, action execution requires \u00a712.6.4 handling.",
+      "evidence": "Open::around resolves the destination; interact::open_action performs action chains at first Presented."
+    },
+    {
+      "id": "catalog-page-layout",
+      "source": "Table 29 /PageLayout",
+      "requirement": "Use the selected initial layout when the document opens; SinglePage default. Six values: SinglePage, OneColumn, TwoColumnLeft, TwoColumnRight, TwoPageLeft, TwoPageRight.",
+      "scope": "Initial reader layout; user may subsequently change it.",
+      "evidence": "pdf-model Opening defaults/decodes it; viewer-core layout and all public presentation routes consume it."
+    },
+    {
+      "id": "catalog-page-mode",
+      "source": "Table 29 /PageMode",
+      "requirement": "Use the selected mode at open; UseNone default. Six values: UseNone, UseOutlines, UseThumbs, FullScreen, UseOC, UseAttachments.",
+      "scope": "Initial reader chrome/panel choice; selection is not a requirement to implement producer behavior for unrelated content.",
+      "evidence": "Tab::of_page_mode maps four named panels, UseNone has none, FullScreen enters presentation."
+    },
+    {
+      "id": "pref-hide-toolbar",
+      "source": "Table 147",
+      "requirement": "Optional bool, default false; hide toolbars when document active.",
+      "scope": "Per-document window presentation."
+    },
+    {
+      "id": "pref-hide-menubar",
+      "source": "Table 147",
+      "requirement": "Optional bool, default false; hide menu bar when document active.",
+      "scope": "Current host policy deliberately keeps restriction controls visible in GTK/Qt; explicit departure ADR 1145, reaffirmed by ADR 1429."
+    },
+    {
+      "id": "pref-hide-window-ui",
+      "source": "Table 147",
+      "requirement": "Optional bool, default false; hide window UI elements such as scrollbars/navigation controls, leaving contents.",
+      "scope": "Per-document host chrome."
+    },
+    {
+      "id": "pref-fit-window",
+      "source": "Table 147",
+      "requirement": "Optional bool, default false; resize window to fit first displayed page.",
+      "scope": "Host placement once first page is presented."
+    },
+    {
+      "id": "pref-center-window",
+      "source": "Table 147",
+      "requirement": "Optional bool, default false; position window at screen centre.",
+      "scope": "Host/platform capability; GTK4 positioning limitation recorded as departure ADR 1429."
+    },
+    {
+      "id": "pref-display-doc-title",
+      "source": "Table 147",
+      "requirement": "If true, title bar should display XMP dc:title; otherwise filename.",
+      "scope": "Advisory 'should' wording, implemented by title consumer; metadata fallback behavior is separately specified/owned."
+    },
+    {
+      "id": "pref-nonfullscreen-page-mode",
+      "source": "Table 147; EC3 #275",
+      "requirement": "Mode on exit from fullscreen; meaningful only when catalog PageMode is FullScreen and ignored otherwise; UseNone default. Choices include UseAttachments after #275.",
+      "scope": "Conditional initial/restoration host panel choice."
+    },
+    {
+      "id": "pref-direction",
+      "source": "Table 147",
+      "requirement": "Predominant logical text order, default L2R; no direct effect on contents or page numbering; may be used for side-by-side or n-up relative positioning.",
+      "scope": "Optional/advisory for those arrangements; current page-layout policy does not override explicit left/right PageLayout values."
+    },
+    {
+      "id": "pref-viewarea-viewclip",
+      "source": "Table 147",
+      "requirement": "Select screen display and clipping boundaries; default CropBox; deprecated in PDF 2.0.",
+      "scope": "Reader compatibility behavior, despite writer-side deprecation."
+    },
+    {
+      "id": "pref-printarea-printclip",
+      "source": "Table 147",
+      "requirement": "Select print rendering/clipping boundaries; default CropBox; deprecated in PDF 2.0.",
+      "scope": "Print consumer; not re-audited here."
+    },
+    {
+      "id": "pref-printscaling",
+      "source": "Table 147",
+      "requirement": "Table 147: None or AppDefault; default and unknown-value fallback AppDefault. Honored even when the print dialogue is suppressed.",
+      "scope": "Print reader behavior; Table 148 /Enforce can constrain the reader's UI choice."
+    },
+    {
+      "id": "pref-duplex",
+      "source": "Table 147",
+      "requirement": "Preferred simplex/duplex mode for printing; default is implementation dependent.",
+      "scope": "Printer/dialog policy; not re-audited here."
+    },
+    {
+      "id": "pref-picktray",
+      "source": "Table 147",
+      "requirement": "Whether PDF page size should choose the input tray; default is implementation dependent. Has no effect where the operating system cannot select by size.",
+      "scope": "Printer policy; not re-audited here."
+    },
+    {
+      "id": "pref-print-page-range",
+      "source": "Table 147",
+      "requirement": "Requested 1-based page ranges; implementation-dependent default if absent/invalid; default empty in model.",
+      "scope": "Print consumer; not re-audited here."
+    },
+    {
+      "id": "pref-num-copies",
+      "source": "Table 147",
+      "requirement": "Requested copy count; default is implementation dependent, typically 1.",
+      "scope": "Printer policy; not re-audited here."
+    },
+    {
+      "id": "pref-enforce",
+      "source": "Tables 147\u2013148",
+      "requirement": "Named preferences shall not be overridden by subsequent UI selections. Table 148 permits PrintScaling only when its entry specifies a valid value other than AppDefault.",
+      "scope": "Reader restriction policy; A834 directs default warn. ADR 2840 supersedes ADR 1180/2816's report-only stance. GTK/C dialogs remain partial because they cannot lock scaling."
+    },
+    {
+      "id": "trigger-page-open-o",
+      "source": "Table 198 /O",
+      "requirement": "Perform when page opens, independent of catalog OpenAction and after that action.",
+      "scope": "Non-script actions and script runner for page-open event."
+    },
+    {
+      "id": "trigger-page-close-c",
+      "source": "Table 198 /C",
+      "requirement": "Perform when page closes, before any other page is opened.",
+      "scope": "Non-script actions and script runner."
+    },
+    {
+      "id": "trigger-annotation-page-open-po",
+      "source": "Table 197 /PO",
+      "requirement": "Perform when containing page opens; after page /O and catalog OpenAction when present.",
+      "scope": "Annotation additional action, separate from the annotation's rendering/visibility."
+    },
+    {
+      "id": "trigger-annotation-page-close-pc",
+      "source": "Table 197 /PC",
+      "requirement": "Perform when containing page closes; before page /C when present.",
+      "scope": "Annotation additional action."
+    },
+    {
+      "id": "trigger-page-visible-pv",
+      "source": "Table 197 /PV",
+      "requirement": "Perform when containing page becomes visible in UI.",
+      "scope": "Visibility-state event; may differ from open/current page in multi-page layouts."
+    },
+    {
+      "id": "trigger-page-invisible-pi",
+      "source": "Table 197 /PI",
+      "requirement": "Perform when containing page is no longer visible in UI.",
+      "scope": "Visibility-state event; may differ from close/current page in multi-page layouts."
+    },
+    {
+      "id": "trigger-document-close-wc",
+      "source": "Table 200 /WC",
+      "requirement": "ECMAScript action before closing document.",
+      "scope": "Current confined ECMAScript engine is in scope (CLAUDE.md after Q286/A286). No general catalog DocOpen event exists in Table 200."
+    },
+    {
+      "id": "trigger-document-save-print",
+      "source": "Table 200 /WS /DS /WP /DP",
+      "requirement": "ECMAScript before/after save and print at stated moments.",
+      "scope": "Named for boundary completeness; host operation gates are not re-audited here."
+    }
+  ]
+}

@@ -12,9 +12,9 @@ The report and machine-readable continuation are in
 `doc/reviews/2038-specification-audit.md` and its evidence directory.
 
 **Evidence so far.** All 72 previous failing assertions pass. Current tests expose
-26 failing assertions, grouped by behavior and qualified where interpretation is
+27 failing assertions, grouped by behavior and qualified where interpretation is
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
-The shard index links partial reviews to 328 ledger rows; 555 remain pending in
+The shard index links partial reviews to 338 ledger rows; 545 remain pending in
 this round. No entire clause is certified merely because referenced tests pass.
 A shared-parser date mutation was killed and restored. Independent JP2 fixture
 regeneration matches the embedded hashes. Selected ADR conclusions are retained,
@@ -24,7 +24,7 @@ qualified, or reconsidered with primary-source reasoning.
 failures, 55 skipped. Current touched-crate all-targets Clippy and formatting pass.
 Earlier rustdoc/conformance, baseline and GTK runs are recorded separately; they
 do not certify later changes. CID, parser-boundary and nested associated-file controls pass;
-Degenerate clipping and prefixed deletion fail; vertical spacing, filters and page duration pass.
+Initial-open order fails; tree, literal-default, border and stored-blend controls pass.
 
 The next checkpoint adds AGL sequence/unknown-component failures and public text/search
 controls, four passing mesh pixel assertions, and genuine PAdES report/tamper tests.

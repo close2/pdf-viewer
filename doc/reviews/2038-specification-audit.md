@@ -163,6 +163,15 @@ duration, and strengthened ASCII85 marker controls pass. A stale vertical-text l
 note is recorded without changing its status. Partial evidence reaches 328 rows, with
 555 pending. Current syntax/model/core all-targets Clippy passes.
 
+The initial-open ordering check finds page and annotation actions before the catalog
+OpenAction action, contrary to Tables 198 and 197. The catalog-only and no-catalog
+controls pass, and presentation does not repeat the actions. The manifest has 27
+expected failures. Valid multi-level tree consumers, literal preference defaults,
+whole-entry border precedence and stored-appearance blend pixels pass. A preliminary
+claim that the existing byte-key fixture was unsorted is rejected: its stored keys
+are sorted, and query order is separate. Partial evidence reaches 338 rows, with 545
+pending. Current model/core Clippy passes; broad execution retains its earlier scope.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks

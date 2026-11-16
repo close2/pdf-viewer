@@ -1,0 +1,42 @@
+[
+  {
+    "adr": "0053 — The component the ledger found",
+    "review_scope": "Shared name/number tree implementation and reader traversal rationale only",
+    "original_claim": "§7.9.6 and §7.9.7 share tree shape; lookup descends and enumeration walks all pairs; Limits are treated as hints to recover from malformed input.",
+    "current_evidence": "tree.rs implements both key categories through TreeKey and collect/descend. Destination::named performs public name-tree lookup; PageLabels::read enumerates number pairs. Existing deep unit samples use direct Kids dictionaries and therefore do not validate producer-correct indirect-child trees. Drafts here add two valid exact-xref public-consumer tests.",
+    "decision": "Retain the architectural choice, narrow its evidence claim. The reader implements lookup and enumeration, but this review found an assertion gap for valid multilevel trees through consumers. No reader rejection duty follows from node/ordering producer constraints. A false present Limits value is trusted to skip a subtree; whether broader malformed-input recovery is desired is local policy, not decided by these clauses.",
+    "residuals": "No exhaustive performance measurement of large fanout or all public tree consumers. No blanket certification of clauses 7.9.6/7.9.7."
+  },
+  {
+    "adr": "0439 — The shape a lossy name makes and where else it lived",
+    "review_scope": "Name tree key representation and identity",
+    "original_claim": "Tree keys are strings, bytewise equality is required, and tree lookup should use bytes rather than name-object or normalized-text identity.",
+    "current_evidence": "TreeKey::Name compares byte slices; Destination::named routes Object::String keys to that API. The exact-byte test covers case, prefix, and UTF-8 byte distinctions, though its leaf order is malformed. Draft includes sorted, non-equivalent A/a valid keys through a deep tree.",
+    "decision": "Confirmed for sampled code. Keep key comparison byte-based; do not decode or normalize at tree layer. The current assertion is useful tolerant-input coverage but should not be represented as a valid sorted-tree example.",
+    "residuals": "No audit of every one of the name dictionary's consumer trees or display-decoding behavior."
+  },
+  {
+    "adr": "1211 — A writer's shall not is a signature",
+    "review_scope": "EC3 #307 null keys and tree writers",
+    "original_claim": "The erratum's null-key rule constrains producers; typed writer signatures exclude null keys, and the reader preserves adjacent pairs without treating malformed source as mandatory refusal.",
+    "current_evidence": "EC3 #307 adds the sentence to both Names and Nums cells. tree_root accepts byte keys, number-tree extension emits integer keys, and the reader chunks key/value pairs before filtering keys. The existing null-key test checks neighbor pairing.",
+    "decision": "Confirmed within checked callsites. Null-key reader tolerance is a deliberate policy and not an ISO failure. No demand for error/report behavior absent a separate project promise.",
+    "residuals": "This shard did not enumerate every transform/archive writer callsite."
+  },
+  {
+    "adr": "0660 — The quotation that hid by being wrong",
+    "review_scope": "EC3 #214/#307 interpretation, not quotation-gate machinery",
+    "original_claim": "#214 withdraws lexical terminology while explicit bytewise equality/prefix text remains; #307 is a producer constraint.",
+    "current_evidence": "The effective source processed Markdown still contains stale '(lexically)' cells/order language because annotations were dropped. EC3 annotation #214 strikes those words. The paragraph explicitly retains shorter prefix-first order, consistent encoding and byte-by-byte equality. #307 is an added caret annotation.",
+    "decision": "Confirmed. Cite the primary source plus EC3 annotation, never the stale Markdown cell alone. ADR's reader-vs-writer distinction remains sound.",
+    "residuals": "No broader check of quotation tool coverage in this tree audit."
+  },
+  {
+    "adr": "0455 — The status a clause never asked for",
+    "review_scope": "§7.9.2 single string qualified by consumer context",
+    "original_claim": "One Object::String of bytes can be contextually qualified as text/ASCII/byte; the universal representation is not a missing enum.",
+    "current_evidence": "Object::String stores bytes and text_string.rs exposes contextual text decoding; PDFDocEncoded use was corrected in FormsData in b901326c. Name-tree keys remain bytes. Tests cover selected public text properties, not all consumers.",
+    "decision": "Claim is directionally sound, with scope limited: this is no blanket certification that each property consumer chooses the correct interpretation. The earlier Status/PDFDocEncoded residual is stale after b901326c.",
+    "residuals": "Other field/property routes may still need independent typed-consumer review; language escapes and dates excluded here."
+  }
+]

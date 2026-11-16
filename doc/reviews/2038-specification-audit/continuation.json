@@ -6,20 +6,18 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "26 expected failing assertions. Wave13 broad6381/6358pass/23expectedfail55skip predates later additions. Wave16: filters40pass, text/presentation3pass, structure/text56run55pass1expectedB21. Long-header-prefix recovery resurrects an incrementally deleted object; original and shorter-prefix controls pass.",
+    "later_targets": "27 committed expected failing assertions. Wave13 broad6381/6358pass/23expectedfail55skip predates later additions. Wave17 adds B22 initial-open event order; valid multi-level trees2, literal preferences1, annotation borders5 and stored BM1 pass. Cross-document destination candidate is pending parent source/control review in scratch/current uncommitted test.",
     "quality": "Current pdf-syntax/pdf-model/viewer-core all-targets Clippy passes. Broader/docs/conformance gates retain recorded scope."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [
-      "trees_strings_current",
-      "viewer_preferences_layout_current"
+      "destinations_current_followup"
     ],
     "active_shards": [
       "colour_spaces_current",
-      "annotation_common_current",
-      "destinations_current_followup"
+      "font_descriptors_current"
     ],
     "recorded_shards": [
       "logical_structure",
@@ -62,10 +60,13 @@
       "syntax_streams_filters_current",
       "thumbnails_transitions_current",
       "text_state_current",
-      "file_structure_current"
+      "file_structure_current",
+      "trees_strings_current",
+      "viewer_preferences_layout_current",
+      "annotation_common_current"
     ],
-    "partial_current_rows": 328,
-    "pending_current_rows": 555
+    "partial_current_rows": 338,
+    "pending_current_rows": 545
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",
@@ -78,7 +79,7 @@
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 36,
-    "last_read_utc": "2026-11-16T12:14:39.620709Z"
+    "last_weekly_used_percent": 37,
+    "last_read_utc": "2026-11-16T12:27:49.782307+00:00"
   }
 }

@@ -608,6 +608,81 @@
       "log": "wave16c-quality.log",
       "exit": 0,
       "scope": "Current pdf-syntax/pdf-model/viewer-core all-targets Clippy -Dwarnings"
+    },
+    {
+      "log": "trees-open-order-wave17.log",
+      "exit": 101,
+      "scope": "Draft Destination root import incorrect; no execution"
+    },
+    {
+      "log": "trees-open-order-wave17b.log",
+      "run": 3,
+      "passed": 2,
+      "failed": 1,
+      "expected_failures": 1,
+      "exit": 100,
+      "scope": "Two tree controls and initial B22 order fixture"
+    },
+    {
+      "log": "trees-open-order-wave17c.log",
+      "run": 3,
+      "passed": 2,
+      "failed": 1,
+      "expected_failures": 1,
+      "unexpected_failures": 0,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "Final B22 with catalog-only and one-shot controls; two tree controls"
+    },
+    {
+      "log": "wave17-quality.log",
+      "exit": 101,
+      "scope": "Unfulfilled lint expectations in two new tree tests; corrected"
+    },
+    {
+      "log": "wave17b-quality.log",
+      "exit": 0,
+      "scope": "Model/core all-targets Clippy before literal-default/border/blend additions"
+    },
+    {
+      "log": "preferences-wave17.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Literal source preference defaults"
+    },
+    {
+      "log": "annotation-border-wave17.log",
+      "run": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Constructed border defaults and whole-entry BS precedence"
+    },
+    {
+      "log": "annotation-blend-wave17.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Stored AP annotation BM literal CPU colors"
+    },
+    {
+      "log": "wave17c-quality.log",
+      "exit": 101,
+      "scope": "New fixture helper expect_used lints; corrected"
+    },
+    {
+      "log": "wave17d-quality.log",
+      "exit": 101,
+      "scope": "Literal-default helper lint edit missed compact attribute; corrected"
+    },
+    {
+      "log": "wave17e-quality.log",
+      "exit": 0,
+      "scope": "Current pdf-model/viewer-core all-targets Clippy -Dwarnings, includes pending cross-document destination draft"
     }
   ],
   "prior_expected_failures": {

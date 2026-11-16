@@ -156,6 +156,12 @@
       "test": "a_long_header_prefix_does_not_resurrect_an_object_deleted_by_the_latest_section",
       "finding": "2038-B21",
       "log": "header-prefix-wave16.log"
+    },
+    {
+      "binary": "viewer-core::initial_open_order_spec_audit",
+      "test": "catalog_open_action_precedes_initial_page_and_annotation_open_actions",
+      "finding": "2038-B22",
+      "log": "trees-open-order-wave17c.log"
     }
   ]
 }

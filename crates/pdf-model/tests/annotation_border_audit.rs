@@ -219,3 +219,33 @@ fn an_unknown_border_style_uses_solid_even_with_a_dash_array() {
     assert_ne!(unknown, link_border("/W 2 /S /D /D [1 3]"));
     assert!(painted(&unknown, 10, 50));
 }
+
+/// EC3 #287: a present BS makes the entire Border entry irrelevant. Unlike the
+/// historical radius-only regression, width, dash and solid/dashed style conflict too.
+#[test]
+fn bs_presence_ignores_conflicting_border_geometry_as_a_whole() {
+    let draw = |entries: &str| {
+        render(pdf_with(
+            &format!(
+                "<< /Type /Annot /Subtype /Link /Rect [20 20 80 60] /F 4 /C [1 0 0] {entries} >>"
+            ),
+            "/BBox [0 0 10 10]",
+            "",
+        ))
+    };
+    let border = "/Border [12 12 6 [1 5]]";
+    let border_only = draw(border);
+    assert!(border_only.data.chunks_exact(4).any(|pixel| pixel[3] != 0));
+    for bs in ["/BS << /W 2 /S /D /D [3 2] >>", "/BS << /W 2 /S /S >>"] {
+        let both = draw(&format!("{border} {bs}"));
+        let bs_only = draw(bs);
+        assert_eq!(
+            both.data, bs_only.data,
+            "BS makes every Border component irrelevant: {bs}"
+        );
+        assert_ne!(
+            both.data, border_only.data,
+            "the conflicting Border changes pixels alone: {bs}"
+        );
+    }
+}

@@ -1,0 +1,7 @@
+{
+  "source": "Primary Table166 physical482\u2013485, Table167486\u2013487, Table168488\u2013489, Table169489; EC3#22/#23/#34/#56/#287 checked in annotation extraction. BS precedence is physical483/printed468.",
+  "execution": "All5 annotation_border_audit tests PASS, including new whole-Border precedence comparisons with dashed and solid BS. Link AP absent is permitted; exactxref and complete interpretation asserted by shared helper.",
+  "oracle": "Both vs BS-only must match; Border-only must differ and have painted pixels. Existing source-dash/default/width controls remain distinct. No whole-raster comparison used as absolute geometry oracle.",
+  "remaining": "All rotation branches, persistent selection surface and full ignore-list pixel matrix remain pending. AP construction absence is implementation-dependent under EC3#34.",
+  "stored_blend": "PASS annotation-blend-wave17.log: opaque red isolated RGB appearance over blue page is black with annotation Multiply and red for Normal/absent. No internal BM; literal RGB and alpha255. Explicit resources, PDF2 ID and exactxref."
+}

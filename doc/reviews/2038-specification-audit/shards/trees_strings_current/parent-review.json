@@ -1,0 +1,10 @@
+{
+  "source": "Primary physical129\u2013132 and134\u2013138; number trees begin137/printed122, continue138/123. EC3#214/#307 annotations independently checked.",
+  "corrections": [
+    "Withdraw preliminary unsorted-leaf finding. Stored Names keys A,a,a-NUL,e+combining,composed-e-acute are byte-sorted; query-loop order is irrelevant.",
+    "Object::String retains byte storage; it is not currently a literal Vec enum payload.",
+    "Fixed draft Destination import and mapped intermediate/leaf references before execution."
+  ],
+  "execution": "Two valid indirect root/intermediate/leaf public tests PASS trees-open-order-wave17c.log. A/a reach different pages; both branches and absent B tested. PageLabels asserts literal ranges at 0,1,2,9,10.",
+  "limits": "PageLabels sorts collected ranges, so its output is enumeration coverage, not independent proof of the generic numerical lookup comparator. Generic direct-dictionary units remain useful mechanics tests; no mandatory rejection inferred for malformed producer shapes. Full writer and property-consumer matrices remain pending."
+}
