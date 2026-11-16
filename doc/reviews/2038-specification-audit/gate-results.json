@@ -750,6 +750,54 @@
       "log": "wave19b-quality.log",
       "exit": 0,
       "scope": "Current viewer-core all-targets Clippy -Dwarnings."
+    },
+    {
+      "log": "choices-wave20.log",
+      "exit": 100,
+      "scope": "Initial2choice tests:1PASS1expectedFAIL."
+    },
+    {
+      "log": "cmaps-colour-choice-wave20.log",
+      "exit": 100,
+      "run": 13,
+      "passed": 10,
+      "failed": 3,
+      "expected_failures": 3,
+      "unexpected_failures": 0,
+      "skipped": 0,
+      "scope": "Final choice controls, embedded CMaps and special colours."
+    },
+    {
+      "log": "cmap-length-wave20b.log",
+      "exit": 100,
+      "run": 3,
+      "passed": 2,
+      "failed": 1,
+      "expected_failures": 1,
+      "scope": "Added independent encoding-length/GID assertions before B27; those pass."
+    },
+    {
+      "log": "quality-wave20.log",
+      "exit": 101,
+      "scope": "Unfulfilled draft lint expectations; removed unused expectations."
+    },
+    {
+      "log": "quality-wave20b.log",
+      "exit": 0,
+      "scope": "Model/core all-targets Clippy -Dwarnings before final UseCMap complete guard."
+    },
+    {
+      "log": "usecmap-complete-wave20.log",
+      "exit": 0,
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "scope": "Valid stream inheritance with complete-interpretation guard."
+    },
+    {
+      "log": "quality-wave20c.log",
+      "exit": 0,
+      "scope": "Final model/core all-targets Clippy -Dwarnings."
     }
   ],
   "prior_expected_failures": {

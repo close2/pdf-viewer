@@ -1,0 +1,45 @@
+{
+  "scope": "Selected decisions affecting §8.6.6.3–.5. These are bounded reconsiderations, not endorsement of their entire historical rationale.",
+  "decisions": [
+    {
+      "adr": "1103",
+      "title": "NChannel process route without tint transform",
+      "status": "accepted; current code uses nchannel_process before alternate/function parsing",
+      "review": "The process dictionary is an allowed source of additional NChannel treatment. Table 70 says readers need not use alternate/tint transform when using attributes; Table 71 requires ColorSpace and Components correspondence. Current code checks NChannel subtype, required dictionary shapes and component count, then maps names to process component order. Public tests include nonidentity mapping and CMYK subset, plus an ICC process route. The unread-transform test demonstrates robustness only; it is not independent evidence that malformed writer data is valid. No normative contradiction found in the sampled complete process-only route.",
+      "source": "§8.6.6.5, printed pp.206–209 / physical pp.221–224, Tables 70–71; §8.6.4.4 for absence-of-ink value.",
+      "verdict": "Supported for sampled complete process-only cases; keep scope bounded."
+    },
+    {
+      "adr": "1193",
+      "title": "NChannel spot colour on display uses whole tint transform",
+      "status": "historical; successor behavior/policy is ADR 1229",
+      "review": "Do not treat this ADR as today's sole behavior. Its display/default reading argues that the clause leaves combination of per-component results to a processor and uses DeviceN tintTransform for a display. Table 70 distinguishes the Separation appearance alone from DeviceN appearance in combination, and NOTE 3 permits custom blends, so this is an interpretation/policy choice rather than an obvious source error. ADR 1229 adds a host-selected simulation and changes the route when requested; tests compare direct spot appearance, alternate fallback, and the process-only invariant. The default-off control is an accepted product decision in A100, not proof that all hosts or all of clause 10.8.3 were certified.",
+      "source": "§8.6.6.5, printed pp.204–209 / physical pp.219–224; NOTE 3, per-component sentence, Table 70 Colorants; §10.8.3 is referenced only for simulation and is not recertified here.",
+      "verdict": "Policy/interpretation; superseded decision accurately preserved as prior rationale."
+    },
+    {
+      "adr": "1229",
+      "title": "Separation simulation implements NChannel per-component reading",
+      "status": "accepted and built",
+      "review": "This is the active successor after the host control exists. The simulated path reads Colorants for spots and Process for process values, then applies per-component results. Tests exercise a spot Separation curve, process-only unchanged case, missing-spot fallback, None, and process-plus-spot blend. The sampled assertions discriminate the implementation. Remaining §10.8.3 rendering/compositing behavior is outside this shard.",
+      "source": "§8.6.6.5 per-component sentence and Tables 70–71; §10.8.3 simulation algorithm, not fully audited here.",
+      "verdict": "Supported in sampled model path; host UI/API exposure remains unreviewed."
+    },
+    {
+      "adr": "1338",
+      "title": "Colorants entry names the colourant it speaks for",
+      "status": "accepted and built",
+      "review": "The key-to-Separation-name equality check is directly required by Table 70: the key shall match the colourant name in that Separation array. Unit/public tests use wrong-name controls and distinguish the fallback route. This is supported for identity validation; all producer dictionary shapes are not exhausted here.",
+      "source": "§8.6.6.5 Table 70, printed pp.206–207 / physical pp.221–222; tests named in the ledger row.",
+      "verdict": "Supported for sampled mapping rule."
+    },
+    {
+      "adr": "EC3 #309 / errata inventory",
+      "title": "None names and NChannel",
+      "status": "ledger text reflects the PDF amendment; errata-read row locator and clause are correct, but its description names Colorants rather than None",
+      "review": "The primary PDF carries a StrikeOut/Caret amendment (both marks have `/Subj Issue #309`; the annotations do not state `/IRT`): remove the writer restriction that None may be present only in non-NChannel DeviceN spaces, and add the producer prohibition on None in NChannel. Existing plain DeviceN None pass-through and all-None behavior are compatible. Treat a None name inside NChannel as invalid writer data; do not promote a required reader rejection or changed malformed-input behavior absent an explicit reader rule. `doc/errata-read.md` correctly lists §8.6.6.5 and physical page 221; its description says the amendment concerns Colorants, while the attached marks concern None. The row's `untouched` label is historical round 418 context, not treated as a current review verdict. The ledger note describes the actual amendment.",
+      "source": "PDF /Annots with /Subj Issue #309: Caret Contents on physical p.220 / printed p.205; StrikeOut rectangle on physical p.221 / printed p.206. Exact struck and replacement text are in features.json.",
+      "verdict": "Correct only the amendment description; page/clause locator is accurate and no new code defect is demonstrated."
+    }
+  ]
+}

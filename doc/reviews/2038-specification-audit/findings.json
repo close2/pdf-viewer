@@ -812,5 +812,82 @@
     "source": "Table210 physical534/printed519; #256 checked separately as relative-URI scope clarification.",
     "execution": "3PASS actions-wave19b.log, exactURI strings and pointer link-hit checks.",
     "limits": "No external handler invoked; rotation, UserUnit and outline-specific ignore are residuals."
+  },
+  {
+    "id": "2038-B26",
+    "kind": "behavior-defect",
+    "clauses": [
+      "12.7.5.4"
+    ],
+    "summary": "Choice array selection collapses two different options with equal display labels despite matching I indices.",
+    "source": "Table234 physical558/printed543, including EC3#468; V names the display string.",
+    "observed": "V [(Twin)(Twin)], I [0 1], Opt [[(x)(Twin)][(y)(Twin)](Other)] reports selected [0], expected [0,1].",
+    "controls": "Distinct-label array gives [0,2]; single Twin with I[1] gives [1].",
+    "cause": "form::selected repeatedly finds first matching selected index and then deduplicates output.",
+    "execution": "1FAIL/2PASS, cmaps-colour-choice-wave20.log",
+    "limits": "Public Fields readback only; no native or persistence claim."
+  },
+  {
+    "id": "2038-B27",
+    "kind": "behavior-defect",
+    "clauses": [
+      "9.10.3",
+      "9.7.6.2"
+    ],
+    "summary": "ToUnicode conflates source codes with equal numeric values and different byte lengths.",
+    "source": "\u00a79.7.6.2 physical357/342; \u00a79.10.3 physical372/357.",
+    "observed": "Mixed <01>,<0001>,<0002> gives AA\u03b2 instead of A\u03a9\u03b2.",
+    "controls": "Isolated one/two-byte controls pass. Encoding decode and GID assertions pass before text mismatch.",
+    "cause": "LoadedFont::text passes only value to ToUnicode; code_of and map keys drop length.",
+    "execution": "1FAIL/2PASS; final decoder control rerun cmap-length-wave20b.log.",
+    "limits": "Valid embedded Type2 fixture; no recovery or mapping-limit condition."
+  },
+  {
+    "id": "2038-B28",
+    "kind": "behavior-defect",
+    "clauses": [
+      "9.10.3"
+    ],
+    "summary": "Sequential bfrange with a multi-character destination maps only the first code.",
+    "source": "Physical374/359 requires incrementing final destination byte; 0x61+2 is within bound.",
+    "observed": "<0001>..<0003> <00660061> gives faAA instead of fafbfc.",
+    "controls": "Multi-scalar bfchar and explicit destination array pass.",
+    "cause": "take_ranges inserts only low for a destination that is a string rather than a single Unicode scalar.",
+    "execution": "1FAIL/2PASS in cmaps-colour-choice-wave20.log.",
+    "limits": "Small valid embedded Type2 fixture, no limits hit; fallback A is not the specified ToUnicode result."
+  },
+  {
+    "id": "2038-T30",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "9.10.3"
+    ],
+    "summary": "Added valid stream-valued dictionary UseCMap inheritance and local override control.",
+    "source": "EC3 Table125a physical1022.",
+    "execution": "PASS A\u03a9; base A/B, child \u03a9 override.",
+    "limits": "Existing issue5010 tolerance is malformed-producer coverage; new fixture has matching dictionaries and embedded program."
+  },
+  {
+    "id": "2038-T31",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "8.6.6.3",
+      "8.6.6.4",
+      "8.6.6.5"
+    ],
+    "summary": "Added corpus-independent literal pixel controls for Indexed initial value/ties, Separation and DeviceN initial tints, and Indexed Lab lookup scaling.",
+    "execution": "3PASS; zero/full-tint and direct-Lab companions discriminate paths.",
+    "limits": "No whole special-colour or simulation certification."
+  },
+  {
+    "id": "2038-D11",
+    "kind": "source-provenance-gap",
+    "clauses": [
+      "8.6.6.5"
+    ],
+    "summary": "errata-read #309 description says Colorants but primary amendment concerns None in NChannel.",
+    "source": "Primary Caret physical220/205 and StrikeOut221/206.",
+    "qualification": "Clause and physical-page221 locator are correct. Historical untouched describes round418; no current-status defect claimed. Ledger description already reflects None amendment.",
+    "limits": "Producer constraint does not imply mandatory reader rejection."
   }
 ]

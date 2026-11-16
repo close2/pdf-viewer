@@ -189,6 +189,15 @@ reviews now reach 360 rows, with 523 pending. Viewer-core Clippy passes. The nex
 text-extraction drafts are withheld pending source-valid embedded-font fixtures;
 a custom encoding with a nonembedded Type2 descendant violates Table 119.
 
+The next checkpoint confirms three further failures: duplicate choice labels lose one
+selected index, ToUnicode conflates source-code lengths, and a sequential multi-character
+destination maps only its first code. Valid embedded-font controls and decoder/GID
+checks isolate the latter failures. Valid UseCMap inheritance and three special-colour
+pixel controls pass. The manifest now has 36 expected failures; the broad run above
+predates these three additions. The #309 errata description confuses Colorants with
+None; its physical-page locator is correct. Partial reviews reach 369 rows, with 514
+pending. No source or ledger status is changed.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks

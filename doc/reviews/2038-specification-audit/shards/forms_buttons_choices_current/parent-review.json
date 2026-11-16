@@ -1,0 +1,7 @@
+{
+  "execution": "duplicate_choice_labels_spec_audit: 3 tests, 2 PASS, 1 expected FAIL in cmaps-colour-choice-wave20.log. Public Fields reports [0] instead of [0,1]; distinct-label multi-selection and single duplicate-label disambiguation pass.",
+  "source": "Parent checked Table234 physical557–558/printed542–543 and #468 annotation on558. V explicitly uses displayed names, the second item of an Opt pair. Matching I [0,1] and V [(Twin)(Twin)] do not disagree. The amendment removes the old MultiSelect restriction and array trigger, not the index meaning or V precedence on actual disagreement.",
+  "fixture": "Parent supplied required DA and DR/font resource, exact xref, PDF1.7 NeedAppearances true. This avoids inferring validity from a reader accepting missing required variable-text entries. No native click, drawing or save/reopen claim.",
+  "decisions": "Retain ADR0248 index-valued API and true V-over-I disagreement rule; current selection collapse is B26. ADR0253 historical already-correct statement is not proof of this array case. Parent read selected ADR0346/0630/0596 rationale and radios_in_unison state/raster assertions; no whole ADR or all native event paths certified.",
+  "limits": "Existing radios fixture source-AS variant rewrites bytes without rebuilding xref and is recovery coverage; the new duplicate-choice fixture does not depend on recovery. Other form feature reviews retain shard residuals."
+}

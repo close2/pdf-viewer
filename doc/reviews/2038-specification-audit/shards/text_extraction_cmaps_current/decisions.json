@@ -1,0 +1,34 @@
+[
+  {
+    "adr": "0298 — A /ToUnicode CMap that builds on another, and the whole shortfall behind the text gate",
+    "review_scope": "Current ToUnicode base resolution, reader-vs-writer meaning of UseCMap, and the issue5010 witness.",
+    "original_claim": "Follow a ToUnicode base named by the stream dictionary or by the in-stream usecmap operator; an unknown base yields no answer rather than a hard failure.",
+    "current_evidence": "`read_to_unicode` resolves dictionary stream/name references and also has the tolerant embedded-operator fallback. The inspected issue5010 fixture omits dictionary /UseCMap even though §9.7.5.4(a) requires the dictionary and operator to agree; ADR correctly treats it as invalid producer input and a robustness witness. Effective EC3 Table 125a expressly permits /UseCMap name or stream.",
+    "decision": "Retain the distinction between the valid dictionary route and tolerant handling of the invalid corpus witness. The drafted exact-xref public test targets the valid stream route, which existing focused coverage did not demonstrate.",
+    "residuals": "Run drafts/tounicode_usecmap_stream_inheritance.rs. No known defect in this route was found by static tracing; missing valid public coverage is the current finding."
+  },
+  {
+    "adr": "0971 — The second parser over the same carried files",
+    "review_scope": "Bounded ToUnicode mapping tables and reports for discarded mappings.",
+    "original_claim": "Finite mapping limits are explicit, report a discarded mapping rather than a full-but-truncated result, and admit the carried Adobe CMap population.",
+    "current_evidence": "`MAX_SINGLES`, `MAX_RANGES`, `MAX_OPERANDS`, `cut_by`, and the ledger's population census are distinct from the two representation defects here. The drafts use only tiny maps; no bound is reached.",
+    "decision": "No change suggested to the bound policy from this shard. Do not infer a requirement to process unbounded tables. The source-code-length and sequential string issues occur before any limit and can lose mappings in small valid inputs.",
+    "residuals": "Full carried-file census and exact-bound behavior were not rerun; this review relies on current code and ledger evidence."
+  },
+  {
+    "adr": "0426 — The erratum, a row recorded and never applied",
+    "review_scope": "Whether EC3 Issue #462 is applied to §9.10.3 commentary and behavior.",
+    "original_claim": "Correct stale quotations of the former single-entry stream-dictionary text and preserve the still-valid UseCMap behavior under Table 125a.",
+    "current_evidence": "The current test commentary notes #462. Table 125a adds Type, CMapName, CIDSystemInfo, WMode, and UseCMap; code reads UseCMap, while the other fields are descriptive metadata for this extraction consumer. The source-code-length and destination mapping wording is unchanged.",
+    "decision": "Retain the correction. Keep the new dictionary metadata distinct from mapping behavior; the error here is not an unimplemented reader requirement to validate those optional metadata entries.",
+    "residuals": "This shard sampled §9.10.3 and did not audit the behavior of all CMap stream metadata consumers elsewhere."
+  },
+  {
+    "adr": "0252 — The errata were in the file and the conversion dropped them",
+    "review_scope": "EC3 source fidelity and corrected effective requirements.",
+    "original_claim": "Use the combined ISO+EC3 source as effective text, not stale converted passages.",
+    "current_evidence": "The processed EC3 document contains the replacement Table 125a and the existing §9.10.3 source-code and bfrange prose. The applied errata index records #462 for §9.10.3.",
+    "decision": "No new erratum defect. The two candidate mapping gaps are present in the effective primary prose and do not depend on stale converted text.",
+    "residuals": "Only #462 and the local source passages were checked for this bounded clause."
+  }
+]

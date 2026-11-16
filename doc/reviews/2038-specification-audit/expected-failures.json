@@ -198,6 +198,24 @@
       "test": "unsupported_icc2_profile_clamps_to_icc_range_before_wider_alternate",
       "finding": "2038-B25",
       "log": "icc-alternate-wave18.log"
+    },
+    {
+      "binary": "viewer-core::duplicate_choice_labels_spec_audit",
+      "test": "duplicate_labels_keep_both_array_selected_indices",
+      "finding": "2038-B26",
+      "log": "cmaps-colour-choice-wave20.log"
+    },
+    {
+      "binary": "pdf-model::tounicode_keeps_source_code_length_spec_audit",
+      "test": "to_unicode_distinguishes_equal_values_at_different_source_code_lengths",
+      "finding": "2038-B27",
+      "log": "cmaps-colour-choice-wave20.log"
+    },
+    {
+      "binary": "pdf-model::tounicode_bfrange_sequence_destinations_spec_audit",
+      "test": "sequential_multiscalar_bfrange_increments_destination_string_last_byte",
+      "finding": "2038-B28",
+      "log": "cmaps-colour-choice-wave20.log"
     }
   ]
 }

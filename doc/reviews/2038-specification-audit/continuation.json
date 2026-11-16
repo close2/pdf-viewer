@@ -6,7 +6,7 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "Eight-crate wave18:6415run,6382PASS,33expectedFAIL,55skip. Exact failure identities equal all33manifest entries. Wave19fouraction/URI assertions PASS.",
+    "later_targets": "Eight-crate wave18:6415run,6382PASS,33expectedFAIL,55skip; exact manifest match then. Wave19 4PASS. Wave20 13run10PASS3expectedFAIL; current manifest36. Broad run predates new three failures.",
     "quality": "Current pdf-syntax/pdf-model/viewer-core all-targets Clippy passes. Broader/docs/conformance gates retain recorded scope."
   },
   "review": {
@@ -14,9 +14,11 @@
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
-      "special_colour_spaces_current",
-      "text_extraction_cmaps_current",
-      "forms_buttons_choices_current"
+      "images_samples_interpolation_current",
+      "coordinates_graphics_state_current",
+      "simple_font_encodings_current",
+      "rendering_intent_transfer_current",
+      "annotations_markup_current"
     ],
     "recorded_shards": [
       "logical_structure",
@@ -66,10 +68,13 @@
       "destinations_current_followup",
       "colour_spaces_current",
       "font_descriptors_current",
-      "actions_chains_current"
+      "actions_chains_current",
+      "forms_buttons_choices_current",
+      "text_extraction_cmaps_current",
+      "special_colour_spaces_current"
     ],
-    "partial_current_rows": 360,
-    "pending_current_rows": 523
+    "partial_current_rows": 369,
+    "pending_current_rows": 514
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",
@@ -82,7 +87,7 @@
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 38,
-    "last_read_utc": "2026-11-16T12:48:34.958857+00:00"
+    "last_weekly_used_percent": 39,
+    "last_read_utc": "2026-11-16T13:10:09.143705+00:00"
   }
 }

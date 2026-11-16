@@ -1,0 +1,34 @@
+{
+  "baseline": "b901326c",
+  "scope": "ISO 32000-2:2020 EC3 §12.7.5.2 Button fields (effective heading; prompt's §12.7.4.2 is Field names) and §12.7.5.4 Choice fields (prompt's §12.7.4.4 is not the effective heading). Printed pages 535-538 and 541-543; Table 229, Table 230, Table 233 and Table 234, with relevant EC3 Issue #468 and #170.",
+  "features": [
+    {
+      "feature": "button flags and check/radio/push type; widget state names; V/AS precedence and synchronization; checkbox export choice",
+      "source": "§12.7.5.2.1-.3, Table 229/230 (printed 535-537). Check-box state tests in field_names_buttons_spec_audit.rs and button/radio mapping in viewer-core/tests/headless.rs::a_page_states_its_whole_form_as_controls_a_host_can_build; actual drawing and saving tests also exist.",
+      "ledger": "§12.7.5.2.1-.3 marked implemented; ledger claims /V and /AS behavior, widget-specific appearance state, optional Off, /Opt export and state-name distinction.",
+      "verdict": "No new defect established in the requested scope. Existing tests cover missing Off appearance, stored state, drawing, and value/appearance synchronization at model level. Corpus-backed host mapping assertions exist; they do not substitute for each host event path.",
+      "residuals": "Not a whole-clause button certification. Did not re-audit push-button captions/icons, annotation-appearance generation, or all three host click/sync paths. Producer-side invalid flag combinations are not treated as reader rejection requirements."
+    },
+    {
+      "feature": "NoToggleToOff set/clear behavior on already-selected radio",
+      "source": "Table 229 bit 15, §12.7.5.2.4 (printed pp.535, 538); §12.7.5.2.1 says interactive processors shall follow Table 229 behavior.",
+      "ledger": "§12.7.5.2.4 marked implemented; host mapping and click path described in ledger.",
+      "verdict": "Existing coverage found: viewer-host::form::toggling unit assertions plus host/corpus mapping test `a_click_on_each_of_nine_button_widgets_is_what_the_clause_makes_of_it`. This shard did not independently run it or confirm a non-corpus exact-xref pointer event test.",
+      "residuals": "No additional regression draft; public GTK/Qt event behavior was not exhaustively revalidated in this bounded pass."
+    },
+    {
+      "feature": "RadiosInUnison set and clear, including visible mark consequence",
+      "source": "Table 229 bit 26 and §12.7.5.2.3 radio paragraph (printed p.537); §12.7.5.2.4 NOTE (printed p.538); EC3 #170 optional radio Off appearance addressed separately.",
+      "ledger": "§12.7.5.2.3-.4 implemented; ledger says both same-name set and mutually-exclusive clear behavior are executed.",
+      "verdict": "Strong exact-xref model/render test exists in pdf-model/tests/radios_in_unison.rs: set control returns two same-name widgets on, clear control returns only one; raster ink distinguishes both states, with third differing-name control. Host flags are carried and host mapping also covers the flag.",
+      "residuals": "Did not rerun test or independently exercise an actual pointer click through GTK and Qt for unison. Existing source test tests edit/state/raster behavior and host API mapping, not full native pointer sequences."
+    },
+    {
+      "feature": "Choice options, display labels vs export strings, order, combo/editable and list/multiselect flags, selected indices, TI and commit behavior",
+      "source": "Table 233 and Table 234, §12.7.5.4 (printed pp.541-542); /V explanation and EXAMPLE (printed p.542); EC3 #214 terminology correction and #468 correction to Table 234 /I.",
+      "ledger": "§12.7.5.4 marked implemented; claims options/export values, value-selected labels, I, Sort order, TI, MultiSelect, editable combo, and commit semantics.",
+      "verdict": "Coverage is substantial: pdf-model variable_text tests check display/options/order/highlight/TI; saving tests check single and multi-selection serialization/reopen; text_choice_fields_spec_audit covers Sort and a V-vs-I conflict; viewer-core headless tests assert actual editable-combo/list mappings from a corpus document; GTK/Qt consumers map editable and multi flags. A concrete residual defect candidate remains in duplicate label array selection; see findings and draft.",
+      "residuals": "No exhaustive Qt/GTK keyboard interaction audit here. Combo+MultiSelect combinations are not prohibited by Table 233's explicit wording, but host ControlKind::Combo contains one selected index and current host mapping only exposes the first selection; this shard did not decide whether such a combo combination is normative/usable. Commit timing, spell-check behavior and UI styling beyond assertions are not certified."
+    }
+  ]
+}
