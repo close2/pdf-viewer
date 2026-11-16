@@ -1,0 +1,49 @@
+{
+  "selected_adr_reviews": [
+    {
+      "adr": "0209",
+      "slice": "Annex O grammar and initial parameter parser/reader policy",
+      "evidence": "Effective §O.2 states separator names/characters and left-to-right shall. Fragment::parse splits separators before percent-decoding; parser tests cover separators, raw ef tail and known parameters. viewer-core applies parameters in vector order; concrete comment and ef consumer tests expose order.",
+      "verdict": "The reviewed grammar pipeline is consistent with the clause. Existing source code's exact handling of malformed/unsupported arguments is reader recovery policy, not an ISO-mandated interpretation. No whole-ADR review."
+    },
+    {
+      "adr": "0357",
+      "slice": "Annex O highlight and fdf, currently implemented rather than refused",
+      "evidence": "Table Annex O.4 highlight has a specified rectangle but implementation-dependent nature; fragments.rs verifies public geometry. Fdf names FDF/XFDF URI; tests show host request plus imported value. Host policy owns resolution/fetch/consent.",
+      "verdict": "The main correction described by ADR 0357 is reflected in consumer tests. A missing rotated/cropped/UserUnit geometry control remains a test-depth gap, not by itself evidence the conversion is incorrect. Do not mandate a visual hue or external network behavior. No whole-ADR review."
+    },
+    {
+      "adr": "0431",
+      "slice": "ef remainder belongs to selected embedded file",
+      "evidence": "Table Annex O.3's exact remainder sentence; Fragment::after_embedded_file preserves source spelling; viewer-core test extracts bytes and fragment and opens those bytes with the carried tail, checking page and search.",
+      "verdict": "The architectural division and test are source-grounded. Prompting/trust rejection and tab/window presentation remain host policy under the adjacent should/may security text. No whole-ADR review."
+    },
+    {
+      "adr": "0162",
+      "slice": "Table149 point/magnification handling reached from Annex O zoom/view/viewrect",
+      "evidence": "Table Annex O.4 defers view syntax to §12.3.2.2 and specifies default-user-space units; §12.3.2.2 Table149 defines view semantics. Current consumer routes use page_space_at, with crop origin, rotation and UserUnit.",
+      "verdict": "Static transform route appears intentional and uses the page transform. Existing fragment geometry witnesses only unrotated zero-origin pages; retain a rotated/CropBox/UserUnit control as an assertion-depth proposal. No new defect and no whole-ADR review."
+    },
+    {
+      "adr": "0746",
+      "slice": "Issue #700 amended Annex O table captions and instrument coverage",
+      "evidence": "Visible EC3 strike/caret pairs on physical pp.992–993 (printed pp.977–978) replace caption designations O.3/O.4 with O.1/O.2; ADR 0746 records this as a table renumbering. ADR 0750 explicitly chooses to keep citations to the published caption numbering and reports tool gap.",
+      "verdict": "The normative caption correction and the project's citation convention are distinct. Keep source discontinuity explicit: current EC3 PDF annotations make amended caption numbers O.1/O.2, while source text and repository citation gate resolve published O.3/O.4. ADR 0750's record of local citation policy is not a claim that annotations do not exist. No whole-ADR review."
+    },
+    {
+      "adr": "0750",
+      "slice": "Citation indexing of table caption renumbering",
+      "evidence": "Table Annex O.3/O.4 captions contain corrected O.1/O.2 in EC3 annotation overlays; current table citation scanner and references keep published captions. Parent already recorded the scanner's missed nonnumeric table-caption prefix.",
+      "verdict": "Scope-limited: preserve current published-designation citations as repository policy, but don't assert that O.3/O.4 are the effective corrected caption numbers. The scanner coverage omission is parent triage. No whole-ADR review."
+    }
+  ],
+  "errata_and_notes": [
+    {
+      "issue": "EC3 #700",
+      "clause": "Annex O §O.2.1 and §O.2.2 table captions",
+      "observation": "Strikeout/caret annotations replace Table Annex O.3 with O.1 and O.4 with O.2. The textual PDF caption and repository citations still display O.3/O.4; errata overlay is the amended source evidence.",
+      "decision": "State both forms and keep citation policy separate from normative correction. Parent recorded the table citation-index gap; do not claim ordinary section citation check captures these nonnumeric caption corrections."
+    }
+  ],
+  "execution_provenance": "Parent reports an initial-open-ordering probe fails the expected complete order and its no-catalog control passes. This is parent-provided execution information, not execution by this shard. It concerns §O.2.2 `should` ordering relative to other document-specified open parameters, distinct from §O.2's internal fragment left-to-right shall."
+}

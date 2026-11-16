@@ -225,6 +225,16 @@ intent fixtures discriminate transform selection but do not certify full profile
 validity. Partial evidence reaches393rows, with490pending. No new behavior failure;
 model all-targets Clippy passes. The broad run above predates these five tests.
 
+The scan-conversion/AnnexO checkpoint strengthens the stroke-fit oracle from a
+row minimum to minimum-and-maximum coverage across its interior. Both tests pass,
+including the three Radeon890M Vulkan coverage lanes at eight placements. The
+family ledger rationale is stale relative to10.7.4/.5 and A714; supported path
+scope remains qualified. Encoded structure-ID and crop/rotation/UserUnit highlight
+controls pass; the latter explicitly tests current origin policy. The existing
+earliest-word fragment-search test is absent from its ledger references, not absent
+from the test suite. Partial reviews reach403rows, with480pending. The manifest
+remains36; viewer-core/render-raster all-targets Clippy passes.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks

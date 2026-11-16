@@ -966,5 +966,52 @@
     "change": "Use actual embedded LiberationSans program: code39 inherits Standard quoteright GID527, explicit WinAnsi control selects quotesingle GID10; both select Differences parenright GID12 for code40. Independently inspected program metrics/hash and nonempty outlines.",
     "execution": "1PASS, fonts-transfer-wave23c.log",
     "remaining": "LoadedFont public consumer only; no raster/text-extraction or all-font coverage."
+  },
+  {
+    "id": "2038-T37",
+    "kind": "test-assertion-gap",
+    "clauses": [
+      "10.7.5"
+    ],
+    "summary": "Stroke-fit test claimed an entire interior row was fully covered but checked only its darkest pixel.",
+    "change": "Compare darkest and lightest interior red levels, retaining non-SA negative control and eight placements. Log actual adapters for the cross-lane run.",
+    "execution": "2PASS, stroke-adjustment-wave24b.log; Radeon890M Vulkan all three coverage lanes exercised.",
+    "remaining": "Tests the selected thin axis-aligned fit, not every path or the whole clause."
+  },
+  {
+    "id": "2038-T38",
+    "kind": "public-integration-test-gap",
+    "clauses": [
+      "O.2.1",
+      "O.2.2"
+    ],
+    "summary": "URI percent decoding and structure-ID selection had separate controls; highlight geometry lacked a combined crop/rotation/UserUnit control.",
+    "change": "Add exact-xref public encoded-ID selection with coherent ParentTree and fallback controls; add literal transformed highlight geometry and unrotated control. The latter explicitly pins current policy without claiming unique normative rotated-origin interpretation.",
+    "execution": "2PASS, annex-o-wave24b.log, including final guards.",
+    "remaining": "No full URI/host conformance; rotation-origin interpretation remains qualified."
+  },
+  {
+    "id": "2038-D13",
+    "kind": "ledger-description-drift",
+    "clauses": [
+      "10.7",
+      "10.7.4",
+      "10.7.5"
+    ],
+    "summary": "Family ledger says stroke grid fitting was declined and the general scan-conversion NOTE licenses departures. Current10.7.5 implements owner-selected fit;10.7.4 explicitly says the NOTE licenses none.",
+    "source": "Primary physical397\u2013400; ADR1560/2553; A714.",
+    "change": "Evidence only; reconcile family prose with current subclauses and retain supported fit scope. Ledger and historical records untouched.",
+    "remaining": "Unqualified implemented status versus broader stroke family remains an interpretation residual, not a newly proven rendering defect."
+  },
+  {
+    "id": "2038-D14",
+    "kind": "ledger-test-reference-gap",
+    "clauses": [
+      "O.2.2"
+    ],
+    "summary": "Ledger test references omit the direct earliest-word fragment-search regression despite that existing passing assertion.",
+    "code": "crates/viewer-core/tests/annex_o_open_parameters_audit.rs::fragment_search_word_list_selects_earliest_text_occurrence",
+    "change": "Record missing link; do not classify it as missing implementation or missing test.",
+    "remaining": "Caption #700 correction is distinct from existing published-number citation policy and earlier literal-prefix triage."
   }
 ]

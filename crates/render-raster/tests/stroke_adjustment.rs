@@ -112,8 +112,8 @@ fn outline(at: f32) -> DisplayList {
     stroked(path, true)
 }
 
-/// The rows of columns 20 to 80 that hold any ink, each with its darkest red level.
-fn inked_rows(raster: &Raster) -> Vec<(usize, u8)> {
+/// The rows of columns 20 to 80 that hold any ink, each with its darkest and lightest red levels.
+fn inked_rows(raster: &Raster) -> Vec<(usize, u8, u8)> {
     let width = raster.width as usize;
     (0..raster.height as usize)
         .filter_map(|row| {
@@ -121,7 +121,11 @@ fn inked_rows(raster: &Raster) -> Vec<(usize, u8)> {
                 .map(|column| raster.data[(row * width + column) * 4])
                 .min()
                 .expect("sixty columns");
-            (darkest < 255).then_some((row, darkest))
+            let lightest = (20..80)
+                .map(|column| raster.data[(row * width + column) * 4])
+                .max()
+                .expect("sixty columns");
+            (darkest < 255).then_some((row, darkest, lightest))
         })
         .collect()
 }
@@ -180,17 +184,17 @@ fn the_oracle_draws_a_fitted_rule_as_one_whole_row_at_every_placement() {
                 .expect("one stroke");
             inked_rows(&drawn)
                 .iter()
-                .map(|&(_, level)| level)
+                .map(|&(_, darkest, lightest)| (darkest, lightest))
                 .collect::<Vec<_>>()
         };
         assert_eq!(
             levels(true),
-            [0],
-            "a rule placed {offset} past a pixel boundary is one fully covered row"
+            [(0, 0)],
+            "a rule placed {offset} past a pixel boundary is one fully covered row across every interior column"
         );
         assert_ne!(
             levels(false),
-            [0],
+            [(0, 0)],
             "a rule placed {offset} past a pixel boundary without /SA keeps its coverage-weighted \
              width"
         );
@@ -205,6 +209,9 @@ fn every_lane_draws_the_oracles_fitted_strokes_at_every_placement() {
         eprintln!("no adapter on this machine: raster's lanes are not compared");
         return;
     };
+    for (name, lane) in &lanes {
+        eprintln!("{name} coverage lane: {}", lane.adapter_description());
+    }
     for offset in placements() {
         for (shape, list) in [
             ("rule", rule(50.0 + offset, true)),

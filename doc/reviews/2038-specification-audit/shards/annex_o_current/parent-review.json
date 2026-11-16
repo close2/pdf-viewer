@@ -1,0 +1,14 @@
+{
+  "baseline": "b901326c",
+  "limit": "Partial source/assertion review, not whole-clause certification.",
+  "source": "Parent read AnnexO physical992\u2013994, #700 caret corrections to AnnexO.1/.2, ADR0750 citation policy, current fragments consumer and existing earliest-search assertion. Agent destination locator printed198\u2013203 is wrong; Table149 is physical457/printed442 (earlier destination shard). Existing nominal O.3/.4 citations are a documented indexing convention; corrected captions remain effective source.",
+  "assertions": "Promoted URI ID test only after repairing orphaned child/ParentTree mappings and adding page1/page2/unknown/no-fragment controls. Exactxref, no recovery, complete interpretation. Coordinate test has explicit unrotated top-left policy qualification, independent literal geometry, dimensions and render-settlement guards; source ambiguity is not converted into a normative failure.",
+  "execution": {
+    "log": "annex-o-wave24b.log",
+    "run": 2,
+    "passed": 2,
+    "failed": 0,
+    "limit": "Final dimension/settlement/no-fragment guards included. Geometry remains policy-qualified."
+  },
+  "limits": "No external URI fetch or UI rendering contract implied; existing cross-document view/FitR failures remain separately identified. Search test exists although O.2.2 ledger references omit it."
+}

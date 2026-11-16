@@ -1,0 +1,14 @@
+{
+  "baseline": "b901326c",
+  "limit": "Partial source/assertion review, not whole-clause certification.",
+  "source": "Parent read physical397\u2013400, #371 annotation, current10.7/10.7.4/10.7.5 ledger notes, A714, ADR2553 and1560, grid_fit implementation. Family note still says fit was declined and general NOTE licenses departures; current subclause contradicts both. Preserve owner choice and historical records; no ISO amendment inferred from A714.",
+  "assertions": "Read flatness whole-raster curve comparison, analytic t^80 /SM ramp bound, and public stroke_adjustment tests. Found min-only row statistic could not prove every interior pixel fully painted; changed to min/max. Existing non-SA control retained. Exact fit policy does not exhaust broad stroke-adjustment source wording.",
+  "execution": {
+    "log": "stroke-adjustment-wave24b.log",
+    "run": 2,
+    "passed": 2,
+    "failed": 0,
+    "adapter": "AMD Radeon 890M Graphics (RADV STRIX1), IntegratedGpu, Vulkan, logged separately for cpu/gpu/compute coverage lanes",
+    "hardware_limit": "This machine has no /run/lock/gpu.lock; existing hook installs only where a shared lock is configured. Hardware selection confirmed by actual adapter reports, not just environment. Eight placements and three shape families, no all-path proof."
+  }
+}

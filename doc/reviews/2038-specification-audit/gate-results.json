@@ -861,6 +861,27 @@
       "log": "quality-wave23c.log",
       "scope": "pdf-model all targets Clippy -Dwarnings after checkpoint23 tests",
       "exit": 0
+    },
+    {
+      "log": "stroke-adjustment-wave24b.log",
+      "scope": "Strengthened entire-interior-row assertion and CPU/gpu/compute lane comparison on Radeon890M Vulkan, eight placements/three families",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "annex-o-wave24b.log",
+      "scope": "Final encoded structure-ID and qualified coordinate policy controls, with dimension/settlement/no-fragment guards",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave24c.log",
+      "scope": "viewer-core and render-raster all-targets Clippy -Dwarnings",
+      "exit": 0
     }
   ],
   "prior_expected_failures": {
