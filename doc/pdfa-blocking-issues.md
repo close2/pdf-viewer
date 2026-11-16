@@ -2,8 +2,8 @@
 
 Status: **a census record**, taken at `7d6ed87f` on 2026-10-27 by session 1828 for the owner's
 `doc/questions/A681` item 1, and re-run by the commands in section 1. Section 1's census lines and
-section 2's table are session 1939's run, section 2 being `rank.py --table`'s output (the table and
-section 9's R09 line re-taken by session 2032, with the pack); the figures in
+section 2's table are `rank.py`'s output (`--table` for section 2), re-taken with section 9's lists
+by session 2036, with the pack; the figures in
 sections 3 to 9 are session 1828's, each entry's built parts named where a round built them, and
 none is kept current by hand. ADR 2490 is the decision that reopens the blocks; this file
 is the list it reopens them over. It does not repeat `doc/pdf-a-conversion-limits.md` or
@@ -58,14 +58,14 @@ Two disagreements found outside it, to weigh in batch 132 (ADR 2652 section 2):
 
 | census line, with the pack | converted | conforming | refused | unreadable | declined as a source |
 |---|---|---|---|---|---|
-| pdf.js `as-if-printed` 2b | 907 | 2 | 51 | 11 | 5 |
-| corpora `as-if-printed` 2b | 429 | 6 | 49 | 16 | 3 |
-| pdf.js `as-if-printed` 4 | 917 | 0 | 43 | 11 | 5 |
-| corpora `as-if-printed` 4 | 446 | 0 | 39 | 16 | 2 |
-| pdf.js `as-shown` 2b | 841 | 2 | 117 | 11 | 5 |
-| corpora `as-shown` 2b | 344 | 6 | 133 | 16 | 4 |
-| pdf.js `as-shown` 4 | 845 | 0 | 115 | 11 | 5 |
-| corpora `as-shown` 4 | 348 | 0 | 135 | 16 | 4 |
+| pdf.js `as-if-printed` 2b | 929 | 2 | 29 | 11 | 5 |
+| corpora `as-if-printed` 2b | 439 | 6 | 39 | 16 | 3 |
+| pdf.js `as-if-printed` 4 | 942 | 0 | 18 | 11 | 5 |
+| corpora `as-if-printed` 4 | 468 | 0 | 17 | 16 | 2 |
+| pdf.js `as-shown` 2b | 895 | 2 | 63 | 11 | 5 |
+| corpora `as-shown` 2b | 409 | 6 | 67 | 16 | 5 |
+| pdf.js `as-shown` 4 | 904 | 0 | 56 | 11 | 5 |
+| corpora `as-shown` 4 | 428 | 0 | 55 | 16 | 4 |
 
 In session 1828's run, without the pack, pdf.js `as-if-printed` was eleven documents worse at each
 part, which is why the pack is taken as installed. `as-shown` is the same
@@ -105,9 +105,9 @@ column. R02 is built (ADR 2498) and no document reaches it.
 | order | remedy | frees at 2b | frees at 4 | stops under `as-shown`, 2b / 4 | what is left needs | built by, and what is left |
 |---|---|---|---|---|---|---|
 | 1 | R06b-the-other-part | 37 | 0 | 42 / 0 | built | ADR 2498: the two-target request; the figures are what a one-part request refuses; a `%PDF-3.x` source is written at 4 (ADR 2692) |
-| 2 | R03-photograph | 5 | 5 | 53 / 55 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638, 2760, a Type 3 width on the pages reaching its font (ADR 2847); a font name with the program the conversion embeds (ADR 2846); a lone delimiter where no operand stands (ADR 2859); left, a page this reader does not draw whole, by its cause (ADR 2760), a MediaBox outside part 2's range, a Private Use `ActualText`, a transfer function, a name the file's own program carries; `as-shown` keeps ADR 2394's gate (A694 item 1) |
-| 3 | R08-unembedded-font-photograph | 8 | 8 | 31 / 31 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
-| 4 | R10-font-refiling | 4 | 4 | 6 / 6 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688), a glyf program under a CIDFontType0 (ADR 2716), a collection nothing reads (ADR 2717), a font written inside another object (ADR 2722), a code Annex D encodes twice in a glyf face (ADR 2723) |
+| 2 | R10-font-refiling | 4 | 4 | 6 / 6 | builds only | built: a cut program (ADR 2636), a Type 1 program's widths (ADR 2685), a standard font's stated widths (ADR 2686), a mode 3 font's descriptor (ADR 2688), a glyf program under a CIDFontType0 (ADR 2716), a collection nothing reads (ADR 2717), a font written inside another object (ADR 2722), a code Annex D encodes twice in a glyf face (ADR 2723) |
+| 3 | R03-photograph | 3 | 2 | 52 / 53 | builds only | built under `as-if-printed`: A694, ADRs 2516, 2618, 2638, 2760, a Type 3 width on the pages reaching its font (ADR 2847); a font name with the program the conversion embeds (ADR 2846); a lone delimiter where no operand stands (ADR 2859); a MediaBox restated in larger units (ADR 2888); a Private Use `ActualText` an object states removed, and a transfer function's page photographed (ADR 2889); left, a page this reader does not draw whole, by its cause (ADR 2760), a MediaBox with a side of no length, a name the file's own program carries; `as-shown` keeps ADR 2394's gate (A694 item 1) |
+| 4 | R08-unembedded-font-photograph | 8 | 8 | 31 / 31 | builds only | built under `as-if-printed`: A694, ADR 2516; `as-shown` keeps its stop (A694 item 1) |
 | 5 | R11-truetype-route | 5 | 5 | 6 / 6 | builds only | built: A694 item 3, ADR 2520 |
 | 6 | R14-appended-page-composition | 3 | 2 | 3 / 3 | builds only | built: ADRs 2678, 2682 |
 | 7 | R03a-notdef-named | 2 | 2 | 6 / 3 | builds only | built: ADRs 2543, 2556, 2602, 2620, 2650, 2753; left, a code an embedded CMap reads as invalid in a CJK collection without ToUnicode |
@@ -391,9 +391,15 @@ a Type 3 width its `d0`/`d1` contradicts (3), an `ActualText` holding a Private 
 company* would print and scan. **Remedy**: the photographed page (ADR 2394) for the page that holds
 the fault, under `as-if-printed`, loss `text-as-image`; the other pages keep their text. `as-shown`
 stops, except where the page's readback names no character (ADR 2394's gate as it stands). Finer
-remedies exist for some: the bound names a content stream never uses can be renamed outright; a
-MediaBox past 14 400 units becomes a smaller box under `/UserUnit` (ADR 1123's bracket around the
-producer's operators); part 4 has none of part 2's limits (R06b). Q694 asks for the widening.
+remedies are built for three: a MediaBox outside 3 to 14 400 units is restated in larger (or smaller)
+units under `/UserUnit`, every box divided by a power of two and the producer's content bracketed by
+the matching `cm`, under every profile and with no loss (ADR 2888; a box with a side of no length,
+annotations, a page pattern, a destination or a layout `BBox` in the page's units stay refused by
+name); an `ActualText` an object states with a Private Use character is removed at the loss
+`actual-text-private-use` under `as-shown` and `as-if-printed` (ADR 2889); and a transfer function's
+page is photographed under `as-if-printed`, drawn with §10.5's function applied (ADR 2889). The bound
+names a content stream never uses could still be renamed outright; part 4 has none of part 2's limits
+(R06b).
 A photographed page is one the window drew whole, its own bytes' faults apart (ADR 2516 decision
 5); ADR 2618 adds the page's own damaged `/Contents`, a text object the stream ends inside and a
 keyword inside an array, and names what stays refused: a part of `/Contents` drawn of nothing, an
@@ -418,7 +424,7 @@ document is such a run, each is written as the number the window draws, loss `co
 under `as-if-printed`, `as-shown` and `state-every-loss` (whose page names each run), and the page
 keeps its text (ADR 2638). `509284` keeps one page photographed of five: its page 2 holds a stray
 `)`, which is no run.
-Two of the fenced rows are answered without a page: a font name that is not UTF-8 goes with the program the conversion embeds for it, the Type 0 font above it named as ISO 32000-2 Table 119 composes it, and with the photograph where the page the font is on is photographed (ADR 2846; `issue2128r` under every profile; `issue3521`, whose three unshown fonts no route embeds, only without the CJK pack, where its page is photographed; `issue5010`, whose own program carries the name, `SimFang-variant` and `XiaoBiaoSong` stay refused); and a Type 3 width the validator reports at its font is photographed on the pages whose resources reach the font, unless an annotation's appearance reaches it (ADR 2847; `303226`, `issue19634`, `issue19971` at part 4). Still refused by name: a MediaBox outside part 2's range (`boundingBox_invalid`, `issue19517`), an `ActualText` holding a Private Use character (`sakula`, `smaskdim`), an operator in an annotation's appearance (`hesr13613`), and the transfer function (`issue6931_reduced`, ADR 1964).
+Two of the fenced rows are answered without a page: a font name that is not UTF-8 goes with the program the conversion embeds for it, the Type 0 font above it named as ISO 32000-2 Table 119 composes it, and with the photograph where the page the font is on is photographed (ADR 2846; `issue2128r` under every profile; `issue3521`, whose three unshown fonts no route embeds, only without the CJK pack, where its page is photographed; `issue5010`, whose own program carries the name, `SimFang-variant` and `XiaoBiaoSong` stay refused); and a Type 3 width the validator reports at its font is photographed on the pages whose resources reach the font, unless an annotation's appearance reaches it (ADR 2847; `303226`, `issue19634`, `issue19971` at part 4). Still refused by name: a MediaBox with a side of no length (`boundingBox_invalid`; `issue19517` is restated, ADR 2888), an operator in an annotation's appearance (`hesr13613`), and, under `as-shown`, the transfer function (ADR 1964); `sakula` and `smaskdim` convert at 4 under both profiles and `issue6931_reduced` under `as-if-printed` (ADR 2889).
 Mitigations section 4.7; limits 5.2.
 
 **R04 — a resource the content stream names and its dictionary does not hold** (22 documents;
@@ -624,12 +630,12 @@ disagrees with `/Widths` the refusal's sentence is `PROGRAM_NOT_RESTATABLE`.
 `rank.py`'s section 4, with the pack, verbatim:
 
 - R01-recovered-structure (3): corpora:143424271191706722106594310729442158189.pdf, corpora:A Defence of the New Tenseless Theory of Time.pdf, corpora:T02-03_006_page-object-missing.pdf
-- R03-photograph (57): corpora:020747.pdf, corpora:020806.pdf, corpora:027613.pdf, corpora:033689.pdf, corpora:040669.pdf, corpora:050734.pdf, corpora:064034.pdf, corpora:073439.pdf, corpora:150277.pdf, corpora:178360.pdf, corpora:189478.pdf, corpora:210260.pdf, corpora:219789.pdf, corpora:226387.pdf, corpora:268346.pdf, corpora:303226.pdf, corpora:367594.pdf, corpora:379049.pdf, corpora:392154.pdf, corpora:427669.pdf, corpora:435321.pdf, corpora:455746.pdf, corpora:477139.pdf, corpora:492484.pdf, corpora:498264.pdf, corpora:504076.pdf, corpora:507618.pdf, corpora:507676.pdf, corpora:509284.pdf, corpora:T02-05-01_006_font-size-operator-missing.pdf, corpora:T02-05-01_009_Missing_open_paranthesis.pdf, corpora:T02-05-01_011_paranthesis-substituted-with-brackets.pdf, corpora:T02-05-01_014_endstream-keyword-missing.pdf, corpora:sakula.pdf, pdf.js:SimFang-variant.pdf, pdf.js:TAMReview.pdf, pdf.js:XiaoBiaoSong.pdf, pdf.js:boundingBox_invalid.pdf, pdf.js:bug1065245.pdf, pdf.js:bug1953099.pdf, pdf.js:issue17554.pdf, pdf.js:issue19484_1.pdf, pdf.js:issue19484_2.pdf, pdf.js:issue19517.pdf, pdf.js:issue19634.pdf, pdf.js:issue19971.pdf, pdf.js:issue20489.pdf, pdf.js:issue2391-1.pdf, pdf.js:issue3521.pdf, pdf.js:issue5010.pdf, pdf.js:issue5039.pdf, pdf.js:issue6342.pdf, pdf.js:issue6931_reduced.pdf, pdf.js:issue9252.pdf, pdf.js:poppler-90-0-fuzzed.pdf, pdf.js:sci-notation.pdf, pdf.js:smaskdim.pdf
+- R03-photograph (54): corpora:020747.pdf, corpora:020806.pdf, corpora:027613.pdf, corpora:033689.pdf, corpora:040669.pdf, corpora:050734.pdf, corpora:064034.pdf, corpora:073439.pdf, corpora:150277.pdf, corpora:178360.pdf, corpora:189478.pdf, corpora:210260.pdf, corpora:219789.pdf, corpora:226387.pdf, corpora:268346.pdf, corpora:303226.pdf, corpora:367594.pdf, corpora:379049.pdf, corpora:392154.pdf, corpora:427669.pdf, corpora:435321.pdf, corpora:455746.pdf, corpora:477139.pdf, corpora:492484.pdf, corpora:498264.pdf, corpora:504076.pdf, corpora:507618.pdf, corpora:507676.pdf, corpora:509284.pdf, corpora:T02-05-01_006_font-size-operator-missing.pdf, corpora:T02-05-01_009_Missing_open_paranthesis.pdf, corpora:T02-05-01_011_paranthesis-substituted-with-brackets.pdf, corpora:T02-05-01_014_endstream-keyword-missing.pdf, pdf.js:SimFang-variant.pdf, pdf.js:TAMReview.pdf, pdf.js:XiaoBiaoSong.pdf, pdf.js:boundingBox_invalid.pdf, pdf.js:bug1065245.pdf, pdf.js:bug1953099.pdf, pdf.js:issue17554.pdf, pdf.js:issue19484_1.pdf, pdf.js:issue19484_2.pdf, pdf.js:issue19634.pdf, pdf.js:issue19971.pdf, pdf.js:issue20489.pdf, pdf.js:issue2391-1.pdf, pdf.js:issue3521.pdf, pdf.js:issue5010.pdf, pdf.js:issue5039.pdf, pdf.js:issue6342.pdf, pdf.js:issue6931_reduced.pdf, pdf.js:issue9252.pdf, pdf.js:poppler-90-0-fuzzed.pdf, pdf.js:sci-notation.pdf
 - R03a-notdef-named (6): corpora:027613.pdf, corpora:268346.pdf, corpora:477139.pdf, corpora:504076.pdf, corpora:507676.pdf, pdf.js:issue11768_reduced.pdf
 - R05-press (2): corpora:363_Risk-Based Management of Groundwater Contamination _Paper.pdf, corpora:response-to-fiber-concerns[1].pdf
 - R06b-the-other-part (42): corpora:020747.pdf, corpora:020806.pdf, corpora:027613.pdf, corpora:033689.pdf, corpora:040669.pdf, corpora:150277.pdf, corpora:219789.pdf, corpora:268346.pdf, corpora:427669.pdf, corpora:477139.pdf, corpora:492484.pdf, corpora:507676.pdf, corpora:PDF 2.0 UTF-8 string and annotation.pdf, corpora:PDF 2.0 image with BPC.pdf, corpora:PDF 2.0 via incremental save.pdf, corpora:PDF 2.0 with offset start.pdf, corpora:PDF 2.0 with page level output intent.pdf, corpora:Simple PDF 2.0 file.pdf, corpora:T01_001_header-invalid-major-version.pdf, corpora:UnknownFilter-Font.pdf, corpora:UnknownFilter-FormXObject.pdf, corpora:UnknownFilter-ICC.pdf, corpora:UnknownFilter-ImageXObject.pdf, corpora:UnknownFilter-Linearized.pdf, corpora:UnknownFilter-OutlineObjStm.pdf, corpora:UnknownFilter-PageContentStream.pdf, corpora:UnknownFilter-objstm.pdf, corpora:UnknownFilter-xrefstm.pdf, corpora:pdf20-utf8-test.pdf, pdf.js:auth-event-ef-open.pdf, pdf.js:bug1937438_af_from_latex.pdf, pdf.js:bug1937438_mml_from_latex.pdf, pdf.js:bug1997343.pdf, pdf.js:bug2009627.pdf, pdf.js:bug2025674.pdf, pdf.js:bug854315.pdf, pdf.js:issue14755.pdf, pdf.js:issue17069.pdf, pdf.js:issue19176.pdf, pdf.js:issue3928.pdf, pdf.js:issue6151.pdf, pdf.js:poppler-67295-0.pdf
 - R07-undecodable-stream (2): corpora:UnknownFilter-ICC.pdf, pdf.js:poppler-742-0-fuzzed.pdf
-- R08-unembedded-font-photograph (33): corpora:040669.pdf, corpora:150277.pdf, corpora:189478.pdf, corpora:210260.pdf, corpora:219789.pdf, corpora:303226.pdf, corpora:392154.pdf, corpora:427669.pdf, corpora:443752.pdf, corpora:455746.pdf, corpora:507676.pdf, corpora:ControlCharacters.pdf, corpora:F001u_3_7j.pdf, corpora:T02-04-01_006_resources_subtype_wrong.pdf, corpora:UnknownFilter-Font.pdf, corpora:VerticalText.pdf, corpora:embedded_zip.pdf, corpora:mattgib_1.pdf, pdf.js:ThuluthFeatures.pdf, pdf.js:bug1365930.pdf, pdf.js:bug1815476.pdf, pdf.js:issue11403_reduced.pdf, pdf.js:issue13316_reduced.pdf, pdf.js:issue13916.pdf, pdf.js:issue17929.pdf, pdf.js:issue18059.pdf, pdf.js:issue20489.pdf, pdf.js:issue6127.pdf, pdf.js:issue7835.pdf, pdf.js:noembed-identity-2.pdf, pdf.js:noembed-identity.pdf, pdf.js:poppler-90-0-fuzzed.pdf, pdf.js:standard_fonts.pdf
+- R08-unembedded-font-photograph (33): corpora:040669.pdf, corpora:150277.pdf, corpora:189478.pdf, corpora:210260.pdf, corpora:219789.pdf, corpora:303226.pdf, corpora:392154.pdf, corpora:427669.pdf, corpora:435321.pdf, corpora:443752.pdf, corpora:455746.pdf, corpora:507676.pdf, corpora:ControlCharacters.pdf, corpora:F001u_3_7j.pdf, corpora:T02-04-01_006_resources_subtype_wrong.pdf, corpora:UnknownFilter-Font.pdf, corpora:VerticalText.pdf, corpora:embedded_zip.pdf, corpora:mattgib_1.pdf, pdf.js:ThuluthFeatures.pdf, pdf.js:bug1365930.pdf, pdf.js:bug1815476.pdf, pdf.js:issue11403_reduced.pdf, pdf.js:issue13916.pdf, pdf.js:issue17929.pdf, pdf.js:issue18059.pdf, pdf.js:issue20489.pdf, pdf.js:issue6127.pdf, pdf.js:issue7835.pdf, pdf.js:noembed-identity-2.pdf, pdf.js:noembed-identity.pdf, pdf.js:poppler-90-0-fuzzed.pdf, pdf.js:standard_fonts.pdf
 - R09-as-shown-font-losses (11): corpora:All Quiet on the Third Coast.pdf, corpora:T02-04-01_001_resources-basefont-missing.pdf, corpora:T02-04-01_002_resources-basefont-wrong-font.pdf, pdf.js:issue13316_reduced.pdf, pdf.js:issue15053.pdf, pdf.js:issue18099_reduced.pdf, pdf.js:issue2391-2.pdf, pdf.js:issue6069.pdf, pdf.js:issue6106.pdf, pdf.js:issue6108.pdf, pdf.js:mixedfonts.pdf
 - R10-font-refiling (6): corpora:499039.pdf, pdf.js:SimFang-variant.pdf, pdf.js:XiaoBiaoSong.pdf, pdf.js:issue11740_reduced.pdf, pdf.js:issue12823.pdf, pdf.js:issue215.pdf
 - R11-truetype-route (7): corpora:507676.pdf, corpora:sample_fonts_solidconvertor.pdf, pdf.js:SimFang-variant.pdf, pdf.js:XiaoBiaoSong.pdf, pdf.js:issue13316_reduced.pdf, pdf.js:issue20489.pdf, pdf.js:issue6127.pdf

@@ -133,6 +133,7 @@
 //! verdict rests on.
 
 mod actions;
+mod actual_text;
 mod as_drawn;
 mod attach;
 mod base;
@@ -162,6 +163,7 @@ mod icc;
 mod in_place;
 mod jpeg2000;
 mod languages;
+mod larger_units;
 mod overprint;
 pub(crate) mod page_tree;
 mod parent_tree;
@@ -202,6 +204,7 @@ use crate::tool::ToolOutputs;
 use crate::{Declined, Origin, Output, Refusal, Report, Sinks};
 
 pub use actions::RemovedAction;
+pub use actual_text::RemovedActualText;
 pub use as_drawn::WrittenRun;
 pub use base::ReadFrom;
 pub use boundaries::RemovedBoundary;
@@ -225,6 +228,7 @@ pub use fonts::{
 };
 pub use in_place::{ProxiedReference, ShownAnnotation};
 pub use languages::RestatedLanguage;
+pub use larger_units::RestatedPage;
 pub use prepare::{
     CARRIED_INFORMATION_NAMESPACE, CARRIED_INFORMATION_PREFIX, DestinationProfile, ProfileSource,
     RemovedAnnotation, WrittenAppearance, carried_local_name,
@@ -804,6 +808,8 @@ fn conversion_before_deciding(
         removed_annotations: Vec::new(),
         removed_actions: Vec::new(),
         removed_boundaries: Vec::new(),
+        restated_pages: Vec::new(),
+        removed_actual_texts: Vec::new(),
         runs_written_as_drawn: Vec::new(),
         undecodable_streams: Vec::new(),
         removed_transfer_functions: Vec::new(),
@@ -1778,6 +1784,16 @@ fn apply_the_decisions(
         && let Ok(removals) = &prepared.boundaries
     {
         conversion.removed_boundaries.clone_from(&removals.done);
+        conversion
+            .restated_pages
+            .clone_from(&removals.restated.done);
+    }
+    // `doc/adr/2889`: a removed ActualText leaves nothing in the output to notice, so each entry
+    // is named with its object and the value it held.
+    if wanted.contains(&Rewrite::ActualTextRemoved)
+        && let Ok(removed) = &prepared.actual_texts
+    {
+        conversion.removed_actual_texts = removed.at.values().cloned().collect();
     }
     // `doc/adr/2638`: each run written as the number this reader draws is named with its pages,
     // its bytes and the number, because the characters after the number are what went.

@@ -32,15 +32,17 @@ pub(super) const OPERATORS: &str = "graphics/only-operators-the-base-standard-de
 /// The rows a page's content stream fails and that nothing repairs on the page, besides
 /// [`OPERATORS`] (ISO 19005-2 section 6.2.2, ISO 19005-4 section 6.2.2): an inline image's
 /// interpolation, a hexadecimal string holding a byte that is no digit, a glyph procedure whose
-/// width the procedure contradicts, an `/ActualText` holding a Private Use character, and a bound
-/// name that is not UTF-8 (ISO 19005-2 section 6.1.8).
-pub(super) const ROWS: [&str; 6] = [
+/// width the procedure contradicts, an `/ActualText` holding a Private Use character, a bound
+/// name that is not UTF-8 (ISO 19005-2 section 6.1.8), and a graphics state's transfer function
+/// other than the identity (ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5).
+pub(super) const ROWS: [&str; 7] = [
     OPERATORS,
     "graphics/inline-image-interpolation-is-off",
     "file-structure/hexadecimal-string-holds-only-digits",
     "fonts/type3-glyph-procedures-state-their-width",
     "fonts/actual-text-states-no-private-use",
     "file-structure/bound-names-are-valid-utf8",
+    TRANSFER,
 ];
 
 /// What the failed fenced rows hold on the document's pages.
@@ -107,7 +109,14 @@ pub(super) fn pages(
             let Outcome::Failed { places, total } = &judgement.outcome else {
                 continue;
             };
-            if row == TYPE3_WIDTHS {
+            if row == TRANSFER {
+                let reached =
+                    annotations_reach.get_or_insert_with(|| reached_from_annotations(document));
+                match transfer_pages(document, judgement, reached) {
+                    Some(pages) => pages,
+                    None => continue,
+                }
+            } else if row == TYPE3_WIDTHS {
                 let reached =
                     annotations_reach.get_or_insert_with(|| reached_from_annotations(document));
                 match type3_pages(document, judgement, reached) {
@@ -164,6 +173,69 @@ fn type3_pages(
             return None;
         }
         pages.extend(reaching);
+    }
+    Some(pages)
+}
+
+/// The row whose places name a graphics state stating `/TR` (ISO 19005-2 section 6.2.5, ISO
+/// 19005-4 section 6.2.5).
+const TRANSFER: &str = "graphics/no-transfer-function-in-a-graphics-state";
+
+/// The pages a transfer function's graphics states are reached from, or `None` where the
+/// photograph does not answer the row.
+///
+/// ISO 32000-2 §10.5 has every processor apply the function — "the PDF processor shall apply the
+/// transfer function after performing any needed conversions between colour spaces" — so a print
+/// carries it, and the page this reader draws with it applied is what a print scanned back in
+/// shows (`doc/adr/1964` section 3, `doc/adr/2889`). The pages are the ones whose resources reach a
+/// state whose `/TR` is not the name `Identity`. Where every state names `Identity` the removal
+/// moves no colour and answers the row itself, so nothing is photographed; an `Identity` state
+/// any other page reaches would be left in the output by a photograph of these, so the row keeps
+/// that answer's refusal. A state an annotation's appearance reaches keeps it too, as a Type 3
+/// font does (ADR 2847), and so does a place that names no object.
+fn transfer_pages(
+    document: &Document,
+    judgement: &pdf_archive::Judgement,
+    annotations_reach: &BTreeSet<ObjectId>,
+) -> Option<BTreeSet<usize>> {
+    let Outcome::Failed { places, total } = &judgement.outcome else {
+        return None;
+    };
+    if places.len() != *total {
+        return None;
+    }
+    let mut applied: BTreeSet<ObjectId> = BTreeSet::new();
+    let mut identity: BTreeSet<ObjectId> = BTreeSet::new();
+    for finding in places {
+        let state = finding.place.object?;
+        let is_identity = document
+            .get(state)
+            .as_dict()
+            .and_then(|dict| dict.get("TR"))
+            .and_then(Object::as_name)
+            .is_some_and(|name| name.as_bytes() == b"Identity");
+        if is_identity {
+            identity.insert(state);
+        } else {
+            applied.insert(state);
+        }
+    }
+    if applied.is_empty() {
+        return None;
+    }
+    let mut pages = BTreeSet::new();
+    for state in &applied {
+        let reaching = pages_reaching(document, *state);
+        if annotations_reach.contains(state) || reaching.is_empty() {
+            return None;
+        }
+        pages.extend(reaching);
+    }
+    for state in &identity {
+        if annotations_reach.contains(state) || !pages_reaching(document, *state).is_subset(&pages)
+        {
+            return None;
+        }
     }
     Some(pages)
 }
@@ -244,6 +316,8 @@ fn resource_entries(document: &Document, resources: &Dictionary, queue: &mut Vec
         }
     }
     if let Some(states) = document.get_key(resources, "ExtGState").as_dict() {
+        // The states themselves, for the transfer row that names them.
+        queue.extend(states.iter().map(|(_, state)| state.clone()));
         for (_, state) in states.iter() {
             let state = document.resolve(state);
             let group = state

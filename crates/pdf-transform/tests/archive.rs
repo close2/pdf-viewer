@@ -1044,6 +1044,7 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         undecodable_stream: false,
         unreadable_program: false,
         stand_in_face: false,
+        actual_text_private_use: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -1214,6 +1215,7 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         undecodable_stream: false,
         unreadable_program: false,
         stand_in_face: false,
+        actual_text_private_use: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -1311,6 +1313,7 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         undecodable_stream: false,
         unreadable_program: false,
         stand_in_face: false,
+        actual_text_private_use: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -4737,6 +4740,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         undecodable_stream: false,
         unreadable_program: false,
         stand_in_face: false,
+        actual_text_private_use: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -5915,6 +5919,7 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         undecodable_stream: false,
         unreadable_program: false,
         stand_in_face: false,
+        actual_text_private_use: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -5985,6 +5990,7 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         undecodable_stream: false,
         unreadable_program: false,
         stand_in_face: false,
+        actual_text_private_use: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -6053,6 +6059,7 @@ fn two_specifications_marked_best_stay_refused() {
         undecodable_stream: false,
         unreadable_program: false,
         stand_in_face: false,
+        actual_text_private_use: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -6114,6 +6121,7 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         undecodable_stream: false,
         unreadable_program: false,
         stand_in_face: false,
+        actual_text_private_use: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -9575,6 +9583,7 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         undecodable_stream: false,
         unreadable_program: false,
         stand_in_face: false,
+        actual_text_private_use: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -9913,6 +9922,7 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         undecodable_stream: false,
         unreadable_program: false,
         stand_in_face: false,
+        actual_text_private_use: false,
     };
     let (report, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -9967,6 +9977,7 @@ fn every_loss() -> Authorisations {
         undecodable_stream: false,
         unreadable_program: false,
         stand_in_face: false,
+        actual_text_private_use: false,
     }
 }
 
@@ -16395,6 +16406,8 @@ fn composite_fonts_sharing_a_descriptor_refuse_incompatible_programs() {
     }
 }
 
+#[path = "archive/finer_remedies.rs"]
+mod finer_remedies;
 #[path = "archive/font_names.rs"]
 mod font_names;
 #[path = "archive/font_notices.rs"]

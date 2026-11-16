@@ -1065,6 +1065,16 @@ pub struct Conversion {
     /// intersection with the media box. Empty for every conversion whose pages met the limit
     /// (`doc/adr/1210`).
     pub removed_boundaries: Vec<super::RemovedBoundary>,
+    /// Every page that failed ISO 19005-2 section 6.1.13's limit at its media box and was
+    /// restated in larger units: ISO 32000-2 §7.7.3.3's `/UserUnit` multiplied by the factor,
+    /// every box divided by it, the content bracketed by the matching `cm`. Each row names the
+    /// page, the factor, the unit before and after and each box before and after; nothing a
+    /// reader shows moves, measured in inches (`doc/adr/2888`).
+    pub restated_pages: Vec<super::RestatedPage>,
+    /// Every `/ActualText` entry holding a Private Use character this conversion removed, the
+    /// loss `actual-text-private-use`: each by its object and the value it held, every character
+    /// as `U+XXXX`. Empty for every conversion whose entries held none (`doc/adr/2889`).
+    pub removed_actual_texts: Vec<super::RemovedActualText>,
     /// Every run a content stream held that ISO 32000-2 §7.3.3 spells as no number and this
     /// conversion wrote as the number this reader draws, the loss `content-as-drawn`: each by its
     /// pages, its content stream, its bytes and the number. Empty for every conversion whose
@@ -1313,6 +1323,36 @@ impl Conversion {
                     self.removed_boundaries
                         .iter()
                         .map(boundary_to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "pages_restated_in_larger_units".to_owned(),
+                Value::Array(
+                    self.restated_pages
+                        .iter()
+                        .map(restated_page_to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "removed_actual_texts".to_owned(),
+                Value::Array(
+                    self.removed_actual_texts
+                        .iter()
+                        .map(|removed| {
+                            Value::Object(vec![
+                                (
+                                    "object".to_owned(),
+                                    Value::Integer(i64::from(removed.object)),
+                                ),
+                                (
+                                    "generation".to_owned(),
+                                    Value::Integer(i64::from(removed.generation)),
+                                ),
+                                ("value".to_owned(), Value::text(removed.value.clone())),
+                            ])
+                        })
                         .collect(),
                 ),
             ),
@@ -2612,6 +2652,41 @@ fn run_to_json(written: &super::WrittenRun) -> Value {
         (
             "number".to_owned(),
             Value::text(super::as_drawn::spelled(&written.number)),
+        ),
+    ])
+}
+
+fn restated_page_to_json(restated: &super::RestatedPage) -> Value {
+    let rect = |sides: [f64; 4]| Value::Array(sides.iter().copied().map(Value::Number).collect());
+    Value::Object(vec![
+        (
+            "page".to_owned(),
+            Value::Integer(i64::try_from(restated.page).unwrap_or(i64::MAX)),
+        ),
+        ("factor".to_owned(), Value::Number(restated.factor)),
+        (
+            "user_unit_was".to_owned(),
+            Value::Number(restated.user_unit_was),
+        ),
+        (
+            "user_unit_now".to_owned(),
+            Value::Number(restated.user_unit_now),
+        ),
+        (
+            "boxes".to_owned(),
+            Value::Array(
+                restated
+                    .boxes
+                    .iter()
+                    .map(|(entry, was, now)| {
+                        Value::Object(vec![
+                            ("entry".to_owned(), Value::text((*entry).to_owned())),
+                            ("was".to_owned(), rect(*was)),
+                            ("now".to_owned(), rect(*now)),
+                        ])
+                    })
+                    .collect(),
+            ),
         ),
     ])
 }

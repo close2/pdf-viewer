@@ -31,6 +31,15 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: OPERATORS,
         answer: Answer::Mechanical(Rewrite::RunWrittenAsDrawn),
     },
+    // ISO 19005-4 section 6.2.10.8: an `/ActualText` holding a Private Use character, where an
+    // object states it, is removed at the loss `actual-text-private-use`; ISO 32000-2 §14.9.4
+    // makes the entry optional, and the content is then read as its own text
+    // (`super::super::actual_text`, `doc/adr/2889`). An entry inline in a content stream is the
+    // fence's, and its page the photograph's.
+    Remedy {
+        requirement: "fonts/actual-text-states-no-private-use",
+        answer: Answer::Loses(Loss::ActualTextPrivateUse, Rewrite::ActualTextRemoved),
+    },
 ];
 
 /// This family's rows of [`super::CONDITIONAL`].
@@ -98,14 +107,10 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "graphics/rendering-intent-operator-names-one-of-four",
         Because::TheFence(RENDERING_INTENT_OPERAND),
     ),
-    // ISO 19005-4 section 6.2.10.5 and section 6.2.10.8: both are the producer's page.
+    // ISO 19005-4 section 6.2.10.5: the producer's page.
     (
         "fonts/type3-glyph-procedures-state-their-width",
         Because::TheFence(TYPE3_WIDTH_IS_IN_THE_PROCEDURE),
-    ),
-    (
-        "fonts/actual-text-states-no-private-use",
-        Because::TheFence(ACTUAL_TEXT_STATES_THE_PRODUCERS_WORDS),
     ),
 ];
 
@@ -145,14 +150,6 @@ const TYPE3_WIDTH_IS_IN_THE_PROCEDURE: &str = "a Type 3 glyph procedure's d0 or 
      for byte; and §9.2.4 makes the dictionary's widths what positions every glyph on the line, \
      so doc/pdf-a-conversion-limits.md section 4.9 restates those never. Changing either moves \
      marks on the page";
-
-/// Why an `/ActualText` holding a Private Use character is neither corrected nor removed.
-const ACTUAL_TEXT_STATES_THE_PRODUCERS_WORDS: &str = "ISO 19005-4 section 6.2.10.8 forbids a \
-     Private Use character inside an ActualText entry, and that entry is a marked-content \
-     property list or a structure element's entry over a span of the producer's page. Changing \
-     its value means deciding what the producer meant that span to say, which doc/questions/A48 \
-     forbids; removing it takes away the only statement the file makes about what those glyphs \
-     spell, which at Level A is the evidence the level exists to require";
 
 /// The row whose repair ISO 32000-2 §7.3.4.3 states the result of.
 pub(super) const ODD_HEXADECIMAL_DIGITS: &str = "file-structure/hexadecimal-string-digits";

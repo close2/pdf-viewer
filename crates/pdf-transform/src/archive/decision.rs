@@ -574,11 +574,22 @@ pub enum Loss {
     /// written names the stand-in under the `/DA`'s own name, and the fonts row embeds the face
     /// this viewer draws it in, which its own report names (`doc/adr/2858`).
     StandInFace,
+    /// ISO 19005-4 section 6.2.10.8: an `/ActualText` entry holding a character of the Unicode
+    /// Private Use Area is removed from the object that states it.
+    ///
+    /// ISO 32000-2 §14.9.4 makes the entry optional and its value "a character substitution for
+    /// the content", "equivalent to what a person would see"; a Private Use value is one no
+    /// reader knows the meaning of without the producer's private agreement, and part 4 forbids
+    /// it outright. Taking out only the private characters would leave a substitution the
+    /// producer did not write, which claims the content reads as less than it shows; removing the
+    /// entry leaves the content's own text, with no replacement claimed. What is lost is the
+    /// value, and the report names each object and the value it held (`doc/adr/2889`).
+    ActualTextPrivateUse,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 37] = [
+    pub const ALL: [Self; 38] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -616,6 +627,7 @@ impl Loss {
         Self::UndecodableStream,
         Self::UnreadableProgram,
         Self::StandInFace,
+        Self::ActualTextPrivateUse,
     ];
 
     /// The word a caller authorises it by.
@@ -659,6 +671,7 @@ impl Loss {
             Self::UndecodableStream => "undecodable-stream",
             Self::UnreadableProgram => "unreadable-program",
             Self::StandInFace => "stand-in-face",
+            Self::ActualTextPrivateUse => "actual-text-private-use",
         }
     }
 
@@ -950,6 +963,11 @@ impl Loss {
                  another face. The report names each annotation, its page and the font name, and \
                  the face embedded for it"
             }
+            Self::ActualTextPrivateUse => {
+                "an ActualText entry holding a character of the Unicode Private Use Area is \
+                 removed, so the content it covered is read as its own text with no replacement \
+                 claimed; the report names each object and the value it held"
+            }
         }
     }
 
@@ -1121,6 +1139,8 @@ pub struct Authorisations {
     pub unreadable_program: bool,
     /// Whether [`Loss::StandInFace`] was authorised.
     pub stand_in_face: bool,
+    /// Whether [`Loss::ActualTextPrivateUse`] was authorised.
+    pub actual_text_private_use: bool,
 }
 
 impl Authorisations {
@@ -1165,6 +1185,7 @@ impl Authorisations {
             Loss::UndecodableStream => self.undecodable_stream,
             Loss::UnreadableProgram => self.unreadable_program,
             Loss::StandInFace => self.stand_in_face,
+            Loss::ActualTextPrivateUse => self.actual_text_private_use,
         }
     }
 
@@ -1216,6 +1237,7 @@ impl Authorisations {
             Loss::UndecodableStream => self.undecodable_stream = true,
             Loss::UnreadableProgram => self.unreadable_program = true,
             Loss::StandInFace => self.stand_in_face = true,
+            Loss::ActualTextPrivateUse => self.actual_text_private_use = true,
         }
     }
 }

@@ -26,12 +26,14 @@
 //! removal costs [`super::Loss::PageBoundary`], which the caller authorises. `doc/adr/1210` is the
 //! argument; the predicate is [`removal`].
 //!
-//! # The media box keeps the catalogue's original *none*
+//! # The media box is restated, not removed
 //!
-//! Table 31 requires it, so there is nothing to fall back to: the only ways to bring a media box
-//! inside the limit are rescaling the page, which moves every mark on it, and tiling it into
-//! several pages, which composes pages nobody produced. Both are on the far side of ADR 0816's
-//! fence, and a document failing at its media box is refused by name.
+//! Table 31 requires it, so there is nothing to fall back to. The limit counts units, and Table
+//! 31's `/UserUnit` says how large a unit is, so a page failing at its media box is restated in
+//! larger (or smaller) units with its content bracketed under the matching `cm`, every mark where
+//! it was measured in inches (`super::larger_units`, `doc/adr/2888`). A box with a side of no
+//! length, or sides no one unit brings inside the range, is refused by name; tiling a page into
+//! several stays on the far side of ADR 0816's fence, since it composes pages nobody produced.
 //!
 //! # An entry an ancestor states governs every page beneath it
 //!
@@ -122,6 +124,9 @@ pub(super) struct Boundaries {
     pub(super) at: BTreeMap<ObjectId, Vec<&'static str>>,
     /// What went, per entry, for the report.
     pub(super) done: Vec<RemovedBoundary>,
+    /// The pages that failed at their media box, restated in larger units
+    /// (`super::larger_units`, `doc/adr/2888`).
+    pub(super) restated: super::larger_units::Restated,
 }
 
 impl Boundaries {
@@ -153,6 +158,7 @@ impl Boundaries {
 pub(super) fn removal(
     document: &Document,
     report: &pdf_archive::Report,
+    spare: &mut super::prepare::Spare,
 ) -> Result<Boundaries, Because> {
     let Some(judgement) = report.failures().find(|judgement| judgement.id == SITE) else {
         return Err(Because::NotThisTarget(NOTHING_FAILED));
@@ -169,6 +175,13 @@ pub(super) fn removal(
     // Which page failed at which entry, so that a removal reaching a page that failed nothing
     // can be told from one a page asked for.
     let mut failed: BTreeMap<usize, BTreeSet<&'static str>> = BTreeMap::new();
+    // The pages that failed at their media box, which no removal answers: they are restated in
+    // larger units whole, every box they state with them (`super::larger_units`).
+    let at_the_media_box: BTreeSet<usize> = places
+        .iter()
+        .filter(|place| place.name.as_deref() == Some("MediaBox"))
+        .filter_map(|place| place.page)
+        .collect();
     for place in places {
         let Some(index) = place.page else {
             return Err(Because::NotBuiltYet(NOT_REPORTED_AT_A_PAGE));
@@ -176,8 +189,8 @@ pub(super) fn removal(
         let Some(entry) = place.name.as_deref() else {
             return Err(Because::NotBuiltYet(NOT_REPORTED_AT_AN_ENTRY));
         };
-        if entry == "MediaBox" {
-            return Err(Because::TheFence(THE_MEDIA_BOX_IS_THE_PAGE));
+        if entry == "MediaBox" || at_the_media_box.contains(&index) {
+            continue;
         }
         let Some((key, _)) = OPTIONAL.iter().find(|(key, _)| *key == entry) else {
             return Err(Because::NotBuiltYet(NOT_REPORTED_AT_AN_ENTRY));
@@ -190,13 +203,21 @@ pub(super) fn removal(
         holders.entry(holder).or_default().insert(key);
         failed.entry(index).or_default().insert(key);
     }
-    let mut out = Boundaries::default();
+    let mut out = Boundaries {
+        restated: super::larger_units::restate(document, &at_the_media_box, &pages, spare)?,
+        ..Boundaries::default()
+    };
     // The entries any holder lost, each asked of a page once.
     let removed_keys: BTreeSet<&'static str> = holders.values().flatten().copied().collect();
     for (index, page) in pages.into_iter().enumerate() {
         let Some(page) = page else {
             return Err(Because::NotBuiltYet(NO_SUCH_PAGE));
         };
+        // A restated page writes every box it states on itself, so an ancestor's removal does not
+        // reach it.
+        if at_the_media_box.contains(&index) {
+            continue;
+        }
         // Which of the removals this page's boundaries resolve through — its own entries, and
         // the ancestors' entries §7.7.3.4 puts in force for it.
         let mut reaching: BTreeSet<&'static str> = BTreeSet::new();
@@ -245,7 +266,7 @@ pub(super) fn removal(
     for (holder, keys) in holders {
         out.at.entry(holder).or_default().extend(keys);
     }
-    if out.at.is_empty() {
+    if out.at.is_empty() && out.restated.at.is_empty() {
         return Err(Because::NotThisTarget(NOTHING_FAILED));
     }
     Ok(out)
@@ -345,13 +366,13 @@ const NOT_STATED: &str = "this requirement was failed at a page boundary no obje
 
 /// Why a failing media box is refused, which is the catalogue's original *none*.
 pub(super) const THE_MEDIA_BOX_IS_THE_PAGE: &str = "this document states a MediaBox outside the \
-     range ISO 19005-2 section 6.1.13 admits. ISO 32000-2 \u{a7}7.7.3.3's Table 31 makes that \
-     entry required and \u{a7}14.11.2.1 gives it no default, so there is nothing to fall back \
-     to: the only ways to bring it inside the limit are rescaling the page, which moves every \
-     mark on it, and tiling it into several pages, which composes pages nobody produced. Both \
-     are on the far side of ADR 0816's fence. ISO 19005-4 states no implementation-limits \
-     subclause at all, so a large-format drawing can be PDF/A-4 and cannot be PDF/A-2 - ask for \
-     PDF/A-4";
+     range ISO 19005-2 section 6.1.13 admits that no unit brings inside it: a side of no length, \
+     or sides further apart than the range's own ratio. ISO 32000-2 \u{a7}7.7.3.3's Table 31 \
+     makes that entry required and \u{a7}14.11.2.1 gives it no default, so there is nothing to \
+     fall back to, and restating it under /UserUnit (doc/adr/2888) finds no factor; tiling it \
+     into several pages composes pages nobody produced, which is on the far side of ADR 0816's \
+     fence. ISO 19005-4 states no implementation-limits subclause at \
+     all, so such a page can be PDF/A-4 - ask for PDF/A-4";
 
 /// Why a boundary a page inherits is not removed where the removal would cost anything.
 const THE_BOX_IS_AN_ANCESTOR_S: &str = "the page boundary this document fails the limit at is \
@@ -389,11 +410,13 @@ mod tests {
         assert!(!costly.costs_nothing());
         let boundaries = Boundaries {
             at: BTreeMap::new(),
+            restated: super::super::larger_units::Restated::default(),
             done: vec![free.clone(), costly],
         };
         assert!(!boundaries.costs_nothing());
         let boundaries = Boundaries {
             at: BTreeMap::new(),
+            restated: super::super::larger_units::Restated::default(),
             done: vec![free],
         };
         assert!(boundaries.costs_nothing());

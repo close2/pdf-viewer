@@ -1002,9 +1002,15 @@ pub enum Rewrite {
     /// conforming processor, and where that intersection is what the default would give the
     /// entry carried no information a reader used. Where the two differ the removal costs
     /// [`super::Loss::PageBoundary`] and the caller authorises it. A failing **media box** is
-    /// neither: Table 31 requires it, so there is no default to fall back to and the
-    /// requirement stays refused by name.
+    /// neither: Table 31 requires it, so there is no default to fall back to. Its page is
+    /// restated in larger units instead — Table 31's `/UserUnit` multiplied, every box divided,
+    /// the producer's content bracketed by the matching `cm` — which moves no mark measured in
+    /// inches (`super::larger_units`, `doc/adr/2888`).
     PageBoundaryRemoved,
+    /// ISO 19005-4 section 6.2.10.8: an object's `/ActualText` holding a character of the Unicode
+    /// Private Use Area is removed, which costs [`super::Loss::ActualTextPrivateUse`]
+    /// (`super::actual_text`, `doc/adr/2889`).
+    ActualTextRemoved,
     /// The document information dictionary's entries are written into the XMP packet, and the
     /// dictionary goes.
     ///
@@ -1636,7 +1642,13 @@ impl Rewrite {
             Self::PageBoundaryRemoved => {
                 "a page loses the optional crop, bleed, trim or art box entry whose size ISO \
                  19005-2 section 6.1.13 does not admit, so that ISO 32000-2 \u{a7}14.11.2.1's \
-                 own default states that boundary instead"
+                 own default states that boundary instead; a page whose media box it does not \
+                 admit is restated in larger units under \u{a7}7.7.3.3's /UserUnit, its content \
+                 bracketed by the matching cm"
+            }
+            Self::ActualTextRemoved => {
+                "an object's ActualText entry holding a character of the Unicode Private Use Area \
+                 is removed, so ISO 32000-2 \u{a7}14.9.4 has the content read as its own text"
             }
             Self::InformationMovedIntoThePacket => {
                 "the document information dictionary's entries are written into the XMP packet, \
@@ -1862,6 +1874,7 @@ impl Rewrite {
             Self::EncryptionRemoved => "encryption-removed",
             Self::ExternalDataEmbedded => "external-data-embedded",
             Self::PageBoundaryRemoved => "page-boundary-removed",
+            Self::ActualTextRemoved => "actual-text-removed",
             Self::InformationMovedIntoThePacket => "information-moved-into-the-packet",
             Self::PreservedAsAttachment => "preserved-as-attachment",
             Self::HiddenAnnotationShown => "hidden-annotation-shown",
@@ -2081,6 +2094,7 @@ impl<'a> Rewriter<'a> {
             languages: prepared.languages.as_ref().ok(),
             external_data: prepared.external_data.as_ref().ok(),
             boundaries: prepared.boundaries.as_ref().ok(),
+            actual_texts: prepared.actual_texts.as_ref().ok(),
         }
     }
 }
@@ -3106,6 +3120,8 @@ struct Rewriter<'a> {
     external_data: Option<&'a super::external::Embedded>,
     /// The out-of-range optional page boundary entries each page loses, where any do.
     boundaries: Option<&'a super::boundaries::Boundaries>,
+    /// The `/ActualText` entries removed (`super::actual_text`).
+    actual_texts: Option<&'a super::actual_text::Removed>,
 }
 
 impl Rewriter<'_> {
@@ -3373,9 +3389,56 @@ impl Rewriter<'_> {
         applied: &mut BTreeMap<Rewrite, usize>,
     ) -> bool {
         let photographed = self.photographed_page(id, out, applied);
+        // After the photograph, so that the bracket goes round whatever content the page keeps.
+        let restated = self.restate_in_larger_units(id, out, applied);
         // Last, so that a dictionary an earlier step inserted — a page given the resources it
         // inherited — is searched too.
-        self.reference_direct_fonts(out, applied) | photographed
+        self.reference_direct_fonts(out, applied) | photographed | restated
+    }
+
+    /// ISO 19005-4 section 6.2.10.8: an `/ActualText` holding a Private Use character, taken off
+    /// the object the preparation found it on (`super::actual_text`, `doc/adr/2889`).
+    fn remove_actual_text(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let removed = self
+            .actual_texts
+            .filter(|_| self.wants(Rewrite::ActualTextRemoved))
+            .is_some_and(|removed| removed.at.contains_key(&id))
+            && out.remove("ActualText").is_some();
+        if removed {
+            count(applied, Rewrite::ActualTextRemoved);
+        }
+        removed
+    }
+
+    /// A page that failed ISO 19005-2 section 6.1.13 at its media box, restated in larger units:
+    /// its boxes, its `/UserUnit` and its `/Contents` bracketed, as the preparation decided
+    /// (`super::larger_units`, `doc/adr/2888`). A photographed page's content leaves nothing open,
+    /// so its bracket closes the prepended `q` alone.
+    fn restate_in_larger_units(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(restatement) = self
+            .boundaries
+            .filter(|_| self.wants(Rewrite::PageBoundaryRemoved))
+            .and_then(|boundaries| boundaries.restated.at.get(&id))
+        else {
+            return false;
+        };
+        let photographed = self.wants(Rewrite::SubstituteFontProgram)
+            && self
+                .substitutes
+                .is_some_and(|substitutes| substitutes.photographs.contains_key(&id));
+        restatement.write(out, photographed);
+        count(applied, Rewrite::PageBoundaryRemoved);
+        true
     }
 
     /// A page photographed because it shows an `Adobe-Identity` font no reader can name: its
@@ -3538,6 +3601,7 @@ impl Rewriter<'_> {
         changed |= self.restate_page_count(id, out, applied);
         changed |= self.remove_descriptor_sets(id, out, applied);
         changed |= self.remove_page_boundaries(id, out, applied);
+        changed |= self.remove_actual_text(id, out, applied);
         changed |= self.write_cid_to_gid_map(id, out, applied);
         changed |= self.state_font_type(id, out, applied);
         changed |= self.restate_truetype_encoding(id, out, applied);

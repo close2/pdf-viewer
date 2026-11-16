@@ -647,11 +647,53 @@ pub(super) fn producer_open_depth(
     content: &[u8],
     resources: &Dictionary,
 ) -> Result<usize, Because> {
+    let depths = content_depths(document, content, resources)?;
+    if depths.open.saturating_add(1) > NESTING_LIMIT {
+        return Err(Because::NotBuiltYet(PRODUCER_TOO_DEEP));
+    }
+    Ok(depths.open)
+}
+
+/// The graphics-state depths a content leaves open and reaches at its deepest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Depths {
+    /// The `q` operators no `Q` closed by the end.
+    pub(super) open: usize,
+    /// The most states open at once.
+    pub(super) deepest: usize,
+}
+
+/// [`producer_open_depth`]'s count, with the deepest nesting beside the depth left open, or
+/// [`UNBALANCED_PRODUCER`] where a `Q` pops below zero; and, for a bracket that adds one level
+/// under the whole content, [`PRODUCER_TOO_DEEP`] where `deepest + 1` passes the limit ISO
+/// 19005-2 section 6.1.13 holds a file to.
+pub(super) fn bracket_depths(
+    document: &Document,
+    content: &[u8],
+    resources: &Dictionary,
+) -> Result<Depths, Because> {
+    let depths = content_depths(document, content, resources)?;
+    if depths.deepest.saturating_add(1) > NESTING_LIMIT {
+        return Err(Because::NotBuiltYet(PRODUCER_TOO_DEEP));
+    }
+    Ok(depths)
+}
+
+/// The scan both depth questions share.
+fn content_depths(
+    document: &Document,
+    content: &[u8],
+    resources: &Dictionary,
+) -> Result<Depths, Because> {
     let mut lexer = Lexer::new(content);
     let mut depth: i64 = 0;
+    let mut deepest: i64 = 0;
     while let Some(token) = lexer.next_token() {
         match token {
-            Token::Keyword(word) if word == b"q" => depth = depth.saturating_add(1),
+            Token::Keyword(word) if word == b"q" => {
+                depth = depth.saturating_add(1);
+                deepest = deepest.max(depth);
+            }
             Token::Keyword(word) if word == b"Q" => {
                 depth = depth.saturating_sub(1);
                 if depth < 0 {
@@ -671,11 +713,11 @@ pub(super) fn producer_open_depth(
             _ => {}
         }
     }
-    let depth = usize::try_from(depth).unwrap_or(0);
-    if depth.saturating_add(1) > NESTING_LIMIT {
-        return Err(Because::NotBuiltYet(PRODUCER_TOO_DEEP));
-    }
-    Ok(depth)
+    // Neither count is negative here: a pop below zero returned above.
+    Ok(Depths {
+        open: usize::try_from(depth).unwrap_or(0),
+        deepest: usize::try_from(deepest).unwrap_or(0),
+    })
 }
 
 /// A rectangle with its corners ordered `[x_min, y_min, x_max, y_max]`.
@@ -769,7 +811,7 @@ const NAME_NOT_UTF8: Because = Because::NotBuiltYet(
 );
 
 /// A flate-encoded content stream holding exactly `data`.
-fn content_stream(data: &[u8]) -> Option<Object> {
+pub(super) fn content_stream(data: &[u8]) -> Option<Object> {
     let encoded = flate_encode(data, COMPRESSION_LEVEL)?;
     let mut dict = Dictionary::new();
     dict.insert(

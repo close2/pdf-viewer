@@ -498,8 +498,10 @@ ISO 19005-2 6.1.13 states ten hard limits; ISO 19005-4 states none at all, its 6
 the same four answers with one requirement breaking the pattern.
 
 **The shared mitigation is `stop`, and the reason is uniform**: every way of meeting one of these
-limits is an edit to what the document says — re-nesting `q`/`Q`, rescaling a page, re-encoding a
-colour space, renaming an object, dropping objects until the count falls.
+limits is an edit to what the document says — re-nesting `q`/`Q`, re-encoding a colour space,
+renaming an object, dropping objects until the count falls. The page boundary is the exception: the
+limit counts units and `/UserUnit` sizes them, so a page is restated in larger units without moving
+a mark (ADR 2888).
 `doc/pdf-a-conversion-limits.md` sections 2.5 and 9.2 already say this and rank it as the one class
 PDF/A-2 cannot take at all.
 
@@ -1953,12 +1955,14 @@ ISO 19005-2 6.2.11.7.3 · PDF/A-2a · today `the-fence`
   for. Confirmed **A** as a census candidate, and that is the honest route: take 2u.
 
 #### `fonts/actual-text-states-no-private-use`
-ISO 19005-4 6.2.10.8 · PDF/A-4, 4f, 4e · today `the-fence`
+ISO 19005-4 6.2.10.8 · PDF/A-4, 4f, 4e · **built** where an object states it (ADR 2889)
 
-- **Mitigation** — `discard` exists and is bad: removing the entry takes away the only statement the
-  file makes about what those glyphs spell. Changing its value is `A48`'s forbidden half. So the
-  honest answer is **none worth taking**, with `discard` available to an operator who values the
-  claim over the statement.
+- **Mitigation** — `discard`, the loss `actual-text-private-use`: the entry goes and the content is
+  read as its own text. A Private Use value spells nothing to a reader without the producer's private
+  agreement (ISO 32000-2 §14.9.4 asks for text "equivalent to what a person would see"), so the
+  statement lost is one no standard reader could read; changing the value is `A48`'s forbidden half.
+  Both shipped profiles authorise it, and the report names each object and its value. An entry inline
+  in a `BDC` operand is the content stream's, and its page the photograph's.
 - **By target** — part 2 states no such rule (confirmed **A**).
 - **From a configuration** — `remedy = "discard"`, with a cost sentence an operator will understand:
   *text extraction of that span stops working*.

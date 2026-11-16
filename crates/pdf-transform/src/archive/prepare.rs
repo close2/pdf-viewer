@@ -394,8 +394,12 @@ pub(super) struct Prepared {
     /// The out-of-range optional page boundary entries removed, or why none can be.
     ///
     /// ISO 19005-2 section 6.1.13's limit, answered by ISO 32000-2 §7.7.3.3's Table 31 and
-    /// §14.11.2.1's defaults rather than by rescaling anything (`doc/adr/1210`).
+    /// §14.11.2.1's defaults (`doc/adr/1210`), and a failing media box's page restated in larger
+    /// units under Table 31's `/UserUnit` (`doc/adr/2888`).
     pub(super) boundaries: Result<super::boundaries::Boundaries, Because>,
+    /// The objects whose `/ActualText` holds a Private Use character, or why they are not
+    /// answered by its removal (ISO 19005-4 section 6.2.10.8, `doc/adr/2889`).
+    pub(super) actual_texts: Result<super::actual_text::Removed, Because>,
     /// The content streams whose hexadecimal strings gain the final digit, or why none can.
     ///
     /// ISO 19005-2 section 6.1.6 and ISO 19005-4 section 6.1.5, inside a content stream: the
@@ -1647,7 +1651,10 @@ impl Prepared {
         // absence: §7.7.3.3's Table 31 makes four of the five boxes optional and §14.11.2.1
         // gives each of those a default that is another box in the same file (`doc/adr/1210`).
         let boundaries = asked(wanted(Rewrite::PageBoundaryRemoved), || {
-            super::boundaries::removal(document, input)
+            super::boundaries::removal(document, input, &mut spare)
+        });
+        let actual_texts = asked(wanted(Rewrite::ActualTextRemoved), || {
+            super::actual_text::removal(document, input)
         });
         let already = Already {
             packet_headers: headers,
@@ -1691,6 +1698,7 @@ impl Prepared {
             languages,
             external_data,
             boundaries,
+            actual_texts,
             actions,
             forbidden_annotations,
             hidden_annotations,
@@ -1891,6 +1899,7 @@ impl Prepared {
             },
             Rewrite::ExternalDataEmbedded => self.external_data.as_ref().err().copied(),
             Rewrite::PageBoundaryRemoved => self.boundaries.as_ref().err().copied(),
+            Rewrite::ActualTextRemoved => self.actual_texts.as_ref().err().copied(),
             Rewrite::InformationMovedIntoThePacket => self.information.as_ref().err().copied(),
             Rewrite::PreservedAsAttachment => self.attached.as_ref().err().copied(),
             Rewrite::ForbiddenActionRemoved
@@ -1926,6 +1935,12 @@ impl Prepared {
         }
         if let Ok(default) = &self.default_rgb {
             for (id, object) in &default.written {
+                out.insert(*id, object.clone());
+            }
+        }
+        // The streams bracketing a page restated in larger units (`doc/adr/2888`).
+        if let Ok(boundaries) = &self.boundaries {
+            for (id, object) in &boundaries.restated.written {
                 out.insert(*id, object.clone());
             }
         }

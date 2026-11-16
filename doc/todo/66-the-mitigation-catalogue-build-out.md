@@ -174,7 +174,8 @@ Grouped by the code one build unlocks, not by clause; every site's own entry in
   boxes optional and §14.11.2.1 gives each a default that is another box in the file, so removing
   an out-of-range optional entry moves no mark. ADR 1200 section 1 has the predicate that decides
   whether the removal is mechanical or a loss; **built** in ADR 1210, with
-  `--authorise page-boundary` for the second case and the media box keeping its refusal.
+  `--authorise page-boundary` for the second case; a failing media box's page is restated in larger
+  units under `/UserUnit` (ADR 2888).
 
 What every site needs alike: the answer carried out at rewrite, the report naming what left and
 where it went, a fixture per site in `crates/pdf-transform/tests/archive.rs`, the output validated

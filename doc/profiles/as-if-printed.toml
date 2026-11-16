@@ -397,6 +397,15 @@ remedy = "discard"
 [site."fonts/font-programs-embedded"]
 remedy = "discard"
 
+# An ActualText entry holding a Unicode Private Use character, which ISO 19005-4 section 6.2.10.8
+# forbids. A print carried no ActualText: it is a
+# replacement for extracting the text, not a mark, and a Private Use value is one no reader knows the meaning of. Where an object
+# states it (a structure element, a property list resource) the entry is removed and the content is
+# read as its own text, the loss `actual-text-private-use`, each object and its value in the report;
+# an entry inside a content stream is the photograph's (doc/adr/2889).
+[site."fonts/actual-text-states-no-private-use"]
+remedy = "discard"
+
 # ---------------------------------------------------------------------------------------------
 # JPEG 2000 images outside the JPX baseline. A codestream with no boxes around it is given the JP2
 # file structure ISO 32000-2 7.4.9 has the filter expect, its bytes kept (doc/adr/2695); any other
