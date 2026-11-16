@@ -12,9 +12,9 @@ The report and machine-readable continuation are in
 `doc/reviews/2038-specification-audit.md` and its evidence directory.
 
 **Evidence so far.** All72 previous failing assertions pass. Current tests expose
-65 failing assertions, grouped by behavior and qualified where interpretation is
+66 failing assertions, grouped by behavior and qualified where interpretation is
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
-The shard index links partial reviews to694 ledger rows;189 remain pending in
+The shard index links partial reviews to700 ledger rows;183 remain pending in
 this round. No entire clause is certified merely because referenced tests pass.
 A shared-parser date mutation was killed and restored. Independent JP2 fixture
 regeneration matches embedded hashes. Selected ADR conclusions are retained,
@@ -31,9 +31,10 @@ composites overlapping same-object geometry twice. Literal measurement, join/fil
 WritingMode and new-file ID controls pass. The stroke failure also reaches PDF and three GPU lanes; CMYK-image OP passes.
 Embedded-font clipping and corrected FDF import controls pass. Next scopes cover
 signature revocation, FieldMDP identity, and transparency foundations.
-UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage46%;ceiling85%.
+UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage47%;ceiling85%.
 
 TSA keyCompromise time selection fails with genuine signed material; FieldMDP
 rename coverage fails under a qualified interpretation. Signature/core Clippy passes.
 Alpha empty-group/transfer controls pass; model Clippy passes.
 Scope/lexical review records stale comments; CRL public-path witness remains pending.
+Mixed-content AccessKit order fails ABC to ACB; final accessibility Clippy passes.

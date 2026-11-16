@@ -1328,6 +1328,19 @@
       "log": "quality-wave39.log",
       "exit": 0,
       "scope": "Syntax all-targets Clippy -Dwarnings PASS."
+    },
+    {
+      "log": "accessibility-order-wave40b.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Final public mixed-content ordering regression. Initial wave40 also failed ACB vs ABC; final rerun follows helper lint cleanup."
+    },
+    {
+      "log": "quality-wave40b.log",
+      "exit": 0,
+      "scope": "Accessibility all-targets Clippy -Dwarnings PASS. Initial run rejected helper expect/arithmetic and closure/nested-if style; corrected."
     }
   ],
   "prior_expected_failures": {

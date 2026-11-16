@@ -1696,5 +1696,22 @@
     "rejected": "Do not promote a test calling identical mode-less inputs with contradictory expected answers. No runtime failure recorded.",
     "adrs": "Reconsider ADR1112 freshness generalization narrowly; retain historical behavior and ADR1067 material/Unknown and2775 policy timing boundaries.",
     "residual": "Public report-path signed fixture under review. No global lower-bound fix proposed."
+  },
+  {
+    "id": "2038-B43",
+    "kind": "accessibility-logical-order",
+    "clauses": [
+      "14.8.2.5.1"
+    ],
+    "summary": "AccessKit traversal groups parent text before child elements, losing mixed /K logical order.",
+    "evidence": "Exact-xref tagged PDF has P(K=[MCR(A), Span(B), MCR(C)]). Flat control and model logical text both return ABC. Public accessibility tree returns ACB.",
+    "source": "Logical order is depth-first structure traversal. This is distinct from the producer recommendation that physical stream order coincide; both source orders are ABC in the fixture.",
+    "execution": "accessibility-order-wave40b.log: 1 FAIL; all guards and controls pass before the target.",
+    "scope": "Public Viewer/AccessKit data path, not a live platform bus. Intermediate API lacks own-content/child interleaving; generic own-lines-first is documented in code but no supporting ADR found.",
+    "adrs": [
+      "0084",
+      "0214",
+      "0394"
+    ]
   }
 ]

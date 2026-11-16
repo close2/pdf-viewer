@@ -1,0 +1,144 @@
+{
+  "baseline": "b901326c",
+  "source": "ISO 32000-2:2020 as amended by Errata Collection 3",
+  "scope": "Bounded review of \u00a714.8.2.5/.6, \u00a714.8.3.1/.2, and \u00a714.8.5.4.6/.7. Does not certify adjacent subclauses or require a reflow engine.",
+  "source_locations": [
+    {
+      "physical_page": 764,
+      "printed_page": 749,
+      "text": "\u00a714.8.2.5.1: page content sequence vs structure depth-first logical order; within a marked-content sequence content shall be in logical order; coincidence is should. .2 annotation position comes from structure; .3 reverse each show string."
+    },
+    {
+      "physical_page": 766,
+      "printed_page": 751,
+      "text": "\u00a714.8.2.6: character codes in the structure tree shall map to Unicode except associated Alt/ActualText; PUA only should be used if no other mapping; \u00a714.8.2.6.2 requires word-separating whitespace and says show-string splits have no semantic significance."
+    },
+    {
+      "physical_page": 767,
+      "printed_page": 752,
+      "text": "\u00a714.8.3.1 says the model captures general intent and need not match actual page layout; notes allow processor-specific layout latitude. \u00a714.8.3.2 reference areas are inferred contextual rectangles."
+    },
+    {
+      "physical_page": 788,
+      "printed_page": 773,
+      "text": "Original Table 377 at this page is superseded; effective Table 377 is the EC3 replacement at physical pages 1013\u20131014."
+    },
+    {
+      "physical_page": 802,
+      "printed_page": 787,
+      "text": "\u00a714.8.5.4.6: block Figure/Form/Formula must have explicit numeric Height; inline must have explicit numeric Width, each sole source of extent along that progression axis. Requirements address authoring/layout."
+    },
+    {
+      "physical_page": 803,
+      "printed_page": 788,
+      "text": "\u00a714.8.5.4.7 and Table 381 start: for column-divided grouping content attributes shall be present; ColumnCount default 1."
+    },
+    {
+      "physical_page": 804,
+      "printed_page": 789,
+      "text": "Table 381 continuation: ColumnGap and ColumnWidths, number/array forms, short-array last-element rules, excess-array ignored, inline-progression user-space units."
+    },
+    {
+      "physical_page": 1013,
+      "printed_page": null,
+      "text": "EC3 #223/#226 replacement Table 377 first page: BBox applies to Figure/Form/Formula/Artifact/Table; Width/Height mapping includes Figure/Form/Formula/Table/TH/TD; column attributes map to grouping elements."
+    },
+    {
+      "physical_page": 1014,
+      "printed_page": null,
+      "text": "EC3 replacement Table 377 continuation: column attributes reference Table 381; vertical-text GlyphOrientationVertical and Ruby mappings. No separate erratum changes \u00a714.8.5.4.6/.7."
+    }
+  ],
+  "features": [
+    {
+      "id": "structure_depth_first_mixed_k_order",
+      "clause": "\u00a714.8.2.5.1",
+      "source_feature": "Logical content order is the depth-first traversal of the structure hierarchy. Within one element, /K can sequence marked-content references and child structure elements. The 'should coincide' is a producer recommendation; the hierarchy traversal is a reader definition.",
+      "errata": "No direct erratum identified.",
+      "ledger": "Existing tagged-layout ledger row claims logical order is implemented and covers structure-driven copy. Prior shard tests stream-vs-structure order, but not mixed own-MCR/child/MCR sequencing in the public accessibility tree.",
+      "code": [
+        "crates/pdf-model/src/structure.rs::Tree::walk/logical_text/logical_range preserve the walk's /K traversal.",
+        "crates/viewer-core/src/accessibility.rs gathers an element's own lines separately from child structure nodes.",
+        "crates/viewer-accessibility/src/tree.rs around lines 547\u2013557 explicitly emits own runs before child elements and documents this limitation."
+      ],
+      "tests": [
+        "crates/pdf-model/tests/logical_order.rs::the_logical_order_reorders_what_the_stream_showed exercises ordinary hierarchy/stream divergence.",
+        "crates/pdf-model/tests/tagged_pdf_fixtures.rs logical order and annotation order cases exercise DFS order in the model.",
+        "No current assertion covers mixed parent own-content and child-element ordering in AccessKit. Proposed exact-xref public-consumer fixture: drafts/interleaved_struct_content_accesskit.rs."
+      ],
+      "assertion_meaning": "The standalone public-consumer test was promoted as `interleaved_struct_content_spec_audit`. The flat control and model logical text pass as ABC; the exact-xref mixed /K fixture passes no-recovery/complete-interpretation guards but the AccessKit sequence is ACB (expected ABC). This discriminates an actual consumer mismatch from model traversal, stream order, invalid xrefs or incomplete interpretation.",
+      "verdict": "Confirmed public accessibility reading-order gap: consumer discards /K interleaving despite model order preserving it. This is separate from producer recommendation that physical stream order coincide and separate from page reflow.",
+      "residuals": [
+        "The implementation comment at viewer-accessibility/src/tree.rs:547\u2013552 says viewer-core's answer does not record positions of own items relative to child elements, so it emits own lines first; no ADR was found that independently justifies this generic projection order. ADR 1489 is form-specific and ADR 0394 addresses element/caret order, not this mixed /K flattening.",
+        "The intermediate AccessibilityNode has own lines and child nodes as separate fields, so correction likely requires an ordered sequence in viewer-core and AccessKit projection, not merely child sorting.",
+        "Confirmed scope is mixed /K content in AccessKit; no claim about all page/readback paths or all assistive technology adapters."
+      ]
+    },
+    {
+      "id": "annotation_and_reversed_string_context",
+      "clause": "\u00a714.8.2.5.2-.3",
+      "source_feature": "Annotations are positioned logically through the structure tree and OBJR; ReversedChars requires reversing characters within each show string independently.",
+      "errata": "No direct erratum identified; object-reference clause numbering is covered by EC3 #452 elsewhere.",
+      "ledger": "Previously reviewed under tagged_layout; deliberately not recertified here.",
+      "code_tests": "Prior tagged_layout/features.json cites structure-driven annotation ordering, ObjectSpan copy, and \u00a714.8.2.5.3 example cases.",
+      "verdict": "Out of this shard's new review; refer to prior bounded evidence.",
+      "residuals": [
+        "This shard did not re-execute those tests or certify all annotations/reversed-string cases."
+      ]
+    },
+    {
+      "id": "unicode_mapping_word_breaks",
+      "clause": "\u00a714.8.2.6.1-.2",
+      "source_feature": "Tagged producers should map every character code; codes in structure elements shall map to Unicode except when associated Alt or ActualText applies. Private-use mappings are discouraged where another value exists. Word definition remains client-specific, but separating whitespace shall be in the tagged representation; show-string grouping has no semantic effect.",
+      "errata": "Prior tagged_layout review records EC3 #483 for Artifact BDC ActualText location and #356/#364 for the \u00a714.9.4 example; no direct amendment to these mapping/word-break rules was found.",
+      "ledger": "Covered by prior tagged_layout/features.json plus separate ToUnicode/CMap shards; no duplicate test proposed.",
+      "code_tests": "Prior evidence includes ToUnicode/ActualText soft-hyphen routes, show-string-boundary-with-space control, reversed chars and copy consumers. \u00a79.10.2 encoding/CMap details have their own shards.",
+      "verdict": "No new finding. Preserve the normative distinction: the exception on Alt/ActualText is not a blanket permission to omit Unicode mappings elsewhere; missing word spaces are producer nonconformance and a reader heuristic is not validation.",
+      "residuals": [
+        "Earlier shard explicitly notes Alt/E embedded-language issues; they remain separately tracked and are outside this scope.",
+        "No whole CMap parser or all-script Unicode mapping certification is implied."
+      ]
+    },
+    {
+      "id": "basic_layout_model_and_reference_areas",
+      "clause": "\u00a714.8.3.1-.2",
+      "source_feature": "Layout structure describes general intent and need not match the appearance's actual layout; notes allow reasonable format-specific interpretation. Reference areas are contextual rectangular frames inferred from content, including column regions, table/cell bounds, and floating element bounds. Indents are measured from their boundaries.",
+      "errata": "No direct amendment found.",
+      "ledger": "14.8.3.1 is implemented under the introductory/no-requirement convention; 14.8.3.2 is inapplicable to the current display consumer. Do not conflate the statuses.",
+      "code": "The application displays the PDF graphics appearance. It exposes selected structure bounds/attributes for accessibility, but has no tagged-structure repagination/reflow export destination.",
+      "tests": "No full layout-model/reference-area engine tests are expected in this product scope. Existing bounds/cell geometry tests cover separate attributes whose output is directly exposed; they do not assert reflow.",
+      "verdict": "No missing current reader behavior established. Source permits repurposing/reflow, but does not require this display consumer to reconstruct layout from these attributes.",
+      "residuals": [
+        "If a tagged reflow/export consumer is added, revisit inferred reference-area boundaries, progression modes, inheritance and all dependent attributes."
+      ]
+    },
+    {
+      "id": "figure_form_formula_dimensions",
+      "clause": "\u00a714.8.5.4.6; Table 377 effective replacement",
+      "source_feature": "For a Figure/Form/Formula at Block placement, its Height must be explicitly numeric and sole extent source in block progression. At Inline placement, Width must be explicitly numeric and sole extent source in inline progression. Effective EC3 Table 377 includes Figure/Form/Formula in Width/Height applicability, alongside Table/TH/TD; it marks these attributes optional generally.",
+      "errata": "EC3 #223/#226 appended replacement Table 377 at physical 1013\u20131014 changes applicable element mappings; it does not modify .4.6's conditional rules. Table377 original physical788 is superseded.",
+      "ledger": "layout_attributes_remaining_current/features.json covers Width/Height as reflow parameters without a display-reader geometry consumer; ADR 0301 separately distinguishes BBox as a public geometry result.",
+      "code": "No rendering or accessibility geometry consumer reads these width/height attributes. The page appearance and explicit BBox/content geometry are separate sources.",
+      "tests": "No reader test should demand rejection of a producer that violates these conditional authoring constraints, nor synthesize extents from them without a reflow consumer. BBox tests are separate and are not substitutes for Width/Height behavior.",
+      "verdict": "Producer/layout constraints; no mandatory reader defect established.",
+      "residuals": [
+        "A future reflow consumer would need tests for Block and Inline, explicit numeric vs Auto/missing, progression axis, and the 'sole source' condition.",
+        "BaselineShift from the same subclause is intentionally excluded per assignment and D33 disposition."
+      ]
+    },
+    {
+      "id": "grouping_element_columns",
+      "clause": "\u00a714.8.5.4.7, Table 381; EC3 replacement Table 377",
+      "source_feature": "If content in a grouping element is divided into columns, Table381 attributes shall be present. ColumnCount integer default1; ColumnGap number or array (desired intercolumn spaces), array shorter than Count\u22121 repeats last for remaining spaces and excess ignored; ColumnWidths number or array (desired widths), shorter than Count repeats last for remaining columns and excess ignored. Distances use default user-space units in inline progression. Table377 replacement explicitly assigns ColumnCount, ColumnGap, ColumnWidths to grouping elements.",
+      "errata": "EC3 #223/#226 replacement Table377 at physical1013\u20131014 confirms grouping-element applicability. Table381 itself is at physical803\u2013804; no direct erratum changes its values.",
+      "ledger": "layout_attributes_remaining_current/features.json groups Column attributes under currently unsupported reflow/layout controls; ledger has no claim of a reconstructed columns consumer.",
+      "code": "No current viewer rendering, selection, or AccessKit consumer uses ColumnCount/ColumnGap/ColumnWidths to reposition content; PDF content stream already supplies displayed coordinates.",
+      "tests": "No assertions reaching these values to a consumer were found in the column/layout attribute tests. No new reader test drafted because current product has no reflow destination. A permissive parser is not evidence of conformance validation.",
+      "verdict": "No reader conformance gap established. 'Shall be present' and array shall-statements constrain tagged source/layout processing, not a requirement to reshape the existing page appearance.",
+      "residuals": [
+        "No consumer-level coverage of short/excess arrays or varying inline progression; those become relevant only with a reflow/export path.",
+        "Array ColumnGap's statement that it should contain numbers differs from ColumnWidths' shall contain numbers; do not conflate the strengths."
+      ]
+    }
+  ]
+}

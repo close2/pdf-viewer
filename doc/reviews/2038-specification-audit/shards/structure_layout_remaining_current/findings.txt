@@ -1,0 +1,39 @@
+Bounded review: tagged structure order and remaining layout attributes
+
+Primary source and scope
+
+I read ISO 32000-2:2020 with the held EC3 replacement text. Locator checks used the primary PDF footer/page convention: printed 749 is physical 764 for §14.8.2.5; printed 751/752 are physical 766/767 for Unicode mapping and the basic layout model; printed 787/788/789 are physical 802/803/804 for Figure/Form/Formula and Table 381. EC3 Issues #223/#226 replace Table 377 on appended physical pages 1013–1014 (no ISO printed page). Therefore the original Table 377 at physical 788 is not the effective table.
+
+The effective replacement Table 377 explicitly assigns ColumnCount/ColumnWidths/ColumnGap to grouping elements. It maps BBox to Figure/Form/Formula/Artifact/Table, and Width/Height to Figure/Form/Formula/Table/TH/TD. Issue #223 corrects the structure-element mapping cells; #226 supplies key-name formatting and references. I found no direct EC3 change to §14.8.5.4.6 or Table 381. Table 381 starts at physical 803 and continues at 804.
+
+Confirmed finding: mixed logical structure order in the public accessibility tree
+
+§14.8.2.5.1 defines logical order as depth-first traversal of the structure hierarchy. It says page-content order should coincide, while the content within one marked-content sequence shall be in logical order. A logical `/K` array can interleave an element's own MCR items with child StructElems. This is not the same thing as ordering all of the parent’s text before all of its children.
+
+The model's `Tree::walk`/`logical_text` retain the `/K` traversal. The public consumer does not: `viewer-core/src/accessibility.rs` stores own text lines and child nodes independently, and `viewer-accessibility/src/tree.rs:547–552` emits the parent's runs followed by child elements. Its comment explicitly acknowledges the lost positions and states the resulting order.
+
+The parent promoted and ran `interleaved_struct_content_spec_audit`. The exact-xref tagged PDF's stream and `/K` order are both A,B,C. Its parent P has `/K` = [MCR(A), Span(B), MCR(C)], with a ParentTree mapping for all three MCIDs. The flat-parent positive control and model `logical_text` return ABC; the fixture's no-recovery and complete-interpretation checks pass; the public AccessKit text traversal returns ACB instead of ABC. This isolates the consumer's flattening and demonstrates a public reading-order failure with valid structure. I did not run Cargo myself, as this shard prohibits it.
+
+I found no ADR that specifically establishes own-lines-before-children as generic policy. The proximate rationale is the implementation comment and a representation limitation. ADR 1489 concerns text fields; ADR 0394 concerns element/caret order and does not justify losing mixed `/K` order. The likely corrective boundary is an ordered child/content-item sequence in viewer-core and AccessKit projection. The defect is scoped to mixed `/K` content in the AccessKit path; this is not a claim about every adapter.
+
+Unicode and word-break rules
+
+§14.8.2.6 was already reviewed in the tagged_layout shard, so no duplicate failure is asserted here. The source says codes belonging to structure elements shall map to Unicode except where associated Alt/ActualText applies. The general “should map every character code” and private-use-area guidance remain distinct recommendations. For words, a producer must include whitespace that would separate words in a pure-text representation; a consumer may use the Unicode stream augmented by ActualText; the division into show strings has no semantic significance. Existing soft-hyphen, ToUnicode/ActualText, explicit whitespace at a show-string boundary, and reversed-string tests are the bounded evidence cited there. That evidence is not a whole-script or whole-CMap certification. Previously identified `/Alt` and `/E` language escape problems remain in their own shard, not a new finding here.
+
+Layout model and reference areas
+
+§14.8.3.1 says the basic layout model captures general intent and need not match the PDF content's actual layout; the ledger marks this introductory clause implemented under its no-shall convention. §14.8.3.2 makes reference areas inferred contextual rectangles and names column areas, tables/cells, and floating element bounds; that ledger row is inapplicable to this display reader because it has no reflow/reference-area consumer. These clauses support structure-driven repurposing, but do not establish a missing behavior in the current display consumer. Existing ADR 1535's no-reflow classification should remain a product-destination decision rather than a claim that the source contains no layout rules. No new reflow test is proposed.
+
+Figure/Form/Formula and columns
+
+§14.8.5.4.6 imposes conditional layout constraints on the tagged structure: Block Figure/Form/Formula requires explicit numeric Height as the sole block-progression extent; Inline requires explicit numeric Width as the sole inline-progression extent. Combined with effective Table 377 applicability, these are meaningful producer/layout inputs, but the current viewer has no reflow/layout export consumer that can use them. Existing rendering comes from PDF graphics; explicit BBox is a separate result-geometry path under ADR 0301. I found no basis to make a reader reject invalid authoring or fabricate dimensions for display.
+
+§14.8.5.4.7/Table 381 says the attributes shall be present when a grouping element's content is divided into columns. ColumnCount defaults to 1. ColumnGap and ColumnWidths describe desired dimensions in inline-progression user units; their arrays have different short-array wording (Gap says the last item shall cover remaining gaps; Widths says the last item shall cover remaining columns), and excess entries are ignored. The source says ColumnGap arrays should contain numbers while ColumnWidths arrays shall contain numbers; preserve this difference. There is no current rendering or accessibility consumer that reconstructs columns from these attributes, and no assertion path is owed absent that destination. The original Table 377 page was superseded; the EC3 table is the source for applicability.
+
+Artifacts created
+
+- `features.json` maps the reviewed features to effective source, ledger ownership, code, actual test assertions and residuals.
+- `decisions.json` reconsiders ADRs 0084, 1535, 1016, 0301 and the explicitly excluded 2384 candidate.
+- `drafts/interleaved_struct_content_accesskit.rs` is the original standalone exact-xref public regression proposal, now promoted and exercised by the parent as `interleaved_struct_content_spec_audit`.
+
+Remaining limits: this review does not certify all §14.8.2/.3/.5 attributes, validate producer restrictions through rejection tests, test a hypothetical reflow engine, or reopen BaselineShift. The mixed-order consumer gap is the only confirmed failure in this bounded shard.

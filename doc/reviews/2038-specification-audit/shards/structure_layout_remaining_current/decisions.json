@@ -1,0 +1,29 @@
+{
+  "reviews": [
+    {
+      "adr": "0084",
+      "title": "The other order a page has",
+      "review": "Retain the model's logical order and producer-should distinction. ADR 0084's model traversal/copy rationale matches §14.8.2.5.1. The promoted public regression `interleaved_struct_content_spec_audit` confirms a separate consumer gap: viewer-accessibility groups own MCR text before child elements, so the mixed-/K reading sequence is ACB even though Tree::logical_text is ABC. This is a consumer gap, not a reason to change the rule about physical page stream order. No ADR found specifically authorizes this generic own-lines-first projection; the rationale exists in tree.rs's implementation comment and reflects the intermediate representation's loss of interleaving."
+    },
+    {
+      "adr": "1535",
+      "title": "An inapplicable row quotes its condition, and a clause stating no requirement is a heading",
+      "review": "The distinction applies: §14.8.3.1/.2 and §14.8.5.4.6/.7 describe the layout/repurposing model, but this viewer has no reflow/export output. An `inapplicable` status or existing no-reflow rationale is not proof the source has no requirements; each attribute's consumer and population must be stated. The current display/accessibility endpoints do not consume columns or force Figure/Form/Formula extents. No full tagged-layout obligation should be added absent a layout destination."
+    },
+    {
+      "adr": "1016",
+      "title": "The second rectangle and the artifact element",
+      "review": "Retain the distinction between page appearance, explicit BBox result geometry and reflow-only layout parameters. This shard did not revisit its broader argument; it confirms .4.6 Width/Height are not equivalent to the BBox consumer already implemented under ADR 0301."
+    },
+    {
+      "adr": "0301",
+      "title": "A figure with no place, and the rectangle that gives it one",
+      "review": "The BBox consumer is a concrete accessibility geometry route and should not be treated as evidence that sibling Width/Height or Column attributes are also consumed. The scoped test draft uses text runs for logical order and does not conflict with BBox handling."
+    },
+    {
+      "adr": "2384",
+      "title": "Table 380's decoration and position reach the accessibility tree on the element's own text",
+      "review": "No reconsideration here. The assignment explicitly excluded the D33 BaselineShift semantic-mapping candidate; this shard's .4.6 note is limited to conditional dimensions and references that exclusion without reopening it."
+    }
+  ]
+}

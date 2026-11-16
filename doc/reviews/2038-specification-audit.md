@@ -11,11 +11,11 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (39)
+## Current checkpoint (40)
 
-Partial reviews now cover **694 of 883 ledger rows**, with 189 pending. The current
-failure manifest contains **65 assertions**, grouped into behavior findings rather
-than 65 independent defects. All 72 failures from the prior audit pass at this baseline.
+Partial reviews now cover **700 of 883 ledger rows**, with 183 pending. The current
+failure manifest contains **66 assertions**, grouped into behavior findings rather
+than 66 independent defects. All 72 failures from the prior audit pass at this baseline.
 The latest broad run, wave31, covered eleven crates: **7,142 tests ran, 7,087 passed,
 and exactly the 55 then-recorded assertions failed; 58 were skipped**. Exact test
 identities matched. Waves32–33 add five passing tests and three expected failures.
@@ -69,6 +69,11 @@ remain separately verified. Two subsequent lexical-context assertions pass. Scop
 review retains the3D runtime exclusion while admitting normal appearances; stale
 ledger/comment wording is recorded. Current-time CRL applicability remains a static
 concern pending a valid public-path regression.
+
+Checkpoint 40 adds an accessibility-order failure: an interleaved parent/child
+structure whose logical text is ABC becomes ACB in the public AccessKit tree.
+The flat control, model order, and fixture validity guards pass. Layout-only
+attributes remain distinct from this observable reading-order obligation.
 
 These are partial feature reviews, not whole-clause certification. The paragraphs
 below preserve earlier checkpoint evidence. Weekly usage was45% at the latest check;

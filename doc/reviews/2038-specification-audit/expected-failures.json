@@ -390,6 +390,12 @@
       "test": "revision::tests::field_mdp_signed_name_spec_audit::a_fieldmdp_selection_keeps_the_signed_field_identity_across_a_rename",
       "finding": "2038-B42",
       "log": "signature-time-field-wave37b.log"
+    },
+    {
+      "binary": "viewer-accessibility::interleaved_struct_content_spec_audit",
+      "test": "accesskit_preserves_interleaving_of_parent_content_and_child_elements",
+      "finding": "2038-B43",
+      "log": "accessibility-order-wave40b.log"
     }
   ]
 }
