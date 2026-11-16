@@ -623,6 +623,7 @@ impl Verdict {
     }
 }
 
+pub mod applicability;
 pub mod level;
 
 pub use level::Level;

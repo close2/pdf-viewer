@@ -1,0 +1,321 @@
+//! ETSI TS 119 172-4 REQ-4.5-01's report items and REQ-4.2-03 d) and e), a test per item.
+//!
+//! Every expected value is the clause's item read against the fixture's own construction: the
+//! verdict fixture's signature (`openssl cms -sign`, this tree's), the revocation fixtures' CA, CRL
+//! and OCSP response (this tree's), and a certificate generated for this module with `openssl req
+//! -x509 -subj "/C=AT/pseudonym=Fuchs42/CN=Fuchs42 (pseudonym)" -addext
+//! "subjectAltName=email:fuchs42@example.org,URI:https://example.org/fuchs42"` on a P-256 key this
+//! tree made. Instants are the fixtures' stated times as seconds since the epoch.
+
+use super::*;
+use crate::revocation::tests::fixtures as revocation_fixtures;
+use crate::signature::Signed;
+use crate::verdict::tests::{AT, fixtures, opened};
+use crate::x509_fixtures::hex;
+
+/// The pseudonymous signer's certificate.
+const PSEUDONYMOUS: &str = "\
+        308201fa308201a1a003020102020151300a06082a8648ce3d040302303d310b\
+        30090603550406130241543110300e06035504410c0746756368733432311c30\
+        1a06035504030c1346756368733432202870736575646f6e796d29301e170d32\
+        36313131353233333734395a170d3336313131323233333734395a303d310b30\
+        090603550406130241543110300e06035504410c0746756368733432311c301a\
+        06035504030c1346756368733432202870736575646f6e796d29305930130607\
+        2a8648ce3d020106082a8648ce3d03010703420004cf2257128e27d788b3d33b\
+        35916cf2ebf22da83fa5ffc172f74d1d9bc1867745322e44b8d94c6ddab5b17e\
+        3f8a2f3e942f89361151c7620f1529bd0e02c57d25a3819130818e301d060355\
+        1d0e041604149fc413575b6a4660e26196dc145db2247e3b84ef301f0603551d\
+        230418301680149fc413575b6a4660e26196dc145db2247e3b84ef300f060355\
+        1d130101ff040530030101ff303b0603551d1104343032811366756368733432\
+        406578616d706c652e6f7267861b68747470733a2f2f6578616d706c652e6f72\
+        672f66756368733432300a06082a8648ce3d04030203470030440220261c9f80\
+        ee545ee722645f3e512a9a5e5813fa3a12942e40b8cd614087e6c27002200d73\
+        a6d0cc5515b61e7cc4b4475c77797d4ec39c781c51f49d74463e628b8c4e";
+
+/// b): every subject attribute in the certificate's order, and every `subjectAltName` name.
+/// c): the `pseudonym` attribute's value is the indication.
+#[test]
+fn the_signer_is_its_subject_and_alternative_names_and_a_pseudonym_is_indicated() {
+    let der = hex(PSEUDONYMOUS);
+    let certificate = x509::parse(&der).expect("the fixture parses");
+    let signer = signer(&certificate).expect("its names read");
+    let subject: Vec<_> = signer
+        .subject
+        .iter()
+        .map(|attribute| (attribute.kind.as_str(), attribute.text.as_deref()))
+        .collect();
+    assert_eq!(
+        subject,
+        [
+            ("2.5.4.6", Some("AT")),
+            ("2.5.4.65", Some("Fuchs42")),
+            ("2.5.4.3", Some("Fuchs42 (pseudonym)")),
+        ]
+    );
+    assert_eq!(
+        signer.alternative_names,
+        [
+            Name::Rfc822("fuchs42@example.org".to_owned()),
+            Name::Uri("https://example.org/fuchs42".to_owned()),
+        ]
+    );
+    assert_eq!(signer.pseudonym.as_deref(), Some("Fuchs42"));
+}
+
+/// c) with the pseudonym absent: the verdict fixture's signer states only a common name, and no
+/// alternative name.
+#[test]
+fn a_signer_without_a_pseudonym_indicates_none() {
+    let (_, signature) = opened(fixtures::signed());
+    let der = signature
+        .signer_certificate()
+        .expect("the fixture carries its signer");
+    let signer = signer(&x509::parse(&der).expect("it parses")).expect("its names read");
+    assert_eq!(signer.pseudonym, None);
+    assert!(signer.alternative_names.is_empty());
+    assert!(
+        signer
+            .subject
+            .iter()
+            .any(|attribute| attribute.kind == "2.5.4.3"),
+        "{:?}",
+        signer.subject
+    );
+}
+
+/// f): the fixture's four signed attributes in the file's order, named where this tree knows the
+/// identifier, and no unsigned one — `openssl cms -sign` writes `contentType`, `signingTime`,
+/// `messageDigest` and `smimeCapabilities` (RFC 8551 section 2.5.2).
+#[test]
+fn every_attribute_is_listed_with_whether_it_was_signed() {
+    let (_, signature) = opened(fixtures::signed());
+    let cms = signature.signed_data().expect("the fixture reads");
+    let listed: Vec<_> = attributes(&cms)
+        .into_iter()
+        .map(|attribute| (attribute.identifier, attribute.name, attribute.signed))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            (
+                "1.2.840.113549.1.9.3".to_owned(),
+                Some("content-type (RFC 5652)"),
+                true
+            ),
+            (
+                "1.2.840.113549.1.9.5".to_owned(),
+                Some("signing-time (RFC 5652)"),
+                true
+            ),
+            (
+                "1.2.840.113549.1.9.4".to_owned(),
+                Some("message-digest (RFC 5652)"),
+                true
+            ),
+            (
+                "1.2.840.113549.1.9.15".to_owned(),
+                Some("smime-capabilities (RFC 8551)"),
+                true
+            ),
+        ]
+    );
+}
+
+/// f)'s NOTE 5: a `commitment-type-indication` names its commitment — `id-cti-ets-proofOfOrigin`,
+/// `1.2.840.113549.1.9.16.6.1`, the first of ETSI EN 319 122-1 clause 5.2.3's six — and one
+/// outside the six is named by its identifier alone.
+#[test]
+fn a_commitment_is_named_by_its_identifier() {
+    let origin = [
+        0x30, 0x0D, 0x06, 0x0B, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x06, 0x01,
+    ];
+    let value = crate::der::Reader::new(&origin)
+        .expect("a reader")
+        .next_value()
+        .expect("reads")
+        .expect("a value");
+    assert_eq!(
+        commitment(&value),
+        Some((
+            "1.2.840.113549.1.9.16.6.1".to_owned(),
+            Some("proof of origin")
+        ))
+    );
+    let other = [0x30, 0x05, 0x06, 0x03, 0x2A, 0x03, 0x04];
+    let value = crate::der::Reader::new(&other)
+        .expect("a reader")
+        .next_value()
+        .expect("reads")
+        .expect("a value");
+    assert_eq!(commitment(&value), Some(("1.2.3.4".to_owned(), None)));
+}
+
+/// h) and REQ-4.2-03 d): a computed signature's suite is its digest, algorithm and key size, and
+/// it says that no rules were assessed against. REQ-4.2-03 e): each kind of unsupported suite is
+/// `NotSupported` naming what the file named; an answer that never reached a suite says so.
+#[test]
+fn the_suite_is_reported_and_an_unsupported_one_is_named() {
+    let verified = Authenticity::Verified {
+        digest: Digest::Sha256,
+        family: Family::Rsa,
+        key_bits: 2048,
+        over: Signed::TheDocumentsBytes,
+    };
+    assert_eq!(
+        Cryptography::of(&verified),
+        Cryptography::Suite {
+            digest: Digest::Sha256,
+            family: Family::Rsa,
+            key_bits: 2048,
+            rules: SecurityRules::NoneHeld,
+        }
+    );
+    for (authenticity, suite) in [
+        (
+            Authenticity::AlgorithmNotVerifiable {
+                algorithm: "1.2.3".to_owned(),
+            },
+            "1.2.3",
+        ),
+        (
+            Authenticity::KeyNotVerifiable {
+                algorithm: "1.3.101.110".to_owned(),
+            },
+            "1.3.101.110",
+        ),
+        (
+            Authenticity::CurveNotVerifiable {
+                curve: "1.3.132.0.10".to_owned(),
+            },
+            "1.3.132.0.10",
+        ),
+        (
+            Authenticity::UnknownDigest {
+                algorithm: "1.2.840.113549.2.5".to_owned(),
+            },
+            "1.2.840.113549.2.5",
+        ),
+    ] {
+        assert_eq!(
+            Cryptography::of(&authenticity),
+            Cryptography::NotSupported {
+                suite: suite.to_owned()
+            }
+        );
+    }
+    assert_eq!(
+        Cryptography::of(&Authenticity::NoSignerCertificate { certificates: 0 }),
+        Cryptography::NotReached
+    );
+}
+
+/// d) ii) 4) and 5) from a CRL: the revocation fixtures' CRL by their CA, `thisUpdate` 2026-06-01,
+/// `nextUpdate` 2036-06-01, listing serial `2A` revoked 2026-09-14T20:09:02Z for `keyCompromise`;
+/// and from the OCSP response about the same serial, `producedAt` 2026-09-14T20:09:14Z,
+/// `nextUpdate` 2036-09-11T20:09:14Z, revoked at the same instant. Each is the material's
+/// statement, by its kind.
+#[test]
+fn revocation_times_are_what_the_material_states_about_the_signers_certificate() {
+    let leaf = hex(revocation_fixtures::REVOKED_LEAF);
+    let leaf = x509::parse(&leaf).expect("the leaf parses");
+    let crl = hex(revocation_fixtures::CRL);
+    let ocsp = hex(revocation_fixtures::OCSP_REVOKED_BY_CA);
+    let material = Material::read(&[&crl], &[&ocsp]);
+    assert!(material.refused.is_empty(), "{:?}", material.refused);
+    let mut times = Vec::new();
+    revocation_times(&leaf, &material, &mut times);
+    let at = Instant::from_unix_seconds;
+    let list = Assurance::StatedBy(Evidence::CertificateRevocationList);
+    let response = Assurance::StatedBy(Evidence::OcspResponse);
+    assert_eq!(
+        times,
+        [
+            Timing {
+                kind: TimeKind::ListIssued {
+                    next_update: Some(at(2_095_891_200)),
+                },
+                at: at(1_780_272_000),
+                assurance: list.clone(),
+            },
+            Timing {
+                kind: TimeKind::Revocation { suspended: false },
+                at: at(1_789_416_542),
+                assurance: list,
+            },
+            Timing {
+                kind: TimeKind::ResponseProduced {
+                    next_update: Some(at(2_104_776_554)),
+                },
+                at: at(1_789_416_554),
+                assurance: response.clone(),
+            },
+            Timing {
+                kind: TimeKind::Revocation { suspended: false },
+                at: at(1_789_416_542),
+                assurance: response,
+            },
+        ]
+    );
+}
+
+/// d) ii) 4) and 5) need the material to be about the signer: a certificate by another issuer
+/// with another serial gets no time from the same material.
+#[test]
+fn material_about_another_certificate_states_no_time() {
+    let der = hex(PSEUDONYMOUS);
+    let other = x509::parse(&der).expect("it parses");
+    let crl = hex(revocation_fixtures::CRL);
+    let ocsp = hex(revocation_fixtures::OCSP_REVOKED_BY_CA);
+    let material = Material::read(&[&crl], &[&ocsp]);
+    let mut times = Vec::new();
+    revocation_times(&other, &material, &mut times);
+    assert!(times.is_empty(), "{times:?}");
+}
+
+/// The whole report over the verdict fixture, at [`AT`] on the reader's clock: a) the scope, d)
+/// ii) 1) the `signingTime` attribute's 2026-09-14T23:33:43Z as a claim, no document or signature
+/// timestamp and no revocation material, and 6) the best signature time last, fixed by nothing but
+/// the clock; h) SHA-256 under RSA PKCS #1 v1.5 with a 2048-bit key.
+#[test]
+fn the_report_over_a_signature_holds_each_item_in_the_clauses_order() {
+    let (document, signature) = opened(fixtures::signed());
+    let authenticity = signature.authenticity(document.bytes());
+    let anchors = TrustAnchors::of(&[]);
+    let report = Report::of(&Asked {
+        signature: &signature,
+        authenticity: &authenticity,
+        when: BestSignatureTime::now(AT),
+        chain: &Chain::default(),
+        index: 0,
+        material: &Material::none(),
+        anchors: &anchors,
+        now: AT,
+    });
+    assert_eq!(report.scope, Scope::EuQualifiedUsingTrustedLists);
+    assert_eq!(
+        report.times,
+        [
+            Timing {
+                kind: TimeKind::ClaimedSigningTime(ClaimedIn::SigningTimeAttribute),
+                at: Instant::from_unix_seconds(1_789_428_823),
+                assurance: Assurance::Claimed,
+            },
+            Timing {
+                kind: TimeKind::BestSignatureTime,
+                at: AT,
+                assurance: Assurance::Best(Proof::NothingButTheReadersClock),
+            },
+        ]
+    );
+    assert_eq!(
+        report.cryptography,
+        Cryptography::Suite {
+            digest: Digest::Sha256,
+            family: Family::Rsa,
+            key_bits: 2048,
+            rules: SecurityRules::NoneHeld,
+        }
+    );
+    assert!(report.signer.is_ok());
+    assert_eq!(report.attributes.len(), 4);
+}

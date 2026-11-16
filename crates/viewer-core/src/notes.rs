@@ -796,6 +796,9 @@ fn signatures(
             timestamps,
             copies,
             lists,
+            chain: &chain,
+            index,
+            now: trust.anchors.at(),
         };
         about_one(signature, document, length, &asked, notes, published);
         modifications(signature, document, &permissions, notes);
@@ -865,6 +868,12 @@ struct Asked<'a> {
     copies: &'a [FetchedCopy],
     /// The trusted lists the host supplied that read (ETSI TS 119 612).
     lists: &'a [pdf_signature::trusted_list::TrustedList],
+    /// §12.8.5's chain, whose links name the signatures they cover by position.
+    chain: &'a pdf_signature::timestamp::Chain,
+    /// This signature's position among the document's signature dictionaries.
+    index: usize,
+    /// The host's instant, at which a token's authority is asked about.
+    now: pdf_signature::x509::Instant,
 }
 
 /// What §12.8.5's chain contributes to a verdict on any signature in this document.
@@ -2443,6 +2452,7 @@ fn verdicts(
             _ => "is the clock this reader was given, nothing having proven an earlier moment",
         }
     );
+    let mut report = Vec::new();
     notes.push(match &verdict {
         pdf_signature::verdict::Verdict::Valid(valid) => {
             // ETSI TS 119 172-4 clause 4.4.2's level, which only a listed path has (ADR 2866).
@@ -2457,6 +2467,21 @@ fn verdicts(
                     timestamps: asked.timestamps,
                 },
             );
+            if level.is_some() {
+                report =
+                    applicability_sentences(&pdf_signature::verdict::applicability::Report::of(
+                        &pdf_signature::verdict::applicability::Asked {
+                            signature,
+                            authenticity: &authenticity,
+                            when: valid.when(),
+                            chain: asked.chain,
+                            index: asked.index,
+                            material: asked.material,
+                            anchors: asked.anchors,
+                            now: asked.now,
+                        },
+                    ));
+            }
             valid_sentence(valid, level.as_ref(), &asked_at)
         }
         pdf_signature::verdict::Verdict::Reserved(reservation) => format!(
@@ -2464,6 +2489,15 @@ fn verdicts(
              stopped it: {reservation}"
         ),
     });
+    notes.extend(report);
+    // ETSI TS 119 172-4 REQ-4.2-03 e), wherever lists were asked: a suite this program cannot
+    // compute on leaves the signature indeterminate, and is named, rather than invalidating it.
+    if !asked.lists.is_empty()
+        && let pdf_signature::verdict::applicability::Cryptography::NotSupported { suite } =
+            pdf_signature::verdict::applicability::Cryptography::of(&authenticity)
+    {
+        notes.push(unsupported_suite_sentence(&suite));
+    }
 }
 
 /// The verdict on one signature, through a trusted list's service where one issued the signer and
@@ -2814,6 +2848,264 @@ fn level_sentence(level: Option<&pdf_signature::verdict::Level>) -> String {
         }
     }
     sentence
+}
+
+/// ETSI TS 119 172-4 REQ-4.5-01's report beside a listed signature's level: a), b) with c), d), f)
+/// and h), each a sentence naming its item (ADR 2872).
+///
+/// a)'s scope is said as a paraphrase and said to be one: the clause prints a text and requires
+/// it, and ETSI's notice forbids reproducing it without permission, which `doc/questions/Q855`
+/// asks the owner for (ADR 1085).
+fn applicability_sentences(report: &pdf_signature::verdict::applicability::Report) -> Vec<String> {
+    use pdf_signature::verdict::applicability::{Cryptography, Scope};
+    let mut sentences =
+        vec![match report.scope {
+        Scope::EuQualifiedUsingTrustedLists => {
+            "The level above comes from ETSI TS 119 172-4's applicability rules checking for \
+             European qualified electronic signatures and seals using trusted lists: whether this \
+             digital signature can be considered technically suitable to implement an EU \
+             qualified electronic signature or seal, judged with EU Member States' trusted lists \
+             under the European legislation that applied when it was signed — Directive \
+             1999/93/EC or Regulation (EU) No 910/2014 (REQ-4.5-01 a); these words paraphrase \
+             the scope text the clause prints)"
+        }
+        // Any scope a later build adds, in the words that claim least.
+        _ => "The level above comes from ETSI TS 119 172-4's applicability rules checking \
+              (REQ-4.5-01 a))",
+    }
+    .to_owned()];
+    sentences.push(signer_sentence(&report.signer));
+    sentences.push(times_sentence(&report.times));
+    sentences.push(attributes_sentence(&report.attributes));
+    if let Cryptography::Suite {
+        digest,
+        family,
+        key_bits,
+        ..
+    } = &report.cryptography
+    {
+        sentences.push(format!(
+            "It was made with {} under {} with a {key_bits}-bit key (REQ-4.5-01 h)). No \
+             potential security issue of that suite was assessed: that needs national rules or \
+             ETSI TS 119 312, and this program holds neither",
+            digest.name(),
+            family.name()
+        ));
+    }
+    sentences
+}
+
+/// REQ-4.5-01 b) and c): the signer as its certificate represents it, and whether it is a
+/// pseudonym.
+fn signer_sentence(
+    signer: &Result<
+        pdf_signature::verdict::applicability::Signer,
+        pdf_signature::trust::names::Unreadable,
+    >,
+) -> String {
+    use pdf_signature::trust::names::{Name, form_word};
+    let signer = match signer {
+        Ok(signer) => signer,
+        Err(why) => {
+            return format!(
+                "The signer's certificate's names could not be read for the report ({why:?}), so \
+                 who it represents is not said here (REQ-4.5-01 b))"
+            );
+        }
+    };
+    let subject = signer
+        .subject
+        .iter()
+        .map(|attribute| {
+            format!(
+                "{}={}",
+                attribute_short_name(&attribute.kind),
+                attribute
+                    .text
+                    .as_deref()
+                    .unwrap_or("(a value that is not text)")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let alternative = if signer.alternative_names.is_empty() {
+        "no subject alternative name".to_owned()
+    } else {
+        let names = signer
+            .alternative_names
+            .iter()
+            .map(|name| match name {
+                Name::Rfc822(text) | Name::Dns(text) | Name::Uri(text) => {
+                    format!("{} {text}", form_word(name.form()))
+                }
+                // A directory name, an address, or a form this program does not decode is named
+                // by its form alone.
+                _ => form_word(name.form()).to_owned(),
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("the subject alternative names {names}")
+    };
+    let pseudonym = match &signer.pseudonym {
+        Some(pseudonym) => format!(
+            "The signer used a pseudonym, \"{pseudonym}\": the certificate's subject states it in \
+             place of a name (REQ-4.5-01 c))"
+        ),
+        None => "The certificate states no pseudonym (REQ-4.5-01 c))".to_owned(),
+    };
+    format!(
+        "The signer, as the signing certificate represents it: the subject {subject}, and \
+         {alternative} (REQ-4.5-01 b)). {pseudonym}"
+    )
+}
+
+/// The short names of RFC 4514 section 3 and of X.520 for the attributes a qualified certificate's
+/// subject carries (ETSI EN 319 412-2 clause 4.2.4, EN 319 412-3 clause 4.2.1), and the dotted
+/// identifier for any other.
+fn attribute_short_name(kind: &str) -> &str {
+    match kind {
+        "2.5.4.3" => "CN",
+        "2.5.4.4" => "surname",
+        "2.5.4.5" => "serialNumber",
+        "2.5.4.6" => "C",
+        "2.5.4.7" => "L",
+        "2.5.4.8" => "ST",
+        "2.5.4.10" => "O",
+        "2.5.4.11" => "OU",
+        "2.5.4.12" => "title",
+        "2.5.4.42" => "givenName",
+        "2.5.4.65" => "pseudonym",
+        "2.5.4.97" => "organizationIdentifier",
+        "1.2.840.113549.1.9.1" => "emailAddress",
+        other => other,
+    }
+}
+
+/// REQ-4.5-01 d): each time that bears on the signature with its evidential relevance and
+/// assurance, in the clause's order.
+fn times_sentence(times: &[pdf_signature::verdict::applicability::Timing]) -> String {
+    use pdf_signature::verdict::applicability::{Assurance, ClaimedIn, TimeKind};
+    let said = times
+        .iter()
+        .map(|time| {
+            let at = time.at.unix_seconds();
+            let what = match time.kind {
+                TimeKind::ClaimedSigningTime(ClaimedIn::SigningTimeAttribute) => {
+                    format!("the claimed signing time {at} in its signingTime attribute")
+                }
+                TimeKind::ClaimedSigningTime(ClaimedIn::Dictionary) => {
+                    format!("the claimed signing time {at} in its dictionary's /M")
+                }
+                TimeKind::DocumentTimestamp => format!("a document timestamp's time {at}"),
+                TimeKind::SignatureTimestamp => format!("its signature timestamp's time {at}"),
+                TimeKind::Revocation { suspended: true } => {
+                    format!("the suspension of the signer's certificate at {at}")
+                }
+                TimeKind::Revocation { suspended: false } => {
+                    format!("the revocation of the signer's certificate at {at}")
+                }
+                TimeKind::ListIssued { next_update } => format!(
+                    "a revocation list about the signer's certificate issued at {at}{}",
+                    next(next_update)
+                ),
+                TimeKind::ResponseProduced { next_update } => format!(
+                    "an OCSP response about the signer's certificate produced at {at}{}",
+                    next(next_update)
+                ),
+                TimeKind::BestSignatureTime => format!("the best signature time {at}"),
+            };
+            let assurance = match &time.assurance {
+                Assurance::Claimed => "a claim by the signer, which proves nothing".to_owned(),
+                Assurance::Token {
+                    established,
+                    policy,
+                    accuracy,
+                    ..
+                } => format!(
+                    "{}, under the time-stamping policy {}, {}; whether it is an EU qualified time \
+                     stamp, and whether its authority is in an EU trusted list, was not determined \
+                     (ETSI TS 119 615 clause 4.6 is not run here)",
+                    if *established {
+                        "established by the token's validation"
+                    } else {
+                        "not established"
+                    },
+                    if policy.is_empty() {
+                        "that does not decode"
+                    } else {
+                        policy
+                    },
+                    accuracy.map_or_else(
+                        || "stating no accuracy".to_owned(),
+                        |accuracy| format!("accurate to {} microseconds", accuracy.micros_total())
+                    )
+                ),
+                Assurance::StatedBy(evidence) => format!("as {} states it", evidence.name()),
+                Assurance::Best(proof) => match proof {
+                    Proof::ADocumentTimestamp => "fixed by a document timestamp".to_owned(),
+                    Proof::ThisSignaturesTimestampAttribute => {
+                        "fixed by this signature's timestamp attribute".to_owned()
+                    }
+                    _ => "the clock this reader was given, nothing having proven an earlier one"
+                        .to_owned(),
+                },
+            };
+            format!("{what} ({assurance})")
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!("The times that bear on it, in seconds after the epoch (REQ-4.5-01 d)): {said}")
+}
+
+/// A `nextUpdate`, where one is stated.
+fn next(next_update: Option<pdf_signature::x509::Instant>) -> String {
+    next_update.map_or_else(
+        || ", stating no next update".to_owned(),
+        |at| format!(", next update {}", at.unix_seconds()),
+    )
+}
+
+/// REQ-4.5-01 f): the signer's attributes, signed and unsigned.
+fn attributes_sentence(
+    attributes: &[pdf_signature::verdict::applicability::SignatureAttribute],
+) -> String {
+    let list = |signed: bool| {
+        let named: Vec<String> = attributes
+            .iter()
+            .filter(|attribute| attribute.signed == signed)
+            .map(|attribute| {
+                let mut said = attribute
+                    .name
+                    .map_or_else(|| attribute.identifier.clone(), str::to_owned);
+                if let Some((identifier, name)) = &attribute.commitment {
+                    said = format!(
+                        "{said}, committing to {}",
+                        name.map_or_else(|| identifier.clone(), str::to_owned)
+                    );
+                }
+                said
+            })
+            .collect();
+        if named.is_empty() {
+            "none".to_owned()
+        } else {
+            named.join(", ")
+        }
+    };
+    format!(
+        "Its attributes (REQ-4.5-01 f)): signed — {}; unsigned — {}",
+        list(true),
+        list(false)
+    )
+}
+
+/// ETSI TS 119 172-4 REQ-4.2-03 e)'s warning.
+fn unsupported_suite_sentence(suite: &str) -> String {
+    format!(
+        "Warning: this signature's cryptographic suite, {suite}, is not supported by this \
+         program. Under ETSI TS 119 172-4 REQ-4.2-03 e) that does not invalidate the signature: \
+         its result against the trusted lists is INDETERMINATE"
+    )
 }
 
 /// The trusted lists a host supplied: how many read, which did not, and on whose word they are
@@ -4547,6 +4839,114 @@ mod tests {
         assert!(
             super::level_sentence(None).contains("was not determined"),
             "a listed path with no level claims nothing"
+        );
+    }
+
+    /// ETSI TS 119 172-4 REQ-4.5-01: each item of the report is a sentence naming it — a)'s scope
+    /// said to be a paraphrase, b)'s subject and alternative names, c)'s pseudonym, d)'s times each
+    /// with its assurance (a claim as a claim, a token's policy and accuracy, its EU qualification
+    /// said as not determined), f)'s attributes by set with a commitment named, and h)'s suite with
+    /// the rules it was not assessed against. REQ-4.2-03 e)'s warning names the suite and says
+    /// INDETERMINATE, never invalid.
+    #[test]
+    fn the_applicability_report_says_each_item_of_req_4_5_01() {
+        use pdf_signature::cms::Digest;
+        use pdf_signature::signature::Family;
+        use pdf_signature::timestamp::Accuracy;
+        use pdf_signature::trust::names::Name;
+        use pdf_signature::verdict::Proof;
+        use pdf_signature::verdict::applicability::{
+            Assurance, ClaimedIn, Cryptography, Report, Scope, SecurityRules, SignatureAttribute,
+            Signer, TimeKind, Timing,
+        };
+        use pdf_signature::x509::Instant;
+        let subject = pdf_signature::trust::names::attributes_of(&[
+            0x31, 0x0B, 0x30, 0x09, 0x06, 0x03, 0x55, 0x04, 0x41, 0x0C, 0x02, 0x46, 0x34,
+        ])
+        .expect("a one-attribute name reads");
+        let report = Report {
+            scope: Scope::EuQualifiedUsingTrustedLists,
+            signer: Ok(Signer {
+                subject,
+                alternative_names: vec![Name::Rfc822("f4@example.org".to_owned())],
+                pseudonym: Some("F4".to_owned()),
+            }),
+            times: vec![
+                Timing {
+                    kind: TimeKind::ClaimedSigningTime(ClaimedIn::SigningTimeAttribute),
+                    at: Instant::from_unix_seconds(100),
+                    assurance: Assurance::Claimed,
+                },
+                Timing {
+                    kind: TimeKind::SignatureTimestamp,
+                    at: Instant::from_unix_seconds(200),
+                    assurance: Assurance::Token {
+                        established: true,
+                        policy: "1.2.3.4".to_owned(),
+                        accuracy: Some(Accuracy {
+                            seconds: 1,
+                            millis: 0,
+                            micros: 0,
+                        }),
+                        eu_qualified: None,
+                    },
+                },
+                Timing {
+                    kind: TimeKind::BestSignatureTime,
+                    at: Instant::from_unix_seconds(200),
+                    assurance: Assurance::Best(Proof::ThisSignaturesTimestampAttribute),
+                },
+            ],
+            attributes: vec![
+                SignatureAttribute {
+                    identifier: "1.2.840.113549.1.9.16.2.16".to_owned(),
+                    name: Some("commitment-type-indication (ETSI EN 319 122-1)"),
+                    signed: true,
+                    commitment: Some((
+                        "1.2.840.113549.1.9.16.6.1".to_owned(),
+                        Some("proof of origin"),
+                    )),
+                },
+                SignatureAttribute {
+                    identifier: "1.2.3.5".to_owned(),
+                    name: None,
+                    signed: false,
+                    commitment: None,
+                },
+            ],
+            cryptography: Cryptography::Suite {
+                digest: Digest::Sha256,
+                family: Family::Rsa,
+                key_bits: 3072,
+                rules: SecurityRules::NoneHeld,
+            },
+        };
+        let said = super::applicability_sentences(&report).join(". ");
+        for named in [
+            "REQ-4.5-01 a); these words paraphrase the scope text",
+            "Directive 1999/93/EC or Regulation (EU) No 910/2014",
+            "the subject pseudonym=F4, and the subject alternative names rfc822Name f4@example.org \
+             (REQ-4.5-01 b))",
+            "The signer used a pseudonym, \"F4\"",
+            "the claimed signing time 100 in its signingTime attribute (a claim by the signer, \
+             which proves nothing)",
+            "its signature timestamp's time 200 (established by the token's validation, under the \
+             time-stamping policy 1.2.3.4, accurate to 1000000 microseconds; whether it is an EU \
+             qualified time stamp",
+            "the best signature time 200 (fixed by this signature's timestamp attribute)",
+            "signed — commitment-type-indication (ETSI EN 319 122-1), committing to proof of \
+             origin; unsigned — 1.2.3.5",
+            "SHA256 under RSA (PKCS #1 v1.5) with a 3072-bit key (REQ-4.5-01 h))",
+            "national rules or ETSI TS 119 312, and this program holds neither",
+        ] {
+            assert!(said.contains(named), "{named} in {said}");
+        }
+        let warning = super::unsupported_suite_sentence("1.2.3");
+        assert!(
+            warning.contains("1.2.3, is not supported")
+                && warning.contains("REQ-4.2-03 e)")
+                && warning.contains("INDETERMINATE"),
+            "{warning}"
         );
     }
 }

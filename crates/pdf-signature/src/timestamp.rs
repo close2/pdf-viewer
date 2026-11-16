@@ -612,6 +612,12 @@ pub struct Claim {
     pub names_an_authority: bool,
     /// The digest `messageImprint` is taken with.
     pub imprint_digest: Digest,
+    /// `policy`, the authority's `TSAPolicyId`, dotted; empty where the identifier does not decode.
+    ///
+    /// Carried for ETSI TS 119 172-4 REQ-4.5-01 d) iii) 1), which makes "the policy identifier for
+    /// the time-stamping policy used by the time-stamping authority" part of a time's assurance in
+    /// the applicability report ([`crate::verdict::applicability`]).
+    pub policy: String,
 }
 
 impl From<&TstInfo<'_>> for Claim {
@@ -623,6 +629,7 @@ impl From<&TstInfo<'_>> for Claim {
             serial_number: info.serial_number.to_vec(),
             names_an_authority: info.tsa.is_some(),
             imprint_digest: info.imprint_digest,
+            policy: x509::dotted(info.policy).unwrap_or_default(),
         }
     }
 }

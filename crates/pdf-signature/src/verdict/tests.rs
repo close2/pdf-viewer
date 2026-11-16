@@ -845,7 +845,7 @@ pub(crate) mod fixtures {
     ///
     /// `signature` is the DER to put in the hole, as hexadecimal; empty leaves the zeros, which is
     /// how [`signed_range`] takes the bytes [`SIGNATURE`] was made over.
-    fn document(signature: &str) -> Vec<u8> {
+    pub(crate) fn document(signature: &str) -> Vec<u8> {
         let value = format!("<{}>", "0".repeat(ROOM));
         let mut bytes = Vec::new();
         let mut offsets: Vec<(u32, usize)> = Vec::new();

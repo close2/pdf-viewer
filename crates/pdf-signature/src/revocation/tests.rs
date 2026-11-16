@@ -63,13 +63,13 @@ fn with_a_moved_signature(bytes: &[u8]) -> Vec<u8> {
     moved
 }
 
-mod fixtures {
+pub(crate) mod fixtures {
     //! Built once with `openssl` and pasted in, on the footing this module's own comment
     //! states.
 
     /// The anchor of this module's hierarchy: a self-signed CA asserting `keyCertSign` and
     /// `cRLSign`, 2026 to 2036.
-    pub(super) const CA: &str = "\
+    pub(crate) const CA: &str = "\
         308203273082020fa00302010202020100300d06092a864886f70d01010b0500\
         30243122302006035504030c1971756f727261207265766f636174696f6e2074\
         657374204341301e170d3236303130313030303030305a170d33363031303130\
@@ -98,7 +98,7 @@ mod fixtures {
         31016d0d3e9199a79c24f2";
 
     /// A leaf this CA issued with serial `2A`, and revoked for `keyCompromise`.
-    pub(super) const REVOKED_LEAF: &str = "\
+    pub(crate) const REVOKED_LEAF: &str = "\
         308202ff308201e7a00302010202012a300d06092a864886f70d01010b050030\
         243122302006035504030c1971756f727261207265766f636174696f6e207465\
         7374204341301e170d3236303130313030303030305a170d3336303130313030\
@@ -153,7 +153,7 @@ mod fixtures {
         673ae38a5556fc576bef3feb6d9dbddb85f6aaf99f25fb24d59f0e253130cd26";
 
     /// The CA's CRL, `thisUpdate` 2026-06-01 and `nextUpdate` 2036-06-01, listing serial `2A`.
-    pub(super) const CRL: &str = "\
+    pub(crate) const CRL: &str = "\
         308201a130818a020101300d06092a864886f70d01010b050030243122302006\
         035504030c1971756f727261207265766f636174696f6e207465737420434117\
         0d3236303630313030303030305a170d3336303630313030303030305a302230\
@@ -171,7 +171,7 @@ mod fixtures {
 
     /// An OCSP response about serial `2A`, signed by the CA itself — RFC 6960
     /// section 4.2.2.2 criterion 2.
-    pub(super) const OCSP_REVOKED_BY_CA: &str = "\
+    pub(crate) const OCSP_REVOKED_BY_CA: &str = "\
         3082051d0a0100a08205163082051206092b0601050507300101048205033082\
         04ff3081b5a12630243122302006035504030c1971756f727261207265766f63\
         6174696f6e2074657374204341180f32303236303931343230303931345a307a\
