@@ -12,9 +12,9 @@ The report and machine-readable continuation are in
 `doc/reviews/2038-specification-audit.md` and its evidence directory.
 
 **Evidence so far.** All72 previous failing assertions pass. Current tests expose
-62 failing assertions, grouped by behavior and qualified where interpretation is
+63 failing assertions, grouped by behavior and qualified where interpretation is
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
-The shard index links partial reviews to597 ledger rows;286 remain pending in
+The shard index links partial reviews to622 ledger rows;261 remain pending in
 this round. No entire clause is certified merely because referenced tests pass.
 A shared-parser date mutation was killed and restored. Independent JP2 fixture
 regeneration matches embedded hashes. Selected ADR conclusions are retained,
@@ -32,4 +32,5 @@ versions affect neither reports nor processing restrictions. A transparent strok
 composites overlapping same-object geometry twice. Literal measurement, join/fill,
 WritingMode and new-file ID controls pass. The stroke failure also reaches PDF and three GPU lanes; CMYK-image OP passes.
 Embedded-font clipping and corrected FDF import controls pass. Next scopes cover
-signature revocation, layout attributes, and deprecated web/prepress features. Latest weekly usage45%;ceiling85%.
+signature revocation, FieldMDP identity, and transparency foundations.
+UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage45%;ceiling85%.

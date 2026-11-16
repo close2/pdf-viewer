@@ -1,0 +1,8 @@
+{
+  "source": "Parent read Table380 physical799/784, lead-in798/783, effective Table377 appended1013\u20131014 and actual #152 annotation on802. Table379 applicability is recorded without demanding a reflow engine.",
+  "assertions": "Inspected Inline::enter, baseline unit assertions, headless own-text decoration/shift test and AccessKit run bridge. Headless checks underline on paragraph and direct child, superscript child, explicit red strike, and no underline on nested block. Earlier writing-mode/allocation controls retain separate scope.",
+  "rejected_candidate": "BLSE BaselineShift is applicable, but converting whole-paragraph displacement into semantic Sup on every run is not required. ADR2384 explicitly identifies sign-to-Sup/Sub as a choice. No actual geometry/reflow consumer loss was established, so no failing test is added.",
+  "decision": "Retain current accessibility mapping with a clear policy boundary. Do not describe BLSE values as outside source applicability. Unstated decoration colour fallback and platform exposure limits remain explicit.",
+  "baseline": "b901326c",
+  "scope": "Partial source/assertion review. Parent qualifications supersede reviewer draft descriptions."
+}

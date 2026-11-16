@@ -1319,9 +1319,10 @@ fn a_merged_page_states_no_document_part_the_merge_does_not_carry() {
 /// Web capture's content database does not cross a merge, and the report says so.
 ///
 /// `tests/split.rs`'s reasoning at the other writer: §14.10.1 records the database beside a
-/// `/SpiderInfo` the merged catalog does not carry, and the family is deprecated with PDF 2.0
-/// (ADR 1461). A colliding digital identifier would otherwise be renamed `key (2)`, which is no
-/// longer §14.10.3.3's MD5 of anything.
+/// `/SpiderInfo` the merged catalog does not carry (ADR 1461). These PDF 1.7 inputs check the
+/// product's deliberate omission/reporting policy, not a PDF 2.0 writer requirement.
+/// A colliding digital identifier would otherwise be renamed `key (2)`, which is no longer
+/// §14.10.3.3's MD5 of anything.
 #[test]
 fn a_merge_carries_no_web_capture_database() {
     let capture = support::web_capture();

@@ -11,11 +11,11 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (35)
+## Current checkpoint (36)
 
-Partial reviews now cover **597 of 883 ledger rows**, with 286 pending. The current
-failure manifest contains **62 assertions**, grouped into behavior findings rather
-than 62 independent defects. All 72 failures from the prior audit pass at this baseline.
+Partial reviews now cover **622 of 883 ledger rows**, with 261 pending. The current
+failure manifest contains **63 assertions**, grouped into behavior findings rather
+than 63 independent defects. All 72 failures from the prior audit pass at this baseline.
 The latest broad run, wave31, covered eleven crates: **7,142 tests ran, 7,087 passed,
 and exactly the 55 then-recorded assertions failed; 58 were skipped**. Exact test
 identities matched. Waves32–33 add five passing tests and three expected failures.
@@ -44,6 +44,13 @@ and independently inspected outline. The existing FDF import test still passes
 with its header corrected to the canonical form. Non-interactive forms share the
 already-confirmed PrintField consumer gap; no duplicate failures are counted.
 The custom-encryption-wrapper writer boundary is retained with explicit fixture limits.
+
+Checkpoint36 adds a signed-fixture failure in usage-rights withdrawal after an
+ungranted annotation edit. This is a gap in the adopted policy against a SHOULD
+recommendation, not a mandatory ISO failure. A proposed paragraph-baseline
+superscript test was rejected after distinguishing layout displacement from semantic
+text position. Deprecated web/prepress review separates reader guidance, writer
+version rules, and the product’s chosen metadata retention policy.
 
 These are partial feature reviews, not whole-clause certification. The paragraphs
 below preserve earlier checkpoint evidence. Weekly usage was45% at the latest check;

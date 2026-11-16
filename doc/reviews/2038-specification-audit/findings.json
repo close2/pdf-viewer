@@ -1556,5 +1556,60 @@
     "summary": "EarlierauditFDFpageimportfixture usednoncanonicalheader1.3.",
     "change": "Canonical%FDF-1.2 pluscatalogVersion/1.4 avoidsheaderwording ambiguity andrespectsVersionentryintroduction. Publicimport/count/navigation/render stillPASS.",
     "qualification": "No malformedreaderrejection mandate orproductionfailure inferred. Table245higherheaderwording remainsasourcequalification."
+  },
+  {
+    "id": "2038-B40",
+    "kind": "adopted-policy-regression",
+    "clauses": [
+      "12.8.2.3"
+    ],
+    "summary": "Annotation save retains a usage-rights signature even when annotation creation exceeds its granted rights.",
+    "source_force": "SHOULD recommendation, explicitly adopted by the product; not a mandatory ISO failure.",
+    "evidence": "withdrawn_usage_rights only checks FillInForm and FullSave. Genuine signed PDF1.7 pair grants both; only one grants Annots/Create. Both retain UR3 after adding/saving an attached Highlight.",
+    "controls": "Original digest and CMS authenticity pass for both. Allowed Create case retains grant. Signed bytes are unchanged; annotation attachment is verified. Independent OpenSSL checks reject altered signed content.",
+    "execution": "usage-rights-wave36.log:1FAIL.",
+    "scope": "Save-policy decision only; no public trust or external feature entitlement certification. ADR0159 premise is stale as writer operations expanded."
+  },
+  {
+    "id": "2038-D32",
+    "kind": "qualified-writer-rationale",
+    "clauses": [
+      "14.10",
+      "14.10.1",
+      "14.10.2",
+      "14.10.3",
+      "14.10.3.1",
+      "14.10.3.2",
+      "14.10.3.3",
+      "14.10.3.4",
+      "14.10.4",
+      "14.10.4.1",
+      "14.10.4.2",
+      "14.10.4.3",
+      "14.10.5",
+      "14.10.5.1",
+      "14.10.5.2",
+      "14.10.5.3",
+      "14.10.5.4",
+      "14.10.6",
+      "14.11.4",
+      "14.11.6.1",
+      "14.11.6.3",
+      "14.11.7"
+    ],
+    "summary": "Web-capture omission tests use PDF1.7 output, so PDF2.0 writer deprecation alone is not their rationale.",
+    "change": "Clarified split/merge test comments: this is deliberate omission/reporting policy, with additional SHOULD guidance for PDF2.0. No preservation/refusal mandate inferred.",
+    "residual": "Possible generic OPI/SeparationInfo preservation in PDF2.0 output remains an unexecuted recommendation concern; archive-specific removal is separate."
+  },
+  {
+    "id": "2038-D33",
+    "kind": "representation-policy-boundary",
+    "clauses": [
+      "14.8.5.4.3",
+      "14.8.5.4.4"
+    ],
+    "summary": "Effective Table377 permits BaselineShift on BLSEs; accessibility resets at blocks as a semantic mapping choice.",
+    "decision": "Retain ADR2384 sign-to-Sup/Sub policy after considering the counterexample. Whole-paragraph displacement is not necessarily semantic superscript. No actual layout consumer failure established.",
+    "rejected": "Do not add a failing test requiring Sup solely from BLSE attribute applicability. Clarify source applicability separately from lossy platform representation."
   }
 ]

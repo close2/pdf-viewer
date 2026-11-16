@@ -1,0 +1,8 @@
+{
+  "source": "Parent read primary589\u2013591/574\u2013576 and actual annotations. Withdrawal uses SHOULD; Table258 rights and version conditions are separate.",
+  "assertions": "One failing save-policy regression with genuine signed PDF1.7 fixtures. Both original SHA256 digest and CMS authenticity pass; permitted Create control retains UR3. Denied Create case also retains UR3 despite a written and attached Highlight. Independent pikepdf extraction/OpenSSL verify passes; changed signed bytes fail.",
+  "decision": "B40 is an adopted-policy regression, not mandatory ISO conformance failure. Reconsider ADR0159 premise that form fill/full save are the writer\u2019s only operations. Preserve explicit unrecognised comparison outcomes for unsupported rights.",
+  "execution": "usage-rights-wave36.log:1FAIL; quality-wave36b.log:model all-targets Clippy PASS. Initial quality run rejected two doc backticks and redundant closure, corrected.",
+  "baseline": "b901326c",
+  "scope": "Partial source/assertion review. Parent qualifications supersede reviewer draft descriptions."
+}

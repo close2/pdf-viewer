@@ -372,6 +372,12 @@
       "test": "compute_coverage_applies_one_alpha_for_one_stroke_object",
       "finding": "2038-B39",
       "log": "gpu-stroke-wave34b.log"
+    },
+    {
+      "binary": "pdf-model::usage_rights_annotation_save_spec_audit",
+      "test": "annotation_save_withdraws_usage_rights_when_creation_is_not_granted",
+      "finding": "2038-B40",
+      "log": "usage-rights-wave36.log"
     }
   ]
 }

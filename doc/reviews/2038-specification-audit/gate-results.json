@@ -1267,6 +1267,19 @@
       "log": "quality-wave35e.log",
       "exit": 0,
       "scope": "Viewer-corealltargetsClippy-DwarningsPASS."
+    },
+    {
+      "log": "usage-rights-wave36.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Adopted UR withdrawal policy: denied annotation creation retains grant; genuine signed controls pass. Source SHOULD qualified."
+    },
+    {
+      "log": "quality-wave36b.log",
+      "exit": 0,
+      "scope": "Model all-targets Clippy -Dwarnings PASS after doc/closure lint corrections. Transform changes are comments only; diff checked, no new execution claimed."
     }
   ],
   "prior_expected_failures": {

@@ -1,0 +1,47 @@
+{
+  "baseline": "b901326c",
+  "scope": "PDF 2.0 EC3 §14.10 all subclauses; §14.11.4; §14.11.6.1 and .3; §14.11.7",
+  "review_status": "bounded source/code/assertion review; no tests run; no implementation edits",
+  "locators": [
+    {"clause":"3.15", "physical_page":23, "printed_page":8, "feature":"deprecated means a part that should not be written into PDF 2.0 and should be ignored by a processor"},
+    {"clause":"14.10.1", "physical_page":817, "printed_page":802, "feature":"all web-capture features deprecated with PDF 2.0; describes capture operations and required registry structures"},
+    {"clause":"14.10.2–14.10.6", "physical_pages":"817–827", "printed_pages":"802–812", "feature":"SpiderInfo, URLS/IDS registries, content sets, source information, and page/image object attributes; all inherit §14.10.1 deprecation"},
+    {"clause":"14.11.4", "physical_page":834, "printed_page":819, "feature":"deprecated separation dictionaries for preseparated page objects; Table 400 Pages, DeviceColorant, optional ColorSpace; optional ColorSpace enables interactive preview"},
+    {"clause":"14.11.6.1", "physical_page":840, "printed_page":825, "feature":"deprecated trapping overview; applies to trapping producer, intermediate app, or RIP in press workflows"},
+    {"clause":"14.11.6.3", "physical_page":842, "printed_page":827, "feature":"deprecated TrapNet appearance metadata in Table 404, including process model, separations, regions, styles"},
+    {"clause":"14.11.7", "physical_page":843, "printed_page":828, "feature":"deprecated OPI external proxy substitution before printing; Tables 405–407 describe versions and proxy metadata"}
+  ],
+  "errata": [
+    {"issue":672, "locator":"doc/errata-read.md:1381-1382; primary annotation on Table 29 and Table 32 rows", "effect":"adds deprecated-in-PDF-2.0 notation to catalog SpiderInfo and IDS/URLS name-tree entries; confirms these specific entries"},
+    {"issue":619, "locator":"doc/errata-read.md:914-931; primary annotations on Tables 31, 87 and 93", "effect":"adds deprecated-in-PDF-2.0 notation to page /ID and XObject /ID and /OPI rows; scoped /OPI affected, /ID is contextual only"},
+    {"issue":222, "locator":"doc/errata-read.md", "effect":"changes a cross-reference for Table 393 flags; no behavior in this shard"}
+  ],
+  "feature_coverage": [
+    {"clause":"14.10", "ledger":"inapplicable", "coverage":"All web-capture feature rows 14.10.1–.6 and their subrows are inapplicable by the family deprecation. Clause 14.10 itself is a no-text aggregate."},
+    {"clause":"14.11.4", "ledger":"inapplicable", "coverage":"SeparationInfo is not consumed on page display; §10.8's separation simulation starts from composite page content and is a different feature."},
+    {"clause":"14.11.6.1", "ledger":"inapplicable", "coverage":"Traps are not generated; trap marks in supplied PDFs use the distinct §14.11.6.2 TrapNet annotation path, outside this scope."},
+    {"clause":"14.11.6.3", "ledger":"inapplicable", "coverage":"Table 404 metadata is not read. Generic annotation appearance processing is covered by §14.11.6.2 / §12.5.5, not by interpreting these prepress attributes."},
+    {"clause":"14.11.7", "ledger":"inapplicable", "coverage":"No external OPI server or high-resolution source substitution; ordinary drawing renders the image proxy object present in the PDF. PDF/A archive conversion separately removes OPI keys as required by its conformance profile."}
+  ],
+  "implementation_evidence": [
+    {"path":"crates/pdf-transform/src/merge.rs", "location":"NOT_CARRIED; NAME_TREES; is_web_capture; web_capture_left_behind", "observation":"merge omits /SpiderInfo and IDS/URLS and warns. Comments cite database completeness, key renaming, and PDF 2.0 deprecation."},
+    {"path":"crates/pdf-transform/src/split.rs", "location":"NOT_CARRIED", "observation":"split omits /SpiderInfo; name-tree handling likewise omits IDS/URLS and reports them."},
+    {"path":"crates/pdf-transform/src/merge.rs", "location":"output_version", "observation":"merge output version is the maximum input Document::version; version-specific writer guidance therefore matters."},
+    {"path":"crates/pdf-transform/src/split.rs", "location":"split output construction", "observation":"split retains source document version (defaults to 1.7 absent a version)."},
+    {"path":"crates/pdf-model/src/page.rs", "location":"PAGE_ONLY_ENTRIES", "observation":"SeparationInfo is recognized only as a page-only dictionary key; no SeparationInfo renderer was found."},
+    {"path":"crates/pdf-transform/src/archive/rewrite.rs", "location":"ImageAlternatesAndOpi; FormOpi", "observation":"PDF/A rewrite removes image and form /OPI; this is archive-profile behavior, not a general OPI reader path."}
+  ],
+  "test_evidence": [
+    {"path":"crates/pdf-transform/tests/support/mod.rs", "test_fixture":"web_capture", "assertion":"constructs exact classic-xref %PDF-1.7 document with SpiderInfo, IDS/URLS, page /ID and valid page-set dictionary"},
+    {"path":"crates/pdf-transform/tests/split.rs", "test":"a_piece_carries_no_web_capture_database", "assertion":"both trees omitted and warning names each"},
+    {"path":"crates/pdf-transform/tests/merge.rs", "test":"a_merge_carries_no_web_capture_database", "assertion":"two sources' trees omitted and four warnings emitted"},
+    {"path":"crates/pdf-transform/tests/archive.rs", "tests":"an image OPI key is removed; form XObject OPI keys are removed", "assertion":"archive writer removes OPI keys under explicit PDF/A requirements"}
+  ],
+  "verdicts": [
+    {"question":"Does the §14.10 deprecation establish that PDF2.0 readers must reject or preserve web-capture metadata?", "verdict":"No mandatory refusal/preservation behavior was found. §3.15 says SHOULD ignore; current reader ignores. A processor may read older-version files but still follows its processor-side ignore recommendation."},
+    {"question":"Does the current merge/split web-capture rationale apply to its tested output version?", "verdict":"Not by deprecation alone: the explicit integration fixture is PDF 1.7, and split retains source version while merge uses max source version. Omitting database structures is implemented and reported, but the test's cited PDF2.0 SHOULD does not justify that behavior for its 1.7 output; treat the broader policy as intentional data-drop behavior, not as a PDF2.0 deprecation obligation."},
+    {"question":"Can this viewer execute separation dictionaries or OPI substitution?", "verdict":"No such path found; it draws supplied page/image content. This matches the reader-side ignore guidance. The optional interactive SeparationInfo preview is a separately declined capability and no reader SHALL requiring it was located."},
+    {"question":"Can writers emit deprecated SeparationInfo or OPI in a PDF2.0 output?", "verdict":"Generic merge/split copying can preserve page/XObject data and no explicit global stripping was found; archive conversion strips OPI for its own ISO 19005 requirements. If a transform emits PDF2.0 while retaining these keys, that is a potential mismatch with §3.15's SHOULD-not-write recommendation, not a SHALL violation. No test established this emission case."}
+  ],
+  "limitations": ["No execution of merge/split/archive tests during this audit.", "No PDF2.0 source fixture with SeparationInfo or OPI was run through transform output; generic-copy conclusion is code-path inspection, not an observed output assertion.", "14.11.6.2 TrapNet appearance rendering is intentionally out of this shard.", "The §14.10 operation clauses are reviewed only as deprecated metadata features; no web capture application is implemented."]
+}
