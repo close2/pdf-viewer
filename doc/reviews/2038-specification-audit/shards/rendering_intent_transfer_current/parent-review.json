@@ -1,0 +1,16 @@
+{
+  "baseline": "b901326c",
+  "status": "partial source/assertion review; no whole-clause certification",
+  "parent_review": {
+    "source": "Independently read physical379\u2013381,387,390\u2013391,395\u2013396 and annotations #63 at212, #310 at391, #311 at396. Type5 discussion begins395;396 contains the deleted paragraph. The agent locator describing391\u2013394 as Type5 is incorrect. #311 strikes the whole single/all-component contrast paragraph, not just its last sentence. ADR0505 bases the retained interpretation on Table52 and the Type5 introduction.",
+    "assertions": "Reviewed four new public CPU-raster tests and controls; distinct constant maps independently predict literal RGB bytes. Reviewed rendering_intent.rs three-table calibration, ri/RI/image override, missing-table, absolute and paper-white assertions. These discriminate routes; synthetic ICC fixtures have incomplete profile headers, so they do not establish complete valid-profile conformance.",
+    "decisions": "Retain sampled transfer interpretation. ADR1032 historical omissions are not a current limitation certificate; selected successor2757 and2765 were read. Full B2A/press and black-point review remains pending."
+  },
+  "execution": {
+    "test_file": "crates/pdf-model/tests/halftone_transfer_public_spec_audit.rs",
+    "run": 4,
+    "pass": 4,
+    "log": "fonts-transfer-wave23c.log",
+    "limits": "CPU only; no separate Type10/16 fixture, no screen-generation claim."
+  }
+}

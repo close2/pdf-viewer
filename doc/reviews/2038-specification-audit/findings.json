@@ -942,5 +942,29 @@
     "summary": "Added Stamp and Caret supplied-appearance public raster controls distinct from missing-artwork policy.",
     "execution": "2PASS markup-ap-wave22.log; both subtypes show red and blue when respective AP stream changes.",
     "limits": "Literal CPU pixel and complete interpretation, not native interaction or all AP states."
+  },
+  {
+    "id": "2038-T35",
+    "kind": "public-consumer-test-gap",
+    "clauses": [
+      "10.5",
+      "10.6.5.3",
+      "10.6.5.6"
+    ],
+    "summary": "Existing halftone override assertions manually applied display-list transfer maps; identical four-slot functions did not discriminate RGB slots from the gray slot.",
+    "change": "Four exact-xref public CPU-raster controls: Type5 per-component/Default overrides, Type6 stream override, distinct four-function RGB slot selection, and TR2 precedence. Literal RGB bytes and same-route no-override controls.",
+    "execution": "4PASS, fonts-transfer-wave23c.log",
+    "remaining": "No Type10/16 standalone fixture, halftone-screen or other raster-backend certification."
+  },
+  {
+    "id": "2038-T36",
+    "kind": "test-discrimination-gap",
+    "clauses": [
+      "9.6.5.4"
+    ],
+    "summary": "A proposed undefined-slot test using ASCII B could pass through WinAnsi instead of StandardEncoding.",
+    "change": "Use actual embedded LiberationSans program: code39 inherits Standard quoteright GID527, explicit WinAnsi control selects quotesingle GID10; both select Differences parenright GID12 for code40. Independently inspected program metrics/hash and nonempty outlines.",
+    "execution": "1PASS, fonts-transfer-wave23c.log",
+    "remaining": "LoadedFont public consumer only; no raster/text-extraction or all-font coverage."
   }
 ]

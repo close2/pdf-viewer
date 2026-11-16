@@ -3,6 +3,41 @@
   "numbering": "Logical content items use published ledger owners14.7.5.1.1/.2/.3/.4 for effective EC3 .2/.3/.4/.5; navigator owner12.3.6 maps effective12.3.5.3. JBIG2 external Annex D is not ISO PDF Annex D.",
   "shards": [
     {
+      "shard": "rendering_intent_transfer_current",
+      "artifact": "shards/rendering_intent_transfer_current/features.json",
+      "ledger_owners": [
+        "8.6.5.8",
+        "10.5",
+        "10.6.5.1",
+        "10.6.5.2",
+        "10.6.5.3",
+        "10.6.5.4",
+        "10.6.5.5",
+        "10.6.5.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "simple_font_encodings_current",
+      "artifact": "shards/simple_font_encodings_current/features.json",
+      "ledger_owners": [
+        "9.6.5.1",
+        "9.6.5.2",
+        "9.6.5.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "marked_content_current",
+      "artifact": "shards/marked_content_current/features.json",
+      "ledger_owners": [
+        "14.6",
+        "14.6.1",
+        "14.6.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
       "shard": "annotations_markup_current",
       "artifact": "shards/annotations_markup_current/features.json",
       "ledger_owners": [

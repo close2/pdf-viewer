@@ -216,6 +216,15 @@ Partial reviews reach383rows, with500pending. The refreshed eight-crate run has
 6,399passes, exactly all36expected failing identities, and55skips. No extra or
 missing failure was found. Current model all-targets Clippy passes.
 
+The transfer/font checkpoint adds five passing controls: Type5 component overrides,
+Type6 stream override, distinct RGB transfer slots, TR2 precedence, and an embedded
+TrueType StandardEncoding fallback whose GID differs from WinAnsi. The first font
+draft was rejected because ASCII alone could not discriminate the route. Marked-content
+source/errata and existing ON/OFF/post-EMC assertions were reviewed. Synthetic ICC
+intent fixtures discriminate transform selection but do not certify full profile
+validity. Partial evidence reaches393rows, with490pending. No new behavior failure;
+model all-targets Clippy passes. The broad run above predates these five tests.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks

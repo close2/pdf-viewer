@@ -1,0 +1,16 @@
+{
+  "baseline": "b901326c",
+  "status": "partial source/assertion review; no whole-clause certification",
+  "parent_review": {
+    "source": "Physical341 \u00a79.6.5.4 explicitly fills undefined Encoding-dictionary slots using StandardEncoding. Parent independently inspected actual embedded font with fontTools: U2019 GID527 advance455, U0027 GID10 advance391, U0029 GID12 advance682 at2048UPM; SHA256 matches file comment.",
+    "assertions": "Rejected initial ASCII-only draft because undefined code66 has the same B glyph under Standard/WinAnsi. New exact-xref fixture compares code39 Standard quoteright527 vs WinAnsi quotesingle10; both explicitly assign code40 parenright12 through Differences. LoadedFont outline/glyph_index assertions, not raster or text extraction. Parent fixed Rust API/lifetime/lint issues before execution.",
+    "decisions": "Agent supplied bounded selected ADR review; parent independently validates the Standard-fill route and actual embedded-program oracle. Broader ADR conclusions retain agent provenance and explicit scope limits."
+  },
+  "execution": {
+    "test_file": "crates/pdf-model/tests/simple_font_standard_fill_spec_audit.rs",
+    "run": 1,
+    "pass": 1,
+    "log": "fonts-transfer-wave23c.log",
+    "limits": "Single nonsymbolic embedded TrueType route; not every encoding or font type."
+  }
+}

@@ -6,20 +6,20 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "Eight-crate wave22:6435run,6399PASS,exactly36expectedFAIL,55skip; no missing or additional failure identities. Includes checkpoint22 AP tests.",
-    "quality": "Current pdf-syntax/pdf-model/viewer-core all-targets Clippy passes. Broader/docs/conformance gates retain recorded scope."
+    "later_targets": "Eight-crate wave22:6435run,6399PASS,exactly36expectedFAIL,55skip; no missing or additional failure identities. Includes checkpoint22 AP tests. Wave23 adds five passing transfer/font controls; broad wave22 predates these.",
+    "quality": "pdf-model all-targets Clippy -Dwarnings PASS after wave23. Other recorded gates retain their scope."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [
-      "simple_font_encodings_current",
-      "rendering_intent_transfer_current"
+      "scan_conversion_current",
+      "annex_o_current"
     ],
     "active_shards": [
-      "marked_content_current",
-      "annex_o_current",
-      "scan_conversion_current"
+      "type3_fonts_current",
+      "forms_remaining_current",
+      "shading_type1_current"
     ],
     "recorded_shards": [
       "logical_structure",
@@ -75,10 +75,13 @@
       "special_colour_spaces_current",
       "coordinates_graphics_state_current",
       "images_samples_interpolation_current",
-      "annotations_markup_current"
+      "annotations_markup_current",
+      "rendering_intent_transfer_current",
+      "simple_font_encodings_current",
+      "marked_content_current"
     ],
-    "partial_current_rows": 383,
-    "pending_current_rows": 500
+    "partial_current_rows": 393,
+    "pending_current_rows": 490
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",
@@ -91,7 +94,7 @@
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 39,
-    "last_read_utc": "2026-11-16T13:10:09.143705+00:00"
+    "last_weekly_used_percent": 40,
+    "last_read_utc": "2026-11-16T13:32:05.110440+00:00"
   }
 }

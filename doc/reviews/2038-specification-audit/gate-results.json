@@ -848,6 +848,19 @@
       "unexpected_failures": 0,
       "scope": "Eight crates syntax/font/model/signature/transform/colour/core/host, four test threads and bounded8GiB; exact binary/test failure identities equal all36manifest entries.",
       "resource": "Bounded62s,peak5.88GiB; no limit termination."
+    },
+    {
+      "log": "fonts-transfer-wave23c.log",
+      "scope": "Four new public halftone/TR raster tests plus one embedded-font StandardEncoding discriminator",
+      "run": 5,
+      "passed": 5,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave23c.log",
+      "scope": "pdf-model all targets Clippy -Dwarnings after checkpoint23 tests",
+      "exit": 0
     }
   ],
   "prior_expected_failures": {

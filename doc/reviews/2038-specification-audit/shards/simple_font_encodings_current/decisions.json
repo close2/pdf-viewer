@@ -1,0 +1,45 @@
+{
+  "decisions": [
+    {
+      "adr": "0015",
+      "decision": "Use §9.6.5.4's ordered simple TrueType cmap routes rather than direct PDF-code-to-Unicode/glyph-index lookup.",
+      "review": "Still applies to TrueType/glyf simple fonts. ADR 2817 explicitly leaves it standing within scope while assigning Type 1 in an OpenType wrapper to §9.6.5.2. Current truetype_code_table implements the described route; public swapped A/B exact-GID test gives a discriminating control."
+    },
+    {
+      "adr": "0067",
+      "decision": "The processor-choice sentence at the end of §9.6.5.4 is a permission, not a fixed extra standard mapping.",
+      "review": "Consistent with current limited fallback tiers, which run only after stated routes decline. No new assertion in this shard changes that interpretation."
+    },
+    {
+      "adr": "0184",
+      "decision": "The appearance writer may use Differences to assign character names/codes when its selected encoding otherwise cannot represent a needed character.",
+      "review": "Writer-side generation remains separate from the reader's interpretation. Nothing in this read-only audit establishes that generated output violates the character/name model."
+    },
+    {
+      "adr": "0286",
+      "decision": "Transcribe MacExpertEncoding's Annex D.4 table rather than reject that name or substitute Latin names.",
+      "review": "Current table is present and correctly recognized. Tests cover count and selected source entries; the prior scratch Annex D audit independently compared all 165 pairs with the source extraction. No current corpus fixture names MacExpert. ADR 0286 remains justified; its source-table audit is not a CI assertion."
+    },
+    {
+      "adr": "1942, 1943",
+      "decision": "Retain unknown Differences names for font-native lookup and, after the standard glyph-name routes fail for a named nonsymbolic code, let ToUnicode guide the (3,1) cmap route as the initial reader-chosen mapping.",
+      "review": "The input mapping route in truetype.rs retains unknown names; existing unit/public corpus assertions cover post-table and ToUnicode choices. These are explicitly downstream of the standard routes, not alterations of BaseEncoding or Differences semantics."
+    },
+    {
+      "adr": "2520",
+      "decision": "Archive conversion may restate cmap/dictionary routes for selected PDF/A conversion obligations while preserving the glyph reached by this reader.",
+      "review": "Writer transformation is not evidence that a reader must reject source forms. ADR 1942/1943's Differences route is expressly left outside the restatement decision. No reader regression found."
+    },
+    {
+      "adr": "2677, 2683",
+      "decision": "TrueType font-specific Differences/width decisions are judged per font dictionary, including when a program is shared.",
+      "review": "These decisions align with truetype_code_table being constructed from the PDF dictionary rather than cached program-only encoding data. The existing public selection test and archive per-font test are controls; this shard did not find a shared-program reader cache defect."
+    },
+    {
+      "adr": "2817",
+      "decision": "A Type 1 font dictionary wrapping OpenType CFF selects outlines by the Type 1/name-keyed route.",
+      "review": "Direct public exact-xref test uses same CFF bytes under wrapper and bare Type1C control, distinct GIDs and opposing Macintosh cmap, satisfying the ADR's route distinction. It does not change simple TrueType classification."
+    }
+  ],
+  "current_code_delta_vs_4015a9ae": "For files in this shard, the 4015a9ae→b901326c diff only changes error-string reuse in name_keyed.rs/truetype.rs and makes existing truetype_encoding_tests helper symbols pub(crate) for integration reuse. No production mapping logic or test assertions changed in that comparison."
+}
