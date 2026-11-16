@@ -11,23 +11,27 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (44)
+## Current checkpoint (45)
 
-Partial reviews now cover **720 of 883 ledger rows**, with 163 pending. The current
+Partial reviews now cover **779 of 883 ledger rows**, with 104 pending. The current
 failure manifest contains **69 assertions**, grouped into behavior findings rather
 than 69 independent defects. All 72 failures from the prior audit pass at this baseline.
-The latest broad run, wave31, covered eleven crates: **7,142 tests ran, 7,087 passed,
-and exactly the 55 then-recorded assertions failed; 58 were skipped**. Exact test
-identities matched. Waves32–33 add five passing tests and three expected failures.
+The latest broad run, wave38b, covered eleven crates: **7,158 tests ran, 7,096 passed,
+and exactly the 62 then-recorded in-scope assertions failed; 58 were skipped**.
+Exact identities matched the manifest; three GPU failures were recorded separately.
+Subsequent targeted runs add four expected failures and eight passing tests. The current
+manifest therefore has 66 failures in those eleven crates and three GPU failures.
 
-The latest failures concern ignored minimum requirement versions (both reporting and
+The following paragraphs preserve checkpoint-specific results in chronological order.
+
+At checkpoint 33, new failures concerned ignored minimum requirement versions (both reporting and
 processing restrictions) and double compositing of overlapping portions of one
 transparent stroke. New public measurement, join/fill geometry and new-file identifier
 controls pass. Syntax/render-cpu/viewer-core all-targets Clippy passes. The previous
 checkpoint records silent DPart truncation and false archive validation after an
 incomplete transparency survey. Tests accept truthful bounded processing.
 
-The latest review retains the conditional halftone and media handoff scopes, separates
+That review retains the conditional halftone and media handoff scopes, separates
 viability from playback/version matching, and finds an obsolete partial-status rationale
 in the implemented separation-simulation row. A filtered UTF-8 script dispatch control
 passes. RichMedia Assets fixtures are now explicitly documented as partial consumer
@@ -93,6 +97,10 @@ audit evidence; production and historical decision files remain unchanged.
 Checkpoint 44 adds passing CPU controls for Type 3 image suppression and the
 image-mask exception, including nested forms. Colour/font overview requirements
 are mapped to their detailed owners; no aggregate status certifies every child.
+
+Checkpoint 45 maps graphics, transparency and interactive overview clauses to
+their detailed assertion owners. It adds no failure or execution claim. Source
+locators and earlier draft statuses are qualified in each parent review.
 
 These are partial feature reviews, not whole-clause certification. The paragraphs
 below preserve earlier checkpoint evidence. Weekly usage was 48% at the latest check;

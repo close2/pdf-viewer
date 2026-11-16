@@ -15,10 +15,12 @@
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
       "signature_ocsp_capture_current",
-      "graphics_transparency_framing_current",
-      "interactive_framing_current"
+      "file_security_framing_current",
+      "logical_structure_framing_current"
     ],
     "recorded_shards": [
+      "graphics_transparency_framing_current",
+      "interactive_framing_current",
       "font_colour_aggregate_current",
       "content_stream_foundations_current",
       "file_specification_remaining_current",
@@ -133,8 +135,8 @@
       "font_substitution_current",
       "tagged_layout"
     ],
-    "partial_current_rows": 720,
-    "pending_current_rows": 163
+    "partial_current_rows": 779,
+    "pending_current_rows": 104
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",

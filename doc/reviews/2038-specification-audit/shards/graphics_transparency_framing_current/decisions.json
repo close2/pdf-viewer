@@ -1,0 +1,26 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "adr": "ADR 0046 — The scene that was missing",
+      "check": "Its Clause 11 comparison shows why cross-backend evidence needs a blend-mode scene that can actually distinguish the modes. The primary source agrees that implementation details can differ while results remain equivalent (§11.1, physical 402 / printed 387), and §11.2 Note 1 expressly permits deferring rasterization. The ADR's 'Clause 11 is a complete review' is a historical review-status statement, not a substitute for current per-feature source and assertion review.",
+      "decision": "Retain the blend-mode-scene rationale. Do not infer from the ADR that every currently pending aggregate/intro inventory row or every backend has been recertified in this round."
+    },
+    {
+      "adr": "ADR 0237 — The non-isolated normal group is a weighted result",
+      "check": "The owner-shard correction is consistent with the source and algebra: the ADR derives a cancellation for the restricted non-isolated, Normal-result branch; it does not claim that the renderer stores separate general-form alpha and shape accumulators for every case. The broader recurrence and knockout routes remain distinct and are covered by their own code paths/tests.",
+      "decision": "Retain only with its restricted premises explicit. Do not characterize its algebra as evidence that a separate-accumulator implementation is required, nor extrapolate the optimized route to non-Normal or knockout groups."
+    },
+    {
+      "adr": "ADR 0056 — The boundaries shall be used to clip the pattern cell",
+      "check": "The framing review did not redo the pattern BBox analysis. The accepted parent finding in `pattern_forms_current` is specific: the source requires BBox clipping and §10.7.4 supplies pixel-set semantics even for a degenerate box; the current no-clip path is separately tested with near-line and ordinary controls.",
+      "decision": "Keep the source/code reconsideration and draft with its owning shard; no broader inference about empty intersections or exact device pixel ownership is added here."
+    },
+    {
+      "adr": "ADR 0101 / ADR 0849 — Table 51 and Table 52 parameter ownership",
+      "check": "The primary Table 51 continues onto the next physical page without repeating the table caption; Table 52 begins after those rows. This matches the corrected coordinate shard and current ledger note; the table ownership is not a new issue in this pass.",
+      "decision": "Retain the source locator/citation correction. Any test or comment asserting device-specific initial values should continue to distinguish those from the device-independent Table 51 constants."
+    }
+  ],
+  "limits": "This is a selected premise review, not a new disposition of every ADR cited by the child shards."
+}

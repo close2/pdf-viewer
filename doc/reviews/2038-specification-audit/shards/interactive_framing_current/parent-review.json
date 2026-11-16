@@ -1,0 +1,7 @@
+{
+  "status": "Bounded source/assertion framing review; no new runtime defect, test execution or whole-clause certification.",
+  "source": "Parent checked the primary text and footers. Table86 is physical269/254 after the 268/253 introduction; Table94 is physical289\u2013290/274\u2013275. 12.5.6.1 is physical491/476; 12.7.4 starts545/530; 12.7.5 starts550/535; viewport selection is physical611/596; requirements start621/606.",
+  "assertions": "Parent inspected tab_order::the_five_values_of_tabs_are_five_different_orders: independent ABCD/BADC/BDAC/DCBA/ADBC expected permutations for A/R/C/S/W, plus rotated-order controls. Public focus integration is narrower. annotations::an_unknown_subtype_still_draws_its_normal_appearance asserts actual rendered extent. No redundant tests added.",
+  "source_boundaries": "Optional support is distinct from requirements once supported. Table94 Type constrains well-formed input and does not prescribe reader rejection. Clause11 permits equivalent mechanics and deferred rasterization; observable output remains required.",
+  "authoritative_current_outcomes": "Parent findings/gate records supersede stale pending descriptions in older child shards: B05/B06 collection failures, B23 remote destination-view failures, B38 requirement-version failures; T46 navigation controls PASS, T52 public measurement numeric selection PASS, T60 public Alpha-mask controls PASS. D27 retains requirements user policy with explicit qualification."
+}
