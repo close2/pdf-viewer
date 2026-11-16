@@ -1,0 +1,282 @@
+[
+  {
+    "clause": "8.1",
+    "title": "General",
+    "source_location": "Primary EC3 PDF physical 160 / printed 145 (footer verified).",
+    "source_and_errata": "Frames Clause 8's device-independent imaging model; Clause 10 describes device rendering. No erratum changes this division in the assigned row.",
+    "ledger": "Implemented; points from content interpretation to rendering pipeline.",
+    "implementation_and_assertions": "`pdf-model/src/content.rs` constructs device-independent display operations and `pdf-render` rasterizes them. This row has no unique pixel rule; specialized path/color/image/transparency owners contain the observable assertions.",
+    "verdict": "framing supported, no independent algorithm",
+    "residuals": "Do not read one successful leaf test as proof of the whole Clause 8 pipeline or require one particular output-device simulation."
+  },
+  {
+    "clause": "8.3",
+    "title": "Coordinate systems",
+    "source_location": "Primary EC3 PDF physical 164 / printed 149; overview and coordinate-space clauses.",
+    "source_and_errata": "The overview separates default user, device, and text spaces; operative transformations live in child clauses. No in-scope EC3 change found.",
+    "ledger": "Implemented aggregate.",
+    "implementation_and_assertions": "Parent T32 already PASS: public two noncommuting cm operations combined with page transforms and Q restoration, literal independently derived matrices/raster interiors. Earlier draft/unrun status is superseded.",
+    "verdict": "aggregate is a useful architecture summary, with a specific cross-transform assertion gap",
+    "residuals": "One composite case is established, not every coordinate permutation."
+  },
+  {
+    "clause": "8.3.2",
+    "title": "Coordinate spaces",
+    "source_location": "Primary EC3 PDF physical 164 / printed 149; the clause points to \u00a7\u00a78.3.2.2\u2013.5.",
+    "source_and_errata": "General taxonomy; actual default-user-space origin/orientation, page box, unit, and text-space behavior reside in child clauses. No relevant erratum identified here.",
+    "ledger": "Implemented aggregate.",
+    "implementation_and_assertions": "Parent T32 already PASS: public two noncommuting cm operations combined with page transforms and Q restoration, literal independently derived matrices/raster interiors. Earlier draft/unrun status is superseded.",
+    "verdict": "no independent rule omitted from this framing row",
+    "residuals": "One composite case is established, not every coordinate permutation."
+  },
+  {
+    "clause": "8.4.3.1",
+    "title": "General graphics-state parameters",
+    "source_location": "Primary EC3 PDF physical 175 / printed 160.",
+    "source_and_errata": "Introductory paragraph identifies several device-independent state parameters; requirements are in \u00a7\u00a78.4.3.2\u2013.6.",
+    "ledger": "Implemented as the family introduction.",
+    "implementation_and_assertions": "Selected defaults and clipping are tested in `line_parameters.rs`, `extgstate_missing_line_keys_audit.rs`, and coordinate/state tests. `graphics_transparency_framing_current` notes the ledger's broad state-table narrative exceeds its specifically named assertions: no exhaustive Table 51/52 or all-setter/device-adjustment proof.",
+    "verdict": "no independent requirement beyond children; ledger evidence is representative",
+    "residuals": "Default state fields with device-dependent initial values are not fixed by ISO. No new state discrepancy identified."
+  },
+  {
+    "clause": "8.5.1",
+    "title": "Path objects and path segments",
+    "source_location": "Primary EC3 PDF physical 184 / printed 169.",
+    "source_and_errata": "Defines consecutively connected segments and closed subpaths; `h` explicitly closes a subpath. Stroke/fill behavior is in later clauses. No direct EC3 change identified.",
+    "ledger": "Implemented.",
+    "implementation_and_assertions": "Path tracking feeds degenerate-path and stroke/fill geometry. `stroke_fill_geometry_current/findings.txt` checks line/cap/join/miter and fill-rule assertions; `coordinates_graphics_state_current` disqualifies mid-path q/Q/cm tests as invalid-input conformance evidence under Figure 9.",
+    "verdict": "definitions are implemented in path construction; sampled geometry tests are relevant",
+    "residuals": "Do not use recovery on graphics-object sequences forbidden by Figure 9 to prove valid-input conformance. No separate new assertion proposed."
+  },
+  {
+    "clause": "8.6.4",
+    "title": "Device colour spaces",
+    "source_location": "Primary EC3 PDF physical 196 / printed 181.",
+    "source_and_errata": "Describes DeviceGray/RGB/CMYK. Components and later rendering are also governed by \u00a7\u00a78.6.5, 10.4 and applicable transparency rules. EC3 #19 amends a later Table 74 operator-resource statement, not these device-space definitions.",
+    "ledger": "Implemented.",
+    "implementation_and_assertions": "`pdf-colour` has explicit device spaces and conversions; `colour_spaces_current/findings.txt` records asymmetric CIE/ICC and independent anchors. `default_colour_bpc_current` includes device-default routes. No new device-space conversion defect established by this aggregate pass. Parent execution: B25 ICC Range fallback confirmed FAIL; T27 public DeviceRGB reset PASS.",
+    "verdict": "supported only through its detailed owners; no aggregate-only bug found",
+    "residuals": "Preserve B25 fallback failure and T27 passing reset control. No whole colour-space or intent matrix certificate."
+  },
+  {
+    "clause": "8.6.4.1",
+    "title": "General device colour spaces",
+    "source_location": "Primary EC3 PDF physical 196 / printed 181.",
+    "source_and_errata": "The final paragraph advises writers to remap device spaces to CIE-based spaces in a CIE transparency group; otherwise results are explicitly implementation-dependent/unpredictable. This is not a reader command to reject the group. EC3 #19's direct-or-default-name correction is in Table 74, outside this row.",
+    "ledger": "Implemented.",
+    "implementation_and_assertions": "`colour::parse_at` resolves device names/default spaces; `transparency_groups_current` and `colour_spaces_current` review non-device group-space and device-space routes.",
+    "verdict": "producer guidance and implementation-dependent output are not reader failure mandates",
+    "residuals": "Do not certify producer conformance or every blending-space route here."
+  },
+  {
+    "clause": "8.6.5",
+    "title": "CIE-based colour spaces",
+    "source_location": "Primary EC3 PDF physical 199 / printed 184; family introduction and child spaces.",
+    "source_and_errata": "Frames calibrated spaces. EC3 #181 updates ICC profile-version wording in \u00a78.6.5.5/Table 66; #63 withdraws the note permitting fewer rendering intents. Those detailed rules belong to ICC/rendering-intent rows.",
+    "ledger": "Implemented aggregate.",
+    "implementation_and_assertions": "`colour_spaces_current/findings.txt` reports independent anchors for CalGray, asymmetric CalRGB, Lab and real/constructed ICC profiles; `default_colour_bpc_current` examines intent/BPC selection. The ICC `/Range` fallback candidate and DeviceRGB public-reset test proposal remain in their owner shard. Parent execution: B25 ICC Range fallback confirmed FAIL; T27 public DeviceRGB reset PASS.",
+    "verdict": "aggregate maps to focused evidence; owner residuals remain open",
+    "residuals": "Preserve B25 fallback failure and T27 passing reset control. No whole colour-space or intent matrix certificate."
+  },
+  {
+    "clause": "8.6.6.1",
+    "title": "General special colour spaces",
+    "source_location": "Primary EC3 PDF physical 214 / printed 199.",
+    "source_and_errata": "Names Pattern, Indexed, Separation, DeviceN; operational rules are in .2\u2013.5. No independent formula in this introduction.",
+    "ledger": "Implemented.",
+    "implementation_and_assertions": "`pdf-colour` supports the four spaces; color-space and pattern shards provide independent controls. Source-authoring rules such as optional colorant restrictions belong to the specific child clauses.",
+    "verdict": "no independent requirement beyond the child algorithms",
+    "residuals": "No claim that every special-space family/alternate/tint combination was tested."
+  },
+  {
+    "clause": "8.6.6.2",
+    "title": "Pattern colour spaces",
+    "source_location": "Primary EC3 PDF physical 214 / printed 199.",
+    "source_and_errata": "Introduces underlying space and colored/uncolored tiling or shading patterns, referring to \u00a78.7. No direct erratum identified in this row.",
+    "ledger": "Implemented.",
+    "implementation_and_assertions": "Pattern colour context reaches the tiling/shading owner. `shading_current` and `default_colour_bpc_current` test uncolored base-space routes; pattern tests observe downstream cells and shading colors.",
+    "verdict": "supported for reviewed routes, aggregate has no extra raster rule",
+    "residuals": "Full operator/image restrictions in uncolored cells are mapped in `font_colour_aggregate_current`; they remain a deliberately unexhausted cross-product."
+  },
+  {
+    "clause": "8.6.6.6",
+    "title": "Multitone examples",
+    "source_location": "Primary EC3 PDF physical 227\u2013229 / printed 212\u2013214; examples and notes.",
+    "source_and_errata": "Informative examples of Indexed-over-DeviceN constructions. Example 2 leaves the tint function as a stated formula; Examples 3\u20134 give the None-colorant/alternate component construction and function, Example 5 uses an image and stream lookup table. No relevant EC3 amendment identified.",
+    "ledger": "Implemented as a tested worked-example row.",
+    "implementation_and_assertions": "`pdf-model/tests/multitone_examples.rs` compares page pixels from source-shaped colour spaces against direct colour reference squares; tests cover Example 1, combined 3/4, and Example 5. Example 2 is not an independent numerical oracle because the source supplies no executable function definition.",
+    "verdict": "useful source-example coverage; no mandatory behavior found omitted from the example introduction",
+    "residuals": "The test's direct references validate composed color-space routes but do not prove every tint function or every spot-color output device. No requirement to emulate physical spot inks on a screen."
+  },
+  {
+    "clause": "8.11",
+    "title": "Optional content",
+    "source_location": "Primary EC3 PDF physical 291\u2013303 / printed 276\u2013288; \u00a7\u00a78.11.1\u2013.4.5 and Tables 96\u2013101.",
+    "source_and_errata": "EC3 #225 adds a producer constraint for nonempty RBGroups inner arrays; #686/#707 fix example object syntax; #567 clarifies Language usage does not change content language. Effective optional-content clauses distinguish view state, event overlays and UI.",
+    "ledger": "Implemented aggregate, but this status is not a blanket assertion of every UI and usage branch.",
+    "implementation_and_assertions": "`optional_content.rs` evaluates configuration/membership/usage; current `optional_content.rs` tests pin base state, policies/VE, hidden state effects, and View/Print/Export overlays. Parent reports both promoted `optional_content_nested_spec_audit` tests PASS: an outer hidden BDC suppresses an otherwise-visible form with an outside-form pixel control, and null OCMD refs make policy neutral compared with a real OFF group.",
+    "verdict": "sampled state/rendering paths are supported; broad aggregate remains bounded",
+    "residuals": "Do not turn producer-validity requirements into reader rejection. UI Order/Locked/RBGroups and Language tie branches have their own remaining-work boundaries in `optional_content_current/findings.txt`; parent outcomes override that file's stale unrun wording for the two nested tests."
+  },
+  {
+    "clause": "8.11.1",
+    "title": "General optional-content framing",
+    "source_location": "Primary EC3 PDF physical 291 / printed 276.",
+    "source_and_errata": "Introduces OCGs, OCMDs and configuration. Its operational claims resolve in following clauses.",
+    "ledger": "Implemented framing.",
+    "implementation_and_assertions": "Sibling clauses have different public pixel/assertion families; see prior optional-content shard. It does not supply an additional independent oracle.",
+    "verdict": "no separate behavior gap in the general paragraph",
+    "residuals": "Do not infer every panel/configuration feature from rendering evaluator tests."
+  },
+  {
+    "clause": "8.11.2",
+    "title": "Optional content groups",
+    "source_location": "Primary EC3 PDF physical 292 / printed 277 onward, Tables 96\u201397 and following expression rules.",
+    "source_and_errata": "Membership policy and visibility expressions include null/deleted-ref semantics. Producer table-shape constraints do not dictate parser rejection.",
+    "ledger": "Implemented aggregate of .2.1\u2013.2.3.",
+    "implementation_and_assertions": "`optional_content.rs` public pixel tests exercise AnyOn/AnyOff/AllOn/AllOff, VE precedence/depth report, identity, and parent visibility. The null-reference test was promoted and passed as noted above.",
+    "verdict": "core sampled logic supported; source-derived edge branches have focused test evidence",
+    "residuals": "Ignored/intent-filtered group inside boolean VE remains an interpretation question, not a confirmed defect; not every malformed operand needs mandatory rejection."
+  },
+  {
+    "clause": "8.11.3",
+    "title": "Making graphical content optional",
+    "source_location": "Primary EC3 PDF physical 295\u2013298 / printed 280\u2013283; .3.1\u2013.3.3.",
+    "source_and_errata": "Controls marked content, XObjects and annotations. EC3 #686/#707 affect example syntax only. Context visibility composes with a form's own /OC; null/invalid optional-content properties are distinct.",
+    "ledger": "Implemented aggregate.",
+    "implementation_and_assertions": "Tests in `optional_content.rs`, `drawn_while_read.rs`, `annotation_oc_flags_audit.rs`, and promoted nested public test assert marked-content drawing, form/annotation own /OC, outer-hidden form context, and after-EMC/outside controls.",
+    "verdict": "sampled context-composition and entry-point routes are supported",
+    "residuals": "The promoted test suite is selected, not every XObject/annotation invocation permutation."
+  },
+  {
+    "clause": "8.11.4",
+    "title": "Configuring optional content",
+    "source_location": "Primary EC3 PDF physical 298\u2013303 / printed 283\u2013288; Tables 98\u2013101.",
+    "source_and_errata": "Default state, UI arrays and usage application entries have separate behavior. #225 affects RBGroups producer arrays, #567 clarifies Language not content language.",
+    "ledger": "Implemented aggregate.",
+    "implementation_and_assertions": "`optional_content_current/findings.txt` maps defaults and View/Print/Export lifecycle. Tests compare visible pixels across operation purpose and usage-state changes; layer-panel assertions are a separate owner.",
+    "verdict": "rendering/event paths are supported for tested cases, full UI branch coverage is separate",
+    "residuals": "Configs is optional; it does not require alternate-configuration UI. Do not conflate presentation metadata (Order/Name/Creator) with visibility computation."
+  },
+  {
+    "clause": "8.11.4.1",
+    "title": "General configuration",
+    "source_location": "Primary EC3 PDF physical 298 / printed 283.",
+    "source_and_errata": "Describes default state and external factors; the actual rules are in .4.2\u2013.4.5. #567's usage-Language note constrains how that key is understood, not the language of content.",
+    "ledger": "Implemented framing.",
+    "implementation_and_assertions": "Configuration tests in `optional_content.rs` exercise BaseState, ON/OFF, AS usage and event lifetime; sibling findings identify which entries are permissions and which require processing.",
+    "verdict": "no additional algorithm in this introductory subclause",
+    "residuals": "Do not claim all Table 98 metadata/UI values are implemented from this introductory row."
+  },
+  {
+    "clause": "9.3",
+    "title": "Text state parameters and operators",
+    "source_location": "Primary EC3 PDF physical 315\u2013321 / printed 300\u2013306; Tables 102\u2013104 and .1\u2013.8.",
+    "source_and_errata": "Beyond table values, text-state parameters may occur outside BT/ET and persist across text objects in one stream; all apply to Type 3 unless stated otherwise. #368 changes q/Q restoration within BT/ET; #373 adjusts T* wording; #376 normalizes Tz and makes Trm description normative.",
+    "ledger": "Implemented; states all Table 102/103 entries and text knockout behavior.",
+    "implementation_and_assertions": "`text_state_current/findings.txt` checks horizontal/vertical axes, `q/Q` matrices, Tz, rise, Tc/Tw/TJ, clipping timing and text knockout in `end_object.rs`. The note for \u00a79.3.2 omits a verified vertical Tc path (`vertical_spacing_rise_and_horizontal_scale_keep_distinct_axes`); this is evidence traceability gap, not a code defect. Parent T22 already2PASS for embedded-font multibyte word spacing and vertical numericTJ; no remaining unrun status for those exact assertions.",
+    "verdict": "substantive behaviors are implemented in sampled routes; one ledger evidence note is incomplete",
+    "residuals": "No whole text-state matrix certificate; selected vertical numericTJ coverage is completed in T22."
+  },
+  {
+    "clause": "9.4",
+    "title": "Text objects",
+    "source_location": "Primary EC3 PDF physical 321\u2013326 / printed 306\u2013311; clauses .1\u2013.4.",
+    "source_and_errata": "The parent row aggregates BT/ET, positioning/showing and text-space formulas. #368 governs q/Q inside text object; #373 corrects T* expansion; #376 affects horizontal scale and Trm description. Writer constraints on nesting and operator placement do not imply reader rejection.",
+    "ledger": "Implemented aggregate of .1\u2013.4.",
+    "implementation_and_assertions": "`text_state_current/findings.txt` names public Type3 positioning, TJ/T*, Tm, quote operators and q/Q restoration; numeric vertical TJ remains a focused test gap draft. The current text clipping raster draft is owned by `font_basics_graphical_effects_current` and parent ran it with embedded H outline. Parent T22 already2PASS for embedded-font multibyte word spacing and vertical numericTJ; no remaining unrun status for those exact assertions.",
+    "verdict": "aggregate frame is consistent with implementation and child tests; selected arithmetic coverage remains non-exhaustive",
+    "residuals": "No whole text-state matrix certificate; selected vertical numericTJ coverage is completed in T22."
+  },
+  {
+    "clause": "9.6",
+    "title": "Simple fonts",
+    "source_location": "Primary EC3 PDF physical 328\u2013348 / printed 313\u2013333; family clauses include Encoding and Type 3 sections.",
+    "source_and_errata": "Describes single-byte codes, one horizontal metrics set, and descriptor/font program use. EC3 #47/#48 retire the old Standard 14 metrics compatibility SHALL and soften related note; #128 changes Type 3 resources; #106 changes indirect-reference wording; #144 corrects example LastChar only.",
+    "ledger": "Implemented aggregate.",
+    "implementation_and_assertions": "`pdf-font` simple path, `type1.rs`, `type3.rs`, encoding/name-keyed code and font program fixtures; `font_substitution_current`, `simple_font_encodings_current`, and `type3_fonts_current` provide actual public and unit controls. Type3 named Encoding cases in general simple-font tests are malformed for Type3's dictionary-only encoding requirement and are tolerance evidence, not valid-input conformance proof.",
+    "verdict": "architecture and sampled simple-font behavior supported; leaf source/example distinctions matter",
+    "residuals": "No whole encoding, descriptor, or Type3 certification. StandardEncoding fill after Differences lacks an independent public TrueType control; simple-font shard notes this as assertion gap."
+  },
+  {
+    "clause": "9.6.1",
+    "title": "General simple-font rules",
+    "source_location": "Primary EC3 PDF physical 328 / printed 313.",
+    "source_and_errata": "Describes one-byte character codes, horizontal widths, and descriptor requirements with Type 3/Standard 14 exceptions. #47/#48 alter the effective standard-font statements.",
+    "ledger": "Implemented.",
+    "implementation_and_assertions": "Code preserves code length for simple-font one-byte path and uses descriptor/program/substitute routes. `font_descriptors_current` covers flags/metrics; simple encoding and text extraction tests exercise code-to-glyph and show operators.",
+    "verdict": "sampled behavior supported; Standard 14 compatibility claim must use amended source text",
+    "residuals": "Unembedded Standard 14 font metrics are not mandatory on the basis of the struck clauses; do not cite the old SHALL."
+  },
+  {
+    "clause": "9.6.2",
+    "title": "Type 1 fonts",
+    "source_location": "Primary EC3 PDF physical 328\u2013329 / printed 313\u2013314.",
+    "source_and_errata": "Type 1 and MMType1 dictionary/program routes are covered by \u00a79.9 and Table 124. EC3 #106 permits an indirect reference in the affected Type1C entries; #47/#48 retire the former standard-font metrics SHALL elsewhere.",
+    "ledger": "Implemented.",
+    "implementation_and_assertions": "`pdf-font/type1.rs`, CFF loader, and `opentype_selection_audit.rs` assert Type1C/CFF and bare Type1 program dispatch with controlled GID/output; `font_substitution_current` tests Type1/CFF OpenType name lookup with conflicting cmap and bare CFF positive control.",
+    "verdict": "selected program identification and CFF paths have independent controls",
+    "residuals": "No full Type1 charstring, MMType1 interpolation, or every Table 109 field review in this framing pass."
+  },
+  {
+    "clause": "9.6.5",
+    "title": "Character encoding",
+    "source_location": "Primary EC3 PDF physical 337\u2013342 / printed 322\u2013327; Tables 112\u2013113 and text.",
+    "source_and_errata": "The clause describes base encodings, Differences and symbolic/nonsymbolic behavior; its meaningful algorithms are .1\u2013.4. No direct EC3 encoding-rule change identified; nearby #333 is a \u00a78.9.6.3 reference/NOTE correction, not an encoding amendment.",
+    "ledger": "Implemented aggregate.",
+    "implementation_and_assertions": "`simple_font_encodings_current/findings.txt` reviews Standard, MacRoman, WinAnsi, MacExpert, Differences, symbolic priority and embedded synthetic TrueType/CFF public routes. Concrete gap: no valid public TrueType consumer test proves undefined glyph-name slots are finally filled from StandardEncoding after Differences; existing internal coverage is stronger than the public route.",
+    "verdict": "no runtime defect identified; source-derived public assertion gap remains",
+    "residuals": "MacExpert has 165 assignments but CI asserts only selected entries/count. This is coverage debt, not a found mis-mapping. Producer SHOULD guidance does not require reader rejection."
+  },
+  {
+    "clause": "9.7.4",
+    "title": "CIDFonts",
+    "source_location": "Primary EC3 PDF physical 345\u2013348 / printed 330\u2013333; Table 115 and child glyph/metric clauses.",
+    "source_and_errata": "CIDSystemInfo and CIDFontType0/2 descriptors/metrics; #106 relaxes indirect-reference wording in the identified CID font structure. CIDSystemInfo's collection compatibility belongs to \u00a79.7.3 and is a producer document constraint.",
+    "ledger": "Implemented.",
+    "implementation_and_assertions": "`cid_opentype_current` and CID-font fixtures check descendant subtype, glyph selection, widths/vertical metrics and embedded OpenType fonts; source-specific collection mapping is reviewed in the CID owner shard.",
+    "verdict": "sampled descendant and glyph routes supported",
+    "residuals": "Do not demand reader rejection solely for incompatible CIDSystemInfo producer metadata; no exhaustive collection/metric matrix claim."
+  },
+  {
+    "clause": "9.7.5",
+    "title": "CMaps",
+    "source_location": "Primary EC3 PDF physical 349\u2013354 / printed 334\u2013339; embedded/predefined maps and Table 117.",
+    "source_and_errata": "CMap files, codespaces and mapping forms are elaborated in .1\u2013.4; Table 125a is an appended EC3 insertion at physical 1022, not the page introducing \u00a79.10.3. No reader rejection follows merely from invalid CMap authoring.",
+    "ledger": "Implemented aggregate.",
+    "implementation_and_assertions": "B27 mixed source code lengths FAIL with2passingcontrols; B28 multiscalar bfrange FAIL with2passingcontrols; T30 stream UseCMap inheritance/local override PASS. Embedded Type2 fixtures and separate glyph/encoding guards establish valid extraction premises.",
+    "verdict": "feature ownership is clear; public valid-case executions pending parent result",
+    "residuals": "These exact parent outcomes supersede pending wording. Extraction results do not certify drawn glyph shapes or every CMap form."
+  },
+  {
+    "clause": "9.7.6",
+    "title": "Type 0 font dictionaries",
+    "source_location": "Primary EC3 PDF physical 355\u2013357 / printed 340\u2013342; Table 119 and code/descendant processing.",
+    "source_and_errata": "Type0 parent CMap and descendant CIDFont behavior; EC3 #324 changes Table 119 ToUnicode cross-reference to \u00a79.10. `Table 125a` effective UseCMap metadata is on appended EC3 physical page 1022.",
+    "ledger": "Implemented aggregate.",
+    "implementation_and_assertions": "B27 mixed source code lengths FAIL with2passingcontrols; B28 multiscalar bfrange FAIL with2passingcontrols; T30 stream UseCMap inheritance/local override PASS. Embedded Type2 fixtures and separate glyph/encoding guards establish valid extraction premises.",
+    "verdict": "representative Type0/descendant paths supported; ToUnicode edges remain subject to current parent execution",
+    "residuals": "These exact parent outcomes supersede pending wording. Extraction results do not certify drawn glyph shapes or every CMap form."
+  },
+  {
+    "clause": "9.8",
+    "title": "Font descriptors",
+    "source_location": "Primary EC3 PDF physical 358\u2013365 / printed 343\u2013350; Tables 120\u2013123.",
+    "source_and_errata": "EC3 #453 revises Table 120 `/MissingWidth`: predictable behavior depends on every uncovered code mapping to glyphs of that width; otherwise result is implementation-dependent. #11 amends FontName Type3 semantics; #5 corrects FD allowed-key wording. PDF2 descriptor flags and CID class behavior have dedicated owner evidence.",
+    "ledger": "Implemented.",
+    "implementation_and_assertions": "`font_descriptors_current/findings.txt` finds direct explicit-width and zero-default assertions and flags positive/invalid descriptor-word controls; it identifies a ledger precision gap: \u00a79.8.1 note omits #453's qualification. This does not show current defaulting is wrong.",
+    "verdict": "Existing D10 MissingWidth qualification gap; do not duplicate. No behavior defect inferred.",
+    "residuals": "Producer required-entry/mutual-exclusion constraints do not automatically require reader rejection; /MissingWidth conformity requires a fixture that proves all uncovered glyph widths independently."
+  },
+  {
+    "clause": "9.9",
+    "title": "Embedded font programs",
+    "source_location": "Primary EC3 PDF physical 366\u2013370 / printed 351\u2013355; \u00a79.9 begins at 366 and \u00a79.10 begins at 370.",
+    "source_and_errata": "Table 124 pairs font classes with FontFile keys/subtypes; \u00a79.9.1 explicitly routes Type1+CFF OpenType through name-keyed glyph lookup. No broad EC3 redefinition identified here; linked #106/#128 changes in 9.6 affect program references/resources.",
+    "ledger": "Implemented aggregate; evidence is split across font loading and format-specific readers.",
+    "implementation_and_assertions": "`font_dictionaries_current/findings.txt` says only selected \u00a79.9 families were mapped at that point; `font_substitution_current/findings.txt` records a strong exact-xref Type1+CFF OpenType name-route test with conflicting cmap and a bare-Type1C control. `pdf-font` program readers, embedding/restate and archive paths own other formats.",
+    "verdict": "strong evidence for sampled format dispatch, but aggregate Table 124/format cross-product was not certified",
+    "residuals": "This pass did not enumerate and test every FontFile key/subtype pairing or all SFNT tables. That is a coverage boundary, not a specific observed format-routing defect."
+  }
+]

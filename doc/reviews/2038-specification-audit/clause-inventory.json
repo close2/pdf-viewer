@@ -691,11 +691,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/file_security_framing_current/features.json"
+    ],
     "prior_artifacts": [
       "syntax_pilot"
-    ]
+    ],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "7.5.1",
@@ -813,11 +816,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/file_security_framing_current/features.json"
+    ],
     "prior_artifacts": [
       "object_xref_streams"
-    ]
+    ],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "7.5.8.1",
@@ -885,9 +891,12 @@
     "ledger_status": "partial",
     "prior_review_state": "pending",
     "prior_ledger_status": "partial",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/file_security_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "7.6.1",
@@ -895,9 +904,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/file_security_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "7.6.2",
@@ -970,9 +982,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/file_security_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "7.6.4.1",
@@ -1006,9 +1021,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/file_security_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "7.6.4.3.1",
@@ -1068,9 +1086,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/file_security_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "7.6.4.4.1",
@@ -1234,9 +1255,12 @@
     "ledger_status": "partial",
     "prior_review_state": "pending",
     "prior_ledger_status": "reported",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/file_security_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "7.6.5.1",
@@ -1309,9 +1333,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/file_security_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "7.7.1",
@@ -1319,11 +1346,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/file_security_framing_current/features.json"
+    ],
     "prior_artifacts": [
       "catalog_pages_audit"
-    ]
+    ],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "7.7.2",
@@ -1352,11 +1382,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/file_security_framing_current/features.json"
+    ],
     "prior_artifacts": [
       "catalog_pages_audit"
-    ]
+    ],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "7.7.3.1",
@@ -1366,7 +1399,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/page_resources_current/features.json"
+      "shards/page_resources_current/features.json",
+      "shards/file_security_framing_current/features.json"
     ],
     "prior_artifacts": [
       "catalog_pages_audit"
@@ -1381,7 +1415,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/page_resources_current/features.json"
+      "shards/page_resources_current/features.json",
+      "shards/file_security_framing_current/features.json"
     ],
     "prior_artifacts": [
       "catalog_pages_audit"
@@ -1503,11 +1538,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/file_security_framing_current/features.json"
+    ],
     "prior_artifacts": [
       "text_strings"
-    ]
+    ],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "7.9.1",
@@ -2128,9 +2166,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "8.2",
@@ -2151,9 +2192,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "8.3.1",
@@ -2174,9 +2218,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "8.3.2.1",
@@ -2342,11 +2389,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
     "prior_artifacts": [
       "stroke_parameters"
-    ]
+    ],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "8.4.3.2",
@@ -2477,11 +2527,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
     "prior_artifacts": [
       "graphics_stack_paths"
-    ]
+    ],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "8.5.2",
@@ -2709,9 +2762,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "8.6.4.1",
@@ -2719,9 +2775,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "8.6.4.2",
@@ -2768,9 +2827,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "8.6.5.1",
@@ -2910,9 +2972,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "8.6.6.2",
@@ -2920,9 +2985,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "8.6.6.3",
@@ -2969,9 +3037,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "8.6.7",
@@ -3684,9 +3755,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "8.11.1",
@@ -3694,9 +3768,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "8.11.2",
@@ -3704,9 +3781,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "8.11.2.1",
@@ -3753,9 +3833,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "8.11.3.1",
@@ -3808,9 +3891,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "8.11.4.1",
@@ -3818,11 +3904,14 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
     "prior_artifacts": [
       "optional_content_config_audit"
-    ]
+    ],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "8.11.4.2",
@@ -3969,9 +4058,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "9.3.1",
@@ -4106,9 +4198,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "9.4.1",
@@ -4189,9 +4284,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "9.6.1",
@@ -4199,9 +4297,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "9.6.2",
@@ -4209,9 +4310,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "9.6.2.1",
@@ -4295,9 +4399,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "9.6.5.1",
@@ -4424,9 +4531,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "9.7.4.1",
@@ -4474,9 +4584,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "9.7.5.1",
@@ -4537,9 +4650,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "9.7.6.1",
@@ -4588,9 +4704,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "9.8.1",
@@ -4689,9 +4808,12 @@
     "ledger_status": "implemented",
     "prior_review_state": "pending",
     "prior_ledger_status": "implemented",
-    "current_review_state": "pending",
-    "current_artifacts": [],
-    "prior_artifacts": []
+    "current_review_state": "partial-current-source-assertion-review",
+    "current_artifacts": [
+      "shards/text_colour_optional_framing_current/features.json"
+    ],
+    "prior_artifacts": [],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "9.9.1",

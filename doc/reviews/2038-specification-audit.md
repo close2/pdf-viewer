@@ -11,16 +11,16 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (47)
+## Current checkpoint (48)
 
-Partial reviews now cover **816 of 883 ledger rows**, with 67 pending. The current
-failure manifest contains **70 assertions**, grouped into behavior findings rather
-than 70 independent defects. All 72 failures from the prior audit pass at this baseline.
+Partial reviews now cover **856 of 883 ledger rows**, with 27 pending. The current
+failure manifest contains **71 assertions**, grouped into behavior findings rather
+than 71 independent defects. All 72 failures from the prior audit pass at this baseline.
 The latest broad run, wave38b, covered eleven crates: **7,158 tests ran, 7,096 passed,
 and exactly the 62 then-recorded in-scope assertions failed; 58 were skipped**.
 Exact identities matched the manifest; three GPU failures were recorded separately.
-Subsequent targeted runs add five expected failures and nine passing tests. The current
-manifest therefore has 67 failures in those eleven crates and three GPU failures.
+Subsequent targeted runs add six expected failures and ten passing tests. The current
+manifest therefore has 68 failures in those eleven crates and three GPU failures.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 
@@ -111,6 +111,11 @@ Checkpoint 47 reviews structure, interchange and linearization framing. It
 qualifies shared-parser verifier evidence and archive tagging guards, preserves
 confirmed child failures, and records stale interchange/prepress scope notes.
 No new execution or runtime failure is claimed by this checkpoint.
+
+Checkpoint48 confirms page-order reversal after a valid tree crosses the local
+depth limit; the adjacent-depth control passes and recovery is disclosed.
+File/security and text/colour framing reviews reconcile older draft statuses
+with current results. No duplicate MissingWidth finding is counted.
 
 These are partial feature reviews, not whole-clause certification. The paragraphs
 below preserve earlier checkpoint evidence. Weekly usage was 48% at the latest check;

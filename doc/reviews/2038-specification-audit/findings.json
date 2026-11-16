@@ -1848,5 +1848,21 @@
     "summary": "Interchange/prepress aggregate notes retain superseded support descriptions.",
     "evidence": "14.1 says only two parts implemented despite current metadata/structure/associated-file consumers.14.11 says boundary guidelines are declined while14.11.2.2 and ADR2440 implement them; actual style/default/pixel, viewer-state and host-key assertions exist.",
     "disposition": "Documentation qualification only. No new runtime failure, ledger-status edit or historical ADR rewrite."
+  },
+  {
+    "id": "2038-B48",
+    "kind": "page-order-after-depth-limit",
+    "clauses": [
+      "7.7.3.1",
+      "7.7.3.2"
+    ],
+    "summary": "Valid depth65 page tree falls back to object-number order, reversing its Kids-defined page sequence.",
+    "evidence": "Exactxref valid unary tree with2leaves. Depth64[4,3]blue/red controlPASS;depth65[3,4]found_by_scanningSome(2)FAIL. Pages public API and content consumer inspected.",
+    "qualification": "Recovery is disclosed; not silent data loss or an unbounded-work mandate. A truthful bounded refusal remains a possible product response. Existing note misstates this valid tree as leading to no page.",
+    "adrs": [
+      "0782",
+      "1533"
+    ],
+    "execution": "deep-page-tree-wave48b.log:1PASS1FAIL; final lint-only-adjusted rerun recorded in gates."
   }
 ]

@@ -1,0 +1,6 @@
+{
+  "source": "Parent read primary117/102 and118/103. Tree order is defined by Kids; no numeric depth specified. Actual PDF annotations confirm #89 at92, #196 at102\u2013104, #214 and#672 Table32 at124\u2013125; #214 also has global note10.",
+  "execution": "deep-page-tree-wave48b.log1PASS1FAIL. Depth64 IDs[4,3], blue/red content and no scan pass. Depth65 IDs[3,4], found_by_scanningSome(2), fails ordering. Initial48 shallow failure was the documented additional content-joining LF, not a product failure.",
+  "decisions": "ADR0782 explicitly distinguishes valid deep tree shapes from malformed cycles/missing children. ADR1533 is valuable disclosure for recovery but assumes unavailable tree order. Current note says tree leads to no page, inaccurate for bounded traversal of this valid tree. Retain resource limits; reconsider failure classification and successful order.",
+  "limits": "This is a model public consumer witness with content bytes, not a raster/host integration assertion or demand for unbounded traversal. Older draft/unrun labels in subordinate owner artifacts are superseded only by exact current manifest/gate records."
+}

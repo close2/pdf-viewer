@@ -420,6 +420,12 @@
       "test": "an_ocsp_response_produced_before_the_trusted_past_time_cannot_support_the_path",
       "finding": "2038-B47",
       "log": "historical-ocsp-wave46b.log"
+    },
+    {
+      "binary": "pdf-model::deep_page_tree_order_spec_audit",
+      "test": "valid_depth_65_tree_keeps_kids_order_and_corresponding_page_content",
+      "finding": "2038-B48",
+      "log": "deep-page-tree-wave48b.log"
     }
   ]
 }

@@ -6,8 +6,8 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "Latest broad38b eleven packages:7158run7096PASS62expectedFAIL58skip. Exact manifest identities match package scope;3GPU failures separately recorded. Wave39 then adds2PASS lexical tests; manifest65 unchanged. Wave40 adds one public accessibility-order failure; manifest 66. Broad38 predates this and the two lexical tests. Wave41 adds current-time CRL public report1PASS1FAIL; manifest67. Wave42 adds Type4 NUL1FAIL with4existingPASS; manifest68. Wave43 final4run3PASS1FAIL; manifest69. Broad38 predates waves39\u201343. Wave44 adds2PASS Type3 image controls; manifest69 unchanged. Wave46 adds public historical OCSP producedAt1PASS1FAIL; manifest70.",
-    "quality": "Checkpoint46 core,44 model,43 transform,42 colour all-targets Clippy PASS; earlier scopes remain recorded."
+    "later_targets": "Latest broad38b eleven packages:7158run7096PASS62expectedFAIL58skip. Exact manifest identities match package scope;3GPU failures separately recorded. Wave39 then adds2PASS lexical tests; manifest65 unchanged. Wave40 adds one public accessibility-order failure; manifest 66. Broad38 predates this and the two lexical tests. Wave41 adds current-time CRL public report1PASS1FAIL; manifest67. Wave42 adds Type4 NUL1FAIL with4existingPASS; manifest68. Wave43 final4run3PASS1FAIL; manifest69. Broad38 predates waves39\u201343. Wave44 adds2PASS Type3 image controls; manifest69 unchanged. Wave46 adds public historical OCSP producedAt1PASS1FAIL; manifest70. Wave48 adds depth-boundary1PASS1FAIL; manifest71.",
+    "quality": "Checkpoint48 model,46 core,43 transform,42 colour all-targets Clippy PASS; earlier scopes recorded."
   },
   "review": {
     "prior_failure_assertions": 72,
@@ -15,10 +15,13 @@
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
       "signature_framing_current",
-      "file_security_framing_current",
-      "text_colour_optional_framing_current"
+      "rendition_preconditions_current",
+      "script_action_execution_current",
+      "simple_font_encoding_residual_current"
     ],
     "recorded_shards": [
+      "file_security_framing_current",
+      "text_colour_optional_framing_current",
       "logical_structure_framing_current",
       "document_interchange_framing_current",
       "signature_ocsp_producedat_public",
@@ -139,8 +142,8 @@
       "font_substitution_current",
       "tagged_layout"
     ],
-    "partial_current_rows": 816,
-    "pending_current_rows": 67
+    "partial_current_rows": 856,
+    "pending_current_rows": 27
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",
@@ -153,7 +156,7 @@
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 48,
-    "last_read_utc": "2026-11-16T17:14:04.841207+00:00"
+    "last_weekly_used_percent": 49,
+    "last_read_utc": "2026-11-16T17:24:09.237607+00:00"
   }
 }

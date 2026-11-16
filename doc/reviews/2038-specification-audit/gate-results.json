@@ -1416,6 +1416,27 @@
       "log": "historical-ocsp-independent46.log",
       "exit": 0,
       "scope": "Parent actual ByteRange/CMS/path/token/OCSP/CRL verification with OpenSSL and qpdf syntax checks."
+    },
+    {
+      "log": "deep-page-tree-wave48b.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Valid page-tree depth boundary: source order preserved64,reversed65. Initial48 shallow failure corrected expected content separator LF."
+    },
+    {
+      "log": "quality-wave48c.log",
+      "exit": 0,
+      "scope": "pdf-model all-targets Clippy PASS; initial48/48b only new fixture lint issues, corrected."
+    },
+    {
+      "log": "deep-page-tree-wave48c.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Final lint-adjusted test pair retains expected depth64PASS/depth65FAIL."
     }
   ],
   "prior_expected_failures": {
