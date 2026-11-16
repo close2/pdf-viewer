@@ -144,6 +144,12 @@
       "test": "a_disjoint_page_boundary_clips_all_content_instead_of_defaulting_to_the_medium",
       "finding": "2038-B19",
       "log": "fdf-boundary-wave14b.log"
+    },
+    {
+      "binary": "pdf-model::degenerate_tiling_bbox_clip_spec_audit",
+      "test": "a_zero_height_pattern_bbox_clips_distant_cell_marks_but_scan_converts_its_boundary",
+      "finding": "2038-B20",
+      "log": "pattern-syntax-wave15.log"
     }
   ]
 }

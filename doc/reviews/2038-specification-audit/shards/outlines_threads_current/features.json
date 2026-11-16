@@ -1,0 +1,68 @@
+{
+  "scope": "Bounded review of ISO 32000-2:2020 §12.3.3 Document outline and §12.4.3 Articles, including linked tables, Table 31 /B, the current EC3 erratum relevant to article order, and implemented reader/UI consumers. This is not whole-clause certification.",
+  "features": [
+    {
+      "id": "outline-root-and-hierarchy",
+      "clause": "§12.3.3; Table 150; Table 151",
+      "source_location": "Effective PDF source: physical pp.459–461, visible footer pp.444–446; §12.3.3 and Table 150 begin on printed p.444, Table 151 spans printed pp.445–446. EC3 consolidated text: doc/md/ISO_32000-2_sponsored_EC3.md around the Document outline heading and Tables 150–151. Root Outlines is optional; its Type, if stated, is Outlines. First/Last and Count semantics depend on whether open entries exist. Item lists are linked with First/Last/Prev/Next; Title and Parent are required, as are adjacent Prev/Next links, and child-list links apply where descendants exist.",
+      "ledger": "doc/conformance/ledger.toml §12.3.3 (line near 3563), status implemented",
+      "implementation": ["crates/pdf-model/src/outline.rs::Outline::read", "crates/pdf-model/src/outline.rs::level", "crates/viewer-core/src/query.rs::Query::Outline", "crates/viewer-ui/src/chrome.rs"],
+      "assertions": ["crates/pdf-model/src/outline.rs internal linked-list/nesting tests", "crates/pdf-model/tests/outlines.rs corpus and specification-PDF tests", "crates/viewer-core/tests/headless.rs::an_outline_item_goes_to_the_page_its_destination_names", "crates/viewer-ui/tests/panel.rs outline row/close/reopen interaction tests"],
+      "assessment": "The reader follows First/Next and exposes nested order; public query and panel consumers use that result. Prev, Last, Parent and root/item Type are producer-side structural constraints or redundant consistency statements. Tolerant reading and cycle/depth/item guards are reader robustness policy, not proof that malformed producer structures conform."
+    },
+    {
+      "id": "outline-title-destination-and-action",
+      "clause": "§12.3.3; Table 151",
+      "source_location": "Printed pp.444–446 (physical pp.459–461). Title is required text string; Dest and A are mutually exclusive. Clicking visible item text activates its destination or action. The clause describes jump or action behavior, not a mandatory outline panel.",
+      "ledger": "doc/conformance/ledger.toml §12.3.3",
+      "implementation": ["crates/pdf-model/src/outline.rs::read_item", "crates/viewer-core/src/interact.rs", "crates/viewer-core/src/open.rs", "crates/viewer-ui/src/chrome.rs"],
+      "assertions": ["crates/viewer-core/tests/headless.rs::an_outline_item_goes_to_the_page_its_destination_names", "crates/viewer-core/tests/headless.rs::an_outline_item_whose_action_is_a_uri_hands_it_over", "crates/viewer-ui/tests/panel.rs outline activation tests"],
+      "assessment": "The public interaction path is exercised for a destination and a URI action; destination routing is compared against an independent page-tree walk. The panel itself is optional product UI, while activation behavior is stated for a visible item. Existing tests use real or hand-built valid PDFs, but the source-focused panel tests do not make every producer constraint a reader rejection rule."
+    },
+    {
+      "id": "outline-count-open-visibility",
+      "clause": "§12.3.3; Tables 150–151",
+      "source_location": "Printed pp.444–445 (physical pp.459–460). Root Count cannot be negative; item Count sign represents open/closed and positive Count represents the number of visible descendants under the specified recursive counting procedure. A leaf need not state Count.",
+      "ledger": "doc/conformance/ledger.toml §12.3.3",
+      "implementation": ["crates/pdf-model/src/outline.rs::Outline::visible_count", "crates/pdf-model/src/outline.rs::read_item", "crates/viewer-ui/src/chrome.rs"],
+      "assertions": ["crates/pdf-model/src/outline.rs nested open/closed/count tests", "crates/viewer-ui/tests/panel.rs::closing_a_subtree_does_not_renumber_the_items_below_it"],
+      "assessment": "Reader computes visibility and the UI tests preserve identity/order while closing and reopening a subtree. The item count algorithm has a direct test; a file's stated count is not used as a substitute for computing the visible tree. Counts written by producers remain their conformance obligation."
+    },
+    {
+      "id": "outline-style-colour",
+      "clause": "§12.3.3; Table 151; Table 152",
+      "source_location": "Printed pp.445–446 (physical pp.460–461). F bit 1 selects italic and bit 2 bold; C is DeviceRGB and defaults to black. Unknown bits have no specified style meaning.",
+      "ledger": "doc/conformance/ledger.toml §12.3.3",
+      "implementation": ["crates/pdf-model/src/outline.rs::read_item", "crates/viewer-ui/src/chrome.rs"],
+      "assertions": ["crates/pdf-model/src/outline.rs outline item decoding tests", "crates/viewer-ui/tests/panel.rs outline rendering tests"],
+      "assessment": "The model reads specified style flags and colour/default. Host drawing is presentation. No additional visual exactness claim is made here beyond model interpretation and the panel's existing output assertions."
+    },
+    {
+      "id": "article-thread-and-bead-ring",
+      "clause": "§12.4.3; Table 162; Table 163",
+      "source_location": "Effective PDF source: physical pp.475–476, visible footer pp.460–461. §12.4.3 and Table 162 are on printed p.460; Table 163 continues on printed p.461. Threads is optional. If present, each thread's required indirect F identifies its first bead; beads require indirect N and V links closing the ring. Each bead requires indirect P and R. Thread /I information is optional and follows §14.3.3 syntax. EC3 consolidated source: doc/md/ISO_32000-2_sponsored_EC3.md around §12.4.3 and Tables 162–163.",
+      "ledger": "doc/conformance/ledger.toml §12.4.3 (line near 3635), status implemented",
+      "implementation": ["crates/pdf-model/src/article.rs::Articles::read", "crates/pdf-model/src/article.rs::read_thread", "crates/pdf-model/src/article.rs::Bead", "crates/viewer-core/src/query.rs::Query::Articles"],
+      "assertions": ["crates/pdf-model/src/article.rs ring traversal, wrap, and malformed-cycle unit tests", "crates/pdf-model/tests/articles.rs::a_producers_own_article_threads_are_read", "crates/viewer-core/tests/articles.rs::the_threads_a_document_states_are_answered_with_their_titles"],
+      "assessment": "Parser starts at F and follows N, stopping at a repeated object; V is not independently traversed because it is the redundant reverse-link constraint. Reader tolerates missing or invalid required fields as absent options; this is not producer conformance validation. Real producer corpus and exact-xref unit fixtures independently supplement the model tests."
+    },
+    {
+      "id": "article-page-bead-array",
+      "clause": "§12.4.3; §7.7.3.3 Table 31 /B; EC3 Issue #320",
+      "source_location": "Table 31 is printed pp.104–107 (physical pp.119–122); the /B row is printed p.106 (physical p.121). It describes /B as Optional, recommended if the page contains beads, with an array of indirect refs and says the information can be recreated from Catalog /Threads. §12.4.3 /B sentence is printed p.460 (physical p.475): its paragraph says a page with beads shall contain /B. Published order phrases conflict (Table 31 'natural reading order'; §12.4.3 'drawing order'). EC3 Issue #320 strikes 'natural' and replaces 'drawing' with 'reading'; the project records that amendment in ADR 0746. Order is now aligned under the erratum evidence; the presence language remains inconsistent between the clause paragraph and Table 31.",
+      "ledger": "doc/conformance/ledger.toml §7.7.3.3 and §12.4.3; doc/adr/0746-the-order-two-clauses-could-not-agree-on.md",
+      "implementation": ["crates/pdf-model/src/article.rs::Articles::page_array_agrees", "crates/pdf-model/src/article.rs::Articles::beads_on_page"],
+      "assertions": ["crates/pdf-model/src/article.rs::a_pages_bead_array_agrees_with_the_threads", "crates/pdf-model/src/article.rs::a_bead_array_out_of_order_disagrees_where_one_thread_supplies_the_page"],
+      "assessment": "The array consistency function is only used by its own model tests; it is not a user-visible validation or rendering route. With one thread on a page it checks sequence using the #320 reading-order amendment. With multiple threads on the same page it checks membership as a documented implementation choice because no order among threads is stated. Missing /B returns None and is not surfaced as an error. This matches Table 31's explicit optional/recommended entry and avoids overstating the remaining source conflict as a reader behavior defect."
+    },
+    {
+      "id": "article-navigation",
+      "clause": "§12.4.3; §12.6.4.7 interaction; ADR 0200",
+      "source_location": "§12.4.3 printed p.460 (physical p.475): processors may provide navigation facilities to follow a thread. This is permission, not a mandatory UI surface. Table 163 R is the bead's page rectangle. §12.6.4.7 supplies a thread action route.",
+      "ledger": "doc/conformance/ledger.toml §12.4.3; ADR 0200",
+      "implementation": ["crates/viewer-core/src/interact.rs thread activation", "crates/viewer-core/src/open.rs ThreadJump handling", "crates/viewer-ui/src/chrome.rs Articles/Read tab", "crates/viewer-host/src/panel.rs"],
+      "assertions": ["crates/viewer-core/tests/articles.rs::activating_a_thread_goes_to_its_first_bead", "crates/viewer-core/tests/headless.rs::a_thread_action_shows_the_bead_and_not_merely_its_page", "crates/viewer-ui/tests/panel.rs::the_read_tab_lists_a_thread_and_a_click_follows_it"],
+      "assessment": "The optional feature is implemented: list selection composes the standard thread action and applies R via FitR; tests check both page and independently reasoned zoom geometry. UI choice and exact tab label are product decisions, not duties imposed by the clause. Next-bead traversal is modeled by Articles::next but no current host exposes a next-bead control; the clause permits navigation and does not require that particular control."
+    }
+  ]
+}

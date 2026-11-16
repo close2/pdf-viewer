@@ -484,6 +484,68 @@
       "log": "wave14b-host-quality.log",
       "exit": 0,
       "scope": "viewer-host all-targets Clippy -Dwarnings"
+    },
+    {
+      "log": "cid-wave15.log",
+      "run": 13,
+      "passed": 13,
+      "failed": 0,
+      "exit": 0,
+      "scope": "CID map new test plus selected OpenType/composite/Type3 controls"
+    },
+    {
+      "log": "pattern-syntax-wave15.log",
+      "run": 5,
+      "passed": 4,
+      "failed": 1,
+      "exit": 100,
+      "expected_failures": 1,
+      "unexpected_failures": 0,
+      "scope": "New complete parser-bound controls and degenerate tiling BBox regression"
+    },
+    {
+      "log": "wave15-quality.log",
+      "exit": 101,
+      "scope": "New test doc-markdown and unfulfilled lint expectations; corrected"
+    },
+    {
+      "log": "wave15b-quality.log",
+      "exit": 0,
+      "scope": "pdf-syntax/pdf-model all-targets Clippy -Dwarnings before nested MCAF addition"
+    },
+    {
+      "log": "mcaf-wave15.log",
+      "run": 3,
+      "passed": 2,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Draft Type3 extraction premise wrong; not a product failure"
+    },
+    {
+      "log": "mcaf-wave15b.log",
+      "run": 3,
+      "passed": 3,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Corrected Type3 MCAF empty-range expectation; Form and pattern controls"
+    },
+    {
+      "log": "mcaf-wave15c.log",
+      "run": 3,
+      "passed": 3,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Final nested associations plus decoded payload byte controls"
+    },
+    {
+      "log": "wave15c-quality.log",
+      "exit": 101,
+      "scope": "New helper assertion lints and needless value parameter; corrected"
+    },
+    {
+      "log": "wave15d-quality.log",
+      "exit": 0,
+      "scope": "Current pdf-syntax/pdf-model all-targets Clippy -Dwarnings"
     }
   ],
   "prior_expected_failures": {

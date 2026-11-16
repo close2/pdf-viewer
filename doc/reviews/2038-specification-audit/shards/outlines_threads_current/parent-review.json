@@ -1,0 +1,7 @@
+{
+  "source": "Parent checked Table31 /B physical121/printed106 and §12.4.3 physical475/printed460, plus #320 amendment evidence. Defining pages replace mistaken cross-reference/page-offset locations.",
+  "decision_correction": "ADR0746 and article.rs already describe #320 resolving reading/drawing order; their account of prior conflict is historical. Initial stale-rationale concern rejected; no finding filed.",
+  "assertions": "Read public headless thread activation: initial page-fit2 versus beadFitR5 with page-change check; outline activation checks destinations across nonzero pages. Outline expected target derives from model destination while separate source/model hierarchy controls cover parsing; public activation alone does not independently certify parser correctness.",
+  "execution": "Existing tests have earlier baseline/broad results. No new execution claimed in this shard.",
+  "limits": "Optional reader navigation UI is policy, not obligation. /B helper only own tests; missing-B producer wording conflict is not a mandatory reader diagnostic failure."
+}

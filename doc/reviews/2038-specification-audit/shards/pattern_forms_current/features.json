@@ -1,0 +1,98 @@
+{
+  "baseline": "b901326c",
+  "effective_source": "ISO 32000-2:2020 plus Errata Collection 3, checked in doc/ISO_32000-2_sponsored_EC3.pdf and searchable doc/md/ISO_32000-2_sponsored_EC3.md. Source-layout pages were matched by ISO footer: §8.7.2/8.7.3.1 physical p. 235 (printed 220), Table 74 and main §8.7.3.1 algorithm physical pp. 236-237 (printed 221-222), §8.7.3.2/.3 physical pp. 238-241 (printed 223-226); §8.10.1 physical p. 286 (printed 271), Table 93 §8.10.2 physical pp. 287-288 (printed 272-273). §10.7.4 physical p. 399 (printed 384).",
+  "overall": "Most reviewed valid-input behavior is supported by discriminating tests. One likely conformance defect remains: a zero-height or zero-width tiling-pattern BBox is discarded instead of retained as a degenerate clipping region. Table 74 NOTE 1 and §10.7.4 say such a boundary survives scan conversion as a one-device-pixel line; they do not suspend Table 74's requirement to clip the cell. Draft regression is unexecuted. This bounded pass does not certify every requirement in §§8.7 or 8.10.",
+  "features": [
+    {
+      "clause": "8.7.2",
+      "feature": "Pattern coordinate-space anchor for page, form and nested cell contexts",
+      "source": "Physical p. 235: pattern matrix maps pattern space to the default coordinate system of its parent content stream; page-space patterns remain related to initial page space despite in-stream CTM changes; form patterns map to form default space at Do; a nested pattern maps to the outer pattern's space. The PostScript cross-context resource example is expressly unsupported in PDF.",
+      "implementation": "crates/pdf-model/src/content/pattern/tiling.rs:188-190 composes pattern Matrix with Interpreter.base; crates/pdf-model/src/content/pattern/cell.rs:145-170 temporarily sets base to the cell transform for nested patterns; form interpreter context sets/restores base at form entry.",
+      "assertions": [
+        "crates/pdf-model/tests/tiling_patterns_audit.rs::page_ctm_changes_do_not_reanchor_a_pattern_selected_before_or_after_them compares full rendered data for selection/fill before and inside a non-step-multiple translation CTM, with path compensation and pixel controls",
+        "crates/pdf-model/tests/tiling.rs::a_pattern_inside_a_form_is_anchored_to_the_forms_space samples positions where form-space and page-space origins disagree",
+        "crates/pdf-model/tests/tiling.rs::a_shading_pattern_inside_a_cell_is_anchored_to_the_cell asserts nested matrix context; this tests a Type 2 inner pattern, not a nested Type 1 tiling pattern",
+        "crates/pdf-model/tests/shadings.rs::a_pattern_in_an_annotation_appearance_is_placed_in_the_appearances_own_space and soft_masks.rs::a_pattern_in_a_mask_group_maps_through_the_groups_own_default_space cover two more parent contexts"
+      ],
+      "assessment": "The main page/form/default-space distinction is tested with different painted pixels and code composes against a parent base. There is no direct test of a Type 1 tiling pattern nested within a Type 1 cell; the source's nested-pattern sentence and cell implementation's temporary base point to a narrow test opportunity, not an observed defect. The appendix-style cross-context pattern placement is explicitly not a PDF feature."
+    },
+    {
+      "clause": "8.7.3.1; Table 74; §10.7.4",
+      "feature": "BBox clips one cell, independently of cell step and painted-area clip",
+      "source": "Physical pp. 236-237: Table 74 requires BBox; its boundaries shall clip the cell; XStep/YStep may differ from BBox dimensions; NOTE 1 says a zero-height or zero-width BBox still paints one pixel. §10.7.4 physical p. 399 defines clipping in the scan-converted pixel set, includes pixels crossed by a filling boundary, and gives zero-width/height rectangles as a one-pixel line. No relevant Table 74 erratum was located in doc/errata-read.md; EC3 Table 74 text preserves the rule.",
+      "implementation": "crates/pdf-model/src/content/pattern/tiling.rs:149-159 normalizes BBox only if both extents are nonzero; a zero extent becomes None. crates/pdf-model/src/content/pattern/cell.rs:107-114 then applies no BBox clip when None. The code comment explicitly interprets the note as leaving the cell unclipped.",
+      "assertions": [
+        "crates/pdf-model/tests/tiling.rs::a_cell_is_clipped_to_its_bounding_box distinguishes cell content in the box and in the gap outside it for a nondegenerate box",
+        "No zero-height/zero-width tiling BBox regression was found in the reviewed tiling test modules"
+      ],
+      "assessment": "Likely defect. The main BBox clipping sentence remains applicable when the geometry is degenerate. §10.7.4's general scan-conversion rule and example describe a one-pixel boundary, and its clipping paragraph says the clip is the pixel set that a fill would include. Treating the note as permission to paint all marks beyond the box conflicts with both. The draft asserts a far-away pixel remains blank and separately asserts some pixel near the degenerate boundary survives; it intentionally does not prescribe exact boundary-pixel ownership. This finding concerns the supplied degenerate pattern clip only, not an empty intersection of an ordinary clip with a page box."
+    },
+    {
+      "clause": "8.7.3.1; Table 74",
+      "feature": "Tiling types and lattice placement under an available device grid",
+      "source": "Physical p. 236: type 1 and 3 use consistent spacing in device-pixel multiples; type 1 distortion may adjust cell, steps and matrix and is bounded to 1 device pixel; type 2 prohibits cell distortion and permits up to 1 device pixel variation in spacing; type 3 allows additional distortion for efficiency. X/Y steps may be signed but not zero. Physical p. 237 gives origin/key-cell phase and parent-initial graphics-state steps.",
+      "implementation": "crates/pdf-model/src/content/pattern/lattice.rs::lattice selects a snapped transform only for types 1/3 and a stated magnification; crates/pdf-render/src/lattice.rs::snap_lattice rounds device-space step vectors and bounds worst cell-corner movement with distortion_of, retaining file geometry when the bound is exceeded. Span/displacement use cell BBox offsets and signed steps by magnitude/equivalent bidirectional lattice.",
+      "assertions": [
+        "tiling.rs tests `a_constant_spacing_lattice_steps_by_a_whole_number_of_device_pixels`, `a_no_distortion_lattice_steps_by_exactly_what_the_file_states`, `the_placed_step_is_never_more_than_a_device_pixel_from_the_stated_one`, `constant_spacing_makes_the_tiled_pixels_repeat_and_no_distortion_does_not`, and `faster_tiling_is_given_constant_spacings_lattice` distinguish types 1, 2, 3 and use a pixel period as a negative control",
+        "pdf-render/src/lattice.rs unit tests exercise rotated transforms, rejected collapsed lattices and bounds"
+      ],
+      "assessment": "Reviewed tests and implementation support the current TilingType policy. Type 2's exact spacing is a permitted instance of a MAY-vary allowance. Type 3 need not use its extra permitted distortion. The tests' step-bound assertion alone does not measure cell distortion, but snap_lattice independently computes the moved far corners against the Table 74 bound. Full arbitrary-affine/device-pixel-grid behavior was not exhaustively tested here."
+    },
+    {
+      "clause": "8.7.3.1-8.7.3.3; §8.6.6 Pattern colour-space interaction",
+      "feature": "Colored versus uncolored cell state and color-operator behavior",
+      "source": "Physical pp. 236, 238-241: colored cells specify their own colors, starting from parent stream's initial colors; uncolored cells carry no inherent color and receive components in a specified underlying Pattern base space; an uncolored cell can paint an image mask but no other image. Table 74 allows positive/negative nonzero step. §8.6.8 has the relevant rule that color/color-related operators inside uncolored pattern content are ignored. Table 73 (physical pp. 232-233) defines CS/cs and SCN/scn.",
+      "implementation": "tiling.rs selects PaintType, retains the selected underlying tint source and cell resources; cell.rs installs beginning-of-parent graphics state and, for an uncolored pattern, the supplied tint then marks the nested run as uncolored so color operators are ignored.",
+      "assertions": [
+        "tiling.rs::an_uncoloured_pattern_takes_its_colour_from_the_operator has a blank cell and blue scn expectation",
+        "tiling.rs::an_uncoloured_patterns_colour_is_read_in_its_underlying_space uses a Separation base whose tint is red while the one-component DeviceGray arity fallback would be white",
+        "tiling.rs::an_uncoloured_cell_that_sets_a_colour_is_ignored paints green inside the cell but expects the caller-supplied blue",
+        "tiling.rs::a_coloured_cell_starts_from_the_streams_initial_colours_rather_than_the_fills sets red after page start and expects inherited initial black",
+        "Pattern selection as a color is covered for fills, strokes and glyph fills in tests/tiling.rs; image-mask and page-resource interactions are covered in image_masks.rs and tiling_patterns_audit.rs"
+      ],
+      "assessment": "Strong direct consumer assertions distinguish fallback from specified underlying colour and cell state from invocation state. The reviewed fixtures use valid Type 1 paint types and resources. The complete §8.6.8 operator list and all prohibited image forms were not recounted in this shard."
+    },
+    {
+      "clause": "8.10.1",
+      "feature": "Form invocation: save/restore, matrix, BBox clip and inherited invocation graphics state",
+      "source": "Physical p. 286: Do steps a-e save, concatenate form Matrix to CTM, clip to BBox, paint, restore; remaining initial state is inherited from the state at Do. Form-space coordinates plus Matrix map to device; the note distinguishes this from pattern Matrix semantics.",
+      "implementation": "crates/pdf-model/src/content/xobject.rs form route sets form transform and BBox clip, runs form with caller state/resources per the applicable resource policy and restores caller interpreter state after nested run.",
+      "assertions": [
+        "crates/pdf-model/tests/form_xobjects_audit.rs::a_form_restores_the_callers_graphics_state_after_painting samples blue form ink and red caller ink",
+        "::a_forms_matrix_maps_form_space_before_its_content_is_painted uses translated and old-location controls",
+        "::repeated_form_paints_repeat_the_form_marks_at_each_invocation checks a caller CTM translation across two Do sites",
+        "::form_matrix_is_concatenated_before_the_callers_scaled_ctm distinguishes matrix concatenation order with x=50 versus x=30 pixel samples",
+        "::a_form_inherits_the_colour_present_at_each_invocation asserts two invocation colors",
+        "transparency_groups.rs::a_forms_bounding_box_clips_what_it_draws checks BBox clipping with an overdrawn form body"
+      ],
+      "assessment": "The central valid Form invocation requirements have concrete painted controls. Rotation/shear form Matrix cases and an assertion that the form fixture was not recovered were not included in the newly named audit file; fixture construction calculates offsets, and other form tests cover broader consumers. Transparency-group behavior itself is excluded from this shard."
+    },
+    {
+      "clause": "8.10.2; Table 93; EC3 #292",
+      "feature": "Form dictionary entries relevant to ordinary appearance",
+      "source": "Physical pp. 287-288: subtype Form required; FormType defaults 1; BBox required and clips; Matrix optional identity; Resources row is changed by Errata Collection 3 issue #292, completed: sometimes required/independence required from PDF 2.0 (checked in doc/errata-read.md:102). Other Table 93 entries concern group/reference/metadata/structure/OPI/OC and are not certified here; OC is excluded by this shard's scope.",
+      "implementation": "xobject.rs reads BBox/Matrix/Resources on form invocation. Resource inheritance was intentionally not re-audited because current ADR 1059 and missing_resources coverage own that policy; public Table 93 fields have consumers in associated files, structure, references and optional-content modules.",
+      "assertions": [
+        "form_xobjects_audit.rs matrix and clipping consumers listed under §8.10.1",
+        "missing_resources.rs::a_form_nested_in_a_form_inherits_the_pages_resources_and_not_its_invokers is existing resource-scope coverage, not evidence for all Table 93 dictionary fields",
+        "reference_xobjects.rs tests cover /Ref handoff, beyond ordinary form invocation semantics"
+      ],
+      "assessment": "EC3 #292 alters the resource row and its version-sensitive producer/resource-independence text; it does not amend BBox/Matrix semantics. Those are read and visibly asserted. This shard intentionally does not claim complete coverage of Table 93 or repeat the resource fallback/optional-content/transparency audits."
+    }
+  ],
+  "drafts": [
+    {
+      "file": "drafts/degenerate_tiling_bbox_clip.rs",
+      "basis": "Table 74 BBox boundaries shall clip the cell; Table 74 NOTE 1 plus §10.7.4 require degenerate boundary scan conversion to preserve a pixel. Test uses valid exact-xref PDFs, the same red cell in ordinary and degenerate box cases, a positive painted control, a far-from-boundary negative sample and a near-boundary nonzero scan without fixing exact pixel ownership.",
+      "execution": "Draft only; not compiled or run (per parent instruction)."
+    }
+  ],
+  "not_claimed": [
+    "Whole §8.7 or §8.10 conformance",
+    "Every cell operator/image type or full §8.6.8 list",
+    "Transparency groups, soft masks and optional-content decisions",
+    "Complete Table 93 coverage, including metadata, structure, associated files, OC, OPI and Ref",
+    "Malformed-pattern recovery requirements or renderer-specific exact antialiasing",
+    "Runtime execution of this shard's test draft"
+  ]
+}

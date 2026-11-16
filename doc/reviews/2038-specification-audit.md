@@ -146,6 +146,15 @@ The manifest has 24 expected failures; partial evidence reaches 260 rows, with 6
 still pending. Current touched-crate Clippy passes. Source-locator and draft-premise
 corrections are explicit in the shard parent reviews and execution log index.
 
+The latest checkpoint confirms that a degenerate tiling BBox loses its clip,
+challenging ADR0056 with a distant-pixel failure and valid ordinary/boundary controls.
+The manifest now contains 25 expected failing assertions. Deterministic CID mapping,
+closed parser-limit boundaries and three nested associated-file controls pass.
+A misleading hex-string source attribution is recorded separately. Full reading of
+ADR0746 rejects a preliminary stale-rationale concern; its erratum handling is current.
+Partial evidence reaches 303 ledger rows, with 580 pending. Current syntax/model
+Clippy passes; initial draft errors and their corrections remain in the execution log.
+
 ## Budget and continuation
 
 The account's weekly allowance meter read 29% used at the start. The owner asks

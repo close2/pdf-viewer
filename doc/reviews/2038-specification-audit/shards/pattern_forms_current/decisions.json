@@ -1,0 +1,50 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "adr": "0056",
+      "topic": "Degenerate Type 1 pattern BBox is treated as no clip",
+      "source_check": "Physical p. 236 Table 74 says the BBox boundaries shall clip the cell and NOTE 1 says zero height/width still paints one pixel. Physical p. 399 §10.7.4 defines a scan-converted filled shape by crossed pixel squares, explicitly says a zero-width/height rectangle paints a one-pixel line, and says a clipping region consists of the pixels a fill would include. No EC3 Table 74 change was found.",
+      "code_check": "content/pattern/tiling.rs discards BBox if either extent is zero; content/pattern/cell.rs then gives the cell only its outer clip. The in-code reading and ADR 0056 section 'Two edges are decided' interpret the note as leaving the whole cell unclipped.",
+      "test_check": "The existing `a_cell_is_clipped_to_its_bounding_box` test is discriminating for positive extents but no degenerate-box paint test was found. Draft `drafts/degenerate_tiling_bbox_clip.rs` leaves the degenerate line's exact pixel ownership open, asserts a pixel near the line, and asserts distant cell ink is clipped, with the same cell under an ordinary BBox as a positive control.",
+      "status": "Reconsider; likely source/code mismatch, draft unexecuted.",
+      "limit": "This concerns degenerate BBox only. It does not decide empty intersection of a valid BBox with a separate clipping region. The source's scan-conversion rule is device-dependent at exact boundaries, so the draft avoids claiming the precise boundary row."
+    },
+    {
+      "adr": "0057",
+      "topic": "Pattern inside Form maps to the Form's default space",
+      "source_check": "Physical p. 235 §8.7.2 explicitly maps a pattern in a form to form default user space at Do. Physical p. 286 §8.10.1 says concatenate the form Matrix before painting. EC3 text retains this rule.",
+      "code_check": "Pattern Matrix is composed with Interpreter.base, and form entry changes base to its mapped coordinate space during the form run.",
+      "test_check": "`tiling.rs::a_pattern_inside_a_form_is_anchored_to_the_forms_space` uses a 10-unit form shift and samples points where page-space anchoring would disagree; the page-CTM independence test is also pixel-differential.",
+      "status": "Retain for the inspected semantics.",
+      "limit": "Does not certify other aspects of form dictionaries or the unsupported PostScript cross-context case."
+    },
+    {
+      "adr": "1320",
+      "topic": "Cell begins from its parent stream's initial graphics state",
+      "source_check": "Physical pp. 236-237 §8.7.3.1 step b installs the graphics state from the beginning of the pattern's parent stream; Table 74's PaintType 1 entry separately specifies initial colors from the parent. §11.6.7 resets blend, soft mask and alpha constants for pattern definitions.",
+      "code_check": "PatternInitial snapshots stream-start graphics state; cell_state installs it and applies the named §11.6.7 resets. Pattern parent-space base is also scoped while a cell is interpreted.",
+      "test_check": "`tiling.rs::a_coloured_cell_starts_from_the_streams_initial_colours_rather_than_the_fills` distinguishes initial black from fill-time red, and `transparency.rs::a_pattern_in_a_form_starts_from_the_forms_state_at_its_do` covers a Form parent.",
+      "status": "Retain for inspected color/state premise.",
+      "limit": "The broad ADR includes transparency behavior excluded here and is not certified wholesale; no Type 1-in-Type 1 nested tiling assertion was found."
+    },
+    {
+      "adr": "1080",
+      "topic": "TilingType 1/3 snap a lattice where device scale is stated",
+      "source_check": "Physical p. 236 Table 74 permits cell, X/Y step and matrix adjustment for types 1/3 with its type-1 one-device-pixel bound; type 2 forbids cell distortion and allows spacing variation.",
+      "code_check": "snap_lattice rounds step vectors and measures the transformed BBox corner displacement before accepting the transform; otherwise it preserves the file matrix. Type 2 uses exact stated spacing.",
+      "test_check": "The tiling tests assert grid-aligned type-1 offsets, exact type-2 offsets, device-space bounds over a magnification sweep, and pixel-period distinction with type 2 as a negative control.",
+      "status": "Retain for reviewed basic lattice behavior.",
+      "limit": "The source says `may` adjust; this review does not require a processor to snap each file or certify all transforms, dimensions, and scale edge cases."
+    },
+    {
+      "adr": "2820",
+      "topic": "A missing pattern Resources entry is read against an empty dictionary",
+      "source_check": "No change to the resource-resolution conclusion in this pass. Table 74 requires Resources; §7.8.3/Errata and ADR 1059 own the reader policy reviewed elsewhere.",
+      "code_check": "Current tiling interpreter reads the pattern's own resources dictionary and does not repeat the invoker lookup here.",
+      "test_check": "Existing missing_resources and archive-specific pattern resource tests are outside this bounded behavior re-audit.",
+      "status": "No reconsideration; prior artifact/policy relied upon but not revalidated in this shard.",
+      "limit": "This is explicitly not a new certification of pattern resource resolution."
+    }
+  ]
+}

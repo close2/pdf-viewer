@@ -547,5 +547,67 @@
     "change": "Literal distinct dictionary/packet titles survive Query::Properties→property_rows with separate labels; no-packet control does not synthesize XMP.",
     "execution": "PASS in metadata-wave14.log.",
     "remaining": "Product presentation policy only. §14.3.4 gives discretion for inconsistent dates and does not require general title reconciliation."
+  },
+  {
+    "id": "2038-B20",
+    "kind": "behavior-and-adr-mismatch",
+    "clauses": [
+      "8.7.3.1",
+      "10.7.4"
+    ],
+    "summary": "A zero-height tiling BBox is dropped, leaving the cell unclipped and painting distant pixels.",
+    "source": "Table74 physical236/printed221; scan-conversion/clipping §10.7.4 physical399/printed384. Zero-width/height boundary remains a scan-converted clip.",
+    "decision": "ADR0056 treats the one-pixel note as grounds to omit clipping; this does not follow from the defining clipping rule.",
+    "test": "pdf-model::degenerate_tiling_bbox_clip_spec_audit::a_zero_height_pattern_bbox_clips_distant_cell_marks_but_scan_converts_its_boundary",
+    "execution": "FAIL: distant pixel opaque red vs transparent; ordinary-box and near-boundary controls pass. pattern-syntax-wave15.log",
+    "limits": "Zero-height case directly tested; zero-width code branch shares cause but no separate executed test. Does not fix exact device boundary ownership."
+  },
+  {
+    "id": "2038-T17",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "9.7.4.1",
+      "9.7.6.3"
+    ],
+    "summary": "Added deterministic outline-bearing CIDToGIDMap byte-order and short-map fallback through public interpretation.",
+    "execution": "PASS cid-wave15.log",
+    "oracle": "Fixed checked-in font GIDs36/37 and exact metric-derived widths; missing CID6 falls back to mapped CID0, not GID0.",
+    "limits": "Other notdef and invalid-code partial-match fallback stages remain pending."
+  },
+  {
+    "id": "2038-T18",
+    "kind": "weak-test-oracle",
+    "clauses": [
+      "7.3.4.2",
+      "7.3.4.3",
+      "7.3.6",
+      "7.3.7"
+    ],
+    "summary": "Existing adversarial parser tests assert any error on unclosed objects, so truncation can conceal disabled limit checks.",
+    "change": "Four complete valid at-bound/one-over controls assert exact objects and named LimitExceeded for array/dictionary/depth/decoded string bytes.",
+    "execution": "4PASS pattern-syntax-wave15.log",
+    "limits": "Reader resource policy; no claim that the lexer avoids allocating before parser string length check."
+  },
+  {
+    "id": "2038-D08",
+    "kind": "incorrect-source-attribution",
+    "clauses": [
+      "7.3.4.3"
+    ],
+    "summary": "lexer::read_hex_string says ignoring all non-hex bytes is required by the specification; the clause requires ignoring whitespace only.",
+    "source": "§7.3.4.3 and EC3#731: comments are prohibited within hex strings.",
+    "code": "crates/pdf-syntax/src/lexer.rs:643",
+    "limits": "Existing stray-byte recovery/provenance is not identified as a valid-file behavior failure. No producer-error rejection duty inferred."
+  },
+  {
+    "id": "2038-T19",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "14.13.5"
+    ],
+    "summary": "Added direct public association controls inside Form, Type3 glyph and tiling-pattern content.",
+    "change": "Literal names/relationships/descriptions/decoded payloads, ordinary Span decoy exclusion, exact-xref/complete-interpretation guards, distinct ordinary y/nested x controls and pattern red CPU pixel.",
+    "execution": "3PASS mcaf-wave15c.log",
+    "limits": "Type3 glyph-construction text is not page text: initial draft expectation corrected. Its association has empty text range. No UI enumeration or annotation-appearance/metadata carrier claim."
   }
 ]

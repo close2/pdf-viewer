@@ -6,19 +6,19 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "24 expected failing assertions. Eight-crate wave13 (before wave14 additions): 6381 run, 6358 passed, exact23expected failures,55skips. Wave14 adds B19 with all four partial-overlap positives passing; Type3/popup/FDF/inheritedCrop/metadata controls pass. Draft-only errors corrected separately.",
-    "quality": "Current pdf-model/viewer-core/viewer-host all-targets Clippy with warnings denied passes; workspace formatting checked. Earlier broad/docs/conformance gates retain their precise scopes."
+    "later_targets": "25 expected failing assertions. Wave13 broad6381/6358pass/23expectedfail55skip predates later additions. Wave14 adds B19. Wave15 adds B20 degenerate tiling clip; CID13 selected, parser4 and nestedMCAF3 controls pass. Draft-only premise errors recorded separately.",
+    "quality": "Current pdf-syntax/pdf-model all-targets Clippy passes, as do prior touched viewer checks; broader/docs/conformance gates retain recorded scope."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [
-      "cid_opentype_current"
+      "syntax_streams_filters_current"
     ],
     "active_shards": [
-      "pattern_forms_current",
-      "outlines_threads_current",
-      "file_specs_current"
+      "text_state_current",
+      "trees_strings_current",
+      "thumbnails_transitions_current"
     ],
     "recorded_shards": [
       "logical_structure",
@@ -52,10 +52,15 @@
       "annotation_types_current",
       "fdf_current",
       "page_boundaries_current",
-      "metadata_current"
+      "metadata_current",
+      "basic_syntax_current",
+      "cid_opentype_current",
+      "pattern_forms_current",
+      "outlines_threads_current",
+      "file_specs_current"
     ],
-    "partial_current_rows": 260,
-    "pending_current_rows": 623
+    "partial_current_rows": 303,
+    "pending_current_rows": 580
   },
   "remaining": [
     "Review current fixes beyond the prior failures, including residual paths and selected successor ADRs.",
@@ -68,7 +73,7 @@
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 35,
-    "last_read_utc": "2026-11-16T11:50:03Z"
+    "last_weekly_used_percent": 36,
+    "last_read_utc": "2026-11-16T12:04:27Z"
   }
 }
