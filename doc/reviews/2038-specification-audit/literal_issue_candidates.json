@@ -1,0 +1,1972 @@
+{
+  "source": "doc/ISO_32000-2_sponsored_EC3.pdf",
+  "source_sha256": "c7d4ec236794558d48205394d499a9791575b5f5794e39377382e633846a6f80",
+  "method": "Issue IDs in annotation Subj; exact literal #ID absent from selected current shard prose filenames. This can miss semantic ownership, numeric JSON issue fields, alternative citation styles and prior-round evidence. It is not a count of unimplemented or unreviewed features.",
+  "selected_prose_files": 534,
+  "selected_prose_sha256": "c073b16330b55c93e498578eb6716febcd93297927b7c76f5a9335765ef258f8",
+  "unique_issue_ids": 360,
+  "candidate_count": 110,
+  "candidates": [
+    {
+      "issue": 4,
+      "physical_pages": [
+        563,
+        585,
+        593
+      ],
+      "annotation_objects": [
+        [
+          5960,
+          0
+        ],
+        [
+          5984,
+          0
+        ],
+        [
+          13834,
+          0
+        ],
+        [
+          13836,
+          0
+        ],
+        [
+          13842,
+          0
+        ],
+        [
+          13844,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 13,
+      "physical_pages": [
+        274,
+        275
+      ],
+      "annotation_objects": [
+        [
+          3610,
+          0
+        ],
+        [
+          3614,
+          0
+        ],
+        [
+          3649,
+          0
+        ],
+        [
+          3653,
+          0
+        ],
+        [
+          3657,
+          0
+        ],
+        [
+          3661,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 14,
+      "physical_pages": [
+        274,
+        453,
+        454,
+        855
+      ],
+      "annotation_objects": [
+        [
+          3602,
+          0
+        ],
+        [
+          3604,
+          0
+        ],
+        [
+          4696,
+          0
+        ],
+        [
+          4698,
+          0
+        ],
+        [
+          4704,
+          0
+        ],
+        [
+          4706,
+          0
+        ],
+        [
+          8135,
+          0
+        ],
+        [
+          8137,
+          0
+        ],
+        [
+          12861,
+          0
+        ],
+        [
+          12863,
+          0
+        ],
+        [
+          12869,
+          0
+        ],
+        [
+          12871,
+          0
+        ],
+        [
+          12877,
+          0
+        ],
+        [
+          12879,
+          0
+        ],
+        [
+          12885,
+          0
+        ],
+        [
+          12887,
+          0
+        ],
+        [
+          12893,
+          0
+        ],
+        [
+          12895,
+          0
+        ],
+        [
+          12901,
+          0
+        ],
+        [
+          12903,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 17,
+      "physical_pages": [
+        498
+      ],
+      "annotation_objects": [
+        [
+          5154,
+          0
+        ],
+        [
+          5158,
+          0
+        ],
+        [
+          5160,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 18,
+      "physical_pages": [
+        664
+      ],
+      "annotation_objects": [
+        [
+          6415,
+          0
+        ],
+        [
+          6419,
+          0
+        ],
+        [
+          6421,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 37,
+      "physical_pages": [
+        156
+      ],
+      "annotation_objects": [
+        [
+          10748,
+          0
+        ],
+        [
+          10752,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 38,
+      "physical_pages": [
+        678
+      ],
+      "annotation_objects": [
+        [
+          14713,
+          0
+        ],
+        [
+          14717,
+          0
+        ],
+        [
+          14721,
+          0
+        ],
+        [
+          14723,
+          0
+        ],
+        [
+          14729,
+          0
+        ],
+        [
+          14731,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 39,
+      "physical_pages": [
+        677
+      ],
+      "annotation_objects": [
+        [
+          14706,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 44,
+      "physical_pages": [
+        335,
+        336
+      ],
+      "annotation_objects": [
+        [
+          12143,
+          0
+        ],
+        [
+          12145,
+          0
+        ],
+        [
+          12158,
+          0
+        ],
+        [
+          12160,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 45,
+      "physical_pages": [
+        782
+      ],
+      "annotation_objects": [
+        [
+          15435,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 50,
+      "physical_pages": [
+        684
+      ],
+      "annotation_objects": [
+        [
+          14753,
+          0
+        ],
+        [
+          14755,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 53,
+      "physical_pages": [
+        96,
+        97
+      ],
+      "annotation_objects": [
+        [
+          2037,
+          0
+        ],
+        [
+          2041,
+          0
+        ],
+        [
+          2045,
+          0
+        ],
+        [
+          2063,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 57,
+      "physical_pages": [
+        17
+      ],
+      "annotation_objects": [
+        [
+          1211,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 62,
+      "physical_pages": [
+        940
+      ],
+      "annotation_objects": [
+        [
+          8605,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 65,
+      "physical_pages": [
+        810
+      ],
+      "annotation_objects": [
+        [
+          7840,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 69,
+      "physical_pages": [
+        734
+      ],
+      "annotation_objects": [
+        [
+          6752,
+          0
+        ],
+        [
+          6754,
+          0
+        ],
+        [
+          6760,
+          0
+        ],
+        [
+          6764,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 71,
+      "physical_pages": [
+        782
+      ],
+      "annotation_objects": [
+        [
+          15435,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 73,
+      "physical_pages": [
+        473
+      ],
+      "annotation_objects": [
+        [
+          13063,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 80,
+      "physical_pages": [
+        162
+      ],
+      "annotation_objects": [
+        [
+          10817,
+          0
+        ],
+        [
+          10819,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 90,
+      "physical_pages": [
+        493
+      ],
+      "annotation_objects": [
+        [
+          13286,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 91,
+      "physical_pages": [
+        671
+      ],
+      "annotation_objects": [
+        [
+          14661,
+          0
+        ],
+        [
+          14663,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 96,
+      "physical_pages": [
+        131,
+        132
+      ],
+      "annotation_objects": [
+        [
+          2824,
+          0
+        ],
+        [
+          10566,
+          0
+        ],
+        [
+          10568,
+          0
+        ],
+        [
+          10574,
+          0
+        ],
+        [
+          10578,
+          0
+        ],
+        [
+          10582,
+          0
+        ],
+        [
+          10586,
+          0
+        ],
+        [
+          10588,
+          0
+        ],
+        [
+          10594,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 108,
+      "physical_pages": [
+        859
+      ],
+      "annotation_objects": [
+        [
+          8227,
+          0
+        ],
+        [
+          8229,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 122,
+      "physical_pages": [
+        567
+      ],
+      "annotation_objects": [
+        [
+          13858,
+          0
+        ],
+        [
+          13862,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 124,
+      "physical_pages": [
+        483
+      ],
+      "annotation_objects": [
+        [
+          4910,
+          0
+        ],
+        [
+          4914,
+          0
+        ],
+        [
+          4916,
+          0
+        ],
+        [
+          4922,
+          0
+        ],
+        [
+          4924,
+          0
+        ],
+        [
+          4930,
+          0
+        ],
+        [
+          4932,
+          0
+        ],
+        [
+          4938,
+          0
+        ],
+        [
+          4940,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 126,
+      "physical_pages": [
+        735,
+        742
+      ],
+      "annotation_objects": [
+        [
+          6788,
+          0
+        ],
+        [
+          6790,
+          0
+        ],
+        [
+          15136,
+          0
+        ],
+        [
+          15138,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 134,
+      "physical_pages": [
+        437
+      ],
+      "annotation_objects": [
+        [
+          4634,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 139,
+      "physical_pages": [
+        460
+      ],
+      "annotation_objects": [
+        [
+          4746,
+          0
+        ],
+        [
+          4750,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 140,
+      "physical_pages": [
+        526
+      ],
+      "annotation_objects": [
+        [
+          13546,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 145,
+      "physical_pages": [
+        718
+      ],
+      "annotation_objects": [
+        [
+          6623,
+          0
+        ],
+        [
+          6625,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 150,
+      "physical_pages": [
+        672
+      ],
+      "annotation_objects": [
+        [
+          14686,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 153,
+      "physical_pages": [
+        899
+      ],
+      "annotation_objects": [
+        [
+          8397,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 161,
+      "physical_pages": [
+        132
+      ],
+      "annotation_objects": [
+        [
+          2844,
+          0
+        ],
+        [
+          2846,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 165,
+      "physical_pages": [
+        325
+      ],
+      "annotation_objects": [
+        [
+          4050,
+          0
+        ],
+        [
+          4054,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 173,
+      "physical_pages": [
+        576
+      ],
+      "annotation_objects": [
+        [
+          5871,
+          0
+        ],
+        [
+          5873,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 178,
+      "physical_pages": [
+        359
+      ],
+      "annotation_objects": [
+        [
+          4289,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 179,
+      "physical_pages": [
+        637
+      ],
+      "annotation_objects": [
+        [
+          6317,
+          0
+        ],
+        [
+          6318,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 188,
+      "physical_pages": [
+        791
+      ],
+      "annotation_objects": [
+        [
+          7673,
+          0
+        ],
+        [
+          7677,
+          0
+        ],
+        [
+          7681,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 191,
+      "physical_pages": [
+        556
+      ],
+      "annotation_objects": [
+        [
+          5734,
+          0
+        ],
+        [
+          5736,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 211,
+      "physical_pages": [
+        86
+      ],
+      "annotation_objects": [
+        [
+          9951,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 216,
+      "physical_pages": [
+        49,
+        50
+      ],
+      "annotation_objects": [
+        [
+          1563,
+          0
+        ],
+        [
+          1564,
+          0
+        ],
+        [
+          1567,
+          0
+        ],
+        [
+          1582,
+          0
+        ],
+        [
+          1583,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 222,
+      "physical_pages": [
+        827
+      ],
+      "annotation_objects": [
+        [
+          15729,
+          0
+        ],
+        [
+          15731,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 224,
+      "physical_pages": [
+        768,
+        786,
+        787
+      ],
+      "annotation_objects": [
+        [
+          7564,
+          0
+        ],
+        [
+          7568,
+          0
+        ],
+        [
+          7572,
+          0
+        ],
+        [
+          7611,
+          0
+        ],
+        [
+          15351,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 228,
+      "physical_pages": [
+        207
+      ],
+      "annotation_objects": [
+        [
+          11185,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 242,
+      "physical_pages": [
+        114
+      ],
+      "annotation_objects": [
+        [
+          10209,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 251,
+      "physical_pages": [
+        133
+      ],
+      "annotation_objects": [
+        [
+          2867,
+          0
+        ],
+        [
+          2869,
+          0
+        ],
+        [
+          2882,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 254,
+      "physical_pages": [
+        753
+      ],
+      "annotation_objects": [
+        [
+          7248,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 258,
+      "physical_pages": [
+        529
+      ],
+      "annotation_objects": [
+        [
+          5399,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 259,
+      "physical_pages": [
+        10
+      ],
+      "annotation_objects": [
+        [
+          1186,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 264,
+      "physical_pages": [
+        576
+      ],
+      "annotation_objects": [
+        [
+          5874,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 271,
+      "physical_pages": [
+        118
+      ],
+      "annotation_objects": [
+        [
+          2281,
+          0
+        ],
+        [
+          2285,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 276,
+      "physical_pages": [
+        132
+      ],
+      "annotation_objects": [
+        [
+          2832,
+          0
+        ],
+        [
+          2834,
+          0
+        ],
+        [
+          2840,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 280,
+      "physical_pages": [
+        128
+      ],
+      "annotation_objects": [
+        [
+          2450,
+          0
+        ],
+        [
+          2452,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 283,
+      "physical_pages": [
+        714
+      ],
+      "annotation_objects": [
+        [
+          6586,
+          0
+        ],
+        [
+          6588,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 286,
+      "physical_pages": [
+        787
+      ],
+      "annotation_objects": [
+        [
+          7607,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 291,
+      "physical_pages": [
+        128,
+        287
+      ],
+      "annotation_objects": [
+        [
+          2442,
+          0
+        ],
+        [
+          3782,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 294,
+      "physical_pages": [
+        236
+      ],
+      "annotation_objects": [
+        [
+          3482,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 297,
+      "physical_pages": [
+        495
+      ],
+      "annotation_objects": [
+        [
+          5100,
+          0
+        ],
+        [
+          5104,
+          0
+        ],
+        [
+          5106,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 299,
+      "physical_pages": [
+        498,
+        500
+      ],
+      "annotation_objects": [
+        [
+          5170,
+          0
+        ],
+        [
+          5172,
+          0
+        ],
+        [
+          5221,
+          0
+        ],
+        [
+          5223,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 303,
+      "physical_pages": [
+        735
+      ],
+      "annotation_objects": [
+        [
+          6796,
+          0
+        ],
+        [
+          6812,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 318,
+      "physical_pages": [
+        499,
+        544,
+        548,
+        549
+      ],
+      "annotation_objects": [
+        [
+          5197,
+          0
+        ],
+        [
+          5540,
+          0
+        ],
+        [
+          5615,
+          0
+        ],
+        [
+          5630,
+          0
+        ],
+        [
+          5634,
+          0
+        ],
+        [
+          5638,
+          0
+        ],
+        [
+          5642,
+          0
+        ],
+        [
+          5646,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 327,
+      "physical_pages": [
+        1004
+      ],
+      "annotation_objects": [
+        [
+          8867,
+          0
+        ],
+        [
+          8868,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 331,
+      "physical_pages": [
+        899
+      ],
+      "annotation_objects": [
+        [
+          8401,
+          0
+        ],
+        [
+          8403,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 337,
+      "physical_pages": [
+        360
+      ],
+      "annotation_objects": [
+        [
+          4316,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 341,
+      "physical_pages": [
+        75
+      ],
+      "annotation_objects": [
+        [
+          1851,
+          0
+        ],
+        [
+          1853,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 347,
+      "physical_pages": [
+        809
+      ],
+      "annotation_objects": [
+        [
+          7805,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 348,
+      "physical_pages": [
+        116
+      ],
+      "annotation_objects": [
+        [
+          2228,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 357,
+      "physical_pages": [
+        787
+      ],
+      "annotation_objects": [
+        [
+          7615,
+          0
+        ],
+        [
+          7617,
+          0
+        ],
+        [
+          7619,
+          0
+        ],
+        [
+          7621,
+          0
+        ],
+        [
+          7623,
+          0
+        ],
+        [
+          7625,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 362,
+      "physical_pages": [
+        664
+      ],
+      "annotation_objects": [
+        [
+          6427,
+          0
+        ],
+        [
+          6431,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 372,
+      "physical_pages": [
+        320
+      ],
+      "annotation_objects": [
+        [
+          3986,
+          0
+        ],
+        [
+          3994,
+          0
+        ],
+        [
+          3996,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 384,
+      "physical_pages": [
+        330
+      ],
+      "annotation_objects": [
+        [
+          4114,
+          0
+        ],
+        [
+          4115,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 389,
+      "physical_pages": [
+        900
+      ],
+      "annotation_objects": [
+        [
+          8426,
+          0
+        ],
+        [
+          8428,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 392,
+      "physical_pages": [
+        555
+      ],
+      "annotation_objects": [
+        [
+          5724,
+          0
+        ],
+        [
+          5725,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 393,
+      "physical_pages": [
+        549
+      ],
+      "annotation_objects": [
+        [
+          5650,
+          0
+        ],
+        [
+          5652,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 397,
+      "physical_pages": [
+        31
+      ],
+      "annotation_objects": [
+        [
+          1424,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 402,
+      "physical_pages": [
+        922,
+        939
+      ],
+      "annotation_objects": [
+        [
+          8543,
+          0
+        ],
+        [
+          8544,
+          0
+        ],
+        [
+          8590,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 415,
+      "physical_pages": [
+        920
+      ],
+      "annotation_objects": [
+        [
+          8520,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 425,
+      "physical_pages": [
+        945
+      ],
+      "annotation_objects": [
+        [
+          8631,
+          0
+        ],
+        [
+          8633,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 428,
+      "physical_pages": [
+        235
+      ],
+      "annotation_objects": [
+        [
+          3473,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 469,
+      "physical_pages": [
+        91
+      ],
+      "annotation_objects": [
+        [
+          2005,
+          0
+        ],
+        [
+          2006,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 475,
+      "physical_pages": [
+        103
+      ],
+      "annotation_objects": [
+        [
+          2143,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 519,
+      "physical_pages": [
+        18
+      ],
+      "annotation_objects": [
+        [
+          1235,
+          0
+        ],
+        [
+          1236,
+          0
+        ],
+        [
+          1239,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 529,
+      "physical_pages": [
+        110
+      ],
+      "annotation_objects": [
+        [
+          2194,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 536,
+      "physical_pages": [
+        457
+      ],
+      "annotation_objects": [
+        [
+          4738,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 541,
+      "physical_pages": [
+        859
+      ],
+      "annotation_objects": [
+        [
+          8254,
+          0
+        ],
+        [
+          8255,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 550,
+      "physical_pages": [
+        325
+      ],
+      "annotation_objects": [
+        [
+          4067,
+          0
+        ],
+        [
+          4068,
+          0
+        ],
+        [
+          4069,
+          0
+        ],
+        [
+          4070,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 553,
+      "physical_pages": [
+        21,
+        332
+      ],
+      "annotation_objects": [
+        [
+          1266,
+          0
+        ],
+        [
+          4143,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 563,
+      "physical_pages": [
+        923
+      ],
+      "annotation_objects": [
+        [
+          8555,
+          0
+        ],
+        [
+          8556,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 594,
+      "physical_pages": [
+        78
+      ],
+      "annotation_objects": [
+        [
+          1909,
+          0
+        ],
+        [
+          1910,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 618,
+      "physical_pages": [
+        546
+      ],
+      "annotation_objects": [
+        [
+          5609,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 623,
+      "physical_pages": [
+        22
+      ],
+      "annotation_objects": [
+        [
+          1285,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 627,
+      "physical_pages": [
+        27
+      ],
+      "annotation_objects": [
+        [
+          1384,
+          0
+        ],
+        [
+          1385,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 638,
+      "physical_pages": [
+        79
+      ],
+      "annotation_objects": [
+        [
+          1917,
+          0
+        ],
+        [
+          1918,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 643,
+      "physical_pages": [
+        98
+      ],
+      "annotation_objects": [
+        [
+          2084,
+          0
+        ],
+        [
+          2085,
+          0
+        ],
+        [
+          2086,
+          0
+        ],
+        [
+          2087,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 645,
+      "physical_pages": [
+        705,
+        706
+      ],
+      "annotation_objects": [
+        [
+          6550,
+          0
+        ],
+        [
+          6551,
+          0
+        ],
+        [
+          6554,
+          0
+        ],
+        [
+          6560,
+          0
+        ],
+        [
+          6562,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 649,
+      "physical_pages": [
+        596
+      ],
+      "annotation_objects": [
+        [
+          5998,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 655,
+      "physical_pages": [
+        610
+      ],
+      "annotation_objects": [
+        [
+          6079,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 661,
+      "physical_pages": [
+        602
+      ],
+      "annotation_objects": [
+        [
+          6046,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 673,
+      "physical_pages": [
+        465
+      ],
+      "annotation_objects": [
+        [
+          4770,
+          0
+        ],
+        [
+          4771,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 674,
+      "physical_pages": [
+        93
+      ],
+      "annotation_objects": [
+        [
+          2027,
+          0
+        ],
+        [
+          2028,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 676,
+      "physical_pages": [
+        512
+      ],
+      "annotation_objects": [
+        [
+          5343,
+          0
+        ],
+        [
+          5344,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 677,
+      "physical_pages": [
+        532
+      ],
+      "annotation_objects": [
+        [
+          5415,
+          0
+        ],
+        [
+          5416,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 679,
+      "physical_pages": [
+        543
+      ],
+      "annotation_objects": [
+        [
+          5534,
+          0
+        ],
+        [
+          5535,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 681,
+      "physical_pages": [
+        564
+      ],
+      "annotation_objects": [
+        [
+          5803,
+          0
+        ],
+        [
+          5804,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 682,
+      "physical_pages": [
+        267
+      ],
+      "annotation_objects": [
+        [
+          3578,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 687,
+      "physical_pages": [
+        898
+      ],
+      "annotation_objects": [
+        [
+          8387,
+          0
+        ],
+        [
+          8388,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 690,
+      "physical_pages": [
+        693
+      ],
+      "annotation_objects": [
+        [
+          6521,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 699,
+      "physical_pages": [
+        896
+      ],
+      "annotation_objects": [
+        [
+          8382,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 703,
+      "physical_pages": [
+        777
+      ],
+      "annotation_objects": [
+        [
+          7385,
+          0
+        ]
+      ]
+    },
+    {
+      "issue": 742,
+      "physical_pages": [
+        729
+      ],
+      "annotation_objects": [
+        [
+          6711,
+          0
+        ]
+      ]
+    }
+  ]
+}

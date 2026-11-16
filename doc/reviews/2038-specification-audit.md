@@ -11,13 +11,13 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (58)
+## Current checkpoint (59)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **78 assertions**, grouped into behavior findings rather
 than 78 independent defects. All 72 failures from the prior audit pass at this baseline.
-The refreshed broad run, wave53, covered eleven crates: **7,189 tests ran, 7,118 passed,
-and exactly the 71 recorded in-scope assertions failed; 58 were skipped**.
+The refreshed broad run, wave59, covered eleven crates: **7,207 tests ran, 7,133 passed,
+and exactly the 74 recorded in-scope assertions failed; 58 were skipped**.
 Exact binary/test identities match the manifest, with no extra or missing failures.
 Three GPU failures and one engine-only Matrix2D availability failure under the adopted
 A193 reference scope are recorded separately. The new outline-panel raster test also
@@ -81,6 +81,11 @@ and parsed values still pass. Model and colour Clippy checks pass.
 Checkpoint58 adds two passing graphics-state pixel tests. Nested indirect dash
 values use a nonzero phase that makes default fallback observable; indirect blend
 names and alpha preserve the independently calculated composite. Model Clippy passes.
+
+Checkpoint59 adds two passing font metric tests. The simple-font control uses the
+public metrics-only consumer so a program fallback cannot mask ignored Widths.
+CID controls use exact embedded-program widths and literal vertical metrics.
+Font Clippy passes. The refreshed broad run matches every in-scope failure identity.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

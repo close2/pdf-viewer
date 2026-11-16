@@ -454,7 +454,8 @@
       "shards/indirect_filter_parameters_current/features.json",
       "shards/indirect_annotation_parameters_current/features.json",
       "shards/indirect_function_colour_current/features.json",
-      "shards/indirect_graphics_state_current/features.json"
+      "shards/indirect_graphics_state_current/features.json",
+      "shards/indirect_font_values_current/features.json"
     ],
     "prior_artifacts": [
       "basic_objects"
@@ -4361,7 +4362,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/font_substitution_current/features.json"
+      "shards/font_substitution_current/features.json",
+      "shards/indirect_font_values_current/features.json"
     ],
     "prior_artifacts": [
       "simple_font_widths_audit"
@@ -4404,7 +4406,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/font_substitution_current/features.json"
+      "shards/font_substitution_current/features.json",
+      "shards/indirect_font_values_current/features.json"
     ],
     "prior_artifacts": [
       "simple_font_widths_audit"
@@ -4465,7 +4468,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "prior-assertion-reviews.json",
-      "shards/simple_font_encodings_current/features.json"
+      "shards/simple_font_encodings_current/features.json",
+      "shards/indirect_font_values_current/features.json"
     ],
     "prior_artifacts": [],
     "reviewed_assertions": [
@@ -4610,7 +4614,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/cid_opentype_current/features.json"
+      "shards/cid_opentype_current/features.json",
+      "shards/indirect_font_values_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -4757,7 +4762,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/font_substitution_current/features.json",
-      "shards/font_descriptors_current/features.json"
+      "shards/font_descriptors_current/features.json",
+      "shards/indirect_font_values_current/features.json"
     ],
     "prior_artifacts": [
       "font_descriptors_audit"

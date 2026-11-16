@@ -1662,6 +1662,27 @@
       "log": "quality-model-wave58b.log",
       "exit": 0,
       "scope": "ModelalltargetsClippyPASS"
+    },
+    {
+      "log": "indirect-fonts-wave59.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-font-wave59b.log",
+      "exit": 0,
+      "scope": "Font all-targets Clippy"
+    },
+    {
+      "log": "eleven-crate-wave59.log",
+      "run": 7207,
+      "passed": 7133,
+      "failed": 74,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Eleven default-feature crates. Exact binary/test identities match; exclusions in wave59-comparison.json."
     }
   ],
   "prior_expected_failures": {

@@ -1,0 +1,8 @@
+{
+  "source": "Parent read \u00a77.3.10, Table 109, \u00a79.6.3 and \u00a79.7.4.3. Independently checked #106 StrikeOut 12071 on physical 329: direct descriptors permitted; the adjacent standard-14 paragraph is #47/#48. The Widths/W/DW values must remain consistent with the font program.",
+  "fixture_review": "Parent independently read Liberation Sans hmtx with fontTools: A/B are 1366/2048 em, C/D 1479/2048 em; CID 5 is 727/2048, CID 6 is 1139/2048. Tracked fixtures use these exact values. W2 override and DW2 fallback have independent literal vectors. CID indices remain direct and object offsets are exact.",
+  "rejected_drafts": "An embedded simple-font rendering draft could let hmtx fallback mask ignored Widths. Enlarging tiny rounding differences to a 2400-point font would test a precision policy. Parent instead used public LoadedFont::metrics_only with literal advances. Initial CID draft invalid index references and mismatched widths were corrected before execution.",
+  "consumer": "ADR 1094 and content/font.rs describe the metrics-only seam preserving pen advances when glyph-program/substitution paths cannot draw. This witness covers that production seam, not rendered glyph pixels. The CID test uses LoadedFont::load and decode with an embedded program.",
+  "execution": "indirect-fonts-wave59.log: 2 passed. quality-font-wave59b.log: font all-targets Clippy passed after nonsemantic literal formatting/precision changes. Broad wave59 includes both tests and exactly matches the 74 in-scope manifest failures.",
+  "limits": "Selected Widths, descriptor, MissingWidth, W/W2/DW2 representations only. Differences remains code-read without a dedicated indirect-name consumer assertion. No blanket font or ADR certification."
+}

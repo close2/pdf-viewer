@@ -2108,5 +2108,19 @@
     "summary": "Nested indirect dasharray/members/nondefaultphase and blendnames/alpha now have literalpixelcontrols.",
     "execution": "2newPASS; modelalltargetsClippyPASS.",
     "limits": "SelectedordinaryExtGStatevalues only. No allparametercertificate."
+  },
+  {
+    "id": "2038-T78",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "7.3.10",
+      "9.6.2.1",
+      "9.6.3",
+      "9.7.4.3",
+      "9.8.1"
+    ],
+    "summary": "Direct and indirect simple-font and CID metric values now have literal consumer assertions.",
+    "execution": "Two new tests pass; font all-targets Clippy passes.",
+    "limits": "Simple-font metrics-only seam and selected CID decode metrics; no claim of all font rendering behavior."
   }
 ]

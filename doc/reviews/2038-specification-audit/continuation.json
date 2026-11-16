@@ -6,23 +6,26 @@
     "broad": "6518 selected;6508passed,10 missing-corpus failures; exact10 passed after fixture link repair",
     "gtk": "20/20 passed under Xvfb",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "Broad53 refresh:7189run7118PASS71expectedFAIL58skip; exact in-scope manifest equality, no extra/missing. ThreeGPU+oneengine-only failures remain separately recorded.",
+    "later_targets": "Broad wave59: 7,207 run, 7,133 pass, exactly 74 in-scope manifest failures, 58 skipped. Three GPU failures and one engine-only failure remain separately recorded.",
     "quality": "Checkpoint52 syntax/model/script/core/UI all-targets with engine PASS;51signature and earlier scopes recorded.",
     "script_engine": "247PASS4ignored plus separate corpus2PASS249filtered. Corpus counters documented; semantic/error provenance follow-up active.",
     "rendition_and_font": "B49/B50:7new tests,5PASS2FAIL;73total expected failures,70in eleven-crate scope+3GPU. Model/core Clippy PASS.",
     "optional_and_save": "Wave51 final4run3PASS1FAIL; manifest74 (71eleven-crate scope+3GPU). Model/core/signature Clippy PASS.",
-    "residual_consumers": "Wave52:Matrix2D1engineFAIL; appearance1PASS, navigation3PASS, outlineUI1PASS; existingLZWtest extended andPASS. Manifest75=71eleven-crate+3GPU+1engine. FivecrateClippyPASS. Wave54 adds2syntaxPASS after broad53, strengthens existingBMtestPASS; syntax/modelClippyPASS. Manifest75unchanged. Wave55newcore4run3PASS1FAIL;manifest76=72broadscope+3GPU+1engine. Broad53 predates this newfailure; no newbroadrun claimed. Core/syntaxClippyPASS. Wave56syntax4run2PASS2FAIL; manifest78=74broadscope+3GPU+1engine. SyntaxClippyPASS. Wave57adds4PASSannotation/link/function/CalGray; model+colourClippyPASS. Manifest78unchanged. Wave58adds2PASSgraphicsstatepixels;modelClippyPASS;manifest78unchanged."
+    "residual_consumers": "Wave52:Matrix2D1engineFAIL; appearance1PASS, navigation3PASS, outlineUI1PASS; existingLZWtest extended andPASS. Manifest75=71eleven-crate+3GPU+1engine. FivecrateClippyPASS. Wave54 adds2syntaxPASS after broad53, strengthens existingBMtestPASS; syntax/modelClippyPASS. Manifest75unchanged. Wave55newcore4run3PASS1FAIL;manifest76=72broadscope+3GPU+1engine. Broad53 predates this newfailure; no newbroadrun claimed. Core/syntaxClippyPASS. Wave56syntax4run2PASS2FAIL; manifest78=74broadscope+3GPU+1engine. SyntaxClippyPASS. Wave57adds4PASSannotation/link/function/CalGray; model+colourClippyPASS. Manifest78unchanged. Wave58adds2PASSgraphicsstatepixels;modelClippyPASS;manifest78unchanged. Wave59 adds two passing font metric tests; font all-targets Clippy passes. Manifest remains 78."
   },
   "review": {
     "prior_failure_assertions": 72,
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
-      "indirect_font_values_current",
+      "errata_numeric_syntax_batch_current",
       "errata_interactive_batch_current",
-      "errata_numeric_syntax_batch_current"
+      "errata_graphics_security_batch_current",
+      "errata_structure_metadata_batch_current",
+      "errata_font_text_batch_current"
     ],
     "recorded_shards": [
+      "indirect_font_values_current",
       "indirect_graphics_state_current",
       "indirect_annotation_parameters_current",
       "indirect_function_colour_current",
@@ -173,12 +176,10 @@
     "pending_current_rows": 0
   },
   "remaining": [
-    "All883rows remain partial. Continue cross-cutting indirectrepresentation tests and substantive assertion review.",
-    "Fresherrata literalhashcitation census found360uniqueIDs,110candidateuncitedIDs; textualabsence not semanticgap. Selected sourcebatch active; full classification pending.",
-    "B54 confirms unresolved scalar DecodeParms Predictor/Columns despite passing outerdictionary/array forms. Otherkeys/codecs remain untested.",
-    "B53 optionalimplicitheadersearch recommendationgap confirmed;NamedID contribution/downstreamTD state unresolved.",
-    "AnnexL source paraphrases corrected:#83P\u2192Table and#440WP\u2192Figure are directed; fullmatrix residual.",
-    "Stop new dispatch near81%; preserve15% weekly at85%."
+    "All 883 rows remain partially reviewed. Current work checks uncited EC3 annotation candidates against primary pages, effective wording, code and actual assertions.",
+    "Literal issue citation candidates are discovery metadata only, not counts of missing features. Selected batches remain under parent source review.",
+    "Indirect Differences names, Matrix2D methods/semantics and deeper feature/assertion combinations remain residuals.",
+    "Stop new dispatch near 81%; preserve 15% weekly allowance at 85%."
   ],
   "budget": {
     "weekly_used_at_start": 29,
@@ -186,6 +187,6 @@
     "ceiling": 85,
     "remaining_reserved": 15,
     "last_weekly_used_percent": 53,
-    "last_read_utc": "2026-11-16T19:27:29.126799+00:00"
+    "last_read_utc": "2026-11-16T19:41:51.435402+00:00"
   }
 }
