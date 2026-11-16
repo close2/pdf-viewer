@@ -33,26 +33,6 @@ is fuzzed, or the owner's decision to write one in-tree; ADR 2400).
 Ratified on 2026-10-08 (`doc/questions/Q254`, `A254`: RFC 0009 section 11's question 2
 adopted as written); RFC 0009 section 3 is the argument, ADR 1946 the ledger's reading.
 
-### XFA's dynamic half, and its static half
-
-**XFA's dynamic half** — a form whose template generates its pages: Table 29's
-`/NeedsRendering` true, or grammar XFA 3.3 excludes from an XFAF form (an `occur` whose bounds
-differ, a `subformSet`). The standard hands this one over itself: "[t]he implementation of such
-a schema driven page generation involves considerable effort beyond that for a simple PDF viewer
-and therefore **a PDF processor may choose to not implement this feature**" (§K.1). It stays
-excluded until a measurement round has priced laying out page one of the corpora's
-`/NeedsRendering` documents and the owner has accepted, separately, the near-side
-construction RFC 0011 section 7 asks for (`doc/questions/Q639`, `A639`).
-
-**XFA's static half is in scope** (RFC 0011, cut where XFA 3.3 cuts static from dynamic by ADR
-2380; `doc/questions/A633`, `A639`): a hybrid form's template behaviours — its `datasets` packet
-kept consistent on save, formatting, validations, calculations and events — at one round per
-batch, every mark still the AcroForm widget's. Annex K is normative and in ISO 32000-2; what is
-documented separately is the XFA template architecture. Annex K also says why the static half
-needs no layout: in a conforming hybrid file "[t]he other entries in the interactive form
-dictionary shall be consistent with the information in the XFA resource", so the AcroForm this
-tree reads *is* the form.
-
 ### JavaScript and script-driven form behaviour beyond this document and this viewer
 
 **JavaScript and script-driven form behaviour beyond this document and this viewer** — a script
@@ -86,7 +66,7 @@ actually emits the construct:
 F, which `optimize --linearize` emits (`doc/questions/A03`). The ledger's `writer-side` status
 narrows accordingly.
 
-## The three amendments to the authoring line
+## The four amendments to the authoring line
 
 The boundary line they sit on is in `CLAUDE.md`: does the operation invent marks?
 
@@ -161,6 +141,59 @@ document states a structure tree or optional content. It chooses no font and com
 — every mark is the producer's as this reader draws it — and it is carried as the named loss
 `text-as-image`, which the report and the file's own history state. Ratified 2026-10-26
 (`doc/questions/Q570`, `A570`: "agreed, please answer"); ADR 2394 is the construction.
+
+### A page laid out by a producer's own XFA template
+
+**A page laid out by a producer's own XFA template.** Where a document's interactive form carries
+an XFA resource whose template is not XFAF — Table 29's `/NeedsRendering` is `true`, or the
+template states an `occur` whose bounds differ, a `subformSet` or other grammar XFA 3.3 excludes
+from XFAF (pages 272–273) — the pages that template generates, laid out by XFA 3.3's own layout
+and binding rules from the template and the document's own data, are on the near side. Every mark
+on such a page is one the template names; what this program decides is only what XFA 3.3's
+algorithm decides. Nothing may be placed on it that the template and its data do not state, and a
+page so laid out is said to be generated, in the window's title or report, as an appended page is.
+
+**The argument, and the test it fails.** It passes ADR 1120's provenance test — every mark is the
+producer's: a `draw`'s text, a field's value and caption, a border, a barcode the template types
+and the data fills — and it fails ADR 1123's second part, because no clause of ISO 32000-2 fixes
+the positions: XFA 3.3, the text §K.2 names as the format of the resource, fixes them instead. The
+sentence the owner accepted is that **a normative reference's layout algorithm may stand where a
+clause's position would**. The case for it is the target: "every PDF that exists renders as its
+producer specified", and the producer of a `/NeedsRendering` file specified its pages in the
+template, not in the wrapper page. What stays on the far side: a watermark, a stamp, text this
+program composes, HTML to PDF, and any layout whose source is not the document's own template.
+§K.1's permission ("a PDF processor may choose to not implement this feature") is taken until the
+build lands, and said, as it was.
+
+**When, and the first requirement.** It is built after the ISO 32000-2 ledger rows reach their
+final states, in the order `doc/todo/78` section 4 lists — the merge and page one's launch cost
+first. Its first requirement is the owner's: at the reader's script level `off`, which is the
+default, page one is laid out from the template and the data alone, and the window says that the
+form's scripts did not run. Until it is built, a `/NeedsRendering` document shows the page its
+producer wrote for processors that decline, and every window says it is an XFA form and what is
+shown instead (ADR 1932).
+
+**Barcodes.** A template's `<barcode>` is one of the marks the template names. Its symbologies are
+built from public sources where that is reasonable, the edge cases a missing ISO text leaves open
+written down under principle 5, and an ISO text is bought only where it is not (`doc/questions/A840`
+item 3); ADR 2877 places the encoders and says what is built.
+
+Ratified 2026-11-13 (`doc/questions/Q840`, `A840`: "agree on 1 and 2"); RFC 0011 section 7 is the
+construction as asked, `doc/todo/78` the price (ADR 2837), ADR 2876 the amendment. It replaces the
+exclusion `doc/questions/A639` kept until that price was measured. It is reopened if a page is
+asked to carry anything the template and its data do not state, or to be laid out by any algorithm
+but XFA 3.3's.
+
+### XFA's static half, which needed no amendment
+
+**XFA's static half is in scope** (RFC 0011, cut where XFA 3.3 cuts static from dynamic by ADR
+2380; `doc/questions/A633`, `A639`): a hybrid form's template behaviours — its `datasets` packet
+kept consistent on save, formatting, validations, calculations and events — at one round per
+batch, every mark still the AcroForm widget's. Annex K is normative and in ISO 32000-2; what is
+documented separately is the XFA template architecture. Annex K also says why the static half
+needs no layout: in a conforming hybrid file "[t]he other entries in the interactive form
+dictionary shall be consistent with the information in the XFA resource", so the AcroForm this
+tree reads *is* the form.
 
 ## What a user does to a document already open
 

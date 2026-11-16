@@ -1,10 +1,11 @@
 # 78 — XFA's dynamic half: page one of the `/NeedsRendering` documents, priced
 
-Status: **measured** — the measurement `doc/scope-ratifications.md` names before XFA's dynamic half
-is revisited (`doc/todo/76` row 10, `doc/questions/A828`). Nothing of the dynamic half is built: it
-stays a scope exclusion until the owner answers `doc/questions/Q840`. ADR 2837 is the method.
-Priority: the owner's, 2026-11-11, A828: "keep the scope exclusions … while running XFA's
-`/NeedsRendering` page-one measurement".
+Status: **scheduled** — measured, and the construction accepted: the owner's answer `doc/questions/A840`
+(2026-11-13) lifts XFA's dynamic half from `CLAUDE.md`'s exclusions as the near-side construction *a page laid
+out by a producer's own XFA template* (ADR 2876, `doc/scope-ratifications.md`). It is built **after the ISO
+32000-2 ledger rows reach their final states**, in section 4's order, under section 5's first requirement.
+ADR 2837 is the measurement's method.
+Priority: the owner's, A840: "agree on 1 and 2".
 Instrument: `crates/pdf-model/examples/xfa_dynamic_census.rs` (this tree's own reader: Table 29's
 flag by `pdf_model::xfa::stated`, page 333's grammar by `Template::dynamic`, the resource dumped)
 and `tools/xfa-census.py` (the layout grammar counted in each dump; its `--self-test` plants every
@@ -134,7 +135,7 @@ section 3's holdings. Nothing here is measured but the corpus; the estimate is t
 | a template script's object model: SOM resolution, `presence`, `instanceManager`, `rawValue`, `xfa.layout`; `initialize` and `ready` in order | chapters 3 and 10 (events, page 388) | `pdf-script`, `pdf-formcalc` | 3–4 |
 | the layout processor: positioned and flowed (`tb`, `lr-tb`, `rl-tb`), growable containers, content-area filling and splitting, pagination by `relation`, `pagePosition` and `oddOrEven`, breaks, overflow leaders and trailers, `keep`, tables | chapter 8 (pages 274–332) | a new crate, `xfa-layout`, over `pdf-model` | 6–8 |
 | text from metrics: `para`, a typeface found in `/AcroForm /DR` and then on the system, rich text, line breaking | chapter 8, chapter 27 | `rich_text` and `variable_text` reused | 2 |
-| drawing: `draw`s (text, line, rectangle, arc, image), edges, corners and fills, each field's `ui` and caption; barcodes refused by name | the template reference | `xfa-layout` into `pdf-render`'s display list | 3–4 |
+| drawing: `draw`s (text, line, rectangle, arc, image), edges, corners and fills, each field's `ui` and caption; barcodes from `xfa-barcode`, a symbology not built refused by name | the template reference | `xfa-layout` into `pdf-render`'s display list | 3–4 |
 | the generated pages in the document's page view, fillable, saved by §7.5.6 into the `datasets` packet, and said to be generated | §K.2; ADR 1932 | `pdf_model::view`, `viewer-core` | 2–3 |
 | the instruments: a test per rule derived from XFA 3.3's text, the earlier-output reference, a fuzz target, the budgets, page one's launch cost | — | tests, `fuzz/` | 2 |
 
@@ -154,12 +155,26 @@ past the first content area, one or two rounds.
   one, and `only`/`last` page areas and `pageCount` scripts reach past it; *nothing eager* still
   binds, so the first implementation round measures page one's cost on the sample before anything
   else.
-- **Barcodes.** PDF417, Code 39 and Data Matrix are ISO/IEC 15438, 16388 and 16022, none held; a
-  form that states one draws a box or a refusal until the texts are.
+- **Barcodes.** PDF417, Code 39 and Data Matrix are ISO/IEC 15438, 16388 and 16022, none held. A840
+  item 3 has them built from public sources where that is reasonable and bought only where it is not;
+  `crates/xfa-barcode` is where the drawing piece above finds them, and ADR 2877 says which are built
+  and which wait.
 - **Resource budgets.** A layout loop — an overflow leader that never fits, a `keep` chain longer
   than a content area — needs a budget, and the fuzzer a new target.
 
-## 5. The question
+## 5. The order, and the first requirement
 
-`doc/questions/Q840` puts the near-side construction RFC 0011 section 7 words to the owner with
-this price and a recommendation. Until it is answered, the tree does what A639 says it does.
+The owner accepted the construction (`doc/questions/A840`, items 1 and 2) and it is built in section 4's
+order once the ISO 32000-2 ledger rows are in their final states: **the merge and page one's launch cost
+first**, so that the first round can still say page one costs too much before the layout is written.
+
+**The first requirement, before any layout is written** (A840 item 2, Q840's recommendation 2): at the
+reader's script level `off`, which is the default, page one is laid out from the template and the data
+alone — no `initialize`, `ready` or `calculate` script runs, so a `presence` a script would set stays the
+template's — and the window says, the way ADR 1932 says the form is XFA, that the form's scripts did not
+run and the page may differ from what its producer intended. A dynamic form's layout is never held back
+until the reader raises the level. At a level that runs scripts, they run in page 388's order before the
+layout processor starts.
+
+Until the build lands the tree does what A639 says: a `/NeedsRendering` document shows the page its
+producer wrote for processors that decline, every window says why, and §K.1's permission is taken out loud.

@@ -761,7 +761,7 @@ copying the grammar and the example code as far as those purposes need, on condi
 copyright notice goes with what is copied. It grants no right to reproduce the specification's
 prose. So it is held the way XFDF 3.0 is (ADR 0187): **cited by chapter, section heading and page,
 paraphrased, never quoted** — *XFA 3.3 section 27, Supported Character Formatting, page 1198* —
-never with a `§`, never in a `>` blockquote, and nothing of it committed. The fixtures under
+never with a `§`, never in a `>` blockquote, and nothing of it committed in the clear: since `doc/questions/A840` the PDF and its conversion travel inside the encrypted `doc/specifications.zip` beside the ISO texts (ADR 0187), and `tools/conformance/tests/xfa_citations.rs` reads the conversion to hold every citation's page and title and to refuse a blockquote of it (ADR 2877). The fixtures under
 `crates/pdf-model/tests/rich_text.rs` and `crates/pdf-model/src/rich_text/` are written for the
 tests, in XHTML's and CSS's own grammar with words and values of their own, each naming the example
 of chapter 27 whose rule it holds; none copies an example's text, so the notice's condition is
@@ -1125,3 +1125,18 @@ and `head`'s `checkSumAdjustment` as 0xB1B0AFBA less the whole file's sum with t
 from the OpenType chapter, that a collection is several fonts' directories under a `ttcf` header,
 whose `checkSumAdjustment` a collection does not use. `crates/pdf-font/src/sfnt.rs`'s `checksummed`
 and `crates/pdf-font/src/embedding.rs`'s `collection_face` are where those facts act.
+
+## MIL-STD-1189A — Code 39, the symbology `xfa-barcode` encodes for `code3Of9` and `logmars`
+
+XFA 3.3's template reference defines `code3Of9` by ANSI/AIM BC1-1995 and its bibliography `logmars` by
+MIL-STD-1189B; neither is held. **MIL-STD-1189A**, *Standard Department of Defense Bar Code Symbology*
+(4 September 1984), is a work of the United States government and so carries no copyright in the
+United States. The copy read is its reproduction as Appendix E of a Naval Postgraduate School thesis,
+*Non-Logistics Bar Code Uses for the Department of Defense* (March 1987), which the Defense Technical
+Information Center published as ADA180561 and the Internet Archive hosts at
+`https://archive.org/download/DTIC_ADA180561/DTIC_ADA180561.pdf` (SHA-256
+`0414fc4889d59ff5c02566a5985e7f72a1bb6d83caeec99995be84f8f61446e3`, 208 pages); it is not committed.
+What the tree carries of it is Table E.1, *Code Configuration* (printed page 188), as
+`xfa_barcode::code39::TABLE`: 44 rows of binary digits, read from the scan's text layer and checked
+row by row against the page image. It prints no check character and no full-ASCII table, which is why
+`checksum="auto"` and `code3Of9extended` are refused (ADR 2877, `doc/questions/Q857`).

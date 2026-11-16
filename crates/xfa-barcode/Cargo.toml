@@ -1,0 +1,19 @@
+[package]
+name = "xfa-barcode"
+description = "The barcode symbologies an XFA 3.3 template's barcode element names, encoded from public sources into bars and spaces."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# No dependencies, on purpose: a symbology is a table and a rule, and what draws the bars
+# (`doc/todo/78` section 4's drawing piece) is somebody else's.
+
+[dev-dependencies]
+# An independent decoder, as evidence that a symbol this crate writes is read back as its data —
+# never as the definition of the symbology, which is the public source each module cites (ADR 2877).
+rxing = { version = "0.9.4", default-features = false, features = ["oned", "decoders", "encoding_rs"] }
+
+[lints]
+workspace = true
