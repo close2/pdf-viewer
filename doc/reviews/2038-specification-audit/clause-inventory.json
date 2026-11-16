@@ -9244,7 +9244,8 @@
     "prior_ledger_status": "out-of-scope",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/three_d_scope_current/features.json"
+      "shards/three_d_scope_current/features.json",
+      "shards/errata_late_residual_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -9518,7 +9519,8 @@
     "prior_ledger_status": "out-of-scope",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/three_d_scope_current/features.json"
+      "shards/three_d_scope_current/features.json",
+      "shards/errata_late_residual_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -10888,7 +10890,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/structure_types/features.json"
+      "shards/structure_types/features.json",
+      "shards/errata_late_residual_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."

@@ -11,18 +11,17 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (52)
+## Current checkpoint (53)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **75 assertions**, grouped into behavior findings rather
 than 75 independent defects. All 72 failures from the prior audit pass at this baseline.
-The latest broad run, wave38b, covered eleven crates: **7,158 tests ran, 7,096 passed,
-and exactly the 62 then-recorded in-scope assertions failed; 58 were skipped**.
-Exact identities matched the manifest; three GPU failures were recorded separately.
-Subsequent targeted runs add nine expected failures and twenty-two passing tests. The current
-manifest therefore has 71 failures in those eleven crates, three GPU failures, and one
-engine-only Matrix2D availability failure under the adopted A193 reference scope.
-A separate new outline-panel raster test passes; an existing LZW test was strengthened.
+The refreshed broad run, wave53, covered eleven crates: **7,189 tests ran, 7,118 passed,
+and exactly the 71 recorded in-scope assertions failed; 58 were skipped**.
+Exact binary/test identities match the manifest, with no extra or missing failures.
+Three GPU failures and one engine-only Matrix2D availability failure under the adopted
+A193 reference scope are recorded separately. The new outline-panel raster test also
+passes separately; an existing LZW test was strengthened.
 A separate engine-enabled run adds **247 passing script/worker tests**, including
 two new string/stream execution controls; four ignored tests are separate.
 The subsequently selected corpus pair also passes across90,763 PDFs. Its counter
@@ -46,6 +45,12 @@ colour controls pass. The initial navigation draft masked coordinates with scrol
 clamping; its failures were rejected. Older unavailable source claims about the
 script helper were withdrawn; the pinned official example supports the recorded gap.
 
+Checkpoint53 reconciles the broad run and indexes late-page errata annotations.
+Four selected overlays add excluded runtime behavior, an explanatory namespace note,
+and a bibliography entry; none establishes a new supported-reader defect. The issue
+index is a discovery aid, not certification of every correction. An earlier namespace
+source-page locator is corrected in the parent review.
+
 The following paragraphs preserve checkpoint-specific results in chronological order.
 
 At checkpoint 33, new failures concerned ignored minimum requirement versions (both reporting and
@@ -65,7 +70,7 @@ checked against the exact note and withdrawn; no such wording is present.
 Checkpoint34 reproduces the same-stroke failure through a PDF and three hardware
 lanes: direct Vello, raster GPU and raster Compute. Ordinary-line controls pass.
 A sampled-CMYK-image overprint exclusion control passes. Model and both GPU
-backend all-targets Clippy passes. The broad run above predates these five tests.
+backend all-targets Clippy passes. The broad38 run predated those tests; refreshed broad53 includes the default-feature tests.
 
 Checkpoint35 adds a passing glyph-clipping pixel control with an embedded font
 and independently inspected outline. The existing FDF import test still passes
@@ -362,7 +367,7 @@ draft was rejected because ASCII alone could not discriminate the route. Marked-
 source/errata and existing ON/OFF/post-EMC assertions were reviewed. Synthetic ICC
 intent fixtures discriminate transform selection but do not certify full profile
 validity. Partial evidence reaches393rows, with490pending. No new behavior failure;
-model all-targets Clippy passes. The broad run above predates these five tests.
+model all-targets Clippy passes. The broad38 run predated those tests; refreshed broad53 includes the default-feature tests.
 
 The scan-conversion/AnnexO checkpoint strengthens the stroke-fit oracle from a
 row minimum to minimum-and-maximum coverage across its interior. Both tests pass,

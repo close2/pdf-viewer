@@ -1,0 +1,30 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "item": "EC3 #49 / §13.6.4.6 Table 322 PV",
+      "verdict": "No current-scope defect; keep clause row out-of-scope.",
+      "basis": "The source correction adds optional cutting-plane visibility behavior to 3D artwork. The ledger and current scope ratification exclude rendering U3D/PRC; no 3D renderer exists or is promised. The producer's optional key does not create an obligation for this reader to render 3D.",
+      "reconsideration": "Revisit only if the ratified 3D-rendering trigger occurs."
+    },
+    {
+      "item": "EC3 #59 / §13.7.2.2.2 Table 335 Scripts",
+      "verdict": "No current-scope defect; preserve the RichMedia-runtime exclusion.",
+      "basis": "Although the overlay uses `shall be executed`, the subject is the RichMedia runtime's ordered scripts on activation. Current clause-13 ratification excludes media/scene runtime. In-document field/viewer JavaScript scope does not implicitly admit embedded RichMedia playback scripts.",
+      "reconsideration": "Revisit if RichMedia execution is added as a ratified capability; then test ordered shared-environment execution and empty-array behavior."
+    },
+    {
+      "item": "EC3 #8 / §14.8.6.1 NOTE 3",
+      "verdict": "Behavior represented; missing issue attribution is traceability-only.",
+      "basis": "A NOTE explains the namespace interchange purpose and confirms undefined-namespace structure types are permitted. The current implementation returns nonstandard/undefined classifications and selected role-map tests cover namespace handling. The addition creates no independent normative reader MUST/SHALL. Do not turn the Note into a requirement to accept every arbitrary namespace construct without qualification.",
+      "reconsideration": "If updating the 14.8.6.1 ledger provenance, cite #8 while retaining the current bounded conformance verdict."
+    },
+    {
+      "item": "EC3 #277 / bibliography entry",
+      "verdict": "No behavioral or ledger gap identified.",
+      "basis": "The addition is a literature citation for a ToUnicode tutorial; it does not modify §9.10 or add normative reference requirements. Existing ToUnicode behavior has its own source-driven tests.",
+      "reconsideration": "None unless the bibliography is tracked as a separate deliverable."
+    }
+  ],
+  "method_note": "The per-issue reference arrays in issue_coverage.json are discovery aids, not verdicts: issue-ID absence is not treated as evidence of implementation failure. For code paths, only explicit `Issue #n`/`Errata #n`/`EC3 #n` citations count, to avoid colliding with unrelated fragment identifiers such as RFC 8259's `#8`."
+}

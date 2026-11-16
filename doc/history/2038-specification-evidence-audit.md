@@ -20,8 +20,8 @@ A shared-parser date mutation was killed and restored. Independent JP2 fixture
 regeneration matches embedded hashes. Selected ADR conclusions are retained,
 qualified, or reconsidered with primary-source reasoning.
 
-**Gates.** Wave38b, eleven packages:7,158run,7,096pass, exactly62expected
-failures by binary/test identity,58skipped. Three GPU failures are outside that scope.
+**Gates.** Wave53, eleven packages:7,189run,7,118pass, exactly71expected
+failures by binary/test identity,58skipped. Three GPU and one engine-only failure are outside that scope.
 Wave49 adds247passing engine-enabled script/worker tests; both crate Clippy checks pass.
 
 **Latest findings.** Incomplete transparency surveys can yield false Met archive

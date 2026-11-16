@@ -1556,6 +1556,15 @@
       "log": "quality-wave52d.log",
       "exit": 0,
       "scope": "Syntax/model/script/core/UI all-targets Clippy with script engine PASS; initial52\u201352c rejected fixture-only unused expectation, literal-float comparison and similar-name issues; removed/justified/renamed."
+    },
+    {
+      "log": "eleven-crate-wave53.log",
+      "run": 7189,
+      "passed": 7118,
+      "failed": 71,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Eleven default-feature crates; exact binary/test identity equality with current in-scope manifest. No extra or missing failures. Three GPU and one engine-only failure excluded. Full scope/exclusions in wave53-comparison.json."
     }
   ],
   "prior_expected_failures": {
