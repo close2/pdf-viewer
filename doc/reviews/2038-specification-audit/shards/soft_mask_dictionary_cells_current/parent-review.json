@@ -1,0 +1,7 @@
+{
+  "verdict": "T135 valid Alpha softmask with omitted groupCS paints correctly; explicitCScontrolPASS.",
+  "source": "Parent read Table142physical434 andTable145physical437 plus438 executionprose. Alpha extracts groupalpha; Luminosity requiresCS. Isolated groups mayinheritwhenomitted. ExplicitpageGroupDeviceRGB providesparentcontext. Primary#134 identifies groupXObjectresourcedictionaryforDefaultcolorremapping; doesnotchangeoptionalCSrule.",
+  "fixture": "Existing exactxrefPDF1.7 builder; pageGroupDeviceRGB, isolatedAlpha group with optionalCS, red opaqueleft-halfgroup masksbluewholepage. ExplicitDeviceRGBchild first thenomittedchild; norecovery/cut, completeinterpretation, literalblueinside/whiteoutside.",
+  "qualification": "Pixels establish accepted conditional omission and correct alphamasking. They cannot independently prove which color space is selected for color computation, because Alpha ignorescolor and mayomitcolorcompositing. No claim of inheritedcolorconversionnumerics, GPUcoverage or LuminositymissingCSpolicy.",
+  "execution": "outline-mask-wave100 newtestPASS; existinghelper/open/renderbodyread; finalmodel/UIClippyPASS."
+}

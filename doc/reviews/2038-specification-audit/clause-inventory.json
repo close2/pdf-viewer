@@ -1553,7 +1553,8 @@
       "shards/structured_errata_security_current/features.json",
       "shards/file_only_consumer_assertions_batch3_current/features.json",
       "shards/file_only_document_assertions_current/features.json",
-      "shards/page_dictionary_cells_current/features.json"
+      "shards/page_dictionary_cells_current/features.json",
+      "shards/page_transition_cells_current/features.json"
     ],
     "prior_artifacts": [
       "catalog_pages_audit"
@@ -6141,7 +6142,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/transparency_foundations_current/features.json"
+      "shards/transparency_foundations_current/features.json",
+      "shards/soft_mask_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "soft_mask_derivation_audit"
@@ -6317,7 +6319,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/images_current/features.json",
-      "shards/soft_mask_cells_current/features.json"
+      "shards/soft_mask_cells_current/features.json",
+      "shards/soft_mask_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "damaged_mask_consumer_audit",
@@ -6351,7 +6354,8 @@
     "current_artifacts": [
       "shards/transparency_groups_current/features.json",
       "shards/errata_graphics_security_batch_current/features.json",
-      "shards/file_only_transparency_colour_assertions_current/features.json"
+      "shards/file_only_transparency_colour_assertions_current/features.json",
+      "shards/soft_mask_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -6721,7 +6725,8 @@
     "current_artifacts": [
       "shards/outlines_threads_current/features.json",
       "shards/outline_assertion_residual_current/features.json",
-      "shards/errata_interactive_batch_current/features.json"
+      "shards/errata_interactive_batch_current/features.json",
+      "shards/outline_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "outlines_labels_audit",
@@ -6886,7 +6891,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/thumbnails_transitions_current/features.json",
-      "shards/transition_visual_consumer_current/features.json"
+      "shards/transition_visual_consumer_current/features.json",
+      "shards/page_transition_cells_current/features.json"
     ],
     "prior_artifacts": [
       "presentations_audit"

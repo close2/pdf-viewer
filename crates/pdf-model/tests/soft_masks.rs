@@ -1171,3 +1171,55 @@ fn an_alpha_mask_transfer_function_is_applied_to_group_alpha_in_the_pdf_path() {
     assert_eq!(inside[3], 255);
     assert_eq!(pixel(&raster, 25, 20), [0, 0, 0, 255]);
 }
+
+fn alpha_mask_with_inherited_group_space(mask_group_cs: Option<&str>) -> Vec<u8> {
+    let mask_group_cs = mask_group_cs.map_or(String::new(), |cs| format!("/CS {cs}"));
+    let objects = vec![
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec(),
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_vec(),
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
+          /Group << /Type /Group /S /Transparency /CS /DeviceRGB >> \
+          /Resources << /ExtGState << /GS 5 0 R >> >> /Contents 4 0 R >>\nendobj\n"
+            .to_vec(),
+        stream_object(4, "", b"q /GS gs 0 0 1 rg 0 0 40 40 re f Q"),
+        b"5 0 obj\n<< /Type /ExtGState /SMask << /S /Alpha /G 6 0 R >> >>\nendobj\n".to_vec(),
+        stream_object(
+            6,
+            &format!(
+                "/Type /XObject /Subtype /Form /BBox [0 0 20 40] /Resources << >> \
+                 /Group << /Type /Group /S /Transparency /I true {mask_group_cs} >>"
+            ),
+            b"1 0 0 rg 0 0 20 40 re f",
+        ),
+    ];
+    assemble(&objects)
+}
+
+#[test]
+fn an_alpha_mask_group_may_inherit_its_colour_space_from_the_page_group() {
+    // Control first: explicit /CS and inherited /CS must produce the same mask.
+    let explicit = alpha_mask_with_inherited_group_space(Some("/DeviceRGB"));
+    let inherited = alpha_mask_with_inherited_group_space(None);
+    for (label, bytes) in [("explicit", explicit), ("inherited", inherited)] {
+        let document = Document::open(bytes.clone()).expect("valid exact-xref fixture");
+        assert!(
+            !document.was_recovered(),
+            "{label} fixture has an exact xref"
+        );
+        assert!(
+            !document.cross_reference_chain_was_cut(),
+            "{label} fixture has no repaired cross-reference chain"
+        );
+        let raster = render(bytes);
+        assert_eq!(
+            pixel(&raster, 10, 20),
+            [0, 0, 255, 255],
+            "{label}: opaque mask paints blue"
+        );
+        assert_eq!(
+            pixel(&raster, 30, 20),
+            [255, 255, 255, 255],
+            "{label}: outside group BBox is transparent"
+        );
+    }
+}

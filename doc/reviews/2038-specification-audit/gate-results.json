@@ -2723,6 +2723,40 @@
       "skipped": 58,
       "exit": 100,
       "scope": "Exactbinary/test match, noextra/missing. Covers through98,includingstrengthenedassertions. FiveGPU,oneengine,oneignoredstalegateoutside. PASS includes acknowledgedfixtureearlyreturns."
+    },
+    {
+      "log": "outline-style-wave100.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Initial revised same-positionstylecontrol."
+    },
+    {
+      "log": "outline-style-mutation-wave100.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Intentionaltest-localmutation clearsstylesafterparse: rejectedoldPASS,newFAIL. Restored; notmanifestfailures."
+    },
+    {
+      "log": "outline-mask-wave100.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Restoredoutline andnewAlphaomittedCS."
+    },
+    {
+      "log": "quality-wave100.log",
+      "exit": 101,
+      "scope": "NewUItestexpect lint fixed."
+    },
+    {
+      "log": "quality-wave100b.log",
+      "exit": 0,
+      "scope": "Finalmodel/UIalltargets."
     }
   ],
   "prior_expected_failures": {

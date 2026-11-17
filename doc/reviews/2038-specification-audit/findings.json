@@ -3194,5 +3194,41 @@
     "evidence": "ADR says no inverse defines no transformation/mapping; source8.3.4NOTE3 expressly describes noninvertible transformations, including mapping allcoordinates toonepoint, and warns of unpredictable painting.",
     "decision": "Retain resource-local diagnosis and no guessed replacement scale as explicit project policy. Withdraw mathematical claim and mandatory-refusal deduction from mapping wording.",
     "qualification": "Rationale finding only; no proposed pixel oracle, historicalADR rewrite or new runtimefailure."
+  },
+  {
+    "id": "2038-T134",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "12.3.3"
+    ],
+    "summary": "Outline style bits reach distinct visible text at identical positions; rejected different-row oracle missed dropped styles.",
+    "evidence": "Four one-leaf PDFs F0/1/2/3; literalparsedflags, eachmasknonempty, allpairwisedistinct. Clearingstyleflagsafterparse makesoldrowcomparisonPASS butrevisedtestFAIL.",
+    "execution": "FinalrestoredPASS; UI/modelClippyPASS.",
+    "qualification": "Test-local mutation restored andtemporaryprobe removed; no productionchanges. Compiled-in Sidebarfaces, notGTK/Qt or exactportableglyphoracle."
+  },
+  {
+    "id": "2038-T135",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "11.5.2",
+      "11.6.5.1",
+      "11.6.6"
+    ],
+    "summary": "Alpha softmask accepts omitted group color space with an explicit parent page group.",
+    "evidence": "ExplicitchildCS control andomittedchildCS bothpaintblueinsideopaqueleftmaskandwhiteoutside; exactxref/noRecovery/completeinterpretation.",
+    "execution": "1PASS; model/UIClippyPASS.",
+    "qualification": "Correctconditionalomission/alphapaint, not independent proof of inheritedcolorconversion becauseAlpha ignorescolor."
+  },
+  {
+    "id": "2038-D63",
+    "kind": "documentation-gap",
+    "clauses": [
+      "7.7.3.3",
+      "12.4.4.1"
+    ],
+    "summary": "ADR0473 cites Table160 for pageDur twice; actualpageentry is Table31.",
+    "evidence": "Parent read ADR0473 and primaryTable31physical121; Table164definestransitionD, Table160isnavigator.",
+    "decision": "Retain sharedclock andincomingtransitiontiming rationale; record correctedsource locator.",
+    "qualification": "Citation finding only; no runtimegap, historicalADR unchanged."
   }
 ]

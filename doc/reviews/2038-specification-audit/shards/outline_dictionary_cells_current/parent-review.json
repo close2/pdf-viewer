@@ -1,0 +1,9 @@
+{
+  "verdict": "T134 same-position outline style raster test PASS; rejected draft failed mutation quality check.",
+  "source": "Parent read actualTable150 physical460/printed445 (459 is preceding prose), Table151460–461 and152461. Direct #139 caretobjects4746/4750 forbid Prev onfirst andNext onlast; producer constraints, not mandated malformed-cycle recovery. NegativeCount magnitude means descendants visible ifopened, not all descendants.",
+  "assertion_review": "Read parser Fbit1italic/bit2bold; Sidebar flatten retains flags, Chrome selects regular/bold/italic/bolditalic face. Read existing outline color and count tests and ADR0144 activation architecture; optional SE is expressly not navigation. No whole-clause certification.",
+  "rejected_draft": "Four identical titles on different sidebar rows were compared at26..46,46..66,etc. Actual row pitch12*1.7=20.4 causes position/subpixel differences. Parent added nonempty controls, then replaced with four one-leaf documents at identical first-row position. Optional rootCount omitted with no open item.",
+  "mutation": "Test-local mutation cleared every item bold/italic AFTER parser assertions, BEFORE panel drawing. Original different-row draft stillPASS; revised same-position testFAIL regular/italic comparison. Both mutations and temporary rejected probe removed. No production file changed.",
+  "final": "ExactxrefPDF1.7/noRecovery, literal parsed flags, every style nonempty, six pairwise masksdistinct. Finalrestored testPASS. This proves style selection reaches visible ink; not a portable exactfontoutline/screenshot or nativeGTK/Qt proof.",
+  "execution": "outline-style-wave100 initialPASS; mutation2run1oldPASS1newFAIL; outline-mask-wave100 restoredPASS plusalphaPASS; model/UIClippyPASS."
+}

@@ -1,0 +1,29 @@
+{
+  "scope_note": "Selected outline-source and ADR review only. Producer restrictions, implementation choices, and visible consumer behavior are kept distinct.",
+  "decisions": [
+    {
+      "adr": "0055",
+      "topic": "Count-derived visibility and forward-list construction",
+      "review": "Its count algorithm is consistent with Table 151. Its cycle guard and decision to follow First/Next only are implementation choices; #139 now prohibits Next on a last item and Prev on a first item, but no standard text prescribes a malformed-cycle recovery result. Also, the original no-panel framing predates the current panel behavior.",
+      "disposition": "Retain count/list rationale with cycle handling labeled defensive policy, not a reader duty. Treat ADR 0144 as the later visible-panel/activation decision."
+    },
+    {
+      "adr": "0144",
+      "topic": "Outline visible behavior and activation",
+      "review": "Current code and tests cover linked display order, C color, F style data, and activation routes. The public panel draws C and interacts with Count; the newly supplied raster draft addresses the remaining visual assertion for F bits. The source's permission to display the outline does not require a panel in every processor.",
+      "disposition": "Retain; narrow evidence claims to distinguish model/script values from visible styling assertions until the F draft is run."
+    },
+    {
+      "adr": "0749 (EC3 Issue #139 disposition)",
+      "topic": "Endpoint sibling-link constraints",
+      "review": "Direct primary caret annotations insert a SHALL prohibition on Prev at first and Next at last. This makes those producer shapes invalid but does not itself require a reader to refuse or recover in a particular way. Current repeated-object guard is bounded tolerance behavior.",
+      "disposition": "Retain producer-side interpretation; do not promote it into an ISO mandate for cycle detection or error reporting."
+    },
+    {
+      "adr": "1934",
+      "topic": "Script Bookmark projection and execute",
+      "review": "Current hook tests project title, open state, style/color values and make execute a user-like activation request. This is a script API consumer decision layered on Table 151; it does not substitute for the visual style assertion at the Sidebar.",
+      "disposition": "Retain; keep script-model and viewer panel evidence separate."
+    }
+  ]
+}

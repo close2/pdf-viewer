@@ -191,7 +191,8 @@
         "DPart"
       ],
       "artifact": "shards/page_dictionary_cells_current/features.json",
-      "status": "partial"
+      "status": "partial",
+      "additional_review": "shards/page_transition_cells_current/parent-review.json (Dur/Trans only)"
     },
     {
       "table": "120",
@@ -857,6 +858,83 @@
         "8.7.3.1"
       ],
       "artifact": "shards/tiling_pattern_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "150",
+      "keys": [
+        "Type",
+        "First",
+        "Last",
+        "Count"
+      ],
+      "ledger_rows": [
+        "12.3.3"
+      ],
+      "artifact": "shards/outline_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "151",
+      "keys": [
+        "Title",
+        "Parent",
+        "Prev",
+        "Next",
+        "First",
+        "Last",
+        "Count",
+        "Dest",
+        "A",
+        "SE",
+        "C",
+        "F"
+      ],
+      "ledger_rows": [
+        "12.3.3"
+      ],
+      "artifact": "shards/outline_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "152",
+      "keys": [
+        "Italic",
+        "Bold"
+      ],
+      "ledger_rows": [
+        "12.3.3"
+      ],
+      "artifact": "shards/outline_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "164",
+      "keys": [
+        "Type",
+        "S",
+        "D",
+        "Dm",
+        "M",
+        "Di",
+        "SS",
+        "B"
+      ],
+      "ledger_rows": [
+        "12.4.4.1"
+      ],
+      "artifact": "shards/page_transition_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "145",
+      "keys": [
+        "CS"
+      ],
+      "ledger_rows": [
+        "11.6.6"
+      ],
+      "artifact": "shards/soft_mask_dictionary_cells_current/features.json",
       "status": "partial"
     }
   ]

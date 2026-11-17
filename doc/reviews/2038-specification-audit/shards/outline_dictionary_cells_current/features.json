@@ -1,0 +1,53 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected reader and visible-consumer cells for ISO 32000-2:2020(E) §12.3.3, Tables 150–152. This is not a whole-clause certification or a requirement that every PDF processor expose a visual outline panel.",
+  "source": {
+    "primary": "EC3 PDF §12.3.3/Table 150: physical p.460 / printed p.445; Table 151: physical pp.460–461 / printed pp.445–446; Table 152: physical p.461 / printed p.446. Page footers and actual table headings were checked in ec3-parent-layout.txt.",
+    "errata": "Issue #139 is on physical p.460 / printed p.445. Direct pikepdf read of primary annotations: Caret object 4746 0 R has Contents 'shall not be present on the first item at each level;' and Rect [431.953,252.941,439.906,259.421]; Caret object 4750 0 R has Contents 'shall not be present on the last item at each level;' and Rect [429.989,216.941,437.942,223.421]. Both target Table 151's /Prev and /Next rows respectively as indexed in errata_interactive_batch_current. These are producer-side endpoint constraints, not a reader recovery algorithm.",
+    "ledger": "doc/conformance/ledger.toml §12.3.3 is marked implemented; current code/test pointers and distinctions are mapped below."
+  },
+  "features": [
+    {
+      "cells": ["Catalog /Outlines", "Table 150 Type", "First", "Last"],
+      "source_rule": "Catalog Outlines is optional and indirect. Table 150 Type is optional, and if present is Outlines. First and Last are required only if any open or closed outline entries exist; both are indirect references and identify the first/last top-level item.",
+      "implementation": "pdf-model/src/outline.rs::Outline::read reads catalog Outlines and begins at root First; the forward walk does not consult Last. An absent outline or empty root produces an empty model.",
+      "assertions": ["crates/pdf-model/tests/outlines.rs::a_document_with_an_outline_produces_its_items (corpus evidence, not standalone validation)", "crates/pdf-model/src/outline.rs::the_linked_lists_read_as_a_tree", "crates/viewer-ui/tests/outline_count_audit.rs exact-xref root/leaf fixture"],
+      "assessment": "The parser and panel consume valid forward-list structures. Last and Type producer consistency are not required to be checked by a general reader. No invalid-input rejection obligation is inferred."
+    },
+    {
+      "cells": ["Table 150 Count", "Table 151 First/Last/Prev/Next/Parent", "Table 151 Count"],
+      "source_rule": "Items at each level form a doubly linked list; displayed order is linked-list order. Item Parent and sibling Prev/Next are required at their applicable positions; First/Last apply if children exist. Issue #139 makes Prev forbidden on a first sibling and Next forbidden on a last sibling. An item's Count is required only with descendants: positive means open and its magnitude is recursively computed visible descendant count; negative means closed and its absolute value is the number of descendants that would be visible if the item were opened. Root Count is required when the document has any open outline entries, is the total visible-item count, is nonnegative, and is omitted if no outline item is open.",
+      "implementation": "Outline::level follows First and Next; read_item retains nesting, derives open from Count > 0, and does not use Parent/Prev/Last to reconstruct the forward chain. Outline::visible_count counts each top-level item and recurses through positive-count items. Defensive depth/item/visited limits bound malformed walks.",
+      "assertions": ["crates/pdf-model/src/outline.rs::the_linked_lists_read_as_a_tree", "crates/pdf-model/src/outline.rs::the_visible_count_skips_a_closed_items_descendants", "crates/viewer-ui/tests/outline_count_audit.rs::pdf_outline_count_controls_initial_panel_visibility_and_user_toggle", "crates/pdf-model/tests/outlines.rs::a_stated_count_agrees_with_the_count_the_clause_defines", "crates/viewer-core/tests/headless.rs::an_outline_item_goes_to_the_page_its_destination_names"],
+      "assessment": "The exact-xref Sidebar test observes nested open/closed state, depth-first order, row identity before/after toggling, and a following sibling. The model/corpus count test compares the specified recursive count but discrepancies are producer inconsistencies and do not require reader refusal. #139 prohibits malformed endpoint Prev/Next entries; it does not establish how a reader must recover from cycles. Existing visited/depth/item guards are defensible implementation limits, not claimed ISO-mandated error behavior."
+    },
+    {
+      "cells": ["Table 151 Title", "Dest", "A"],
+      "source_rule": "Title is required text displayed on screen. Dest is optional and shall not be present if A is present. A is optional (PDF 1.1) and shall not be present if Dest is present. Activating a visible item jumps to its destination or triggers its associated action. Destinations and action dictionaries follow §§12.3.2 and 12.6.",
+      "implementation": "pdf-model/src/outline.rs::read_item decodes Title and destination(); /Dest is read directly, or a /GoTo action supplies a destination. viewer-core/src/interact.rs::activate_object processes a valid A chain, including GoTo and URI routes, and performs a direct Dest jump.",
+      "assertions": ["crates/pdf-model/tests/outlines.rs::the_linked_lists_read_as_a_tree", "crates/viewer-core/tests/headless.rs::an_outline_item_goes_to_the_page_its_destination_names", "crates/viewer-core/tests/headless.rs::an_outline_item_whose_action_is_a_uri_hands_it_over", "crates/viewer-core/tests/script_triggers.rs::an_executed_outline_item_is_activated_as_a_click_activates_it (A chain containing GoTo and JavaScript)"],
+      "assessment": "Both valid alternatives reach public activation consumers, with a direct destination, a URI action, and an action chain containing GoTo already exercised. A dictionary containing both Dest and A violates the producer constraint; the model's precedence in that malformed case is not a required reader behavior. No duplicate test is proposed."
+    },
+    {
+      "cells": ["Table 151 SE"],
+      "source_rule": "Optional indirect structure element reference; the table note explicitly says SE is not intended for navigation and structure destinations (the Dest entry) are the method for structure-based navigation.",
+      "implementation": "Outline::read_item does not use SE to determine destination or navigation; the existing Structure Destination implementation is reached through Dest/actions under §12.3.2.3.",
+      "assertions": ["crates/viewer-core/tests/headless.rs outline activation tests cover Dest/A behavior; structure-destination tests cover the separate destination algorithm"],
+      "assessment": "Not consuming SE for navigation matches the table note. This bounded audit does not claim a structure-tree consumer for the optional reference; no SE navigation test is warranted."
+    },
+    {
+      "cells": ["Table 151 C", "Table 151 F", "Table 152"],
+      "source_rule": "C is optional DeviceRGB text color, three components in [0,1], default black. F is optional, default 0; bit positions are numbered from least to most significant, with bit 1 italic and bit 2 bold, and all other bits shall be 0.",
+      "implementation": "pdf-model/src/outline.rs::colour defaults to black and clamps components; read_item maps F & 1 to italic and F & 2 to bold. viewer-ui Sidebar::flatten passes these into text style and color selection.",
+      "assertions": ["crates/pdf-model/src/outline.rs::the_linked_lists_read_as_a_tree checks parsed C=[1,0,0], F=2, and default model values", "crates/viewer-ui/tests/outline_colour_spec_audit.rs::explicit_outline_rgb_is_visible_in_the_panel_and_default_remains_black checks actual Sidebar raster ink", "crates/pdf-script/tests/hook.rs::the_bookmark_root_walks_the_outline_a_person_sees_and_execute_asks_the_host checks projected style/color values"],
+      "assessment": "Color has a public panel raster regression and default-black control. F values are asserted in model/script output and code is traced into selected face rendering, but no current panel pixel test distinguishes regular, italic, bold, and combined flags. A targeted exact-xref raster draft is supplied as an assertion-quality gap, not as a claimed behavior failure. Invalid color ranges or reserved F bits are producer violations; no reader refusal requirement is asserted."
+    }
+  ],
+  "current_execution": "No Cargo command was run by this audit. The existing color raster test and the Count panel test are tracked baseline tests; parent owns current execution gates. The F-style raster file is an unexecuted scratch draft.",
+  "residuals": [
+    "No exhaustive table conformance or malformed link validation; no mandatory cyclic-list recovery behavior is inferred.",
+    "Native Qt/GTK appearance is not independently pixel-checked; the draft uses viewer-ui's common Sidebar CPU raster consumer.",
+    "No behavior is assigned to SE beyond the effective table note saying it is not navigation.",
+    "Reader behavior when Dest and A, invalid C/F values, or incorrect redundant endpoint links coexist is unspecified here."
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "baseline": "b901326c",
+  "scope": "Cell-level review of page-object Table 31 /Dur and /Trans, §12.4.4.1 presentation timing, and transition-dictionary Table 164. Visual/native execution evidence is taken from the already completed transition_visual_consumer_current shard and is not recertified here.",
+  "source": {
+    "locators": [
+      "Table 31 /Dur and /Trans: physical p.121 / printed p.106 (the page-dictionary table); these entries are optional and neither is among the page-tree inheritable entries.",
+      "§12.4.4.1 presentation permission and incoming-page rule: physical p.476 / printed p.461.",
+      "Table 164 transition dictionary: physical pp.477–478 / printed pp.462–463; NOTE 2 and Figure 76 on physical p.478 / printed p.463; the clause EXAMPLE on physical p.479 / printed p.464."
+    ],
+    "effective_rules": [
+      "Some interactive processors may offer presentation/slide-show mode. This implementation offers one. In that mode, optional page /Trans supplies the style and duration of the visual transition used when moving from another page to this page.",
+      "Page /Dur is a maximum display duration in seconds before automatic advance during presentation; NOTE 1 permits manual advance before expiry. The page dictionary's explicit default is no automatic advance. If /Dur is absent, no automatic advance shall occur.",
+      "Table 164 /Type is optional and, if stated, shall be Trans. /S is optional and defaults to R. R is a replacement with no special effect and the /D entry shall be ignored. Otherwise /D defaults to one second.",
+      "Dm is optional for Split/Blinds only; H means horizontal and V vertical, default H. M is optional for Split/Box/Fly only; I inward and O outward, default I.",
+      "Di is optional for Wipe/Glitter/Fly/Cover/Uncover/Push only. Numeric directions are source-defined discrete choices, with style-specific restrictions; name None is relevant only for Fly when SS is not 1.0; default is zero. EC3 #36 changes the numeric /Di type wording to integer and #75 corrects capitalization of None.",
+      "SS is optional for Fly only and defaults to 1.0; B is optional for Fly only and defaults false. Table 164 defines their meanings but does not prescribe an animation curve or every intermediate pixel. NOTE 2 assigns D to the transition into its destination page; the EXAMPLE places the transition before that page's Dur starts."
+    ],
+    "errata": "Direct pikepdf inspection of primary physical p.478 confirms Issue #36's Caret insertions ('integer' and 'an integer') and Issue #75's 'uppercase' correction for None. The effective Table 164 text at physical pp.477–478 was read. The corrections alter table type/capitalization, not the presentation-mode condition or incoming-page timing.",
+    "table_cell_map": [
+      {"entry":"Table 31 /Dur", "consumer":"pdf_model::navigation::display_duration; viewer-core navigation tick", "assertions":"model parses stated literal; headless tests cover stated-duration advance and non-presentation gating; promoted omitted_page_duration_spec_audit.rs has four pages with a non-final omitted-Dur page, surrounding stated-duration controls, and passes in text-presentations-wave16b.log", "status":"page duration path and omitted-Dur public active-presentation behavior are executed and passing; do not carry forward the old scratch-only pending status"},
+      {"entry":"Table 31 /Trans", "consumer":"pdf_model::navigation::transition; incoming Event::Transition; viewer-host PresentationPump", "assertions":"page is own-dictionary only; parent /Pages noninheritance control; incoming destination event and visuals elsewhere reviewed", "status":"tested at parser, core event, static frame, and parent-reported Xvfb window-sequence seams"},
+      {"entry":"Table 164 Type", "consumer":"transition parser resolves dictionary but does not reject non-Trans Type", "assertions":"no Type-negative reader assertion found", "status":"producer condition if Type is stated; no source mandate to reject on read established"},
+      {"entry":"Table 164 S and D", "consumer":"transition parser and frame/host clock", "assertions":"source EXAMPLE literals; default and overrides; R ignores D; incoming transition timing and frame evidence in sibling shard", "status":"directly asserted; R has no animation; no source-specified intermediate timing curve"},
+      {"entry":"Table 164 Dm and M", "consumer":"transition parser; Split/Blinds, Split/Box/Fly frame consumers", "assertions":"horizontal/vertical and inward/outward Split controls, plus additional model/geometry tests", "status":"default and explicit values tested; selected styles' quantities remain owner decisions"},
+      {"entry":"Table 164 Di", "consumer":"transition parser; direction-specific frame geometry", "assertions":"literal Wipe 0/180, Fly None/scale controls; geometry tests cover source-defined directions and style restrictions", "status":"effective integer correction recorded; permissive parsing of fractional or otherwise unsupported values is not treated as a source-mandated reject defect"},
+      {"entry":"Table 164 SS and B", "consumer":"Fly transition shape and note/report", "assertions":"default SS=1/B=false and explicit SS=.5/B=true at model/event layer; Fly frame and note tests", "status":"defaults and explicit values asserted; exact absent quantities for other styles are implementation choices where source is qualitative"}
+    ],
+    "implementation_assertions": {
+      "model": [
+        "crates/pdf-model/src/navigation.rs::the_clauses_own_example_page_states_a_split_and_five_seconds checks /Dur 5, /D 3.5, Split, Dm V, M O, and remaining Table 164 defaults against the source EXAMPLE.",
+        "crates/pdf-model/src/navigation.rs::a_page_stating_neither_entry_says_nothing_about_either places Dur and Trans on /Pages and asserts no inherited values on its child Page.",
+        "crates/pdf-model/src/navigation.rs::a_replacement_takes_no_time_and_an_unknown_style_keeps_its_name checks /S /R ignores /D 9 and preserves an unknown style name without claiming it is a defined effect.",
+        "crates/viewer-core/tests/presentations_audit.rs::transition_defaults_are_delivered_to_the_host_for_the_styles_that_use_them checks default/overridden Split, Wipe, and Fly fields; ::an_omitted_transition_style_replaces_immediately_despite_a_stated_duration covers omitted S and explicit R."
+      ],
+      "runtime_and_visual": [
+        "viewer-core headless tests assert stated /Dur advances on presentation ticks and does not advance outside presentation; transition event tests assert the incoming page's transition is delivered.",
+        "Core/UI transition tests assert literal frame geometry/pixels for source-determined effects; Blinds/Dissolve/Glitter/Fly quantities are documented choices rather than standard numeric requirements.",
+        "The sibling transition_visual_consumer_current shard records the actual page-to-host frame path and the parent's explicit-X11 run of step 83: GTK, Qt, Quorra default, and Quorra CPU all passed visible movement checks. That is parent-reported execution, not this shard's execution."
+      ],
+      "remaining_test_candidate": "None for the omitted-page-Dur rule: the sibling draft was promoted to crates/viewer-core/tests/omitted_page_duration_spec_audit.rs and parent-review records PASS in text-presentations-wave16b.log."
+    }
+  },
+  "limits": [
+    "No universal processor obligation to offer presentation mode: the source says some interactive processors may. The project has chosen and implemented the capability, so its own enabled mode is in scope.",
+    "No requirement that every transition use a visible animation: R/default is expressly no effect. No numeric curve, frame cadence, or quantity is supplied for all styles.",
+    "Malformed Type/value rejection is not inferred from producer-side shall/if-present conditions. This review does not test invalid producer dictionaries as reader failures.",
+    "No new test draft is added because the omitted-page-Dur candidate is already promoted and passing. This review does not certify all styles on every host, all compositor/display behavior, or all sub-page navigation."
+  ]
+}

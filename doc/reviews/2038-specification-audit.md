@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (99)
+## Current checkpoint (100)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **105 failing test identities**: 104 behavior assertions/probes
@@ -385,6 +385,12 @@ Checkpoint99 refreshes the eleven-crate run:7,283 tests,7,185passes, exactly98
 expected failures and58skips. No extra or missing failure identities. The105-entry
 manifest includes seven separately scoped GPU/engine/ignored identities. This run
 verifies execution of the new tests and strengthened assertions through98.
+
+Checkpoint100 adds passing outline-style and Alpha soft-mask omission controls.
+The first outline draft compared different rows and missed a deliberately cleared
+style: row-position differences hid the defect. The revised same-position oracle
+catches it; all temporary mutations are restored. D63 corrects an ADR source-table
+citation while retaining its clock design. Final model/UI Clippy passes.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

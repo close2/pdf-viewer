@@ -36,5 +36,5 @@ TSA keyCompromise time selection fails with genuine signed material; FieldMDP
 rename coverage is an unresolved policy probe. Independent colour/annotation tests pass.
 Alpha, filtered-checksum and cross-Contents controls pass; archive path cap fails. Model/transform Clippy pass.
 Revocation findings survive second review; older indexes omit four grouped errata IDs.
-All69file pointers partially reviewed; CPU degenerate shadings fail. Type3 missing-key, UF and signed-step controls pass; ADR0914 qualified.
+All69file pointers partially reviewed; CPU degenerate shadings fail. Same-position outline oracle catches dropped styles; Alpha CS-omission passes.
 Malformed XFA, near-similarity thick strokes and TM export naming and field-AA/DS/TI/I inheritance fail; save/font controls pass.

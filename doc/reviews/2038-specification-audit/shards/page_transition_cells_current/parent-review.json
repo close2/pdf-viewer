@@ -1,0 +1,8 @@
+{
+  "verdict": "No new behavior gap; D63 corrects ADR0473 citation only.",
+  "source": "Parent read actualpageTable31 Dur/Trans physical121, Table164 physical477–478. Primary #36 integerDi and#75 uppercaseNone checked. PageDur andtransitionD are different clocks; incoming destinationtransition precedes itsdisplayduration.",
+  "stale_candidate": "Agent first called omittedDur draft pending; parent found durable thumbnails_transitions_current/parent-review and tracked omitted_page_duration_spec_audit.rs. It passed wave16b and again broad99. Parent reread four-page test: timedadvance to nonfinalmissingDurpage,60secondnoadvance, manualadvance, followingtimedadvance. No duplicate created.",
+  "assertions": "Parent read model/event defaultSplit/Wipe/Fly assertions and R/omittedS withD99 checks. Existing actual native-window sequence evidence is retained in transition_visual_consumer_current, not rerun or broadened here.",
+  "adr": "ADR0473 twice labels pageDur Table160; actualTable31. Table160 is navigator dictionary,Table164 transitionD. Sharedclock rationale retained; historicalADR unchanged. Quantitative style choices/curves remain implementation policy where source is qualitative.",
+  "qualification": "No universal requirement to offer presentations; enabled capability is tested. No malformed type-rejection or allhosts/allstylescertification."
+}

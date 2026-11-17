@@ -1,0 +1,35 @@
+{
+  "baseline": "b901326c",
+  "scope": "Focused follow-up to soft_mask_cells_current: verify Table 145's conditional /CS rule as it affects Table 142 /G for Alpha versus Luminosity. No whole-clause certification.",
+  "primary_source": {
+    "file": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "table_142": "physical p. 434 / printed p. 419; §11.6.5.1 prose physical p. 433 / printed p. 418.",
+    "table_145": "physical p. 437 / printed p. 422 (header and /CS row checked directly); §11.6.6 opening physical pp. 436-437 / printed pp. 421-422.",
+    "rule": "Table 142 says /G's group attributes must contain /CS if /S is Luminosity. Table 145 independently explains the conditional: transparency-group /CS is otherwise optional, but required for an XObject with no parent group/page to inherit from, in particular a Luminosity soft-mask group. Its default is the parent group's or page's color space. Thus an Alpha mask group may omit /CS when it has a parent page group from which to inherit. §11.6.5.1 derives Alpha from group alpha only and explicitly permits omitting color compositing computations.",
+    "errata": "Checked primary annotations on physical pp. 432-434 (Table 142) and p. 437 (Table 145). Table 142 pages have navigation Links only. Table 145 page has Caret Issue #134 at the /CS discussion, inserting 'of the transparency group XObject' to identify the relevant resource dictionary for device-space remapping; it does not alter the conditional presence/default rule. The table row itself was checked, not inferred from a prose cross-reference.",
+    "source_quality": "Primary EC3 PDF text plus direct table/page inspection; no secondary-source inference."
+  },
+  "ledger_and_implementation": {
+    "ledger": "doc/conformance/ledger.toml clause 11.6.5.1 is implemented and claims Table 142; clause 11.6.5 is an aggregate implemented row. The existing broad 11.6.6 row is not recertified here.",
+    "code": [
+      "crates/pdf-model/src/soft_mask.rs::read obtains /CS but branches Alpha without resolving it; only Luminosity passes it to luminosity()",
+      "crates/pdf-model/src/content/transparency.rs::transparency_group recognizes the group without imposing /CS globally",
+      "crates/pdf-model/src/content/transparency/soft_mask.rs::build_soft_mask executes the group in its inherited parent context"
+    ],
+    "assessment": "Implementation appears to preserve the source's conditional: missing /CS does not prevent the Alpha branch; group execution can inherit the page-group space. Existing focused fixtures nevertheless always place /CS on the soft-mask group, so this specific valid conditional is not directly asserted."
+  },
+  "feature": {
+    "id": "alpha-soft-mask-group-inherits-parent-color-space-without-own-cs",
+    "source_location": "§11.6.5.1 Table 142, physical p. 434 / printed p. 419; §11.6.6 Table 145 /CS row, physical p. 437 / printed p. 422.",
+    "effective_requirement": "For a Table 142 /S /Alpha soft-mask group, /CS is not made mandatory by Table 142. Under Table 145, a transparency XObject may inherit the color space from its parent page/group; /CS is required where there is no parent to inherit from, expressly including a Luminosity soft-mask group. Alpha extraction uses group alpha and may omit color compositing.",
+    "ledger_mapping": "11.6.5.1 implemented (Table 142); 11.6.6 is the inherited group-color-space rule. This audit does not treat all Table 145 or 11.6.6 cells as checked.",
+    "current_assertions": [
+      "crates/pdf-model/tests/soft_masks.rs::an_alpha_mask_reads_the_groups_alpha_and_ignores_its_colour",
+      "crates/pdf-model/tests/soft_masks.rs::a_non_isolated_alpha_mask_group_with_a_blend_is_not_reported_and_keeps_its_alpha",
+      "crates/pdf-model/tests/soft_masks.rs::a_mask_group_stating_no_resources_is_read_against_the_pages_dictionary"
+    ],
+    "assertion_gap": "The current Table 142 Alpha fixtures set /CS on the mask group; the no-resources assertion concerns Resources, not inherited group color space. None proves an Alpha mask group lacking /CS inherits the page's group space.",
+    "test_draft": "drafts/alpha_mask_inherited_group_space.rs",
+    "verdict": "Narrow assertion gap; no runtime failure established. Source permits this Alpha fixture, and current code path appears to accept it."
+  }
+}
