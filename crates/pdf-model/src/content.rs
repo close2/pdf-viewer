@@ -69,8 +69,9 @@ pub use font::{FONT_BUDGET, FontCache, FontCacheReport};
 pub use ledger::Ledger;
 pub use list_budget::MAX_LIST_BYTES;
 pub use report::{
-    ArtifactSource, ArtifactSpan, ContentStream, DamagedStream, Interpretation, MarkedSpan,
-    ObjectSpan, Placed, Shortfall, StreamSyntaxFault, UnnamedCodes, Unsupported, named_sequences,
+    AfterDrawing, ArtifactSource, ArtifactSpan, ContentStream, DamagedStream, Interpretation,
+    MarkedSpan, ObjectSpan, Placed, Shortfall, StreamSyntaxFault, UnnamedCodes, Unsupported,
+    named_sequences,
 };
 
 /// Deepest nesting of `q`/`Q` that will be tracked.

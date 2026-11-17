@@ -913,6 +913,11 @@ pub(crate) struct Interpreted {
     /// The conditions a draw of this reading has declined and the page has been told of, each
     /// once (`Command::Declined`, ADR 2290). Empty on nearly every page.
     pub(crate) declined: Vec<String>,
+    /// What this reading's type 4 functions meet where a draw evaluates them, asked after each
+    /// draw: §8.7.4.5.2's type 1 grid is evaluated by whatever draws [`Self::list`], after the
+    /// interpretation's own reports were written, and §7.10.5.3 makes what it meets there an
+    /// error to say (ADRs 2848, 2946).
+    pub(crate) after_drawing: pdf_model::content::AfterDrawing,
 }
 
 /// A render the host has not answered yet.

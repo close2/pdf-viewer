@@ -865,6 +865,36 @@ pub struct Interpretation {
     pub functions: crate::function::Watched,
 }
 
+/// ISO 32000-2 §7.10.5.3's errors the type 4 functions of one page meet once the page's
+/// interpretation is over, asked of the page's functions after each draw
+/// ([`Interpretation::after_drawing`]).
+///
+/// §8.7.4.5.2's type 1 shading is evaluated where a backend draws its grid, so a program that
+/// errs for some inputs errs there, after [`Interpretation::unsupported`] was written; and a page
+/// is drawn many times, at every magnification a person stops at. What this answers is each fault
+/// once: the faults the interpretation already said are the first it has said. ADR 2946.
+#[derive(Debug, Clone, Default)]
+pub struct AfterDrawing {
+    functions: crate::function::Watched,
+    said: Vec<crate::function::EvaluationFault>,
+}
+
+impl AfterDrawing {
+    /// The faults met since this was last asked, and not said by the interpretation, each as the
+    /// report [`Interpretation::unsupported`] would have carried; an empty answer is a draw whose
+    /// programs ran as §7.10.5.3 allows, or whose faults are said already.
+    pub fn news(&mut self) -> Vec<Unsupported> {
+        let mut news = Vec::new();
+        for fault in self.functions.faults() {
+            if !self.said.contains(&fault) {
+                self.said.push(fault);
+                news.push(Unsupported::FunctionEvaluation { fault });
+            }
+        }
+        news
+    }
+}
+
 /// One character code's readback, and where its glyph sits on the page.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Placed {
@@ -1218,12 +1248,26 @@ impl Interpretation {
     /// ADR 2848.
     #[must_use]
     pub fn function_faults_after_drawing(&self) -> Vec<Unsupported> {
-        self.functions
-            .faults()
-            .into_iter()
-            .map(|fault| Unsupported::FunctionEvaluation { fault })
-            .filter(|report| !self.unsupported.contains(report))
-            .collect()
+        self.after_drawing().news()
+    }
+
+    /// The same question as [`Self::function_faults_after_drawing`], kept apart from the
+    /// interpretation, for a caller that hands the display list to whatever draws it and keeps
+    /// the page's reports beside it: the functions' cells are shared, so a grid drawn from the
+    /// list answers here however long after. ADRs 2848 and 2946.
+    #[must_use]
+    pub fn after_drawing(&self) -> AfterDrawing {
+        AfterDrawing {
+            functions: self.functions.clone(),
+            said: self
+                .unsupported
+                .iter()
+                .filter_map(|report| match report {
+                    Unsupported::FunctionEvaluation { fault } => Some(*fault),
+                    _ => None,
+                })
+                .collect(),
+        }
     }
 
     /// The page as §14.9 says it should be vocalised: [`Self::text`] with the descriptions,

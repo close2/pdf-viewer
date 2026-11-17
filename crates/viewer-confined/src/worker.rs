@@ -613,7 +613,8 @@ fn said(declined: &[render_cpu::UnionDecline]) -> Vec<viewer_core::Declined> {
 /// A window the rasteriser refuses lets its page go and is said in the rasteriser's words, as a
 /// page's refusal is (trap 5): the viewer was told the host took that render, so the sentence is
 /// the only thing left to say it was not drawn. What a window's draw declined is told to the viewer,
-/// which says it as it says a whole page's (ADR 2290).
+/// which says it as it says a whole page's (ADR 2290), and so is every drawn window, whose draw
+/// is the one the viewer was not told of by the page's answer (ADR 2946).
 fn draw_windows(
     viewer: &mut Viewer,
     marks: &mut protocol::Marks,
@@ -632,10 +633,13 @@ fn draw_windows(
         match rasterizer.rasterize_window(&list, target, shown) {
             Ok(raster) => {
                 let declined = said(rasterizer.declined());
-                if let Some(document) = marks.drew(page, window, raster)
-                    && !declined.is_empty()
-                {
-                    marks.declined_here(page);
+                // Told even where nothing was declined: this draw came after the page was
+                // answered, so this is where the viewer learns a draw of it is over, and asks what
+                // its type 4 functions met there (ADR 2946).
+                if let Some(document) = marks.drew(page, window, raster) {
+                    if !declined.is_empty() {
+                        marks.declined_here(page);
+                    }
                     outgoing.extend(viewer.handle(Command::Declined {
                         document,
                         page,

@@ -917,6 +917,10 @@ pub enum Command {
     /// kept with the page's other notes, so [`crate::Query::Reports`] says it again. A page that
     /// is not open, or whose reading has gone, takes nothing: the draw was of a page the reader is
     /// no longer looking at.
+    ///
+    /// **An empty list is a draw that declined nothing**, and is still worth sending by a host that
+    /// draws after it answered [`crate::Command::RenderReady`]: each of these is where the page
+    /// asks what its type 4 functions met in the draw (§7.10.5.3, ADR 2946), as each answer is.
     Declined {
         /// Which document the page belongs to.
         document: DocumentId,

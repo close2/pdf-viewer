@@ -360,6 +360,10 @@ impl Viewer {
                 notes,
             });
         }
+        // A host that draws after it answered — the window a confined worker draws once the
+        // page has been answered `Rendered::Listed` — tells the page here, so this is the other
+        // place a draw is known to be over (ADR 2946).
+        said_after_drawing(document, page, interpreted, events);
     }
 
     /// Records what a worker did with a request, or drops it for being about the past.
@@ -447,6 +451,11 @@ impl Viewer {
                 });
             }
         }
+        // Every arm is an answer about a draw — a refused one may have evaluated part of a grid
+        // before it stopped — so each asks what the draw met (ADR 2946).
+        if let Some(interpreted) = on_screen.interpreted.as_mut() {
+            said_after_drawing(id, pending.page, interpreted, events);
+        }
     }
 
     /// Takes one page's read into the arrangement's entry at `index`, and answers the list it
@@ -501,6 +510,7 @@ impl Viewer {
             }
             on_screen.interpreted = Some(Interpreted {
                 shortfall: interpretation.shortfall(),
+                after_drawing: interpretation.after_drawing(),
                 list: Arc::new(interpretation.display_list),
                 reports,
                 text: interpretation.text,
@@ -519,4 +529,37 @@ impl Viewer {
             .and_then(|on_screen| on_screen.interpreted.as_ref())
             .map(|interpreted| Arc::clone(&interpreted.list))
     }
+}
+
+/// Says what a draw of a page met in its type 4 functions that the page has not said yet, kept
+/// with the page's other notes so that `Query::Reports` says it again.
+///
+/// ISO 32000-2 §7.10.5.3 makes three conditions errors — a count of remaining operands other
+/// than `/Range`'s, an output that is not a number, and an overflowed stack — and a program that
+/// meets one only for some inputs meets it where it is evaluated. §8.7.4.5.2's type 1 shading is
+/// evaluated where its grid is drawn, after the interpretation's reports were worded, so the page
+/// is asked again once a draw is over. Each fault is said once while the reading stands, the way
+/// `Command::Declined` says each condition once: a page is drawn at every magnification a person
+/// stops at. ADRs 2848, 2946.
+fn said_after_drawing(
+    document: DocumentId,
+    page: usize,
+    interpreted: &mut Interpreted,
+    events: &mut Vec<Event>,
+) {
+    let notes: Vec<String> = interpreted
+        .after_drawing
+        .news()
+        .iter()
+        .map(crate::report::describe)
+        .collect();
+    if notes.is_empty() {
+        return;
+    }
+    interpreted.reports.extend(notes.iter().cloned());
+    events.push(Event::Reported {
+        document,
+        page: Some(page),
+        notes,
+    });
 }
