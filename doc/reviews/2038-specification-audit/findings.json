@@ -2759,5 +2759,26 @@
     "evidence": "Analytical rectangles give a=.875,b=.4,overlap=.3,product=.35,min=.4. Product is closer here; min still preserves idempotence and upper bound.",
     "disposition": "Qualify historical rationale and distinguish current exact geometric meets from bounded fallback/group approximations.",
     "qualification": "No universal source-prescribed AA-byte bound inferred. Extreme-coordinate depth-cap concern remains an unconfirmed residual."
+  },
+  {
+    "id": "2038-T114",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "7.5.6"
+    ],
+    "summary": "Confined host saved-event tests assert literal output and source preservation.",
+    "evidence": "Three PASS: ordinary name, already-edited double suffix, and conflicting destination directory with sentinel. Actual Host::event/write_saved boundary.",
+    "qualification": "No real PDF serialization or native drive executed; stderr and existing regular-target overwrite policy unasserted."
+  },
+  {
+    "id": "2038-D59",
+    "kind": "decision-premise-qualification",
+    "clauses": [
+      "7.6.2",
+      "12.7.3"
+    ],
+    "summary": "ADR1190 no-form-fill/no-save premise expired when confined editing and saving were added.",
+    "evidence": "ADRs1592/1987 add operations. CLI rejects document-restriction settings; worker receives no Restrict. Off remains reader-friendly project default.",
+    "disposition": "Reconcile operation-level controls policy with current confined host. No mandatory ISO violation or Ctrl+S confirmation requirement inferred."
   }
 ]

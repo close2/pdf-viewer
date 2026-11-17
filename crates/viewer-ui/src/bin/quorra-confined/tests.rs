@@ -474,3 +474,80 @@ fn an_abort_between_the_death_and_the_restart_wins() {
         host.stopped
     );
 }
+
+#[test]
+fn saved_bytes_go_to_edited_path_and_leave_ordinary_source_unchanged() {
+    let directory = beside("saved-event-ordinary");
+    let source = directory.join("form.pdf");
+    let destination = directory.join("form.edited.pdf");
+    let original = b"source-document-bytes";
+    let saved = b"current-saved-document-bytes";
+    std::fs::write(&source, original).expect("write source fixture");
+
+    let mut host = a_host();
+    host.path = source.clone();
+    host.event(Event::Saved {
+        document: DocumentId(0),
+        bytes: saved.to_vec(),
+    });
+
+    assert_eq!(std::fs::read(&destination).expect("edited output"), saved);
+    assert_eq!(std::fs::read(&source).expect("original remains"), original);
+    std::fs::remove_dir_all(&directory).expect("remove temporary directory");
+}
+
+#[test]
+fn already_edited_input_gets_a_second_suffix_and_is_preserved() {
+    let directory = beside("saved-event-already-edited");
+    let source = directory.join("form.edited.pdf");
+    let destination = directory.join("form.edited.edited.pdf");
+    let original = b"already-edited-source";
+    let saved = b"new-current-bytes";
+    std::fs::write(&source, original).expect("write source fixture");
+
+    let mut host = a_host();
+    host.path = source.clone();
+    host.event(Event::Saved {
+        document: DocumentId(0),
+        bytes: saved.to_vec(),
+    });
+
+    assert_eq!(
+        std::fs::read(&destination).expect("second-suffix output"),
+        saved
+    );
+    assert_eq!(std::fs::read(&source).expect("source remains"), original);
+    std::fs::remove_dir_all(&directory).expect("remove temporary directory");
+}
+
+#[test]
+fn saved_event_with_directory_at_destination_does_not_damage_source() {
+    let directory = beside("saved-event-write-failure");
+    let source = directory.join("form.pdf");
+    let destination = directory.join("form.edited.pdf");
+    let original = b"source-survives-failed-write";
+    std::fs::write(&source, original).expect("write source fixture");
+    std::fs::create_dir(&destination).expect("make destination unwritable as a file");
+    let sentinel = destination.join("existing-content");
+    std::fs::write(&sentinel, b"preserve-me").expect("write directory sentinel");
+
+    let mut host = a_host();
+    host.path = source.clone();
+    host.event(Event::Saved {
+        document: DocumentId(0),
+        bytes: b"bytes-that-cannot-be-written-to-a-directory".to_vec(),
+    });
+
+    // write_saved reports the write error to stderr. This in-process test verifies the observable
+    // filesystem result; asserting the diagnostic requires a subprocess/stderr-capture harness.
+    assert!(
+        destination.is_dir(),
+        "the conflicting directory remains intact"
+    );
+    assert_eq!(std::fs::read(&source).expect("source remains"), original);
+    assert_eq!(
+        std::fs::read(&sentinel).expect("directory contents remain"),
+        b"preserve-me"
+    );
+    std::fs::remove_dir_all(&directory).expect("remove temporary directory");
+}

@@ -840,7 +840,8 @@
       "shards/transform_preservation_residual_current/features.json",
       "shards/errata_numeric_syntax_batch_current/features.json",
       "shards/errata_weak_dispositions_batch2_current/features.json",
-      "shards/binary_transport_consumers_current/features.json"
+      "shards/binary_transport_consumers_current/features.json",
+      "shards/adr1190_confined_operations_current/features.json"
     ],
     "prior_artifacts": [
       "file_structure_audit"
@@ -992,7 +993,8 @@
       "shards/encryption/features.json",
       "shards/errata_numeric_syntax_batch_current/features.json",
       "shards/adr1161_encrypted_writer_current/features.json",
-      "shards/adr1162_1187_output_protection_current/features.json"
+      "shards/adr1162_1187_output_protection_current/features.json",
+      "shards/adr1190_confined_operations_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -7773,7 +7775,8 @@
     "current_artifacts": [
       "prior-assertion-reviews.json",
       "shards/xfa_attachment_assertions_current/features.json",
-      "shards/adr1257_1270_archive_claims_current/features.json"
+      "shards/adr1257_1270_archive_claims_current/features.json",
+      "shards/adr1190_confined_operations_current/features.json"
     ],
     "prior_artifacts": [
       "interactive_form_structure_audit"

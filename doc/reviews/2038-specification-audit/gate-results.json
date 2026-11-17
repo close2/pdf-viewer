@@ -2234,6 +2234,18 @@
       "log": "quality-wave83b.log",
       "exit": 0,
       "scope": "render-raster all-targetsClippy"
+    },
+    {
+      "log": "confined-save-wave84.log",
+      "run": 3,
+      "passed": 3,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave84.log",
+      "exit": 0,
+      "scope": "viewer-ui all-targets Clippy"
     }
   ],
   "prior_expected_failures": {

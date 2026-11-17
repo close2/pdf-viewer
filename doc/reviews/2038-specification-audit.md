@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (83)
+## Current checkpoint (84)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **86 failing test identities**: 85 behavior assertions/probes
@@ -286,6 +286,12 @@ and perpendicular controls pass; direct display-list and parsed-PDF paths fail (
 Earlier strongly anisotropic cases still pass. The manifest is86; render-raster Clippy
 passes. Clip/flattening review qualifies historical mathematical rationale without
 asserting a source-prescribed fractional-antialiasing failure (D58).
+
+Checkpoint84 adds three passing confined-host save tests: literal output bytes, source
+preservation for ordinary/already-edited names, and failed-write preservation of a
+conflicting directory and its contents (T114). The older no-form-fill/no-save premise
+is stale; restriction-control UI remains a qualified policy question (D59). Viewer-ui
+Clippy passes. The manifest remains86; no production behavior was changed.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

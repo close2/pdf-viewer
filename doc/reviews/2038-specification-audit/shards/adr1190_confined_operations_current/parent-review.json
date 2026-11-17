@@ -1,0 +1,16 @@
+{
+  "verdict": "Three literal filesystem assertions PASS. Historical operation inventory is stale; restriction UI reconciliation remains a policy question, not an ISO defect.",
+  "inspection": "Read ADR1190 section3,1592 section4,1987 section2; events/arguments/worker and ReaderWords::commands. The latter supplies Trust,References,Audience,Scripts,Recipient, not Restrict. Ctrl+S is a direct reader gesture; no confirmation requirement inferred.",
+  "execution": {
+    "log": "confined-save-wave84.log",
+    "tests": [
+      "saved_bytes_go_to_edited_path_and_leave_ordinary_source_unchanged",
+      "already_edited_input_gets_a_second_suffix_and_is_preserved",
+      "saved_event_with_directory_at_destination_does_not_damage_source"
+    ],
+    "passed": 3,
+    "quality": "viewer-ui all-targets Clippy PASS,quality-wave84.log"
+  },
+  "strength": "Tests send Event::Saved through actual Host::event. Literal output/source bytes; already-edited input gets a second suffix; conflicting directory and sentinel survive failed write.",
+  "limits": "Literal byte transport boundary, not PDF serializer or real window/worker execution. Existing field_commit drive was read, not rerun. Stderr text and existing regular-target overwrite policy remain unasserted. Agent hypothesis of already-edited path aliasing was disproved before promotion."
+}
