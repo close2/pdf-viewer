@@ -16,7 +16,7 @@ The report and machine-readable continuation are in
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
 The shard index links partial reviews to all883 ledger rows, each still partial. Feature residuals remain
 inside reviewed rows. No entire clause is certified merely because referenced tests pass.
-Date, colour and TJ mutations were restored; independent tests catch them. Independent JP2 fixture
+Date, colour, TJ and Indexed mutations were restored; independent tests catch them. Independent JP2 fixture
 regeneration matches embedded hashes. Selected ADR conclusions are retained,
 qualified, or reconsidered with primary-source reasoning.
 
@@ -37,4 +37,4 @@ TSA keyCompromise time selection fails with genuine signed material; FieldMDP
 rename coverage is an unresolved policy probe. Independent colour/annotation tests pass.
 Alpha, filtered-checksum and cross-Contents controls pass; archive path cap fails. Model/transform Clippy pass.
 Revocation findings survive second review; older indexes omit four grouped errata IDs.
-Generation-aware corpus and stronger TJ controls pass;44/69file pointers partially reviewed.
+Exact Indexed/independent press oracles and corrected fixture lengths pass;56/69file pointers reviewed.

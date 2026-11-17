@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (77)
+## Current checkpoint (78)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **83 failing test identities**: 82 behavior assertions/probes
@@ -232,6 +232,18 @@ passes. Five earlier behavior findings survive fixture/oracle second review with
 narrower qualifications. The file-only index reaches 44 of 69 partially reviewed pointers;
 Windows actual HideWindowUI visibility remains an unexecuted integration proposal.
 Broad76 predates the new generation test and these stronger oracles.
+
+Checkpoint78 replaces two weak expectations and repairs unrelated fixture faults.
+The Indexed default-Decode test now checks every one of 256 indices exactly, instead
+of four with a one-level tolerance. An index-minus-one mutation passes the old test
+and fails the stronger one; production is restored and the stronger test passes.
+The press-routing test uses an independently calculated literal color, scoped to its
+synthetic profile and selected output policy. Incorrect stream lengths in Contents
+and damaged-page fixtures are computed exactly. All 32 selected tests pass; model
+Clippy passes. Two GPU test comments now distinguish shading-sampling policy from
+the specification's image-specific pixel-centre rule. The exact file-only pointer
+index reaches 56 of 69 partial reviews, with 13 under active review. No new behavior
+failure or new test identity is added by this checkpoint.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

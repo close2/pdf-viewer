@@ -1,0 +1,72 @@
+{
+  "shard": "file_only_shading_render_assertions_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "selection": [
+    ["8.7.4.5.3", "crates/render-cpu/tests/shading_placement.rs"],
+    ["8.7.4.5.3", "raster/crates/raster-gpu/tests/a_steep_ramp_is_read_at_its_own_t.rs"],
+    ["8.7.4.5.3", "raster/crates/raster-gpu/tests/shading_steps.rs"],
+    ["8.7.4.5.8", "crates/test-scenes/src/lib.rs"],
+    ["10.7", "crates/pdf-render/src/paint.rs"]
+  ],
+  "source_method": "Direct EC3 PDF text/layout and physical-footer review, plus pikepdf inspection of /Annots on target pages. Assertions were read in current worktree and helper scenes were traced to named consumers. No Cargo or rendering tests were run in this shard.",
+  "features": [
+    {
+      "clause": "8.7.4.5.3",
+      "title": "Axial shading placement, transformed paths, and CPU sample colors",
+      "source_location": "§8.7.4.5.3, physical pp.248–249 / printed pp.233–234; Table 79 is physical p.248 / printed p.233.",
+      "effective_rule": "Table 79 maps the axis endpoints to Domain endpoints, linearly determines t for a point projected onto the axis, passes t to the Function, and leaves out-of-axis points unpainted unless the respective Extend value is true. This specifies pointwise shading values and geometry. The selected test's per-pixel sample-at-center policy is a renderer strategy; §10.7.4's pixel-center sentence belongs specifically to its sampled-image paragraph and does not itself prescribe a universal color sample location for shadings.",
+      "errata": "No Issue annotation appears on physical pp.248–249. The nearby #551 StrikeOut is physical p.232 / printed p.217, outside the defining Type 2 pages. #428 and #294 are physical pp.235–236 and concern tiling-pattern order/heading, not axial shading.",
+      "ledger": "§8.7.4.5.3 is implemented; code names pdf-colour/src/shading.rs, pdf-render/src/shading.rs, render-cpu/src/shading.rs, and raster GPU ramp code. Tests include the three selected rendering pointers plus PDF-model and CPU pixel tests.",
+      "assertion_review": "`shading_placement.rs` constructs direct DisplayLists, calculates red-to-blue values from t independently, and samples t=.25/.75 at three zooms for identity, scaled, and rotated path transforms. It detects path-space incorrectly moving a page-space shading. It is a CPU DisplayList consumer, not a PDF parser test. Existing PDF-model tests independently cover Type 2 endpoint colors, perpendicular constancy, and Extend/no-Extend behavior; `a_ramps_cell_is_its_colour_at_the_pixels_own_t` asserts literal values at three columns from a two-stop ramp.",
+      "decision": "Retain as strong CPU placement/renderer-sampling regression. Qualify comments that cite §10.7.4 image pixel centers as the normative shading sampling location; the tests establish this implementation's chosen pixel-center result, not an ISO-mandated location for all shading rasterizers.",
+      "related_adrs": ["2310", "2311", "2356", "raster/doc/adr/0053"],
+      "residuals": ["The renderer's sample-at-center convention is a documented implementation choice; no missing Type 2 PDF consumer assertion was identified in this bounded review."]
+    },
+    {
+      "clause": "8.7.4.5.3",
+      "title": "GPU axial ramp colors at each pixel's computed t",
+      "source_location": "§8.7.4.5.3, physical pp.248–249 / printed pp.233–234; §10.7.4 is physical pp.398–399 / printed pp.383–384.",
+      "effective_rule": "The Type 2 formula determines t at a point and supplies it to the color function. §10.7.3 allows an output-device internal limit on smoothness tolerance. §10.7.4 requires pixel centers for choosing source coordinates of sampled images; it does not establish a universal shading pixel-center sampling obligation.",
+      "errata": "No annotation on Type 2 pages 248–249. EC3 #371 is on physical p.397 / printed p.382, §10.7.2 flatness tolerance, and replaces the positive-only writer range with 0–100/default-device wording. It does not change §10.7.3 smoothness or the image-only paragraph of §10.7.4.",
+      "assertion_review": "`a_steep_ramp_is_read_at_its_own_t.rs` builds a valid in-memory GPU scene and computes each row's expected center t and Type 2 interpolation in a separate f64 oracle; the 33-stop alternating ramp makes nearest-texel table lookup differ by byte levels. The second constant 0.7-f32 case independently pins the expected 178 level and detects intermediate-f32 rounding to 179. This does not exercise the PDF parser. The test is a source-shaped GPU sampling regression, but the strict center-value raster result is the project's selected sampling policy rather than a direct requirement of §10.7.4 for shading.",
+      "decision": "Retain the discriminating GPU regressions and narrow the normative claim. Avoid saying ISO itself mandates the GPU center-sampling algorithm for axial shadings.",
+      "related_adrs": ["2310", "2311", "2325", "2340"],
+      "residuals": ["No execution result is claimed in this audit."]
+    },
+    {
+      "clause": "8.7.4.5.3",
+      "title": "GPU axial stitching-function stripe boundaries",
+      "source_location": "§8.7.4.5.3, physical pp.248–249 / printed pp.233–234; §7.10.4 governs the type 3 stitching function's interval boundaries.",
+      "effective_rule": "A Type 2 shading passes the linearly mapped t to its Function. For a stitching function, each subfunction domain and bounds determine the function values. The tested sample placement at pixel centers remains an output rasterization choice, not the image-center requirement of §10.7.4 applied to shadings by source.",
+      "errata": "No Issue annotation on the defining Type 2 pages. #371 is limited to §10.7.2 on physical p.397.",
+      "assertion_review": "`shading_steps.rs` creates 24 constant color pieces at equally spaced bounds. Its independent `clause_stripe` computes each row-center's t from the axis formula and assigns each stripe a distinct literal gray level; scales 1, 2, 4, and 8 place all stripe boundaries on pixel-row boundaries, avoiding an antialiasing/tie ambiguity. Thus it catches wrong gradient direction, stripe selection, and hard-step placement in the GPU backend. It is a SceneBuilder test, not a PDF parser fixture. Separate current PDF-model exact-xref tests cover Type 2 input/Domain and Type 4 discontinuities, but those do not turn this raster sampling convention into a normative ISO pixel-center rule.",
+      "decision": "Retain as a highly discriminating implementation regression. Keep the pixel-center expected value described as the project's raster contract and do not use this test alone to certify a mandatory ISO rasterization method.",
+      "related_adrs": ["0055", "1389", "2310", "2340"],
+      "residuals": ["No additional fixture warranted; avoid duplicating Type 2 discontinuity and domain tests already present."]
+    },
+    {
+      "clause": "8.7.4.5.8",
+      "title": "Tensor-product patch test scene and actual consumers",
+      "source_location": "§8.7.4.5.8 begins physical p.265 / printed p.250, continues through physical p.267 / printed p.252, and contains Table 85 on p.267. No Issue annotation appears on physical pp.264–266; physical p.267 has #682 directed at removing a green line in the figure, not changing the Type 7 text or Table 85.",
+      "effective_rule": "Type 7 is identical to Type 6 except it uses a bicubic tensor-product patch with 16 control points rather than the 12-point Coons patch; Table 85 gives the input order, including p11,p12,p22,p21. Common patch topology/parameter-color rules carry from Type 6.",
+      "errata": "#682 on physical p.267 / printed p.252 has Contents `Remove the green line below the matrix that is 2 paragraphs before Table 85`; it directs figure cleanup. It does not strike or replace the control-point order, corner colors, or any Type 7 requirement. No other Issue annotation appears on physical pp.264–267.",
+      "assertion_review": "`test_scenes::patch_mesh` creates a Coons patch, a tensor patch with four conspicuously displaced interior controls, and a lattice-colored patch. `headless_gpu::cpu_and_gpu_agree_on_a_patch_mesh` and `headless_quorra::cpu_and_quorra_agree_on_a_patch_mesh` compare backend output with the CPU implementation; these are useful differential tessellation tests, but the shared DisplayList scene itself is not an assertion and backend agreement alone is not an independent ISO oracle. The current worktree also has exact-xref Type 7 model-consumer tests: `shading_continuations_spec_audit.rs::type7_table85_interior_order_changes_the_public_parameterized_pixel` checks parsed control-point order and a literal pixel predicted by Table 85/Bernstein geometry; `shading_parameters_spec_audit.rs::type7_calls_function_with_interpolated_patch_parameter` distinguishes interpolation of t then Function from interpolating corner colors. These direct tests close the earlier Type 7 stream-order/function gap found in prior scratch review. No execution claim is made here.",
+      "decision": "Treat `test_scenes/src/lib.rs` as fixture construction, not test evidence by itself. Count the named backend differential consumers only for their cross-implementation role, and count the exact-xref Type 7 tests for source-derived parser/color evidence.",
+      "related_adrs": ["1217", "2546"],
+      "residuals": ["This bounded review did not audit every Table 84 continuation flag or every backend's mesh tolerance. No new draft needed given the current direct Type 7 public-consumer tests."]
+    },
+    {
+      "clause": "10.7",
+      "title": "Scan-conversion and image-reduction implementation tests in paint.rs",
+      "source_location": "§10.7.1–.4 physical pp.397–399 / printed pp.382–384; #371 on physical p.397 / printed p.382 alters §10.7.2 flatness only. §10.7.3 and §10.7.4 are physical p.398 / printed p.383 onward.",
+      "effective_rule": "§10.7.1 requires scan conversion but says the algorithm specifics are not part of PDF. §10.7.3 defines smoothness error/tolerance and permits device internal limits. §10.7.4's sampled-image paragraph requires pixel-center source mapping and says there shall not be averaging over pixel area; this tree deliberately records image area averaging as a departure. The general NOTE in §10.7.1 should not be described as erasing that explicit sentence; the separate scan_conversion_current audit documents the three §10.7.4 departures.",
+      "errata": "#371 is a strikeout plus Caret on the flatness value sentence, followed by insertion of the valid 0–100 range/default-device definition. It does not change smoothness tolerance or §10.7.4. No Issue annotation is on the sampled-image or averaging text on physical pp.398–399.",
+      "ledger": "§10.7 is `implemented` as an aggregate; §10.7.3 is `implemented`; §10.7.4 is separately `departed` for selected image sampling/area averaging and coverage cases. The aggregate row's file-only pointer is not proof that each listed test applies to every subclause.",
+      "assertion_review": "The selected `paint.rs` pointer is source plus in-module unit tests. `a_block_of_samples_becomes_their_mean`, `each_axis_is_reduced_by_its_own_factor`, and related tests assert the implementation's reduction arithmetic on hand-authored image bytes; the 2x2 case asserts 15 as the mean of 0,10,20,30, which distinguishes from any point sample. Those checks measure the deliberate §10.7.4 deviation rather than conformance to its no-area-averaging sentence. The selected neighboring shading test asserts the `/SM` tolerance mapping; it belongs to §10.7.3 and is more specific than the `paint.rs` pointer. Other tests exercise scan conversion of marks and clips.",
+      "decision": "Retain the aggregate row but read it with subclause-specific statuses. Do not cite area-average unit tests as normative pass evidence; they verify an explicitly recorded departure. Avoid repeating the broad stale claim that §10.7.1 licenses departures from explicit §10.7.4 rules.",
+      "related_adrs": ["0025", "1560", "2310", "1217"],
+      "residuals": ["No new assertion gap in these five file references. The existing scan-conversion shard is the source for the §10.7.4 departure qualification."]
+    }
+  ],
+  "not_run": ["Cargo tests", "CPU/GPU/raster render tests"]
+}

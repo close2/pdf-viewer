@@ -76,7 +76,7 @@ fn stream_object(number: usize, dict: &str, data: &[u8]) -> Vec<u8> {
 
 /// Assembles numbered objects into a file with a cross-reference table that points at them.
 fn assemble(objects: &[Vec<u8>]) -> Vec<u8> {
-    let mut out = b"%PDF-1.7\n".to_vec();
+    let mut out = b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n".to_vec();
     let mut offsets = Vec::new();
     for object in objects {
         offsets.push(out.len());
@@ -101,6 +101,10 @@ fn assemble(objects: &[Vec<u8>]) -> Vec<u8> {
 /// Renders a fixture at one pixel per unit onto a transparent background.
 fn render(bytes: Vec<u8>) -> pdf_render::Raster {
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    assert!(
+        !document.was_recovered(),
+        "the fixture has exact xref offsets"
+    );
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     let interpretation = pdf_model::interpret(&document, &page);
     assert!(
@@ -275,23 +279,24 @@ fn an_indexed_images_default_decode_passes_every_index_through_unchanged() {
     let mut objects = vec![
         b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec(),
         b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_vec(),
-        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 256 1] \
           /Resources << /XObject << /Im 5 0 R >> >> /Contents 4 0 R >>\nendobj\n"
             .to_vec(),
-        stream_object(4, "", b"40 0 0 40 0 0 cm /Im Do"),
+        stream_object(4, "", b"256 0 0 1 0 0 cm /Im Do"),
         stream_object(
             5,
-            "/Type /XObject /Subtype /Image /Width 4 /Height 1 /BitsPerComponent 8 \
+            "/Type /XObject /Subtype /Image /Width 256 /Height 1 /BitsPerComponent 8 \
              /ColorSpace [/Indexed /DeviceRGB 255 6 0 R]",
-            &[1, 127, 254, 255],
+            &(0..=255u8).collect::<Vec<_>>(),
         ),
     ];
     objects.push(table);
     let raster = render(assemble(&objects));
-    about(cell(&raster, 0), [1, 0, 0], "index 1");
-    about(cell(&raster, 1), [127, 0, 0], "index 127");
-    about(cell(&raster, 2), [254, 0, 0], "index 254");
-    about(cell(&raster, 3), [255, 0, 0], "index 255");
+    assert_eq!((raster.width, raster.height), (256, 1));
+    assert_eq!(raster.data.len(), 256 * 4);
+    for (index, pixel) in (0..=255u8).zip(raster.data.chunks_exact(4)) {
+        assert_eq!(pixel, [index, 0, 0, 255], "palette entry {index}");
+    }
 }
 
 /// The corpus's own witness that a `DCTDecode` image's `/Decode` array is not decorative.

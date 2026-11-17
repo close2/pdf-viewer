@@ -1,0 +1,6 @@
+{
+  "source": "Parent read primary physical277–278 Decode and282 color-key rules; no relevant Caret/StrikeOut on these pages.",
+  "assertions": "Read all seven Decode assertions, corrected exact Indexed claim, inspected literal lookup and public raster outputs, and traced fixed-document rows to historical ink/diagnostic checks. Existing mask witnesses were actually reached in wave75b; no new aggregate gate result claimed.",
+  "execution": "Seven Decode tests PASS including present JPEG witness. Old oracle PASS/new oracle FAIL under index-minus-one mutation; production/test byte-exact restoration and new test PASS. Model Clippy PASS.",
+  "limits": "The scoped mutation demonstrates this assertion gap, not escape from the entire suite. Lab and corpus warm-color checks are narrower qualitative oracles."
+}

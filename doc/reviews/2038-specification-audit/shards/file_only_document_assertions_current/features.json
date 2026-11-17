@@ -1,0 +1,102 @@
+[
+  {
+    "clause": "7.4.8",
+    "path": "crates/pdf-model/tests/colour_transform.rs",
+    "source_location": "Table13, physical63/printed48. §7.4.1 separately supplies the general parameter-dictionary rule; it is not immediately adjacent.",
+    "assertions": [
+      "marker_takes_precedence_over_decode_parms",
+      "decode_parms_takes_precedence_over_default",
+      "default_is_one_for_three_components_and_zero_for_four",
+      "marker_transform_is_taken_from_app14",
+      "decode_parms_value_one_is_ycbcr_for_three_components",
+      "decode_parms_value_one_is_ycck_for_four_components",
+      "decode_parms_can_be_an_array",
+      "an_image_dictionary_color_transform_is_not_decode_parms",
+      "a_foreign_app14_identifier_does_not_select_the_adobe_transform",
+      "one_and_two_component_frames_ignore_transform_one"
+    ],
+    "assertion_quality": "Strong fixture-level coverage for the Table 13 precedence/default/component-count branches: tests synthesize minimal baseline JPEGs, parse the actual image command, and check literal RGB values (including a literal YCbCr conversion formula), with explicit controls. Array-vs-dictionary equality is a legitimate equivalence check but is not an independent oracle by itself. The R/G/B-component-ID cases concern decoder convention, not a PDF normative requirement; the file itself correctly marks that boundary.",
+    "fixture_validity": "The JPEG generator writes bounded SOF/SOS, quantization/Huffman tables, stuffed entropy data and EOI; enclosing PDFs are constructed with exact xref offsets. The suite asserts empty unsupported reports. It does not explicitly assert Document::was_recovered, so that remains a small fixture guard gap, although offsets are computed from emitted bytes.",
+    "verdict": "No new defect. This direct test file provides meaningful evidence for the DCT-specific Table 13 behavior; it does not certify all DCT filter behavior owned by the ledger row.",
+    "residuals": "Invalid ColorTransform integers (-1, 2, 77) exercise local default/recovery policy, not a recovery rule specified by Table 13. Four-component transform pixel expectations are mostly precedence/equivalence assertions; do not elevate Adobe/JPEG component-ID conventions to ISO obligations. The independent crosswalk in shards/image_filters_remaining_current provides broader DCT/JPX scope.",
+    "related_adrs": [
+      "1177",
+      "1183",
+      "2468"
+    ]
+  },
+  {
+    "clause": "7.4.8",
+    "path": "crates/pdf-model/tests/fixed_documents.rs",
+    "source_location": "No single primary clause location: this pointer is a corpus-based image regression gate, not a direct assertion of §7.4.8. D51 is in doc/reviews/2038-specification-audit/findings.json.",
+    "assertions": [
+      "every_document_a_round_fixed_is_still_fixed"
+    ],
+    "assertion_quality": "The test reads the machine-local fixed-documents manifest, skips absent files, fails if the manifest is empty, and checks observed reports and ink bands for present documents. This is a useful historical regression gate, but its expected ink bands are regression baselines, not independently derived ISO pixel values.",
+    "fixture_validity": "The row relevant to this pointer is a present external corpus PDF rather than a synthesized fixture. Its actual filter/content is evaluated through the normal interpreter. It has no exact-xref/no-recovery assertion, appropriately for an imported corpus regression.",
+    "verdict": "D51's audit records 77 present documents and one stale expectation for PDFIUM-407-0.pdf; the DCT-related row itself is not an independently established failure. Do not use this gate as stand-alone proof of §7.4.8 conformance.",
+    "residuals": "The ignored test requires the machine-local crawl cache and sandboxed image decoder; absent documents are counted/skipped. Current broad audit record identifies the one stale font-substitution expectation and says it is not a confirmed product defect. No duplicate D51 finding proposed.",
+    "related_adrs": []
+  },
+  {
+    "clause": "7.7.2",
+    "path": "crates/pdf-syntax/tests/real_documents.rs",
+    "source_location": "Table29 spans physical113–116/printed98–101; physical114 is a continuation. The minimal-fixture checks are separate from the corpus smoke tests.",
+    "assertions": [
+      "every_specification_pdf_opens",
+      "the_first_page_content_stream_decodes",
+      "the_minimal_fixture_parses"
+    ],
+    "assertion_quality": "The corpus tests require a nonempty file set, a usable catalog, a /Pages dictionary with positive /Count, and a decodable first-page content stream where found. They print xref recovery status rather than asserting against it; the first-page walk is bounded to 32 levels and skips non-stream entries. This is broad integration smoke coverage, not a field-by-field Table 29 oracle. the_minimal_fixture_parses is a distinct hand-built control with !was_recovered, Catalog type, Pages count, one kid, decoded stream, and literal content operators.",
+    "fixture_validity": "Corpus PDFs are held specification examples, opening and decoding through ordinary readers. The exact minimal fixture uses test_scenes::basic_pdf(); it explicitly verifies no xref scan recovery. Corpus paths are collected from the current worktree's doc PDF tree and the test asserts the set is nonempty.",
+    "verdict": "No new failure found. `every_specification_pdf_opens` supports a narrow usable-catalog behavior claim, but does not prove catalog validity across all Table 29 entries or distinguish producer errors from reader recovery. The separate minimal test is stronger for its one controlled PDF.",
+    "residuals": "Test messages report xref recovery but do not reject it. No exact expected catalog/page-tree facts are asserted for each corpus file, and a first-page decode does not establish full-document parsing. Existing version override and other catalog consumer tests belong to separate pointers/features.",
+    "related_adrs": []
+  },
+  {
+    "clause": "7.7.3.3",
+    "path": "crates/pdf-model/tests/contents_entry.rs",
+    "source_location": "ISO 32000-2:2020 consolidated EC3, §7.7.3.3 Table 31, printed p.105 / physical p.120; EC3 #81 on that page adds the direct-or-inherited Resources note, and fixtures include /Resources << >>. The Contents optionality, array form, order and writer restrictions are Table 31/§7.8.2; no changed Contents requirement was found in the cited amendments.",
+    "assertions": [
+      "a_page_that_states_no_contents_is_silent",
+      "a_contents_entry_that_is_the_null_object_is_silent",
+      "a_contents_entry_naming_an_object_that_is_not_there_says_so",
+      "one_unreachable_part_of_an_array_is_named_by_its_index",
+      "a_contents_entry_that_is_not_a_stream_still_says_so",
+      "a_contents_entry_that_is_a_bare_integer_says_so_too",
+      "the_pdf_association_witness_reports_rather_than_drawing_a_blank_page",
+      "a_part_the_file_states_is_empty_is_not_a_missing_content_stream",
+      "a_part_that_decodes_part_way_draws_its_prefix_and_reports_the_shortfall"
+    ],
+    "assertion_quality": "Good distinctions among absent/null, unreachable reference, non-stream, and malformed/truncated parts; the valid empty filtered stream and damaged decode-prefix cases make useful separate claims. The valid multi-part concatenation / ordered whitespace behavior is asserted more directly in sibling content_window.rs and hostile_budgets.rs tests, not by this pointer's main error-report cases.",
+    "fixture_validity": "Synthetic exact-xref helper `page_stating_with` declared Length 11 for the 12-byte baseline `0 0 10 10 re`. That unrelated mismatch can cause stream-length recovery in baseline fixtures. Scratch draft replaces it with computed length and adds a `!was_recovered()` guard for exact-xref synthetic fixtures. This guard checks xref selection only; Document::was_recovered does not establish absence of stream-length fallback. Intentionally truncated filter parts retain their deliberately incomplete declared/data shapes. The imported UnknownFilter witness is intentionally malformed and remains outside the exact-xref guard.",
+    "verdict": "Fixture-quality correction needed; no product defect established. Correct the baseline stream framing so the exact-reference/report assertions isolate `/Contents` interpretation. Existing source behavior claims around error reporting also include local product-policy choices beyond Table 31.",
+    "residuals": "Do not call producer prohibition on empty arrays a mandatory reader rejection rule. The helper patch should retain malformed-stream tests and imported witness behavior, and should not claim `was_recovered` detects incorrect stream length.",
+    "related_adrs": [
+      "0255",
+      "0258",
+      "0343"
+    ]
+  },
+  {
+    "clause": "7.7.3.3",
+    "path": "crates/pdf-model/tests/damaged_page_dictionaries.rs",
+    "source_location": "Primary clause context is §7.7.3.3 Table 31 (printed p.105 / physical p.120) together with §7.3.7 dictionary parsing and §7.7.3.2/.4 page-tree recovery/inheritance. These tests target damaged dictionaries and recovery, not valid Table 31 consumer conformance.",
+    "assertions": [
+      "an_intact_page_under_a_working_tree_reports_no_damage",
+      "damaged-prefix/page-tree recovery pairs",
+      "a_tree_named_prefix_is_not_taken_where_the_tree_still_reaches_a_page",
+      "the_page_says_which_evidence_made_it_a_page",
+      "the_damaged_object_is_still_null_through_the_ordinary_door"
+    ],
+    "assertion_quality": "The suite uses paired cases to exercise scan recovery from partial page dictionaries and protects the ordinary complete dictionary resolver. `pages_of` checks page count, inherited MediaBox, damage entry count; selected tests also check the identification report and ordinary `Document::get` null behavior. It does not assert the described blue rectangle's painted pixels. The cases are recovery-policy tests rather than valid-input Table 31 conformance evidence.",
+    "fixture_validity": "The helper intentionally omits a cross-reference table, and its comment says Document::open rebuilds by scanning; that xref-scan recovery is part of the test. But its content stream claims `/Length 30` for a 26-byte payload. A second handwritten recovery guard fixture repeats the wrong `/Length 30`. Scratch draft computes lengths for both without adding an xref; this preserves the intended no-xref recovery while isolating malformed page-dictionary recovery. Do not use `was_recovered()` to infer whether stream-length recovery happened.",
+    "verdict": "Correct two test-fixture lengths; no product defect established by this assertion review. The tests demonstrate selected partial-dictionary recovery behavior and pair controls but do not certify valid page dictionaries.",
+    "residuals": "These tests deliberately depend on xref scan and malformed dictionary recovery, so do not add a no-recovery assertion. Stream framing correction is independent of the targeted malformed dictionary. No pixel-level assertion for the narrated rectangle.",
+    "related_adrs": [
+      "0782",
+      "0784",
+      "0786"
+    ]
+  }
+]

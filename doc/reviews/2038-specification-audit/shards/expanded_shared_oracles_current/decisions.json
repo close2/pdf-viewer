@@ -1,0 +1,49 @@
+{
+  "baseline": "b901326c",
+  "selected_adrs": [
+    {
+      "adr": "0272",
+      "topic": "Use the document's named press as the blending-space value",
+      "review": "The ICC-backed route assertion is coherent with the decision to carry a sampled press, and the no-profile assumed-press control discriminates it. Because expected and actual color paths use the same profile parser/output converter, this test is not independent evidence for the sampled profile's exact color. Scratch literal oracle is an implementation/output-policy check, not a source-mandated byte value."
+    },
+    {
+      "adr": "0251",
+      "topic": "Assumed process ink model and representation",
+      "review": "The red 76–77 assumed-press control makes the selected ICC route visibly distinct. It validates route separation, not universal CMYK device behavior. Pixel choice is a named processor policy."
+    },
+    {
+      "adr": "1207",
+      "topic": "Apply the stated BG/UCR pair only on named RGB-to-CMYK conversions",
+      "review": "The selected image test fits §11.7.5.3's DeviceRGB elementary object into a DeviceCMYK group rule and §10.4.2.4's explicit pair arithmetic. Do not expand it into a claim about generic profile conversion. Existing exact-pixel sibling `black_generation_paint::solid_selection_order_matches_image_and_clause_arithmetic` directly anchors the same inline image and pair."
+    },
+    {
+      "adr": "2549",
+      "topic": "Distinguish explicit BG/UCR from ICC/default profile mapping",
+      "review": "This test supplies an explicit pair, so it neither validates nor challenges the ADR's separate default/profile route."
+    },
+    {
+      "adr": "1229",
+      "topic": "Four-step requested separation simulation",
+      "review": "The model curve self-comparison is not the sole evidence. `spot_press` has handwritten literal public-render pixels for tint .5 and tint 1 composites, plus unchanged process/white-matte controls. This supports those sampled simulation paths, not every tint value or every profile."
+    },
+    {
+      "adr": "1317",
+      "topic": "Spot planes and the colourant curve consumed by rendering",
+      "review": "The curve builder uses `flat_ratio`; the selected final-sample comparison shares that helper. Public separated-raster tests independently exercise the consumer and supply literal expectations for selected tints. No stronger universal requirement is inferred from the sampled tests."
+    }
+  ],
+  "decisions": [
+    {
+      "topic": "Can the three selected shared-oracle assertions be called independent numerical oracles?",
+      "decision": "No. The press route and image BG/UCR assertions compute expected output through production converters; the spot endpoint compares the curve to the same flat_ratio function that builds it. Their narrow integration claims remain useful."
+    },
+    {
+      "topic": "Is a new literal assertion warranted for each selected test?",
+      "decision": "No. Existing black_generation_paint literal image pixel covers the exact image sample/BG pair; existing spot_press literal CPU-render outputs cover interior and full LogoGreen tint through the actual consumer. For ICC route tests, a compact independent literal is a useful oracle-quality improvement, so one unexecuted scratch replacement is supplied."
+    },
+    {
+      "topic": "Are color bytes here an ISO-required output?",
+      "decision": "No. The ICC route literal is a fixture-specific value under this renderer's BPC/sRGB output policy. The assumed CMYK press and spot output examples also depend on documented processor/device assumptions. Treat these as regression oracles, not unique ISO pixels."
+    }
+  ]
+}

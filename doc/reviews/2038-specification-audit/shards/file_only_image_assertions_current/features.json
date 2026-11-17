@@ -1,0 +1,33 @@
+{
+  "scope": "Two exact file-only ledger pointers, with independent parent assertion/source review. No whole-file or clause certification.",
+  "selection": [
+    [
+      "8.9.5.2",
+      "crates/pdf-model/tests/decode_arrays.rs"
+    ],
+    [
+      "8.9.6.4",
+      "crates/pdf-model/tests/fixed_documents.rs"
+    ]
+  ],
+  "features": [
+    {
+      "clause": "8.9.5.2",
+      "path": "crates/pdf-model/tests/decode_arrays.rs",
+      "source": "Primary physical277–278/printed262–263: linear sample map, Table88 Indexed default[0,2^n−1], informative NOTE2 explains unchanged indices; final range clamp. Direct Caret/StrikeOut scan on these pages found no amendment to this sampled rule.",
+      "before": "The Indexed test name promised every index and its comment promised exact comparisons. It supplied only1,127,254,255 and called about(), whose tolerance admits ±1. Every palette entry is its index in red, so a wrong neighboring entry can pass.",
+      "change": "The same test now renders all256 indices onto a256×1 page and checks every exact RGBA tuple[index,0,0,255]. Added binary header marker to synthetic fixtures and no-xref-recovery guard. Exact computed stream lengths/xrefs and complete interpretation are retained.",
+      "execution": "All7decode_arrays testsPASS. Deliberate index-minus-one production mutation: original four-sample testPASS, strengthened testFAIL atindex1, byte-exact source/test restoration, strengthened testPASS again.",
+      "siblings": "General Decode, reversal, default and clamp tests use literal channel expectations with a one-level raster tolerance. Lab test only bounds lightness/coarse neutrality, not independent full Lab conversion. JPEG corpus witness issue7406.pdf is present; its mean-red>mean-blue check is an observed visual property, not a normative colorimetric oracle.",
+      "limits": "This strengthens an isolated Indexed/default/8-bit regression, not all colour spaces or filtered routes. The mutation result says nothing about whether other tests would also catch it."
+    },
+    {
+      "clause": "8.9.6.4",
+      "path": "crates/pdf-model/tests/fixed_documents.rs",
+      "source": "Primary physical282/printed267: inclusive color-key comparisons occur before Decode; lossy DCT/JPX can produce unexpected results but are not exempt. No Caret/StrikeOut amendment on this page.",
+      "assertions": "The ignored gate compares named diagnostics and scalar mean ink to historical bands. PDFBOX-3631-15.pdf has a band that distinguishes a formerly opaque stamp; sumatrapdf-404-0.pdf primarily pins absence of the old refusal, since a tiny pixel change lies inside its band;1899883.pdf ranges miss all actual samples, so it tests acceptance and retained picture, not a positive masking effect.",
+      "execution": "Already executed in fixed-documents-wave75b.log: all77files present; these selected rows were judged within their bands. The aggregate gate still FAILS its unrelated stale font-substitution expectation D51. No new run claimed.",
+      "limits": "Historical scalar ink is not a pixel oracle; a masked/unmasked change can preserve its mean or lie within the band. Separate named image_masks/dct_components tests carry literal positive/negative component and boundary controls. Keep this pointer as supplementary real-file regression evidence."
+    }
+  ]
+}

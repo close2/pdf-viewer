@@ -1,8 +1,8 @@
 {
   "scope": "Selected assertion reading per exact ledger pointer, not full referenced-file/feature conformance. Some reviewed pointers have no direct assertion of the owning subtype; see shard limits.",
   "total": 69,
-  "partially_reviewed": 44,
-  "remaining": 25,
+  "partially_reviewed": 56,
+  "remaining": 13,
   "references": [
     {
       "clause": "7.3.7",
@@ -55,8 +55,10 @@
     {
       "clause": "7.4.8",
       "path": "crates/pdf-model/tests/colour_transform.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_document_assertions_current/features.json"
+      ]
     },
     {
       "clause": "7.4.8",
@@ -69,8 +71,10 @@
     {
       "clause": "7.4.8",
       "path": "crates/pdf-model/tests/fixed_documents.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_document_assertions_current/features.json"
+      ]
     },
     {
       "clause": "7.4.9",
@@ -83,8 +87,10 @@
     {
       "clause": "7.7.2",
       "path": "crates/pdf-syntax/tests/real_documents.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_document_assertions_current/features.json"
+      ]
     },
     {
       "clause": "7.7.2",
@@ -105,14 +111,18 @@
     {
       "clause": "7.7.3.3",
       "path": "crates/pdf-model/tests/contents_entry.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_document_assertions_current/features.json"
+      ]
     },
     {
       "clause": "7.7.3.3",
       "path": "crates/pdf-model/tests/damaged_page_dictionaries.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_document_assertions_current/features.json"
+      ]
     },
     {
       "clause": "7.10",
@@ -294,26 +304,34 @@
     {
       "clause": "8.7.4.5.3",
       "path": "crates/render-cpu/tests/shading_placement.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_shading_render_assertions_current/features.json"
+      ]
     },
     {
       "clause": "8.7.4.5.3",
       "path": "raster/crates/raster-gpu/tests/a_steep_ramp_is_read_at_its_own_t.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_shading_render_assertions_current/features.json"
+      ]
     },
     {
       "clause": "8.7.4.5.3",
       "path": "raster/crates/raster-gpu/tests/shading_steps.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_shading_render_assertions_current/features.json"
+      ]
     },
     {
       "clause": "8.7.4.5.8",
       "path": "crates/test-scenes/src/lib.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_shading_render_assertions_current/features.json"
+      ]
     },
     {
       "clause": "8.9.5.1",
@@ -334,14 +352,18 @@
     {
       "clause": "8.9.5.2",
       "path": "crates/pdf-model/tests/decode_arrays.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_image_assertions_current/features.json"
+      ]
     },
     {
       "clause": "8.9.6.4",
       "path": "crates/pdf-model/tests/fixed_documents.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_image_assertions_current/features.json"
+      ]
     },
     {
       "clause": "9.3.6",
@@ -378,8 +400,10 @@
     {
       "clause": "10.7",
       "path": "crates/pdf-render/src/paint.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_shading_render_assertions_current/features.json"
+      ]
     },
     {
       "clause": "11.3.4",

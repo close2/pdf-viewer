@@ -2049,6 +2049,37 @@
       "log": "quality-wave77b.log",
       "exit": 0,
       "scope": "syntax/archive/model alltargetsClippy aftercommentbackticks."
+    },
+    {
+      "log": "indexed-oracle-wave78.log",
+      "run": 7,
+      "passed": 7,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "press-oracle-wave78.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "fixture-lengths-wave78.log",
+      "run": 24,
+      "passed": 24,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "indexed-mutation-wave78.log",
+      "scope": "Old/new/restored targeted runs: PASS/expectedFAIL/PASS. Production and strengthened test restored byte for byte.",
+      "wrapper_exit": 0
+    },
+    {
+      "log": "quality-wave78.log",
+      "exit": 0,
+      "scope": "Model all-targets Clippy after all Rust model test edits. Later GPU test edits are comments only."
     }
   ],
   "prior_expected_failures": {

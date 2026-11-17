@@ -56,13 +56,15 @@ fn page_stating(contents: &str) -> Vec<u8> {
 /// The zero-length and truncated parts below cannot be expressed by pointing at objects 4 or 5,
 /// because what they are about is the *stream* rather than which object the entry names.
 fn page_stating_with(contents: &str, extra: &str) -> Vec<u8> {
+    let page_content = "0 0 10 10 re";
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 50] \
          /Resources << >> {contents}>>\nendobj\n\
-         4 0 obj\n<< /Length 11 >>\nstream\n0 0 10 10 re\nendstream\nendobj\n\
-         5 0 obj\n<< /Type /NotAStream >>\nendobj\n{extra}"
+         4 0 obj\n<< /Length {} >>\nstream\n{page_content}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /NotAStream >>\nendobj\n{extra}",
+        page_content.len(),
     );
 
     let mut out = String::from("%PDF-1.7\n");
@@ -85,9 +87,16 @@ fn page_stating_with(contents: &str, extra: &str) -> Vec<u8> {
     out.into_bytes()
 }
 
+/// Opens a constructed fixture through its xref table. Stream faults are tested separately.
+fn exact_xref_document(bytes: Vec<u8>) -> Document {
+    let document = Document::open(bytes).expect("the fixture opens");
+    assert!(!document.was_recovered(), "the computed xref is used");
+    document
+}
+
 /// What the page's `/Contents` produced.
 fn issues(contents: &str) -> Vec<ContentIssue> {
-    let document = Document::open(page_stating(contents)).expect("the fixture opens");
+    let document = exact_xref_document(page_stating(contents));
     let page = pdf_model::Pages::new(&document)
         .get(0)
         .expect("the fixture has a page");
@@ -124,8 +133,7 @@ fn a_contents_entry_naming_an_object_that_is_not_there_says_so() {
 /// the page still draws the parts it can and the index says which one it lost.
 #[test]
 fn one_unreachable_part_of_an_array_is_named_by_its_index() {
-    let document =
-        Document::open(page_stating("/Contents [4 0 R 99 0 R] ")).expect("the fixture opens");
+    let document = exact_xref_document(page_stating("/Contents [4 0 R 99 0 R] "));
     let page = pdf_model::Pages::new(&document)
         .get(0)
         .expect("the fixture has a page");
@@ -228,8 +236,7 @@ fn the_pdf_association_witness_reports_rather_than_drawing_a_blank_page() {
 #[test]
 fn a_part_the_file_states_is_empty_is_not_a_missing_content_stream() {
     let extra = "6 0 obj\n<< /Filter /FlateDecode /Length 0 >>\nstream\n\nendstream\nendobj\n";
-    let document = Document::open(page_stating_with("/Contents [4 0 R 6 0 R] ", extra))
-        .expect("the fixture opens");
+    let document = exact_xref_document(page_stating_with("/Contents [4 0 R 6 0 R] ", extra));
     let page = pdf_model::Pages::new(&document)
         .get(0)
         .expect("the fixture has a page");
@@ -261,8 +268,7 @@ fn a_part_that_decodes_part_way_draws_its_prefix_and_reports_the_shortfall() {
     // One literal run of thirteen bytes — the length byte is 12, because "the following length +
     // 1 (1 to 128) bytes shall be copied literally" — and then nothing, where a 128 should be.
     let extra = "6 0 obj\n<< /Filter /RunLengthDecode /Length 14 >>\nstream\n\u{c}0 20 10 10 re\nendstream\nendobj\n";
-    let document = Document::open(page_stating_with("/Contents [4 0 R 6 0 R] ", extra))
-        .expect("the fixture opens");
+    let document = exact_xref_document(page_stating_with("/Contents [4 0 R 6 0 R] ", extra));
     let page = pdf_model::Pages::new(&document)
         .get(0)
         .expect("the fixture has a page");
@@ -294,8 +300,7 @@ fn a_part_that_decodes_part_way_draws_its_prefix_and_reports_the_shortfall() {
 #[test]
 fn a_part_truncated_to_nothing_is_still_reported() {
     let extra = "6 0 obj\n<< /Filter /FlateDecode /Length 4096 >>\nstream\n\nendstream\nendobj\n";
-    let document = Document::open(page_stating_with("/Contents [4 0 R 6 0 R] ", extra))
-        .expect("the fixture opens");
+    let document = exact_xref_document(page_stating_with("/Contents [4 0 R 6 0 R] ", extra));
     let page = pdf_model::Pages::new(&document)
         .get(0)
         .expect("the fixture has a page");

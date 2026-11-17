@@ -2779,16 +2779,16 @@ const HALF_REGISTRATION: &str = "0 0 0 0 k 0 0 100 100 re f\n\
 /// > DeviceCMYK shall be redefined within the transparency group to be the same as the
 /// > blending colour space
 ///
-/// The expected pixel is the *clause's* arithmetic and not this tree's: half of registration
-/// black is `[0.5, 0.5, 0.5, 0.5]` by §11.3.4, and `press_xyz_of` says what colour that is. ADR
-/// 0272.
+/// Half of registration black is `[0.5, 0.5, 0.5, 0.5]` by §11.3.4. The expected pixel is
+/// independently derived from the fixture's sixteen quantized CLUT corners, black point
+/// compensation and the selected sRGB display transform. It pins this renderer's output
+/// policy, not a device-independent pixel required by ISO. ADR 0272.
 #[test]
 fn the_three_routes_to_a_press_all_composite_in_it() {
-    let profile =
-        pdf_model::icc::Profile::parse(&icc_cmyk_profile()).expect("the fixture profile parses");
-    let wanted = profile.to_rgb(&[0.5, 0.5, 0.5, 0.5]);
-    let level = |value: f32| (value.clamp(0.0, 1.0) * 255.0 + 0.5) as i32;
-    let expected = [level(wanted.r), level(wanted.g), level(wanted.b)];
+    // At the midpoint, average the sixteen u1Fixed15 XYZ corners, compensate the all-ink
+    // black point, then apply the D50-adapted sRGB matrix and transfer curve. Rounded
+    // encoded channels are [169, 149, 147]; no production ICC helper supplies the oracle.
+    let expected = [169, 149, 147];
 
     let routes = [
         (
@@ -2828,6 +2828,7 @@ fn the_three_routes_to_a_press_all_composite_in_it() {
             "a press reached by {route} is drawn rather than reported: {reported}"
         );
         let painted = pixel(&drawn, 50, 50);
+        assert_eq!(painted[3], 255, "{route}: the paper is opaque");
         for (axis, (got, want)) in painted.iter().zip(expected).enumerate() {
             assert!(
                 (i32::from(*got) - want).abs() <= 2,

@@ -1,0 +1,22 @@
+[
+  {
+    "decision": "7.4.8 / colour_transform.rs is materially stronger than a mere corpus pointer: the synthetic JPEG branches state literal values and cover the required marker/DecodeParms/default precedence. Keep decoder conventions and invalid parameter handling out of the conformance verdict.",
+    "action": "No runtime failure claim or additional test proposed. Preserve the distinction between Table 13 duties and Adobe/JPEG component-ID behavior."
+  },
+  {
+    "decision": "7.4.8 / fixed_documents.rs is an ignored external corpus ratchet. Its two-unit ink band is historical product regression data, not an independent standard-derived color oracle; D51 already records the sole stale expectation in the current 77-file run.",
+    "action": "Reference D51; do not duplicate its stale-font expectation or infer DCT nonconformance from a gate-level aggregate."
+  },
+  {
+    "decision": "7.7.2 / real_documents.rs has one direct exact fixture and two broad corpus smoke tests. The latter assert usable catalog/page count and some first-page decoding, not all Table 29 requirements; printed xref-recovery information is not a no-recovery assertion.",
+    "action": "No separate defect. Qualify only the narrow smoke-test evidence."
+  },
+  {
+    "decision": "7.7.3.3 / contents_entry.rs synthetic baseline stream currently has a wrong stated length. Because that distorts the premise of a Contents test, make its length exact and assert no xref-scan recovery on its synthetic exact-xref documents. This check cannot establish that stream-length recovery did not occur.",
+    "action": "Apply the scratch fixture-helper draft while retaining the intentionally malformed filter payloads and the external malformed witness. Do not alter their expected content reports."
+  },
+  {
+    "decision": "7.7.3.3 / damaged_page_dictionaries.rs is explicitly an xref-scan and damaged-dictionary recovery suite. Two content streams have wrong fixed lengths, an unrelated fixture flaw that may affect the data/terminator boundary.",
+    "action": "Compute the content length in both helper-built and hand-built fixtures; preserve missing xref and partial dictionary damage. Do not add a no-recovery assertion. This is fixture isolation, not an ISO failure."
+  }
+]

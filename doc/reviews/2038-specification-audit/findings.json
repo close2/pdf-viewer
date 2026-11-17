@@ -2521,5 +2521,52 @@
     "summary": "Windows HideWindowUI pure state tests do not observe actual XAML control visibility, and current runtime CI probe checks placement/fullscreen instead.",
     "evidence": "MainWindow.ApplyChrome assigns StatusLine.Visibility and Navigation.IsPaneToggleButtonVisible; Probe reads pane/presenter/placement only. Quorra.Chrome.Tests uses pure ChromeState.",
     "remaining": "A proposed positive/default actual-control probe remains unexecuted. No Windows runtime failure claimed; no Windows environment available here."
+  },
+  {
+    "id": "2038-T101",
+    "kind": "test-oracle-gap",
+    "clauses": [
+      "8.9.5.2"
+    ],
+    "summary": "Indexed default-Decode test claimed exhaustive exact identity but checked four indices with \u00b11 tolerance, admitting a wrong neighboring entry.",
+    "change": "Render all256 indices at native size; require exact RGBA[index,0,0,255]. Add binary header marker and exact-xref guard to synthetic Decode fixtures.",
+    "execution": "All7 Decode tests PASS. Seeded index-minus-one passes old test, fails new test; byte-exact restoration and new test PASS.",
+    "remaining": "Independent assertion for this eight-bit default Indexed case, not whole-suite mutation survival or all Decode routes."
+  },
+  {
+    "id": "2038-T102",
+    "kind": "test-oracle-gap",
+    "clauses": [
+      "11.7.2",
+      "11.3.4"
+    ],
+    "summary": "Three press routes used the production ICC conversion to compute their expected pixel.",
+    "change": "Use independently derived literal[169,149,147] and opaque-alpha guard; preserve route and assumed-press controls.",
+    "execution": "Selected test PASS; model Clippy PASS.",
+    "remaining": "Synthetic minimal ICC fixture and chosen BPC/sRGB output policy; not a claim of full ICC profile conformity or universal ISO color."
+  },
+  {
+    "id": "2038-T103",
+    "kind": "fixture-isolation-gap",
+    "clauses": [
+      "7.7.3.3",
+      "7.3.8.2"
+    ],
+    "summary": "Contents and damaged-page dictionary fixtures accidentally misstated unrelated content stream lengths.",
+    "change": "Compute exact12-byte Contents and26-byte damaged-page payload lengths; preserve intentional stream faults and xref scan recovery. Add xref-selection guard to exact-xref synthetic Contents opens.",
+    "execution": "All24 tests in the two files PASS; model Clippy PASS.",
+    "remaining": "was_recovered is an xref guard, not a stream-length-recovery detector. Dictionary recovery tests do not render their narrated blue rectangle."
+  },
+  {
+    "id": "2038-D54",
+    "kind": "source-rationale-overreach",
+    "clauses": [
+      "8.7.4.5.3",
+      "10.7.4"
+    ],
+    "summary": "Two GPU shading tests presented the sampled-image pixel-centre rule as a universal shading-sampling mandate.",
+    "source": "\u00a710.7.4 sampled-image paragraph, physical399/printed384; Type2 pointwise equation does not choose every renderer sample location.",
+    "change": "Qualify current test comments as renderer policy; retain discriminating arithmetic assertions.",
+    "remaining": "Historical raster ADR0053 unchanged; it concerns Type1 calculator shading and is distinct from root ADR0053 about trees. No new GPU execution or production failure claimed."
   }
 ]

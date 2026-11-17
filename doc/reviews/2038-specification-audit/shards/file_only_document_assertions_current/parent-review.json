@@ -1,0 +1,5 @@
+{
+  "assertions": "Read synthetic JPEG controls, corpus smoke limitations, actual Contents helpers and intentionally scan-recovered page fixtures. Corrected two helper families: content Length11 became computed12; both Length30 occurrences became computed26. No-xref-recovery guard applies only to synthetic exact-xref Contents documents, not the imported malformed witness or damaged-page scan.",
+  "execution": "All24 tests across contents_entry and damaged_page_dictionaries PASS. Model all-targets Clippy PASS. Intentionally empty/truncated stream controls remain unchanged.",
+  "limits": "was_recovered guards xref selection, not stream-length recovery. The damaged-page tests assert recovered dictionary/page properties, not their narrated blue rectangle. D51 remains a separate stale ignored-gate expectation."
+}
