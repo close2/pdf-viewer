@@ -11,16 +11,20 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (132)
+## Current checkpoint (133)
+
+This budgeted pass is stopped with **19% of the weekly allowance remaining**.
+All workers and test runs have finished. [Resume here](2038-specification-audit/resume.md);
+the audit remains partial, with 172 selected table matrices.
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **117 failing test identities**: 116 behavior assertions/probes
 and one stale ignored-gate expectation. These are grouped findings, not 117 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
-The refreshed broad run, wave123, covered eleven crates: **7,321 tests ran, 7,216 passed,
-and exactly the 105 recorded in-scope assertions failed; 58 were skipped**.
+The refreshed broad run, wave133, covered eleven crates: **7,339 tests ran, 7,229 passed,
+and exactly the 110 recorded in-scope assertions failed; 58 were skipped**.
 Exact binary/test identities matched the manifest at that checkpoint, with no extra or missing failures.
-Wave123 includes all default-scope additions and strengthened assertions through checkpoint122.
+Wave133 includes all default-scope additions and strengthened assertions through checkpoint132.
 Passing status includes successful early returns; two are reproduced under D45.
 Five GPU failures and one engine-only Matrix2D availability failure under the adopted
 A193 reference scope are recorded separately, as is D51’s ignored stale test expectation. The new outline-panel raster test also
@@ -569,6 +573,11 @@ Checkpoint 132 repairs the two structure-page precedence fixtures: the parent
 page now contains a real sibling content item, as Table355 requires. Both tests
 and model Clippy pass. Earlier T166 validity wording is qualified explicitly.
 The peer review retains B77/B78 with their existing product/callback limits.
+
+Checkpoint 133 reconciles the final broad run: 7,339 run, 7,229 PASS, 110 recorded
+FAIL and 58 skipped, with no extra or missing failure identities. The final model
+Clippy gate passes. Artifact identities, links and strict JSON keys are checked.
+The continuation record preserves unfinished review work and the budget reserve.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

@@ -3306,6 +3306,15 @@
       "log": "quality-model-wave132.log",
       "exit": 0,
       "scope": "Model all-target Clippy after final structure-fixture corrections"
+    },
+    {
+      "log": "broad133.log",
+      "run": 7339,
+      "passed": 7229,
+      "failed": 110,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Final eleven default-feature packages through132. Exact identity match with manifest; no extra or missing failures. See broad133-comparison.json."
     }
   ],
   "prior_expected_failures": {

@@ -1,12 +1,12 @@
 {
-  "status": "in-progress",
+  "status": "stopped-for-budget-reserve",
   "baseline": "b901326c230faa5d2cb288016339b9d5c6288527",
   "previous_audit": "1983-specification-audit",
   "current_execution": {
-    "broad": "Wave123: 7,321 run, 7,216 PASS, 105 FAIL, 58 skipped. Exact default-scope manifest match through122; no extra or missing failures.",
+    "broad": "Wave133: 7,339 run, 7,229 PASS, 110 FAIL, 58 skipped. Exact final default-scope manifest match through132; no extra or missing failures.",
     "gtk": "Earlier20 tests PASS; checkpoint68 adds one GTK settings test PASS under Xvfb and one Qt bridge test PASS.",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "After broad123: thirteen new PASS and five new FAIL. Checkpoint132 strengthens two existing structure tests; both PASS and model Clippy PASS. Manifest117 unchanged; broad133 is running on the final tests.",
+    "later_targets": "No test changes after broad133. Final model all-target Clippy132 PASS. Manifest117=110default+5GPU+1engine+1ignored.",
     "quality": "Checkpoint52 syntax/model/script/core/UI all-targets with engine PASS;51signature and earlier scopes recorded.",
     "script_engine": "247PASS4ignored plus separate corpus2PASS249filtered. Corpus counters documented; semantic/error provenance follow-up active.",
     "rendition_and_font": "B49/B50:7new tests,5PASS2FAIL;73total expected failures,70in eleven-crate scope+3GPU. Model/core Clippy PASS.",
@@ -333,11 +333,11 @@
     "pending_current_rows": 0
   },
   "remaining": [
-    "All 883 rows remain partially reviewed. Current work checks uncited EC3 annotation candidates against primary pages, effective wording, code and actual assertions.",
-    "All69 file-only pointers have partial selected-assertion review; this does not certify entire files or features.",
-    "Literal issue citation candidates are discovery metadata only, not counts of missing features. Selected batches remain under parent source review.",
-    "172 unique table matrices and all883 rows remain partial. Current workers finished; final broad reconciliation and artifact integrity check remain. No new review families after81% usage.",
-    "Stop new dispatch near 81%; preserve 15% weekly allowance at 85%."
+    "All883 ledger rows have partial current review; no whole-row or whole-specification certification.",
+    "All69 file-only pointers have selected partial assertion review; unmentioned branches and consumers remain pending.",
+    "Continue selected primary EC3 overlay and conditional feature review; discovery metadata is not proof of missing implementation.",
+    "172 unique table matrices remain partial. See resume.md for prioritized residuals and baseline-transition procedure. No workers or test runs remain active.",
+    "Budgeted pass stopped after planned81% dispatch cutoff and final verification;19% weekly allowance remains, preserving requested15%."
   ],
   "budget": {
     "weekly_used_at_start": 29,
@@ -345,6 +345,6 @@
     "ceiling": 85,
     "remaining_reserved": 15,
     "last_weekly_used_percent": 81,
-    "last_read_utc": "2026-11-17T21:12:16.488741+00:00"
+    "last_read_utc": "2026-11-17T21:21:37.442035+00:00"
   }
 }
