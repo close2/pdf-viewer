@@ -280,3 +280,129 @@ fn axial_and_radial_nonunit_domains_map_geometry_fraction_into_function_input() 
         );
     }
 }
+
+const TYPE7_FIRST_PATCH: &str = "00 \
+    0A0A 0A14 0A1E 0A28 1428 1E28 2828 281E 2814 280A 1E0A 140A \
+    1414 141E 1E1E 1E14 \
+    FF0000 00FF00 0000FF FFFF00";
+
+fn type7_continuation_mesh(flag: u8) -> String {
+    let new_points = "3228 3C28 4628 4620 4618 4610 3C10 3210 3218 3220 3C20 3C18";
+    let new_corner_colours = "FFFF00 FF0000";
+    let data = format!("{TYPE7_FIRST_PATCH} {flag:02X} {new_points} {new_corner_colours} >");
+    patch_mesh(7, &data, "0 1 0 1 0 1", "")
+}
+
+#[test]
+fn type7_continuations_reuse_the_table85_edge_and_read_all_tensor_interior_points() {
+    let expected_edges = [
+        [[10.0, 40.0], [20.0, 40.0], [30.0, 40.0], [40.0, 40.0]],
+        [[40.0, 40.0], [40.0, 30.0], [40.0, 20.0], [40.0, 10.0]],
+        [[40.0, 10.0], [30.0, 10.0], [20.0, 10.0], [10.0, 10.0]],
+    ];
+    let expected_shared = [
+        [Color::rgb(0.0, 1.0, 0.0), Color::rgb(0.0, 0.0, 1.0)],
+        [Color::rgb(0.0, 0.0, 1.0), Color::rgb(1.0, 1.0, 0.0)],
+        [Color::rgb(1.0, 1.0, 0.0), Color::rgb(1.0, 0.0, 0.0)],
+    ];
+    let expected_interior = [[50.0, 24.0], [50.0, 32.0], [60.0, 32.0], [60.0, 24.0]];
+
+    for flag in 1_u8..=3 {
+        let mesh = type7_continuation_mesh(flag);
+        let bytes = pdf(&mesh);
+        let document = Document::open(bytes).expect("valid exact-xref Type 7 continuation");
+        assert!(!document.was_recovered(), "flag {flag} has an exact xref");
+        assert!(
+            !document.cross_reference_chain_was_cut(),
+            "flag {flag} has no cut xref chain"
+        );
+
+        let interpretation = interpret(&mesh);
+        let shading = shading(&interpretation);
+        let ShadingKind::Mesh { patches, .. } = shading.kind.as_ref() else {
+            panic!("Type 7 is a patch mesh")
+        };
+        let patches = &patches
+            .as_ref()
+            .expect("two complete tensor patches")
+            .patches;
+        assert_eq!(
+            patches.len(),
+            2,
+            "flag {flag} reads the Table 85 continuation payload"
+        );
+        for (actual, expected) in patches[1].net[0]
+            .iter()
+            .zip(expected_edges[usize::from(flag - 1)])
+        {
+            assert!(
+                (actual.x - expected[0]).abs() < 0.01 && (actual.y - expected[1]).abs() < 0.01,
+                "flag {flag} inherited edge differs from Table 85: {actual:?} vs {expected:?}"
+            );
+        }
+        for (actual, expected) in [
+            patches[1].net[1][1],
+            patches[1].net[1][2],
+            patches[1].net[2][2],
+            patches[1].net[2][1],
+        ]
+        .into_iter()
+        .zip(expected_interior)
+        {
+            assert!(
+                (actual.x - expected[0]).abs() < 0.01 && (actual.y - expected[1]).abs() < 0.01,
+                "flag {flag} interior point from Table 85 is misplaced: {actual:?}"
+            );
+        }
+        let PatchCorners::Colours(actual) = &patches[1].corners else {
+            panic!("fixture specifies direct RGB corner colours")
+        };
+        for (actual, expected) in actual.iter().zip(
+            expected_shared[usize::from(flag - 1)]
+                .into_iter()
+                .chain([Color::rgb(1.0, 1.0, 0.0), Color::rgb(1.0, 0.0, 0.0)]),
+        ) {
+            assert_eq!(
+                *actual, expected,
+                "flag {flag} has the inherited and explicit Table 85 corner colours"
+            );
+        }
+    }
+}
+
+fn two_overlapping_type6_patches(first: &str, second: &str) -> String {
+    let points = "0A0A 0A14 0A1E 0A28 1428 1E28 2828 281E 2814 280A 1E0A 140A";
+    let data = format!("00 {points} {first} 00 {points} {second} >");
+    patch_mesh(6, &data, "0 1 0 1 0 1", "")
+}
+
+#[test]
+fn a_later_overlapping_patch_paints_over_the_earlier_patch() {
+    let red = "FF0000 FF0000 FF0000 FF0000";
+    let blue = "0000FF 0000FF 0000FF 0000FF";
+
+    // Single-patch controls establish both literal colors at page (25.5, 25.5),
+    // which is device pixel (25, 74) on this 100-point page with a top-down raster.
+    let points = "0A0A 0A14 0A1E 0A28 1428 1E28 2828 281E 2814 280A 1E0A 140A";
+    for (colours, expected) in [(red, [255, 0, 0, 255]), (blue, [0, 0, 255, 255])] {
+        let data = format!("00 {points} {colours} >");
+        let control = render_shading(&patch_mesh(6, &data, "0 1 0 1 0 1", ""));
+        assert_eq!(pixel(&control, 25, 74), expected, "single patch control");
+    }
+
+    // Section 8.7.4.5.7 (physical page 261) requires the later patch to paint over the earlier.
+    // Both complete patches map the same square [10,40]×[10,40]; their interiors
+    // overlap exactly. Literal color controls isolate stream-order compositing.
+    let red_then_blue = render_shading(&two_overlapping_type6_patches(red, blue));
+    assert_eq!(
+        pixel(&red_then_blue, 25, 74),
+        [0, 0, 255, 255],
+        "later blue patch wins"
+    );
+    let blue_then_red = render_shading(&two_overlapping_type6_patches(blue, red));
+    assert_eq!(
+        pixel(&blue_then_red, 25, 74),
+        [255, 0, 0, 255],
+        "reversing stream order reverses winner"
+    );
+}

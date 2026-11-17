@@ -2771,6 +2771,57 @@
       "log": "quality-wave101.log",
       "exit": 0,
       "scope": "model/corealltargets."
+    },
+    {
+      "log": "freetext-border-wave102.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Standalone FreeText cloud border controls."
+    },
+    {
+      "log": "mesh-border-wave102.log",
+      "run": 7,
+      "passed": 6,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Initial overlap draft samples the wrong raster row; rejected oracle failure, no product finding."
+    },
+    {
+      "log": "patch-order-wave102b.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 4,
+      "exit": 0,
+      "scope": "Corrected overlap pixel and single-patch controls."
+    },
+    {
+      "log": "quality-wave102.log",
+      "exit": 101,
+      "scope": "New test unused lint expectation and overlong literal-color function; test-only cleanup."
+    },
+    {
+      "log": "quality-wave102b.log",
+      "exit": 0,
+      "scope": "Final model all-target Clippy."
+    },
+    {
+      "log": "final-wave102.log",
+      "run": 8,
+      "passed": 8,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Five new test identities and three existing patch assertions."
+    },
+    {
+      "log": "padding-nonzero-wave102.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Additional nonzero ignored padding variant in the new Type5 test."
     }
   ],
   "prior_expected_failures": {

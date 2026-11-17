@@ -3253,5 +3253,42 @@
     "evidence": "PrimaryTable74 makes consistency SHALL and adjustmentmethod MAY; currentwideBBoxfallback silentlyusesType2geometry. B72demonstrates publicplacement.",
     "decision": "Retain ordinarysnap andboundedcellgeometry; reconsiderfallbackandcategoricalno-obligationrationale. SourceallowsXStep/YStepadjustments too; testdoesnotdictatereplacementalgorithm.",
     "qualification": "Distortionmetricoverentirelatticeisnotfullydefined. No historicalADRorproductionchange."
+  },
+  {
+    "id": "2038-T136",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "12.5.4",
+      "12.5.6.5",
+      "12.5.6.6"
+    ],
+    "summary": "Standalone FreeText cloud width/dash and absent Link border defaults have valid public raster controls.",
+    "evidence": "Empty FreeText Contents and W0 no-ink control isolate border changes; Link matches explicit one-point defaults with literal edge/clear pixels and a two-point control.",
+    "execution": "Two new tests PASS; model Clippy PASS.",
+    "qualification": "Cloud dimensions remain policy; full-style subtype interpretation is qualified in the parent review."
+  },
+  {
+    "id": "2038-T137",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "8.7.4.5.5",
+      "8.7.4.5.6"
+    ],
+    "summary": "Type5 low-bit vertex alignment and ignored nonzero padding match literal source geometry and colors.",
+    "evidence": "Same lattice tested with 8-bit fields, zero padding, and all padding bits set; exactly two independently derived triangle triplets.",
+    "execution": "One new test PASS, including strengthened nonzero-pad control.",
+    "qualification": "Display-list record decoding, not raster coverage or all legal widths."
+  },
+  {
+    "id": "2038-T138",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "8.7.4.5.7",
+      "8.7.4.5.8"
+    ],
+    "summary": "Type7 continuation fields and Type6 later-patch paint order now have direct public assertions.",
+    "evidence": "Three flags with literal edge/interior/all-color checks; both overlapping patch orders after single-color controls.",
+    "execution": "Two new tests PASS; model Clippy PASS.",
+    "qualification": "An initial wrong raster-row oracle was rejected and corrected; no production failure. Byte-alignment ambiguity remains separate."
   }
 ]

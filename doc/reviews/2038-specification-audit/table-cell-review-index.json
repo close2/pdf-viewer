@@ -956,6 +956,105 @@
       ],
       "artifact": "shards/destination_array_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "168",
+      "keys": [
+        "Type",
+        "W",
+        "S",
+        "D"
+      ],
+      "ledger_rows": [
+        "12.5.4"
+      ],
+      "artifact": "shards/annotation_border_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "169",
+      "keys": [
+        "S",
+        "I"
+      ],
+      "ledger_rows": [
+        "12.5.4"
+      ],
+      "artifact": "shards/annotation_border_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "81",
+      "keys": [
+        "BitsPerCoordinate",
+        "BitsPerComponent",
+        "BitsPerFlag",
+        "Decode",
+        "Function"
+      ],
+      "ledger_rows": [
+        "8.7.4.5.5"
+      ],
+      "artifact": "shards/mesh_shading_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "82",
+      "keys": [
+        "BitsPerCoordinate",
+        "BitsPerComponent",
+        "VerticesPerRow",
+        "Decode",
+        "Function"
+      ],
+      "ledger_rows": [
+        "8.7.4.5.6"
+      ],
+      "artifact": "shards/mesh_shading_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "83",
+      "keys": [
+        "BitsPerCoordinate",
+        "BitsPerComponent",
+        "BitsPerFlag",
+        "Decode",
+        "Function"
+      ],
+      "ledger_rows": [
+        "8.7.4.5.7"
+      ],
+      "artifact": "shards/patch_mesh_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "84",
+      "keys": [
+        "flag0",
+        "flag1",
+        "flag2",
+        "flag3"
+      ],
+      "ledger_rows": [
+        "8.7.4.5.7"
+      ],
+      "artifact": "shards/patch_mesh_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "85",
+      "keys": [
+        "flag0",
+        "flag1",
+        "flag2",
+        "flag3"
+      ],
+      "ledger_rows": [
+        "8.7.4.5.8"
+      ],
+      "artifact": "shards/patch_mesh_cells_current/features.json",
+      "status": "partial"
     }
   ]
 }

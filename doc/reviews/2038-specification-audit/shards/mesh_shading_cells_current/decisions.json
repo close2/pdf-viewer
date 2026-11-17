@@ -1,0 +1,25 @@
+{
+  "baseline": "b901326c",
+  "reviews": [
+    {
+      "question": "Do the Type 4 mesh assertions prove table-defined flags, vertex packing and decoded values?",
+      "source": "ISO 32000-2:2020 §8.7.4.5.5, Table 81, printed pp.239–242 / physical pp.254–257.",
+      "evidence": "The main shading pixel test is flag-0/8-bit. The promoted type4_edge_flags_spec_audit test independently checks flag1=(vb,vc,vd), flag2=(va,vc,vd), ignored flags on the initial triangle's latter vertices, and literal point/color values, and passed in mesh-crypto-wave74b.log. shading_parameters_spec_audit's Type 4 1-bit fixture has seven meaningful bits per record and checks distinct corner colors after padding. Neither is a width-exhaustive conformance matrix.",
+      "decision": "Retain the narrow topology and byte-padding conclusions. Do not restate the formerly untested flag branches as gaps. Record untested widths 4 and high-bit flag representation as limits only; no failure established."
+    },
+    {
+      "question": "Does Type 5 row connectivity and vertex decoding have independent evidence?",
+      "source": "ISO 32000-2:2020 §8.7.4.5.6, Table 82, printed pp.243–244 / physical pp.258–259, plus Type 4 vertex record format by explicit cross-reference.",
+      "evidence": "The existing two-row renderer test checks the sole cell's four colors. The promoted 3×3 public display-list assertion matches eight Table 82 triangles and decoded coordinates/colors, passed T97 in lattice-images-wave75.log. It uses 8-bit coordinates/components, so it does not discriminate per-vertex alignment. Type 4 separately proves the shared reader aligns non-byte-width records.",
+      "decision": "Retain row/triangle topology coverage. Add one supplemental valid test only for Type 5's shared per-vertex padding path; do not infer a code defect or malformed-row rejection obligation."
+    },
+    {
+      "question": "Which adjacent decisions are relevant?",
+      "source": "Current ADR 0292 parameter-first interpolation; ADR 1217/2546 patch-specific device tessellation and color lattice.",
+      "evidence": "Prior shading_function_oracles_current has source-derived nonlinear Type 4, 6, and 7 tests, plus executed Type 5 nonlinear Function control. ADR 1217/2546 apply to patch types rather than triangle-record bits/row rules.",
+      "decision": "Do not duplicate function-order or patch tests. Retain those ADR conclusions within their stated scope; they are not evidence for or against Type 4/5 byte layout."
+    }
+  ],
+  "errata": "Direct primary annotation review for physical pp.254–258 found only cross-reference Links on the relevant Table 81/82 pages. Issue #682 is a later Table 85 editorial cleanup and is unrelated. No effective EC3 correction to the reviewed Type 4/5 fields or topology was found.",
+  "draft_disposition": "One valid Type 5 non-byte-aligned vertex-record test is provided because current Type 5 topology tests use byte-sized fields. It has a paired 8-bit control with the same literal geometry/color result; parent should verify fixture validity and execute."
+}

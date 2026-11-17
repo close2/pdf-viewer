@@ -1,0 +1,29 @@
+{
+  "scope": "Selected border/BS/BE decisions; other annotation appearance decisions are not recertified.",
+  "decisions": [
+    {
+      "adr": "0293",
+      "topic": "Border inside Rect and BS precedence",
+      "review": "Its inside-border rule is read with Table 168's full style family, including underline. Its former precedence finding is now covered more broadly: EC3 #287 makes whole Border omission mandatory when BS exists, and the current raster comparison conflicts width, radii and dash. Its narrowed issue-status statements in the historical ADR should not override the current ledger/status and execution evidence.",
+      "disposition": "Retain the rule and current evidence; avoid repeating the earlier radius-only gap as an active finding."
+    },
+    {
+      "adr": "0294",
+      "topic": "Subtype-limited BS styles",
+      "review": "The square-versus-link control is the appropriate current proof: Table 180 supplies width/dash only, while Table 176 makes BS a Link border dictionary. Its old refusal for square B/I was removed by the later cloud/reconsideration work; the current implementation draws shape subtypes without a relief or refusal.",
+      "disposition": "Retain the subtype distinction, not the old refusal."
+    },
+    {
+      "adr": "1057",
+      "topic": "BE cloud effect behind a silence about exact artwork",
+      "review": "The effective source requires applying the specified effect, while Table 169's cloud appearance wording leaves its exact geometry open. Current implementation chooses semicircular scallops and fixed radius mapping. Tests cover effect presence and controls, not a normative exact-radius oracle. The ADR correctly treats its geometry as choice and the required effect as implementation obligation.",
+      "disposition": "Retain with the source/policy distinction; do not relabel chosen cloud dimensions as ISO requirements."
+    },
+    {
+      "adr": "1061",
+      "topic": "B/I relief choice",
+      "review": "The source names simulated bevel/inset effects without prescribing colors. Existing tests make the chosen appearance visible and distinguish it from Square's width/dash-only treatment. This is an implementation choice made to discharge the described styles, not an ISO RGB expectation.",
+      "disposition": "Retain as an explicit style construction choice."
+    }
+  ]
+}

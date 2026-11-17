@@ -1,0 +1,8 @@
+{
+  "verdict": "Type7 continuation and Type6 cross-patch order assertions PASS (T138).",
+  "source": "Parent independently read physical261 later-patch overpaint SHALL; Tables83 at262–263,84 at264–265,85 at268, with Type7 order prose267. #682 green-line cleanup does not change values. Type7 permits unrestricted interior controls; folded geometry does not invalidate this record test.",
+  "oracle": "Flags1/2/3 each yield exactly two patches. Literal shared edge controls, all four tensor interior controls, and all four inherited/explicit corner colors are asserted. For overlap, independent red and blue single-patch controls precede opposite stream orders at page(25.5,25.5), device(25,74).",
+  "rejected_hypothesis": "Initial draft sampled device y25 for page y25 on a100-point page and observed transparent pixels outside both patches. This is an oracle error, not a behavior gap. Corrected coordinates and single-patch controls pass. No failure-manifest entry was added.",
+  "execution": "Type7 PASS in mesh-border-wave102; overlap PASS in patch-order-wave102b; both PASS in final-wave102. The shard summary erroneously attributes both to patch-order-wave102b, which ran only overlap; this parent record supersedes that attribution. Final model all-target Clippy PASS.",
+  "decisions": "Retain ADR0292 parameter-before-function and ADR0778 within-patch max-v/max-u distinction; current tests separately establish inter-patch order. Patch-record sub-byte alignment remains qualified interpretation, not resolved by these byte-aligned fixtures. Device tessellation, all widths and every function-fault path remain partial."
+}

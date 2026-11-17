@@ -3532,7 +3532,8 @@
     "current_artifacts": [
       "shards/shading_current/features.json",
       "shards/shading_mesh_oracles_current/features.json",
-      "shards/shading_function_oracles_current/features.json"
+      "shards/shading_function_oracles_current/features.json",
+      "shards/mesh_shading_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -3547,7 +3548,8 @@
     "current_artifacts": [
       "shards/shading_current/features.json",
       "shards/shading_type5_lattice_current/features.json",
-      "shards/shading_function_oracles_current/features.json"
+      "shards/shading_function_oracles_current/features.json",
+      "shards/mesh_shading_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -3561,7 +3563,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/shading_current/features.json",
-      "shards/shading_function_oracles_current/features.json"
+      "shards/shading_function_oracles_current/features.json",
+      "shards/patch_mesh_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -3577,7 +3580,8 @@
       "shards/shading_current/features.json",
       "shards/errata_graphics_security_batch_current/features.json",
       "shards/shading_function_oracles_current/features.json",
-      "shards/file_only_shading_render_assertions_current/features.json"
+      "shards/file_only_shading_render_assertions_current/features.json",
+      "shards/patch_mesh_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -6963,7 +6967,8 @@
       "shards/errata_interactive_batch_current/features.json",
       "shards/annotation_visibility_print_current/features.json",
       "shards/behavior_fixture_second_review_current/features.json",
-      "shards/annotation_appearance_cells_current/features.json"
+      "shards/annotation_appearance_cells_current/features.json",
+      "shards/annotation_border_cells_current/features.json"
     ],
     "prior_artifacts": [
       "annotation_appearance_audit",
@@ -7006,7 +7011,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/annotation_common_current/features.json"
+      "shards/annotation_common_current/features.json",
+      "shards/annotation_border_cells_current/features.json"
     ],
     "prior_artifacts": [
       "annotation_border_audit",
@@ -7134,7 +7140,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "prior-assertion-reviews.json",
-      "shards/errata_interactive_batch_current/features.json"
+      "shards/errata_interactive_batch_current/features.json",
+      "shards/annotation_border_cells_current/features.json"
     ],
     "prior_artifacts": [
       "link_annotations_audit",
@@ -7155,7 +7162,8 @@
     "current_artifacts": [
       "shards/annotations_markup_current/features.json",
       "shards/errata_interactive_batch_current/features.json",
-      "shards/structured_errata_interactive_current/features.json"
+      "shards/structured_errata_interactive_current/features.json",
+      "shards/annotation_border_cells_current/features.json"
     ],
     "prior_artifacts": [
       "free_text_annotation_audit"

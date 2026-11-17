@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (101)
+## Current checkpoint (102)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **106 failing test identities**: 105 behavior assertions/probes
@@ -399,6 +399,13 @@ spacing. A fresh erratum reading also narrows B24: FitR centering belongs to the
 SHOULD recommendation in #536; FitB retains its unamended instruction. Earlier
 claims of independently mandatory FitR centering are withdrawn. Model/core Clippy
 passes. Manifest106 includes99 default-scope failures; broad99 predates B72.
+
+Checkpoint102 adds five passing tests: standalone FreeText cloud width/dash, Link
+border defaults, Type5 vertex padding, Type7 continuation records, and overlapping
+patch order. The Type5 test also proves nonzero padding bits are ignored. A wrong-row
+coordinate in the first overlap draft was rejected, corrected, and guarded with
+single-patch controls. All eight selected tests and model Clippy pass. The failure
+manifest is unchanged; 63 table matrices remain partial reviews.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

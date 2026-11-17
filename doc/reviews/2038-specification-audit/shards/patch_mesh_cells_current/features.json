@@ -1,0 +1,79 @@
+{
+  "baseline": "b901326c",
+  "scope": "Type 6 Coons and Type 7 tensor-product patch dictionary/data cells (§8.7.4.5.7-.8, Tables 83-85), conditional Function fields, and valid inter-patch reuse/order. Excludes Type 4/5 owner review and whole shading certification.",
+  "primary_source": {
+    "file": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "locations": {
+      "table83_type6_dictionary": "Table 83 is physical pp. 262-263 / printed pp. 247-248.",
+      "type6_control_order_and_flags": "§8.7.4.5.7 prose and Figure 45 on physical p. 263 / printed p. 248; Table 84 spans physical pp. 264-265 / printed pp. 249-250.",
+      "type7_dictionary_and_interior_controls": "§8.7.4.5.8 begins physical p. 265 / printed p. 250; Figure 47 / Bernstein equation on physical pp. 266-267 / printed pp. 251-252.",
+      "table85_type7_data": "Table 85 is physical p. 268 / printed p. 253; physical p. 267 / printed p. 252 is preceding prose and the Figure 47 annotation."
+    },
+    "errata_and_annotations": "Directly inspected primary annotations on physical pp. 262-268: no changes to Tables 83/84 or their edge/color fields. #682 Text on physical p. 267 / printed p. 252 says to remove a green line below the matrix before Table 85; figure cleanup only, not a correction to the table or Type 7 record order. No mesh-specific EC3 table change was found in the reviewed errata records.",
+    "effective_rules": [
+      "Table 83 requires BitsPerCoordinate, BitsPerComponent, BitsPerFlag, and Decode. Type 6 legal coordinate widths are 1/2/4/8/12/16/24/32; component widths 1/2/4/8/12/16; flag width 2/4/8 with only low two bits used, valid values 0-3. Function is optional; with it each corner is one parameter t, t is interpolated throughout before Function evaluation, Decode bounds input and output components are clamped; Indexed is prohibited.",
+      "Type 6 has at least one complete patch. Each new patch gives 12 boundary controls then four corner values. Figure45/prose orders corner colors at control points x1,x4,x7,x10. Table84 flag0 is 12 points+4 colors; flags1-3 omit four shared edge points and two shared corner colors, inheriting those according to the named prior edge. Later overlapping patches shall paint over earlier patches.",
+      "Type 7 is identical to Type 6 except for ShadingType and 16 control points instead of 12. Its stream order is 12 boundary controls followed by p11,p12,p22,p21 and then the four corner colors. Table85 continuation flags reuse the corresponding edge controls and two colors; the remaining 12 controls and two colors are explicit. Function and Decode behavior inherit Type6 rules."
+    ]
+  },
+  "ledger_mapping": {
+    "rows": [
+      {"clause":"8.7.4.5.7","title":"Type 6 (Coons patch mesh) shadings","status":"implemented"},
+      {"clause":"8.7.4.5.8","title":"Type 7 (tensor-product patch mesh) shadings","status":"implemented"},
+      {"clause":"8.7.4.4","title":"Color interpolation","status":"implemented; only the sampled parametric corner/function behavior is referenced here"},
+      {"clause":"10.7.3","title":"Smoothness tolerance","status":"implemented; only patch fineness bound behavior is referenced here"}
+    ],
+    "file": "doc/conformance/ledger.toml"
+  },
+  "source_to_consumer": [
+    {
+      "feature": "Type 6 Table83 required fields and direct color/function modes",
+      "implementation": "crates/pdf-colour/src/mesh.rs::MeshReader::patches and ::read; pdf-model shading interpretation and pdf-render SurfacePatch",
+      "assertions": [
+        "crates/pdf-model/tests/shadings.rs::a_coons_patch_reaches_the_display_list_as_a_patch",
+        "crates/pdf-model/tests/shadings.rs::a_patch_in_a_separation_space_converts_its_grid_after_interpolating",
+        "crates/pdf-model/tests/shading_parameters_spec_audit.rs::type6_paints_each_figure45_corner_colour_at_its_named_corner",
+        "crates/pdf-model/tests/shading_parameters_spec_audit.rs::type6_calls_function_with_interpolated_patch_parameter"
+      ],
+      "assertion_quality": "The corner pixel test checks all four source-ordered hues; the Function test compares a literal nonlinear t-interpolation result against the alternative of interpolating already-converted corner colors. These tests passed in scratchpad/r2038/spec-audit/eleven-crate-wave99.log. Width matrix and all Decode arities are not thereby certified."
+    },
+    {
+      "feature": "Type 6 continuation edge flags and control/color reuse (Table84)",
+      "implementation": "crates/pdf-colour/src/mesh.rs::shared_edge and ::control_grid",
+      "assertions": ["crates/pdf-model/tests/shading_continuations_spec_audit.rs::type6_continuation_flags_reuse_the_table84_edge_controls_and_colours"],
+      "assertion_quality": "Direct display-list point and color assertions for flags 1/2/3, exact xref; PASS in wave99."
+    },
+    {
+      "feature": "Type 7 Table85 control-net field order and Function interpolation",
+      "implementation": "crates/pdf-colour/src/mesh.rs::control_grid(tensor=true); pdf-render/src/shading.rs::SurfacePatch::point_at and parameter/color lattice",
+      "assertions": [
+        "crates/pdf-model/tests/shading_continuations_spec_audit.rs::type7_table85_interior_order_changes_the_public_parameterized_pixel",
+        "crates/pdf-model/tests/shading_parameters_spec_audit.rs::type7_calls_function_with_interpolated_patch_parameter"
+      ],
+      "assertion_quality": "Tensor interior controls are checked against Table85 order and an independently evaluated Bernstein pixel, with swapped control order yielding a materially different expected red; nonlinear Function interpolation has a separate exact-xref pixel test. PASS in wave99. Type7 continuation flags are not tested there."
+    },
+    {
+      "feature": "Overlap precedence between complete patches",
+      "source": "§8.7.4.5.7 physical p. 261 / printed p. 246 states that a later patch in the data stream shall paint over an earlier patch if they overlap; §8.7.4.5.8 inherits Type6 rules.",
+      "implementation": "mesh.rs stores SurfacePatch values in stream order; pdf-render ShadingKind::Mesh retains the ordered PatchMesh, and the raster backend emits patch triangles in that sequence.",
+      "assertions": ["crates/pdf-model/tests/shading_continuations_spec_audit.rs::a_later_overlapping_patch_paints_over_the_earlier_patch; `a_folded_patchs_overlap_is_resolved_by_the_larger_parameter_v` remains a distinct within-one-patch rule."],
+      "assessment": "Source-mandated visible order is now checked through public CPU raster pixels. The initial draft sampled page-space y as raster y and saw transparency; this was a draft-oracle error, not a product failure. After correcting to raster row 74 on the 100-high page and adding literal single-red/single-blue controls, both stream orders pass in patch-order-wave102b.log."
+    }
+  ],
+  "adr_review": [
+    {"adr":"0292","assessment":"Nonlinear patch Function order is independently exercised by the Type6/7 parameter tests; no conflicting current behavior found."},
+    {"adr":"0778","assessment":"Fold-over largest-v precedence test remains a separate within-one-patch rule and does not cover cross-patch stream ordering."},
+    {"adr":"1217","assessment":"Patch geometry is passed to device tessellation; current scope does not revisit its tolerance or device-space choice."},
+    {"adr":"2546","assessment":"Bounded patch color conversion lattice remains separately exercised; this audit does not claim every color-space route."},
+    {"adr":"2848","assessment":"Runtime function-fault route is covered by a Type4 mesh test; patch-specific function fault behavior remains unverified, with no defect inferred."}
+  ],
+  "drafts": [
+    "drafts/type7_continuation_and_patch_paint_order.rs (promoted into shading_continuations_spec_audit.rs; Type7 passes in mesh-border-wave102 and final-wave102; overlap ordering passes in patch-order-wave102b.log)"
+  ],
+  "overall": "The parent-run tests close the sampled Type6/7 corner-order, continuation, nonlinear Function, Type7 Table85 continuation, and cross-patch paint-order assertions. No implementation failure is established in this shard; patch-record alignment at sub-byte BitsPerFlag remains an explicitly ambiguous source-reading question, not elevated here.",
+  "unreviewed": [
+    "All allowed component/coordinate bit widths and Decode array edge cases.",
+    "Patch-record alignment with non-byte BitsPerFlag: Type4 has an explicit per-vertex padding sentence; Type6/7 have distinct patch layouts and reference Type4 for further details but do not restate whether patch records align. Existing tests use byte-aligned patch records; no malformed-input rejection conclusion is claimed.",
+    "Every backend and every patch limit/Function fault interaction."
+  ]
+}

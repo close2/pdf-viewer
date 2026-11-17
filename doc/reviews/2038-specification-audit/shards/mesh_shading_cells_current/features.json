@@ -1,0 +1,72 @@
+{
+  "baseline": "b901326c",
+  "scope": "Type 4/5 mesh stream dictionary and record cells: Tables 81/82, BitsPerCoordinate, BitsPerComponent, BitsPerFlag, Decode, VerticesPerRow, vertex order/padding, Type 4 continuation flags, Type 5 row connectivity. Function interpolation and patch meshes are reconciled to prior reviews rather than re-audited.",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "source": {
+    "locators": [
+      "§8.7.4.5.5, Table 81 and Type 4 stream records: printed pp.239–242 / primary PDF physical pp.254–257.",
+      "§8.7.4.5.6, Table 82 and Type 5 row/triangle connectivity: printed pp.243–244 / physical pp.258–259.",
+      "Table 77 common shading dictionary and Table 5 stream dictionary apply through their cross-references; common dictionary audit is outside this shard."
+    ],
+    "effective_rules": [
+      "Type 4/5 shading data is carried in streams. Vertex coordinates are in shading target coordinate space; Decode pairs map coordinate axes and either direct color components or the single t parameter when Function is present.",
+      "Both tables require BitsPerCoordinate from {1,2,4,8,12,16,24,32} and BitsPerComponent from {1,2,4,8,12,16}. Type 4 also requires BitsPerFlag from {2,4,8}; only its least significant two bits are used, with flag values 0, 1, or 2. Type 5 has no edge flags.",
+      "Type 4 records carry flag, x, y, then components (or t). Flag 0 begins a triangle and its next two flags are ignored; flag 1 reuses the prior triangle's second and third vertices; flag 2 reuses its first and third vertices. The stream shall provide a whole number of triangles with appropriate flags. Each vertex record is padded at its end to a whole byte, and padding bits are ignored.",
+      "Type 5 requires VerticesPerRow >= 2. Vertices are sequential by row. Each adjacent row pair and adjacent column pair yields two triangles by the Table 82 triplets. Its vertex encoding follows Type 4 apart from the absent flag, so the Type 4 per-vertex byte-alignment rule applies."
+    ],
+    "errata": "Inspected actual PDF annotation arrays for physical pp.254–258. Relevant annotations there are cross-reference Links; no operative Caret/StrikeOut on Tables 81/82 or mesh record/connectivity text was found. EC3 issue #682 is on physical p.267 at Table 85 cleanup and is not a Type 4/5 correction. The effective primary text and footer were read directly; this is not inferred from issue-index absence alone.",
+    "table_cells": [
+      {
+        "cell": "Table 81 BitsPerCoordinate",
+        "required_values": [1, 2, 4, 8, 12, 16, 24, 32],
+        "code": "pdf-colour/src/mesh.rs::read calls bits(..., \"BitsPerCoordinate\", &[1,2,4,8,12,16,24,32]); MeshReader::read_point reads x and y at that width, then applies Decode.",
+        "assertions": "Current Type 4 tests use widths 1 and 8. The valid 8-bit continuation fixture checks literal decoded coordinates; the 1-bit record-padding witness checks low-bit coordinate and topology values.",
+        "limit": "The listed allowed values are visible in code, but the suite does not execute every legal width. No source basis to infer invalid-width reader rejection beyond observed parser behavior."
+      },
+      {
+        "cell": "Table 81/82 BitsPerComponent",
+        "required_values": [1, 2, 4, 8, 12, 16],
+        "code": "pdf-colour/src/mesh.rs::read uses the same allowed-value gate for both kinds; Corner::read decodes either direct space components or one t value.",
+        "assertions": "Type 4 has 1-bit DeviceRGB and 8-bit RGB fixtures. Type 5 current topology oracle uses 8-bit DeviceRGB. The Type 5 padding draft uses 1-bit DeviceGray in a complete, valid stream.",
+        "limit": "No exhaustive bit-depth matrix; no defect is inferred from legal widths without separate test coverage."
+      },
+      {
+        "cell": "Table 81 BitsPerFlag and Type 4 continuation",
+        "required_values": "Width 2, 4, or 8; low two bits carry flag 0/1/2.",
+        "code": "read_vertex reads the declared field width; free_form masks to low two bits, starts a triangle on flag0, reuses (vb,vc) on1 and (va,vc) on2.",
+        "assertions": "Current type4_edge_flags_spec_audit.rs uses BitsPerFlag=2 and source-derived literal coordinates/colors for both continuation branches plus ignored second/third flags. Standard mesh tests use width8 with flag0. Durable shading_mesh_oracles_current/parent-review.json records PASS in mesh-crypto-wave74b.log.",
+        "limit": "No test uses width4 or nonzero high bits in an 8-bit flag. The current tests cover semantic low-two-bit flags at width2 and byte-width flag parsing at width8; they do not enumerate every representation."
+      },
+      {
+        "cell": "Table 81/82 Decode pairs",
+        "required_values": "Coordinate min/max pairs followed by one min/max pair per direct color component, or one pair for t when Function is present.",
+        "code": "decode_ranges reads low/high pairs; read_point applies the first two, Corner reads following components/parameter. Function case is separate.",
+        "assertions": "Type 4 flag test and Type 5 multirow test compute coordinates and colors from literal Decode ranges. Type 5 uses no Function. Type 4/5 function ordering has separate shading_function_oracles_current assertions, including the executed Type 5 nonlinear Function test.",
+        "limit": "No additional function draft: prior function oracle is independent, and color-space interpolation/function handling is outside the current dictionary-cell gap."
+      },
+      {
+        "cell": "Table 82 VerticesPerRow",
+        "required_values": "Integer at least 2; row count is inferred from stream, and rows are sequential.",
+        "code": "MeshReader::read converts the entry to usize, checks >=2, then lattice reads complete rows and triangulates adjacent row pairs.",
+        "assertions": "Current a_lattice_mesh_triangulates_between_its_rows checks a two-row/single-cell public raster control. Promoted a_lattice_mesh_preserves_all_rows_columns_and_vertex_colours checks all eight literal triplets across a 3×3 lattice and passed T97 (lattice-images-wave75.log).",
+        "limit": "Incomplete-row recovery is not classified as a mandatory reader rejection; producer record constraints do not by themselves impose that policy."
+      },
+      {
+        "cell": "Per-vertex record byte alignment (Type 4 rule inherited by Type 5)",
+        "required_values": "Each complete vertex is padded at its end to a whole byte; pad bits are ignored. Type 5 has no flag field but points to Type 4 for vertex record format.",
+        "code": "Shared MeshReader::read_vertex calls BitReader::align after flag/coordinates/components (or t) for both types.",
+        "assertions": "Type 4 has a passing one-bit fixture with seven significant bits and a per-vertex pad bit. The Type 5 multirow test uses 8-bit fields, so its records are already byte-aligned and do not prove the shared align call in Type 5. A scratch candidate adds a valid five-significant-bit Type 5 vertex and a same-geometry 8-bit control.",
+        "status": "One narrow Type 5 padding assertion gap; no implementation defect established. Draft is in drafts/type5_vertex_byte_padding.rs and awaits parent review/execution."
+      }
+    ],
+    "selected_adrs": [
+      "ADR 0292 (interpolate mesh parameter before applying Function): relevant boundary only; the present direct-color padding control does not duplicate or reevaluate its nonlinear-function tests.",
+      "ADR 1217 and ADR 2546 concern Type 6/7 patch silhouette/color lattices, not Type 4/5 vertex bit packing or Type 5 row connectivity. Their conclusions do not supersede the table-defined input format."
+    ]
+  },
+  "limits": [
+    "This is a bounded Type 4/5 input-format review, not whole shading or mesh certification. Type 6/7 patch tables/byte alignment, all device backends, every legal bit width and all color spaces are excluded.",
+    "The valid Type 5 padding draft is a display-list geometry/color assertion. It does not set renderer edge-coverage expectations, test malformed/truncated records, or claim invalid producer input must be rejected.",
+    "Type 4 incomplete-triangle error prose is recorded as a producer-stream requirement; this review does not turn it into a universal malformed-input rejection requirement."
+  ]
+}

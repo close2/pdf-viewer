@@ -1,0 +1,8 @@
+{
+  "verdict": "Two new public CPU raster assertions PASS: standalone FreeText cloud width/dash and Link neither-entry default (T136).",
+  "source": "Parent read physical pp.487–489, Table168 at488 and Table169 at489. Direct annotation inspection places #287 whole-Border precedence on Table166 physical483, caret4946/strike4952; no border-table errata on488/489. Table176 at498 has #17 activation-area note and #299 PDF1.3 correction, not #287.",
+  "fixtures": "Exact-xref PDF1.7 with no recovery/cut and complete interpretation. FreeText lives in page Annots rather than AcroForm Fields, uses explicit Helvetica resource, empty Contents and no background. W0 must produce zero ink; changed W and changed D each produce distinct nonempty images. Empty content prevents text inset changes from falsely proving border width. Link has explicit red C, no stored AP, and compares absent entries to explicit Border[0 0 1] and BS W1/Solid, with W2 difference and literal inside/outside pixels.",
+  "interpretation": "Table169 requires honoring BS width/dash; exact cloud radius/artwork remains ADR1057 policy. Link/FreeText/Widget BS subtype rows also use width/dash wording; general12.5.4/Table168 support the broader full-style reading, but the subtype rows alone do not explicitly distinguish these from shape types. Retain qualified ADR0294/1061 interpretation, not a new mandatory runtime failure.",
+  "execution": "freetext-border-wave102 PASS; mesh-border-wave102 Link PASS; final-wave102 all8 PASS. Model all-target Clippy passes after test-only lint cleanup.",
+  "residual": "Selected default, width and dash routes only. No malformed-input refusal obligation or exhaustive subtype/native-host claim. Earlier FreeText scratch draft is superseded by the parent fixture."
+}

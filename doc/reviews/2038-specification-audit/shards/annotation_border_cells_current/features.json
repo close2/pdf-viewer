@@ -1,0 +1,84 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected border-style and border-effect dictionary cells, the common /Border fallback/precedence, and subtype-specific consumers. This is not a full audit of every annotation appearance or geometry rule.",
+  "source": {
+    "primary": "ISO 32000-2:2020(E) \u00a712.5.4 physical pp.487\u2013489 / printed pp.472\u2013474. Table 166 /Border and its precedence note: physical p.483 / printed p.468. Table 168: physical p.488 / printed p.473. Table 169: physical p.489 / printed p.474. Actual subtype conditionals checked at Table 176 Link (physical 497 / printed 482), Table 177 FreeText (physical 499 / printed 484), Table 180 Square/Circle (physical 504 / printed 489), Table 181 Polygon/PolyLine (physical 506 / printed 491), Table 185 Ink (physical 510 / printed 495), and Table 191 Widget (physical 513 / printed 498). Locators came from the primary PDF footer plus ec3-parent-layout.txt form-feed index.",
+    "errata": "The EC3 annotations physically on pp.488\u2013489 are Link cross-references, not amendments to Tables 168\u2013169. Issue #287's actual Table 166 caret/strike pair (objects 4946 and 4952) amends the /Border note on physical p.483 / printed p.468: 'is ignored' becomes 'shall be ignored'. It strengthens the existing /BS-over-/Border precedence; it does not add an error/rejection rule. The primary Table 166 note is on physical p.483 / printed p.468.",
+    "ledger": "Current ledger \u00a712.5.4 'Border styles' remains implemented. Its note maps Table 168 styles, width/dash and Table 169 cloudy effects; source and implementation claims are assessed below."
+  },
+  "features": [
+    {
+      "cells": [
+        "Table 168 /Type",
+        "Table 168 /W",
+        "Table 168 /S"
+      ],
+      "source_rule": "Type is optional and, if present, shall be /Border. W is optional, defaults to 1 point, and a value of 0 suppresses the border. S defaults to solid; D is dashed; B/I are simulated relief styles; U is a single bottom line. An interactive processor shall tolerate an unrecognized border style and use S.",
+      "implementation": "pdf-model/src/appearance.rs::Border::from_style_dictionary defaults W/S, clamps width at zero, maps D/B/I/U, and maps other names to solid. Border drawing applies the full styles only where subtype entries describe a border; square/circle/line/ink/polygon paths consume their own geometry and the BS width/dash parameters.",
+      "assertions": [
+        "crates/pdf-model/tests/annotation_border_audit.rs::an_empty_border_style_defaults_to_one_point_solid",
+        "...::an_unknown_border_style_uses_solid_even_with_a_dash_array",
+        "crates/pdf-model/tests/annotations.rs::a_squares_border_style_raises_nothing_and_a_links_is_drawn_in_relief",
+        "...::an_inset_border_is_shaded_on_the_top_and_left_and_lit_on_the_bottom_and_right",
+        "...::an_underline_border_is_drawn_inside_the_rectangle_rather_than_across_its_edge"
+      ],
+      "assessment": "Public raster controls cover empty-dictionary defaults, the unknown-style mandated fallback, subtype-specific width/dash handling for shape annotations, and the implementation\u2019s relief/underline paths. Table 176/177/191 subtype rows describe BS as line width/dash; applying B/I/U via shared Table 168 to Link/FreeText/Widget is the broader interpretation used in the ADRs, qualified rather than treated as a standalone subtype-row SHALL. Type validation and malformed widths are producer constraints; no reader rejection claim is made."
+    },
+    {
+      "cells": [
+        "Table 168 /D",
+        "Table 166 /Border",
+        "Table 166 /BS precedence",
+        "No-entry fallback"
+      ],
+      "source_rule": "For S=D, D is an optional dash array in graphics-state line-dash format; dash phase is assumed 0 and omitted D defaults to [3]. Border is the legacy rounded-rectangle array with its own default [0 0 1]. If BS is present, the entire Border entry is ignored. If neither Border nor BS is present, \u00a712.5.4 requires a solid 1-point border, subject to the annotation's color and any stored AP route.",
+      "implementation": "Border::geometry takes the BS branch before reading any Border component, otherwise reads the legacy array. from_style_dictionary reads D only for D style; omitted/invalid shape falls to [3]. Constructed annotations use /Border and /BS only on the no-stored-appearance path; stored AP takes precedence under \u00a712.5.5/Table 166.",
+      "assertions": [
+        "crates/pdf-model/tests/annotation_border_audit.rs::a_dashed_border_without_a_pattern_uses_the_table_168_default compares omission to [3], a changed dash control, and page-stroke phase 0/1",
+        "...::bs_presence_ignores_conflicting_border_geometry_as_a_whole compares conflicting width/radii/dash against both and BS-only",
+        "crates/pdf-model/tests/annotations.rs::a_border_style_dictionary_ignores_the_border_arrays_corner_radii",
+        "scratch draft common_border_absent_defaults.rs compares a valid Link with explicit /C but absent Border/BS to explicit one-point Border and BS controls; unexecuted"
+      ],
+      "assessment": "The #287 whole-entry precedence is tested with width, dash, and radii conflicts; current parent review reports all five annotation_border_audit tests pass. The clean generic default controls exercise an empty BS dictionary and explicit values. The no-entry \u00a712.5.4 default is not independently covered with visible color by the earlier Link tests; the variable_text FreeText default uses a field-shaped fixture and is not treated as clean standalone evidence. A valid exact-xref Link no-entry comparison is supplied as a draft."
+    },
+    {
+      "cells": [
+        "Table 169 /S",
+        "Table 169 /I",
+        "Table 169 width/dash preservation"
+      ],
+      "source_rule": "S defaults to S (no effect), which leaves the border as described by BS. C requests a cloud effect; Table 169 says BS width and dash shall be honored. I is meaningful only for S=C, is in [0,2], and defaults to 0. \u00a712.5.4 says an effect specified by BE shall be applied; the curved artwork description itself gives no fixed radius, segment count or exact pixels.",
+      "implementation": "appearance.rs::cloudy uses BE only when S=C, defaults I to 0 and passes the value to cloud::radius. cloud.rs clamps to [0,2] as tolerance policy and chooses scallop radius; Border::apply carries the BS width/dash to the stroke. Square/Circle, Polygon, and FreeText have explicit cloud construction paths; PolyLine does not read BE.",
+      "assertions": [
+        "crates/pdf-model/tests/annotation_border_audit.rs::a_border_effect_without_a_style_defaults_to_no_effect compares absent BE, empty BE and explicit S; C is the active control",
+        "crates/pdf-model/tests/annotations.rs::a_cloudy_square_is_scalloped_inside_its_rectangle",
+        "...::a_cloudy_circle_has_a_cusp_where_the_straight_ellipse_has_none (default I=0)",
+        "...::a_cloudy_polygon_bulges_outward_and_a_polylines_effect_is_not_meaningful",
+        "...::a_cloudy_path_polygon_follows_its_curve",
+        "crates/pdf-model/tests/cloudy_border_audit.rs::a_cloudy_polygon_honours_distinct_border_dash_arrays and ::a_cloudy_polygon_honours_bs_width_and_zero_suppresses_its_stroke",
+        "crates/pdf-model/tests/freetext_cloud_border_spec_audit.rs::a_freetext_cloud_uses_its_bs_dash_and_width (standalone fixture; parent reports PASS in freetext-border-wave102.log)"
+      ],
+      "assessment": "Required defaults, active effect, Square/Circle/Polygon subtype applicability, and BS width/dash have concrete public rendering assertions. The standalone FreeText test now compares width/dash controls with empty Contents and a zero-width no-ink control; parent reports PASS. It asserts only differential behavior, not a normative exact cloud radius. Existing cloud geometry assertions remain chosen-implementation controls."
+    },
+    {
+      "cells": [
+        "Subtype-specific BS/BE applicability"
+      ],
+      "source_rule": "The Link/FreeText/Widget subtype rows describe BS as specifying line width and dash for their border; the Line, Square/Circle, Ink, and Polygon/PolyLine rows likewise specify width/dash for their line/shape. Table 168 defines S/B/I/U, but the subtype rows do not expressly say those four styles apply to each subtype; treating the shared border dictionary as carrying all styles is the broader interpretation chosen by ADR 1061, not an unambiguous subtype-row rule. BE is available for Square/Circle and Polygon; Table 181 says BE is meaningful only for Polygon. \u00a712.5.4 additionally permits FreeText BE beginning with PDF 1.6. Stored appearances supersede these constructed characteristics.",
+      "implementation": "Shared Border parses Table 168; each subtype controls whether it draws an annotation border or only applies width/dash to its own shape/path. The treatment of B/I/U on Link/FreeText/Widget follows the general Table 168/\u00a712.5.4 reading used by ADR 1061, qualified by narrower subtype-row wording. `cloudy` is called for FreeText, Square/Circle, and Polygon only. AP selection occurs before a constructed border is used.",
+      "assertions": [
+        "Square-versus-Link /S /B differential test above",
+        "Polygon-versus-PolyLine BE test above",
+        "crates/pdf-model/tests/free_text_annotation_spec_audit.rs has standalone FreeText fixtures but sets /BS /W 0; variable_text.rs free-text border/cloud tests use a widget-shaped AcroForm /Fields entry",
+        "Stored AP versus constructed appearance opacity/characteristics coverage in annotations.rs and annotation_appearance_audit.rs"
+      ],
+      "assessment": "Square/Circle and Polygon conditionals have standalone rendered controls. The FreeText cloud width/dash route now has its own standalone exact-xref test, parent-integrated and reported PASS. Link/Widget/FreeText border paths exercise selected construction behavior. Local Link/FreeText/Widget rows say width/dash, while ADR 1061 reads the shared Table 168 styles more broadly; this is a qualified source interpretation, not a new behavior failure. One valid exact-xref draft remains for the no-entry Link default."
+    }
+  ],
+  "execution": "No Cargo command was run by this shard. Existing annotation-border-wave17.log records 5/5 annotation_border_audit tests passing; baseline-nextest.log records the square/circle, polygon/polyline, and cloudy_border_audit controls passing. Parent integrated and reports PASS for freetext_cloud_border_spec_audit::a_freetext_cloud_uses_its_bs_dash_and_width in freetext-border-wave102.log. The no-entry Link default draft remains unexecuted.",
+  "residuals": [
+    "No required reader rejection behavior is inferred for invalid BS Type, malformed Border/BS arrays, unknown BE values, or I outside the Table 169 range.",
+    "Table 169 does not normatively specify exact scallop radius, spacing, segment count, or colors; those remain chosen implementation policy under ADR 1057.",
+    "The no-entry Link default is a scratch-only assertion draft pending parent review/execution. Native Qt/GTK rendering and every annotation subtype appearance path are outside this selected matrix."
+  ]
+}
