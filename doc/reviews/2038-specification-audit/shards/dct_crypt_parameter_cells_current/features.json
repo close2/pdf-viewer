@@ -1,0 +1,39 @@
+{
+  "scope": "Selected Table13 ColorTransform and Table14 Crypt decode-parameter consumers; no whole-codec/security certification.",
+  "tables": [
+    {
+      "table": 13,
+      "physical_pages": [
+        64
+      ],
+      "printed_pages": [
+        49
+      ],
+      "keys": [
+        "ColorTransform"
+      ],
+      "source": "Priority Adobe marker, then parameter, then three-component default1/otherwise0; 0 identity and1 specified conversion, ignored for one/two components. Surrounding63 explicitly limits conforming encoded inputs to one,three,four components.",
+      "assertions": "Read colour_transform.rs public image-output assertions. RGB literals128/64/192 and independently calculated218/104/15 anchor representation comparisons; four-component tests also require different transformed/untransformed output. Grayscale previously compared routes only; now explicitly128/128/128.",
+      "limits": "Two-component helper decision is not a valid conforming JPEG producer witness under surrounding63; no two-component decoder defect inferred. Invalid parameter fallback is policy. Progressive process/scan combinations and TN5116 are not certified."
+    },
+    {
+      "table": 14,
+      "physical_pages": [
+        67,
+        68
+      ],
+      "printed_pages": [
+        52,
+        53
+      ],
+      "keys": [
+        "Type",
+        "Name"
+      ],
+      "source": "Type optional CryptFilterDecodeParms; Name optional, defaultIdentity. Crypt overrides StmF and must be first in filter array.",
+      "assertions": "New encryption_fixtures public Document test opens an AES R4 document with a clear explicit Crypt stream. Literal combined plaintext and encrypted title are asserted for explicit Identity, omittedName, and absent DecodeParms. Both omitted variants exercise the independent stream-default rule.",
+      "limits": "Existing shared encryption fixture algorithms generate ciphertext; this is default-selection evidence, not an independent cryptographic known-answer vector. No private handler key or malformed-name rejection claim."
+    }
+  ],
+  "errata": "Parent inspected primary annotation dictionaries on63,64,67,68: no active selected direct replacement found. Related filter/encryption issues remain in their owner shards."
+}

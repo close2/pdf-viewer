@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (116)
+## Current checkpoint (117)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **107 failing test identities**: 106 behavior assertions/probes
@@ -487,6 +487,10 @@ Three structure-attribute matrices bring the unique partial count to 132; D17 an
 B53 keep their existing qualifications. Exact errata target checks confirm D66 and
 reject a proposed issue216 mismatch after its second-page replacement is included.
 The run completed in65 seconds with peak7.22 GiB.
+
+Checkpoint 117 strengthens18 DCT assertions/fixtures and adds a passing explicit
+Crypt omitted-Name/default test. All-target model/syntax/core Clippy passes. The
+unique partial table count is134; navigation and FDF candidates are being reviewed.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

@@ -838,3 +838,53 @@ fn absent_stream_and_string_defaults_are_identity() {
         std::array::from_fn(|_| (true, CONTENT.to_vec(), TITLE.to_vec()))
     );
 }
+
+/// Table 14 defaults an omitted Crypt Name to Identity even beside an AES `StmF`.
+#[test]
+fn a_crypt_filter_with_no_name_uses_identity_instead_of_stmf() {
+    let older = REVISION_4;
+    let owner_entry = owner_entry(OWNER, USER, older);
+    let key = file_key(USER, &owner_entry, older);
+    let dictionary = format!(
+        "<< /Filter /Standard /V 4 /R 4 /Length 128 {} /O {} /U {} /P {} >>",
+        aesv2_filters("StdCF", "StdCF"),
+        hex_string(&owner_entry),
+        hex_string(&user_entry(&key, older)),
+        older.flags,
+    );
+    let original = document(&dictionary, &key, Method::Aes128, Method::Aes128, true);
+    let mut expected = CONTENT.to_vec();
+    expected.push(b'\n');
+    expected.extend_from_slice(IN_THE_CLEAR);
+    for omitted in [
+        "",
+        "/Name /Identity",
+        "/DecodeParms [<< /Type /CryptFilterDecodeParms /Name /Identity >>]",
+    ] {
+        let mut bytes = original.clone();
+        // Equal-width edits preserve every exact xref offset. The initial ID pair is equal.
+        let second_id = hex_string(b"fixture-id-other");
+        let first_id = hex_string(&ID0);
+        assert_eq!(second_id.len(), first_id.len());
+        let at = bytes
+            .windows(second_id.len())
+            .position(|w| w == second_id.as_bytes())
+            .expect("second trailer ID");
+        bytes[at..at + second_id.len()].copy_from_slice(first_id.as_bytes());
+        if !omitted.is_empty() {
+            let positions: Vec<_> = bytes
+                .windows(omitted.len())
+                .enumerate()
+                .filter_map(|(i, w)| (w == omitted.as_bytes()).then_some(i))
+                .collect();
+            assert_eq!(positions.len(), 1, "exactly one parameter occurrence");
+            let at = positions[0];
+            bytes[at..at + omitted.len()].fill(b' ');
+        }
+        let document = open(&bytes, USER).expect("valid R4 fixture opens");
+        assert!(!document.was_recovered());
+        assert!(!document.cross_reference_chain_was_cut());
+        assert_eq!(page_content(&document), expected, "omitted={omitted}");
+        assert_eq!(title(&document), TITLE);
+    }
+}

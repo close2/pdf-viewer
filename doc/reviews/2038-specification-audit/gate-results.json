@@ -3099,6 +3099,29 @@
       "expected_failures": 100,
       "unexpected_failures": 0,
       "comparison": "broad116-comparison.json"
+    },
+    {
+      "log": "dct-wave117.log",
+      "run": 18,
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Existing DCT tests with stronger fixture/oracle guards."
+    },
+    {
+      "log": "crypt-name-wave117.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 11,
+      "exit": 0,
+      "scope": "New explicit Crypt omittedName/default test;11filtered."
+    },
+    {
+      "log": "quality-model-syntax-core-wave119b.log",
+      "exit": 0,
+      "scope": "Model/syntax/core all-target Clippy, including pending navigation/FDF tests."
     }
   ],
   "prior_expected_failures": {

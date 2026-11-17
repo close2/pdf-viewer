@@ -3542,5 +3542,27 @@
     "summary": "Named property resources with an indirect ActualText value reach literal text extraction and speech output.",
     "execution": "One new test PASS; inline direct-value control also asserts literal replacement. Model all-target Clippy PASS.",
     "qualification": "Selected BDC consumer, valid exact-xref PDF1.7; no DP semantics or arbitrary property meaning inferred."
+  },
+  {
+    "id": "2038-T156",
+    "kind": "assertion-quality",
+    "clauses": [
+      "7.4.8",
+      "7.5.2"
+    ],
+    "summary": "DCT grayscale route has a literal sample oracle; shared binary fixtures require exact complete xrefs.",
+    "execution": "18 existing tests PASS; model Clippy PASS.",
+    "qualification": "Two-component helper behavior does not establish a conforming JPEG witness under the surrounding one/three/four producer rule."
+  },
+  {
+    "id": "2038-T157",
+    "kind": "assertion-quality",
+    "clauses": [
+      "7.4.10",
+      "7.6.6"
+    ],
+    "summary": "An explicit Crypt stream with omitted Name or DecodeParms overrides AES StmF with Identity.",
+    "execution": "One new test PASS, three variants with literal plaintext/title. Syntax all-target Clippy PASS.",
+    "qualification": "Default selection, not a separate cryptographic known-answer test."
   }
 ]

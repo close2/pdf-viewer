@@ -2125,6 +2125,29 @@
       ],
       "artifact": "shards/structure_attribute_dictionary_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "13",
+      "keys": [
+        "ColorTransform"
+      ],
+      "ledger_rows": [
+        "7.4.8"
+      ],
+      "artifact": "shards/dct_crypt_parameter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "14",
+      "keys": [
+        "Type",
+        "Name"
+      ],
+      "ledger_rows": [
+        "7.4.10"
+      ],
+      "artifact": "shards/dct_crypt_parameter_cells_current/features.json",
+      "status": "partial"
     }
   ],
   "reconciliation_110": "Two Table227 reviews previously counted twice; merged into one matrix retaining both artifact links. Table87 now includes four continuation keys and corrected source span. Counts are selected unique table matrices, not certified features."

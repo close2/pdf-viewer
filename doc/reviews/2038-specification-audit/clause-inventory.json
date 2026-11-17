@@ -703,7 +703,8 @@
     "current_artifacts": [
       "shards/image_filters_remaining_current/features.json",
       "shards/file_only_consumer_assertions_remaining_current/features.json",
-      "shards/file_only_document_assertions_current/features.json"
+      "shards/file_only_document_assertions_current/features.json",
+      "shards/dct_crypt_parameter_cells_current/features.json"
     ],
     "prior_artifacts": [
       "dct_decode_audit",
@@ -739,7 +740,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/image_filters_remaining_current/features.json"
+      "shards/image_filters_remaining_current/features.json",
+      "shards/dct_crypt_parameter_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -786,7 +788,8 @@
       "shards/file_structure_current/features.json",
       "shards/errata_weak_dispositions_batch3_current/features.json",
       "shards/xref_dictionary_cells_current/features.json",
-      "shards/fixture_claim_validity_current/features.json"
+      "shards/fixture_claim_validity_current/features.json",
+      "shards/dct_crypt_parameter_cells_current/features.json"
     ],
     "prior_artifacts": [
       "file_structure_audit"
@@ -1439,7 +1442,8 @@
     "current_artifacts": [
       "shards/encryption/features.json",
       "shards/dual_public_key_default_filters/features.json",
-      "shards/crypt_filter_cells_current/features.json"
+      "shards/crypt_filter_cells_current/features.json",
+      "shards/dct_crypt_parameter_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."

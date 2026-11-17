@@ -268,7 +268,7 @@ fn pdf_with_image(codestream: &[u8], colour_space: &str, entries: &str) -> Vec<u
     image.extend_from_slice(b"\nendstream");
     objects.push(image);
 
-    let mut out = b"%PDF-1.7\n".to_vec();
+    let mut out = b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n".to_vec();
     let mut offsets = Vec::with_capacity(objects.len());
     for (index, object) in objects.iter().enumerate() {
         offsets.push(out.len());
@@ -295,6 +295,11 @@ fn pdf_with_image(codestream: &[u8], colour_space: &str, entries: &str) -> Vec<u
 /// The top-left pixel of the page's one image, as red, green and blue.
 fn first_pixel(bytes: Vec<u8>) -> (u8, u8, u8) {
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    assert!(
+        !document.was_recovered(),
+        "the fixture has exact xref offsets"
+    );
+    assert!(!document.cross_reference_chain_was_cut());
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     let interpretation = pdf_model::interpret(&document, &page);
     assert_eq!(
@@ -426,6 +431,11 @@ fn a_one_component_frame_ignores_the_entry() {
         "/DeviceGray",
         "",
     ));
+    assert_eq!(
+        grey,
+        (128, 128, 128),
+        "the DC-only grayscale sample is literal"
+    );
     for value in [0, 1] {
         assert_eq!(
             first_pixel(pdf_with_image(
@@ -567,6 +577,7 @@ fn exact_pixel(codestream: &[u8], parameters: &str) -> (u8, u8, u8) {
     let bytes = pdf_with_image(codestream, "/DeviceRGB", parameters);
     let document = Document::open(bytes).expect("complete PDF fixture");
     assert!(!document.was_recovered(), "the builder's xref is exact");
+    assert!(!document.cross_reference_chain_was_cut());
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     let interpretation = pdf_model::interpret(&document, &page);
     assert!(

@@ -1,0 +1,5 @@
+{
+  "fixture": "DCT helper now emits binary-header comment for binary JPEG data; both public helpers require complete exact-xref chain. Grayscale literal anchors the no-transform comparisons. Crypt test uses existing validPDF1.7 binary/exact-xref builder, makes initial16-byteIDs equal, and removes parameter tokens with equal-length whitespace so offsets remain exact.",
+  "execution": "dct-wave117:18PASS. crypt-name-wave117:1PASS11filtered. Model Clippy PASS; initial syntax/core lint checks caught documentation/expect annotations; final model/syntax/core all-target119bPASS.",
+  "limits": "No production or ledger changes. Crypt test exercises actual decrypted output but no independent crypto algorithm validation."
+}
