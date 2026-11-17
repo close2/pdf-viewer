@@ -279,6 +279,33 @@
       ],
       "artifact": "shards/linearization_dictionary_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "227",
+      "ledger_rows": [
+        "12.7.4.1"
+      ],
+      "keys": [
+        "ReadOnly",
+        "Required",
+        "NoExport"
+      ],
+      "artifact": "shards/variable_text_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "228",
+      "ledger_rows": [
+        "12.7.4.3"
+      ],
+      "keys": [
+        "DA",
+        "Q",
+        "DS",
+        "RV"
+      ],
+      "artifact": "shards/variable_text_cells_current/features.json",
+      "status": "partial"
     }
   ]
 }

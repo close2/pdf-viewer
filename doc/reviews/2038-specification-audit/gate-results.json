@@ -2363,6 +2363,35 @@
       "log": "quality-wave88.log",
       "exit": 0,
       "scope": "transformalltargetsClippy"
+    },
+    {
+      "log": "rich-text-wave89.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "exit": 100
+    },
+    {
+      "log": "quadding-wave89b.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave89.log",
+      "exit": 0,
+      "scope": "modelalltargetsDSonly"
+    },
+    {
+      "log": "quality-wave89b.log",
+      "exit": 101,
+      "scope": "NewQdocmarkdownlint,corrected"
+    },
+    {
+      "log": "quality-wave89c.log",
+      "exit": 0,
+      "scope": "modelalltargetsfinal"
     }
   ],
   "prior_expected_failures": {

@@ -1,0 +1,63 @@
+{
+  "scope": "ISO 32000-2:2020 EC3 §12.7.4.1 Table 227, §12.7.4.3 Table 228 and the directly conditioning Table 231 RichText bit; associated Table 224 defaults. Primary PDF layout was read at the defining paragraphs/tables, not inferred solely from search snippets.",
+  "source_locators": {
+    "field_inheritance": "EC3 printed p.530 / physical p.545: only entries designated inheritable in the relevant tables inherit; the processor shall not limit the range of inheritance.",
+    "table_227": "Table227 physical547/printed532:ReadOnly,Required,NoExport. Parentprimaryread; valuechangeSHALL differs from widgetpointer/hoverSHOULD.",
+    "table_228": "Table228 physical548/printed533:DA/Qinheritable,DS/RVnot;318changesDAto bytestring.",
+    "rich_text_condition": "EC3 Table 231 bit 26, printed p.540 / physical p.555: if RichText is set and the field has a value, RV shall specify the rich text string; EC3 #392 changes the associated rich-text-value condition to a value other than null (errata-read locator; parent has separately checked the source overlay).",
+    "acroform_defaults": "EC3 Table 224, printed p.529 / physical p.544: AcroForm DA and Q are document-wide defaults for variable-text fields, after field-tree values."
+  },
+  "cells": [
+    {
+      "entry": "Table 227 bit 1 ReadOnly",
+      "effective_rule": "When set, an interactive processor SHALL not allow a user to change the field value. Associated widgets SHOULD not respond to clicks or mouse-motion appearance changes. This does not prohibit the document's reset/import/calculation operations.",
+      "consumer": "crates/pdf-model/src/view/* field editing, calculation, import and reset paths; host Field answers feed the GTK/Qt controls. Distinguish user-entered mutation from programmatic field mutation.",
+      "assertions": "crates/pdf-model/tests/forms_data.rs::a_read_only_field_refuses_a_person_and_not_an_import checks typed edit refusal and that FDF import still changes/draws the value. The SHOULD mouse/hover appearance limb is host behavior and is not proved by the value-edit assertion.",
+      "coverage": "Core read-only input boundary is directly witnessed; host pointer/hover recommendation remains separate."
+    },
+    {
+      "entry": "Table 227 bit 2 Required",
+      "effective_rule": "If set, a field SHALL have a value at the time it is exported by a submit-form action; this is not a general parse-time or page-display rejection rule.",
+      "consumer": "crates/pdf-model/src/submission.rs validates field values as the submit action is composed; viewer_host::policy::may_submit is the host decision boundary.",
+      "assertions": "crates/pdf-model/tests/submission.rs::a_required_field_with_no_value_is_named_when_the_form_is_exported has flag+empty, flag-clear+empty and flag+value controls and asserts only the empty Required field is named in Submission::owed. The minimal fixture is not a rendered/AP-complete PDF, and this assertion is report evidence rather than proof that a host blocks all submission routes.",
+      "coverage": "Composition reports the source condition; end-to-end host decision at the send boundary remains under separate review. No network behavior is implied."
+    },
+    {
+      "entry": "Table 227 bit 3 NoExport",
+      "effective_rule": "If set, a field SHALL NOT be included in a submit-form action; §12.7.6.2 states this takes precedence over Fields and Include/Exclude selection.",
+      "consumer": "crates/pdf-model/src/submission.rs field selection before FDF/HTML/XML composition.",
+      "assertions": "crates/pdf-model/tests/submission.rs::a_no_export_field_is_left_out_even_where_the_action_names_it directly contrasts two fields selected by the same /Fields array; `the_default_submission_is_an_fdf_of_every_field_with_a_value` also checks the ordinary default route.",
+      "coverage": "Direct precedence witness. This cell does not certify every format encoder."
+    },
+    {
+      "entry": "Table 228 DA",
+      "effective_rule": "Required; inheritable. EC3 #318 makes it a byte string, whose bytes are content-stream operators. Field-chain DA takes precedence over the AcroForm document-wide default; the selected resource names resolve under the AcroForm /DR.",
+      "consumer": "crates/pdf-model/src/variable_text.rs::bytes; crates/pdf-model/src/appearance.rs::default_resources and variable-text construction. Lookup order is Field::chain() nearest first, then AcroForm.",
+      "assertions": "crates/pdf-model/tests/variable_text_resource_merge_audit.rs::updating_a_widget_copies_missing_dr_font_but_keeps_same_named_stream_font checks the inherited AcroForm DA reaches a saved/reopened appearance and uses its named font. crates/pdf-model/tests/names_are_bytes.rs tests DA and /DR names as raw bytes, including an unequal-byte negative control. Variable-text rendering tests use literal DA operators. This shard found no gap in byte/resource fallback itself.",
+      "coverage": "The AcroForm fallback and byte-sensitive names have direct checks. No blanket assertion is made that every DA operator is supported."
+    },
+    {
+      "entry": "Table 228 Q",
+      "effective_rule": "Optional; inheritable; 0 left, 1 centred, 2 right; default 0. Field-tree Q has precedence over AcroForm Q.",
+      "consumer": "crates/pdf-model/src/variable_text.rs::Quadding::read and appearance text layout; sources are field chain followed by AcroForm.",
+      "assertions": "crates/pdf-model/tests/variable_text.rs::quadding_moves_the_line_within_its_box checks direct 0/1/2 rendering with independent page-edge positions and equal-width controls.",
+      "coverage": "New public precedence consumerPASS,quadding-wave89b.log: terminal0 overparent2/form1;parent2overform0;form1centres aboutx100;absent==left."
+    },
+    {
+      "entry": "Table 228 DS",
+      "effective_rule": "Optional PDF 1.5 default style string. The row does not designate it inheritable; §12.7.4.1 makes that designation the boundary for field-parent inheritance. A terminal field's DS is valid even when its Widget is a separate child.",
+      "consumer": "rich_text::for_field searches TWO dictionaries from Field::chain(): widget plus flattened inherited entries. Inherited::of/READ_UP_THE_CHAIN copied DS from full ancestor chain into the latter; the two-dictionary search then uses it.",
+      "assertions": "crates/pdf-model/tests/variable_text.rs::a_rich_text_fields_default_style_string_is_drawn checks terminal/merged-widget DS style against an unstyled field. It is a literal size/ink comparison but not a separate-widget parent-boundary test.",
+      "coverage": "B63confirmed publicrenderFAIL,rich-text-wave89.log;local/default/overridecontrols pass before failure."
+    },
+    {
+      "entry": "Table 228 RV / Table 231 bit 26",
+      "effective_rule": "RV is optional PDF 1.5 and not designated inheritable by Table 228. If the terminal RichText field has a non-null value, Table 231 requires its RV rich text string. RV may be a text string or text stream; the named XFA 3.3 format has only the supported subset documented in ADR 1634.",
+      "consumer": "Inherited::of flattens RV from ancestors; rich_text::for_field sees widget plus flattened entries. Non-null RichText value requires own-field RV; absent-ownRV witness would be invalid, so no valid-input runtime defect inferred.",
+      "assertions": "crates/pdf-model/tests/variable_text.rs::a_rich_text_fields_formatting_is_drawn has an exact width comparison for bold versus plain with AP regeneration; `a_rich_text_fields_flag_and_rv_are_found_up_the_parent_chain` confirms a separate widget reads RV on its owning terminal field (valid ownership, not a nonterminal-inheritance witness); tests also cover no-RV, unflagged-RV, markup character agreement and disagreement. No valid standalone negative test for RV inherited from a nonterminal was found in this bounded scan.",
+      "coverage": "The terminal-to-widget case is valid and directly evidenced. A test with non-null V, RichText set, and absent terminal RV would violate Table 231’s SHALL; adding terminal RV masks an ancestor RV, so this pass has no valid differential RV fixture. Record RV as an implementation-scope residual, not a separate confirmed runtime defect."
+    }
+  ],
+  "global_status_check": "At shard start, the expected-failures manifest contained no Table 228 DS/RV or Table 227 cell finding. Parent reports that the DS ancestor-only rendering failed at wave89, with terminal-local/override controls passing. Parent integrated the Q precedence test and added independent center-origin/equal-width/default controls for wave89b; no result was provided to this shard. The wave87 AA/NeedAppearances work is recorded as parent evidence only, not execution by this shard.",
+  "parent_status": "DSconfirmedFAIL;QnewPASS. Parent cause/source and validity corrections supersede initial reviewer wording in findings/decisions. Required report-only host policy separately under review."
+}

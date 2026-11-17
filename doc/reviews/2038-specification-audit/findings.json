@@ -2888,5 +2888,29 @@
     "evidence": "Actual first-object dictionary inspected across12fixtures: sixshapes×classic/objectstreammodes; integer1 and real1.0equivalent; noRecoveryguard.",
     "execution": "ExistingtestPASS linearization-wave88.log;transformClippyPASS.",
     "limits": "This strengthens an existingidentity, not a new test. No completeAnnexF certification."
+  },
+  {
+    "id": "2038-B63",
+    "kind": "behavior-gap",
+    "clauses": [
+      "12.7.4.1",
+      "12.7.4.3"
+    ],
+    "summary": "A nonterminal field default style changes the rendered terminal rich-text value although DS is not inheritable.",
+    "evidence": "Ancestor-only36ptDS yields27inkrows vs9default;terminal-localstyle and overridecontrols pass. PublicCPUrender complete,noRecovery.",
+    "cause": "Inherited::of flattens DS from fullancestry; Field::chain exposes widget+flattenedentries to rich_text::for_field.",
+    "execution": "rich_text_default_style_noninheritance_spec_auditFAIL,rich-text-wave89.log;modelClippyPASS.",
+    "qualification": "ValidPDF1.7 ownRVmatchesV. NoRVinheritancefailureclaimed because absent-required-ownRVfixturewouldbeinvalid."
+  },
+  {
+    "id": "2038-T120",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "12.7.3",
+      "12.7.4.3"
+    ],
+    "summary": "Separate-widget text rendering distinguishes local/inherited/document-default quadding.",
+    "evidence": "TerminalQ0beatsancestor2/form1;ancestor2beatsform0;form1centresnearwidgetmidpoint;absentQequalsleft. Literaledge/centreandwidthcontrols.",
+    "execution": "quadding_field_tree_precedence_spec_auditPASS,quadding-wave89b.log;modelClippyPASS."
   }
 ]

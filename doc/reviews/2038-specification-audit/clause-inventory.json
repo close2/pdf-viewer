@@ -7800,7 +7800,8 @@
       "shards/adr1257_1270_archive_claims_current/features.json",
       "shards/adr1190_confined_operations_current/features.json",
       "shards/feature_table_cell_granularity_current/features.json",
-      "shards/form_dictionary_residual_consumers_current/features.json"
+      "shards/form_dictionary_residual_consumers_current/features.json",
+      "shards/variable_text_cells_current/features.json"
     ],
     "prior_artifacts": [
       "interactive_form_structure_audit"
@@ -7835,7 +7836,8 @@
       "shards/forms_current/features.json",
       "shards/errata_interactive_batch_current/features.json",
       "shards/feature_table_cell_granularity_current/features.json",
-      "shards/form_dictionary_residual_consumers_current/features.json"
+      "shards/form_dictionary_residual_consumers_current/features.json",
+      "shards/variable_text_cells_current/features.json"
     ],
     "prior_artifacts": [
       "interactive_form_structure_audit"
@@ -7869,7 +7871,8 @@
       "shards/forms_current/features.json",
       "shards/forms_remaining_current/features.json",
       "shards/errata_interactive_batch_current/features.json",
-      "shards/errata_font_annotation_reference_batch_current/features.json"
+      "shards/errata_font_annotation_reference_batch_current/features.json",
+      "shards/variable_text_cells_current/features.json"
     ],
     "prior_artifacts": [
       "variable_text_da_tm_audit",
@@ -8001,7 +8004,8 @@
       "prior-assertion-reviews.json",
       "shards/forms_current/features.json",
       "shards/errata_interactive_batch_current/features.json",
-      "shards/adr1240_file_select_timing_current/features.json"
+      "shards/adr1240_file_select_timing_current/features.json",
+      "shards/variable_text_cells_current/features.json"
     ],
     "prior_artifacts": [
       "text_choice_fields_audit"

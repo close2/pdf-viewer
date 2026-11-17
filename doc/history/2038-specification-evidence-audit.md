@@ -11,7 +11,7 @@ The report and machine-readable continuation are in
 `doc/reviews/2038-specification-audit.md` and its evidence directory.
 
 **Evidence so far.** All72 previous failing assertions pass. Current tests expose
-89 failing test identities (one stale ignored gate), grouped and qualified where interpretation is
+90 failing test identities (one stale ignored gate), grouped and qualified where interpretation is
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
 The shard index links partial reviews to all883 ledger rows, each still partial. Feature residuals remain
 inside reviewed rows. No entire clause is certified merely because referenced tests pass.
@@ -37,4 +37,4 @@ rename coverage is an unresolved policy probe. Independent colour/annotation tes
 Alpha, filtered-checksum and cross-Contents controls pass; archive path cap fails. Model/transform Clippy pass.
 Revocation findings survive second review; older indexes omit four grouped errata IDs.
 All69file pointers partially reviewed; independent crypto/color/protection controls pass.
-Malformed XFA, near-similarity thick strokes and TM export naming and field-AA inheritance fail; save/font controls pass.
+Malformed XFA, near-similarity thick strokes and TM export naming and field-AA/DS inheritance fail; save/font controls pass.
