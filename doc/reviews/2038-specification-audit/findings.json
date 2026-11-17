@@ -828,7 +828,7 @@
     "controls": "Distinct-label array gives [0,2]; single Twin with I[1] gives [1].",
     "cause": "form::selected repeatedly finds first matching selected index and then deduplicates output.",
     "execution": "1FAIL/2PASS, cmaps-colour-choice-wave20.log",
-    "limits": "Public Fields readback only; no native or persistence claim."
+    "limits": "Public Fields readback only; no native or persistence claim. Second review: this is general V-array multiplicity, not468 mandatory same-export/different-label case. Source does not expressly discuss repeated identical names; retain that interpretation boundary."
   },
   {
     "id": "2038-B27",
@@ -2340,5 +2340,16 @@
     "summary": "Incremental object-zero free-list update now has a valid linked deletion assertion and detached control.",
     "execution": "One test PASS; syntax all-targets Clippy PASS.",
     "limits": "No requirement that writers choose this valid mechanism; not exhaustive free-list validation."
+  },
+  {
+    "id": "2038-T92",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "7.4.1",
+      "8.9.7"
+    ],
+    "summary": "Inline ASCII85-then-Flate extent and decoding now share one valid chained fixture with literal samples and a false EI token.",
+    "execution": "One test PASS; model all-targets ClippyPASS.",
+    "limits": "Scanner/decoder consumer only. EC3#20 changes an optional NOTE2 skip recipe; no requirement to execute it inferred."
   }
 ]

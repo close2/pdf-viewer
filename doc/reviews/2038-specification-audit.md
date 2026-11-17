@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (69)
+## Current checkpoint (70)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **80 assertions**, grouped into behavior findings rather
@@ -158,6 +158,13 @@ cross references and object-zero free-list updates. Thirty weakly classified
 errata receive deeper source/assertion review. Two stale source/design explanations
 are recorded without changing valid writer choices or inferring parser failures.
 Syntax/GTK all-targets Clippy passes; the GTK fixture now includes required PDF2 IDs.
+
+Checkpoint70 finishes deeper dispositions for the remaining25 selected errata
+candidates and adds one passing chained-inline-image assertion with an independently
+checked sample oracle. Parent source review corrects draft readings of CMap and
+output-profile URL restrictions. Existing choice-selection failure B26 is qualified
+against the general array-value rule; it is not the specific erratum468 trigger.
+Model all-targets Clippy passes; the failure manifest remains80.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

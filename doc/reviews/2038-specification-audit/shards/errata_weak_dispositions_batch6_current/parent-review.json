@@ -1,0 +1,5 @@
+{
+  "source": "Read all five annotation groups directly. #656 Text directive applies to all named tables; direct marks are269/273/274. #691 QuadPoints remove only MD5 example. #731 is a note clarifying forbidden producer syntax.",
+  "assertions": "Read lexer telemetry tests and PrintField model/public tests. The junk-named test does not contain junk; separate telemetry assertion does. B29 already records consumer loss. Requirement V is not signature seed V.",
+  "limits": "No full signing implementation or universal malformed-input refusal duty. Editorial lb spelling does not create a separate B29 defect."
+}

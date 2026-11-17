@@ -1863,6 +1863,18 @@
       "log": "quality-syntax-gtk-wave69d.log",
       "exit": 0,
       "scope": "syntax/GTK all-targets Clippy"
+    },
+    {
+      "log": "inline-chain-wave70.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-model-wave70.log",
+      "exit": 0,
+      "scope": "model all-targets Clippy"
     }
   ],
   "prior_expected_failures": {
