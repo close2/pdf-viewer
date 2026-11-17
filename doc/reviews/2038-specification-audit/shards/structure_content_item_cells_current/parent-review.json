@@ -1,0 +1,5 @@
+{
+  "source": "Read Table357 physical746 plus747–748 content-stream context;358 physical749 with both notes. Actual #431 carets qualify Pg as sometimes required and precedence; #339 required wording agrees. Table358 NOTE2 allows one OBJR for same-page renditions; MCR distinguishes particular Do invocations.",
+  "assertions": "Read older mixed-child test: MCR page equals parent, OBJR omits Pg and inherits. a_pages_annotations_state_where_they_are only checks annotation_rectangles, not structure. New OBJR PDF1.7 has Resources, Document grouping/P backlinks, annotation P and Annots matching selected page, ParentTree object association. New MCR PDF2 has equal16-byte IDs, Resources, Document/Figure Alt, real MCID0 sequence, ParentTree mapping. Both exactxref/noRecovery/noChainCut; both public logical_order tests PASS with conflict/inheritance/no-parent controls.",
+  "limits": "Public model consumer identity/order evidence, not accessibility geometry or rendered pixel certification. MCR interpretation completeness and real MCID sequence are separately checked. Selected0338/1970 whole-object boundary and0728/0488 source corrections remain qualified."
+}

@@ -1,0 +1,31 @@
+{
+  "baseline": "b901326c",
+  "scope": "Reconsider only the pattern dictionary cell decisions relevant to Tables 74/75 and the Matrix assertion gap. Existing sibling evidence is referenced rather than recertified.",
+  "decisions": [
+    {
+      "adr": "ADR 1080",
+      "topic": "TilingType device-grid adjustment",
+      "review": "The parent tiling-pattern review now records T133 signed-step PASS plus 35 tiling tests. Retain the scoped conclusion that Type2 has exact-shape/limited spacing flexibility and Type3 may use extra distortion. Do not state that Type1 may abandon its consistent-spacing SHALL merely because its optional adjustment was not selected; the categorical fallback interpretation remains a separate open question."
+    },
+    {
+      "adr": "ADR 0056",
+      "topic": "Degenerate tiling BBox",
+      "review": "Existing B20 is a bounded Table74 defect and is intentionally not duplicated. Table74's requirement to clip and the one-pixel scan-conversion note are both effective."
+    },
+    {
+      "adr": "ADR 0057 / ADR 0160 / ADR 0483",
+      "topic": "Pattern coordinate space and shading-pattern definition state",
+      "review": "The existing Type1 form/annotation controls and Type2 stream-start/ExtGState controls preserve their source-qualified premises. They test the parent content-stream coordinate system and selected ExtGState components, but their shading-pattern cases omit Table75 Matrix. The test gap for a nonidentity Table75 Matrix is distinct and is drafted in shading_pattern_matrix_spec_audit.rs."
+    },
+    {
+      "topic": "EC3 overlays and source identity",
+      "review": "Table74 is the Type1 tiling-pattern stream dictionary; Table75 is the Type2 shading-pattern dictionary, not a shading-object table. Table75 is physical243 / printed228. Its pages have link annotations only in the inspected annotation inventory. Table74's #294 changes the caption to say stream and #428 qualifies tile order as implementation-dependent."
+    }
+  ],
+  "draft_review_limits": {
+    "draft": "drafts/shading_pattern_matrix_spec_audit.rs",
+    "premise": "PDF1.7, exact xref offsets, no binary content, required page Resources, standard Pattern resource, required shading object, finite function and explicit Extend values. The test includes omitted and explicit identity controls before asserting a nonidentity translation.",
+    "oracle": "For the interior pixel x≈50.5, identity samples Type2 function t≈0.505 and expects RGB≈[126,0,129]. Pattern translation +20 maps that pixel to pattern x≈30.5, t≈0.305, expecting RGB≈[177,0,78]. Tolerance is only 3 byte values for raster rounding. The expected values are derived from C0 + t(C1−C0), not from another renderer.",
+    "status": "Promoted by parent as `crates/pdf-model/tests/shading_pattern_matrix_spec_audit.rs::shading_pattern_matrix_maps_pattern_space_before_sampling_its_gradient`; parent reports PASS. No behavior failure."
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "scope": "Effective ISO 32000-2 §12.3.5.2, Table 159 folder dictionary and its Child/Next/Parent/ID relationships; adjacent Table 160 identity checked to avoid confusion. Primary Table 159 physical pp.468-469 / printed pp.453-454; hierarchy and membership prose physical p.470 / printed p.455. Table 160 is Navigator, physical p.472 / printed p.457.",
+  "table_cell_review_index": "Table 159 and Table 160 are not entries in the current table-cell-review-index.json. Existing collection shard findings cover folders at a feature level; this shard deepens the public hierarchy assertion and fixture validity only.",
+  "features": [
+    {
+      "id": "table_159_identity_and_locator",
+      "source": "Table 159 caption: Entries in a folder dictionary; §12.3.5.2",
+      "modality": "scope control",
+      "rule": "Table 159 defines Folder dictionaries. It is not a navigator table. Table 160, titled Entries in a navigator dictionary, belongs to effective §12.3.5.3 after EC3 #477.",
+      "implementation": "pdf-model::collection::folders reads Table 159 starting at Catalog Collection/Folders; navigator() separately reads Table 160.",
+      "tests": "collection feature tests include folder tree and navigator selection but are separate behaviors.",
+      "verdict": "Keep Tables 159 and 160 distinct; no cross-table requirement inferred."
+    },
+    {
+      "id": "root_and_parent_backlinks",
+      "source": "Table 159 Parent row, physical p.469 / printed p.454; §12.3.5.2 hierarchy prose, physical p.470 / printed p.455",
+      "modality": "producer SHALL",
+      "rule": "Parent is an indirect reference required for child folders and absent for the root. The standard describes Parent, Child, and Next as the relationships in the tree.",
+      "implementation": "folders() begins with /Folders and folder() traverses forward through Child/Next; it does not read or validate Parent.",
+      "tests": "Current host fixture has a valid root-only Folder with Parent absent. Current multi-level model fixture a_navigator_names_layouts_in_the_order_the_file_prefers_them omits required Parent links on child folders; it still checks traversal/order at model level. No source-valid nested hierarchy is asserted through public Query::Collection -> collection_rows.",
+      "verdict": "Parent is a producer backlink; no reader-side validation mandate is established. Existing nested test is a malformed producer witness, so a valid public positive fixture would improve evidence but does not demonstrate a reader defect."
+    },
+    {
+      "id": "child_and_next_traversal",
+      "source": "Table 159 Child and Next rows, physical p.469 / printed p.454",
+      "modality": "producer SHALL for links that exist; direct reader traversal behavior",
+      "rule": "Child identifies the first child folder where descendants exist; Next identifies a next sibling except for the last item. The effective prose says folder relationships use Parent, Child, Next.",
+      "implementation": "folder() starts at Child, then follows each object's Next; a visited-object set and folder/depth bounds stop cycles. collection_rows recursively makes those folders into nested PanelRows and places files by tagged folder ID.",
+      "tests": "The model test asserts a two-sibling Child/Next sequence and grandchild, but omits Parent links. The public host collection test verifies only one root folder. A self-reference model test exercises cycle termination on malformed input.",
+      "verdict": "Forward-link reading is implemented. Proposed draft adds one valid deep positive control through the public row consumer; no failure observed or asserted."
+    },
+    {
+      "id": "id_and_embedded_files_membership",
+      "source": "Table 159 ID row, physical p.469 / printed p.454; membership/key-tag prose, physical pp.470-471 / printed pp.455-456",
+      "modality": "producer SHALL plus reader SHALL membership/presentation",
+      "rule": "Folder IDs are nonnegative and unique in the document. An EmbeddedFiles key tag names the folder ID; when folders are present, all files are members. The file name following the tag is presented without treating the tag as the file name.",
+      "implementation": "folder() reads IDs; folder_of parses the leading <digits> tag; collection_rows groups matching attachments beneath the folder and preserves the full name-tree key as the Extract action.",
+      "tests": "host_mappings.rs::a_collection_becomes_a_folder_tree_with_the_schemas_columns tests one root folder/file mapping and one root file. Other tests check missing-folder IDs, all-file retention, malformed tags, and model naming rules.",
+      "verdict": "One-level public positive and several fallbacks exist. Draft extends this with distinct IDs across a valid sibling and nested structure. Duplicate/negative IDs remain producer-invalid and are not used to demand reader rejection."
+    },
+    {
+      "id": "sibling_order",
+      "source": "Table 159 Next row, physical p.469 / printed p.454",
+      "modality": "SHOULD, producer-side ordering",
+      "rule": "Siblings should follow collection Sort order, or folder-name order when no collection Sort key exists.",
+      "implementation": "The model preserves Child/Next link order; the host renders that order.",
+      "tests": "Model asserts two siblings in link order; the current fixture names them Invoices then Photos, which is also alphabetical, but omits Parent references.",
+      "verdict": "A writer SHOULD arrange the links; this does not establish a reader duty to reorder. The valid scratch fixture's sibling names are alphabetical and preserve that order."
+    },
+    {
+      "id": "free_and_optional_folder_metadata",
+      "source": "Table 159 CI/Desc/CreationDate/ModDate/Thumb/Free rows, physical pp.469-470 / printed pp.454-455",
+      "modality": "optional entries; Free allocation rule conditional on adding a folder",
+      "rule": "CI and description/date/thumbnail metadata are optional. Free is an optional root-folder array of inclusive ID ranges; the new-ID rule and array update apply when an interactive processor adds a folder.",
+      "implementation": "Reader parses CI, Desc and thumbnail presence; no folder creation operation was found in the viewer's public collection API.",
+      "tests": "Existing model test parses description and root Free; host test renders description. No Free allocation test is appropriate absent an add-folder operation.",
+      "verdict": "No missing consumer behavior established."
+    },
+    {
+      "id": "table_160_navigator_qualified_boundary",
+      "source": "Table 160 caption and rows, physical p.472 / printed p.457; section heading physically p.471 / printed p.456",
+      "modality": "adjacent table; navigator behaviors largely SHOULD",
+      "rule": "Table 160 is Entries in a navigator dictionary. Issue #477's Caret on physical p.471 changes the heading to §12.3.5.3 Collection navigators (published §12.3.6); it does not alter Table 159 or Table 160 entries.",
+      "implementation": "navigator() handles Layout independently of folders().",
+      "tests": "Table 160 selection tests were reviewed in collection_presentation_cells_current; this shard does not re-audit those assertions.",
+      "verdict": "Identity and effective section numbering verified; no Table 160 defect claimed here."
+    }
+  ],
+  "parent_execution": "T167: valid nested public folder hierarchy test PASS in objr-folder-wave126.log. This supersedes draft/unexecuted statements and previous absence of a valid deep public witness.",
+  "parent_type_cell": "Table159 begins physical468 with optional Type name; if present Folder. The remaining cells continue469. New fixture uses no Type and is valid under its omission rule."
+}

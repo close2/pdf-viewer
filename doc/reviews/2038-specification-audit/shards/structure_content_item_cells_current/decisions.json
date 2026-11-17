@@ -1,0 +1,36 @@
+{
+  "selected_adrs": [
+    {
+      "adr": "ADR 0338 — An object reference has two answers, and a Form is a control",
+      "status_in_repo": "accepted; implemented",
+      "review": "The core distinction remains aligned with Table 358: an OBJR carries whole-object identity; an annotation's Rect can place it, while an XObject's occurrence geometry comes from the invocation site. The ADR explicitly leaves XObject invocation-specific placement unanswered because one OBJR can identify multiple same-page renditions. That boundary is consistent with Table 358 NOTE 2 and is not a demonstrated defect. The ADR text itself calls out that its quoted Table 368 wording predates EC3 #437; that historical quotation should not be mistaken for the current source rule.",
+      "current_assertion_relation": "Viewer headless test asserts annotation bounds and widget/control meaning. It does not test an XObject's individual Do transform. No test is added for unspecified per-Do geometry."
+    },
+    {
+      "adr": "ADR 1970 — An annotation the tree names is copied where it names it",
+      "status_in_repo": "accepted; built",
+      "review": "Deduplicating the named object's bytes once follows Table 358 NOTE 2 ('just a single object reference suffices') and Table 358's whole-object model. NOTE 1 keeps partial content-stream coverage on MCR instead. Current code and tagged-copy tests reflect these separate content-item forms.",
+      "current_assertion_relation": "The named-twice copy test checks a literal one-time result. It concerns annotation bytes, not XObject invocation geometry."
+    },
+    {
+      "adr": "ADR 0728 — The rule the writer is named by",
+      "status_in_repo": "accepted; source correction preserved",
+      "review": "The current source edits to Table 358 /Pg from #339 and #431 have the same result: a child /Pg takes precedence over the containing element's and is required if the element has no /Pg. Existing code reads the unresolved indirect reference from the child first and then falls back to the element's reference. The OBJR draft tests this precedence directly; it does not test malformed inputs or demand rejection.",
+      "current_assertion_relation": "Named mixed-child tests use identical pages or exercise fallback, so they do not distinguish the priority branch."
+    },
+    {
+      "adr": "ADR 0488 — An identifier two content streams may share",
+      "status_in_repo": "accepted; built",
+      "review": "Relevant only to Table 357. Its tuple identity (MCID, stream) is supported by source Table 357 and issue #308. The existing collision controls have independent page/form streams with identical MCID and literal text expectations; this review does not extend that audit."
+    }
+  ],
+  "draft_review": {
+    "mcr_page_override.rs": "Covers Table 357 MCR Pg conflict (element page 1, actual MCID sequence/page 2), omitted-entry inherited-page control, and explicit child Pg where the element Pg is absent. It asserts that the selected page is completely interpreted with the real page-content MCID 0, ParentTree key 0 names the Figure, no recovery or xref-chain cut occurred, and Tree::logical_order returns the item only on its stated page. The fixture uses a PDF 2.0 header, matching 16-byte initial trailer IDs, Resources on both pages, a Figure Alt, exact xref offsets and a Document grouping element; it avoids fonts and does not claim a text/pixel oracle. Unexecuted.",
+    "objr_page_override.rs": "Covers Table 358 OBJR Pg precedence/inheritance/requiredness through Tree::logical_order with annotation /P and /Annots matching the selected page and a ParentTree object key. It uses exact xref and no-recovery assertions. Unexecuted."
+  },
+  "no_new_claims": [
+    "Table 358 NOTE 2 does not require a viewer to expose a separate accessibility node or bounding box per repeated XObject Do; the note instead says one OBJR identifies the same-page renditions and gives MCR as the way to distinguish invocations.",
+    "Producer-side requiredness in Table 357/358 does not by itself require a reader to reject missing or malformed dictionary entries.",
+    "Existing no-override assertion bodies are not evidence that either table's conflicting-page precedence branch is exercised; the two submitted drafts address those narrow assertion gaps only."
+  ]
+}

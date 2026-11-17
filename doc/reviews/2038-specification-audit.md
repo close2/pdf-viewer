@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (125)
+## Current checkpoint (126)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **113 failing test identities**: 112 behavior assertions/probes
@@ -531,6 +531,11 @@ predates these two passing tests and one failure. There are 157 partial matrices
 Checkpoint 125 adds selected halftone dictionary cells, with the surrounding
 HalftoneName exception and transfer-versus-screening boundary explicit. It corrects
 an inherited errata table locator. No new behavior failure; 160 matrices remain partial.
+
+Checkpoint 126 adds four passing tests: Type2 pattern Matrix pixels, MCR and OBJR
+page precedence, and valid nested collection folders through public rows. Selected
+Tables75,159,357,358 bring the partial matrix count to164. This improves assertion
+depth without certifying entire features. The archive transfer probe remains separate.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

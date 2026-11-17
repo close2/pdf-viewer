@@ -1,0 +1,37 @@
+{
+  "scope": "Selected owner decisions bearing on Table 159 folder reading and public presentation.",
+  "reviews": [
+    {
+      "adr": "root ADR 0083 — A PDF that is a folder",
+      "question": "Does the model's forward folder walk and current host mapping support the accepted collection capability?",
+      "evidence": "ADR says collection.rs reads Tables 153–160 and describes folder membership via name-tree tags. Current code follows Child/Next and host rows recursively display the returned folders. Existing host test reaches only a root folder; the deeper model fixture omits required Parent backlinks.",
+      "verdict": "Retain the implementation direction; evidence for a valid nested tree through the host seam is thin. Add a source-valid fixture for that seam. Do not claim a reader must check Parent reciprocity: Table 159 states it as a producer requirement and does not prescribe reader validation.",
+      "limit": "This is not a whole-ADR or whole-collection review."
+    },
+    {
+      "adr": "root ADR 0711 — The arrangement two windows could not see, and the files all three lost",
+      "question": "Are all embedded files retained and is a tagged key placed beneath the corresponding folder?",
+      "evidence": "The public host test asserts one ID 3 root folder contains <3>report.pdf and that readme.txt remains at root. Separate assertions cover absent/missing folder cases and name keys.",
+      "verdict": "The one-level behavior is independently witnessed; the draft extends that consumer check to a valid nested tree. Existing fallback decisions for producer-invalid missing IDs are outside this scope and remain owner choices.",
+      "limit": "Do not treat owner-selected recovery for malformed producer data as an ISO-mandated outcome."
+    },
+    {
+      "adr": "root ADR 1050 — Invalid collection names are supported and said out loud",
+      "question": "Do folder Name constraints create an implicit reader rejection obligation?",
+      "evidence": "§12.3.5.2 allows support of invalid names or refusal with an appropriate error. Current code reports restrictions, and host policy supports/display names.",
+      "verdict": "Retain this choice for current task; no test requires refusal or changes it. The nested draft uses conforming ASCII names."
+    },
+    {
+      "adr": "root ADR 1086 — Case normalization for collection names",
+      "question": "Do sibling name constraints affect the proposed valid hierarchy?",
+      "evidence": "Table 159 requires sibling names unique after case normalization. Proposed names Archive/Alpha/Beta/Year are distinct within their respective parent scopes.",
+      "verdict": "No challenge; fixture avoids same-parent collisions. Existing normalization behavior is outside this narrow hierarchy assertion."
+    },
+    {
+      "adr": "root ADR 1252 — One entry of the collection split dictionary is not about a bar",
+      "question": "Does an absent split interfere with nested row presentation?",
+      "evidence": "The source makes a split optional; this draft tests the shared tree row consumer and states no Split dictionary.",
+      "verdict": "No challenge. Table 160 and split/layout decisions are covered by the prior collection presentation shard."
+    }
+  ]
+}

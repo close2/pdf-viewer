@@ -3209,6 +3209,29 @@
       "skipped": 0,
       "exit": 100,
       "scope": "Public date sorting and short direction array"
+    },
+    {
+      "log": "pattern-mcr-wave126b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Final strengthened Matrix raster and MCR page identity"
+    },
+    {
+      "log": "objr-folder-wave126.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "OBJR page identity and valid nested public folder rows"
+    },
+    {
+      "log": "quality-wave126e.log",
+      "exit": 0,
+      "scope": "All-target Clippy pdf-model viewer-host pdf-transform viewer-core, warnings denied; new audit tests included"
     }
   ],
   "prior_expected_failures": {

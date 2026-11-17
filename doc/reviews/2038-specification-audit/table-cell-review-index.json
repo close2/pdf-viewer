@@ -2572,6 +2572,71 @@
       ],
       "artifact": "shards/halftone_dictionary_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "75",
+      "keys": [
+        "Type",
+        "PatternType",
+        "Shading",
+        "Matrix",
+        "ExtGState"
+      ],
+      "ledger_rows": [
+        "8.7.4.1"
+      ],
+      "artifact": "shards/pattern_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "357",
+      "keys": [
+        "Type",
+        "Pg",
+        "Stm",
+        "StmOwn",
+        "MCID"
+      ],
+      "ledger_rows": [
+        "14.7.5"
+      ],
+      "artifact": "shards/structure_content_item_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "358",
+      "keys": [
+        "Type",
+        "Pg",
+        "Obj"
+      ],
+      "ledger_rows": [
+        "14.7.5"
+      ],
+      "artifact": "shards/structure_content_item_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "159",
+      "keys": [
+        "Type",
+        "ID",
+        "Name",
+        "Parent",
+        "Child",
+        "Next",
+        "CI",
+        "Desc",
+        "CreationDate",
+        "ModDate",
+        "Thumb",
+        "Free"
+      ],
+      "ledger_rows": [
+        "12.3.5.2"
+      ],
+      "artifact": "shards/collection_folder_cells_current/features.json",
+      "status": "partial"
     }
   ],
   "reconciliation_110": "Two Table227 reviews previously counted twice; merged into one matrix retaining both artifact links. Table87 now includes four continuation keys and corrected source span. Counts are selected unique table matrices, not certified features."

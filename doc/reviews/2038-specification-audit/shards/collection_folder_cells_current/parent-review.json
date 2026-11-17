@@ -1,0 +1,6 @@
+{
+  "source": "Read Table159 caption468 and all cells469, names/allocation470, file-membership471. Checked #477 on471 targets navigator heading, not folder cells. Table160 at472 is adjacent context only and is not indexed as reviewed here.",
+  "fixture": "PDF2 has matching16-byte IDs, exact xref/no recovery/chain cut, required Resources, unique nonnegative folder IDs, root noParent, indirect Parent backlinks, Child/Next hierarchy and alphabetical siblings. Three EmbeddedFiles tagged keys map to Alpha/Beta/nestedYear. Public Collection and Attachments queries feed collection_rows; literal labels and full extraction keys PASS.",
+  "assertions": "Older model nested navigator fixture omits required Parent backlinks and has invalid Position250. Older host folder test is root-only. New valid deep consumer assertion improves evidence without inventing reader Parent-reciprocity validation.",
+  "decisions": "Read0083,0711,1050,1086 selected folder/membership/name policies. Sibling sorting is producer SHOULD; Free allocation applies when adding folders, absent from this viewer. Neither condition is an asserted missing viewer feature."
+}

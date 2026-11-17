@@ -1,0 +1,5 @@
+{
+  "source": "Read Table75 physical243 and244 shading dictionary/stream description. Checked74 at236–237 against prior matrix, #294 caption and #428 tile-order qualification. Only75 is added to the index.",
+  "test": "T165: PDF1.7 exact xref, no recovery/chain cut,100x100 axial gradient. Pixel50,50 predicts identity [126,0,129] and translated [177,0,78], tolerance3 only red/blue; green0 alpha255. Omitted and explicit identity controls. Final strengthened test PASS in pattern-mcr-wave126b.",
+  "decisions": "Selected0057/0160 coordinate-space and0483 initial-state rationale stand. Read actual shadings and tiling assertion bodies: nested shading test is display-list evidence. Stream Shading in PatternType2 and full transparency combinations remain unasserted. B20 and ADR1080 fallback interpretation remain separate."
+}

@@ -3678,5 +3678,33 @@
     ],
     "summary": "Public collection ordering has independent chronological date and numeric rank controls, including scalar versus explicit per-key descending directions.",
     "execution": "One new control test PASS; separate short-array witness FAIL under B76."
+  },
+  {
+    "id": "2038-T165",
+    "kind": "assertion-quality",
+    "clauses": [
+      "8.7.2",
+      "8.7.4.1"
+    ],
+    "summary": "Type2 shading pattern Matrix translation has independent public raster colors, omitted/identity controls, dimensions and alpha assertions.",
+    "execution": "One PASS, pattern-mcr-wave126b.log."
+  },
+  {
+    "id": "2038-T166",
+    "kind": "assertion-quality",
+    "clauses": [
+      "14.7.5"
+    ],
+    "summary": "MCR and OBJR child Pg precedence is distinguished from containing-element Pg through public logical_order, with inheritance and no-parent-page controls.",
+    "execution": "Two PASS across pattern-mcr-wave126b.log and objr-folder-wave126.log; source-valid fixtures and real content/object association."
+  },
+  {
+    "id": "2038-T167",
+    "kind": "assertion-quality",
+    "clauses": [
+      "12.3.5.2"
+    ],
+    "summary": "A valid nested folder tree with Parent backlinks reaches public collection rows with literal labels and complete extraction keys.",
+    "execution": "One PASS, objr-folder-wave126.log. No Parent validation duty inferred."
   }
 ]
