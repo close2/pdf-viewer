@@ -1,0 +1,215 @@
+{
+  "shard": "embedded_file_cells_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "baseline": "b901326c",
+  "method": "Read effective EC3 primary table captions, cells, footers and annotations; compared current model/host/public attachment and portfolio consumers, exact assertions, current ledger, findings and expected-failure manifest. Durable prior reviews were used to deduplicate existing findings. No tests executed.",
+  "source_locations": [
+    {
+      "table": "43",
+      "title": "Entries in a file specification dictionary",
+      "physical_pages": "149–152",
+      "printed_pages": "134–137",
+      "checked": "Table43 starts physical149/printed134 and continues through physical152/printed137, including AFRelationship. Do not locate that continuation on physical151/printed136."
+    },
+    {
+      "table": "44",
+      "title": "Additional entries in an embedded file stream dictionary",
+      "physical_page": "153",
+      "printed_page": "138",
+      "checked": "Caption and Type/Subtype/Params rows on this page."
+    },
+    {
+      "table": "45",
+      "title": "Entries in an embedded file parameter dictionary",
+      "physical_pages": "153–154",
+      "printed_pages": "138–139",
+      "checked": "Caption/Size row on physical153; CreationDate, ModDate, deprecated Mac and CheckSum continuation on physical154."
+    },
+    {
+      "table": "153",
+      "title": "Entries in a collection dictionary",
+      "physical_pages": "463–465",
+      "printed_pages": "448–450",
+      "checked": "Caption starts physical463/printed448; Schema/D/View/Navigator/Colors continues p449; Sort/Folders/Split continues p450."
+    },
+    {
+      "table": "154",
+      "title": "Entries in a collection schema dictionary",
+      "physical_page": "465",
+      "printed_page": "450",
+      "checked": "Schema Type and writer-chosen field-key rows on p450."
+    },
+    {
+      "table": "155",
+      "title": "Entries in a collection field dictionary",
+      "physical_page": "466",
+      "printed_page": "451",
+      "checked": "Caption and full Subtype/N/O/V/E cells on p451; continuation footer checked."
+    }
+  ],
+  "effective_errata": [
+    {
+      "id": "481",
+      "source": "§7.11.4.1, annotation on physical153; the affected bullets follow the NOTE on physical153/printed138",
+      "effect": "Replaces the earlier EmbeddedFiles-only list with EF/RF embedded-stream routes and states the EmbeddedFiles name tree is optional unless another provision requires it."
+    },
+    {
+      "id": "156",
+      "source": "§7.11.4.1 / associated and RichMedia context",
+      "effect": "Adds embedded-file references in those contexts; does not require all processors to eagerly process embedded bytes."
+    },
+    {
+      "id": "155",
+      "source": "Table44 Subtype, physical153/printed138",
+      "effect": "Narrows producer MIME syntax to RFC2046 section 2 top-level type/subtype representation; not a reader rejection instruction."
+    },
+    {
+      "id": "382",
+      "source": "Table45 CheckSum, physical154/printed139",
+      "effect": "Specifies CheckSum's type as byte string; checksum remains 16-byte MD5 of uncompressed payload."
+    },
+    {
+      "id": "598",
+      "source": "Table45 date note, physical154/printed139",
+      "effect": "CreationDate/ModDate are intended filesystem dates if included, where supported by the host; no unconditional date-generation duty is inferred."
+    },
+    {
+      "id": "298",
+      "source": "Table43 version metadata in prior FileSpec audit",
+      "effect": "Adds PDF-version scope to a Table43 row; no new assertion gap in sampled attachment/name consumers."
+    }
+  ],
+  "features": [
+    {
+      "id": "filespec-embedded-and-associated-cells",
+      "clause": "7.11.3 Table 43; 7.11.4.1; 14.13",
+      "cells": [
+        {
+          "key": "F / UF / Desc",
+          "source": "F is required when DOS, Mac, and Unix filename entries are absent; UF, when present, shall be used instead of F. Desc is optional generally, but Table43 says it shall be used for FileSpecs referenced from the EmbeddedFiles name tree. A tree key is not necessarily a filename.",
+          "implementation": "FileSpec::display_name prefers UF and retains the legacy filename/fallback; attachment listing keeps tree key and description distinct. The association between a FileSpec and an EmbeddedFiles tree remains a producer context, not grounds to reject other permitted FileSpec carriers.",
+          "assertions": "Current T132 exact-xref test uses distinct F/UF bytes, UTF-16BE UF and F-only fallback, and checks decoded selected stream; current test is in doc/reviews/2038-specification-audit/findings.json with 1PASS. Public attachment listing/extraction tests check actual bytes. No new T132 claim added."
+        },
+        {
+          "key": "EF / RF / EmbeddedFiles",
+          "source": "Embedded streams may be attached via EF and, after #481, RF; EmbeddedFiles name tree is optional unless another clause requires it. Embedded bytes are included for convenience and need not be processed directly by every processor.",
+          "implementation": "pdf-model attachment readers enumerate name-tree files, annotation EF files, and supported related/associated-file paths; viewer-core offers deferred extraction to host/user action.",
+          "assertions": "Current extraction tests distinguish name-tree attachment from a file-attachment annotation's own EF stream; durable file_specs_current and file_specification_remaining_current reviews cover routes and parsing. Avoid eager-decode or universal-listing mandate."
+        },
+        {
+          "key": "AFRelationship / CI / Thumb / EP",
+          "source": "AFRelationship is Table43 continuation at physical152/printed137. CI is optional but, when present, is an indirect reference in PDF1.7+. Thumb is a stream; EP identifies encrypted-payload handling.",
+          "implementation": "Associated-file model and attachment/collection consumers expose these values; the collection-schema fixture must use an indirect CI object. Thumbnail and encrypted-payload routes have separate bounded support.",
+          "assertions": "Prior associated-file, Annex K, collection and file-spec shards own these cells. No whole-Table43 coverage asserted here."
+        }
+      ]
+    },
+    {
+      "id": "embedded-file-stream-and-parameter-cells",
+      "clause": "7.11.4.1 Tables 44–45",
+      "cells": [
+        {
+          "key": "Table44 Type / Subtype / Params",
+          "source": "Type optional (if present EmbeddedFile). Subtype and Params optional except required for associated files. #155 narrows valid producer subtype MIME syntax.",
+          "implementation": "Attachment parser retains subtype/parameters; stream decoding uses general Filter pipeline; writer emits Type/Params and optional subtype.",
+          "assertions": "embedded_files_spec_audit writes/reads exact Type/Subtype/Params; associated-file examples assert conditional producer contexts. No reader rejection is derived from Type or #155 producer syntax."
+        },
+        {
+          "key": "Table45 Size / CreationDate / ModDate / Mac",
+          "source": "Size is optional uncompressed size. Dates optional, except ModDate required for associated files. Mac is deprecated in PDF2.0. #598 qualifies filesystem-date intent by host support.",
+          "implementation": "Attachment carries stated metadata; collection uses Size/date values; host creation policy does not invent unsupported original filesystem dates.",
+          "assertions": "Size/dates are checked via the actual collection schema consumer and file-spec tests. Deprecated Mac and malformed producer entries are not reader rejection duties."
+        },
+        {
+          "key": "Table45 CheckSum",
+          "source": "Optional 16-byte byte string; MD5 of uncompressed embedded bytes; expressly not for security.",
+          "implementation": "Attachment::checksum_matches operates on supplied decoded bytes; extraction is deferred and owns decoded stream data.",
+          "assertions": "Existing raw-stream tests exercise digest predicate. Current T62 `embedded_file_checksum_is_checked_after_filter_decoding` uses a valid 27-byte Flate stream decoding to literal 19-byte payload and independent payload-vs-encoded MD5 controls; durable finding records PASS. No duplicate draft warranted."
+        }
+      ]
+    },
+    {
+      "id": "collection-dictionary-cells",
+      "clause": "12.3.5.1 Table 153",
+      "cells": [
+        {
+          "key": "Schema",
+          "source": "Optional; absent schema permits useful available-file defaults (MAY).",
+          "implementation": "Collection parser plus host presentation supports schema; flat attachment view remains when absent.",
+          "assertions": "Collections parser and panel tests cover presence/absence; absence does not impose one universal column set."
+        },
+        {
+          "key": "D",
+          "source": "Optional initial document key; missing/invalid selects container; unmatched valid key selects first file; empty name tree gives empty preview. A matched key identifies the document initially presented. PDF2 encrypted wrapper requires D to identify payload.",
+          "implementation": "Collection::initial_document resolves Container/Embedded/FirstFile/Empty; Query/host row emphasis marks the chosen item.",
+          "assertions": "Current `a_collections_initial_document_is_the_row_set_in_bold` covers distinct outcomes and empty case. D02 remains an owner interpretation question: Table153 says initial document shall be presented, while implementation emphasizes row and leaves container page visible. Do not call this an ISO failure absent resolved presentation semantics."
+        },
+        {
+          "key": "View D / T / H / C",
+          "source": "D details all schema info; T icon plus subset; H initially hidden with explicit means to show and processor should display D; C PDF2 valid only with Navigator. Default D; encrypted wrapper requires H.",
+          "implementation": "Host maps Details/Tile/Hidden and supported Navigator modes; split/preview policy is separate.",
+          "assertions": "Model tests distinguish view modes and defaults; UI tests assert details and tile panels. Owner collection shard records implemented view controls and preserves SHOULD in H."
+        },
+        {
+          "key": "Navigator / Colors / Sort / Folders / Split",
+          "source": "Navigator required if C; Colors optional suggested; Sort optional; Folders required only if folders used; Split optional with fallback orientation conditional on View.",
+          "implementation": "Collection and navigator model feeds existing panel layouts, sort and folder tree.",
+          "assertions": "Covered by collections and collection-navigator shards. Split H/V/Position choices remain qualified optional-furniture policy; no universal obligation to provide a second preview pane is inferred."
+        }
+      ]
+    },
+    {
+      "id": "collection-schema-and-field-cells",
+      "clause": "12.3.5.1 Tables 154–155",
+      "cells": [
+        {
+          "key": "Table154 Type / writer-selected keys",
+          "source": "Type optional. Each other key names a field dictionary and must match the same key in a file's CI collection item.",
+          "implementation": "Collection parser maps schema keys; item parser uses CI keys; host column extraction joins the two.",
+          "assertions": "The current collection-schema exact-xref test uses matching Author/Received/Rank schema keys and CI values; positive controls prove one file population, literal FileName/Desc/Size and valid decoded payload."
+        },
+        {
+          "key": "Table155 Subtype S/D/N/F/Desc/ModDate/CreationDate/Size/CompressedSize",
+          "source": "S/D/N are values in CI as string/date/number. File-related types source values from FileSpec or Table45. CompressedSize is PDF2 stream Length, and required equal to Length. Separately, Table43 says Desc shall be used for a FileSpec referenced from EmbeddedFiles.",
+          "implementation": "collection model parses field kinds and item values; `viewer-host::panel::column_value` currently maps file-related basic fields but does not produce CI values or CompressedSize in details view.",
+          "assertions": "Current exact-xref `collection_schema_cells_audit.rs` has independent CI Author/Ada Lovelace, Received/date, Rank/7 assertions and FileName/Desc/decoded Size controls; expected-failure registry retains B05 for the CI S/D/N cells and B06 for CompressedSize. B06 distinguishes compressed stream Length 11 from decoded Size 3 (literal abc). Do not duplicate these existing candidate tests; status of their current run is governed by current expected-failure/gate records, not this shard."
+        },
+        {
+          "key": "Table155 N / O / V / E",
+          "source": "N required heading presented to user; O optional order ascending; V defaults true; E defaults false and says whether interactive processor should support field-value editing.",
+          "implementation": "Host orders visible fields by O, filters V=false; E is carried but no editing UI is required by a SHOULD alone.",
+          "assertions": "Panel test checks custom order, visible/hidden cells and header text. No mandatory edit operation is inferred from E."
+        }
+      ]
+    }
+  ],
+  "existing_findings_reconciled": [
+    {
+      "id": "2038-B05",
+      "scope": "Table155 CI-backed S/D/N values omitted from details view",
+      "record": "Current findings/expected-failure records include text, date and numeric cell tests; no duplicate test drafted."
+    },
+    {
+      "id": "2038-B06",
+      "scope": "Table155 CompressedSize omitted; source Length differs from uncompressed Size",
+      "record": "Current exact-xref test uses decoded abc (3 bytes) and valid Flate stream Length 11; finding record observed blank cell. Current manifest status should be re-evaluated by parent when tests rerun."
+    },
+    {
+      "id": "2038-D02",
+      "scope": "Table153 D presentation as emphasized row while container content remains visible",
+      "record": "Open interpretation/owner policy, not a confirmed normative failure."
+    },
+    {
+      "id": "2038-T62",
+      "scope": "Table45 checksum over uncompressed bytes",
+      "record": "Current durable finding records filtered Flate control PASS; not repeated."
+    },
+    {
+      "id": "2038-T132",
+      "scope": "Table43 Unicode file-name precedence in attachment selection",
+      "record": "Existing exact-xref literal distinct-name/byte and stream controls PASS; no repeat."
+    }
+  ],
+  "drafts": [],
+  "parent_execution": "Wave108 integrated the corrected collection fixture: binary header, equal 16-byte initial IDs, required F, UTF-16BE UF, indirect CI, and exact-xref/no-chain-cut guards. Desc was already present. All four existing B05/B06 failures persist after positive Filename/Desc/decoded Size controls. No new behavior finding."
+}

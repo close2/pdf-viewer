@@ -2940,6 +2940,34 @@
       "skipped": 0,
       "exit": 0,
       "scope": "Two new state-persistence tests plus five existing text-positioning tests."
+    },
+    {
+      "log": "collection-fixture-wave108.log",
+      "run": 4,
+      "passed": 0,
+      "failed": 4,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "Corrected fixture retains B05/B06 failures after controls."
+    },
+    {
+      "log": "image-fixtures-wave108.log",
+      "run": 4,
+      "passed": 2,
+      "failed": 2,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "Corrected binary fixtures retain B11/B14; two JPX controls pass."
+    },
+    {
+      "log": "quality-host-wave108.log",
+      "exit": 0,
+      "scope": "Host all-target Clippy."
+    },
+    {
+      "log": "quality-model-wave108.log",
+      "exit": 0,
+      "scope": "Model tests Clippy."
     }
   ],
   "prior_expected_failures": {

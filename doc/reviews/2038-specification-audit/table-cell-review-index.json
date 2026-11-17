@@ -806,13 +806,19 @@
         "EF",
         "RF",
         "Desc",
-        "AFRelationship"
+        "AFRelationship",
+        "CI",
+        "Thumb",
+        "EP"
       ],
       "ledger_rows": [
         "7.11.3"
       ],
       "artifact": "shards/file_specification_cells_current/features.json",
-      "status": "partial"
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/embedded_file_cells_current/features.json"
+      ]
     },
     {
       "table": "44",
@@ -825,7 +831,10 @@
         "7.11.4.1"
       ],
       "artifact": "shards/file_specification_cells_current/features.json",
-      "status": "partial"
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/embedded_file_cells_current/features.json"
+      ]
     },
     {
       "table": "45",
@@ -833,13 +842,17 @@
         "Size",
         "CreationDate",
         "ModDate",
-        "CheckSum"
+        "CheckSum",
+        "Mac"
       ],
       "ledger_rows": [
         "7.11.4.1"
       ],
       "artifact": "shards/file_specification_cells_current/features.json",
-      "status": "partial"
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/embedded_file_cells_current/features.json"
+      ]
     },
     {
       "table": "74",
@@ -1624,6 +1637,51 @@
         "9.4.3"
       ],
       "artifact": "shards/text_state_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "153",
+      "keys": [
+        "Schema",
+        "D",
+        "View",
+        "Navigator",
+        "Colors",
+        "Sort",
+        "Folders",
+        "Split"
+      ],
+      "ledger_rows": [
+        "12.3.5.1"
+      ],
+      "artifact": "shards/embedded_file_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "154",
+      "keys": [
+        "Type",
+        "writer-selected keys"
+      ],
+      "ledger_rows": [
+        "12.3.5.1"
+      ],
+      "artifact": "shards/embedded_file_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "155",
+      "keys": [
+        "Subtype",
+        "N",
+        "O",
+        "V",
+        "E"
+      ],
+      "ledger_rows": [
+        "12.3.5.1"
+      ],
+      "artifact": "shards/embedded_file_cells_current/features.json",
       "status": "partial"
     }
   ]

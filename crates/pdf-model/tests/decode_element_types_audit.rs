@@ -41,7 +41,7 @@ fn fixture(decode: &str) -> Vec<u8> {
             .collect(),
         image_object,
     ];
-    let mut bytes = b"%PDF-1.7\n".to_vec();
+    let mut bytes = b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n".to_vec();
     let mut offsets = vec![0usize];
     for object in objects {
         offsets.push(bytes.len());
@@ -66,6 +66,7 @@ fn fixture(decode: &str) -> Vec<u8> {
 fn interpret(decode: &str) -> pdf_model::Interpretation {
     let document = Document::open(fixture(decode)).expect("syntactically complete PDF");
     assert!(!document.was_recovered(), "the fixture's xref is exact");
+    assert!(!document.cross_reference_chain_was_cut());
     let page = pdf_model::Pages::new(&document).get(0).expect("one page");
     pdf_model::interpret(&document, &page)
 }

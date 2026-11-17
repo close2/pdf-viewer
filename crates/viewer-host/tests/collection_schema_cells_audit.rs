@@ -1,7 +1,8 @@
 //! Integration tests for ISO 32000-2 §12.3.5.1 Tables 153 and 155.
 //!
 //! The exact-xref PDF
-//! includes an independently valid compressed payload. F/Desc/Size are positive controls;
+//! includes a PDF 2.0 trailer ID, binary header marker, indirect CI and an independently valid
+//! compressed payload. UF/Desc/Size are positive controls;
 //! decoded Size=3 and compressed stream Length=11 make the numeric sources distinguishable.
 
 #![expect(
@@ -31,7 +32,7 @@ fn pdf_with_ci_schema() -> Vec<u8> {
         b"<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Names [(alpha.txt) 4 0 R] >> >> /Collection 6 0 R >>".to_vec(),
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
         b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> >>".to_vec(),
-        b"<< /Type /Filespec /UF (alpha.txt) /Desc (positive-control-description) /CI << /Author (Ada Lovelace) /Received (D:20240102030405Z) /Rank 7 >> /EF << /UF 5 0 R >> >>".to_vec(),
+        b"<< /Type /Filespec /F (alpha.txt) /UF <FEFF0061006C007000680061002E007400780074> /Desc (positive-control-description) /CI 8 0 R /EF << /F 5 0 R /UF 5 0 R >> >>".to_vec(),
         embedded,
         b"<< /Type /Collection /D (alpha.txt) /View /D /Schema 7 0 R >>".to_vec(),
         b"<< /Type /CollectionSchema \
@@ -42,9 +43,10 @@ fn pdf_with_ci_schema() -> Vec<u8> {
           /Description << /Subtype /Desc /N (Description) /O 5 /V true >> \
           /Size << /Subtype /Size /N (Size) /O 6 /V true >> \
           /Packed << /Subtype /CompressedSize /N (Compressed size) /O 7 /V true >> >>".to_vec(),
+        b"<< /Type /CollectionItem /Author (Ada Lovelace) /Received (D:20240102030405Z) /Rank 7 >>".to_vec(),
     ];
 
-    let mut bytes = b"%PDF-2.0\n".to_vec();
+    let mut bytes = b"%PDF-2.0\n%\x80\x81\x82\x83\n".to_vec();
     let mut offsets = Vec::new();
     for (index, body) in objects.iter().enumerate() {
         offsets.push(bytes.len());
@@ -61,7 +63,7 @@ fn pdf_with_ci_schema() -> Vec<u8> {
     }
     write!(
         &mut bytes,
-        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n"
+        "trailer\n<< /Size {size} /Root 1 0 R /ID [<00112233445566778899AABBCCDDEEFF> <00112233445566778899AABBCCDDEEFF>] >>\nstartxref\n{xref_offset}\n%%EOF\n"
     )
     .unwrap();
     bytes
@@ -71,6 +73,7 @@ fn detail_cells() -> std::collections::BTreeMap<String, String> {
     let bytes = pdf_with_ci_schema();
     let parsed = pdf_syntax::Document::open(bytes.clone()).expect("fixture parses");
     assert!(!parsed.was_recovered(), "fixture uses exact xref offsets");
+    assert!(!parsed.cross_reference_chain_was_cut());
     let embedded = parsed.get(pdf_syntax::ObjectId::new(5, 0));
     let stream = embedded.as_stream().expect("embedded file stream");
     assert_eq!(

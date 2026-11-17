@@ -92,7 +92,7 @@ fn image_pdf(jp2: &[u8], smask_in_data: u8) -> Vec<u8> {
     image.extend_from_slice(b"\nendstream\nendobj\n");
     objects.push(image);
 
-    let mut file = b"%PDF-1.7\n".to_vec();
+    let mut file = b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n".to_vec();
     let mut offsets = Vec::new();
     for object in objects {
         offsets.push(file.len());
@@ -118,6 +118,7 @@ fn render(jp2: &[u8], smask_in_data: u8) -> pdf_render::Raster {
     let bytes = image_pdf(jp2, smask_in_data);
     let document = Document::open(bytes).expect("complete PDF with valid JP2 image");
     assert!(!document.was_recovered(), "PDF xref offsets are exact");
+    assert!(!document.cross_reference_chain_was_cut());
     let page = pdf_model::Pages::new(&document).get(0).expect("one page");
     let interpretation = pdf_model::interpret(&document, &page);
     assert!(

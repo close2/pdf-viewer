@@ -23,25 +23,25 @@
       "binary": "viewer-host::collection_schema_cells_audit",
       "test": "details_view_presents_the_ci_text_value",
       "finding": "2038-B05",
-      "log": "round2-targets-wave2.log"
+      "log": "collection-fixture-wave108.log"
     },
     {
       "binary": "viewer-host::collection_schema_cells_audit",
       "test": "details_view_presents_a_ci_date_cell",
       "finding": "2038-B05",
-      "log": "round2-targets-wave2.log"
+      "log": "collection-fixture-wave108.log"
     },
     {
       "binary": "viewer-host::collection_schema_cells_audit",
       "test": "details_view_distinguishes_compressed_size_from_decoded_size",
       "finding": "2038-B06",
-      "log": "round2-targets-wave2.log"
+      "log": "collection-fixture-wave108.log"
     },
     {
       "binary": "viewer-host::collection_schema_cells_audit",
       "test": "details_view_presents_the_ci_numeric_value",
       "finding": "2038-B05",
-      "log": "round2-targets-wave2.log"
+      "log": "collection-fixture-wave108.log"
     },
     {
       "binary": "pdf-model::structure_limit_reporting_audit",
@@ -78,7 +78,7 @@
       "binary": "pdf-model::decode_element_types_audit",
       "test": "decode_pairs_must_each_be_numbers",
       "finding": "2038-B11",
-      "log": "round2-targets-wave8.log"
+      "log": "image-fixtures-wave108.log"
     },
     {
       "binary": "viewer-core::headless",
@@ -102,7 +102,7 @@
       "binary": "pdf-model::jpx_ordinary_opacity_audit",
       "test": "ordinary_rgb_jpx_smask_in_data_two_unpremultiplies_color",
       "finding": "2038-B14",
-      "log": "round2-targets-wave9.log"
+      "log": "image-fixtures-wave108.log"
     },
     {
       "binary": "pdf-font::agl_sequences_spec_audit",

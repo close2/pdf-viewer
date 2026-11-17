@@ -106,7 +106,8 @@
     "source": "Table153 View D and Table155 schema fields; public Viewer query and shared host mapping. Three assertions share a missing mapping path.",
     "execution": "FAIL: Author, Received and Rank cells empty; file name, description and decoded size controls pass. round2-targets-wave2.log",
     "controls": "Exact-xref/no-recovery fixture; positive controls before failing assertion.",
-    "remaining": "Bounded consumer assertion; no whole-clause certification."
+    "remaining": "Bounded consumer assertion; no whole-clause certification.",
+    "fixture_revalidation_108": "Corrected PDF2 structure and identifiers; original missing-cell failure persists after all positive controls. collection-fixture-wave108.log."
   },
   {
     "id": "2038-B06",
@@ -119,7 +120,8 @@
     "source": "Table155 CompressedSize; exact encoded stream length differs from decoded Size.",
     "execution": "FAIL: CompressedSize blank instead of 11; decoded Size 3 and decoded abc independently verified. round2-targets-wave2.log",
     "controls": "Exact-xref/no-recovery fixture; positive controls before failing assertion.",
-    "remaining": "Bounded consumer assertion; no whole-clause certification."
+    "remaining": "Bounded consumer assertion; no whole-clause certification.",
+    "fixture_revalidation_108": "Corrected PDF2 structure and identifiers; original missing-cell failure persists after all positive controls. collection-fixture-wave108.log."
   },
   {
     "id": "2038-T04",
@@ -306,7 +308,8 @@
     "test": "pdf-model::decode_element_types_audit::decode_pairs_must_each_be_numbers",
     "execution": "FAIL: [0 1 null 1 0 1] is reported complete with no unsupported entries; waves6/8.",
     "controls": "Exact xref; valid [0 1 0 1 0 1] RGB control renders independently stated opaque red at center. Only one endpoint changes type.",
-    "remaining": "Base RGB image; soft-mask/alternate dictionaries and other malformed fields are not certified."
+    "remaining": "Base RGB image; soft-mask/alternate dictionaries and other malformed fields are not certified.",
+    "fixture_revalidation_108": "Binary marker and no-chain-cut guard added. Original failure persists; two JPX controls PASS. image-fixtures-wave108.log."
   },
   {
     "id": "2038-B12",
@@ -391,7 +394,8 @@
     "test": "pdf-model::jpx_ordinary_opacity_audit::ordinary_rgb_jpx_smask_in_data_two_unpremultiplies_color",
     "execution": "FAIL wave9: RGB3 vs codestream4 components. Code0 ignore-opacity and code1 straight-alpha public pixels PASS.",
     "controls": "Independently generated lossless2x1 JP2; correct ihdr, sRGB, cdef0/1/2 with whole-image opacity; exact PDF xref; no SMask conflict. Parent regenerated both embedded arrays byte-for-byte, hashes in generator provenance.",
-    "remaining": "Code2 test stops at interpretation; downstream unpremultiply pixels are not reached. No claim about all JPEG2000 variants."
+    "remaining": "Code2 test stops at interpretation; downstream unpremultiply pixels are not reached. No claim about all JPEG2000 variants.",
+    "fixture_revalidation_108": "Binary marker and no-chain-cut guard added. Original failure persists; two JPX controls PASS. image-fixtures-wave108.log."
   },
   {
     "id": "2038-B15",
@@ -3390,5 +3394,20 @@
     "evidence": "Embedded Type3 metrics yield literal positions; explicit expansion and omitted-leading controls distinguish state transitions.",
     "execution": "Both new tests and five existing positioning tests PASS; syntax/model Clippy PASS.",
     "qualification": "Public model display-list placements, not exhaustive font/backend/extraction certification."
+  },
+  {
+    "id": "2038-T147",
+    "kind": "fixture-validity",
+    "clauses": [
+      "7.5.2",
+      "7.11.3",
+      "8.9.5.1",
+      "12.3.5.1",
+      "14.4"
+    ],
+    "summary": "Collection and binary-image regressions now satisfy unrelated producer structure before testing the disputed behavior.",
+    "evidence": "Collection binary header, equal initial 16-byte IDs, required F, UTF-16BE UF and indirect CI repaired; Desc retained. Image fixtures gain binary markers and chain-cut guards.",
+    "execution": "Four collection failures and two image failures persist at the original assertions; two image controls PASS. Host/model Clippy PASS.",
+    "qualification": "No new behavior finding or test identity. Decode nonnumeric input remains intentionally malformed under its explicit error contract."
   }
 ]
