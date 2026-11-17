@@ -1,0 +1,23 @@
+{
+  "shard": "raster_adr0085_stroke_width_current",
+  "correction": "The prior finding that the current public path applies scalar max-stretch width to anisotropic strokes was based on an incomplete call trace and is withdrawn.",
+  "decisions": [
+    {
+      "adr": "raster:0085-the-stroke-width-crosses-the-boundary-unresolved",
+      "decision": "agree with current qualified implementation boundary; no runtime failure",
+      "basis": "crates/render-raster/src/stroke.rs routes transforms with anisotropy > 1.01 to expanded(), which runs kurbo::stroke in path space before raster fill. The scalar device-space centerline-expansion route is limited to near-similarity transforms. This matches §8.4.3.2's orientation-dependent device width for anisotropic positive-width strokes.",
+      "evidence": "Parent corrected and ran drafts/anisotropic_transverse_width.rs with independent horizontal width-2 and vertical width-8 predictions, visibility controls, exact public consumer path: 1 PASS.",
+      "residuals": "The candidate test covers one axis-aligned diagonal-scale transform and does not prove every anisotropy/shear/rotation/cap/join/dash or the 1.01 transition."
+    },
+    {
+      "adr": "root:0701-the-stroke-width-is-quorras-to-resolve",
+      "decision": "retain transform-aware path width resolution with explicit backend geometry routes",
+      "basis": "The formula alone is not an oracle, but current public caller selects path-space outlining for material anisotropy. Near-similarity scalar expansion is a separate bounded route."
+    },
+    {
+      "adr": "root:0945-one-device-pixel-is-a-family-of-widths",
+      "decision": "historical path-space statement is corroborated by current render-raster branch",
+      "basis": "The expanded() caller consumes anisotropic geometry through path-space kurbo::stroke; the previous suggestion that the record was stale is withdrawn."
+    }
+  ]
+}

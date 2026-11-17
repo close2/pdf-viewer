@@ -1,0 +1,49 @@
+{
+  "shard": "raster_adr0082_determinism_current",
+  "baseline": "b901326c",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "review_scope": "Project-level determinism/tolerance promises in raster ADR0082, with selected current GPU tests that operationalize same-adapter repeatability and cross-lane/cross-adapter closeness. This is not an ISO/PDF conformance conclusion.",
+  "features": [
+    {
+      "feature": "same scene + viewport + adapter yields repeatable bytes",
+      "source": "raster/doc/adr/0082-the-determinism-contract-relaxes-to-a-close-best-effort.md, 'Unchanged' bullets; raster/CLAUDE.md around lines 298-302",
+      "ledger": "No PDF specification ledger row; project raster contract.",
+      "implementation": "Ordered scene walks and deterministic per-frame dispatch are the stated mechanism; this audit sampled test consumers, not all renderer state sources.",
+      "assertions": [
+        "raster/crates/raster-gpu/tests/m1.rs::repeated_renders_are_byte_identical — same golden scene rendered twice on one Device and once on a fresh Device for each enumerated Vulkan adapter; exact bytes.",
+        "raster/crates/raster-gpu/tests/compute_lane.rs::a_replayed_compute_frame_draws_the_same_bytes — retained Compute frame replay on llvmpipe; exact bytes.",
+        "raster/crates/raster-gpu/tests/compute_coverage_determinism.rs::ported_coverage_is_reproducible_and_reports_cross_adapter_identity — two runs of same dispatch per adapter; exact bytes."
+      ],
+      "verdict": "supported by meaningful same-adapter/replay assertions in sampled lanes",
+      "residuals": "Sampled tests do not establish every scene class, viewport, device reset, or backend. They do establish several direct witnesses, including a fresh Device and retained replay."
+    },
+    {
+      "feature": "CPU/device and cross-adapter byte identity is not a contract; measured differences need numerical, derived bounds",
+      "source": "ADR0082 opening and 'What this changes'; CLAUDE.md lines 298-302; ADR0072 per-pixel bound rationale",
+      "ledger": "No PDF specification ledger row; project raster contract.",
+      "implementation": "CPU lane remains correctness reference; device compute is approximate subject to gates. The fixed-function GPU path has a separate store-conversion bound.",
+      "assertions": [
+        "m1.rs::golden_matches_cpu_reference_on_every_adapter and ::golden_matches_cpu_reference_at_every_magnification use common/bound::disagreement, with per-pixel channels bounded from counted stores and alpha, and exact equality where no reference store occurred.",
+        "m1.rs::cross_adapter_output_stays_within_the_stated_bound doubles the reference store count because each of two adapter conversions contributes to the bound.",
+        "compute_lane.rs::the_compute_lane_is_within_one_level_of_the_cpu_lane_on_glyphs asserts max channel difference <= 1 for an identified FMA/reassociation-sensitive glyph scene.",
+        "lane_bound.rs::the_lanes_agree_to_one_coverage_step asserts alpha difference <= 1 over six scales and checks RGB equality when alpha matches; commentary explains straight-alpha amplification.",
+        "compute_lane.rs::the_compute_lane_draws_the_cpu_lanes_bytes remains an exact gate for its mosaic fixture; this is a measured stricter case, not a general cross-lane contract."
+      ],
+      "verdict": "well operationalized in sampled fixed-function and compute comparisons; bounds are local to stated fixtures and arithmetic models",
+      "residuals": "A color-channel allowance derived through straight-alpha conversion does not prove geometric edge positions are invariant; moved edge coverage is caught as pixel disagreement and must remain visible in diagnostics. No general global bound may be inferred from these scene-specific tests."
+    },
+    {
+      "feature": "Exact compute-port assertions may remain while they pass; a new compiler divergence is a measured-bound update, not a crisis",
+      "source": "ADR0082 explicitly lists compute_lane.rs and compute_coverage_determinism.rs as retained current assertions; its first section requires a number with a derivation when a failure appears",
+      "ledger": "No PDF specification ledger row; project policy.",
+      "implementation": "Current sampled adapters are Mesa; cross-vendor arithmetic may reassociate/fuse and differ.",
+      "assertions": [
+        "compute_coverage_determinism.rs::ported_coverage_is_reproducible_and_reports_cross_adapter_identity exact-compares device shader against a CPU arithmetic mirror, same-dispatch repetition, and adapters for both fill rules; fixture crosses 588 edges and 4096 pixels.",
+        "compute_lane.rs::the_compute_lane_draws_the_cpu_lanes_bytes exact-compares a selected mosaic fixture across CPU and Compute.",
+        "compute_lane.rs::the_compute_lane_is_within_one_level_of_the_cpu_lane_on_glyphs uses a one-level assertion where the fixture exposes known FMA/reassociation-sensitive half-level boundaries."
+      ],
+      "verdict": "assertions are currently valid stricter measurement gates under ADR0082, but their failure messages/comments need to preserve the policy distinction",
+      "residuals": "The coverage test comment says a future failure is 'this test doing its job ... rather than an inconvenience'; this is compatible only if CI follow-up records named pixels, measures and derives a bound, then updates the test. Read literally without that follow-up it sounds like fail-is-the-policy, contrary to ADR0082's explicit 'tolerance to state and bound, not a crisis.' Documentation/policy clarity issue; no rendering defect observed here."
+    }
+  ]
+}

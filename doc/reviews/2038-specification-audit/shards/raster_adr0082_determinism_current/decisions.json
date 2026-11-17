@@ -1,0 +1,17 @@
+{
+  "decisions": [
+    {
+      "id": "ADR0082-current-determinism-contract",
+      "decision": "agree, with a bounded documentation qualification",
+      "basis": "The ADR cleanly separates same-adapter repeatability (retained) from CPU/device and adapter identity (relaxed). Sampled tests directly assert repeatability on one/fresh Device and retained replay. Cross-lane and fixed-function comparisons either stay exact where measured or use explicit bounds. ADR0072's fixed-function bound is derived per pixel from store count and alpha rather than selected as a fixture-wide constant.",
+      "qualification": "Do not describe the current set of passing exact shader-vs-mirror assertions as a cross-vendor contract. Conversely, do not silently allow an unmeasured divergence: record the pixel/rule/adapter and derive a numeric bound as ADR0082 requires. A future failure is actionable evidence for quantifying closeness, not automatically a production correctness defect.",
+      "unreviewed": "No audit of every raster backend, adapter, scene family, or new GPU pass; no independent GPU execution performed in this shard."
+    },
+    {
+      "id": "ADR0082-color-tolerance-vs-geometry",
+      "decision": "retain distinction; no separate test draft proposed",
+      "basis": "Pixel-level bound comparisons can expose geometric displacement, but the fixed-function color bound is intentionally amplified by 1/alpha for straight-alpha conversion. The one-level glyph and shallow-edge lane tests discuss coverage/alpha explicitly, so they are not evidence for arbitrary geometric displacement or all color spaces.",
+      "qualification": "The bound must not be summarized as a global per-channel color tolerance or as a geometric invariant. Existing per-pixel disagreement reports are the right place to detect a shift; an aggregate average or scene-wide maximum detached from store/alpha would lose that distinction."
+    }
+  ]
+}

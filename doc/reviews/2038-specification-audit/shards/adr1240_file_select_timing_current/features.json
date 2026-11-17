@@ -1,0 +1,25 @@
+{
+  "shard": "adr1240_file_select_timing_current",
+  "source": "EC3 physical555/printed540, Table231 bit21 and following FileSelect paragraphs; #392 on the same page concerns null field values, not file I/O timing.",
+  "features": [
+    {
+      "clause": "12.7.5.3",
+      "feature": "FileSelect acquisition and submission",
+      "actual_assertions": "host_mappings table_231_bit_21_makes_a_persons_text_a_file_rather_than_a_value checks literal bytes one,two\\n, pathname, field identity, MIME None, ordinary-text control, clear and missing-file error. only_a_file_select_control_offers_a_chooser checks shared gate/type selection. submission tests assert multipart contents, FDF decoded embedded bytes and changed-path invalidation.",
+      "limit": "These are real bytes/consumer assertions but do not drive a native chooser or observe the time of filesystem access."
+    },
+    {
+      "clause": "12.7.5.3",
+      "feature": "Read timing promised in ADR1216/1240",
+      "implementation": "GTK controls::entry connects changed to FieldChange::Set; host/forms field_sink calls edit_of immediately. Qt window.cpp textEdited calls Host::set_control; host/forms calls edit_of immediately. edit_of synchronously calls read_chosen, including metadata and fs::read, for FileSelect. Separate CommitField callbacks occur later.",
+      "verdict": "Current source contradicts the historical claim of reading only once when the user finishes. Repeated edits to existing valid pathnames can perform repeated reads. No measured frequency or native runtime count is claimed.",
+      "scope": "Local timing/resource policy, not an ISO requirement. Later ADR1592 introduced typed-vs-committed field behavior, but its text does not explicitly settle FileSelect acquisition timing."
+    }
+  ],
+  "execution": "Source/assertion inspection only; no new tests run. Existing broad execution is separate.",
+  "remaining": [
+    "Native chooser interaction and actual read-count trace were not executed.",
+    "read_chosen performs metadata then a separate pathname read; post-metadata growth or replacement is a local resource/identity residual, not demonstrated here.",
+    "The shared may_choose_file gate currently checks the control kind, not a complete permission or user-confirmation policy. Core enforces FillInForm after host acquisition."
+  ]
+}

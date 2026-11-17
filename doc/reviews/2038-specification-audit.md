@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (80)
+## Current checkpoint (81)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **83 failing test identities**: 82 behavior assertions/probes
@@ -263,6 +263,14 @@ match a PyCryptodome-derived vector, whose helper is cross-checked against qpdf 
 All17 selected tests pass; confined/syntax/model Clippy passes. Tampered permissions
 comments now identify malformed-input policy, followingD16. The manifest remains83;
 this checkpoint adds two passing test identities. Further ADR reviews are active.
+
+Checkpoint81 adds independent output-protection and stroke-width controls and strengthens
+XFA attachment metadata assertions. All6 selected tests pass (5 new identities), and
+transform/render-raster Clippy passes. Unequal-scale stroke geometry is correct in the
+sampled public paths; the initial suspicion from a lower-level trace was withdrawn.
+FileSelect acquisition timing and Archive+Protect API handling remain qualified decision
+findings (D55/D56), with no production changes. The expected-failure manifest remains83.
+Weekly usage was65%; further geometry and archive-policy reviews continue.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

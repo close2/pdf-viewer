@@ -1,0 +1,49 @@
+{
+  "shard": "adr1162_1187_output_protection_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "source_scope": {
+    "pdf": "ISO 32000-2 §7.6.4.1/.2 (password roles and Table 22); §12.5.6.23 (redaction effect)",
+    "pdfa": "Project source summaries cite ISO 19005-2:2011 §6.1.3 and §6.1.7.2, and ISO 19005-4:2020 §6.1.3 and §6.1.6.2. No ISO 19005 source text/PDF was found in the audit worktree, so those exact clauses were not freshly read here; conclusions below qualify that provenance.",
+    "scope_boundary": "The redaction refusal is an accepted product/privacy policy rationalized by §12.5.6.23 and user intent, not an explicit PDF clause requiring encrypted redaction output. PDF/A no-encryption is represented by the repository's conversion-limits/mitigations sources; no new external-standard claim is made."
+  },
+  "features": [
+    {
+      "feature": "Whole-file transform output encryption",
+      "verbs": ["split", "merge", "pages", "optimize", "redact"],
+      "implementation": "Public apply_protected passes Protect only through those five Plan arms. Split, merge, pages, optimize use Protect::write; redact separately calls it after refusal check. Protect::write maps both passwords, caller Access, and encrypt_metadata into pdf_syntax::Protection. The CLI reads owner/user passwords from file descriptors and sets Access::ALL, encrypt_metadata=true.",
+      "assertions": {
+        "redact": "redact.rs tests build and encrypt a literal KEEP/SECRET document. No Protect must refuse with reason; Protect must leave output encrypted, retain KEEP readable with the new owner password, and remove SECRET from raw output and extracted text.",
+        "optimize": "linearize.rs uses distinct output user and owner passwords on clear-source fixtures; it checks no-password open fails, user-password open succeeds, all pages draw the same, and Annex F encryption placement. It does not test source-password replacement/precedence because the source fixture is not encrypted, and it does not inspect Table 22 flags. This covers optimize's linearized writer only.",
+        "split_merge_pages_ordinary_optimize": "No direct Protect-supplied assertion found. Their corpus tests use apply without Protect and focus structural/rendering outputs; they read known encrypted inputs but do not assert the lost-protection warning. Implementation wiring is present but these individual output paths are not directly proven under explicit protection.",
+        "serializer": "pdf-syntax has encryption/serialization tests, but they do not prove each transform plan routes a caller's Protect to that serializer."
+      },
+      "assessment": "No normative defect established. Main test gap is dispatch across split/merge/pages and ordinary optimize, plus custom Access propagation. A concise public-plan test can verify each operation re-encrypts with new credentials, refuses the empty/default password when user password is nonempty, and reads the literal content under the new user password."
+    },
+    {
+      "feature": "No Protect on encrypted transform sources; redaction exception",
+      "implementation": "split, merge, pages, optimize emit a §7.6 warning when encrypted source material loses encryption and Protect is None. Redact instead refuses encrypted source when Protect is absent.",
+      "assertions": "Redact has direct refusal/positive controls. Corpus transform walks can encounter encrypted inputs but call apply and generally assess transformed output; reviewed helpers do not assert the protection warning as their purpose.",
+      "assessment": "The redaction refusal is a product-policy asymmetry (ADR 1162), not a direct ISO shall. It is coherently tested with a positive encrypted-output control. Warning behavior for other four verbs lacks a small isolated assertion; not evidence of bad behavior."
+    },
+    {
+      "feature": "Archive encryption and source-claim reporting",
+      "source": "Repository conversion-limits §2.4/§3.5 and doc/pdf-a-mitigations.md §2 summarize ISO 19005-2/-4 no-Encrypt rules and classify removal as Ask; original ISO 19005 text was not found locally.",
+      "implementation": "Archive reads SourceProtection before rewriting; loss authorization is Loss::Encryption. Archive rewrite emits no /Encrypt; report JSON carries handler/revision/withheld/says; output provenance inserts PERMISSIONS_NO_LONGER_ASSERTED plus SourceProtection::history into xmpMM:History.",
+      "assertions": "archive/recovered.rs creates an encrypted source, checks authorized conversion output is unencrypted and target-conforming, verifies the no-encryption decision/loss and that report.protection is Some; without Loss::Encryption, conversion produces no output and decision is unauthorised. SourceProtection unit tests check literal sentences/withheld flags. No direct assertion found for the report's exact public protection JSON or the output packet's exact encryption-history entry/content.",
+      "assessment": "The decision and removal have consumer coverage; propagation of the claim into both public report and emitted history is less directly asserted than ADR 1187 says. Generic metadata-history tests demonstrate the mechanism but are not an independent oracle for this protection claim."
+    },
+    {
+      "feature": "Protect supplied to Archive through public API",
+      "implementation": "CLI protection() refuses encryption flags for Plan::Archive. Public apply_protected forwards Some(Protect) to run_plan, but the Archive arm calls archive::run without Protect; conversion proceeds unencrypted without a refusal or warning about ignored Protect.",
+      "assessment": "This is a public API consistency/potential silent-ignore issue, not a PDF/A or ISO conformance violation. CLI's explicit refusal suggests the intended behavior is to reject inapplicable protection, but ADR 1187 says archive cannot encrypt and ADR 1162 says archive reads no Protect. Public API docs describe apply_protected as protection over whole files and do not document that Archive ignores the supplied value. Recommend explicit refusal or explicit API documentation/disposition; a focused test should pin whichever owner policy is chosen."
+    }
+  ],
+  "test_drafts": [
+    "drafts/transform_protect_dispatch_spec_audit.rs",
+    "drafts/transform_protect_dispatch.md",
+    "drafts/archive_protect_api_contract.md",
+    "drafts/archive_claim_propagation.md",
+    "drafts/archive_claim_propagation_spec_audit.rs"
+  ],
+  "execution": "No Cargo/tests were run."
+}

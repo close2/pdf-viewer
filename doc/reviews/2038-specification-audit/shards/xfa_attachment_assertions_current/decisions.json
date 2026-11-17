@@ -1,0 +1,8 @@
+{
+  "decisions": [
+    {
+      "adr": "root1270",
+      "verdict": "Retain explicit attachment preservation and shared associated-file writer; strengthened direct XFA evidence supports its stated metadata provenance."
+    }
+  ]
+}

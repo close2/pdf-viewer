@@ -2153,6 +2153,37 @@
       "log": "quality-wave80b.log",
       "exit": 0,
       "scope": "syntax/modelall-targetsClippy"
+    },
+    {
+      "log": "protect-dispatch-wave81b.log",
+      "run": 2,
+      "passed": 2,
+      "exit": 0
+    },
+    {
+      "log": "stroke-width-wave81.log",
+      "run": 1,
+      "passed": 1,
+      "exit": 0,
+      "scope": "Initial single-lane straight-line control"
+    },
+    {
+      "log": "extended-controls-wave81.log",
+      "run": 4,
+      "passed": 4,
+      "exit": 0
+    },
+    {
+      "log": "final-controls-wave81.log",
+      "run": 6,
+      "passed": 6,
+      "exit": 0,
+      "scope": "Final5new identities plus1strengthened existing; successful adapter/count output retained"
+    },
+    {
+      "log": "quality-wave81d.log",
+      "exit": 0,
+      "scope": "transform/render-raster all-targets Clippy; earlier81/a-b-c failed only audit-test compile/lint issues, corrected"
     }
   ],
   "prior_expected_failures": {

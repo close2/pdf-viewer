@@ -1,0 +1,15 @@
+{
+  "shard": "raster_adr0085_stroke_width_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "baseline": "b901326c",
+  "features": [
+    {
+      "id": "raster-scene-stroke-width-transform-boundary",
+      "source": "ISO 32000-2 §8.4.3.2, physical pp.175–176 / printed pp.160–161 (footer-verified): positive-width stroke distance is in user space; device thickness varies by orientation for unequal CTM scales. It allows up to two device pixels of width deviation by pixel-grid placement. §10.7.5, physical p.400 / printed p.385, treats automatic stroke adjustment separately; Table 57 defaults SA=false.",
+      "implementation": "Public crates/render-raster/src/stroke.rs computes anisotropy(to_device). Above MAX_ISOTROPY_ERROR=1.01 it calls expanded(), which runs kurbo::stroke in path space with path_width, then raster-fills that outline under the transform. The near-similarity branch uses scalar device-space expansion. Thus the earlier conclusion based only on raster-gpu internal encode path was incomplete and is withdrawn.",
+      "assertions": "Parent's corrected `drafts/anisotropic_transverse_width.rs` uses independent diag(4,1) predictions: width-2 horizontal and width-2 vertical strokes should have transverse widths about 2 and 8 device pixels, with source's two-pixel allowance. Controls include identity horizontal and anisotropic vertical. It runs through the public renderer and tests CPU/GPU/Compute lanes with straight and L-shaped joined paths; parent reports 3 tests PASS.",
+      "verdict": "No current runtime failure established. Public anisotropic dispatch takes a path-space outline route consistent with source and historical ADR claim.",
+      "residuals": "The passing independent fixture does not certify arbitrary shear/rotation, all caps/joins/dashes, cache reuse, or transition behavior at anisotropy 1.01."
+    }
+  ]
+}

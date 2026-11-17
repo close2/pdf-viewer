@@ -1587,3 +1587,113 @@ fn an_embedded_file_the_file_s_own_encryption_withholds_is_decided_in_the_first_
         conversion(&report).render()
     );
 }
+
+fn encrypted_with_access(bytes: &[u8], access: pdf_syntax::Access) -> Vec<u8> {
+    use pdf_syntax::serialize::{Assembly, Form, Options};
+    let source = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("source opens");
+    let mut assembly = Assembly::new(vec![&source]);
+    for number in 1..=64 {
+        let id = ObjectId::new(number, 0);
+        if matches!(source.get(id), pdf_syntax::Object::Null) {
+            break;
+        }
+        assembly.copy(0, id).expect("object copies");
+    }
+    assembly.set_root(ObjectId::new(1, 0));
+    let mut out = Vec::new();
+    pdf_syntax::serialize_encrypted(
+        &assembly,
+        pdf_syntax::Version { major: 1, minor: 7 },
+        Options::new(Form::of(&source)),
+        &pdf_syntax::Protection {
+            user_password: "",
+            owner_password: "owner",
+            access,
+            encrypt_metadata: true,
+        },
+        &mut pdf_syntax::SystemEntropy,
+        &mut out,
+    )
+    .expect("fixture encryption succeeds");
+    out
+}
+
+#[test]
+fn encrypted_archive_records_exact_source_claim_in_report_and_xmp() {
+    let access = pdf_syntax::Access {
+        print: false,
+        copy: false,
+        ..pdf_syntax::Access::ALL
+    };
+    let clear = file(&DANGLING, "/Root 1 0 R");
+    let source = encrypted_with_access(&clear, access);
+    let input = Document::open_with_password(source.clone(), Limits::DEFAULT, "")
+        .expect("the empty user password opens the source");
+    let input_flags = input.permissions().expect("Table 22 flags are present");
+    assert!(
+        !input_flags.print && !input_flags.copy,
+        "literal fixture flags are restricted"
+    );
+
+    let target = Target::Four(Flavour::Plain);
+    let (report, output) = attempt(&source, target, authorised_with(&[Loss::Encryption]))
+        .expect("the approved archive conversion runs");
+    let output = written(&report, output);
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let written_pdf =
+        Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("output opens");
+    assert!(!written_pdf.is_encrypted(), "PDF/A output has no /Encrypt");
+
+    let converted = conversion(&report);
+    let protection = converted
+        .protection
+        .as_ref()
+        .expect("source claim is reported");
+    assert_eq!(protection.handler, "Standard");
+    assert_eq!(protection.revision, 6);
+    assert_eq!(
+        protection.withheld(),
+        vec![
+            "print the document (bit 3)",
+            "copy or extract text and graphics (bit 5)"
+        ]
+    );
+    let report_text = converted.render();
+    for statement in [
+        "Standard handler",
+        "print the document (bit 3)",
+        "copy or extract text and graphics (bit 5)",
+    ] {
+        assert!(
+            report_text.contains(statement),
+            "report carries {statement:?}: {report_text}"
+        );
+    }
+
+    let packet = String::from_utf8(document_packet(&output)).expect("XMP is UTF-8");
+    for statement in [
+        "this document's permission flags are recorded, not enforced",
+        "print the document (bit 3)",
+        "copy or extract text and graphics (bit 5)",
+    ] {
+        assert!(
+            packet.contains(statement),
+            "output history carries {statement:?}: {packet}"
+        );
+    }
+
+    // Independent no-Encrypt-source control: recovered-structure may still add unrelated history.
+    let (control_report, control_output) =
+        attempt(&clear, target, authorised()).expect("clear source converts");
+    let control_output = written(&control_report, control_output);
+    let control = conversion(&control_report);
+    assert!(
+        control.protection.is_none(),
+        "clear source has no encryption claim"
+    );
+    assert!(
+        !String::from_utf8_lossy(&document_packet(&control_output))
+            .contains("permission flags are recorded, not enforced"),
+        "no encryption claim is invented for a clear source"
+    );
+}

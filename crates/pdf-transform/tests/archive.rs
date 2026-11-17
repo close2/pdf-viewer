@@ -7257,6 +7257,10 @@ fn a_static_xfa_form_loses_its_packet_and_keeps_its_fields() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one end-to-end preservation fixture and its byte/association controls"
+)]
 fn an_xfa_resource_written_as_packets_is_kept_as_one_file_where_the_target_holds_one() {
     // `doc/pdf-a-mitigations.md` section 7's addition: the XFA resource is XML, so a target that
     // holds a file of any type can keep it as one rather than losing the form's definition
@@ -7265,8 +7269,8 @@ fn an_xfa_resource_written_as_packets_is_kept_as_one_file_where_the_target_holds
     // complete text of this XML element" — so the resource is the streams end to end, the first
     // opening the document element and the last closing it. That is the shape Annex K's own
     // EXAMPLE 1 prints, and the one this fixture is built from.
-    let open = stream("/Length 34", b"<xdp:xdp xmlns:xdp=\"http://x/\">\n");
-    let template = stream("/Length 34", b"<template xmlns=\"http://t/\"/>\n");
+    let open = stream("/Length 32", b"<xdp:xdp xmlns:xdp=\"http://x/\">\n");
+    let template = stream("/Length 30", b"<template xmlns=\"http://t/\"/>\n");
     let close = stream("/Length 11", b"</xdp:xdp>\n");
     let field = "<< /FT /Tx /T (Total) /V (7) >>".to_owned();
     let source = Conforming {
@@ -7341,6 +7345,35 @@ fn an_xfa_resource_written_as_packets_is_kept_as_one_file_where_the_target_holds
             .map(|name| name.as_bytes().to_vec()),
         Some(b"application/octet-stream".to_vec()),
         "§14.13.2's own value for a media type the writer does not know"
+    );
+
+    assert_eq!(
+        document
+            .get_key(specification, "AFRelationship")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"Source".to_vec()),
+        "the original XFA resource is the source of the associated content"
+    );
+    let params = document.get_key(&embedded.dict, "Params");
+    let params = params.as_dict().expect("Table 45's Params");
+    assert_eq!(
+        stated_date(&document, params, "ModDate"),
+        pdf_syntax::Date::parse("D:20260101000000Z"),
+        "the associated-file modification date comes from the source PDF's Info /ModDate"
+    );
+    let associated = document.get_key(&catalog, "AF");
+    let associated = associated.as_array().expect("catalog /AF");
+    assert_eq!(
+        associated.len(),
+        1,
+        "the document has one attached XFA resource"
+    );
+    let associated_spec = document.resolve(associated.first().expect("the association"));
+    assert_eq!(
+        associated_spec.as_dict(),
+        Some(specification),
+        "catalog /AF names the same file specification as EmbeddedFiles"
     );
 
     let attached = &conversion(&report).attached;

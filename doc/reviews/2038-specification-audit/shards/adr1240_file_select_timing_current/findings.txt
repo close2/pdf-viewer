@@ -1,0 +1,9 @@
+ADR1240 review: retain the common FileSelect gate and chooser-as-pathname design, but qualify its read-timing premise.
+
+Primary EC3 physical555/printed540 makes FileSelect text a pathname whose contents are submitted, specifies HTML multipart, FDF file specification and XML omission. It does not require a graphical chooser or prescribe read timing. The same-page #392 modifies the handling of non-null field values, not file acquisition.
+
+The host tests assert actual file bytes and distinguish file-select from ordinary text; model submission tests carry real multipart/FDF bytes and invalidate old content when its pathname changes. These are meaningful controls. They do not execute a native chooser or observe filesystem read timing.
+
+ADRs1216 and1240 say GTK/Qt read once when the user finishes, never per keystroke. Current GTK entry changed signals call FieldChange::Set, then host field_sink calls edit_of; Qt textEdited calls set_control, then edit_of. edit_of synchronously invokes read_chosen (metadata and fs::read). Each host has separate commit callbacks. Thus a text-change event naming a readable file can read it before commit. ADR1592 explains the typed/committed split but does not explicitly revisit FileSelect acquisition. This is a current-source discrepancy from the recorded local design, not a PDF conformance failure or a measured sixty-reads-per-second result.
+
+Keep historical ADRs intact. A follow-up should settle acquisition timing and add a native-host timing regression. No new test was added merely to assert the implementation's existing behavior. Native chooser cancellation, asynchronous lifecycle and actual read counts remain unexecuted here.
