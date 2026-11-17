@@ -322,7 +322,11 @@ fn the_report_over_a_signature_holds_each_item_in_the_clauses_order() {
     // h) against ETSI TS 119 312: SHA-256 is recommended (its Table 1), PKCS #1 v1.5 is a bare
     // legacy `L` (its Table 2) and so is `sha256-with-rsa` (its Table 4), and a 2048-bit modulus
     // is `L[2026]` (its Table 6) — not yet phased out at 2026-10-01, the best signature time and
-    // the instant of validation both.
+    // the instant of validation both. The signer's certificate is valid until 2036-09-11, past
+    // both phase-outs of its key — Table 2's at the end of 2034 and Table 6's at the end of 2026 —
+    // so clause 9.3 raises each against that `notAfter`; Table 4's row is the signature's, not the
+    // key's, and is not asked again (ADR 2927).
+    let not_after = Instant::from_unix_seconds(2_104_788_759);
     let security = report.security.expect("a suite was reached");
     assert_eq!(
         security.issues,
@@ -341,6 +345,18 @@ fn the_report_over_a_signature_holds_each_item_in_the_clauses_order() {
                 rule: Rule::RsaKeySizes,
                 entry: "at least 1 900 and below 3 000 bits",
                 class: Class::legacy_until(2026),
+            },
+            Issue::KeyOutlived {
+                rule: Rule::SignatureAlgorithms,
+                entry: "RSA-PKCS#1v1_5",
+                class: Class::LEGACY,
+                not_after,
+            },
+            Issue::KeyOutlived {
+                rule: Rule::RsaKeySizes,
+                entry: "at least 1 900 and below 3 000 bits",
+                class: Class::legacy_until(2026),
+                not_after,
             },
         ]
     );

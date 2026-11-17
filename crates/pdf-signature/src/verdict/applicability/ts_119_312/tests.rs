@@ -617,3 +617,70 @@ fn a_time_stamp_imprint_s_hash_is_asked_of_table_1() {
     );
     assert_eq!(Rule::TimeStampImprints.citation(), "Table 1, clause 9.2");
 }
+
+/// Clause 9.3: "Signer's keys shall remain suitable during the certificate maintenance period
+/// (commonly called validity period from notBefore to notAfter) of the associated certificate."
+///
+/// A 2 048-bit RSASSA-PSS key is Table 6's `L[2026]`, suitable through 31 December 2026: a
+/// certificate whose `notAfter` is that day's last second raises nothing more, and one whose
+/// `notAfter` is the next instant raises the issue against Table 6 alone, Table 2's RSA-PSS being
+/// recommended. A PKCS #1 v1.5 key of 3 072 bits is Table 2's bare `L`, `L[2034+]`, so a
+/// certificate valid into 2035 raises it against Table 2 — and not against Table 4, whose row is
+/// the signature's combination with its digest rather than the key (ADR 2927). A component no row
+/// lists has its issue already and is not asked again; a validity that did not read is said.
+#[test]
+fn a_signer_s_key_is_asked_to_outlast_its_certificate() {
+    let year_2035 = Instant::from_unix_seconds(2_051_222_400);
+    let last_second_of_2026 = Instant::from_unix_seconds(JANUARY_2027.unix_seconds() - 1);
+    let last_second_of_2034 = Instant::from_unix_seconds(year_2035.unix_seconds() - 1);
+    let pss = |key_bits| {
+        assess(
+            Digest::Sha256,
+            Family::RsaPss {
+                mask: Digest::Sha256,
+            },
+            key_bits,
+            None,
+        )
+    };
+    let outlived = |mut assessment: Assessment, not_after: Option<Instant>| {
+        let before = assessment.issues.len();
+        assessment.signer_key(not_after);
+        assessment.issues.split_off(before)
+    };
+
+    assert_eq!(outlived(pss(2_048), Some(last_second_of_2026)), []);
+    assert_eq!(
+        outlived(pss(2_048), Some(JANUARY_2027)),
+        [Issue::KeyOutlived {
+            rule: Rule::RsaKeySizes,
+            entry: "at least 1 900 and below 3 000 bits",
+            class: Class::legacy_until(2026),
+            not_after: JANUARY_2027,
+        }]
+    );
+    assert_eq!(outlived(pss(3_072), Some(year_2035)), []);
+
+    let pkcs1 = || assess(Digest::Sha256, Family::Rsa, 3_072, None);
+    assert_eq!(outlived(pkcs1(), Some(last_second_of_2034)), []);
+    assert_eq!(
+        outlived(pkcs1(), Some(year_2035)),
+        [Issue::KeyOutlived {
+            rule: Rule::SignatureAlgorithms,
+            entry: "RSA-PKCS#1v1_5",
+            class: Class::LEGACY,
+            not_after: year_2035,
+        }]
+    );
+
+    let too_small = pss(1_024);
+    assert!(
+        too_small
+            .issues
+            .contains(&Issue::NotListed(Rule::RsaKeySizes))
+    );
+    assert_eq!(outlived(too_small, Some(year_2035)), []);
+
+    assert_eq!(outlived(pss(3_072), None), [Issue::ValidityNotRead]);
+    assert_eq!(Rule::SignerKeyLifetime.citation(), "clause 9.3");
+}

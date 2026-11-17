@@ -28,6 +28,12 @@
 //! phase-out had passed at the best signature time or at the instant of validation. Clause 7.3's
 //! rule that an elliptic-curve suite is recommended only where the digest's output length equals
 //! the curve's key size is asked as its own rule.
+//!
+//! Clause 9's time periods are asked after it: clause 9.2's imprint hash of every time-stamp
+//! token taken as a time ([`Assessment::imprints`]), and clause 9.3's signer's key against its
+//! certificate's validity ([`Assessment::signer_key`]). Clause 9.5's other keys — a CA's, a
+//! revocation issuer's, a time-stamping unit's — are not asked, because the report is not handed
+//! the certificates of the path that validated (ADR 2927).
 
 use crate::cms::Digest;
 use crate::eddsa;
@@ -684,6 +690,9 @@ pub enum Rule {
     DsaKeySizes,
     /// Clause 9.2's rule on the hash of a time-stamp token's imprint, asked of Table 1.
     TimeStampImprints,
+    /// Clause 9.3's rule that the signer's key remains suitable over its certificate's validity,
+    /// asked of the key's rows in Tables 2, 3, 6 and 7.
+    SignerKeyLifetime,
 }
 
 impl Rule {
@@ -699,6 +708,7 @@ impl Rule {
             Self::RsaKeySizes => "Table 6, clause 8.4",
             Self::DsaKeySizes => "Table 7, clause 8.4",
             Self::TimeStampImprints => "Table 1, clause 9.2",
+            Self::SignerKeyLifetime => "clause 9.3",
         }
     }
 }
@@ -756,6 +766,21 @@ pub enum Issue {
     },
     /// A DSA key whose `q` this reader could not measure, so Table 7 could not be asked.
     SubgroupNotMeasured,
+    /// Clause 9.3: a row of the signer's key is legacy, and its phase-out falls inside the
+    /// validity period of the signer's certificate, so the key does not remain suitable for as
+    /// long as the certificate says it may be used.
+    KeyOutlived {
+        /// The table whose row it is: 2, 3, 6 or 7.
+        rule: Rule,
+        /// The row's name for the component.
+        entry: &'static str,
+        /// Its class.
+        class: Class,
+        /// The certificate's `notAfter`, which the phase-out precedes.
+        not_after: Instant,
+    },
+    /// The signer's certificate's validity did not read, so clause 9.3 could not be asked.
+    ValidityNotRead,
 }
 
 /// What [`Assessment::of`] reads: the suite, and the two instants a phase-out is compared with.
@@ -916,6 +941,56 @@ impl Assessment {
                 Some((_, Class::Recommended)) => {}
             }
         }
+    }
+
+    /// Clause 9.3: "Signer's keys shall remain suitable during the certificate maintenance period
+    /// (commonly called validity period from notBefore to notAfter) of the associated
+    /// certificate."
+    ///
+    /// The key is what Tables 2, 3, 6 and 7 classify — its algorithm, its curve, its modulus's or
+    /// primes' sizes — and not Table 1's digest or Table 4's combination, which belong to one
+    /// signature rather than to the key (ADR 2927). Suitable is clause 3.4's reading: a
+    /// recommended row has no end date and stays suitable, a legacy row stops at its phase-out.
+    /// So each of those components already listed adds [`Issue::KeyOutlived`] where its row's
+    /// phase-out has passed by `not_after` — RFC 5280's validity includes its last second, so a
+    /// phase-out on 1 January at midnight UTC and a `notAfter` at that instant is an issue. A
+    /// component no row lists has its issue already, and is not asked again. Clause 9.3's note 3
+    /// says a time stamp made with recommended mechanisms while the suite is still legacy is
+    /// enough protection; a note is not a requirement, and the issue is stated whatever tokens
+    /// cover the signature, as a potential one, which is what REQ-4.5-01 h) asks for.
+    ///
+    /// Classes only move from recommended towards legacy, so a key suitable at `notAfter` was
+    /// suitable from `notBefore`; the start of the period is not asked. `None` — a certificate
+    /// whose validity did not read — is [`Issue::ValidityNotRead`].
+    pub fn signer_key(&mut self, not_after: Option<Instant>) {
+        let Some(not_after) = not_after else {
+            self.issues.push(Issue::ValidityNotRead);
+            return;
+        };
+        let outlived: Vec<Issue> = self
+            .components
+            .iter()
+            .filter(|component| {
+                matches!(
+                    component.rule,
+                    Rule::SignatureAlgorithms
+                        | Rule::Curves
+                        | Rule::RsaKeySizes
+                        | Rule::DsaKeySizes
+                )
+            })
+            .filter_map(|component| {
+                let (entry, class) = component.listed?;
+                let from = class.phased_out_from()?;
+                (not_after >= from).then_some(Issue::KeyOutlived {
+                    rule: component.rule,
+                    entry,
+                    class,
+                    not_after,
+                })
+            })
+            .collect();
+        self.issues.extend(outlived);
     }
 }
 

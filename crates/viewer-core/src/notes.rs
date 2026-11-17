@@ -2975,6 +2975,7 @@ fn security_sentence(
         Rule::RsaKeySizes => "modulus's size",
         Rule::DsaKeySizes => "key's sizes",
         Rule::TimeStampImprints => "time-stamp token's imprint hash",
+        Rule::SignerKeyLifetime => "signer's key",
     };
     let phase_out = |class: Class| match class {
         Class::Recommended => String::new(),
@@ -3034,6 +3035,25 @@ fn security_sentence(
             Issue::SubgroupNotMeasured => format!(
                 "{} was not asked, because the DSA key's q could not be measured",
                 Rule::DsaKeySizes.citation()
+            ),
+            Issue::KeyOutlived {
+                rule,
+                entry,
+                class,
+                not_after,
+            } => format!(
+                "{} asks the signer's key to remain suitable until its certificate's notAfter, {} \
+                 seconds after the epoch, and {} lists its {} {entry} as legacy, {}, which is \
+                 before it",
+                Rule::SignerKeyLifetime.citation(),
+                not_after.unix_seconds(),
+                rule.citation(),
+                what(rule),
+                phase_out(class)
+            ),
+            Issue::ValidityNotRead => format!(
+                "{} was not asked, because the signer's certificate's validity did not read",
+                Rule::SignerKeyLifetime.citation()
             ),
         })
         .collect();
@@ -5577,14 +5597,19 @@ mod tests {
             // ETSI TS 119 312 at a best signature time in 2026 and a validation in 2027:
             // `RSA-PKCS#1v1_5` and `sha256-with-rsa` are a bare `L`, and a 2048-bit modulus is
             // its Table 6's `L[2026]`, passed by the validation.
-            security: Some(ts_119_312::Assessment::of(&ts_119_312::Asked {
-                digest: Digest::Sha256,
-                family: Family::Rsa,
-                key_bits: 2048,
-                subgroup_bits: None,
-                signed: Instant::from_unix_seconds(1_790_812_800),
-                now: Instant::from_unix_seconds(1_798_761_600),
-            })),
+            // Clause 9.3: a certificate valid until 2027-01-01 outlives Table 6's `L[2026]`.
+            security: Some({
+                let mut assessment = ts_119_312::Assessment::of(&ts_119_312::Asked {
+                    digest: Digest::Sha256,
+                    family: Family::Rsa,
+                    key_bits: 2048,
+                    subgroup_bits: None,
+                    signed: Instant::from_unix_seconds(1_790_812_800),
+                    now: Instant::from_unix_seconds(1_798_761_600),
+                });
+                assessment.signer_key(Some(Instant::from_unix_seconds(1_798_761_600)));
+                assessment
+            }),
         }
     }
 
@@ -5593,7 +5618,8 @@ mod tests {
     /// each with its assurance (a claim as a claim, a token's policy and accuracy, its EU
     /// qualification said as not determined), f)'s attributes by set with a commitment named, and
     /// h)'s suite with its potential security issues against ETSI TS 119 312 — a legacy algorithm
-    /// and suite, a legacy modulus size, and a phase-out passed by validation. REQ-4.2-03 e)'s
+    /// and suite, a legacy modulus size, a phase-out passed by validation, and clause 9.3's key
+    /// outlived by its certificate. REQ-4.2-03 e)'s
     /// warning names the suite and says INDETERMINATE, never invalid.
     #[test]
     fn the_applicability_report_says_each_item_of_req_4_5_01() {
@@ -5624,6 +5650,10 @@ mod tests {
             "Table 6, clause 8.4 lists its modulus's size at least 1 900 and below 3 000 bits as \
              legacy, phased out no later than 31 December 2026, which had passed by this \
              validation, though not by the best signature time",
+            "clause 9.3 asks the signer's key to remain suitable until its certificate's \
+             notAfter, 1798761600 seconds after the epoch, and Table 6, clause 8.4 lists its \
+             modulus's size at least 1 900 and below 3 000 bits as legacy, phased out no later \
+             than 31 December 2026, which is before it",
         ] {
             assert!(said.contains(named), "{named} in {said}");
         }

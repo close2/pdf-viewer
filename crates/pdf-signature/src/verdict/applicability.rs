@@ -426,6 +426,10 @@ impl Report {
         }
         .map(|mut assessment| {
             assessment.imprints(&imprints);
+            assessment.signer_key(match &parsed {
+                Some(Ok(certificate)) => certificate.validity.map(|validity| validity.not_after),
+                _ => None,
+            });
             assessment
         });
         Self {

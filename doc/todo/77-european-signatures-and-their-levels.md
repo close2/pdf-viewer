@@ -80,7 +80,9 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
   2897), and h)'s potential security issues are `applicability::ts_119_312`'s assessment against
   TS 119 312 V2.1.1's Tables 1, 2, 3, 4, 6 and 7 and clause 7.3, transcribed cell by cell — a
   component no row lists, a legacy one, a phase-out passed by the best signature time or by the
-  validation, each naming its table (A856, ADR 2896).
+  validation, each naming its table (A856, ADR 2896) — with clause 9.2's imprint hash of every token
+  taken as a time (ADR 2905) and clause 9.3's signer's key, whose legacy rows of Tables 2, 3, 6 and
+  7 are asked to outlast its certificate's `notAfter` (ADR 2927).
   `viewer_core::notes` says one sentence per item beside a listed signature's level, and e)'s
   warning wherever lists were given. `verdict::level`'s join is pinned end to end by a listed
   signer whose issuer's CRL was issued after the best signature time (`TOTAL-PASSED`), with the
@@ -133,10 +135,11 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
 
 ## 2. What is left, in order
 
-3. **TS 119 172-4 REQ-4.5-01 h)**'s remainder (ADRs 2896, 2905): TS 119 312 clauses 9.3 and 9.5's
-   key lifetimes over a certificate's validity are not asked, and no national rules are held. Table
-   4's RSASSA-PSS row is chosen by the digest and MGF1's hash together, and clause 9.2's imprint rule
-   is asked of Table 1 for every token taken as a time (ADR 2905).
+3. **TS 119 172-4 REQ-4.5-01 h)**'s remainder (ADRs 2896, 2905, 2927): TS 119 312 clause 9.5's
+   other keys — the CAs' on the path, the CRL issuers', the OCSP responders', the time-stamping
+   units' — are not asked, because the report is handed none of their certificates (`verdict::Valid`
+   keeps the path's length only); building it carries those certificates in and chooses what "at
+   least as strong" compares across families (ADR 2927 item 5). No national rules are held.
 4. **The fetch's remainder.** GPR-4.0-03's *should* — go on past a failed `https` validation with
    a warning — is not taken: the client has no unvalidated mode, and a failed connection is said as
    the location not fetched (re-read 2026-11-16, ADR 2886). A list a policy's `TAsInTrustedList`
