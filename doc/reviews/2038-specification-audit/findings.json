@@ -1156,7 +1156,8 @@
     ],
     "summary": "Reference page-label search stops at4096pages and reports a present page4097 as absent.",
     "evidence": "Nearlabel4096andnumeric4097controlsPASS; late label producesproxy and false NoSuchPage detail.",
-    "remaining": "Test permits successful import or accurate bounded-search report; no unbounded work required."
+    "remaining": "Test permits successful import or accurate bounded-search report; no unbounded work required.",
+    "fixture_revalidation_109": "Unrelated file framing repaired. Original failure persists after source-derived positive controls; fixture-sample-wave109.log."
   },
   {
     "id": "2038-T43",
@@ -1876,7 +1877,8 @@
       "0782",
       "1533"
     ],
-    "execution": "deep-page-tree-wave48b.log:1PASS1FAIL; final lint-only-adjusted rerun recorded in gates."
+    "execution": "deep-page-tree-wave48b.log:1PASS1FAIL; final lint-only-adjusted rerun recorded in gates.",
+    "fixture_revalidation_109": "Unrelated file framing repaired. Original failure persists after source-derived positive controls; fixture-sample-wave109.log."
   },
   {
     "id": "2038-D40",
@@ -2070,7 +2072,8 @@
     ],
     "summary": "Indirect numeric DecodeParms values are treated as defaults: Predictor15 remains differenced, Columns3 refuses otherwise valid stream.",
     "execution": "Two literal directcontrolsPASS; separate indirectPredictor andColumns testsFAIL. OuterFilter/DecodeParmsreferencecontrolsPASS.",
-    "limits": "Ordinary data stream only; xref-specific directness exception excluded. No blanket allcodec/allparameter failure claim."
+    "limits": "Ordinary data stream only; xref-specific directness exception excluded. No blanket allcodec/allparameter failure claim.",
+    "fixture_revalidation_109": "Unrelated file framing repaired. Original failure persists after source-derived positive controls; fixture-sample-wave109.log."
   },
   {
     "id": "2038-T74",
@@ -3409,5 +3412,19 @@
     "evidence": "Collection binary header, equal initial 16-byte IDs, required F, UTF-16BE UF and indirect CI repaired; Desc retained. Image fixtures gain binary markers and chain-cut guards.",
     "execution": "Four collection failures and two image failures persist at the original assertions; two image controls PASS. Host/model Clippy PASS.",
     "qualification": "No new behavior finding or test identity. Decode nonnumeric input remains intentionally malformed under its explicit error contract."
+  },
+  {
+    "id": "2038-T148",
+    "kind": "fixture-validity-and-assertion-quality",
+    "clauses": [
+      "7.5.2",
+      "7.7.3.3",
+      "7.11.3",
+      "14.4"
+    ],
+    "summary": "Repair six further audit fixtures and assert direct/indirect embedded-file descriptions.",
+    "evidence": "Resources, binary markers, PDF2 initial IDs and EmbeddedFiles Desc supplied; reference IDs synchronized. Literal description checks prevent a dangling indirect correction from passing.",
+    "execution": "10 affected tests:6PASS,4 existing failures; final model/syntax all-target Clippy PASS.",
+    "qualification": "No new test identity or behavior finding. Producer-validity repair strengthens existing evidence without imposing reader rejection."
   }
 ]

@@ -2968,6 +2968,25 @@
       "log": "quality-model-wave108.log",
       "exit": 0,
       "scope": "Model tests Clippy."
+    },
+    {
+      "log": "fixture-sample-wave109.log",
+      "run": 10,
+      "passed": 6,
+      "failed": 4,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "Six fixture repairs, exact B32/B48/B54 failure identity match."
+    },
+    {
+      "log": "quality-fixtures-wave109.log",
+      "exit": 101,
+      "scope": "Added assertion moved test to101 lines; guard formatting shortened without lint suppression."
+    },
+    {
+      "log": "quality-fixtures-wave109b.log",
+      "exit": 0,
+      "scope": "Final model/syntax all-target Clippy."
     }
   ],
   "prior_expected_failures": {

@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (108)
+## Current checkpoint (109)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **106 failing test identities**: 105 behavior assertions/probes
@@ -441,6 +441,12 @@ Checkpoint 108 repairs collection and binary-image fixture structure. The same s
 assertions still fail, with positive collection controls and two JPX tests passing.
 Host/model Clippy passes. Three new table matrices and three supplements bring the selected partial
 review to 106 tables; this does not certify every condition or consumer.
+
+Checkpoint 109 repairs six further fixtures, including resources, binary headers,
+initial identifiers and embedded-file descriptions. Six tests pass and four retain
+the existing B32/B48/B54 failures, exactly matching their manifest identities.
+Literal description assertions also catch a dangling-reference error rejected
+during draft review. Final model/syntax Clippy passes.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

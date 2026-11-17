@@ -265,7 +265,7 @@
       "binary": "pdf-model::reference_page_label_limit_spec_audit",
       "test": "a_present_page_label_beyond_the_search_bound_is_not_reported_as_a_missing_page",
       "finding": "2038-B32",
-      "log": "reference-wave27f.log"
+      "log": "fixture-sample-wave109.log"
     },
     {
       "binary": "pdf-model::output_intent_page_scope_spec_audit",
@@ -428,7 +428,7 @@
       "binary": "pdf-model::deep_page_tree_order_spec_audit",
       "test": "valid_depth_65_tree_keeps_kids_order_and_corresponding_page_content",
       "finding": "2038-B48",
-      "log": "deep-page-tree-wave48b.log"
+      "log": "fixture-sample-wave109.log"
     },
     {
       "binary": "viewer-core::rendition_preconditions_spec_audit",
@@ -465,13 +465,13 @@
       "binary": "pdf-syntax::indirect_filter_parameters_spec_audit",
       "test": "indirect_predictor_number_keeps_the_same_decoded_samples",
       "finding": "2038-B54",
-      "log": "indirect-filters-wave56b.log"
+      "log": "fixture-sample-wave109.log"
     },
     {
       "binary": "pdf-syntax::indirect_filter_parameters_spec_audit",
       "test": "indirect_columns_number_keeps_the_same_decoded_samples",
       "finding": "2038-B54",
-      "log": "indirect-filters-wave56b.log"
+      "log": "fixture-sample-wave109.log"
     },
     {
       "binary": "pdf-transform::linearize",

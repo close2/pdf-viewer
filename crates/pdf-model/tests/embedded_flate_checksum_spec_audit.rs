@@ -30,7 +30,7 @@ fn add_object(bytes: &mut Vec<u8>, offsets: &mut Vec<usize>, body: &[u8]) {
 }
 
 fn pdf() -> Vec<u8> {
-    let mut bytes = b"%PDF-1.7\n".to_vec();
+    let mut bytes = b"%PDF-1.7\n%\x80\x81\x82\x83\n".to_vec();
     let mut offsets = Vec::new();
     add_object(
         &mut bytes,

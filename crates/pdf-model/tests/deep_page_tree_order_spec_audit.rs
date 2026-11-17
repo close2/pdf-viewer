@@ -87,7 +87,7 @@ fn tree_with_page_leaf_depth(leaf_depth: usize) -> Vec<u8> {
         }
     }
     bytes.extend_from_slice(
-        format!("trailer\n<< /Size {size} /Root {catalog} 0 R >>\nstartxref\n{xref}\n%%EOF\n")
+        format!("trailer\n<< /Size {size} /Root {catalog} 0 R /ID [<00112233445566778899AABBCCDDEEFF> <00112233445566778899AABBCCDDEEFF>] >>\nstartxref\n{xref}\n%%EOF\n")
             .as_bytes(),
     );
     bytes
@@ -97,6 +97,7 @@ fn page_sequence(leaf_depth: usize) -> (Vec<u32>, Vec<Vec<u8>>, Option<usize>) {
     let document = Document::open(tree_with_page_leaf_depth(leaf_depth))
         .unwrap_or_else(|e| panic!("exact-xref PDF opens: {e:?}"));
     assert!(!document.was_recovered(), "fixture must use its exact xref");
+    assert!(!document.cross_reference_chain_was_cut());
     let pages = Pages::new(&document);
     let mut ids = Vec::new();
     let mut contents = Vec::new();

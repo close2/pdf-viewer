@@ -51,7 +51,7 @@ fn one_stream(entries: &str, data: &[u8], later: &[(u32, Vec<u8>)]) -> Document 
         (2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec()),
         (
             3,
-            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>".to_vec(),
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Resources << >> >>".to_vec(),
         ),
         (4, stream_dict),
     ];
@@ -61,7 +61,7 @@ fn one_stream(entries: &str, data: &[u8], later: &[(u32, Vec<u8>)]) -> Document 
         .last()
         .map_or(5usize, |(number, _)| *number as usize + 1);
     let mut offsets = vec![None; size];
-    let mut bytes = b"%PDF-1.7\n".to_vec();
+    let mut bytes = b"%PDF-1.7\n%\x80\x81\x82\x83\n".to_vec();
     for (number, body) in objects {
         offsets[number as usize] = Some(bytes.len());
         bytes.extend_from_slice(format!("{number} 0 obj\n").as_bytes());
@@ -127,8 +127,16 @@ fn indirect_filter_name_and_decodeparms_dictionary_match_direct_values() {
         ],
     );
     assert!(
+        !direct.cross_reference_chain_was_cut(),
+        "direct control has a complete xref chain"
+    );
+    assert!(
         !direct.was_recovered(),
         "direct control uses its exact xref"
+    );
+    assert!(
+        !indirect.cross_reference_chain_was_cut(),
+        "indirect fixture has a complete xref chain"
     );
     assert!(
         !indirect.was_recovered(),
@@ -167,8 +175,16 @@ fn indirect_filter_and_decodeparms_arrays_resolve_each_stage_value() {
         ],
     );
     assert!(
+        !direct.cross_reference_chain_was_cut(),
+        "direct control has a complete xref chain"
+    );
+    assert!(
         !direct.was_recovered(),
         "direct control uses its exact xref"
+    );
+    assert!(
+        !indirect.cross_reference_chain_was_cut(),
+        "indirect fixture has a complete xref chain"
     );
     assert!(
         !indirect.was_recovered(),
@@ -192,6 +208,8 @@ fn assert_numeric_parameter(entries: &str, value: &[u8]) {
         &encoded,
         &[(5, value.to_vec())],
     );
+    assert!(!direct.cross_reference_chain_was_cut());
+    assert!(!indirect.cross_reference_chain_was_cut());
     assert!(!direct.was_recovered());
     assert!(!indirect.was_recovered());
     let expected = [10, 20, 30, 11, 22, 33];

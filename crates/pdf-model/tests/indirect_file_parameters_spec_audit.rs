@@ -26,7 +26,7 @@ fn document(objects: &[&str]) -> Document {
     }
     let _ = write!(
         out,
-        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+        "trailer\n<< /Size {} /Root 1 0 R /ID [<00112233445566778899AABBCCDDEEFF> <00112233445566778899AABBCCDDEEFF>] >>\nstartxref\n{xref_at}\n%%EOF\n",
         objects.len() + 1
     );
     Document::open(out.into_bytes()).expect("complete strict-xref fixture")
@@ -62,12 +62,12 @@ fn indirect_file_spec_and_params_values_reach_the_attachment_consumer() {
         "<< /Type /Pages /Count 1 /Kids [4 0 R] >>",
         "<< /Names [(direct) 5 0 R (indirect) 6 0 R] >>",
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> >>",
-        "<< /Type /Filespec /F (direct.bin) /UF (direct.bin) /AFRelationship /Data \
+        "<< /Type /Filespec /F (direct.bin) /UF <FEFF006400690072006500630074002E00620069006E> /Desc (direct embedded payload) /AFRelationship /Data \
          /EF << /F 7 0 R >> >>",
-        "<< /Type /Filespec /F 8 0 R /UF 9 0 R /AFRelationship 10 0 R /EF 11 0 R >>",
+        "<< /Type /Filespec /F 8 0 R /UF 9 0 R /Desc 19 0 R /AFRelationship 10 0 R /EF 11 0 R >>",
         &direct_stream(),
         "(indirect.bin)",
-        "(indirect.bin)",
+        "<FEFF0069006E006400690072006500630074002E00620069006E>",
         "/Source",
         "<< /F 12 0 R >>",
         &indirect_stream(),
@@ -77,11 +77,10 @@ fn indirect_file_spec_and_params_values_reach_the_attachment_consumer() {
         "(D:20260102030405Z)",
         "(D:20260203040506Z)",
         "<1942b44a5dd9d3105ba824b02c814a32>",
+        "(indirect embedded payload)",
     ]);
-    assert!(
-        !doc.was_recovered(),
-        "the xref points to every fixture object"
-    );
+    assert!(!doc.cross_reference_chain_was_cut());
+    assert!(!doc.was_recovered(), "exact fixture xref");
 
     let files = attachment::attachments(&doc);
     let direct = files
@@ -92,7 +91,7 @@ fn indirect_file_spec_and_params_values_reach_the_attachment_consumer() {
         .iter()
         .find(|file| file.name == "indirect")
         .expect("indirect target");
-    for (file, name, relation, bytes, size, checksum) in [
+    for (file, name, relation, bytes, size, checksum, description) in [
         (
             direct,
             "direct.bin",
@@ -100,6 +99,7 @@ fn indirect_file_spec_and_params_values_reach_the_attachment_consumer() {
             &b"direct-file-bytes"[..],
             17,
             "f38822b5cbb6cf0773bce80a9e3ef429",
+            "direct embedded payload",
         ),
         (
             indirect,
@@ -108,9 +108,11 @@ fn indirect_file_spec_and_params_values_reach_the_attachment_consumer() {
             &b"indirect-file-bytes"[..],
             19,
             "1942b44a5dd9d3105ba824b02c814a32",
+            "indirect embedded payload",
         ),
     ] {
         assert_eq!(file.file_name.as_deref(), Some(name));
+        assert_eq!(file.description.as_deref(), Some(description));
         assert_eq!(file.relationship, relation);
         assert_eq!(file.media_type.as_deref(), Some("application/octet-stream"));
         assert_eq!(file.size, Some(size));

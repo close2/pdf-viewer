@@ -1,0 +1,196 @@
+{
+  "shard": "fixture_claim_validity_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "baseline": "b901326c",
+  "method": "Read-only audit of 13 current integration test builders and the exact claims in their bodies. Checked effective EC3 source for binary header, PDF 2 trailer ID, page Resources, embedded-file table rows and PDF-version AP scope. No Cargo or tests run. Fixture defects below qualify regression evidence; they do not by themselves establish a product failure.",
+  "source_locations": [
+    {
+      "clause": "7.5.2 File header",
+      "physical_page": 70,
+      "printed_page": 55,
+      "rule": "If the PDF contains binary data, the header line shall be immediately followed by a comment line containing at least four bytes whose values are 128 or greater."
+    },
+    {
+      "table": "15",
+      "title": "Entries in the file trailer dictionary",
+      "physical_page": 74,
+      "printed_page": 59,
+      "rule": "ID is required in PDF2.0+; it is an array of two byte strings each at least 16 bytes. §14.4 requires both IDs be set to the same value when the file is first written."
+    },
+    {
+      "clause": "14.4 File identifiers",
+      "physical_page": 734,
+      "printed_page": 719,
+      "rule": "When first written, both ID byte strings shall be set to the same value; the first is permanent and the second may change on update."
+    },
+    {
+      "table": "31",
+      "title": "Entries in a page object",
+      "physical_pages": "119–120",
+      "printed_pages": "104–105",
+      "rule": "Resources is required and inheritable. A page needing no resources uses an empty dictionary; omission relies on an ancestor resource dictionary."
+    },
+    {
+      "table": "43",
+      "title": "Entries in a file specification dictionary",
+      "physical_pages": "149–152",
+      "printed_pages": "134–137",
+      "rule": "F required absent DOS/Mac/Unix; reader uses present UF instead of F; EF requires corresponding F/UF keys and an indirect Type Filespec; Desc shall be used for specs in EmbeddedFiles; CI, if present, is an indirect reference."
+    },
+    {
+      "table": "224",
+      "title": "Entries in an interactive form dictionary",
+      "physical_page": 544,
+      "printed_page": 529,
+      "rule": "The AP/NeedAppearances note varies by PDF version; the tested no-AP case is PDF1.7 with NeedAppearances true. PDF2.0's general AP requirements are not retroactively imposed on that fixture."
+    }
+  ],
+  "files_reviewed": [
+    {
+      "path": "crates/viewer-host/tests/collection_schema_cells_audit.rs",
+      "claim": "Valid exact-xref PDF2 collection/CI/CompressedSize public regression.",
+      "verdict": "CURRENT_FIXTURE_CORRECTED_PARENT_RERUN_STILL_FAILS_B05_B06",
+      "issues": [
+        "The earlier exact-xref fixture lacked PDF2 ID/header marker, FileSpec F, and indirect CI; parent has corrected the current test file with those source requirements, retained existing Desc, used UTF-16BE UF, and added a complete-chain guard.",
+        "Parent reports all four B05/B06 assertions still fail after the fixture repair, with literal population/description/size controls passing. This is an externally reported current result, not a run by this shard.",
+        "Filename is not a separate F-fallback control because F and UF display the same text."
+      ]
+    },
+    {
+      "path": "crates/pdf-model/tests/indirect_file_parameters_spec_audit.rs",
+      "claim": "Direct-vs-indirect FileSpec and embedded-parameter equivalence in PDF2.",
+      "verdict": "PDF2_ID_MISSING_AND_EMBEDDEDFILES_DESC_MISSING",
+      "issues": [
+        "Both direct and indirect FileSpecs are referenced from the EmbeddedFiles name tree, so Table43 Desc shall be used.",
+        "PDF2 trailer has no /ID; payloads and fixture bytes are ASCII, so no binary marker is implicated.",
+        "Each FileSpec has F and matching EF/F; direct and indirect UF values should be valid UTF-16BE text strings. The scratch copy retains legacy F, uses UTF-16BE UF in both paths, and asserts decoded file_name and literal Desc values.",
+        "No reader rejection is inferred from these producer-side requirements."
+      ]
+    },
+    {
+      "path": "crates/pdf-model/tests/deep_page_tree_order_spec_audit.rs",
+      "claim": "PDF2 depth-64/65 page-tree order consumer regression.",
+      "verdict": "PDF2_ID_MISSING",
+      "issues": [
+        "Trailer lacks required ID.",
+        "Generated bodies, streams, and xref are ASCII, so §7.5.2 binary-marker rule is not triggered.",
+        "Leaf pages supply Resources; tree parents/count/order appear coherent. Add two 16-byte IDs before treating the source as a valid PDF2 witness."
+      ]
+    },
+    {
+      "path": "crates/pdf-syntax/tests/indirect_filter_parameters_spec_audit.rs",
+      "claim": "Direct/indirect stream filter and DecodeParms equivalence with literal decoded rows.",
+      "verdict": "PAGE_RESOURCES_MISSING_AND_BINARY_MARKER_MISSING_IN_FLATE_CASE",
+      "issues": [
+        "The single Page object and its Pages ancestor omit Resources; Table31 requires the inheritable Resources entry.",
+        "The first test's Flate-only stream contains binary deflate bytes without the §7.5.2 marker. The ASCII85-wrapped second case is ASCII, but uses the same builder with missing page Resources.",
+        "PDF1.7 needs no trailer ID. Add /Resources << >> to the Page and a binary marker to the fixture header; literal decoded rows remain independent."
+      ]
+    },
+    {
+      "path": "crates/pdf-model/tests/embedded_flate_checksum_spec_audit.rs",
+      "claim": "Checksum computed over decoded 19-byte payload, not 27-byte Flate bytes.",
+      "verdict": "BINARY_MARKER_MISSING",
+      "issues": [
+        "PDF1.7 makes trailer ID optional, and Page Resources, F/UF/Desc, EF F/UF, Type, subtype and parameter size/checksum are present.",
+        "The fixed zlib stream contains binary bytes but header has no binary comment. Add it before counting the fixture as conforming; the positive/negative checksum controls are otherwise independent."
+      ]
+    },
+    {
+      "path": "crates/pdf-model/tests/cid_map_stream_spec_audit.rs",
+      "claim": "CIDToGIDMap big-endian bytes and missing-CID fallback with embedded TrueType outlines.",
+      "verdict": "BINARY_MARKER_MISSING",
+      "issues": [
+        "PDF1.7 makes ID optional; Page Resources and font references are present.",
+        "Both embedded TTF and CID map contain binary data; the PDF header is not followed by the required binary comment.",
+        "Numeric CID/GID assertions and glyph-outline controls are distinct; preserve current font-metric validity work while repairing the header."
+      ]
+    },
+    {
+      "path": "crates/pdf-model/tests/decode_element_types_audit.rs",
+      "claim": "Invalid nonnumeric Decode item must not be silently filtered; valid six-number positive control rendered literal red.",
+      "verdict": "PARENT_CORRECTED_BINARY_HEADER",
+      "issues": [
+        "The parent has added a binary header marker and chain guard since the inspected version; source-framing defect is corrected in the current file.",
+        "Page Resources/XObject references are coherent; no ID is required in PDF1.7.",
+        "The null Decode target remains intentionally malformed as the feature under test; this audit did not execute it."
+      ]
+    },
+    {
+      "path": "crates/pdf-model/tests/need_appearances_all_visible_widgets_spec_audit.rs",
+      "claim": "Valid PDF1.7 save/reopen probes for NeedAppearances true with one no-AP widget and false with AP on all visible widgets.",
+      "verdict": "NO_FIXTURE_DEFECT_FOUND_IN_SCOPE",
+      "issues": [
+        "ASCII-only PDF1.7; no ID or binary marker needed.",
+        "Resources are inherited from /Pages; form DA/DR Helv resolves to Type1 font object 8; both widgets are linked in page Annots and field Kids with reciprocal Parent and valid P.",
+        "No-AP widget case sets NeedAppearances true; fully-AP control sets false, as scoped by Table224's version condition. This is not a blanket PDF2 AP certification."
+      ]
+    },
+    {
+      "path": "crates/pdf-model/tests/field_aa_noninheritance_spec_audit.rs",
+      "claim": "PDF1.7 public ScriptRunner boundary distinguishes ancestor-only vs terminal-local field AA/K.",
+      "verdict": "NO_FIXTURE_DEFECT_FOUND_IN_SCOPE",
+      "issues": [
+        "ASCII-only PDF1.7; no ID/header marker needed. Resources are inherited from an empty Pages resource dictionary.",
+        "Terminal text field is a child of nonterminal field, and widget is a child of terminal field, in page Annots with matching /P and reciprocal /Parent. DA/DR points to Type1 font object 7.",
+        "No AP is paired with NeedAppearances true. Runner is an explicit test seam; this does not certify a JavaScript engine."
+      ]
+    },
+    {
+      "path": "crates/viewer-core/tests/optional_content_visible_pages_spec_audit.rs",
+      "claim": "PDF1.7 public Query layers across two visible pages, with independent accessibility proof of layout.",
+      "verdict": "NO_FIXTURE_DEFECT_FOUND_IN_SCOPE",
+      "issues": [
+        "ASCII-only content streams; no ID/binary marker required.",
+        "Each page has valid Resources/Properties, Contents and two page-tree links; OCGs are catalog-listed and names/order exist.",
+        "File checks exact xref and test independently requires two visible pages before comparing layers."
+      ]
+    },
+    {
+      "path": "crates/pdf-model/tests/page_label_missing_style_spec_audit.rs",
+      "claim": "Missing page-label S uses only prefix; absent/empty P yields empty labels with literal controls.",
+      "verdict": "NO_FIXTURE_DEFECT_FOUND_IN_SCOPE",
+      "issues": [
+        "ASCII-only PDF1.7; no ID/header marker required.",
+        "Page Resources is inherited from Pages; four page refs and label Nums ranges are coherent.",
+        "The absent S target is the intentional feature condition, not missing whole page structure."
+      ]
+    },
+    {
+      "path": "crates/pdf-model/tests/deep_name_tree_spec_audit.rs",
+      "claim": "Valid PDF1.7 multi-level name tree destination lookup by exact byte keys.",
+      "verdict": "NO_FIXTURE_DEFECT_FOUND_IN_SCOPE",
+      "issues": [
+        "ASCII-only PDF1.7; no ID/header marker required. Both Pages have Resources.",
+        "Indirect Kids/Limits and sorted keys A/a, b/z align with child ranges; each destination points to an existing page.",
+        "Exact xref assertion is present."
+      ]
+    },
+    {
+      "path": "crates/pdf-model/tests/reference_page_label_limit_spec_audit.rs",
+      "claim": "PDF1.7 local/public Reference boundary with nearby, late-label, numeric-page, and color controls.",
+      "verdict": "PDF1.7_INITIAL_ID_VALUES_DIFFER",
+      "issues": [
+        "Target PDF1.7 does include a 16-byte ID pair, but its initial values differ, contrary to §14.4 first-write equality; the Reference's /ID uses that same unequal pair. Make both target IDs and corresponding Ref IDs equal while preserving the identity-match control.",
+        "Outer and target bytes are ASCII; no binary marker is indicated. Page Resources and the target ID existence are tested."
+      ]
+    }
+  ],
+  "drafts": [
+    "drafts/collection_schema_cells_fixture_valid.rs",
+    "drafts/indirect_filter_parameters_fixture_repaired.rs",
+    "drafts/embedded_flate_checksum_fixture_repaired.rs",
+    "drafts/cid_map_stream_fixture_repaired.rs",
+    "drafts/deep_page_tree_order_fixture_repaired.rs",
+    "drafts/indirect_file_parameters_fixture_repaired.rs",
+    "drafts/reference_page_label_limit_fixture_repaired.rs"
+  ],
+  "limits": [
+    "Thirteen current test files were sampled; this is not a suite-wide fixture certification.",
+    "The direct source defects are producer/file-conformance issues; they do not establish that a reader must reject those inputs.",
+    "No tests were executed and no result was promoted. Corrected fixture copies are ready for parent-side promotion/execution.",
+    "The intentionally malformed Decode element is preserved; only unrelated file framing is repaired.",
+    "For PDF2 test fixtures, generated first-write ID strings in drafts are identical and at least 16 bytes. For the PDF1.7 Reference target, ID is optional but the included initial pair is made equal per §14.4."
+  ],
+  "parent_execution": "Six additional corrected files integrated. Wave109:10 tests,6PASS,4 known failures B32/B48/B54. Includes literal direct/indirect Desc assertions and UTF-16BE UF; parent rejected initial draft reference20 for actual Desc object19. Final model/syntax all-target Clippy PASS. Prior wave108 covers collection/Decode repairs."
+}

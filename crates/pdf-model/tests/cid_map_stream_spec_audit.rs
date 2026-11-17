@@ -43,7 +43,7 @@ fn fixture() -> Vec<u8> {
     let type0 = b"<< /Type /Font /Subtype /Type0 /BaseFont /LiberationSans /Encoding /Identity-H /DescendantFonts [6 0 R] >>";
     let page = b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>";
 
-    let mut out = b"%PDF-1.7\n".to_vec();
+    let mut out = b"%PDF-1.7\n%\x80\x81\x82\x83\n".to_vec();
     let mut offsets = vec![0usize; 10];
     object(
         1,
@@ -88,6 +88,7 @@ fn fixture() -> Vec<u8> {
 fn cid_map_reads_big_endian_and_missing_entry_uses_cid_zero() {
     let document = Document::open(fixture()).expect("PDF fixture parses");
     assert!(!document.was_recovered(), "all xref offsets are exact");
+    assert!(!document.cross_reference_chain_was_cut());
     let page = pdf_model::Pages::new(&document).get(0).expect("one page");
     let result = pdf_model::interpret(&document, &page);
     assert!(

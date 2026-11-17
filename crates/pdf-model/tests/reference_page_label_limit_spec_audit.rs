@@ -22,7 +22,7 @@ use render_cpu::CpuRasterizer;
 
 const TARGET_ID: (&str, &str) = (
     "00112233445566778899aabbccddeeff",
-    "ffeeddccbbaa99887766554433221100",
+    "00112233445566778899aabbccddeeff",
 );
 const GREEN: [u8; 4] = [0, 255, 0, 255];
 const BLUE: [u8; 4] = [0, 0, 255, 255];
@@ -117,6 +117,7 @@ fn supply() -> Supply {
         !parsed.was_recovered(),
         "target fixture has exact xref offsets"
     );
+    assert!(!parsed.cross_reference_chain_was_cut());
     let (supply, refused) = Supply::read([("target.pdf", bytes)], "test's target file");
     assert!(
         refused.is_empty(),
@@ -132,6 +133,7 @@ fn interpret(page: &str, supply: &Supply) -> pdf_model::Interpretation {
         !parsed.was_recovered(),
         "container fixture has exact xref offsets"
     );
+    assert!(!parsed.cross_reference_chain_was_cut());
     let page = pdf_model::Pages::new(&parsed)
         .get(0)
         .expect("container page");

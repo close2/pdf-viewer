@@ -476,7 +476,8 @@
       "shards/indirect_differences_current/features.json",
       "shards/indirect_file_parameters_current/features.json",
       "shards/errata_weak_dispositions_batch4_current/features.json",
-      "shards/catalog_table29_cells_current/features.json"
+      "shards/catalog_table29_cells_current/features.json",
+      "shards/fixture_claim_validity_current/features.json"
     ],
     "prior_artifacts": [
       "basic_objects"
@@ -772,7 +773,8 @@
     "current_artifacts": [
       "shards/file_structure_current/features.json",
       "shards/errata_weak_dispositions_batch3_current/features.json",
-      "shards/xref_dictionary_cells_current/features.json"
+      "shards/xref_dictionary_cells_current/features.json",
+      "shards/fixture_claim_validity_current/features.json"
     ],
     "prior_artifacts": [
       "file_structure_audit"
@@ -1525,7 +1527,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/page_resources_current/features.json",
-      "shards/file_security_framing_current/features.json"
+      "shards/file_security_framing_current/features.json",
+      "shards/fixture_claim_validity_current/features.json"
     ],
     "prior_artifacts": [
       "catalog_pages_audit"
@@ -1567,7 +1570,8 @@
       "shards/file_only_consumer_assertions_batch3_current/features.json",
       "shards/file_only_document_assertions_current/features.json",
       "shards/page_dictionary_cells_current/features.json",
-      "shards/page_transition_cells_current/features.json"
+      "shards/page_transition_cells_current/features.json",
+      "shards/fixture_claim_validity_current/features.json"
     ],
     "prior_artifacts": [
       "catalog_pages_audit"
@@ -2153,7 +2157,8 @@
       "shards/file_specs_current/features.json",
       "shards/indirect_file_parameters_current/features.json",
       "shards/file_specification_cells_current/features.json",
-      "shards/embedded_file_cells_current/features.json"
+      "shards/embedded_file_cells_current/features.json",
+      "shards/fixture_claim_validity_current/features.json"
     ],
     "prior_artifacts": [
       "filespec_audit"
@@ -2192,7 +2197,8 @@
       "shards/file_specification_remaining_current/features.json",
       "shards/indirect_file_parameters_current/features.json",
       "shards/file_specification_cells_current/features.json",
-      "shards/embedded_file_cells_current/features.json"
+      "shards/embedded_file_cells_current/features.json",
+      "shards/fixture_claim_validity_current/features.json"
     ],
     "prior_artifacts": [
       "associated_files_audit",
@@ -3972,7 +3978,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/reference_xobjects_current/features.json",
-      "shards/form_xobject_cells_current/features.json"
+      "shards/form_xobject_cells_current/features.json",
+      "shards/fixture_claim_validity_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -4895,7 +4902,8 @@
     "current_artifacts": [
       "shards/font_substitution_current/features.json",
       "shards/cid_opentype_current/features.json",
-      "shards/cid_font_dictionary_cells_current/features.json"
+      "shards/cid_font_dictionary_cells_current/features.json",
+      "shards/fixture_claim_validity_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -10419,7 +10427,8 @@
     "current_artifacts": [
       "shards/identifiers_procsets_current/features.json",
       "shards/errata_weak_dispositions_batch4_current/features.json",
-      "shards/errata_weak_dispositions_batch6_current/features.json"
+      "shards/errata_weak_dispositions_batch6_current/features.json",
+      "shards/fixture_claim_validity_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
