@@ -2293,6 +2293,23 @@
       "log": "quality-wave85c.log",
       "exit": 0,
       "scope": "model all-targets Clippy final"
+    },
+    {
+      "log": "catalog-aa-wave86.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave86.log",
+      "exit": 101,
+      "scope": "Unused new fixture panic expectation; corrected"
+    },
+    {
+      "log": "quality-wave86b.log",
+      "exit": 0,
+      "scope": "viewer-core all-targetsClippy"
     }
   ],
   "prior_expected_failures": {

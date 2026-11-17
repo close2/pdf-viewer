@@ -2816,5 +2816,29 @@
     "summary": "Valid indirect ExtGState Font now has independent literal advance and state-replacement controls.",
     "evidence": "Standard14 Helvetica24 advances16.008; Courier12 advances7.2; directTf agrees, gs replaces both, unrelatedgs preserves. Complete/no-recovery guards.",
     "execution": "One new testPASS,table-cells-wave85b.log;modelClippyPASS."
+  },
+  {
+    "id": "2038-T116",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "7.3.10",
+      "7.7.2",
+      "12.6.3"
+    ],
+    "summary": "Public save dispatches exact catalog action script through indirect AA and WS objects.",
+    "evidence": "AbsentAA negative control and direct positive control; exactxref/no-recovery, Saved output, literal script and WillSave site.",
+    "execution": "1newPASS,catalog-aa-wave86.log;viewer-coreClippyPASS.",
+    "limits": "Recording runner tests dispatch, not JavaScript evaluation."
+  },
+  {
+    "id": "2038-D60",
+    "kind": "ledger-narrative-drift",
+    "clauses": [
+      "7.7.2",
+      "12.6.3"
+    ],
+    "summary": "Catalog row still describes AA as unread/excluded although current document-trigger code and tests consume it.",
+    "evidence": "ledger7.7.2 narrative vs script_sites::document_entry and public lifecycle tests for save/close/print; new indirect save controlPASS.",
+    "disposition": "Record stale narrative for correction; ledger status/text unchanged in this tests/evidence audit."
   }
 ]

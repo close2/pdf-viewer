@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (85)
+## Current checkpoint (86)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **88 failing test identities**: 87 behavior assertions/probes
@@ -299,6 +299,12 @@ terminal field (B60), and ordinary HTML export ignores TM (B61). Local/absent/sp
 controls pass. A valid indirect graphics-state font test independently checks
 advances, replacement and cumulative state (T115). Model Clippy passes; manifest88.
 Stale pending-transfer and signature no-walk citations were corrected before promotion.
+
+Checkpoint86 adds catalog/image entry matrices and a passing indirect catalog-action
+control through public save. Exact script and trigger, plus a no-action control,
+verify dispatch (T116). Catalog ledger prose still calls AA unread (D60). Image
+statuses are reconciled to existing B11/B14 failures. Viewer-core Clippy passes;
+manifest88 is unchanged. These matrices remain partial evidence for their cells.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

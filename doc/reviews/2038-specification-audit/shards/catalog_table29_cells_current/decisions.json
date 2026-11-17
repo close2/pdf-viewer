@@ -1,0 +1,29 @@
+{
+  "scope": "Selected current decisions affecting Table 29 row ownership, not a history of every ADR cited by the catalog ledger.",
+  "decisions": [
+    {
+      "question": "Is Table 29 catalog /AA still an excluded/unread row?",
+      "sources": ["ADR 1614", "current pdf-model/src/view/script_sites.rs::document_entry", "document_trigger_timing_audit.rs"],
+      "result": "No. The existing ledger narrative in doc/conformance/ledger.toml §7.7.2 calls catalog /AA genuinely unread and treats document triggers as excluded. Current code reads catalog /AA and has public lifecycle tests for save, close, print. Preserve that as historical context only; do not edit the ledger in this shard.",
+      "assessment": "Current evidence supersedes the stale disposition. This is a documentation/evidence-maintenance observation, not a missing implementation finding."
+    },
+    {
+      "question": "Does lack of a direct/indirect public assertion for catalog /AA establish a reader defect?",
+      "sources": ["ISO 32000-2 §7.3.10", "Table 29 /AA", "current get_key/document_entry/chain implementation"],
+      "result": "No. Table 29 specifies a dictionary value and does not impose a direct-only representation. General indirect-object equivalence applies. Code resolves catalog /AA via Document::get_key and chain resolves action values. Draft a valid public control to improve assertion specificity, but do not label the current implementation defective absent contrary behavior.",
+      "assessment": "Coverage-only candidate; parent execution is pending."
+    },
+    {
+      "question": "Do EC3 changes to individual Table 29 cells imply blanket reader constraints?",
+      "sources": ["EC3 #106, #242, #348, #614", "ADR 0724/0732 context recorded in the current ledger"],
+      "result": "No. #106 relaxes producer indirection constraints for Dests/Outlines/Threads; #242 requires Extensions direct; #348 and #614 require StructTreeRoot/DPartRoot indirect. Reader tolerance and writer validity are separate questions.",
+      "assessment": "Retain the dedicated row-level reviews; no generic shape rejection test is warranted from the table alone."
+    },
+    {
+      "question": "Does the catalog row allow a second OpenAction or trigger timing test here?",
+      "sources": ["viewer_preferences_layout_current", "actions_chains_current", "document_trigger_timing_audit.rs"],
+      "result": "No. OpenAction order/default timing and direct trigger timing are already reviewed in current shards. This shard limits the proposed test to the indirect object shape at /AA and /WS.",
+      "assessment": "Avoid duplicate tests."
+    }
+  ]
+}

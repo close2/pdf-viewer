@@ -1,0 +1,237 @@
+{
+  "scope": "Cell-by-cell audit of effective Table 87, using the printed table and its EC3 annotations, current code and assertion bodies. This is not a whole-\u00a78.9 certificate.",
+  "primary_source": {
+    "file": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "effective_table": "Table 87 \u2014 Additional entries specific to an image dictionary",
+    "physical_pages": [
+      273,
+      274,
+      275
+    ],
+    "printed_pages": [
+      258,
+      259,
+      260
+    ],
+    "footer_checked": true,
+    "general": "\u00a78.9.5.1 explicitly requires an error when an attempted base image has inconsistent dictionary entries; other producer shall restrictions are not automatically reader-error duties. Generic stream entries are Table 5; dimensions map image grid to unit square."
+  },
+  "errata": [
+    {
+      "id": "#13",
+      "physical_page": 274,
+      "printed_page": 259,
+      "effect": "Table 87 marked keys receive additional restrictions when used by soft-mask images, cross-referring \u00a711.6.5.2/Table 143. Treat as cross-reference, not new stand-alone image error rule."
+    },
+    {
+      "id": "#14",
+      "physical_page": 274,
+      "printed_page": 259,
+      "effect": "Annotation emphasizes /Mask in the ImageMask row; no changed substantive requirement located."
+    },
+    {
+      "id": "#215",
+      "physical_pages": [
+        274,
+        275
+      ],
+      "printed_pages": [
+        259,
+        260
+      ],
+      "effect": "Effective Table87: image masks ignore forbidden /Mask and /ColorSpace; for the /SMask row, when /SMaskInData is nonzero an explicit /SMask shall be ignored; the updated priority text is reflected in \u00a711.6.4.3. Related SMaskInData note retains interaction cross-reference."
+    },
+    {
+      "id": "#366",
+      "physical_page": 274,
+      "printed_page": 259,
+      "effect": "Textual insertion \u201cthe\u201d; no semantic change."
+    },
+    {
+      "id": "#619",
+      "physical_page": 275,
+      "printed_page": 260,
+      "effect": "Adds \u201cDeprecated in PDF 2.0\u201d to /Name."
+    }
+  ],
+  "ledger_mapping": {
+    "8.9.5": "aggregate parent of image rendering; not table-cell certification",
+    "8.9.5.1": "Table 87 dictionary semantics, implemented; references dispatch, cache, space, JPX, mask, unpack and image path",
+    "8.9.5.2": "Decode arrays",
+    "8.9.5.3": "interpolation",
+    "8.9.5.4": "alternate images",
+    "8.9.6": "mask mechanisms; children own behavior",
+    "11.6.5.2": "soft-mask image restrictions and matte",
+    "14.13.7": "associated files on XObjects; Table 409a MCAF separate from Table87"
+  },
+  "cells": [
+    {
+      "key": "Type",
+      "effective_rule": "name, optional; if present /XObject",
+      "default_or_condition": "No special default. Producer must name XObject when stated; no separate reader rule requires rejection for a wrong optional marker.",
+      "indirectness": "No Table87-specific indirect prohibition; generic \u00a77.3.10 applies.",
+      "implementation_and_assertions": "No dedicated reader assertion found; stream dispatch is by /Subtype and stream context.",
+      "verdict": "Not treated as a draw-time conformance gap: optional marker and no explicit reader rejection contract identified."
+    },
+    {
+      "key": "Subtype",
+      "effective_rule": "name; required for ordinary image XObjects; optional only when used solely as a thumbnail; value /Image",
+      "default_or_condition": "The conditional thumbnail exception is explicit; wrong type/name is malformed producer data, not automatically a mandatory reader refusal absent a reader-directed rule.",
+      "indirectness": "No Table87-specific direct-only restriction.",
+      "implementation_and_assertions": "Ordinary XObject dispatch in content/xobject.rs; thumbnail parsing has its own module. Existing image fixtures provide /Subtype /Image; no focused missing-subtype behavior assertion found.",
+      "verdict": "Implementation consumers assume image route; sampled render tests are valid-image cases. No new negative test drafted because reader rejection policy is not established."
+    },
+    {
+      "key": "Width",
+      "effective_rule": "positive integer, required sample count",
+      "default_or_condition": "No default; dimensions jointly determine sample grid and unit-square placement; resource limits are implementation/reporting boundaries.",
+      "indirectness": "Indirect values generally permitted by \u00a77.3.10; dimension() resolves.",
+      "implementation_and_assertions": "image_dimensions.rs::a_grid_the_dictionary_states_is_drawn_without_a_report; ::an_absent_dimension_is_named_as_absent; ::a_dimension_of_another_type_is_named_with_its_type; ::a_number_that_counts_no_samples_is_named_with_its_value; image_coordinates_audit.rs literal 3x2 geometry.",
+      "verdict": "Strong valid and malformed cases; no missing per-cell behavior identified."
+    },
+    {
+      "key": "Height",
+      "effective_rule": "positive integer, required",
+      "default_or_condition": "Same as Width.",
+      "indirectness": "Indirect values generally permitted by \u00a77.3.10; dimension() resolves.",
+      "implementation_and_assertions": "Same named dimensions tests; image_coordinates_audit.rs verifies placement / orientation.",
+      "verdict": "Strong selected coverage, not all codec dimensions."
+    },
+    {
+      "key": "ColorSpace",
+      "effective_rule": "name/array; required except JPXDecode; prohibited on image masks; any colour-space family except Pattern. For JPX, stated PDF space overrides embedded color declaration; absent uses codestream.",
+      "default_or_condition": "For JPX with absent /ColorSpace, /Decode is ignored unless /ImageMask true. Under EC3 #215, forbidden /ColorSpace beside /ImageMask true is ignored.",
+      "indirectness": "No Table87 directness restriction; named colour-space resources and indirect objects are resolved by colour_space().",
+      "implementation_and_assertions": "image_masks.rs::image_mask... cases and image_masking_audit.rs::ec3_image_mask_ignores_its_own_mask_and_colour_space_entries; jpx_enumerated_spaces.rs controls; jpx_channels.rs::four_channels_under_a_declared_cmyk_space_are_all_colour; colour_paths.rs consumer assertions.",
+      "verdict": "Substantive JPX precedence, mask exception, device/ICC/Indexed branches are distributed across dedicated shards. No duplicate test draft."
+    },
+    {
+      "key": "BitsPerComponent",
+      "effective_rule": "integer, required except masks and JPX; allowed 1,2,4,8,16 (16 from PDF1.5); one value shared across components; mask if present exactly 1; for filtered input consistent with sample output (Fax/JBIG2 one-bit; RunLength/DCT eight-bit; LZW/Flate predictor-dependent). JPX value ignored if present.",
+      "default_or_condition": "No default generally; image-mask omission is interpreted as 1. EC3 #215 does not excuse a wrong BPC on image masks.",
+      "indirectness": "Indirect value resolved through get_key.",
+      "implementation_and_assertions": "bit_depths.rs::one_bit_samples_are_the_two_ends_of_the_range, ::two_bit_samples_are_four_to_a_byte, ::four_bit_samples_are_two_to_a_byte, ::eight_bit_samples_are_one_to_a_byte, ::sixteen_bit_samples_are_two_bytes_most_significant_first, ::a_depth_of_three_is_refused_by_name; image_masking_audit.rs::an_image_mask_with_more_than_one_bit_per_component_reports_inconsistency; predictor_image_bpc_spec_audit.rs.",
+      "verdict": "Wide coverage from sample decode and filter-specific siblings; do not infer every filter/profile combination."
+    },
+    {
+      "key": "Intent",
+      "effective_rule": "name, optional; rendering intent for non-mask image; ignored for image mask",
+      "default_or_condition": "Defaults to graphics-state intent; mask use ignored.",
+      "indirectness": "Indirect resolution through get_key.",
+      "implementation_and_assertions": "rendering_intent.rs::an_images_own_intent_selects_the_transform_its_samples_take, ::an_image_without_an_intent_takes_the_graphics_states, ::an_unrecognised_intent_name_is_relative_colorimetric; image-mask branch tested by relevant rendering intent tests.",
+      "verdict": "Strong route-specific transform pixels; synthetic profiles are not full ICC certification."
+    },
+    {
+      "key": "ImageMask",
+      "effective_rule": "boolean, optional; default false; true means stencil; no ColorSpace or Mask; BPC absent or 1; Decode [0 1] or [1 0]; unmarked areas use current nonstroking color.",
+      "default_or_condition": "EC3 #215 explicitly says forbidden /ColorSpace and /Mask values are ignored when true. Intent is ignored. #14 is emphasis on the Mask term, no semantic change.",
+      "indirectness": "Indirect boolean value resolved.",
+      "implementation_and_assertions": "image_masks.rs stencil decode, current-fill, pattern, soft mask, interpolation tests; image_masking_audit.rs::ec3_image_mask_ignores_its_own_mask_and_colour_space_entries and ::an_image_mask_with_more_than_one_bit_per_component_reports_inconsistency.",
+      "verdict": "Good selected consumer tests across stencil/mask behaviors. Do not require refusal for #215-ignore cases."
+    },
+    {
+      "key": "Mask",
+      "effective_rule": "stream or array; optional; image mask stream or color-key ranges; forbidden on stencil.",
+      "default_or_condition": "Overridden by image /SMask or nonzero /SMaskInData; EC3 #215 says a simultaneous explicit /SMask is ignored with nonzero SMaskInData. No default other than absent.",
+      "indirectness": "Stream object/array and nested references may be indirect under generic rules; parser resolves.",
+      "implementation_and_assertions": "image_masks.rs::an_explicit_mask_paints_the_base_image_only_where_it_marks, ::colour_key_masking_removes_the_samples_inside_the_range, ::the_colour_key_bounds_are_inclusive, codec-specific color-key tests; stencil-ignore in image_masking_audit.",
+      "verdict": "Broad separate mask shard covers both forms/codecs. Producer conflict not converted into refusal."
+    },
+    {
+      "key": "Decode",
+      "effective_rule": "array of numeric pairs; optional; length is twice color component count, or for mask exact [0 1] or [1 0]; defaults in Table88 by color space. JPX with no ColorSpace ignores unless stencil.",
+      "default_or_condition": "JPX no-CS exception; EC3 #215 does not cancel Decode condition. Base image entries inconsistent with each other shall cause error (\u00a78.9.5.1). B11 is a current confirmed failure, not a pending candidate.",
+      "indirectness": "Array and items may be indirect by generic \u00a77.3.10; values resolved.",
+      "implementation_and_assertions": "decode_arrays.rs and image_samples_decode_audit.rs literal values; jpx_decode_array.rs tests stated-space applied/no-space ignored; image_dictionary_consistency_audit.rs short/long pair errors and valid control. Existing image shard has a draft for correctly-sized array with nonnumeric member; not duplicated here. Confirmed expected failure B11: decode_element_types_audit.rs::decode_pairs_must_each_be_numbers (waves6/8).",
+      "verdict": "Confirmed bounded failure 2038-B11: `pdf-model::decode_element_types_audit::decode_pairs_must_each_be_numbers` fails because a correctly sized Decode array with a non-number member is filtered/shifted. Pair-count controls in image_dictionary_consistency_audit remain valid; no duplicate test draft is needed."
+    },
+    {
+      "key": "Interpolate",
+      "effective_rule": "boolean optional; default false; whether processor should interpolate.",
+      "default_or_condition": "Hint for magnified/low-resolution image; reader may ignore; does not require a fixed kernel or reduction policy. Soft-mask restrictions appear separately Table143/#13.",
+      "indirectness": "Indirect boolean resolved.",
+      "implementation_and_assertions": "image_interpolation_audit.rs::ordinary_image_interpolation_hint_is_parsed_and_honored_on_magnified_reflected_images; render-raster masked_image_edge.rs for stencil smoothing.",
+      "verdict": "Tests pin implementation choice, not a mandatory exact interpolation algorithm."
+    },
+    {
+      "key": "Alternates",
+      "effective_rule": "array optional; PDF1.3; not permitted on an alternate image itself.",
+      "default_or_condition": "Selection algorithm is effective EC3 #79, not 2020 four-step text; conditions depend on visibility, printing, DefaultForPrinting and array order.",
+      "indirectness": "Array entries / dictionaries may be indirect.",
+      "implementation_and_assertions": "optional_content.rs and alternate_images_audit.rs::print_without_designated_or_visible_alternate_falls_back_to_base; ::the_first_of_two_visible_alternates_wins_in_array_order; optional-content selected-image OC test.",
+      "verdict": "Strong selected algorithm, not full alternate malformed-field validation."
+    },
+    {
+      "key": "SMask",
+      "effective_rule": "stream optional; subsidiary soft-mask image used as shape or opacity by AIS. Overrides GS soft mask and /Mask; other blend mode and alpha constants remain. If absent and SMaskInData=0, no associated mask except current GS mask.",
+      "default_or_condition": "EC3 #215: if nonzero SMaskInData and SMask is present, SMask shall be ignored. Issue #13 links additional restrictions to Table143; #215 also revises the priority text.",
+      "indirectness": "Indirect stream reference (mandatory stream value implies indirect object).",
+      "implementation_and_assertions": "soft_masks.rs::none_removes_the_mask; image_masks.rs::a_soft_mask_overrides_an_explicit_mask; soft_mask_dictionary_audit knockout; jpx_ordinary_opacity_audit code2/SMask conflict not valid producer combination, and code path explicitly skips separate mask when opacity came with samples.",
+      "verdict": "Current code follows nonzero in-data precedence in soft_masked; ordinary JPX alpha tests code0/1/2. No valid combination missing."
+    },
+    {
+      "key": "SMaskInData",
+      "effective_rule": "integer optional for JPX only, meaningless otherwise; default 0. 0 ignores embedded alpha; 1 creates a soft mask from opacity channel; 2 says colors premultiplied and opacity included, requiring unpremultiplication plus mask. Nonzero requires exactly one shared opacity channel and conflicts with /SMask.",
+      "default_or_condition": "EC3 #215 states explicit /SMask ignored if present with nonzero; NOTE interactions remain \u00a711.6.4.3. Table87 and \u00a77.4.9 each constrain nonzero opacity channel. Code2 remains a valid producer combination and fails in the pinned JPX decoder; do not describe code2 as reconstructed/passing.",
+      "indirectness": "Indirect integer resolved.",
+      "implementation_and_assertions": "jpx_ordinary_opacity_audit::{ordinary_rgb_jpx_smask_in_data_zero_ignores_the_opacity_channel,ordinary_rgb_jpx_smask_in_data_one_uses_straight_alpha,ordinary_rgb_jpx_smask_in_data_two_unpremultiplies_color}; jpx_channels::a_stated_opacity_channel_is_not_read_as_colour.",
+      "verdict": "B14 confirms a valid code-2 JP2 cdef opacity input is refused before rasterization because the pinned decoder treats the premultiplied opacity channel as a fourth color component; code0 and code1 positive controls pass. This is specific to the sampled codec/cdef route."
+    },
+    {
+      "key": "Name",
+      "effective_rule": "name; required PDF1.0, optional otherwise, deprecated PDF2.0",
+      "default_or_condition": "Image stream is referenced by resource-dictionary name at the use site; the entry itself is not current routing authority. EC3 #619 marks deprecated PDF2.0.",
+      "indirectness": "Name value no direct-only rule.",
+      "implementation_and_assertions": "XObject dispatcher uses `Do` resource key and image stream; no image stream /Name consumer found.",
+      "verdict": "No mandatory rendering difference established. No test draft."
+    },
+    {
+      "key": "StructParent",
+      "effective_rule": "integer required if image is a structural content item; key to parent tree.",
+      "default_or_condition": "Condition is \u201cif image is a structural content item\u201d; not every image must carry it.",
+      "indirectness": "Indirect integer permitted per general dictionary value rule.",
+      "implementation_and_assertions": "structure::owners.rs object-to-element lookup reads StructParent generically; existing object/annotation/form paths tested; image-specific actual content consumer was not found in inspected image tests.",
+      "verdict": "Behavior owned by structure subsystem; no duplicate test. Need avoid interpreting conditional producer entry as every image reader failure."
+    },
+    {
+      "key": "ID",
+      "effective_rule": "byte string optional, PDF1.3, indirect preferred; Web Capture parent-set identifier",
+      "default_or_condition": "No default; not page-image identity for ordinary renderer.",
+      "indirectness": "May be direct; indirect preferred explicitly, not required.",
+      "implementation_and_assertions": "No image dictionary ID consumer found in image rendering path; Web Capture is a separate feature boundary.",
+      "verdict": "No reader-visible render duty identified."
+    },
+    {
+      "key": "OPI",
+      "effective_rule": "dictionary optional PDF1.2, deprecated PDF2.0; ignored if ImageMask=true",
+      "default_or_condition": "PDF2 deprecation; OPI is prepress metadata.",
+      "indirectness": "Indirect dictionary permitted.",
+      "implementation_and_assertions": "No OPI consumer in sampled image path.",
+      "verdict": "No current rendering behavior claim or new test."
+    },
+    {
+      "key": "Metadata",
+      "effective_rule": "stream optional PDF1.4, metadata stream for image",
+      "default_or_condition": "No Table87 default. Metadata packet semantics are \u00a714.3.2.",
+      "indirectness": "Stream indirect per stream object requirement.",
+      "implementation_and_assertions": "XMP generic reader handles catalog/page/component dictionaries; image metadata consumer not found in this selected path. Attachment/meta shards own remaining API behavior.",
+      "verdict": "No claim viewer must show image-specific metadata absent an API/UI contract."
+    }
+  ],
+  "limits": [
+    "Image metadata/OPI/Web Capture optional fields are representation or specialized-consumer areas; not ordinary painted-pixel obligations.",
+    "Table87 entries cross-reference filter, color-space, structure and transparency subclauses. This mapping samples their Table87-facing condition only; no codec or color-family certification.",
+    "No malformed-input rejection is inferred merely from producer constraints except where \u00a78.9.5.1 or another explicit reader-directed statement applies.",
+    "B11 (numeric members of /Decode) and B14 (JPX cdef premultiplied opacity) are confirmed failures in global findings.json and expected-failures.json; this matrix records them as such and adds no duplicate draft."
+  ],
+  "adjacent_extensions": [
+    {
+      "key": "AF (not a Table 87 key)",
+      "clause": "\u00a714.13.7, associated files linked to XObjects",
+      "source": "The XObject stream dictionary shall contain an AF array of file specification dictionaries; relationship is supplied by each FileSpec AFRelationship. This is a writer-side association rule; \u00a76.3.2.2 does not make rendering processors consumers of the file payload.",
+      "ledger": "\u00a714.13.7 implemented; \u00a78.9.5.1 image AF note points to this sibling consumer.",
+      "consumer_and_assertion": "crates/pdf-model/src/attachment.rs::associated_under; crates/pdf-model/src/attachment.rs test `an_images_associated_file_reads_back_through_the_general_reader` reads the image stream dictionary AF through the same general associated-file reader.",
+      "verdict": "Image AF recognition/API coverage exists; no image rendering duty inferred. Distinct from marked-content MCAF and not part of Table 87."
+    }
+  ]
+}

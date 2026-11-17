@@ -472,7 +472,8 @@
       "shards/indirect_shading_values_current/features.json",
       "shards/indirect_differences_current/features.json",
       "shards/indirect_file_parameters_current/features.json",
-      "shards/errata_weak_dispositions_batch4_current/features.json"
+      "shards/errata_weak_dispositions_batch4_current/features.json",
+      "shards/catalog_table29_cells_current/features.json"
     ],
     "prior_artifacts": [
       "basic_objects"
@@ -705,7 +706,8 @@
       "shards/image_filters_remaining_current/features.json",
       "shards/departure_decisions_residual_current/features.json",
       "shards/errata_weak_dispositions_batch1_current/features.json",
-      "shards/file_only_consumer_assertions_remaining_current/features.json"
+      "shards/file_only_consumer_assertions_remaining_current/features.json",
+      "shards/image_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "jpx_mask_input_audit"
@@ -1469,7 +1471,8 @@
       "shards/errata_numeric_syntax_batch_current/features.json",
       "shards/structured_errata_security_current/features.json",
       "shards/file_only_consumer_assertions_batch3_current/features.json",
-      "shards/file_only_document_assertions_current/features.json"
+      "shards/file_only_document_assertions_current/features.json",
+      "shards/catalog_table29_cells_current/features.json"
     ],
     "prior_artifacts": [
       "catalog_pages_audit",
@@ -3678,7 +3681,8 @@
       "shards/errata_reference_editorial_current/features.json",
       "shards/errata_weak_dispositions_batch4_current/features.json",
       "shards/lang_hex_and_predictor_bpc_current/features.json",
-      "shards/security_file_only_assertions_current/features.json"
+      "shards/security_file_only_assertions_current/features.json",
+      "shards/image_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "image_dictionary_consistency_audit",
@@ -3701,7 +3705,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/images_current/features.json",
-      "shards/file_only_image_assertions_current/features.json"
+      "shards/file_only_image_assertions_current/features.json",
+      "shards/image_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "image_samples_decode_audit"
@@ -3794,7 +3799,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/images_current/features.json"
+      "shards/images_current/features.json",
+      "shards/image_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "image_masking_audit"
@@ -3810,7 +3816,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/images_current/features.json",
-      "shards/file_only_image_assertions_current/features.json"
+      "shards/file_only_image_assertions_current/features.json",
+      "shards/image_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "image_masking_audit"
@@ -7451,7 +7458,8 @@
     "current_artifacts": [
       "prior-assertion-reviews.json",
       "shards/viewer_preferences_layout_current/features.json",
-      "shards/errata_interactive_batch_current/features.json"
+      "shards/errata_interactive_batch_current/features.json",
+      "shards/catalog_table29_cells_current/features.json"
     ],
     "prior_artifacts": [
       "action_triggers_audit",
@@ -12223,7 +12231,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/file_specs_current/features.json"
+      "shards/file_specs_current/features.json",
+      "shards/image_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "associated_files_audit"

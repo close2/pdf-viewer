@@ -78,6 +78,77 @@
       ],
       "artifact": "shards/feature_table_cell_granularity_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "29",
+      "ledger_rows": [
+        "7.7.2"
+      ],
+      "keys": [
+        "Type",
+        "Version",
+        "Extensions",
+        "Pages",
+        "PageLabels",
+        "Names",
+        "Dests",
+        "ViewerPreferences",
+        "PageLayout",
+        "PageMode",
+        "Outlines",
+        "Threads",
+        "OpenAction",
+        "AA",
+        "URI",
+        "AcroForm",
+        "Metadata",
+        "StructTreeRoot",
+        "MarkInfo",
+        "Lang",
+        "SpiderInfo",
+        "OutputIntents",
+        "PieceInfo",
+        "OCProperties",
+        "Perms",
+        "Legal",
+        "Requirements",
+        "Collection",
+        "NeedsRendering",
+        "DSS",
+        "AF",
+        "DPartRoot"
+      ],
+      "artifact": "shards/catalog_table29_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "87",
+      "ledger_rows": [
+        "8.9.5.1"
+      ],
+      "keys": [
+        "Type",
+        "Subtype",
+        "Width",
+        "Height",
+        "ColorSpace",
+        "BitsPerComponent",
+        "Intent",
+        "ImageMask",
+        "Mask",
+        "Decode",
+        "Interpolate",
+        "Alternates",
+        "SMask",
+        "SMaskInData",
+        "Name",
+        "StructParent",
+        "ID",
+        "OPI",
+        "Metadata"
+      ],
+      "artifact": "shards/image_dictionary_cells_current/features.json",
+      "status": "partial"
     }
   ]
 }
