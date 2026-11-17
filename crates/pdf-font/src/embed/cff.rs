@@ -75,8 +75,8 @@ use skrifa::raw::FontRead as _;
 use super::reach::{Reached, Walk};
 use super::{Embedded, Outlines, Refusal, SystemInfo, assembled, postscript_name};
 use crate::cff::{
-    ESCAPE, OP_CHARSET, OP_CHARSTRINGS, OP_FD_ARRAY, OP_FD_SELECT, OP_PRIVATE, OP_SUBRS, Parts,
-    dict_ints, int5, push_operator,
+    ESCAPE, FontDictParts, OP_CHARSET, OP_CHARSTRINGS, OP_FD_ARRAY, OP_FD_SELECT, OP_PRIVATE,
+    OP_SUBRS, Parts, dict_ints, int5, push_operator,
 };
 use crate::sfnt::sfnt_tables;
 
@@ -256,17 +256,17 @@ fn cff_table(program: &[u8]) -> Result<&[u8], Refusal> {
 
 /// What a subset keeps: its glyphs with the Font DICT each is read against, and the subroutines
 /// they reach.
-struct Closure {
+pub(super) struct Closure {
     /// The kept glyphs, in the order the subset numbers them, each with its Font DICT's index in
     /// the source.
-    glyphs: Vec<(u16, usize)>,
+    pub(super) glyphs: Vec<(u16, usize)>,
     /// The CID the subset's charset gives each of [`Self::glyphs`], in the same order: the glyph's
     /// own index in the face, except where [`renumbered`] names the CIDs (ADR 2378).
     cids: Vec<u16>,
     /// The Global Subr INDEX positions reached.
-    global: BTreeSet<usize>,
+    pub(super) global: BTreeSet<usize>,
     /// Per source Font DICT, the Local Subr INDEX positions reached.
-    local: Vec<BTreeSet<usize>>,
+    pub(super) local: Vec<BTreeSet<usize>>,
     /// The charstrings written in place of a kept glyph's own: an accented character's composed
     /// outline (ADR 1486).
     composed: BTreeMap<u16, Vec<u8>>,
@@ -278,7 +278,7 @@ impl Closure {
     ///
     /// `kept` is the subset's glyph order, and may name one glyph more than once: [`renumbered`]
     /// writes a glyph once for each CID that shows it.
-    fn of<'k>(
+    pub(super) fn of<'k>(
         cff: &[u8],
         parts: &Parts<'_>,
         kept: impl IntoIterator<Item = &'k u16>,
@@ -336,7 +336,7 @@ impl Closure {
 
     /// The kept glyphs' charstrings in the subset's order: each glyph's own, or the outline
     /// composed in its place.
-    fn charstrings<'a>(&'a self, parts: &Parts<'a>) -> Option<Vec<&'a [u8]>> {
+    pub(super) fn charstrings<'a>(&'a self, parts: &Parts<'a>) -> Option<Vec<&'a [u8]>> {
         self.glyphs
             .iter()
             .map(|(glyph, _)| match self.composed.get(glyph) {
@@ -419,11 +419,11 @@ fn subset_system(
 
 /// The subset's String INDEX, built as the DICTs that name its strings are written.
 #[derive(Default)]
-struct Strings(Vec<Vec<u8>>);
+pub(super) struct Strings(pub(super) Vec<Vec<u8>>);
 
 impl Strings {
     /// The SID of `string` in the subset, added where it is not yet held.
-    fn sid(&mut self, string: &[u8]) -> Result<i64, Refusal> {
+    pub(super) fn sid(&mut self, string: &[u8]) -> Result<i64, Refusal> {
         let at = if let Some(at) = self.0.iter().position(|held| held == string) {
             at
         } else {
@@ -438,19 +438,29 @@ impl Strings {
 
     /// A source DICT's SID operand restated for the subset: a standard string keeps its SID,
     /// and a custom one is carried into the subset's String INDEX.
-    fn carried(&mut self, parts: &Parts<'_>, operands: &[u8]) -> Result<[u8; 5], Refusal> {
+    pub(super) fn carried(
+        &mut self,
+        parts: &Parts<'_>,
+        operands: &[u8],
+    ) -> Result<[u8; 5], Refusal> {
         let sid = dict_ints(operands)
             .first()
             .copied()
             .ok_or(Refusal::Malformed("CFF "))?;
+        Ok(int5(self.carried_sid(parts, sid)?))
+    }
+
+    /// A source SID restated for the subset, as [`Self::carried`] restates a DICT's operand: a
+    /// charset's glyph name is carried the same way.
+    pub(super) fn carried_sid(&mut self, parts: &Parts<'_>, sid: i64) -> Result<i64, Refusal> {
         if sid < STANDARD_STRINGS {
-            return Ok(int5(sid));
+            return Ok(sid);
         }
         let custom = usize::try_from(sid.saturating_sub(STANDARD_STRINGS))
             .ok()
             .and_then(|at| parts.strings.get(at))
             .ok_or(Refusal::Malformed("CFF "))?;
-        Ok(int5(self.sid(custom)?))
+        self.sid(custom)
     }
 }
 
@@ -460,14 +470,14 @@ const STANDARD_STRINGS: i64 = 391;
 
 /// The Top DICT operators whose operand is a SID carried into the subset: `version`, `Notice`,
 /// `FullName`, `FamilyName`, `Weight`, `Copyright` (Adobe Technical Note #5176, Table 9).
-const CARRIED_STRINGS: [u16; 6] = [0, 1, 2, 3, 4, ESCAPE];
+pub(super) const CARRIED_STRINGS: [u16; 6] = [0, 1, 2, 3, 4, ESCAPE];
 
 /// The Top DICT operators the subset states itself or does not state: `UniqueID` and `XUID`,
 /// which name the whole face and not a subset of it; `charset`, `Encoding`, `CharStrings` and
 /// `Private`, which are offsets or belong in a Font DICT; `SyntheticBase`, `PostScript`,
 /// `BaseFontName` and `BaseFontBlend`, which describe relations to other fonts; and `ROS`,
 /// `CIDCount`, `UIDBase`, `FDArray`, `FDSelect` and `FontName`, which are written fresh.
-const RESTATED: [u16; 16] = [
+pub(super) const RESTATED: [u16; 16] = [
     13,
     14,
     15,
@@ -557,23 +567,7 @@ fn written(
         .map(|source| {
             let dict = parts.font_dicts.get(*source).ok_or(MALFORMED)?;
             let reached = closure.local.get(*source).ok_or(MALFORMED)?;
-            let subrs = stubbed(&dict.subrs, reached);
-            let mut private = Vec::new();
-            for (operands, op) in &dict.private {
-                if *op != OP_SUBRS {
-                    private.extend_from_slice(operands);
-                    push_operator(&mut private, *op);
-                }
-            }
-            if subrs.is_empty() {
-                return Ok((private, Vec::new()));
-            }
-            // `Subrs` is relative to the Private DICT's own start, and the INDEX follows the
-            // DICT directly, so the operand is the DICT's length with this entry in it.
-            let length = private.len().saturating_add(6);
-            private.extend_from_slice(&int5(i64::try_from(length).map_err(|_| MALFORMED)?));
-            push_operator(&mut private, OP_SUBRS);
-            Ok((private, index(&subrs).ok_or(MALFORMED)?))
+            private_with_subrs(dict, reached)
         })
         .collect::<Result<_, Refusal>>()?;
 
@@ -626,9 +620,35 @@ fn written(
     Ok(out)
 }
 
+/// A Font DICT's Private DICT as a subset writes it, and the Local Subr INDEX that follows it:
+/// every entry but `Subrs`, which is restated for the stubbed INDEX where the closure reached one.
+pub(super) fn private_with_subrs(
+    dict: &FontDictParts<'_>,
+    reached: &BTreeSet<usize>,
+) -> Result<(Vec<u8>, Vec<u8>), Refusal> {
+    const MALFORMED: Refusal = Refusal::Malformed("CFF ");
+    let subrs = stubbed(&dict.subrs, reached);
+    let mut private = Vec::new();
+    for (operands, op) in &dict.private {
+        if *op != OP_SUBRS {
+            private.extend_from_slice(operands);
+            push_operator(&mut private, *op);
+        }
+    }
+    if subrs.is_empty() {
+        return Ok((private, Vec::new()));
+    }
+    // `Subrs` is relative to the Private DICT's own start, and the INDEX follows the DICT
+    // directly, so the operand is the DICT's length with this entry in it.
+    let length = private.len().saturating_add(6);
+    private.extend_from_slice(&int5(i64::try_from(length).map_err(|_| MALFORMED)?));
+    push_operator(&mut private, OP_SUBRS);
+    Ok((private, index(&subrs).ok_or(MALFORMED)?))
+}
+
 /// A subroutine INDEX with every position the closure did not reach replaced by [`UNREACHED`],
 /// or empty where it reached none — an INDEX nothing calls needs no count to keep a bias for.
-fn stubbed<'a>(subrs: &[&'a [u8]], reached: &BTreeSet<usize>) -> Vec<&'a [u8]> {
+pub(super) fn stubbed<'a>(subrs: &[&'a [u8]], reached: &BTreeSet<usize>) -> Vec<&'a [u8]> {
     if reached.is_empty() {
         return Vec::new();
     }
@@ -743,7 +763,7 @@ fn font_dicts_with(
 
 /// An INDEX of `items` with the smallest offset size that holds its data (Adobe Technical Note
 /// #5176, section 5); `None` past the 65 535 items a count can state.
-fn index<T: AsRef<[u8]>>(items: &[T]) -> Option<Vec<u8>> {
+pub(super) fn index<T: AsRef<[u8]>>(items: &[T]) -> Option<Vec<u8>> {
     let count = u16::try_from(items.len()).ok()?;
     let mut out = count.to_be_bytes().to_vec();
     if count == 0 {

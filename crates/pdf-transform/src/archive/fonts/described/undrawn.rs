@@ -66,7 +66,7 @@ pub(in crate::archive) fn undrawn(
         LoadedFont::load(document, dict, name).map_err(|_| Because::NotBuiltYet(NOT_READ))?;
     let mut entries = Dictionary::new();
     super::state_laid_out_widths(&mut entries, &source);
-    let descriptor = measured.descriptor(&font_name, &face, None);
+    let descriptor = measured.descriptor(&font_name, face.request, None);
 
     // The output names the descriptor by reference; the loader resolves a reference and a direct
     // dictionary alike, so the copy holds it directly and is read against the source's objects.

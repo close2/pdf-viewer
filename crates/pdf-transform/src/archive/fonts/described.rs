@@ -47,7 +47,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use pdf_archive::survey::SelectedFont;
 use pdf_font::encoding::BaseEncoding;
 use pdf_font::standard::ShippedFace;
-use pdf_font::substitute::{Family, Format};
+use pdf_font::substitute::{Family, Format, Request};
 use pdf_font::{Code, LoadedFont};
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
 use pdf_syntax::serialize::{Assembly, Form, Options, serialize};
@@ -66,7 +66,9 @@ use super::{
     program_stream, subtype_dictionary,
 };
 
+mod from_pack;
 mod undrawn;
+pub(super) use from_pack::described_from_pack;
 pub(in crate::archive) use undrawn::undrawn;
 
 /// What the conversion wrote for one font that stated no descriptor, for the report.
@@ -171,8 +173,9 @@ pub(super) struct Restatement {
     /// Which face the viewer draws it from, which decides what [`proved`] compares.
     pub(super) drawn: Drawn,
     /// The shipped face being embedded, whose glyphs [`proved`] reads where `drawn` is a
-    /// machine's face.
-    face: ShippedFace,
+    /// machine's face; `None` for a face of the Latin-Greek-Cyrillic pack, which
+    /// [`pack_face_proved`] holds to its own code table instead ([`pack_restated`]).
+    face: Option<ShippedFace>,
     /// Which of the two restatements it is, for the report.
     pub(super) described: Described,
     /// The entries the file's own descriptor gains in the copy the face is embedded into: the
@@ -251,7 +254,7 @@ pub(super) fn restated_kind(
         entries,
         source,
         drawn,
-        face: *face,
+        face: Some(*face),
         described: if other == "Type1" {
             Described::RestatedAsType1
         } else {
@@ -293,31 +296,73 @@ pub(super) fn machine_face_proved(
     )
 }
 
-/// Holds a face of the Latin-Greek-Cyrillic pack, embedded under a dictionary that already admits
-/// it, to that face (`doc/adr/2934`): read back through this reader over the file's own
-/// descriptor, every code the page shows selects the glyph the pack face's own code table gives it
-/// -- the same program on both sides, so the same glyph is the same outline -- and every one of the
-/// 256 advances is the source's, with no stretch.
+/// The restatement a `TrueType` dictionary needs to carry a face of the Latin-Greek-Cyrillic pack
+/// (`doc/adr/2938`): every pack face is a bare CFF program, which ISO 32000-2 §9.9's Table 124
+/// admits under a `Type1` dictionary as `/FontFile3 /Type1C` and under no key of a `TrueType`
+/// one, whose `/FontFile2` is "TrueType font program" and whose `/FontFile3 /OpenType` row asks a
+/// `glyf` table. §9.6.3 lets the two dictionaries hold the same entries, so the dictionary is
+/// re-filed as `Type1` exactly as [`restated_kind`] re-files one for a shipped Compact Font Format
+/// face, the encoding stated where the file states none.
+///
+/// `None` for any other dictionary, which keeps Table 124's own refusal.
+pub(super) fn pack_restated(
+    document: &Document,
+    used: &SelectedFont,
+    subtype: &str,
+    program: &[u8],
+) -> Result<Option<Restatement>, Because> {
+    if subtype != "TrueType" {
+        return Ok(None);
+    }
+    let Some(row) = key_for("Type1", program) else {
+        return Ok(None);
+    };
+    let source = LoadedFont::load(document, &used.dict, &used.name)
+        .map_err(|_| Because::NotBuiltYet(super::FONT_NOT_READ))?;
+    let mut entries = Dictionary::new();
+    entries.insert(
+        Name::new(&b"Subtype"[..]),
+        Object::Name(Name::new(&b"Type1"[..])),
+    );
+    if document.get_key(&used.dict, "Encoding").is_null() {
+        // §9.6.5.1: a `Type1` font with no encoding takes the program's built-in one, which a
+        // `TrueType` font naming no encoding does not; the source's own names are stated, and the
+        // pack proof decides whether they reach the glyphs the viewer drew.
+        entries.insert(
+            Name::new(&b"Encoding"[..]),
+            Object::Dictionary(restated_encoding(&source, None, &BTreeMap::new())),
+        );
+    }
+    Ok(Some(Restatement {
+        row,
+        entries,
+        source,
+        drawn: Drawn::FromAMachineFace,
+        face: None,
+        described: Described::RestatedAsType1,
+        descriptor: Dictionary::new(),
+    }))
+}
+
+/// Holds a face of the Latin-Greek-Cyrillic pack, embedded whole, to that face (`doc/adr/2934`):
+/// read back through this reader over the file's own descriptor, with `entries` and `gains` — a
+/// restatement's, or nothing — written in, every code the page shows selects the glyph the pack
+/// face's own code table gives it -- the same program on both sides, so the same glyph is the same
+/// outline -- and every one of the 256 advances is the source's, with no stretch.
 ///
 /// The window did not draw this face, so nothing here compares outlines with the window; what
-/// changes is the shapes, which the loss `machine-face` names.
+/// changes is the shapes, which the loss `machine-face` names. The font as read back is returned,
+/// for [`pack_face_subset`] to hold its subset to.
 pub(super) fn pack_face_proved(
     document: &Document,
     used: &SelectedFont,
-    source: &LoadedFont,
-    glyph: &dyn Fn(u8) -> Option<u16>,
+    (source, glyph): (&LoadedFont, &dyn Fn(u8) -> Option<u16>),
+    (entries, gains): (&Dictionary, &Dictionary),
     row: Table124,
     program: &[u8],
-) -> Result<(), Because> {
-    let descriptor = held_descriptor(document, used, &Dictionary::new())?;
-    let converted = loaded_as_written(
-        document,
-        used,
-        &Dictionary::new(),
-        &descriptor,
-        row,
-        program,
-    )?;
+) -> Result<LoadedFont, Because> {
+    let descriptor = held_descriptor(document, used, gains)?;
+    let converted = loaded_as_written(document, used, entries, &descriptor, row, program)?;
     same_metrics(source, &converted)?;
     for text in used.shown.keys() {
         for code in source.decode(text) {
@@ -327,7 +372,70 @@ pub(super) fn pack_face_proved(
             }
         }
     }
-    Ok(())
+    Ok(converted)
+}
+
+/// The pack face cut to the glyphs the page shows, named by ISO 32000-2 §9.9.2 and held to the
+/// whole face [`pack_face_proved`] proved (`doc/adr/2939`); `None` where the program is to go in
+/// whole ([`pdf_font::embed::compact_subset`]'s own `None`).
+///
+/// > For a font subset, the PostScript name of the font, that is, the value of the font's BaseFont entry and the font descriptor's FontName entry, shall begin with a tag followed by a plus sign (+) followed by the PostScript name of the font from which the subset was created.
+///
+/// So the subset's name goes into `/BaseFont` and the descriptor's `/FontName`, which the caller
+/// writes; it is read back here with both in. ISO 19005-2 section 6.2.11.4.1 asks the embedded
+/// program of every glyph the page renders, which is what the cut keeps, and the pack's OFL
+/// permits modification. The proof is the whole face's, carried across: every shown code reaches,
+/// in the subset, the copy of the glyph it reached in the whole face — the index the subsetter
+/// gives it and the same outline, command for command — and every one of the 256 advances is still
+/// the source's.
+///
+/// # Errors
+///
+/// [`Because::NotBuiltYet`] where the subset does not take apart, does not read back, or a shown
+/// code reaches another glyph or another outline in it.
+pub(super) fn pack_face_subset(
+    document: &Document,
+    used: &SelectedFont,
+    source: &LoadedFont,
+    (entries, gains): (&Dictionary, &Dictionary),
+    row: Table124,
+    (program, whole): (&[u8], &LoadedFont),
+) -> Result<Option<pdf_font::embed::CompactSubset>, Because> {
+    let codes: Vec<Code> = used
+        .shown
+        .keys()
+        .flat_map(|text| source.decode(text))
+        .collect();
+    let shown: BTreeSet<u16> = codes
+        .iter()
+        .filter_map(|code| whole.glyph_index(*code))
+        .collect();
+    let subset = pdf_font::embed::compact_subset(program, &shown)
+        .map_err(|_| Because::NotBuiltYet(SUBSET_NOT_WRITTEN))?;
+    let Some(subset) = subset else {
+        return Ok(None);
+    };
+    let name = Object::Name(Name::new(subset.name.as_bytes()));
+    let mut entries = entries.clone();
+    entries.insert(Name::new(&b"BaseFont"[..]), name.clone());
+    let mut gains = gains.clone();
+    gains.insert(Name::new(&b"FontName"[..]), name);
+    let descriptor = held_descriptor(document, used, &gains)?;
+    let cut = loaded_as_written(document, used, &entries, &descriptor, row, &subset.program)?;
+    same_metrics(source, &cut)?;
+    for code in codes {
+        let reached = whole.glyph_index(code);
+        let copied = reached.and_then(|glyph| subset.glyphs.get(&glyph).copied());
+        let same_outline = match (whole.outline(code), cut.outline(code)) {
+            (Some(before), Some(after)) => before.commands() == after.commands(),
+            (None, None) => true,
+            _ => false,
+        };
+        if copied.is_none() || cut.glyph_index(code) != copied || !same_outline {
+            return Err(Because::NotBuiltYet(DRAWN_DIFFERENTLY));
+        }
+    }
+    Ok(Some(subset))
 }
 
 /// The file's own descriptor of `used` as the rewriter leaves it once a program is embedded into
@@ -394,13 +502,18 @@ pub(super) fn restatement_proved(
 ) -> Result<(), Because> {
     let written = written_within(program, written)?;
     let descriptor = held_descriptor(document, used, &restatement.descriptor)?;
+    // A pack face's restatement is held by `pack_face_proved`, never here.
+    let face = restatement
+        .face
+        .as_ref()
+        .ok_or(Because::NotBuiltYet(NOT_PROVED))?;
     proved(
         document,
         used,
         HeldTo {
             source: &restatement.source,
             drawn: restatement.drawn,
-            face: &restatement.face,
+            face,
             written,
         },
         &restatement.entries,
@@ -674,7 +787,7 @@ pub(super) fn describe(
         .take(document)
         .ok_or(Because::NotBuiltYet(super::NO_SPARE_OBJECT))?;
     let font_name = layout.font_name(&requested, &face);
-    let descriptor = measured.descriptor(&font_name, &face, Some((row, program_at)));
+    let descriptor = measured.descriptor(&font_name, face.request, Some((row, program_at)));
 
     let restated_encoding = encoding.is_some();
     let entries = restated_entries(
@@ -1674,15 +1787,15 @@ impl Measured {
     fn descriptor(
         &self,
         font_name: &[u8],
-        face: &ShippedFace,
+        request: Request,
         program: Option<(Table124, ObjectId)>,
     ) -> Dictionary {
-        let symbolic = matches!(face.request.family, Family::Symbol | Family::ZapfDingbats);
+        let symbolic = matches!(request.family, Family::Symbol | Family::ZapfDingbats);
         let mut flags = 0_i64;
         if self.fixed_pitch {
             flags |= 1;
         }
-        if face.request.family == Family::Serif {
+        if request.family == Family::Serif {
             flags |= 1 << 1;
         }
         flags |= if symbolic { 1 << 2 } else { 1 << 5 };
@@ -1869,6 +1982,12 @@ const NOT_PROVED: &str = "the font this conversion would write could not be read
 const DRAWN_DIFFERENTLY: &str = "the embedded font read back by this program does not retain \
      the selected glyph or outline for a code the page shows, so it is not written: the \
      conversion would change the page";
+
+/// Why a face of the Latin-Greek-Cyrillic pack whose subset could not be written is not embedded.
+const SUBSET_NOT_WRITTEN: &str = "the Latin-Greek-Cyrillic pack's face for this font could not be \
+     cut to the glyphs the page shows: the program did not take apart as a name-keyed Compact \
+     Font Format program with a charset naming each glyph, so the subset ISO 32000-2 \u{a7}9.9.2 \
+     describes is not written (doc/adr/2939)";
 
 /// An embedded program is drawn at no stretch, so one read back at another is not the program
 /// this conversion wrote.

@@ -558,7 +558,7 @@ struct Layout {
 /// The two-byte escape's operators, as `escape + second byte`.
 pub(crate) const ESCAPE: u16 = 0x0c00;
 pub(crate) const OP_CHARSET: u16 = 15;
-const OP_ENCODING: u16 = 16;
+pub(crate) const OP_ENCODING: u16 = 16;
 pub(crate) const OP_CHARSTRINGS: u16 = 17;
 pub(crate) const OP_PRIVATE: u16 = 18;
 pub(crate) const OP_FD_ARRAY: u16 = ESCAPE | 0x24;
@@ -3021,6 +3021,8 @@ fn read_back(
 /// Every piece borrows from the program, and nothing is interpreted beyond the INDEX and DICT
 /// encodings; `pdf_font::embed`'s CFF writer decides what of it is kept.
 pub(crate) struct Parts<'a> {
+    /// The Name INDEX's first name: the font's own `FontName`.
+    pub(crate) name: &'a [u8],
     /// The Top DICT's entries, as (operand bytes, operator).
     pub(crate) top: Vec<(Vec<u8>, u16)>,
     /// The String INDEX's items, SID 391 first.
@@ -3054,6 +3056,7 @@ impl<'a> Parts<'a> {
         let header = usize::from(*data.get(2)?);
         let name_index = index_extent(data, header)?;
         let top_index = index_extent(data, name_index.end)?;
+        let name = index_item(data, header, 0)?;
         let top_bytes = index_item(data, name_index.end, 0)?;
         let top = dict_entries(top_bytes)?;
         if misstated_entry(data, &top).is_some() {
@@ -3080,6 +3083,7 @@ impl<'a> Parts<'a> {
             vec![FontDictParts::read(data, top_bytes, false)?]
         };
         Some(Self {
+            name,
             top,
             strings,
             global_subrs,
@@ -3088,6 +3092,14 @@ impl<'a> Parts<'a> {
             font_dicts,
             font,
         })
+    }
+
+    /// The SID a name-keyed program's charset gives `glyph`: the string that is its name (Adobe
+    /// Technical Note #5176, section 13). `None` where the program states no charset or the
+    /// charset does not reach the glyph.
+    pub(crate) fn glyph_sid(&self, glyph: u16) -> Option<i64> {
+        let sid = self.font.charset()?.string_id(GlyphId::from(glyph))?;
+        Some(i64::from(sid.to_u16()))
     }
 
     /// The index into [`Self::font_dicts`] a glyph's charstring is read against: `FDSelect`'s

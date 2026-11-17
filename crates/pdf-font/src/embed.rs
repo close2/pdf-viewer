@@ -42,6 +42,9 @@ use crate::sfnt::{be16, be32, checksummed, horizontal_metric, sfnt_tables};
 mod accented;
 mod cff;
 mod reach;
+mod type1c;
+
+pub use type1c::{CompactSubset, compact_subset};
 
 /// Offset of `indexToLocFormat` within `head`.
 const INDEX_TO_LOC_FORMAT: usize = 50;

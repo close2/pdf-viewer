@@ -8,24 +8,35 @@ been refused, or its pages photographed; the pack's face draws it as text.
 
 ## What it is for
 
-A `Type1` font dictionary that states a descriptor and no program, whose name asks a serif or an
-upright fixed-pitch face, and which shows a code the shipped face has no glyph for. The face of the
-pack for the same style is embedded in place of the shipped one, for the whole font: one design
-draws every code, and the file's widths are restated into it so no glyph moves. An `Adobe-Identity`
-composite font re-keyed from its `/ToUnicode` (ADR 2378) asks it last, after the shipped face and
-the CJK pack.
+A simple font the file does not embed, whose name asks a serif or an upright fixed-pitch face, and
+which shows a code the shipped face has no glyph for. The face of the pack for the same style is
+embedded in place of the shipped one, for the whole font: one design draws every code, and the
+file's widths are restated into it so no glyph moves. Three dictionaries take it:
+
+- a `Type1` dictionary that states a descriptor and no program: the face goes into that descriptor;
+- a `TrueType` one of the same kind, re-filed as `Type1`, because Table 124 admits a bare CFF program
+  under no key of a `TrueType` dictionary and §9.6.3 lets the two hold the same entries (ADR 2938);
+- one of the standard fourteen stated by name alone: it is given a descriptor measured off the pack
+  face, and the widths Table 109 then requires — the ones the page is laid out by (ADR 2938).
+
+An `Adobe-Identity` composite font re-keyed from its `/ToUnicode` (ADR 2378) asks it last, after the
+shipped face and the CJK pack.
+
+**What goes in is a subset**: the glyphs the page shows and `.notdef`, a name-keyed CFF whose charset
+gives each glyph its own name, named by ISO 32000-2 §9.9.2 in the program, `/BaseFont` and the
+descriptor's `/FontName` (`XXXXXX+NotoSerif-Regular`), and held to the whole face glyph by glyph
+(ADR 2939). The composite route writes its own CID-keyed subset (ADR 2378).
 
 The face is the pack's and neither the producer's nor the one the window drew, which is the loss
 `machine-face` (ADR 2162): `as-if-printed` discards it, `as-shown` stops. Ahead of it, where the
 profile withholds that loss, comes the machine's own face the window drew the font from, where its
 licence permits (ADR 2773). The viewer does not read the pack.
 
-Not answered, each refused by its sentence as before: a `TrueType` dictionary (Table 124 admits a
-bare CFF under no key of it, and the pack face is not restated as another kind), an italic
-fixed-pitch request (Noto Sans Mono is published in no italic, and an upright face is not the
-italic asked for), a sans-serif request (Liberation Sans already covers Latin, Greek and Cyrillic),
-and the descriptor-less route of the standard fourteen, which embeds the shipped face and holds it
-to the window.
+Not answered, each refused by its sentence as before: an italic fixed-pitch request (Noto Sans Mono
+is published in no italic, and an upright face is not the italic asked for), a sans-serif request
+(Liberation Sans already covers Latin, Greek and Cyrillic), a font outside the fourteen that states
+no descriptor (its layout and name are this viewer's, ADR 2898), and a standard font the conversion
+itself defines for a name a content stream uses with no font resource (ADR 2522).
 
 ## Layout
 

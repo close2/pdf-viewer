@@ -1243,6 +1243,26 @@ fn embed_pass(
             if named_program(supplied, &requested).is_some() {
                 return Err(Because::NotBuiltYet(NO_DESCRIPTOR_FOR_A_SUPPLIED_PROGRAM));
             }
+            // A standard font whose shown codes only the pack's face draws is given that face and
+            // a descriptor measured off it (`doc/adr/2938`).
+            if lgc.is_some() {
+                let font = LoadedFont::load(document, &used.dict, &used.name)
+                    .map_err(|_| Because::NotBuiltYet(FONT_NOT_READ))?;
+                let shipped =
+                    pdf_font::standard::shipped_face(document, &used.dict, &used.name).ok();
+                if let Some((face, wanted)) =
+                    pack_answers(document, used, &font, shipped.as_ref(), lgc)?
+                    && described::described_from_pack(
+                        document,
+                        used,
+                        spare,
+                        &mut substitutes,
+                        (&face, wanted),
+                    )?
+                {
+                    continue;
+                }
+            }
             described::describe(
                 document,
                 used,
@@ -1398,17 +1418,54 @@ fn embed_pass(
         // A machine's face the dictionary already admits is held to the viewer's drawing by the
         // same proof a restatement is, over the file's own descriptor (`doc/adr/2773`).
         // A pack's face is held to its own code table: the same program on both sides
-        // (`doc/adr/2934`).
-        if let Face::Pack(pack_face, _) = &face {
-            described::pack_face_proved(
+        // (`doc/adr/2934`), with a restatement's entries where the dictionary was re-filed
+        // (`doc/adr/2938`). It is then cut to the glyphs the page shows, the whole face being
+        // some 0.7 MB, and the subset is held to the whole (`doc/adr/2939`). A font the window
+        // drew as nothing keeps the whole face, whose glyphs are emptied below.
+        let mut subset_name = None;
+        let program = if let Face::Pack(pack_face, _) = &face {
+            // Read back as it is written: the twin codes' encoding and the laid-out widths too,
+            // so that the glyphs the subset keeps are the ones the written font reaches.
+            let (mut pack_entries, pack_gains) = restated.as_ref().map_or_else(
+                || (Dictionary::new(), Dictionary::new()),
+                |restatement| (restatement.entries.clone(), restatement.descriptor.clone()),
+            );
+            if let Some(twins) = &twins {
+                pack_entries.insert(Name::new(&b"Encoding"[..]), twins.encoding.clone());
+            }
+            if document.get_key(&used.dict, "Widths").is_null() {
+                state_laid_out_widths(&mut pack_entries, &font);
+            }
+            let whole = described::pack_face_proved(
                 document,
                 reading,
-                &font,
-                &|code| pack_face.glyph(code),
+                (&font, &|code| pack_face.glyph(code)),
+                (&pack_entries, &pack_gains),
                 row,
                 &program,
             )?;
-        }
+            let subset = if emptied {
+                None
+            } else {
+                described::pack_face_subset(
+                    document,
+                    reading,
+                    &font,
+                    (&pack_entries, &pack_gains),
+                    row,
+                    (&program, &whole),
+                )?
+            };
+            match subset {
+                Some(subset) => {
+                    subset_name = Some(Object::Name(Name::new(subset.name.as_bytes())));
+                    subset.program
+                }
+                None => program,
+            }
+        } else {
+            program
+        };
         if let (Face::Machine(_, _, shipped), None) = (&face, &restated) {
             described::machine_face_proved(
                 document,
@@ -1421,7 +1478,9 @@ fn embed_pass(
                 ),
             )?;
         }
-        if let Some(restatement) = &restated {
+        if let Some(restatement) = &restated
+            && !matches!(face, Face::Pack(..))
+        {
             described::restatement_proved(
                 document,
                 reading,
@@ -1492,11 +1551,20 @@ fn embed_pass(
             )?;
         }
         substitutes.written.insert(at, stream);
+        // A subset is named by §9.9.2 in both places the clause names (`doc/adr/2939`).
+        let mut descriptor_gains = restated
+            .as_ref()
+            .map_or_else(Dictionary::new, |restatement| {
+                restatement.descriptor.clone()
+            });
+        if let Some(name) = &subset_name {
+            descriptor_gains.insert(Name::new(&b"FontName"[..]), name.clone());
+        }
         let own = embed_at_descriptor(
             document,
             descriptor,
             Embedding { key: row.key, at },
-            restated.as_ref().map(|restatement| &restatement.descriptor),
+            Some(&descriptor_gains),
             spare,
             &mut substitutes,
         )?;
@@ -1504,6 +1572,9 @@ fn embed_pass(
             .as_ref()
             .map_or_else(Dictionary::new, |restatement| restatement.entries.clone());
         entries.insert(Name::new(&b"FontDescriptor"[..]), Object::Reference(own));
+        if let Some(name) = subset_name {
+            entries.insert(Name::new(&b"BaseFont"[..]), name);
+        }
         if let Some(twins) = &twins {
             entries.insert(Name::new(&b"Encoding"[..]), twins.encoding.clone());
         }
@@ -1674,7 +1745,10 @@ fn row_for(
         Face::Machine(machine, _, shipped) => {
             described::restated_kind(document, used, subtype, shipped, Some(&machine.program))?
         }
-        Face::Supplied(..) | Face::Pack(..) => return Err(unadmitted()),
+        // Every pack face is a bare Compact Font Format program, re-filed under `Type1` for a
+        // `TrueType` dictionary (`doc/adr/2938`).
+        Face::Pack(pack, _) => described::pack_restated(document, used, subtype, &pack.program)?,
+        Face::Supplied(..) => return Err(unadmitted()),
     }
     .ok_or_else(unadmitted)?;
     Ok((restatement.row, Some(restatement)))
@@ -1715,28 +1789,42 @@ fn face_for(
             named,
         ));
     }
-    // The shipped face answers where it draws every code the page shows; where it draws
-    // none of the codes the font declares it is no face at all, and either way the pack's
-    // face is asked next.
     let shipped = pdf_font::standard::shipped_face(document, &reading.dict, &reading.name);
-    let lacking = |glyph: &dyn Fn(u8) -> Option<u16>| {
-        shown_bytes(font, reading).into_iter().any(|byte| {
-            !empty::reaches_notdef(font, Code::single_byte(byte))
-                && glyph(byte).is_none_or(|glyph| glyph == pdf_font::NOTDEF_GLYPH)
-        })
-    };
-    let shipped_lacks = shipped
-        .as_ref()
-        .map_or(true, |shipped| lacking(&|byte| shipped.glyph(byte)));
-    if shipped_lacks
-        && let Some((face, wanted)) = pack_face(document, reading, lgc)?
-        && !lacking(&|byte| face.glyph(byte))
+    if let Some((face, wanted)) = pack_answers(document, reading, font, shipped.as_ref().ok(), lgc)?
     {
         return Ok(Face::Pack(face, wanted));
     }
     Ok(Face::Shipped(shipped.map_err(|_| {
         Because::NotBuiltYet(NO_SHIPPED_FACE_COVERS_IT)
     })?))
+}
+
+/// The Latin-Greek-Cyrillic pack's face for `reading`, where the shipped face lacks a code the
+/// page shows and the pack's face draws every one (`doc/adr/2934`).
+///
+/// The shipped face answers where it draws every code the page shows; where it draws none of the
+/// codes the font declares it is no face at all, and either way the pack's face is asked next.
+fn pack_answers(
+    document: &Document,
+    reading: &SelectedFont,
+    font: &LoadedFont,
+    shipped: Option<&ShippedFace>,
+    lgc: Option<&LgcPack>,
+) -> Result<Option<(SuppliedFace, LgcFace)>, Because> {
+    let lacking = |glyph: &dyn Fn(u8) -> Option<u16>| {
+        shown_bytes(font, reading).into_iter().any(|byte| {
+            !empty::reaches_notdef(font, Code::single_byte(byte))
+                && glyph(byte).is_none_or(|glyph| glyph == pdf_font::NOTDEF_GLYPH)
+        })
+    };
+    let shipped_lacks = shipped.is_none_or(|shipped| lacking(&|byte| shipped.glyph(byte)));
+    if shipped_lacks
+        && let Some((face, wanted)) = pack_face(document, reading, lgc)?
+        && !lacking(&|byte| face.glyph(byte))
+    {
+        return Ok(Some((face, wanted)));
+    }
+    Ok(None)
 }
 
 /// The Latin-Greek-Cyrillic pack's face for the style `reading` asks, where the pack is installed
