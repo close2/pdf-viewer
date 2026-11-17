@@ -3706,5 +3706,28 @@
     ],
     "summary": "A valid nested folder tree with Parent backlinks reaches public collection rows with literal labels and complete extraction keys.",
     "execution": "One PASS, objr-folder-wave126.log. No Parent validation duty inferred."
+  },
+  {
+    "id": "2038-B77",
+    "kind": "behavior-gap",
+    "clauses": [
+      "10.5",
+      "10.6.1",
+      "10.6.5.3"
+    ],
+    "summary": "PDF/A-4 threshold-screen conversion discards an active transfer mapping while authorizing/reporting only a halftone-screen loss.",
+    "source": "Owner loss contract in ADR2034 and separate transfer-loss policy; ISO32000-2 requires transfer before continuous-tone output. ISO19005-4 erratum314 correctly removes the validator prohibition and does not authorize this extra product loss.",
+    "execution": "Literal source RGB191 becomes64; TF-free source/output control stays64. Public conversion/raster test FAIL. Valid part2 separate-authorization control PASS.",
+    "limits": "Product output-preservation/authorization defect, not a claim that the output violates PDF/A4. Local checker conformance is not independent certification. Production untouched."
+  },
+  {
+    "id": "2038-T168",
+    "kind": "assertion-quality",
+    "clauses": [
+      "10.5",
+      "10.6.5.3"
+    ],
+    "summary": "PDF/A-2 combined threshold/transfer control distinguishes separate loss authorizations with public output pixels.",
+    "execution": "One PASS: screen-only writes nothing; both authorizations permit transfer removal and output64. Header-corrected fixture; no inferred stream refusal."
   }
 ]

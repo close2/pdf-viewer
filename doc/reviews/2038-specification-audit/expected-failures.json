@@ -684,6 +684,12 @@
       "test": "public_collection_rows_use_date_chronology_and_default_missing_direction_to_ascending",
       "finding": "2038-B76",
       "log": "collection-date-wave124b.log"
+    },
+    {
+      "binary": "pdf-transform::archive",
+      "test": "threshold_screen_authorisation_preserves_active_transfer_in_pdf_a_four",
+      "finding": "2038-B77",
+      "log": "archive-transfer-wave126f.log"
     }
   ]
 }

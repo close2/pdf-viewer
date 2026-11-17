@@ -3,6 +3,16 @@
   "numbering": "Logical content items use published ledger owners14.7.5.1.1/.2/.3/.4 for effective EC3 .2/.3/.4/.5; navigator owner12.3.6 maps effective12.3.5.3. JBIG2 external Annex D is not ISO PDF Annex D.",
   "shards": [
     {
+      "shard": "halftone_transfer_archive_loss_current",
+      "artifact": "shards/halftone_transfer_archive_loss_current/features.json",
+      "ledger_owners": [
+        "10.5",
+        "10.6.1",
+        "10.6.5.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
       "shard": "collection_folder_cells_current",
       "artifact": "shards/collection_folder_cells_current/features.json",
       "ledger_owners": [

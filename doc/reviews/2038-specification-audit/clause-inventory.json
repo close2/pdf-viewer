@@ -5523,7 +5523,8 @@
       "shards/colour_conversion/features.json",
       "shards/rendering_intent_transfer_current/features.json",
       "shards/table57_graphics_state_matrix_current/features.json",
-      "shards/halftone_dictionary_cells_current/features.json"
+      "shards/halftone_dictionary_cells_current/features.json",
+      "shards/halftone_transfer_archive_loss_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -5549,7 +5550,8 @@
     "prior_ledger_status": "inapplicable",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/halftones_separations_current/features.json"
+      "shards/halftones_separations_current/features.json",
+      "shards/halftone_transfer_archive_loss_current/features.json"
     ],
     "prior_artifacts": [
       "inapplicable_conditions_audit"
@@ -5651,7 +5653,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/rendering_intent_transfer_current/features.json",
-      "shards/halftone_dictionary_cells_current/features.json"
+      "shards/halftone_dictionary_cells_current/features.json",
+      "shards/halftone_transfer_archive_loss_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."

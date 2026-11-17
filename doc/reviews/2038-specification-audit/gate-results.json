@@ -3232,6 +3232,15 @@
       "log": "quality-wave126e.log",
       "exit": 0,
       "scope": "All-target Clippy pdf-model viewer-host pdf-transform viewer-core, warnings denied; new audit tests included"
+    },
+    {
+      "log": "archive-transfer-wave126f.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "skipped": 706,
+      "exit": 100,
+      "scope": "Threshold transfer loss: Four preservation and Two separate authorization"
     }
   ],
   "prior_expected_failures": {

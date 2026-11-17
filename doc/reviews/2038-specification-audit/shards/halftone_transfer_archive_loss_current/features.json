@@ -1,0 +1,50 @@
+{
+  "baseline": "b901326c",
+  "scope": "Bounded archive-conversion review of the interaction between `Loss::Halftone` and a Type 6 halftone stream's active `/TransferFunction`. This is an output-preservation/authorization finding, not a general-reader conformance failure and not a screen-rendering audit.",
+  "source": {
+    "primary": [
+      {
+        "clause": "10.5",
+        "location": "printed pp. 364–365 / physical pp. 379–380",
+        "rule": "A halftone dictionary's TransferFunction overrides the corresponding current graphics-state transfer function; transfer mapping remains active independently of whether the output device halftones."
+      },
+      {
+        "clause": "10.6.1",
+        "location": "printed p. 366 / physical p. 381",
+        "rule": "A continuous-tone output device need not halftone and directly reproduces transfer-corrected components. The screen step may be omitted; this does not cancel the transfer mapping."
+      },
+      {
+        "table": "129",
+        "title": "Additional entries specific to a Type 6 halftone dictionary",
+        "location": "physical pp. 390–391 / printed pp. 375–376",
+        "rule": "A Type 6 stream dictionary can carry TransferFunction. EC3 #310 at physical 391 clarifies a Type 5 producer condition; it does not withdraw Type 6 transfer semantics."
+      }
+    ],
+    "archive_scope": {
+      "adr_2034": "Loss::Halftone replaces a Type 6 HT reference with Default and describes the loss as the press's screen, asserting that nothing on a continuous-tone screen moves.",
+      "adr_1964": "TransferFunction is a distinct loss with its own caller authorization and history record; the archive rationale and mitigation document explicitly separate transfer functions from halftone screens.",
+      "iso_19005_4_erratum_314": "The project errata catalog identifies issue #314 as an erratum to ISO 19005-4:2020 and records that it removes the PDF/A-4 prohibition row `graphics/halftone-transfer-function-only-where-required`. This makes PDF/A-4 an unsuitable target for testing that conformance row, but does not remove ISO 32000-2 §10.5's transfer mapping or itself authorize the converter to discard it. This is not EC3 to ISO 32000-2."
+    }
+  },
+  "feature": {
+    "id": "archive-threshold-halftone-does-not-lose-active-transfer-under-screen-only-authorisation",
+    "input": "Exact-xref PDF 2.0 fixture with one ExtGState `/HT` pointing to a Type 6 2x2 stream. It is intentionally not PDF/A-4-conforming because Type 6 is outside that profile's allowed halftone types; PDF/A-4 is the requested conversion target. The stream has `/TransferFunction 8 0 R`, a literal Type 2 function C0=1, C1=0, N=1, and page content paints RGB 0.25. A paired otherwise-identical stream omits TransferFunction.",
+    "consumer": "`crates/pdf-transform/tests/archive.rs::threshold_screen_authorisation_preserves_active_transfer_in_pdf_a_four` invokes the public archive conversion and then opens/rasterizes the output using the public interpretation and CPU rasterizer helper. The archive conversion writes its target-4 output header/XMP and exact xref; source is a valid PDF 2.0, not a PDF/A-4-conforming file. Pixel helper asserts no xref recovery and complete interpretation; sample is interior to the painted rectangle.",
+    "report": "For the PDF/A-4 target, ISO 19005-4 erratum #314 means no transfer-function prohibition decision is present. The only applicable repair is `graphics/halftone-type-is-one-or-five`, authorized as `Loss::Halftone`; the converter's local validator reports the output as conforming to its checked PDF/A-4 requirements and reports the halftone screen change as leaving screen appearance unchanged. It does not report a TransferFunction loss. This local verdict is not independent or full external PDF/A certification.",
+    "assertion": "Source with TF rasterizes to [191,191,191,255]. Its TF-free control source and screen-authorized output both rasterize to [64,64,64,255], calibrating the added PDF/A-4 output-intent interpretation and the screen-only rewrite. The TF-bearing source's screen-authorized output instead rasterizes to [64,64,64,255], dropping the active Type 2 mapping. This is a concrete public-output mismatch, not an inference from code or a display-list comparison.",
+    "verdict": "Confirmed bounded archive authorization/reporting defect: authorizing only the halftone screen rewrite allows a successful output that loses the separate, active TransferFunction effect while the report says only the screen loss was authorized and that no screen appearance moved. The basis is the archive's own semantic-loss/authorization contract plus §10.5 behavior; it is not a claim that PDF/A-4 forbids the source TransferFunction or that the source fixture itself conforms to PDF/A-4.",
+    "test_status": "Parent run `scratchpad/r2038/spec-audit/archive-transfer-wave126f.log`: PDF/A-4 pixel-preservation assertion fails with the literal values above. PDF/A-2 boundary control `threshold_transfer_under_pdf_a_two_requires_separate_loss_authorisation` passes after correcting its fixture to `Conforming::part_two()` (PDF 1.7 header). With only Halftone authorized it reports the TransferFunction loss unauthorized and writes no output; with both losses authorized it writes output and the mapped value is removed."
+  },
+  "implementation_trace": {
+    "screen_rewrite": "`crates/pdf-transform/src/archive/rewrite/values.rs::halftone_and_intent_entries` writes `/HT /Default` on the graphics-state object selected by the threshold finding. This disconnects the stream containing the active TransferFunction.",
+    "pdfa4_applicability": "`crates/pdf-archive/src/errata.rs` maps #314 to the halftone TransferFunction requirement and explicitly removes that rule from part 4. The absence of a PDF/A-4 transfer row is correct and must not be treated as a checker defect.",
+    "pdfa2_path": "The same transfer row remains applicable to PDF/A-2. Its conversion path can separately authorize and remove the stream-held TransferFunction, as demonstrated by the passing two-loss control. `Object::as_dict` includes stream dictionaries, so earlier speculation that the handler could not reach a stream was incorrect."
+  },
+  "limits": [
+    "The source is a valid PDF 2.0 test fixture but intentionally violates PDF/A-4's halftone-type restriction. The PDF/A-4 finding is about this converter's promise and consent boundary, not a source-conformance claim; ISO 19005-4 erratum #314 removed the PDF/A-4 transfer-function prohibition row.",
+    "Preserving the mapping while replacing the screen, or refusing the combination, are plausible safe product behaviors. The audit establishes that the current screen-only authorized route silently changes the public output; it does not prescribe a particular implementation repair.",
+    "The conversion report's `conforms` result is the project's local validator verdict for its implemented checks, not external certification or proof of every PDF/A-4 requirement.",
+    "The PDF/A-2 test is a separate positive boundary: where the prohibition remains, TransferFunction authorization is explicitly required. It does not by itself prove the PDF/A-4 issue.",
+    "The parent added and ran the pixel tests. This agent did not run Cargo or modify tracked files."
+  ]
+}

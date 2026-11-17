@@ -1,0 +1,7 @@
+{
+  "source": "Read ISO32000-2 §10.5 physical379–380 and10.6.1 physical381/printed366. Continuous-tone devices still receive transfer-corrected values. Type6 stream carrier Table129 was reviewed in125. Issue314 here belongs to ISO19005-4:2020, not the ISO32000-2 EC3 overlays; current errata catalog and mitigation4.3 explicitly withdraw the part4 prohibition.",
+  "contract": "Read ADR2034 threshold-screen rewrite, Loss::Halftone screen-unchanged report, separate Loss::TransferFunction contract and mitigation4.3. Replacing HT with Default disconnects active transfer; no independent loss guard exists where the validator row is withdrawn.",
+  "test": "B77 public conversion and CPU raster: RGB.25 source with inversion gives literal191; TF-free source/output both64; TF-bearing part4 output64 despite only Halftone authorized. Conditional output assertion permits preserving the mapping or refusing the combination. Source is valid PDF2 but intentionally not PDF/A4. No external validator certification is claimed.",
+  "control": "T168 part2 uses Conforming::part_two header1.7: only Halftone yields transfer Unauthorised/no output; both losses yields Authorised TransferFunctionRemoved/output64. This disproves the discarded private-helper stream-refusal hypothesis: Object::as_dict includes Stream.",
+  "execution": "archive-transfer-wave126f:2run1PASS1FAIL; quality-wave126e all-target Clippy PASS. No production changes."
+}

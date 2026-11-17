@@ -11,11 +11,11 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (126)
+## Current checkpoint (127)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
-failure manifest contains **113 failing test identities**: 112 behavior assertions/probes
-and one stale ignored-gate expectation. These are grouped findings, not 113 independent defects. B08 and B42 remain unresolved interpretation/policy
+failure manifest contains **114 failing test identities**: 113 behavior assertions/probes
+and one stale ignored-gate expectation. These are grouped findings, not 114 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
 The refreshed broad run, wave123, covered eleven crates: **7,321 tests ran, 7,216 passed,
 and exactly the 105 recorded in-scope assertions failed; 58 were skipped**.
@@ -536,6 +536,12 @@ Checkpoint 126 adds four passing tests: Type2 pattern Matrix pixels, MCR and OBJ
 page precedence, and valid nested collection folders through public rows. Selected
 Tables75,159,357,358 bring the partial matrix count to164. This improves assertion
 depth without certifying entire features. The archive transfer probe remains separate.
+
+Checkpoint 127 records B77: PDF/A-4 conversion drops an active transfer function
+under screen-only loss authorization, changing literal RGB191 to64. The TF-free
+control stays64; the PDF/A-2 separate-authorization control passes. This challenges
+the converter loss contract, not PDF/A-4 conformance. Manifest114 includes107
+default-scope failures; broad123 predates two failures and seven passing additions.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

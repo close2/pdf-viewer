@@ -17191,3 +17191,109 @@ fn xfa_attachment_refuses_a_packet_array_with_a_non_stream_packet() {
         Decision::Refused(Because::NotBuiltYet(reason)) if reason.contains("XFA")
     ));
 }
+
+// Audit2038: screening permission does not authorize losing an active transfer function.
+fn threshold_transfer_fixture(target: Target, transfer: bool) -> Vec<u8> {
+    let entry = if transfer {
+        "/TransferFunction 8 0 R"
+    } else {
+        ""
+    };
+    Conforming {
+        target,
+        resources: "/ExtGState << /G0 6 0 R >>".to_owned(),
+        objects: vec![
+            "<< /Type /ExtGState /HT 7 0 R >>".to_owned(),
+            format!("<< /Type /Halftone /HalftoneType 6 /Width 2 /Height 2 /Length 4 {entry} >>\nstream\n@P`p\nendstream"),
+            "<< /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>".to_owned(),
+        ],
+        contents: Some((String::new(), b"/G0 gs 0.25 0.25 0.25 rg 10 10 50 50 re f".to_vec())),
+        ..match target { Target::Two(_) => Conforming::part_two(), Target::Four(_) => Conforming::default() }
+    }.build()
+}
+
+fn threshold_transfer_pixel(bytes: &[u8]) -> [u8; 4] {
+    use pdf_render::{Rasterizer as _, TargetSpec};
+    let document = Document::open(bytes.to_vec()).expect("exact-xref archive fixture");
+    assert!(!document.was_recovered());
+    let page = pdf_model::Pages::new(&document).get(0).expect("one page");
+    let state = pdf_model::view::ViewState::of(&document);
+    let interpreted = pdf_model::content::interpret_with(&document, &page, &state);
+    assert!(interpreted.is_complete(), "{:?}", interpreted.unsupported);
+    let list = interpreted.display_list;
+    let target = TargetSpec::for_page(&list, 1.0, 1 << 20).expect("bounded target");
+    let raster = render_cpu::CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("CPU pixels");
+    assert_eq!((raster.width, raster.height), (200, 200));
+    // Pixel (30,169) is well inside the user-space rectangle, clear of antialiasing edges.
+    let at = (169usize * 200 + 30) * 4;
+    raster.data[at..at + 4].try_into().expect("one RGBA pixel")
+}
+
+#[test]
+fn threshold_screen_authorisation_preserves_active_transfer_in_pdf_a_four() {
+    let target = Target::Four(Flavour::Plain);
+    let control = threshold_transfer_fixture(target, false);
+    assert_eq!(threshold_transfer_pixel(&control), [64, 64, 64, 255]);
+    let mut only_screen = Authorisations::default();
+    only_screen.authorise(Loss::Halftone);
+    let (control_report, control_output) = convert(&control, target, only_screen);
+    assert!(
+        matches!(decision(&control_report, "graphics/halftone-type-is-one-or-five"),
+        Decision::Authorised { losses, rewrite: Rewrite::HalftoneWrittenDefault }
+        if losses == Losses::one(Loss::Halftone))
+    );
+    let control_output = control_output.expect("TF-free threshold screen converts");
+    assert_eq!(threshold_transfer_pixel(&control_output), [64, 64, 64, 255]);
+
+    let source = threshold_transfer_fixture(target, true);
+    // Type2 C0=1,C1=0,N=1 maps each literal 0.25 component to 0.75 (191/255).
+    assert_eq!(threshold_transfer_pixel(&source), [191, 191, 191, 255]);
+    let (report, output) = convert(&source, target, only_screen);
+    // Part4's erratum #314 removes the transfer prohibition. It does not authorize losing
+    // the producer's color mapping. A converter may preserve it or refuse this combination.
+    if let Some(output) = output {
+        assert_eq!(
+            threshold_transfer_pixel(&output),
+            [191, 191, 191, 255],
+            "Loss::Halftone promises screen appearance is unchanged: {}",
+            conversion(&report).render()
+        );
+    }
+}
+
+#[test]
+fn threshold_transfer_under_pdf_a_two_requires_separate_loss_authorisation() {
+    let target = Target::Two(Level::B);
+    let source = threshold_transfer_fixture(target, true);
+    assert_eq!(threshold_transfer_pixel(&source), [191, 191, 191, 255]);
+    for transfer_authorised in [false, true] {
+        let mut losses = Authorisations::default();
+        losses.authorise(Loss::Halftone);
+        if transfer_authorised {
+            losses.authorise(Loss::TransferFunction);
+        }
+        let (report, output) = convert(&source, target, losses);
+        let answer = decision(
+            &report,
+            "graphics/halftone-transfer-function-only-where-required",
+        );
+        if transfer_authorised {
+            assert!(
+                matches!(answer, Decision::Authorised { losses, rewrite: Rewrite::TransferFunctionRemoved }
+                if losses == Losses::one(Loss::TransferFunction)),
+                "{answer:?}"
+            );
+            let output = output.expect("both losses are authorized for PDF/A-2");
+            assert_eq!(threshold_transfer_pixel(&output), [64, 64, 64, 255]);
+        } else {
+            assert!(output.is_none(), "transfer loss was not authorized");
+            assert!(
+                matches!(answer, Decision::Unauthorised { losses, .. }
+                if losses == Losses::one(Loss::TransferFunction)),
+                "{answer:?}"
+            );
+        }
+    }
+}
