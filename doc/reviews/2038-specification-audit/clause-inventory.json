@@ -2853,7 +2853,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/paths_current/features.json"
+      "shards/paths_current/features.json",
+      "shards/raster_clip_flatten_adr_current/features.json"
     ],
     "prior_artifacts": [
       "graphics_stack_paths"
@@ -5550,7 +5551,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/scan_conversion_current/features.json",
-      "shards/structured_errata_graphics_current/features.json"
+      "shards/structured_errata_graphics_current/features.json",
+      "shards/raster_clip_flatten_adr_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -5582,7 +5584,8 @@
       "shards/scan_conversion_current/features.json",
       "shards/departure_decisions_residual_current/features.json",
       "shards/behavior_fixture_second_review_current/features.json",
-      "shards/file_only_shading_render_assertions_current/features.json"
+      "shards/file_only_shading_render_assertions_current/features.json",
+      "shards/raster_clip_flatten_adr_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -5859,7 +5862,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/transparency_compositing_current/features.json"
+      "shards/transparency_compositing_current/features.json",
+      "shards/raster_clip_flatten_adr_current/features.json"
     ],
     "prior_artifacts": [
       "compositing_formula_audit",

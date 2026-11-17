@@ -509,6 +509,18 @@
       "test": "xfa_attachment_refuses_a_packet_array_with_a_non_stream_packet",
       "finding": "2038-B58",
       "log": "appearance-archive-wave82b.log"
+    },
+    {
+      "binary": "render-raster::near_similarity_stroke_spec_audit",
+      "test": "near_similarity_large_stroke_preserves_transverse_width_within_two_pixels",
+      "finding": "2038-B59",
+      "log": "thick-stroke-wave83b.log"
+    },
+    {
+      "binary": "render-raster::near_similarity_stroke_spec_audit",
+      "test": "a_pdf_stroke_under_near_similarity_keeps_its_horizontal_width",
+      "finding": "2038-B59",
+      "log": "thick-stroke-wave83b.log"
     }
   ]
 }

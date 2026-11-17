@@ -1,0 +1,44 @@
+{
+  "shard": "raster_clip_flatten_adr_current",
+  "baseline": "b901326c",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "scope": "Three clipping/flattening decisions. Primary ISO source checked directly. Current code includes exact geometric meets for selected path/image and residue cases; older min-only ADR conclusions are qualified below.",
+  "reviews": [
+    {
+      "adr": "0044 — relative flatness bound tightens device-pixel bound for small curves",
+      "source": "ISO 32000-2 §10.7.2, printed p.382 / physical p.397; §10.7.4, printed pp.382–384 / physical pp.397–399. §10.7.2 defines device-pixel maximum path-to-polyline distance; processor may ignore PDF-specified flatness, and NOTE 2 warns that visible straight segments are unpredictable. §10.7.4 states half-open pixel-intersection scan conversion and area floor for nonzero-width fill/stroke.",
+      "implementation": "raster/crates/raster-gpu/src/raster/flatten.rs::cubic_tolerance takes min(0.25 device px, control-hull diagonal / 32) per cubic after transform. flatten_cubic uses a depth-16 hard cap; flat pieces emit two chords through midpoint inner controls.",
+      "assertions": [
+        "raster/crates/raster-gpu/src/raster/tests/flatten.rs::a_flattened_curve_encloses_its_own_area computes closed-form cubic Green area in f64 and polygon shoelace area/perimeter over 7 circles, sheared ellipse and inflected S, both traversal directions.",
+        "::a_circle_deposits_its_own_area_at_every_size compares raster-byte ink with independently integrated four-cubic area and quantization allowance at diameters 0.5/1/2.",
+        "::a_large_curve_keeps_the_segment_count_it_had pins large-curve count and relative-term-inert controls."
+      ],
+      "verdict": "Good independent geometric and raster-area controls for selected scales; no typical-scale defect found.",
+      "residuals": "Depth cap 16 is a real mathematical exception to the asserted 0.25 device-pixel limit for sufficiently large transformed control polygons. For a quarter-circle-style cubic the per-piece deviation scales roughly with radius/4^16, and the input/viewport bounds can compose to very large device coordinates. Such a path may be off-window where its global error is largest; no visible public-rendering failure was established. Existing tests do not directly assert a Hausdorff/max-deviation bound at maximum valid scene+viewport magnitudes. This is a bounded-error/resource tradeoff requiring qualification or a targeted visible-control test, not yet a confirmed behavior defect."
+    },
+    {
+      "adr": "0030 — clip-chain links compose by min for idempotence",
+      "source": "ISO 32000-2 §8.5.4, printed pp.175–176 / physical pp.190–191; §10.7.4, printed p.384 / physical p.399. Current clipping path is geometrically intersected with each new path; subsequent painting uses pixel-set intersection. §11.3.7.2 NOTE 1 explains fractional boundaries arise on rasterization.",
+      "implementation": "Repeated identical path links remain combined by min in raster/crates/raster-gpu/src/encode/clips.rs and composite.wgsl. For a residue chain meeting a path mark where both cut a pixel, raster-gpu encode/meet computes exact area from all chain-link and mark edges, with min as the conservative fallback where exact edges are not available/within budget. Some rectangle/image and group sites also use exact known geometry or min approximations.",
+      "assertions": [
+        "raster/crates/raster-gpu/tests/m3.rs::a_clip_stated_again_admits_exactly_what_it_did exact-compares a fractional diagonal clip restated 1–5 times.",
+        "raster/crates/raster-gpu/tests/residue_meets_a_mark_as_a_set.rs::a_polygon_clip_over_a_tiling_of_rectangles_meets_each_pixel_as_a_set uses independent f64 Sutherland–Hodgman clipping and per-pixel polygon areas, asserts half-level accuracy, and shows both product and min miss on discriminating doubly-fractional pixels.",
+        "::a_path_whose_edge_is_its_residue_clips_edge_keeps_that_edges_coverage plus the tilted-stroke cases check coincident/nested geometry; `common::meet::held_to_the_intersection` checks every pixel against independent polygon clipping.",
+        "raster/crates/raster-gpu/tests/clip_meets_a_mark_as_a_set.rs::an_image_crossed_by_its_clip_is_drawn_at_the_intersections_area uses independent rectangle intersection (0.2×0.6=0.12) and literal byte 31; the path-vs-rectangle test separately documents min as upper bound where only those two inputs are retained."
+      ],
+      "verdict": "Idempotence is sound; broad min-only wording was superseded by exact-intersection work for residue/path meets and must be scoped to remaining no-geometry/fallback sites.",
+      "residuals": "An older interval argument does not prove that min is always closer than product to arbitrary fractional overlap. Current exact-meet code addresses the principal residue/path case, and analytic tests discriminate the exact area. Fallback and composite/group sites retain a chosen overestimate where joint geometry is unavailable or intentionally bounded; ISO requires set intersection/pixel inclusion but does not specify an exact antialias byte for every subpixel arrangement. No mandatory failing test identified."
+    },
+    {
+      "adr": "0074 — group alpha proved equal to shape meets its clipping region by min",
+      "source": "ISO 32000-2 §8.5.4 and §10.7.4, same pages above; §11.3.7.1 separates shape from opacity inputs.",
+      "implementation": "Group compositor uses min only when encoder proves alpha equals shape; otherwise product preserves opacity semantics. For grouped antialiased pixels, it retains only raster alpha and clip coverage rather than the content boundary geometry needed for exact area integration.",
+      "assertions": [
+        "group_clip_is_a_set.rs::a_group_whose_clip_stands_on_its_own_edge_paints_that_edge_once checks same 0.6 edge (153 vs product 92) and bare frame.",
+        "::a_clip_that_contains_the_group_takes_nothing_from_it checks nested 0.2/0.6; ::a_group_whose_opacity_is_below_one_is_not_intersected_with_its_clip proves shape/opacity separation; ::a_group_whose_opacity_cannot_be_valued_keeps_the_product pins conservative fallback."
+      ],
+      "verdict": "Meaningful controls for admitted shape-equals-alpha cases and opacity fallbacks, but min remains an approximation for unrelated fractional group/clip edges.",
+      "residuals": "No arbitrary crossing-group analytic regression because source does not prescribe a fractional antialiasing byte and the group raster lacks edge geometry. Avoid describing min as exact intersection beyond coincident/nested geometry."
+    }
+  ]
+}

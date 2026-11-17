@@ -2209,6 +2209,31 @@
       "log": "quality-wave82b.log",
       "exit": 0,
       "scope": "model/transform all-targets Clippy"
+    },
+    {
+      "log": "thick-stroke-wave83.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "exit": 100
+    },
+    {
+      "log": "thick-stroke-wave83b.log",
+      "run": 2,
+      "passed": 0,
+      "failed": 2,
+      "exit": 100,
+      "scope": "Direct/parsedPDF; actualRadeon890M Vulkan; independent literal-width controls"
+    },
+    {
+      "log": "quality-wave83.log",
+      "exit": 101,
+      "scope": "New doc-markdown lint, corrected"
+    },
+    {
+      "log": "quality-wave83b.log",
+      "exit": 0,
+      "scope": "render-raster all-targetsClippy"
     }
   ],
   "prior_expected_failures": {

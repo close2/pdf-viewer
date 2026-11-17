@@ -1,0 +1,21 @@
+{
+  "decisions": [
+    {
+      "adr": "0044",
+      "outcome": "agree with the small/ordinary curve policy; qualify the depth-cap edge case",
+      "why": "Per-cubic device bound only tightens 0.25px and is backed by analytic curve area/perimeter and independent pixel-area tests. But depth>=16 can terminate even when flatness remains above 0.25 for very large transformed curves.",
+      "follow_up": "No public visible failure established. A small geometric regression can directly measure max curve-to-polyline distance at extreme valid transforms; if it fails, determine whether document coordinates/viewport geometry can make that error visible before classifying behavior."
+    },
+    {
+      "adr": "0030 and successor ADRs 1444/1467/1456",
+      "outcome": "agree on identical-clip idempotence; qualify min-only scope and historical accuracy claims",
+      "why": "Current residue/path implementation integrates exact intersection area when both sets cut a pixel and edge budgets allow; analytical 64-gon/rectangle tests verify it to half a byte. Min remains for degenerate/no-edge or bounded fallback cases and some group/clip combinations. The older claim that interval bounds establish min's relative closeness is mathematically insufficient.",
+      "follow_up": "No new test needed for exact residue/path integration. Existing independent closed-form tests are strong. Potential group or fallback error remains a policy limitation absent a specified fractional output contract."
+    },
+    {
+      "adr": "0074",
+      "outcome": "agree with shape/opacity safety and characterize min as approximate geometry",
+      "why": "Current tests directly distinguish correct coincident/nested shape cases from product and use low-opacity/unknown-mask countercontrols. No current proof that min exactly integrates unrelated boundaries; group raster does not retain edges."
+    }
+  ]
+}

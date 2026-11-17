@@ -11,17 +11,18 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (82)
+## Current checkpoint (83)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
-failure manifest contains **83 failing test identities**: 82 behavior assertions/probes
-and one stale ignored-gate expectation. These are grouped findings, not 83 independent defects. B08 and B42 remain unresolved interpretation/policy
+failure manifest contains **86 failing test identities**: 85 behavior assertions/probes
+and one stale ignored-gate expectation. These are grouped findings, not 86 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
 The refreshed broad run, wave76, covered eleven crates: **7,237 tests ran, 7,159 passed,
 and exactly the 78 recorded in-scope assertions failed; 58 were skipped**.
-Exact binary/test identities match the manifest, with no extra or missing failures.
+Exact binary/test identities matched the manifest at that checkpoint, with no extra or missing failures.
+Wave76 predates B58; the current default broad-scope manifest has79 failures.
 Passing status includes successful early returns; two are reproduced under D45.
-Three GPU failures and one engine-only Matrix2D availability failure under the adopted
+Five GPU failures and one engine-only Matrix2D availability failure under the adopted
 A193 reference scope are recorded separately, as is D51’s ignored stale test expectation. The new outline-panel raster test also
 passes separately; an existing LZW test was strengthened.
 A separate engine-enabled run adds **247 passing script/worker tests**, including
@@ -278,6 +279,13 @@ integrity test fails: the archive attaches only part of an XFA resource while re
 preservation (B58). This is a repository contract issue, not valid-PDF nonconformance.
 The expected-failure manifest is84; model/transform Clippy passes. Grammar-only dynamic-XFA
 refusal remains a policy proposal (D57), outside the manifest. No production code changed.
+
+Checkpoint83 confirms a stroke-width defect at the near-similarity cutoff: width1000
+under horizontal scale1.009 becomes1008 pixels thick where1000 is required. Identity
+and perpendicular controls pass; direct display-list and parsed-PDF paths fail (B59).
+Earlier strongly anisotropic cases still pass. The manifest is86; render-raster Clippy
+passes. Clip/flattening review qualifies historical mathematical rationale without
+asserting a source-prescribed fractional-antialiasing failure (D58).
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

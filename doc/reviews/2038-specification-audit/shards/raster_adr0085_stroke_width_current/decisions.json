@@ -4,15 +4,15 @@
   "decisions": [
     {
       "adr": "raster:0085-the-stroke-width-crosses-the-boundary-unresolved",
-      "decision": "agree with current qualified implementation boundary; no runtime failure",
-      "basis": "crates/render-raster/src/stroke.rs routes transforms with anisotropy > 1.01 to expanded(), which runs kurbo::stroke in path space before raster fill. The scalar device-space centerline-expansion route is limited to near-similarity transforms. This matches §8.4.3.2's orientation-dependent device width for anisotropic positive-width strokes.",
-      "evidence": "Parent corrected and ran drafts/anisotropic_transverse_width.rs with independent horizontal width-2 and vertical width-8 predictions, visibility controls, exact public consumer path: 1 PASS.",
-      "residuals": "The candidate test covers one axis-aligned diagonal-scale transform and does not prove every anisotropy/shear/rotation/cap/join/dash or the 1.01 transition."
+      "decision": "agree with the material-anisotropy path-space route; confirmed failure for the fixed 1.01 scalar-route cutoff at width1000",
+      "basis": "crates/render-raster/src/stroke.rs routes anisotropy > 1.01 to path-space kurbo::stroke and passes the diag(4,1) public control. But at scale(1.009,1), raster/crates/raster-gpu/src/raster/stroke.rs::resolve_width multiplies width by max_stretch in both transverse directions; width1000 predicts a 9-pixel excess for a horizontal stroke, above §8.4.3.2's two-pixel placement allowance.",
+      "evidence": "Parent's corrected diag(4,1) regression passed. The public large-width test fails on Radeon 890M Vulkan: identity width=1000, near-similarity horizontal=1008, expected1000±2, near-similarity vertical=1009, expected1009±2. The identity and vertical controls pass before the target assertion. Parent is adding PDF-input and CPU-oracle controls.",
+      "residuals": "Confirmed only for this public fixture/backend. The best replacement dispatch criterion and coverage across other backends/transforms remain unsettled."
     },
     {
       "adr": "root:0701-the-stroke-width-is-quorras-to-resolve",
-      "decision": "retain transform-aware path width resolution with explicit backend geometry routes",
-      "basis": "The formula alone is not an oracle, but current public caller selects path-space outlining for material anisotropy. Near-similarity scalar expansion is a separate bounded route."
+      "decision": "retain transform-aware resolution and material-anisotropy path-space route; reassess near-similarity width bound",
+      "basis": "The public caller handles material anisotropy, but the 1% ratio threshold alone does not bound absolute width error in device pixels as stroke width increases."
     },
     {
       "adr": "root:0945-one-device-pixel-is-a-family-of-widths",

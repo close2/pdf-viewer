@@ -2735,5 +2735,29 @@
     "summary": "Archive dynamic-XFA rationale says missing NeedsRendering leaves no distinguishing information, but current template grammar can identify a wider class.",
     "disposition": "Revisit flag-only archive policy in light of accepted grammar-dynamic layout scope; keep layout acceptance distinct from a requirement to change archive refusal.",
     "qualification": "ADR2876 does not explicitly amend archive stop policy. Proposed grammar-only refusal test is retained as unexecuted review material, not a failure-manifest obligation."
+  },
+  {
+    "id": "2038-B59",
+    "kind": "rendering-behavior-gap",
+    "clauses": [
+      "8.4.3.2"
+    ],
+    "summary": "Near-similarity scalar expansion exceeds the device-width allowance for thick strokes.",
+    "evidence": "Width1000,diag(1.009,1),joined path: identity1000 and perpendicular1009 pass; horizontal1008 exceeds1000±2. Parsed exact-xref PDF reproduces1008 while CPU draws1000.",
+    "cause": "Ratio cutoff1.01 does not bound absolute pixel error; material anisotropy takes a different passing path.",
+    "execution": "Two regressions FAIL on Radeon890M Vulkan; render-rasterClippyPASS.",
+    "remaining": "One width/transform/backend; no production fix or all-transform certification."
+  },
+  {
+    "id": "2038-D58",
+    "kind": "decision-rationale-qualification",
+    "clauses": [
+      "8.5.4",
+      "10.7.4"
+    ],
+    "summary": "RasterADR0030 interval argument does not prove min is always closer to fractional intersection than product.",
+    "evidence": "Analytical rectangles give a=.875,b=.4,overlap=.3,product=.35,min=.4. Product is closer here; min still preserves idempotence and upper bound.",
+    "disposition": "Qualify historical rationale and distinguish current exact geometric meets from bounded fallback/group approximations.",
+    "qualification": "No universal source-prescribed AA-byte bound inferred. Extreme-coordinate depth-cap concern remains an unconfirmed residual."
   }
 ]
