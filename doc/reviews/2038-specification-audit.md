@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (71)
+## Current checkpoint (72)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **80 assertions**, grouped into behavior findings rather
@@ -172,6 +172,14 @@ exact-pixel controls. Model/core Clippy passes. Binary transport review confirms
 an existing full binary-prefix save assertion and qualifies the narrower C API
 evidence. No new runtime failure is added; structure-split cardinalities remain
 under review because preserving edges alone does not prove required sequences.
+
+Checkpoint72 confirms four real-window transition sequence checks under X11:
+GTK, Qt, Quorra default and Quorra CPU. These supplement static geometry tests;
+captured endpoint bounds alone do not prove exact effects or hardware provenance.
+The69 broad file references are reconciled: all have named siblings, and three
+sampled rows contain five of those references. Silent-skip follow-up preserves
+existing findings and their limits. No new runtime failure is added. Broad64 now
+predates11 new broad-scope passing tests; native checks are recorded separately.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

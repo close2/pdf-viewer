@@ -1,0 +1,5 @@
+{
+  "inventory": "Reparsed inventory:69 file-only references, all matched paths and named siblings. The three sampled clauses contain five references;64 references lie outside those rows, not66. Semantic review samples assertion bodies, not every assertion in those five files.",
+  "assertions": "Read stream LF/CRLF no-recovery and explicit-Length controls; DeviceGray endpoint/initialization and midpoint tests; text mode fill/stroke order, clip-at-ET, q/Q lifetime, empty-outline controls; ADR0022. Display-list assertions establish emitted commands/clips rather than actual pixels by themselves. Existing public raster shards supplement them.",
+  "limitations": "No new execution. DeviceGray quarter-route equality contains imprecise comment:0x40/255 is not exactly0.25; rounding makes both map64. Literal intermediate RGB expectations describe chosen device conversion. Named siblings alone never establish semantic coverage."
+}

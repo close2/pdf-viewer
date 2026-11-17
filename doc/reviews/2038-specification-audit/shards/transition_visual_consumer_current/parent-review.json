@@ -1,0 +1,8 @@
+{
+  "source": "Parent read physical476/461 presentation permission and destination Trans wording. Table164 starts477, not476. Source permission is conditional on offered presentation; R/default is no effect.",
+  "consumers": "Read NativeWindow arming and arriving-face capture, PresentationPump tick/Frame result, GTK refresh and Qt frame-update consumers, Quorra separate presentation implementation. Read ADR0230 distinction between deterministic frame composition and host scheduling.",
+  "camera_oracle": "Read complete step83: actual X11 pixels sampled, consecutive held frames determine endpoints, at least three settled frames and movement plus per-channel endpoint bounds. Those endpoints are captured, not literal expected red/blue/green rasters. The camera does not independently establish exact style geometry or even precise page identity. Source-literal static-frame controls supplement this sequencing check; do not call the camera a complete effect oracle.",
+  "execution": "native-build-wave72.log PASS. transitions-wave72b.log4works/0wrong: GTK29/24, Qt40/31, Quorra default40/28, Quorra --cpu42/27 moving frames,3 settled each. Actual window-pixel capture, not only events. Initial wave72 inherited desktop display settings and found no Xvfb windows; terminated, then explicit X11 rerun passed.",
+  "limits": "Sampled9-second X11 capture is scheduler/load dependent and does not prove physical display scanout, all transitions, all layouts or exact timing.",
+  "provenance_limit": "Script overwrites Quorra default-arm log with later --cpu log. Four verdicts retain launch-arm distinction but do not independently retain actual hardware-adapter provenance. No assertion here certifies hardware use from environment variables."
+}

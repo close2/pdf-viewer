@@ -1,0 +1,28 @@
+{
+  "selected_reviews": [
+    {
+      "adr": "0230",
+      "topic": "A frame is two pages and a fraction",
+      "disposition": "reaffirm core frame model and source-literal rendering tests; qualify as evidence, not current proof of native presentation",
+      "reason": "ADR 0230 correctly separates frame composition from the host clock and records Xvfb observations that found ordering and raster-orientation defects. Its listed screenshot work is historical/manual evidence. Current code has since moved the common timer and raster frame into viewer-host's PresentationPump, and step 83 in tools/drive-windows.sh is the more current end-to-end window-pixel check. Neither makes Table 164's quantities normative."
+    },
+    {
+      "adr": "0473",
+      "topic": "The clock two windows did not have",
+      "disposition": "reaffirm architecture and shared timing logic; do not count shared Clock unit tests as proof that each toolkit displayed its frames",
+      "reason": "All three native presentation hosts now call the common presentation pump, and their visual consumers are explicit: GTK texture, Qt frame update, Quorra surface frame. The clock unit tests establish deterministic progress/expiry, but assertions at those seams do not independently certify the toolkit scheduling/refresh path; the step-83 Xvfb capture addresses that separate evidence point."
+    },
+    {
+      "adr": "1299",
+      "topic": "Owner-selected transition quantities",
+      "disposition": "preserve chosen quantities as policy/implementation parameters, not source-derived values",
+      "reason": "Table 164 specifies named effects but omits numeric granularity for Blinds, Dissolve, Glitter and Fly. The owner ruling supplies an explicit reported choice. This review does not challenge or rederive those values."
+    },
+    {
+      "adr": "1216",
+      "topic": "Action transition outside presentation",
+      "disposition": "keep separate from this finding",
+      "reason": "§12.6.4.15 governs transition actions and its shall is not conditioned on presentation mode. This shard concerns page /Trans under §12.4.4.1, which is explicitly presentation-mode behavior."
+    }
+  ]
+}

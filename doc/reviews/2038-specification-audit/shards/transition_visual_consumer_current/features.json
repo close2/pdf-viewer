@@ -1,0 +1,40 @@
+{
+  "source": "ISO 32000-2:2020 with supplied EC3; primary PDF doc/ISO_32000-2_sponsored_EC3.pdf",
+  "scope": "\u00a712.4.4.1 incoming page transition display in the viewer's implemented presentation mode; not a certification of all presentation behavior or every native platform",
+  "features": [
+    {
+      "id": "page_transition_visual_execution_in_presentation",
+      "clause": "12.4.4.1, Table 164, NOTE 2 and EXAMPLE",
+      "source_location": "physical pp.476\u2013478 / printed pp.461\u2013463: \u00a712.4.4.1 opening paragraph and /Trans paragraph at physical 476/printed 461; Table 164 begins at physical 477/printed 462 and continues to physical 478/printed 463; NOTE 2 at physical 478/printed 463; EXAMPLE at physical 479/printed 464",
+      "effective_rule": "Entering presentation mode is optional: the opening paragraph says an interactive processor may support presentation/slide show. This viewer implements one (`p`, and the three native hosts enter its presentation state). Within that mode, a destination page's optional /Trans supplies the visual transition for moving to that page; \u00a712.4.4.1 says its transition dictionary describes the style and duration of the visual transition to use. Table 164 gives each named effect's observable behavior. Its NOTE 2 assigns the destination page's /D to the transition into it, and the example says the effect happens before the arriving page's display-duration clock begins. /S defaults to R, which is an immediate replacement; therefore the source does not demand a visible animation when no non-R transition is specified. The four styles with an unstated quantity use owner-approved, documented quantities (A72/ADR 1299), not source-defined numerics.",
+      "implementation_path": [
+        "crates/viewer-core/src/viewer/navigation.rs: incoming page emits Event::Transition",
+        "crates/viewer-host/src/native_window.rs: event arms transition; arriving NeedsRender captures outgoing/incoming faces and begins Clock",
+        "crates/viewer-host/src/presentation_pump.rs: time tick obtains transition frame and rasterizes it",
+        "crates/viewer-gtk/src/host/presentation.rs: Turned::Frame becomes texture and refresh",
+        "crates/viewer-qt/src/host/presentation.rs: Turned::Frame updates Qt frame accessors",
+        "crates/viewer-ui/src/bin/quorra/presentation.rs and dispatch.rs: timed frame/list rendered through window/surface"
+      ],
+      "assertion_evidence": [
+        "crates/viewer-core/tests/headless.rs::a_page_stating_a_duration_advances_when_it_is_told_the_time: incoming Wipe chosen when the destination page arrives; not a visual host assertion",
+        "crates/viewer-core/tests/headless.rs::a_transition_frame_is_between_the_two_pages: exact-xref two-colour pages, presentation tick, Event::Transition and source-derived literal pixel values at chosen 25% and 50%; verifies geometry but uses chosen fractions rather than the host wall clock",
+        "crates/viewer-host/src/clock.rs::the_clock_is_held_while_a_transition_is_drawn, ::a_frame_is_drawn_until_the_duration_runs_out, ::the_interval_follows_whether_anything_is_moving: deterministic elapsed-time/timing lifecycle, but no raster pixel oracle in these tests",
+        "crates/viewer-ui/tests/transition_frames.rs::both_backends_draw_the_same_transition_frame and ::a_dissolve_and_a_fly_are_the_same_frame_on_both_backends: deterministic CPU and headless-device raster assertions against literal geometry/colour expectations, but static chosen fractions, not presentation sequencing",
+        "tools/drive-windows.sh::transition_frames (step 83): writes a three-slide PDF with red/blue/green pages and destination Wipe/Split; enters presentation with p; records actual window pixels for nine seconds on GTK, Qt, Quorra device and Quorra --cpu; requires three settled pages, movement in both transitions, and zero pixels outside the endpoint-page colour range. This is an end-to-end visual sequencing assertion, although it is an explicit Xvfb drive script rather than a Cargo test/gating test."
+      ],
+      "judgement": "The implementation is wired to produce and display timed frames in all three enabled native hosts. Assertions are distributed: core selection/event, host clock timing, backend static-pixel output, plus the step-83 native-window capture script for end-to-end timing and visible sequencing. Thus the old event-only assertion is not the whole evidence set. I found no missing implementation behavior or concrete current failure from this bounded review. The remaining evidence weakness is repeatability/gating: the only actual-window timed sequence check is tools/drive-windows.sh, which is a manually invoked Xvfb workflow, while ordinary tests do not join the native event loop, timer, and surface in one deterministic test. The prior ADR 0230 Xvfb screenshots are historical evidence and not substitutes for a current run.",
+      "limitations": [
+        "Source says an interactive processor may offer presentation mode; this finding does not turn that permission into a universal requirement for other readers.",
+        "Static core tests and host-clock unit tests alone do not prove that a native toolkit scheduled or showed the frames.",
+        "The drive script's window capture is X11 backing/window pixels, not compositor scanout or proof of physical display presentation.",
+        "No statement here proves every Table 164 style has been visually captured in each host; only the frame-shape tests cover broader style behavior, with chosen-quantity styles explicitly implementation choices."
+      ]
+    }
+  ],
+  "parent_execution": {
+    "log": "transitions-wave72b.log",
+    "passed_window_checks": 4,
+    "failed_window_checks": 0,
+    "limitations": "Captured endpoints are not independent page-pixel expectations; exact style geometry is covered only by separate static tests. Default launch is not a retained hardware-adapter certificate."
+  }
+}

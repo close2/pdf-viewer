@@ -1887,6 +1887,19 @@
       "log": "quality-core-model-wave71c.log",
       "exit": 0,
       "scope": "model/core all-targets Clippy"
+    },
+    {
+      "log": "native-build-wave72.log",
+      "exit": 0,
+      "scope": "Build current GTK/Qt/Quorra binaries; generated C++ compiler warnings remain"
+    },
+    {
+      "log": "transitions-wave72b.log",
+      "checks": 4,
+      "passed": 4,
+      "failed": 0,
+      "exit": 0,
+      "scope": "X11 actual-window transition sequence, not Cargo tests; default-mode hardware provenance not retained"
     }
   ],
   "prior_expected_failures": {

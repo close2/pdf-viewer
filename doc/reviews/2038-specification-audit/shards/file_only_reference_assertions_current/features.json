@@ -1,0 +1,72 @@
+{
+  "baseline": "b901326c",
+  "inventory": {
+    "source": "scratchpad/r2038/spec-audit/ledger-symbol-precheck.json, reconciled against doc/conformance/ledger.toml by inventory.py",
+    "raw_file_only_reference_count": 69,
+    "function_basename_reference_count_in_precheck": 4090,
+    "matched_to_current_ledger_rows": 69,
+    "matching_rows_also_have_named_test_references": 69,
+    "interpretation": "This is a supplemental-reference audit, not 69 rows with only file-level test evidence. Every file-only path in the inventory accompanies at least one named test reference in the same current ledger row. The machine-readable inventory retains the full list and sibling names; only three rows are semantically sampled here.",
+    "sampled_clause_rows": 3,
+    "file_only_references_in_sampled_rows": 5,
+    "references_outside_sampled_rows": 64
+  },
+  "sampled_features": [
+    {
+      "clause": "7.3.8.1",
+      "title": "General stream syntax and stream-keyword separator",
+      "source_location": "Primary physical p.46 / printed p.31. A stream is an indirect object with a direct stream dictionary; the `stream` keyword must be followed by LF or CRLF, not a bare CR. Data begins after that EOL marker and its extent is the dictionary Length.",
+      "ledger_refs": [
+        "crates/pdf-syntax/tests/stream_keyword_padding.rs",
+        "crates/pdf-syntax/tests/real_documents.rs"
+      ],
+      "assertions_inspected": [
+        "stream_keyword_padding.rs::a_conforming_marker_is_not_a_recovery",
+        "stream_keyword_padding.rs::spaces_no_marker_ends_are_left_where_they_are",
+        "stream_keyword_padding.rs::a_length_that_counts_the_padding_as_data_wins",
+        "stream_keyword_padding.rs::padding_before_the_marker_is_skipped_and_reported",
+        "stream_keyword_padding.rs::the_crawled_witness_decodes_every_fax_image"
+      ],
+      "assessment": "Valid LF and CRLF controls, non-recovery controls, length precedence, and the chosen malformed-padding recovery are separately asserted. The corpus fax case is optional/machine-local; the exact synthetic tests are deterministic. The malformed padding policy is not itself a normative shall."
+    },
+    {
+      "clause": "8.6.4.2",
+      "title": "DeviceGray colour space",
+      "source_location": "Primary physical p.197 / printed p.182, continuing to physical p.198 / printed p.183. A component is one number from 0.0 black to 1.0 white with intermediate gray levels; selecting DeviceGray initializes the corresponding current color to 0.0.",
+      "ledger_refs": [
+        "crates/pdf-model/tests/colour_paths.rs"
+      ],
+      "assertions_inspected": [
+        "colour_paths.rs::a_grey_is_the_same_however_it_is_drawn",
+        "colour_paths.rs::a_grey_level_is_its_fraction_of_white_and_selecting_the_space_starts_it_at_black"
+      ],
+      "assessment": "The assertions exercise g/G, cs/CS, sc/SC and an 8-bit DeviceGray image route, with exact black/white endpoints, intermediate values, initialization, and cross-route controls. Exact RGB byte outputs are the project's CPU-device mapping; the source separately warns that device-colour results can vary by device, so the byte-for-byte midtone oracle should not be cited as a universal ISO colorimetric requirement."
+    },
+    {
+      "clause": "9.3.6",
+      "title": "Text rendering mode",
+      "source_location": "Primary physical p.318 / printed p.303; Table 104 is physical p.319 / printed p.304. Text mode combines fill, stroke, and clipping; those operations have path-equivalent effects and are parameterized in user space. Text clipping takes effect after text-object painting and lasts until a prior clip is restored.",
+      "ledger_refs": [
+        "crates/pdf-model/tests/text_render_modes.rs",
+        "crates/pdf-model/tests/glyph_clip_direction.rs"
+      ],
+      "assertions_inspected": [
+        "text_render_modes.rs::mode_0_fills_only",
+        "text_render_modes.rs::mode_1_strokes_only_and_in_the_stroking_colour",
+        "text_render_modes.rs::mode_2_fills_then_strokes_each_glyph_in_turn",
+        "text_render_modes.rs::a_glyph_is_stroked_with_a_width_stated_in_user_space",
+        "text_render_modes.rs::mode_7_clips_what_follows_and_paints_nothing",
+        "text_render_modes.rs::the_clip_begins_at_et",
+        "text_render_modes.rs::a_text_clip_survives_et_and_ends_at_q",
+        "text_render_modes.rs::a_clipping_mode_showing_only_spaces_clips_nothing",
+        "text_state_residual_audit.rs::hidden_optional_content_still_contributes_text_clip"
+      ],
+      "assessment": "The file-level citation is redundant to numerous named tests. The reviewed suite contains positive paint, distinct color, clip-timing, q/Q restoration, empty-outline, Type 3, and reporting cases. A separate hidden optional-content test covers the cross-clause clip persistence decision. No uncovered requirement was found in this sampled subset."
+    }
+  ],
+  "limits": [
+    "Only the three sampled semantic rows were read against primary source and assertion bodies. The other 64 file-only references are preserved in inventory.json, not semantically certified by this artifact.",
+    "The inventory's named-sibling check proves only that the same ledger row also cites at least one ::test reference; it does not prove that the named test covers the file-only citation's intended feature.",
+    "No production behavior conclusion is drawn from a raw file-level citation alone. No test draft was justified by these three samples."
+  ]
+}

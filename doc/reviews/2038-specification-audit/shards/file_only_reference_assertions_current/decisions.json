@@ -1,0 +1,21 @@
+{
+  "baseline": "b901326c",
+  "selected_reviews": [
+    {
+      "clause": "7.3.8.1",
+      "related_adrs": ["ADR 1349", "ADR 1365"],
+      "review": "ADR 1365 accurately distinguishes the valid-source syntax (LF or CRLF) from the extra recovery for padded stream keywords. Its tests pair valid delimiters and malformed-padding cases, and assert that Length can decide whether bytes before a marker are payload. The corpus fax witness supports the motivation but is optional; the synthetic tests carry the reproducible evidence. No normative malformed-file refusal requirement is inferred."
+    },
+    {
+      "clause": "8.6.4.2",
+      "related_adrs": [],
+      "review": "No separate DeviceGray policy ADR was needed to establish the source component range, endpoints, or initial color. The reviewed assertions support the code's chosen raster mapping and route consistency. ISO describes device-space results as potentially device-dependent; the tests' exact CPU RGB values are an implementation contract, not an ISO-wide byte oracle."
+    },
+    {
+      "clause": "9.3.6",
+      "related_adrs": ["ADR 0022", "ADR 0396", "ADR 0844"],
+      "review": "ADR 0022's three-operation interpretation matches the source's fill/stroke/clip combinations and named assertions. Its empty-outline exception is explicitly tested. ADR 0396 handles non-zero glyph winding; ADR 0844 carries the user-space stroke rule into scan conversion. The hidden optional-content clip behavior is separately asserted in text_state_residual_audit.rs. I found no contradiction in these sampled decisions."
+    }
+  ],
+  "overall": "The sampled file-only entries are not treated as evidence on their own. The corresponding source obligations were mapped to the actual assertion functions; no new valid-input behavior gap was established."
+}

@@ -3,6 +3,34 @@
   "numbering": "Logical content items use published ledger owners14.7.5.1.1/.2/.3/.4 for effective EC3 .2/.3/.4/.5; navigator owner12.3.6 maps effective12.3.5.3. JBIG2 external Annex D is not ISO PDF Annex D.",
   "shards": [
     {
+      "shard": "silent_fixture_skip_remaining_current",
+      "artifact": "shards/silent_fixture_skip_remaining_current/features.json",
+      "ledger_owners": [
+        "12.4.3",
+        "12.3.5",
+        "9.6.2.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "file_only_reference_assertions_current",
+      "artifact": "shards/file_only_reference_assertions_current/features.json",
+      "ledger_owners": [
+        "7.3.8.1",
+        "8.6.4.2",
+        "9.3.6"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "transition_visual_consumer_current",
+      "artifact": "shards/transition_visual_consumer_current/features.json",
+      "ledger_owners": [
+        "12.4.4.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
       "shard": "lang_hex_and_predictor_bpc_current",
       "artifact": "shards/lang_hex_and_predictor_bpc_current/features.json",
       "ledger_owners": [
