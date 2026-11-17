@@ -58,7 +58,10 @@ Each program is a bare CFF, which Table 124 admits under a `Type1` dictionary as
 /Type1C` — the form the Foxit faces take — with every charstring desubroutinised so that its width
 is its own first operand (ADR 2642). Every glyph is named by the Adobe Glyph List: one glyph under
 each name the list gives a character the source maps, and `uniXXXX` where it gives none, so a
-simple font's `/Differences` name reaches its glyph by §9.6.5's route.
+simple font's `/Differences` name reaches its glyph by §9.6.5's route. One departure is the owner's
+choice (A888, ADR 2952), not a reading of §9.10.2: a name version 1.2 of the list mapped to two
+characters, whose 2.0 character the source does not map, is drawn by its other 1.2 character's
+glyph — in the four Noto Serif faces, `Delta` by the Greek capital delta, the one name it reaches.
 
 `tools/state.sh` does not count the pack; `python3 -I -B tools/lgc-pack.py --source <dir> --out
 <dir>` prints each face's glyph count and size.

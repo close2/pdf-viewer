@@ -116,12 +116,12 @@ impl LgcFace {
     const fn digest(self) -> &'static str {
         match self {
             Self::SerifRegular => {
-                "f6331aa0a1c6560f38bdee05d1352ee52eb10b3e508538d595c8b9a3436fb68d"
+                "cfa42c430341a299dcb1ff450453c9cf2edab58fb05a16c0c601f41482e1b7b2"
             }
-            Self::SerifBold => "7f9eaf22ddfd9c8d86ac9c6b15ef7331d9010de8b5bea77e1895a457283e2785",
-            Self::SerifItalic => "717d982dfb48fba78276620ca4998472465fe666b544903e95da5b4d98a36956",
+            Self::SerifBold => "3f15f4675feec6b080dd4d56afea5e819854131b6843d47a8281727e09af2e64",
+            Self::SerifItalic => "4c4783850f8d8ebe381f162ca3de254b7ea5d6b1764ab33f179a2d42cc305512",
             Self::SerifBoldItalic => {
-                "bb18cffc103dc00fbb683566fd19d5058522b7ade402b79ff57870efede1de49"
+                "f20d2f9655845c9d6bb754d619222ea7026612f0a5b23185f0a5a5680aa862c5"
             }
             Self::MonoRegular => "7628d0991bb74a7764c82b5d906a0edfebea58f1ea8a8fdd44f53c75263fae30",
             Self::MonoBold => "0efd3c29d995835d8739073487e3d627fbba10d54248c6d269451f7549f73ba8",

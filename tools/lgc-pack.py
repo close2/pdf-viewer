@@ -26,6 +26,9 @@ directory `lgc-pack/` holding those files, which is what CI publishes beside the
    9.6.5), so every glyph is named by the Adobe Glyph List: one glyph under each name the list gives
    a character the source maps, and `uniXXXX` (`uXXXXX` above the BMP) for a character it names
    none for. A character the list names twice (`afii10017` and `Acyrillic`) is drawn by two copies.
+   One departure, the owner's choice (A888, ADR 2952): a name version 1.x of the list mapped to two
+   characters, whose 2.0 character the source does not map, is drawn by the glyph of its other 1.x
+   character (`DOUBLE_MAPPED`).
 4. Each charstring states its own width as its first operand and calls no subroutine, so the width
    the converter restates is the one a reader of the program finds (ADR 2642).
 
@@ -48,7 +51,7 @@ from fontTools.varLib import instancer
 
 # The pack's number, in its zip's name: the next one whenever a byte of the output moves, which is
 # whenever the digests `lgc_pack.rs` carries change.
-PACK_VERSION = 1
+PACK_VERSION = 2
 
 # google/fonts at a commit that holds both families' variable fonts and their licence.
 COMMIT = "097bc1b8c04c3224087c2ae95f7a923859b778cf"
@@ -68,6 +71,28 @@ SOURCES = {
     "OFL.txt": (
         RAW + "notoserif/OFL.txt",
         "cee9892f9f0cc8fe882c9e9537ee6a89621d86ee7ceaf70b02e2b2b1c25c061a"),
+}
+
+# The twelve names version 1.2 of the Adobe Glyph List (22 Oct 1998) mapped to two characters, each
+# to the one 2.0 does not keep: the lines its own header counts ("12 glyph names are mapped to two
+# UVs each") and marks `Duplicate`. The 1.2 file is no longer published by Adobe; the copy read is
+# the Wayback Machine's of http://partners.adobe.com/asn/developer/type/glyphlist.txt at
+# 20010215130957, SHA-256 62ad74724df1b2ea160fe45afd414cc6382e21872235249224468360521b855c. A name
+# takes its glyph from here only where the source maps no glyph for its 2.0 character and does map
+# this one; where it maps neither, the face has no glyph of that name (ADR 2952).
+DOUBLE_MAPPED = {
+    "Delta": 0x0394,           # 2.0: U+2206 INCREMENT; 1.2 also GREEK CAPITAL LETTER DELTA
+    "Omega": 0x03A9,           # 2.0: U+2126 OHM SIGN; 1.2 also GREEK CAPITAL LETTER OMEGA
+    "Scedilla": 0xF6C1,        # 2.0: U+015E; 1.2 also the Corporate Use copy
+    "Tcommaaccent": 0x021A,    # 2.0: U+0162; 1.2 also LATIN CAPITAL LETTER T WITH COMMA BELOW
+    "fraction": 0x2215,        # 2.0: U+2044 FRACTION SLASH; 1.2 also DIVISION SLASH
+    "hyphen": 0x00AD,          # 2.0: U+002D HYPHEN-MINUS; 1.2 also SOFT HYPHEN
+    "macron": 0x02C9,          # 2.0: U+00AF MACRON; 1.2 also MODIFIER LETTER MACRON
+    "mu": 0x03BC,              # 2.0: U+00B5 MICRO SIGN; 1.2 also GREEK SMALL LETTER MU
+    "periodcentered": 0x2219,  # 2.0: U+00B7 MIDDLE DOT; 1.2 also BULLET OPERATOR
+    "scedilla": 0xF6C2,        # 2.0: U+015F; 1.2 also the Corporate Use copy
+    "space": 0x00A0,           # 2.0: U+0020 SPACE; 1.2 also NO-BREAK SPACE
+    "tcommaaccent": 0x021B,    # 2.0: U+0163; 1.2 also LATIN SMALL LETTER T WITH COMMA BELOW
 }
 
 # Output file -> (source, weight, PostScript name, full name). The four styles of the Foxit serif
@@ -102,6 +127,19 @@ def names_by_character():
     return names
 
 
+def borrowed_names(cmap):
+    """Each character whose glyph a `DOUBLE_MAPPED` name borrows in a face mapping `cmap`.
+
+    A name borrows only where the list as it stands gives it a character the face lacks, so a face
+    that maps that character keeps the list's reading."""
+    borrowed = {}
+    for name, character in DOUBLE_MAPPED.items():
+        (listed,) = agl.LEGACY_AGL2UV[name]
+        if listed not in cmap and character in cmap:
+            borrowed.setdefault(character, []).append(name)
+    return borrowed
+
+
 def own_name(character):
     """The name the Adobe Glyph List specification builds for a character it lists no name for."""
     return f"uni{character:04X}" if character <= 0xFFFF else f"u{character:05X}"
@@ -118,8 +156,10 @@ def build(entry, source_dir):
     listed = names_by_character()
     order = [".notdef"]
     drawn = {".notdef": ".notdef"}
-    for character, glyph in sorted(font.getBestCmap().items()):
-        for name in listed.get(character, [own_name(character)]):
+    cmap = font.getBestCmap()
+    borrowed = borrowed_names(cmap)
+    for character, glyph in sorted(cmap.items()):
+        for name in listed.get(character, [own_name(character)]) + borrowed.get(character, []):
             if name not in drawn:
                 order.append(name)
                 drawn[name] = glyph

@@ -386,3 +386,53 @@ fn a_name_the_standard_font_lacks_is_stated_at_the_pack_glyphs_own_advance() {
         after.advance(beta)
     );
 }
+
+/// `Times-Roman` stated by name alone, its code 135 naming `Delta` as ADR 2630's Greek document
+/// does; the standard's metrics carry the name, at 612.
+fn a_standard_font_by_name_alone_showing_a_delta() -> Vec<u8> {
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (\\207) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman /Encoding << /Type /Encoding \
+             /BaseEncoding /WinAnsiEncoding /Differences [135 /Delta] >> >>"
+                .to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// ADR 2952 (A888): the Adobe Glyph List 2.0 gives `Delta` U+2206, which Noto Serif does not map,
+/// so the pack's serif faces draw the name with the Greek capital delta 1.x also gave it. The
+/// converted file draws that glyph at the width the standard's metrics name.
+#[test]
+#[ignore = "needs the Latin-Greek-Cyrillic pack, a download that is not part of a checkout: \
+            QUORRA_LGC_PACK=<dir> names it (doc/lgc-pack.md)"]
+fn a_name_the_list_once_mapped_twice_is_drawn_by_the_greek_letter() {
+    let directory = std::env::var_os("QUORRA_LGC_PACK")
+        .expect("QUORRA_LGC_PACK names the directory the pack was unpacked into");
+    let pack = LgcPack::new(Arc::new(Directory(Some(directory.into()))));
+    let fixture = a_standard_font_by_name_alone_showing_a_delta();
+    let (_, output) = convert_with_plan(&fixture, &plan_with(Some(pack)));
+    let held = Document::open_with_limits(output.expect("it converts"), Limits::DEFAULT)
+        .expect("it opens");
+    let after = pdf_font::LoadedFont::load(&held, &font_resource(&held), "F1").expect("it loads");
+    let delta = pdf_font::Code::single_byte(135);
+    assert!(
+        after
+            .glyph_index(delta)
+            .is_some_and(|glyph| glyph != pdf_font::NOTDEF_GLYPH),
+        "the pack face's Delta is drawn"
+    );
+    assert!(
+        (after.advance(delta) - 0.612).abs() < 1e-6,
+        "{}",
+        after.advance(delta)
+    );
+}
