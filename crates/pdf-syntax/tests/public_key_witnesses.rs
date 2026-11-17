@@ -44,7 +44,7 @@
 //! The audit adds generated s5 documents with shared and distinct stream/string defaults.
 //! OpenSSL produces their CMS envelopes and AESV2 data; a separate script extracts and
 //! decrypts the retained PDF bytes against literal plaintext. These are generated controls,
-//! not PDFBox documents. The scripts and hashes are recorded in the round 2038 audit shard
+//! not `PDFBox` documents. The scripts and hashes are recorded in the round 2038 audit shard
 //! `dual_public_key_default_filters`.
 //!
 //! # The fifth document

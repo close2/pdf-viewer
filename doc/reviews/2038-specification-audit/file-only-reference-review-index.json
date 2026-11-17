@@ -1,8 +1,8 @@
 {
   "scope": "Selected assertion reading per exact ledger pointer, not full referenced-file/feature conformance. Some reviewed pointers have no direct assertion of the owning subtype; see shard limits.",
   "total": 69,
-  "partially_reviewed": 34,
-  "remaining": 35,
+  "partially_reviewed": 44,
+  "remaining": 25,
   "references": [
     {
       "clause": "7.3.7",
@@ -15,8 +15,10 @@
     {
       "clause": "7.3.7",
       "path": "crates/pdf-model/tests/damaged_char_procs.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_consumer_assertions_batch3_current/features.json"
+      ]
     },
     {
       "clause": "7.3.8.1",
@@ -87,14 +89,18 @@
     {
       "clause": "7.7.2",
       "path": "crates/pdf-model/tests/optional_content.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_consumer_assertions_batch3_current/features.json"
+      ]
     },
     {
       "clause": "7.7.3.3",
       "path": "crates/pdf-model/tests/page_geometry.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_consumer_assertions_batch3_current/features.json"
+      ]
     },
     {
       "clause": "7.7.3.3",
@@ -272,14 +278,18 @@
     {
       "clause": "8.7.3.1",
       "path": "crates/pdf-model/tests/tiling.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_native_shading_assertions_current/features.json"
+      ]
     },
     {
       "clause": "8.7.4.5.2",
       "path": "crates/render-cpu/tests/sampled_shading.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_native_shading_assertions_current/features.json"
+      ]
     },
     {
       "clause": "8.7.4.5.3",
@@ -352,8 +362,10 @@
     {
       "clause": "9.4.3",
       "path": "crates/pdf-model/tests/text_extraction.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_consumer_assertions_batch3_current/features.json"
+      ]
     },
     {
       "clause": "10.7",
@@ -458,26 +470,34 @@
     {
       "clause": "12.2",
       "path": "crates/viewer-ffi/tests/window_chrome.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_consumer_assertions_batch3_current/features.json"
+      ]
     },
     {
       "clause": "12.2",
       "path": "crates/viewer-ffi/src/window/chrome_tests.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_native_shading_assertions_current/features.json"
+      ]
     },
     {
       "clause": "12.2",
       "path": "hosts/windows/Quorra.Chrome.Tests/Program.cs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_native_shading_assertions_current/features.json"
+      ]
     },
     {
       "clause": "12.2",
       "path": ".github/workflows/ci.yml",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_native_shading_assertions_current/features.json"
+      ]
     },
     {
       "clause": "12.8.1",

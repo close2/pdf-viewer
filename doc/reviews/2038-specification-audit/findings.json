@@ -479,7 +479,8 @@
     "test": "pdf-model::page_geometry::a_disjoint_page_boundary_clips_all_content_instead_of_defaulting_to_the_medium",
     "execution": "FAIL for all four boxes; partial-overlap controls pass, exact xrefs/no recovery, complete interpretation.",
     "adr_review": "ADR0414 explicitly endorses fallback; reconsider its inference from defaults. Test chooses ViewAreaMediaBox and each ViewClip to preserve a nonempty viewport, so no zero-size output policy is imposed.",
-    "remaining": "Production behavior/ADR unchanged. A future fix needs an explicit representation of empty clipping distinct from absent/default box and regression review of intentional recovery policy."
+    "remaining": "Production behavior/ADR unchanged. A future fix needs an explicit representation of empty clipping distinct from absent/default box and regression review of intentional recovery policy.",
+    "second_review": "shards/behavior_fixture_second_review_current/features.json"
   },
   {
     "id": "2038-T12",
@@ -561,7 +562,8 @@
     "decision": "ADR0056 treats the one-pixel note as grounds to omit clipping; this does not follow from the defining clipping rule.",
     "test": "pdf-model::degenerate_tiling_bbox_clip_spec_audit::a_zero_height_pattern_bbox_clips_distant_cell_marks_but_scan_converts_its_boundary",
     "execution": "FAIL: distant pixel opaque red vs transparent; ordinary-box and near-boundary controls pass. pattern-syntax-wave15.log",
-    "limits": "Zero-height case directly tested; zero-width code branch shares cause but no separate executed test. Does not fix exact device boundary ownership."
+    "limits": "Zero-height case directly tested; zero-width code branch shares cause but no separate executed test. Does not fix exact device boundary ownership.",
+    "second_review": "shards/behavior_fixture_second_review_current/features.json"
   },
   {
     "id": "2038-T17",
@@ -772,7 +774,8 @@
     "code": "pdf-colour colour/parsing.rs::parse_icc_based returns Alternate directly when Profile parsing fails, losing ICC Range.",
     "execution": "FAIL validated ICC2 v5 Lab profile input a150: RGB[255,0,128] instead of clamped direct-Lab[255,0,126]. Controls distinguish clamp before expected failure.",
     "fixture": "Synthetic528-byte profile independently accepted by official ICC iccDEV2.3.2.5; generator reproduced byte-for-byte; provenance and hashes committed.",
-    "limits": "Fallback-specific fixture; reassess if this profile becomes supported. Two-level blue difference is deterministic with current rendering path."
+    "limits": "Fallback-specific fixture; reassess if this profile becomes supported. Two-level blue difference is deterministic with current rendering path. DirectLabcontrol sharesconversionpath; independentlydistinguishes clamporder, notcolorimetricabsoluteaccuracy.",
+    "second_review": "shards/behavior_fixture_second_review_current/features.json"
   },
   {
     "id": "2038-D10",
@@ -1227,7 +1230,8 @@
     "summary": "A valid page-level output condition without an embedded profile is replaced by the catalog\u2019s different press.",
     "evidence": "Two public regressions fail: gray[96,97,97] instead of page-only[64,64,64], and Catalog GRACoL reported in force. Catalog-only and valid registered-condition controls distinguish profile parsing from priority.",
     "source": "Primary839/824 page-level precedence;837/822 profile optionality for registered condition;839 Example1 CGATS TR001.",
-    "remaining": "Suppress unrelated catalog selection; no automatic lookup or invented page transform required."
+    "remaining": "Suppress unrelated catalog selection; no automatic lookup or invented page transform required. Applieswhen productchoosesto honoroutputintents; processorsmaydisregardthem.",
+    "second_review": "shards/behavior_fixture_second_review_current/features.json"
   },
   {
     "id": "2038-B34",
@@ -1284,7 +1288,8 @@
     "summary": "The page transparency detector counts annotation CA even when an explicit opaque appearance makes that value inapplicable.",
     "source": "Table166CAphysical485/470: appearance carries transparency when present. AnnexQ#51addsBM, notCA.",
     "evidence": "PublicSurveyreports transparent for validPDF2pushbuttonAPwithCA.5. AbsentCA/CA1opaque andBMMultiplytransparent controls pass; exactxrefandcompletewalkguard.",
-    "impact": "Archive graphics checks consume this detector when requiring blending space/outputintent; consumer code traced, fullPDF/Aconformance case not asserted."
+    "impact": "Archive graphics checks consume this detector when requiring blending space/outputintent; consumer code traced, fullPDF/Aconformance case not asserted.",
+    "second_review": "shards/behavior_fixture_second_review_current/features.json"
   },
   {
     "id": "2038-D22",
@@ -2471,5 +2476,50 @@
     "summary": "Type5 Function order now checked by four independently computed interior pixels.",
     "execution": "PASS; model all-targets ClippyPASS.",
     "limits": "Two triangles, scalar t and red=t\u00b2 only; not all Function arrays/clamps/error routes."
+  },
+  {
+    "id": "2038-T99",
+    "kind": "test-oracle-gap",
+    "clauses": [
+      "7.5.4"
+    ],
+    "summary": "Disk/memory comparison used generation-zero IDs, allowing nonzero-generation objects to compare as Null on both sides.",
+    "change": "Compare actual defined IDs and values; add a literal generation 7 integer 123 versus generation 0 Null witness.",
+    "execution": "Nine selected syntax/archive tests PASS, including the explicit ignored corpus: fixture-oracles-wave77.log.",
+    "remaining": "The shared parser means this establishes storage-route agreement, not independent parser correctness."
+  },
+  {
+    "id": "2038-T100",
+    "kind": "test-oracle-gap",
+    "clauses": [
+      "9.3.4",
+      "9.4.3"
+    ],
+    "summary": "The horizontal TJ scaling test only asserted a ratio also satisfied when numeric adjustments are ignored.",
+    "change": "Add no-TJ controls and literal +10/+5 point deltas at 10 pt, retaining the existing ratio.",
+    "execution": "PASS normally and after restoration. Seeded zero-TJ mutation passes the old ratio and fails the new delta; production restored byte for byte.",
+    "remaining": "An existing Type 3 positive-TJ assertion independently covers ordinary adjustment; no claim that the whole suite would miss the mutant."
+  },
+  {
+    "id": "2038-D52",
+    "kind": "fixture-policy-hardening",
+    "clauses": [
+      "7.7.3.2",
+      "9.7.4.1"
+    ],
+    "summary": "Archive witness gate now fails missing named files beneath a present optional repository.",
+    "change": "Keep absent-repository skips explicit; require reading each named witness within a present repository.",
+    "execution": "All three present witnesses judged; listed rows fail both PDF/A targets; gate PASS.",
+    "remaining": "The prior per-file skip was documented policy, not a production defect. Optional repositories remain optional."
+  },
+  {
+    "id": "2038-D53",
+    "kind": "test-integration-residual",
+    "clauses": [
+      "12.2"
+    ],
+    "summary": "Windows HideWindowUI pure state tests do not observe actual XAML control visibility, and current runtime CI probe checks placement/fullscreen instead.",
+    "evidence": "MainWindow.ApplyChrome assigns StatusLine.Visibility and Navigation.IsPaneToggleButtonVisible; Probe reads pane/presenter/placement only. Quorra.Chrome.Tests uses pure ChromeState.",
+    "remaining": "A proposed positive/default actual-control probe remains unexecuted. No Windows runtime failure claimed; no Windows environment available here."
   }
 ]

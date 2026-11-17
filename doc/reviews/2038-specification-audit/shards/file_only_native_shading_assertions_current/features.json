@@ -1,0 +1,69 @@
+{
+  "shard": "file_only_native_shading_assertions_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "selection": [
+    ["12.2", "crates/viewer-ffi/src/window/chrome_tests.rs"],
+    ["12.2", "hosts/windows/Quorra.Chrome.Tests/Program.cs"],
+    ["12.2", ".github/workflows/ci.yml"],
+    ["8.7.3.1", "crates/pdf-model/tests/tiling.rs"],
+    ["8.7.4.5.2", "crates/render-cpu/tests/sampled_shading.rs"]
+  ],
+  "source_method": "Fresh pdftotext physical-page/footer inspection and direct pikepdf inspection of annotation dictionaries. Source locators use PDF physical page plus printed footer, not Markdown numbering.",
+  "features": [
+    {
+      "clause": "12.2",
+      "title": "C-window chrome/presentation state tests",
+      "file_only_reference": "crates/viewer-ffi/src/window/chrome_tests.rs",
+      "source_location": "§12.2, physical pp.452–453 / printed pp.437–438; Table 147. These Rust tests themselves do not exercise Table 147 values.",
+      "effective_rule": "Table 147 is a viewer-preference dictionary controlling on-screen or print presentation. The hide flags default false; /NonFullScreenPageMode is meaningful only when catalog /PageMode is /FullScreen. The test functions in this pointed file test C-window presentation synchronization, action clocks and /Dur rather than parsing /ViewerPreferences.",
+      "assertion_review": "`background_open_preserves_clock_and_face_replacement_clears_old_mode`, `synchronization_preserves_an_already_arrived_face_and_action_clock`, and `the_pump_advances_a_presentation_and_parks_it_while_the_window_is_hidden` assert state transitions and page advancement through the toolkit-free C window. They are executable cargo unit tests, but are not Table 147 hide/placement preference tests and do not exercise a native UI.",
+      "decision": "Do not count this path as direct Table 147 evidence. It remains valid neighboring presentation behavior evidence; other host and CI tests must carry the viewer-preference claim.",
+      "related_adrs": ["2308", "2436"],
+      "residuals": ["No OS/window-manager behavior is observed by these Rust tests."]
+    },
+    {
+      "clause": "12.2",
+      "title": "Windows chrome state mapping",
+      "file_only_reference": "hosts/windows/Quorra.Chrome.Tests/Program.cs",
+      "source_location": "Table 147, physical pp.452–453 / printed pp.437–438; #275 on physical p.453 inserts `UseAttachments (PDF 2.0) Attachments panel visible` into /NonFullScreenPageMode's permitted value list.",
+      "effective_rule": "The `ChromeState` unit test verifies the WinUI host's explicit policy mapping: HideWindowUI hides navigation/status controls while preserving an already-open pane; this host has no toolbar; the reader's permissions menu remains available despite HideMenubar (an explicit product policy); OtherWindows controls panel availability and prior-pane restoration. These are app policy choices layered on Table 147, not literal ISO mandates for each XAML control.",
+      "assertion_review": "The top-level console program calls the pure `ChromeState.Apply` function with visible/hidden combinations, reopen transitions, requested panel selection and explicit close. `tools/dotnet-check.sh` compiles the WinUI source using XAML stubs and then runs this console program on a host with .NET. That verifies mapping logic, not actual XAML control visibility or Windows AppWindow behavior. `viewer_preferences.rs` separately parses `UseAttachments` in both catalog PageMode and Table 147 NonFullScreenPageMode; the CI Windows probe exercises UseOutlines on exit from FullScreen.",
+      "decision": "Retain as unit evidence for the mapping function only. Do not report it as Windows UI runtime evidence or as a test of every Table 147 value.",
+      "related_adrs": ["1145", "2201", "2301", "2436"],
+      "residuals": ["The current direct Windows runtime probe does not visibly check HideToolbar/HideMenubar/HideWindowUI; the .NET state test does not close that XAML integration boundary."]
+    },
+    {
+      "clause": "12.2",
+      "title": "CI selection and Windows runtime probe",
+      "file_only_reference": ".github/workflows/ci.yml",
+      "source_location": "Table 147, physical pp.452–453 / printed pp.437–438; #275 is on physical p.453. Current workflow source inspected directly.",
+      "effective_rule": "The workflow's Linux workspace gate runs Rust integration/unit tests (excluding GTK, then GTK under Xvfb), and separate Windows jobs build portable crates and the WinUI app. The Windows `window` job starts the published app on a document and runs a `--probe` scenario that asserts /FitWindow page-area proportions, /CenterWindow placement, /NonFullScreenPageMode ignored outside FullScreen, FullScreen presenter state, and UseOutlines pane after Escape. The comments and assertions expressly bound those checks.",
+      "assertion_review": "The CI file is an executable selection/orchestration artifact, not an assertion itself. Its PowerShell writes valid-xref positive fixtures and tests native window readback. It does not run `Quorra.Chrome.Tests/Program.cs`; that is run by `tools/dotnet-check.sh`, which compiles with XAML stubs. Neither the Windows probe nor the pure state mapping currently observes actual Hide* control visibility. Source inspection establishes the intended gate but no CI execution occurred in this audit turn.",
+      "decision": "Count the Windows CI job as conditional actual-host evidence for placement/fullscreen only, and count dotnet-check's console run as host-independent state mapping evidence. Keep them distinct from Linux native-host results and from actual run-result claims.",
+      "related_adrs": ["2308", "2436", "2446", "2478"],
+      "residuals": ["A focused Windows probe of hidden controls would close the remaining wiring/runtime assertion gap if Hide* UI behavior is retained as an implemented claim.", "No workflow was run here."]
+    },
+    {
+      "clause": "8.7.3.1",
+      "title": "Tiling pattern replication, clipping and TilingType lattice",
+      "file_only_reference": "crates/pdf-model/tests/tiling.rs",
+      "source_location": "§8.7.3.1 physical p.235 / printed p.220. Table 74 physical p.236 / printed p.221. Direct EC3 overlays: #428 Caret on physical p.235 inserts `(implementation dependent)` after `unspecified and unpredictable` in tile-order prose; #294 Caret on physical p.236 inserts `stream ` into Table 74's heading, clarifying it is the Type 1 pattern stream dictionary.",
+      "effective_rule": "The processor shall paint enough cell instances to fill the area. Tile order is unspecified and unpredictable, qualified by EC3 #428 as implementation-dependent. Table 74 defines /BBox clipping and TilingType 1/2/3 device-grid behavior; TilingType 1 and 3 permit bounded distortion, while type 2 preserves cell shape with limited spacing variation.",
+      "assertion_review": "The pointed test builds exact-xref, valid minimal PDFs and asserts literal RGBA pixels, phase equality across split fills, fill-path and /BBox clipping, pattern matrix translation, colored/uncolored cell behavior, transfer-function restrictions, and tile positions for each TilingType. Code 1 is checked against integer device-pixel sites and the one-pixel distortion bound over a magnification sweep; code 2 against unmodified 10.4-unit steps and a raster-period negative control; code 3 against code 1. The order-agnostic assertions avoid depending on the now-explicitly implementation-dependent tile order. Separate test covers cell stream interpretation once vs repeated sites; that is implementation performance/architecture, not a normative requirement.",
+      "decision": "Retain the direct source-shaped pixel/geometry assertions. Qualify the stream-once/performance expectation as a project architecture choice. The #428 and #294 overlays do not invalidate the sampled assertions; the tests do not assert a fixed tile draw order.",
+      "related_adrs": ["0477", "0810", "0827", "0828", "1031", "1080"],
+      "residuals": ["No claim that every tiling feature or every backend is certified by this one file.", "No test was run in this pass."]
+    },
+    {
+      "clause": "8.7.4.5.2",
+      "title": "Type 1 function-based shading and CPU grid sampling",
+      "file_only_reference": "crates/render-cpu/tests/sampled_shading.rs",
+      "source_location": "§8.7.4.5.2 physical p.248 / printed p.233; Table 78 is on the same page. It defines the color at every point in the domain by a function, permits nonsmooth/discontinuous functions, and defines Domain/Matrix/Function; it does not prescribe one sample per device pixel as a universal rendering algorithm.",
+      "effective_rule": "The shading function defines the color field within its transformed domain; output-device rasterization may approximate that continuous field. The test's device-grid resolution and bilinear filter are this renderer's implementation strategy, not the literal source command.",
+      "assertion_review": "`sampled_shading.rs` rasterizes a synthetic DisplayList producer at 1x and 4x and compares 20 interior pixel colors to `expected_at`. Both the producer and expected computation use `test_scenes::sampled_colour_at`, so the comparison can detect backend/grid/interpolation defects but shares the mathematical fixture function and is not an independent parser/function oracle. `pdf-model/tests/shadings.rs::a_function_based_shadings_discontinuity_lands_at_the_device_pixel` is the stronger independent PDF consumer control: an exact-xref Type 1 shading with a PDF Type 4 function steps red-to-blue at 0.5 and asserts literal red at column 199, blue at 200, plus far-side controls. Other model tests cover domain/matrix and noncontinuous output.",
+      "decision": "Retain the CPU test as renderer-grid regression evidence, not proof that ISO requires one texel per device pixel or that the PDF function parser is correct. Count the separate valid-PDF discontinuity test for the consumer path. No uncovered in-scope assertion gap identified for this pointer.",
+      "related_adrs": ["0408", "0406", "2325", "2340"],
+      "residuals": ["The synthetic sampled-shading test has a shared fixture-function oracle; direct PDF Type 4 shading tests mitigate the source-consumer gap.", "No test was run in this pass."]
+    }
+  ]
+}

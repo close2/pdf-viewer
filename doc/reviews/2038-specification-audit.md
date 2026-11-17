@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (76)
+## Current checkpoint (77)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **83 failing test identities**: 82 behavior assertions/probes
@@ -219,6 +219,19 @@ TJ-spacing assertion has a separate blind spot under review. The font fallback
 control now includes required Length1 and passes; model Clippy passes. An exact
 pointer index records34of69file-only references as partially assertion-reviewed,
 with35remaining. These counts do not certify entire files or clause implementations.
+
+Checkpoint77 strengthens two oracles. Disk/memory comparison now uses each actual
+object generation, with a new literal generation 7 witness; nine selected syntax and
+archive tests pass, including the corpus. The horizontal TJ scaling test gains no-TJ
+controls and literal +10/+5 point deltas. A zero-adjustment mutation passes its old
+ratio and fails the new delta; production was restored byte for byte and the test
+passes again. An existing positive-TJ test already supplied an independent magnitude
+oracle, so the old suite was not wholly blind. Archive witnesses now distinguish an
+absent optional repository from a missing named file within one. Three-crate Clippy
+passes. Five earlier behavior findings survive fixture/oracle second review with
+narrower qualifications. The file-only index reaches 44 of 69 partially reviewed pointers;
+Windows actual HideWindowUI visibility remains an unexecuted integration proposal.
+Broad76 predates the new generation test and these stronger oracles.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

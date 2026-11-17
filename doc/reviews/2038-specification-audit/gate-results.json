@@ -2007,6 +2007,48 @@
       "log": "quality-model-wave76.log",
       "exit": 0,
       "scope": "Modelall-targetsClippy afterLength1 fixture correction."
+    },
+    {
+      "log": "fixture-oracles-wave77.log",
+      "run": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 737,
+      "exit": 0,
+      "scope": "Allon_disk includingignoredcorpus andarchive3presentwitnesses. Newnonzerogenerationtest plusstrongeragreement."
+    },
+    {
+      "log": "tj-oracle-wave77.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "tj-mutation-wave77.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "test_exit": 100,
+      "wrapper_exit": 0,
+      "scope": "DeliberatezeroTJmutant; expectednewdeltafailure afteroldratio passed; byteexactrestoreverified."
+    },
+    {
+      "log": "tj-restored-wave77.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave77.log",
+      "exit": 101,
+      "scope": "Existingpublic_key_witnesses PDFBoxdocmarkdownerror."
+    },
+    {
+      "log": "quality-wave77b.log",
+      "exit": 0,
+      "scope": "syntax/archive/model alltargetsClippy aftercommentbackticks."
     }
   ],
   "prior_expected_failures": {

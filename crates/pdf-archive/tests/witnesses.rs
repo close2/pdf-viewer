@@ -5,8 +5,9 @@
 //! Each entry below is the source document of such a finding, and the test asserts that the row
 //! the gap belonged to now fails it at both targets. The documents are in the read corpora under
 //! `doc/` — `doc/corpora` and pdf.js's `doc/pdf.js` — which are not part of a checkout, so the test
-//! is ignored and a missing file is named rather than failed. A fixture pins each row in the crate's own tests; this is the
-//! evidence that the fixture's shape is the real file's.
+//! is ignored. An absent optional repository is named and skipped; a missing or unreadable named
+//! witness beneath a present repository fails. A fixture pins each row in the crate's own tests;
+//! this is the evidence that the fixture's shape is the real file's.
 //!
 //! Every clause is cited and none is quoted: `crate`'s module comment says why.
 
@@ -17,6 +18,8 @@ use pdf_syntax::Document;
 
 /// A witness: the document's path under `doc/`, and the rows it must fail.
 struct Witness {
+    /// Optional repository root under `doc/`; corpora are checked out independently.
+    repository: &'static str,
     path: &'static str,
     rows: &'static [&'static str],
     why: &'static str,
@@ -24,6 +27,7 @@ struct Witness {
 
 static WITNESSES: &[Witness] = &[
     Witness {
+        repository: "corpora/pdfbox",
         path: "corpora/pdfbox/pdfbox/src/test/resources/org/apache/pdfbox/pdmodel/\
                PDFBOX-6040-nodeloop.pdf",
         rows: &[
@@ -34,6 +38,7 @@ static WITNESSES: &[Witness] = &[
               itself as its parent and lists a kid the file does not hold (ADR 2558, ADR 2583)",
     },
     Witness {
+        repository: "corpora/format-corpus",
         path: "corpora/format-corpus/pdf-handbuilt-test-corpus/T02-03_006_page-object-missing.pdf",
         rows: &[
             "file-structure/page-tree-kids-name-dictionaries",
@@ -44,6 +49,7 @@ static WITNESSES: &[Witness] = &[
               none of the pages it states (doc/questions/A775, ADR 2670)",
     },
     Witness {
+        repository: "pdf.js",
         path: "pdf.js/test/pdfs/issue7544.pdf",
         rows: &["fonts/font-dictionary-states-type-font"],
         why: "ISO 32000-2 section 9.7.4.1's Table 115, at ISO 19005-2 section 6.2.11.2 and ISO \
@@ -61,11 +67,21 @@ fn each_witness_fails_the_row_its_gap_belonged_to() {
     let documents = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc");
     let mut read = 0_usize;
     for witness in WITNESSES {
-        let path = documents.join(witness.path);
-        let Ok(bytes) = std::fs::read(&path) else {
-            println!("not here, not judged: {}", path.display());
+        let repository = documents.join(witness.repository);
+        if !repository.is_dir() {
+            println!(
+                "optional repository not checked out, not judged: {}",
+                repository.display()
+            );
             continue;
-        };
+        }
+        let path = documents.join(witness.path);
+        let bytes = std::fs::read(&path).unwrap_or_else(|error| {
+            panic!(
+                "declared witness {} could not be read: {error}",
+                path.display()
+            )
+        });
         let document = Document::open(bytes)
             .unwrap_or_else(|error| panic!("{} does not open: {error}", witness.path));
         for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {

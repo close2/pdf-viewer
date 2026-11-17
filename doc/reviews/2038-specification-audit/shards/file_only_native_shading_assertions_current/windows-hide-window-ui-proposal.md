@@ -1,0 +1,7 @@
+# Candidate: exercise actual WinUI HideWindowUI wiring
+
+The current `.github/workflows/ci.yml` Windows `window` job already publishes and starts the app with `--probe`; its probe currently asserts `/FitWindow`, `/CenterWindow`, `/NonFullScreenPageMode`, and `/FullScreen`. `Quorra.Chrome.Tests/Program.cs` protects the pure `ChromeState.Apply` mapping, but that console runs with XAML stubs through `tools/dotnet-check.sh`. It does not observe the real `Navigation` and `StatusLine` controls after the chrome record is applied.
+
+If the WinUI HideWindowUI implementation is retained as a completed host behavior, extend that existing Windows probe with two otherwise identical, valid-xref documents: one omitting ViewerPreferences and one with `/ViewerPreferences << /HideWindowUI true >>`. Have `MainWindow.ApplyChrome` report the actual post-application values of `Navigation.IsPaneToggleButtonVisible` and `StatusLine.Visibility` through `Probe.cs`; hold the no-preference document to visible defaults and the hidden document to collapsed/false values. This checks both a positive control and the actual UI wiring. Keep `/HideMenubar` out of the assertion because ADR 1145 intentionally preserves the permissions menu, and `/HideToolbar` is vacuous for this host because it has no toolbar. Do not infer that native Linux/Qt or GTK runs establish WinUI behavior.
+
+This is a proposed integration test shape, not a claim that the current implementation fails. It is unexecuted and not included in the source/assertion verdict unless the parent chooses to promote it.

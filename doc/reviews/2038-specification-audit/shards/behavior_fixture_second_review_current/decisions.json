@@ -1,0 +1,35 @@
+{
+  "scope": "Input-premise, source-wording, and oracle review of B19/B20/B25/B33/B35; no code changes or tests run in this review.",
+  "decisions": [
+    {
+      "finding": "2038-B19",
+      "disposition": "Keep the failure as a valid-input processor mismatch.",
+      "basis": "The source says page boxes should not ordinarily extend outside MediaBox, but says a processor shall intersect them when they do. Thus the tested boxes are unusual, not invalid. ViewArea=MediaBox means the regression does not demand that the product invent output dimensions for an empty viewport.",
+      "test_correction": "No fixture correction needed. Correct any description calling the boxes producer-invalid or a mandatory writer violation."
+    },
+    {
+      "finding": "2038-B20",
+      "disposition": "Keep the failure narrowly: a valid zero-height Type 1 pattern BBox still clips distant marks.",
+      "basis": "Table 74 explicitly requires clipping; its note plus §7.9.5 and §10.7.4 explain scan conversion of the degenerate boundary. They do not waive the clip. The ordinary-BBox and within-boundary controls make the required distinction observable without choosing an exact edge pixel.",
+      "test_correction": "No correction needed for the zero-height regression. Retain the residual that zero-width is not separately executed."
+    },
+    {
+      "finding": "2038-B25",
+      "disposition": "Keep as a fallback-path mismatch for a valid but unsupported later ICC version; qualify the pixel oracle as relational.",
+      "basis": "PDF 2.0 permits later ICC versions, requires supported ICC.1 behavior, and requires Alternate when a processor cannot process a later profile. Table 65 defines the source-range clamp before Alternate range. The ICC validator and fixture metadata support input validity. The direct Lab comparison isolates clamp order, while a fully independent Lab-to-output-RGB oracle is outside this test.",
+      "test_correction": "No fixture correction required on the reviewed evidence. A future test may add a separately calculated output value if colorimetric pixel correctness becomes part of this finding."
+    },
+    {
+      "finding": "2038-B33",
+      "disposition": "Keep as a conditional product-path failure, not a universal reader requirement to honor output intents.",
+      "basis": "PDF 2.0 explicitly permits processors to disregard output intents. Once this implementation chooses to respect them, page scope is mandatory. The page's recognized CGATS TR 001 condition may omit an embedded profile; the catalog's distinct Custom condition has its own embedded profile. The public condition report is the direct independent oracle; pixel comparisons establish that selected intents differ on this implementation.",
+      "test_correction": "No correction indicated. Do not call the observed gray values a standard-mandated universal colorimetric result."
+    },
+    {
+      "finding": "2038-B35",
+      "disposition": "Keep as a Survey/Annex-Q detector gap, not a general PDF 2.0 rendering defect.",
+      "basis": "Table 166 makes annotation CA inapplicable when a stored appearance is present. Annex Q defines a normative detection method when a processor uses it, but Q.1 says PDF 2.0 does not generally require the method. The archive Survey intentionally implements that analysis, and its consumers may rely on it. The CA=1/absent and BM=/Multiply controls, plus existing tests of CA inside an AP's graphics state, distinguish the annotation property from transparency actually specified by the AP.",
+      "test_correction": "No correction needed. Keep downstream impact limited to consumers of Survey's transparency classification; the PDF/A checker is not itself asserted here."
+    }
+  ]
+}

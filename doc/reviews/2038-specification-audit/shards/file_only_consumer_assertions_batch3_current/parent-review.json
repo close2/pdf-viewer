@@ -1,0 +1,6 @@
+{
+  "source": "Parent read Table107physical324/309 and direct primary EC3 annotations #165/#550physical325; earlier parent locators fordictionary,CharProcs,OCProperties andTable147 carried forward.",
+  "assertions": "Parent independently read positive-TJ Type3 sibling origins20/15, ratio-only old test and new controls, FFI window state assertions. Corrected draft claim that old test had no-TJ control and that no sibling isolated numeric delta.",
+  "execution": "TJ baselinePASS, seededzeroTJ FAILatnew+10delta afteroldratio passes, byte-exactproductionrestore, restoredPASS. No whole-suite mutationclaim.",
+  "limits": "Five exact ledger pointers reviewed, not whole files/clauses. Primary source and actual assertion text take precedence over earlier draft wording."
+}

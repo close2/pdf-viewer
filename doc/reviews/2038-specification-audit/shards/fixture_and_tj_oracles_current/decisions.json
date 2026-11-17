@@ -1,0 +1,6 @@
+{
+  "ADR0809": "Retain equal-byte storage-route contract; compare actualdefinedgeneration to make its evidence stronger.",
+  "TJ": "Retain implementation. New assertions directly isolate required scalednumericdelta.",
+  "witnesses": "Optional corpora remain optional at repository boundary; knownfileswithinpresentrepository are required.",
+  "production": "TemporaryTJmutant restoredbyteexact; no productiondiff."
+}
