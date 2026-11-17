@@ -23,8 +23,10 @@
 //! certificate is read by [`crate::attribute_certificate`] for the types it carries, and judged
 //! by [`certified`] under RFC 5755 section 5 and the trust trees the policy states (ADR 2797); it
 //! certifies an attribute only where it is valid, its chain's revocation checked where the policy
-//! requires it (ADR 2890). Named as not evaluated: a signed assertion, which is counted and never
-//! opened; a TS 119 172 constraint on an attribute's value, whose form neither syntax defines;
+//! requires it (ADR 2890). A signed assertion is judged by [`asserted`] under ETSI EN 319 102-1
+//! clause 5.2.8.4.2.7 and the set's trust trees, its attributes named as ADR 2923 reads a SAML
+//! attribute's name (ADR 2922). Named as not evaluated: a signed assertion of a form EN 319 122-1
+//! does not define or one whose signature this program cannot verify; a TS 119 172 constraint on an attribute's value, whose form neither syntax defines;
 //! and a TR 102 272 value constraint where [`values`] cannot decide the comparison, because two
 //! values of one attribute type are equal by that type's own matching rule (ITU-T X.501), which
 //! this program holds for the types [`values`] lists.
@@ -35,6 +37,7 @@ use super::ts_119_172_3::Identifier;
 use super::{Constraint, Finding, SignerFacts, Verdict};
 use crate::cms::{self, SignedData};
 use crate::der::{SEQUENCE, Value};
+use crate::saml;
 use crate::signature::name;
 use crate::trust::names::Match;
 
@@ -113,8 +116,31 @@ pub struct Carried<'a> {
     /// Each attribute certificate, of either `CertifiedAttributesV2` alternative, as the
     /// `AttributeCertificate` its tag wraps.
     pub certified: Vec<Value<'a>>,
-    /// How many signed assertions.
-    pub assertions: usize,
+    /// Each signed assertion, in the file's order.
+    pub assertions: Vec<SignedAssertion<'a>>,
+}
+
+/// EN 319 122-1 clause 5.2.6.1's `SignedAssertion ::= SEQUENCE { signedAssertionID,
+/// signedAssertion OPTIONAL }`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SignedAssertion<'a> {
+    /// `signedAssertionID`, as the contents octets of its object identifier.
+    pub identifier: &'a [u8],
+    /// `signedAssertion`, where present.
+    pub assertion: Option<Value<'a>>,
+}
+
+impl SignedAssertion<'_> {
+    /// Clause 5.2.6.3's `SignedSAMLAssertion ::= OCTET STRING`'s octets, where this is one;
+    /// `None` for another identifier or an absent value.
+    #[must_use]
+    pub fn saml_octets(&self) -> Option<&[u8]> {
+        (self.identifier == saml::ID_ETS_SIGNED_SAML)
+            .then_some(self.assertion.as_ref())
+            .flatten()
+            .filter(|value| value.identifier == crate::der::OCTET_STRING)
+            .map(|value| value.contents)
+    }
 }
 
 /// Why a signature's signer attributes were not read.
@@ -173,13 +199,24 @@ pub fn carried<'a>(cms: &SignedData<'a>) -> Result<Carried<'a>, Unreadable> {
     Ok(out)
 }
 
+/// The signer attributes one `signer-attributes-v2` value carries (EN 319 122-1 clause 5.2.6.1).
+///
+/// # Errors
+///
+/// [`Unreadable`], where the value is not the clause's syntax or the bound is passed.
+pub fn carried_by_v2<'a>(value: &Value<'a>) -> Result<Carried<'a>, Unreadable> {
+    let mut out = Carried::default();
+    read_v2(value, &mut out)?;
+    Ok(out)
+}
+
 /// Charges one entry against [`MAX_SIGNER_ATTRIBUTES`].
 fn charge(out: &Carried<'_>) -> Result<(), Unreadable> {
     let read = out
         .claimed
         .len()
         .saturating_add(out.certified.len())
-        .saturating_add(out.assertions);
+        .saturating_add(out.assertions.len());
     if read < MAX_SIGNER_ATTRIBUTES {
         Ok(())
     } else {
@@ -265,10 +302,22 @@ fn read_v2<'a>(value: &Value<'a>, out: &mut Carried<'a>) -> Result<(), Unreadabl
             _ => {
                 for assertion in entries(&list)? {
                     charge(out)?;
-                    if assertion.identifier != SEQUENCE {
+                    let mut members = (assertion.identifier == SEQUENCE)
+                        .then(|| assertion.children().ok())
+                        .flatten()
+                        .ok_or(Unreadable::Malformed)?;
+                    let mut next = || members.next_value().map_err(|_| Unreadable::Malformed);
+                    let identifier = next()?
+                        .and_then(|kind| kind.object_identifier())
+                        .ok_or(Unreadable::Malformed)?;
+                    let value = next()?;
+                    if next()?.is_some() {
                         return Err(Unreadable::Malformed);
                     }
-                    out.assertions = out.assertions.saturating_add(1);
+                    out.assertions.push(SignedAssertion {
+                        identifier,
+                        assertion: value,
+                    });
                 }
             }
         }
@@ -371,10 +420,13 @@ pub enum Check {
         /// What section 5 found.
         outcome: certified::Outcome,
     },
-    /// Signed assertions of an accepted kind, whose validity is not evaluated.
-    Assertions {
-        /// How many.
-        assertions: usize,
+    /// One signed assertion of an accepted kind, under ETSI EN 319 102-1 clause 5.2.8.4.2.7 and
+    /// the set's trust trees (ADR 2922).
+    Assertion {
+        /// Its place among the signature's signed assertions, from one.
+        ordinal: usize,
+        /// What the clause found.
+        outcome: asserted::Outcome,
     },
     /// Constraints on an identified attribute's value, not evaluated.
     Values {
@@ -443,10 +495,13 @@ impl Check {
                 )?;
                 outcome.words(f)
             }
-            Self::Assertions { assertions } => write!(
-                f,
-                "the policy's conditions on the signature's {assertions} signed assertion(s) are {verdict}: this program does not read them, so neither their validity nor the attributes they carry is known"
-            ),
+            Self::Assertion { ordinal, outcome } => {
+                write!(
+                    f,
+                    "the policy's conditions on the signature's signed assertion {ordinal} are {verdict}: "
+                )?;
+                outcome.words(f)
+            }
             Self::Values { identifier } => write!(
                 f,
                 "the policy's constraints on the value of signer attribute {identifier} are {verdict}: TS 119 172-3 defines no form of such a constraint, and TS 119 172-2 leaves its content open"
@@ -711,7 +766,14 @@ pub(super) fn judge_set(
                 .iter()
                 .any(|mandated| mandated.identifier.is(kind))
     };
-    let (verdict, refused) = level(&carried, accepted, names_types, &in_scope);
+    let saml_in_scope = |attribute: &saml::Attribute| {
+        any_of(
+            set.mandated
+                .iter()
+                .map(|mandated| names(mandated.identifier, attribute)),
+        )
+    };
+    let (verdict, refused) = level(&carried, accepted, names_types, &in_scope, &saml_in_scope);
     out.push(finding(
         verdict,
         Check::Level {
@@ -746,21 +808,18 @@ pub(super) fn judge_set(
             },
         });
     }
-    let assertions = if accepted.admits(Kind::SignedAssertion) {
-        carried.assertions
+    let asserted = if accepted.admits(Kind::SignedAssertion) {
+        judge_assertions(&carried, cms, context, set)
     } else {
-        0
+        Vec::new()
     };
     for mandated in &set.mandated {
-        let is = |kind: &[u8]| mandated.identifier.is(kind);
-        let claimed = accepted.admits(Kind::Claimed) && carried.claimed.iter().any(|kind| is(kind));
-        let verdict = if claimed || judged.iter().any(|judged| judged.certifies(is)) {
-            Verdict::Met
-        } else if assertions > 0 || judged.iter().any(|judged| judged.might_certify(is)) {
-            Verdict::NotEvaluated
-        } else {
-            Verdict::Broken
-        };
+        let claimed = accepted.admits(Kind::Claimed)
+            && carried
+                .claimed
+                .iter()
+                .any(|kind| mandated.identifier.is(kind));
+        let verdict = presence(mandated.identifier, claimed, &judged, &asserted);
         let identifier = spelled(mandated.identifier);
         if mandated.value_constraints > 0 && verdict != Verdict::Broken {
             out.push(finding(
@@ -789,12 +848,108 @@ pub(super) fn judge_set(
         },
         out,
     );
-    if assertions > 0 {
-        out.push(finding(
-            Verdict::NotEvaluated,
-            Check::Assertions { assertions },
-        ));
+    assertion_findings(set, &asserted, out);
+}
+
+/// Clause 4.26.1 item 4 for one identified attribute: met where it is claimed at an accepted
+/// level, or a valid certificate or assertion supplies it; not evaluated where one whose validity
+/// or names are undecided might; broken otherwise.
+fn presence(
+    identifier: Identifier<'_>,
+    claimed: bool,
+    judged: &[certified::Judged<'_>],
+    asserted: &[asserted::Judged],
+) -> Verdict {
+    let is = |kind: &[u8]| identifier.is(kind);
+    let named = |attribute: &saml::Attribute| names(identifier, attribute);
+    if claimed
+        || judged.iter().any(|judged| judged.certifies(is))
+        || asserted.iter().any(|judged| judged.asserts(named))
+    {
+        Verdict::Met
+    } else if judged.iter().any(|judged| judged.might_certify(is))
+        || asserted.iter().any(|judged| {
+            !matches!(judged.outcome, asserted::Outcome::Invalid(_)) && judged.may_carry(named)
+        })
+    {
+        Verdict::NotEvaluated
+    } else {
+        Verdict::Broken
     }
+}
+
+/// Each signed assertion, judged under the set's trust trees and revocation trust (ADR 2922).
+fn judge_assertions(
+    carried: &Carried<'_>,
+    cms: &SignedData<'_>,
+    context: Context<'_>,
+    set: &SetConstraints<'_>,
+) -> Vec<asserted::Judged> {
+    let conditions = certified::Conditions {
+        trees: set.trust_trees.as_ref(),
+        signer_path: context.signer_path,
+        at: super::certification_path::instant(context.facts),
+        revocation: set.revocation.as_ref(),
+        material: &context.facts.material,
+        timing: context.timing,
+        lists: context.facts.lists,
+    };
+    carried
+        .assertions
+        .iter()
+        .map(|assertion| asserted::judge(assertion, cms, conditions))
+        .collect()
+}
+
+/// One finding per signed assertion the set applies to: as for a certificate, a set that
+/// identifies types applies to an assertion that may carry one of them.
+fn assertion_findings(
+    set: &SetConstraints<'_>,
+    asserted: &[asserted::Judged],
+    out: &mut Vec<Finding>,
+) {
+    let names_types = !set.mandated.is_empty();
+    for (index, judged) in asserted.iter().enumerate() {
+        let applies = !names_types
+            || set.mandated.iter().any(|mandated| {
+                judged.may_carry(|attribute| names(mandated.identifier, attribute))
+            });
+        if applies {
+            out.push(finding(
+                judged.outcome.verdict(),
+                Check::Assertion {
+                    ordinal: index.saturating_add(1),
+                    outcome: judged.outcome.clone(),
+                },
+            ));
+        }
+    }
+}
+
+/// `Some(true)` where any answer is, else `None` where any is not decided, else `Some(false)`.
+fn any_of(answers: impl Iterator<Item = Option<bool>>) -> Option<bool> {
+    let mut decided = true;
+    for answer in answers {
+        match answer {
+            Some(true) => return Some(true),
+            None => decided = false,
+            Some(false) => {}
+        }
+    }
+    decided.then_some(false)
+}
+
+/// Whether a SAML attribute is the signer attribute `identifier` names (ADR 2923): SAML 2.0
+/// profiles section 8.2.2 names an X.500 attribute type by its RFC 3061 URN under SAML 2.0 core
+/// section 8.2.2's URI name format, and TS 119 172-2's identifier is a URI, so under that format the
+/// name is compared as a URI. Under any other format core section 8.2 leaves the name's
+/// interpretation to the application, and `None` says the comparison is not decided.
+fn names(identifier: Identifier<'_>, attribute: &saml::Attribute) -> Option<bool> {
+    attribute.uri()?;
+    Some(match identifier {
+        Identifier::Oid(oid) => attribute.object_identifier().as_deref() == Some(oid),
+        Identifier::Uri(uri) => attribute.uri() == Some(uri),
+    })
 }
 
 /// Clause 4.26.1 item 1's level over the signer attributes a set applies to: the verdict, and the
@@ -804,12 +959,13 @@ fn level(
     accepted: Accepted,
     names_types: bool,
     in_scope: &impl Fn(&[u8]) -> bool,
+    saml_in_scope: &impl Fn(&saml::Attribute) -> Option<bool>,
 ) -> (Verdict, Option<Kind>) {
     let claimed_refused =
         !accepted.admits(Kind::Claimed) && carried.claimed.iter().any(|kind| in_scope(kind));
     // An attribute certificate of a refused kind breaks the set where it carries a type the set
-    // applies to; one that does not read might, so it is undecided. A signed assertion is not
-    // read, so under a set that identifies types it is undecided too.
+    // applies to; one that does not read might, so it is undecided. A signed assertion is read
+    // the same way for the attributes it carries (ADR 2923).
     let certified_refused = !carried.certified.is_empty() && !accepted.admits(Kind::Certified);
     let refused_types: Vec<Option<Vec<&[u8]>>> = if certified_refused {
         carried
@@ -826,22 +982,39 @@ fn level(
             .is_some_and(|types| types.iter().any(|kind| in_scope(kind)))
     });
     let refused_unread = refused_types.iter().any(Option::is_none);
-    let assertions_refused = carried.assertions > 0 && !accepted.admits(Kind::SignedAssertion);
+    let assertions_refused =
+        !carried.assertions.is_empty() && !accepted.admits(Kind::SignedAssertion);
+    // Under a set that names types, each refused assertion is asked what it carries: `Some(true)`
+    // where an attribute is in scope, `None` where that is not known.
+    let asserted_scope = || {
+        carried.assertions.iter().map(|assertion| {
+            let read = saml::Saml::of(assertion.saml_octets()?);
+            if read.assertion.is_err() || read.signature.is_invalid() {
+                return None;
+            }
+            any_of(read.attributes_relied_on().iter().map(saml_in_scope))
+        })
+    };
+    let assertions_carry =
+        assertions_refused && names_types && asserted_scope().any(|scope| scope == Some(true));
+    let assertions_unread =
+        assertions_refused && names_types && asserted_scope().any(|scope| scope.is_none());
     if claimed_refused {
         (Verdict::Broken, Some(Kind::Claimed))
     } else if refused_carries {
         (Verdict::Broken, Some(Kind::Certified))
-    } else if assertions_refused && !names_types {
+    } else if assertions_refused && (!names_types || assertions_carry) {
         (Verdict::Broken, Some(Kind::SignedAssertion))
     } else if refused_unread {
         (Verdict::NotEvaluated, Some(Kind::Certified))
-    } else if assertions_refused {
+    } else if assertions_unread {
         (Verdict::NotEvaluated, Some(Kind::SignedAssertion))
     } else {
         (Verdict::Met, None)
     }
 }
 
+pub mod asserted;
 pub mod certified;
 pub mod values;
 

@@ -89,7 +89,9 @@ fn every_member_of_signer_attributes_v2_is_counted_by_its_kind() {
     let value = v2(&[ROLE, TITLE], 2, 1);
     let read = carried(&carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, &value)).expect("readable");
     assert_eq!(read.claimed, vec![ROLE, TITLE]);
-    assert_eq!(read.assertions, 1);
+    assert_eq!(read.assertions.len(), 1);
+    assert_eq!(read.assertions[0].identifier, saml::ID_ETS_SIGNED_SAML);
+    assert_eq!(read.assertions[0].assertion, None);
     // Each certificate is the `AttributeCertificate` its `[0]` wraps, under `EXPLICIT TAGS`.
     let certificate = certificate();
     let wrapped: Vec<&[u8]> = read.certified.iter().map(Value::encoding).collect();
@@ -108,7 +110,7 @@ fn the_first_signer_attributes_is_read_as_a_list_of_claimed_and_certified() {
     let read = carried(&carrying(cms::ID_AA_ETS_SIGNER_ATTR, &value)).expect("readable");
     assert_eq!(read.claimed, vec![ROLE, TITLE]);
     assert_eq!(read.certified.len(), 1);
-    assert_eq!(read.assertions, 0);
+    assert!(read.assertions.is_empty());
 }
 
 #[test]
@@ -202,7 +204,7 @@ fn kinds(out: &[Finding]) -> Vec<(Verdict, &'static str)> {
                 Check::MustBePresent { .. } => "present",
                 Check::Level { .. } => "level",
                 Check::Certificate { .. } => "certificate",
-                Check::Assertions { .. } => "assertions",
+                Check::Assertion { .. } => "assertion",
                 Check::Values { .. } | Check::ConditionValues => "values",
             };
             (finding.verdict, kind)
@@ -230,7 +232,7 @@ fn a_set_that_identifies_nothing_holds_every_signer_attribute_to_its_level() {
         [
             (Verdict::Met, "level"),
             (Verdict::NotEvaluated, "certificate"),
-            (Verdict::NotEvaluated, "assertions"),
+            (Verdict::NotEvaluated, "assertion"),
         ]
     );
 }
@@ -409,5 +411,143 @@ fn a_condition_without_trees_of_its_own_takes_the_signing_certificates() {
     assert_eq!(
         judge(&condition(Some(vec![TITLE])), both),
         [(Verdict::Broken, "mandated"), (Verdict::Met, "certificate")]
+    );
+}
+
+/// `signer-attributes-v2` carrying one signed assertion of clause 5.2.6.3's form whose
+/// `SignedSAMLAssertion ::= OCTET STRING` holds `saml`.
+fn v2_asserting(saml: &str) -> Vec<u8> {
+    let assertion = seq(&[
+        oid(saml::ID_ETS_SIGNED_SAML),
+        tlv(der::OCTET_STRING, saml.as_bytes()),
+    ]);
+    seq(&[tagged(2, &seq(&[assertion]))])
+}
+
+/// [`judged`] at an instant `at`, as a signature timestamp's.
+fn judged_at(set: &SetConstraints<'_>, value: &[u8], at: &str) -> Vec<(Verdict, &'static str)> {
+    let facts = facts(Some(at));
+    let context = Context {
+        facts: &facts,
+        signer_path: None,
+        signer_trees: None,
+        timing: Timing::default(),
+    };
+    let mut out = Vec::new();
+    judge_set(
+        set,
+        &carrying(cms::ID_AA_ETS_SIGNER_ATTR_V2, value),
+        context,
+        &mut out,
+    );
+    kinds(&out)
+}
+
+/// A set accepting signed assertions, mandating `id-at-role`, whose trust trees hold the
+/// assertion signer's own certificate.
+fn asserting_set(trusted: &[u8]) -> SetConstraints<'static> {
+    SetConstraints {
+        trust_trees: Some(trees(&[trusted])),
+        ..set(Accepted::SignedAssertion, &[(ROLE, 0)])
+    }
+}
+
+/// 2026-12-01, inside the fixture assertion's interval and inside the fixture certificate's
+/// validity, which begins on 2026-11-12.
+const DECEMBER: &str = "20261201000000Z";
+
+/// EN 319 102-1 clause 5.2.8.4.2.7 with every check passing: the SAML signature verifies, its
+/// signer is the set's trust point, the instant is inside the conditions, and the assertion names
+/// `id-at-role` as SAML 2.0 profiles section 8.2.2 does, so the mandated attribute is present.
+#[test]
+fn a_valid_signed_saml_assertion_supplies_the_attribute_it_names() {
+    use crate::xml_signature::tests::MEMBER_KEY;
+    let value = v2_asserting(&saml::tests::signed(saml::tests::BODY, MEMBER_KEY));
+    let set = asserting_set(&MEMBER_KEY.certificate());
+    assert_eq!(
+        judged_at(&set, &value, DECEMBER),
+        [
+            (Verdict::Met, "level"),
+            (Verdict::Met, "present"),
+            (Verdict::Met, "assertion"),
+        ]
+    );
+    // The control: the same assertion past its `NotOnOrAfter` (section 2.5.1.2) is invalid, and
+    // an invalid assertion supplies nothing.
+    assert_eq!(
+        judged_at(&set, &value, "20270101000000Z"),
+        [
+            (Verdict::Met, "level"),
+            (Verdict::Broken, "present"),
+            (Verdict::Broken, "assertion"),
+        ]
+    );
+}
+
+/// The plant: an attribute changed after signing. Section 2.3.3 forbids relying on it, so it
+/// supplies nothing and breaks the set.
+#[test]
+fn a_tampered_or_unsigned_assertion_breaks_the_set() {
+    use crate::xml_signature::tests::MEMBER_KEY;
+    let tampered = saml::tests::signed(saml::tests::BODY, MEMBER_KEY)
+        .replace("sales director", "chief executive");
+    let set = asserting_set(&MEMBER_KEY.certificate());
+    let broken = [
+        (Verdict::Met, "level"),
+        (Verdict::Broken, "present"),
+        (Verdict::Broken, "assertion"),
+    ];
+    assert_eq!(judged_at(&set, &v2_asserting(&tampered), DECEMBER), broken);
+    // EN 319 122-1 clause 5.2.6.1: a signed assertion is signed by a third party.
+    let unsigned = saml::tests::unsigned(saml::tests::BODY);
+    assert_eq!(judged_at(&set, &v2_asserting(&unsigned), DECEMBER), broken);
+}
+
+/// No trust trees, or a signer outside them: the signature verifies, but who signed is trusted by
+/// nothing, so the assertion is undecided, or its path refused.
+#[test]
+fn an_assertions_signer_is_held_to_the_sets_trust_trees() {
+    use crate::xml_signature::tests::{LOTL_KEY, MEMBER_KEY};
+    let value = v2_asserting(&saml::tests::signed(saml::tests::BODY, MEMBER_KEY));
+    let untrusted = set(Accepted::SignedAssertion, &[(ROLE, 0)]);
+    assert_eq!(
+        judged_at(&untrusted, &value, DECEMBER),
+        [
+            (Verdict::Met, "level"),
+            (Verdict::NotEvaluated, "present"),
+            (Verdict::NotEvaluated, "assertion"),
+        ]
+    );
+    let elsewhere = asserting_set(&LOTL_KEY.certificate());
+    let verdicts = judged_at(&elsewhere, &value, DECEMBER);
+    assert_ne!(
+        verdicts.last(),
+        Some(&(Verdict::Met, "assertion")),
+        "{verdicts:?}"
+    );
+}
+
+/// ADR 2923: under a claimed-only set naming `id-at-role`, a signed assertion that names it under
+/// the URI format is of a refused kind and in scope; one naming only a `basic` attribute is not
+/// decided, because that name means what an application decides.
+#[test]
+fn a_refused_assertion_is_in_scope_by_its_uri_names() {
+    use crate::xml_signature::tests::MEMBER_KEY;
+    let claimed = set(Accepted::Claimed, &[(ROLE, 0)]);
+    let role = v2_asserting(&saml::tests::signed(saml::tests::BODY, MEMBER_KEY));
+    assert_eq!(
+        judged_at(&claimed, &role, DECEMBER).first(),
+        Some(&(Verdict::Broken, "level"))
+    );
+    let basic_only = saml::tests::BODY
+        .replace("urn:oid:2.5.4.72", "role")
+        .replace(
+            "urn:oasis:names:tc:SAML:2.0:attrname-format:uri",
+            "urn:oasis:names:tc:SAML:2.0:attrname-format:basic",
+        );
+    let basic = v2_asserting(&saml::tests::signed(&basic_only, MEMBER_KEY));
+    assert_eq!(
+        judged_at(&claimed, &basic, DECEMBER).first(),
+        Some(&(Verdict::NotEvaluated, "level"))
     );
 }

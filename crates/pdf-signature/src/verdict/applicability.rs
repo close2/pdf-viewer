@@ -31,7 +31,11 @@
 //!   both types at the token's `genTime` ([`Assurance::Token`]'s `listed`, empty for the absence).
 //! - **f)**, every attribute of the signer, signed or unsigned, named where this tree knows its
 //!   identifier, and a `commitment-type-indication`'s commitment named, which the clause's NOTE 5
-//!   points at ([`SignatureAttribute`]).
+//!   points at ([`SignatureAttribute`]). A signed `signer-attributes-v2`'s SAML assertions are
+//!   shown with it, read and their signatures checked ([`CarriedAssertion`]): ETSI EN 319 102-1
+//!   clause 5.2.8.4.2.7 makes a signed assertion no rule constrains available for the driving
+//!   application to decide on, and SAML 2.0 core section 2.3.3 forbids relying on the contents of
+//!   one whose signature is invalid (ADR 2922).
 //! - **h)** and **REQ-4.2-03 d)**, the cryptographic suite the signature was made with: the digest,
 //!   the signature algorithm and the key's size ([`Cryptography::Suite`]). The clause also asks for
 //!   potential security issues against either national rules or ETSI TS 119 312, with which was
@@ -56,7 +60,9 @@
 
 use super::{BestSignatureTime, Proof};
 use crate::cms::{self, Digest, SignedData};
+use crate::policy_rules::signer_attributes;
 use crate::revocation::{CertStatus, Evidence, Material, RevocationReason};
+use crate::saml::{self, Saml, SignatureCheck};
 use crate::signature::{Authenticity, Family, Signature};
 use crate::timestamp::{self, Accuracy, AskedAt, Chain, Time};
 use crate::trust::TrustAnchors;
@@ -232,6 +238,36 @@ pub struct SignatureAttribute {
     /// For a `commitment-type-indication`, the commitment's identifier, dotted, and its name
     /// where it is one of ETSI EN 319 122-1 clause 5.2.3's.
     pub commitment: Option<(String, Option<&'static str>)>,
+    /// For a signed `signer-attributes-v2`, the SAML assertions it carries, in its order (ADR
+    /// 2922).
+    pub assertions: Vec<CarriedAssertion>,
+}
+
+/// Which of ETSI EN 319 122-1's members carries an assertion.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AssertionKind {
+    /// Clause 5.2.6.2's `claimed-SAML-assertion`, among the claimed attributes.
+    Claimed,
+    /// Clause 5.2.6.3's `signed-SAML-assertion`, among the signed assertions.
+    Signed,
+    /// A signed assertion of another identifier, dotted: a form no text defines.
+    OtherForm(String),
+}
+
+/// One assertion a `signer-attributes-v2` carries, as ETSI EN 319 102-1 clause 5.2.8.4.2.7 makes
+/// it available where no rule constrains it: read, its signature checked, and the certificate that
+/// verified the signature named. That certificate is not chained to any anchor here, so who it
+/// belongs to is what it says of itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CarriedAssertion {
+    /// Its member.
+    pub kind: AssertionKind,
+    /// The assertion and its signature; `None` for [`AssertionKind::OtherForm`], or where the
+    /// member carries no assertion.
+    pub saml: Option<Saml>,
+    /// The subject of the certificate whose key verified the signature, where it did and the
+    /// certificate's names read.
+    pub signer: Option<Signer>,
 }
 
 /// REQ-4.5-01 h) and REQ-4.2-03 d) and e): the cryptographic suite.
@@ -636,8 +672,93 @@ pub fn attributes(cms: &SignedData<'_>) -> Vec<SignatureAttribute> {
             commitment: (attribute.kind == cms::ID_AA_ETS_COMMITMENT_TYPE)
                 .then(|| commitment(attribute.first.as_ref()?))
                 .flatten(),
+            assertions: match (&attribute.first, attribute.signed) {
+                (Some(value), true) if attribute.kind == cms::ID_AA_ETS_SIGNER_ATTR_V2 => {
+                    assertions(value)
+                }
+                _ => Vec::new(),
+            },
         })
         .collect()
+}
+
+/// The SAML assertions a `signer-attributes-v2` value carries: each `claimed-SAML-assertion` among
+/// its claimed attributes (ETSI EN 319 122-1 clause 5.2.6.2) and each signed assertion (clause
+/// 5.2.6.3's form, or another named). A value that does not read carries none here; the departure
+/// it is is §12.8.3.4.3 (j)'s report.
+fn assertions(value: &crate::der::Value<'_>) -> Vec<CarriedAssertion> {
+    let Ok(carried) = signer_attributes::carried_by_v2(value) else {
+        return Vec::new();
+    };
+    let shown = |kind, saml: Saml| {
+        let signer = match &saml.signature {
+            SignatureCheck::Verified(der) => x509::parse(der)
+                .ok()
+                .and_then(|certificate| signer(&certificate).ok()),
+            _ => None,
+        };
+        CarriedAssertion {
+            kind,
+            saml: Some(saml),
+            signer,
+        }
+    };
+    let mut out = Vec::new();
+    for (kind, values) in carried.claimed.iter().zip(&carried.claimed_values) {
+        if *kind != saml::ID_AA_ETS_CLAIMED_SAML {
+            continue;
+        }
+        // Clause 5.2.6.2: exactly one value, a `ClaimedSAMLAssertion ::= OCTET STRING`.
+        let octets = values
+            .children()
+            .ok()
+            .and_then(|mut members| {
+                let first = members.next_value().ok().flatten()?;
+                members.next_value().ok()?.is_none().then_some(first)
+            })
+            .filter(|value| value.identifier == crate::der::OCTET_STRING)
+            .map(|value| value.contents);
+        let saml = octets.map_or_else(
+            || Saml {
+                assertion: Err(saml::Unreadable::Malformed(
+                    "ClaimedSAMLAssertion OCTET STRING",
+                )),
+                signature: SignatureCheck::Unsigned,
+            },
+            Saml::of,
+        );
+        out.push(shown(AssertionKind::Claimed, saml));
+    }
+    for assertion in &carried.assertions {
+        if assertion.identifier != saml::ID_ETS_SIGNED_SAML {
+            out.push(CarriedAssertion {
+                kind: AssertionKind::OtherForm(
+                    x509::dotted(assertion.identifier).unwrap_or_default(),
+                ),
+                saml: None,
+                signer: None,
+            });
+            continue;
+        }
+        match (assertion.saml_octets(), assertion.assertion) {
+            (Some(octets), _) => out.push(shown(AssertionKind::Signed, Saml::of(octets))),
+            (None, None) => out.push(CarriedAssertion {
+                kind: AssertionKind::Signed,
+                saml: None,
+                signer: None,
+            }),
+            (None, Some(_)) => out.push(shown(
+                AssertionKind::Signed,
+                Saml {
+                    assertion: Err(saml::Unreadable::Malformed(
+                        "SignedSAMLAssertion OCTET STRING",
+                    )),
+                    signature: SignatureCheck::Unsigned,
+                },
+            )),
+        }
+    }
+    out
 }
 
 /// `CommitmentTypeIndication ::= SEQUENCE { commitmentTypeId OBJECT IDENTIFIER, ... }` (ETSI EN

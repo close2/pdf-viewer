@@ -1021,6 +1021,11 @@ cd fuzz && cargo +nightly fuzz run trusted_list -- -max_total_time=600 -rss_limi
   # a function of the bytes, and every tuple the search returns a service of the list searched with
   # its status at the instant one of that service's own. Seeded by `fuzz/seeds.sh` with one list per
   # territory class naming `x509_fixtures.rs`'s certificate.
+cd fuzz && cargo +nightly fuzz run saml -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
+  # SAML 2.0 core's assertion and section 5.4's signature profile over it (ADR 2922): the reading
+  # and the verification a function of the bytes, an assertion whose signature is invalid handing
+  # on no attribute, and the attribute and value bounds held. Seeded by `fuzz/seeds.sh` with an
+  # unsigned assertion and one carrying a signature with no key.
 cd fuzz && cargo +nightly fuzz run qc_statement -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
   # ETSI EN 319 412-5's QC statements off a signer's certificate (ADR 2853): the reading a function
   # of the bytes, bounded by `MAX_ENTRIES`, and every clause 4.2.4 country two letters. Seeded by

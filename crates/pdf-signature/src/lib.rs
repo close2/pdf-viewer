@@ -98,6 +98,7 @@ pub mod pss;
 pub mod qc_statement;
 pub mod revision;
 pub mod revocation;
+pub mod saml;
 pub mod signature;
 pub mod timestamp;
 pub mod trust;

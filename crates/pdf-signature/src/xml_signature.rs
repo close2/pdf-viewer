@@ -41,7 +41,7 @@
 use crate::cms::Digest;
 use crate::policy_rules::PolicyDocumentError;
 use crate::policy_rules::canonical_xml::{
-    self, Algorithm, Comments, EXC_C14N, Method, Subset, Target,
+    self, Algorithm, Comments, EXC_C14N, EXC_C14N_WITH_COMMENTS, Method, Subset, Target,
 };
 use crate::x509::{self, PublicKey};
 use crate::xml::{self, Element, Tree, XmlError, base64};
@@ -107,6 +107,21 @@ pub enum XmlSignatureError {
     /// (section 3.2.2).
     #[error("the signature value does not verify under the certificate's key")]
     SignatureDiffers,
+    /// A SAML signature's `ds:KeyInfo` carries no certificate, so no key is known to verify it
+    /// under; SAML 2.0 core section 5.4.5 lets `ds:KeyInfo` be absent.
+    #[error("the signature carries no certificate, so no key is known to verify it under")]
+    NoKey,
+    /// A SAML signature does not hold exactly one `ds:Reference` (SAML 2.0 core section 5.4.2);
+    /// how many it holds.
+    #[error("the signature holds {0} references where SAML 2.0 core section 5.4.2 requires one")]
+    NotOneReference(usize),
+    /// A SAML signature's reference does not name the assertion by its `ID` under the enveloped
+    /// signature transform (SAML 2.0 core sections 5.4.1 and 5.4.2).
+    #[error(
+        "the signature's reference does not name the assertion by its ID under the enveloped \
+         signature transform (SAML 2.0 core sections 5.4.1 and 5.4.2)"
+    )]
+    AssertionNotCovered,
     /// The signed `SigningCertificateV2` names another certificate (EN 319 132-1 clause 5.2.2).
     #[error(
         "the signed properties name another signing certificate than the one in KeyInfo (ETSI \
@@ -151,7 +166,7 @@ pub struct Verified {
 pub fn signer_of(octets: &[u8], entries: usize) -> Result<Vec<u8>, XmlSignatureError> {
     let mut remaining = entries;
     let tree = xml::read_tree(octets, &mut remaining)?;
-    let found = Found::in_tree(&tree)?;
+    let found = Found::in_tree(&tree, Profile::TrustedList)?;
     found.certificate()
 }
 
@@ -166,20 +181,14 @@ pub fn signer_of(octets: &[u8], entries: usize) -> Result<Vec<u8>, XmlSignatureE
 pub fn verify_enveloped(octets: &[u8], entries: usize) -> Result<Verified, XmlSignatureError> {
     let mut remaining = entries;
     let tree = xml::read_tree(octets, &mut remaining)?;
-    let found = Found::in_tree(&tree)?;
+    let found = Found::in_tree(&tree, Profile::TrustedList)?;
     let signer = found.certificate()?;
-    let certificate =
-        x509::parse(&signer).map_err(|error| XmlSignatureError::Certificate(error.to_string()))?;
     let signed_info = found.child(found.signature, "SignedInfo")?;
     let canonicalization = found.child(signed_info, "CanonicalizationMethod")?;
     let uri = algorithm(canonicalization)?;
     if uri != EXC_C14N {
         return Err(XmlSignatureError::Canonicalization(uri.to_owned()));
     }
-    let method = Method::of(EXC_C14N, prefix_list(&found, canonicalization))
-        .ok_or_else(|| XmlSignatureError::Unsupported(uri.to_owned()))?;
-    let signature_method = algorithm(found.child(signed_info, "SignatureMethod")?)?;
-    let (family, digest) = signature_algorithm(signature_method)?;
 
     // Section 3.2.1: every reference, before the signature value is computed over them.
     let mut covers_list = false;
@@ -188,9 +197,18 @@ pub fn verify_enveloped(octets: &[u8], entries: usize) -> Result<Verified, XmlSi
     if references.is_empty() {
         return Err(XmlSignatureError::Malformed("Reference"));
     }
+    let root_id = tree
+        .elements
+        .first()
+        .and_then(|root| attribute(root, Profile::TrustedList.identifier()));
     for reference in references {
         let checked = found.reference(octets, reference, entries)?;
-        covers_list |= checked.covers_list;
+        // Annex B.1.0 rule 2: the list itself, enveloped transform first, exclusive
+        // canonicalisation second, and nothing else.
+        let names_list = checked.apex == 0
+            && (checked.uri.is_empty()
+                || root_id.is_some_and(|root| Some(root) == checked.id.as_deref()));
+        covers_list |= names_list && checked.transforms == [ENVELOPED_SIGNATURE, EXC_C14N];
         if let Some(id) = checked.id {
             signed_ids.push(id);
         }
@@ -199,59 +217,92 @@ pub fn verify_enveloped(octets: &[u8], entries: usize) -> Result<Verified, XmlSi
         return Err(XmlSignatureError::ListNotCovered);
     }
     found.signing_certificate(&signer, &signed_ids)?;
-
-    // Section 3.2.2: `ds:SignedInfo` canonicalised by its own method, and the value verified.
-    let mut canonical = Vec::new();
-    let subset = Subset {
-        apex: Target::Ordinal(found.index_of(signed_info)?),
-        excluded: None,
-        whole_document: false,
-    };
-    canonical_xml::canonicalize_subset(octets, &subset, &method, entries, &mut |piece| {
-        canonical.extend_from_slice(piece);
-    })?;
-    let value = base64(&found.child(found.signature, "SignatureValue")?.text)
-        .ok_or(XmlSignatureError::Malformed("SignatureValue"))?;
-    let computed = digest.compute(&[&canonical]);
-    let verifies = match (family, certificate.public_key) {
-        (Family::Pkcs1, PublicKey::Rsa(key)) => pkcs1::verify(key, &value, digest, &computed)
-            .map_err(|error| XmlSignatureError::Certificate(error.to_string()))?,
-        // RFC 4055 section 1.2: a key restricted to RSASSA-PSS is the same RSA key, and it is
-        // how Germany's list signer states its key.
-        (Family::Pss, PublicKey::Rsa(key) | PublicKey::RsaPss { key, .. }) => {
-            // RFC 6931 section 2.3.10: the hash names MGF1's too, and the salt is the hash's length.
-            let parameters = pss::Parameters {
-                hash: digest,
-                mgf_hash: digest,
-                salt_length: digest.compute(&[]).len(),
-            };
-            // RFC 4055 section 3.3: where the certificate states the parameters its key is
-            // restricted to, the method's must be those.
-            pss::admitted_by_key(parameters, certificate.public_key.pss_parameters()).map_err(
-                |problem| {
-                    XmlSignatureError::Unsupported(format!(
-                        "{signature_method} under a key RFC 4055 section 3.3 restricts otherwise: \
-                     {problem:?}"
-                    ))
-                },
-            )?;
-            pss::verify(key, &value, parameters, &computed)
-                .map_err(|error| XmlSignatureError::Certificate(error.to_string()))?
-        }
-        (Family::Ecdsa, PublicKey::Ec(key)) => {
-            ecdsa::verify_concatenated(key, &value, &computed)
-                .map_err(|error| XmlSignatureError::Certificate(error.to_string()))?
-        }
-        _ => {
-            return Err(XmlSignatureError::Unsupported(format!(
-                "{signature_method} over the certificate's kind of key"
-            )));
-        }
-    };
-    if verifies {
+    if found.signature_verifies(octets, signed_info, &signer, entries)? {
         Ok(Verified { signer })
     } else {
         Err(XmlSignatureError::SignatureDiffers)
+    }
+}
+
+/// SAML 2.0 core section 5's validation of the enveloped signature on the assertion in `octets`,
+/// with `entries` as the budget every element and declaration is charged to.
+///
+/// Section 5.4.1 makes the signature enveloped and section 5.4.2 gives it exactly one reference,
+/// the same-document reference to the assertion's own `ID`. Section 5.4.4 lets a verifier reject a
+/// transform other than the enveloped signature transform and exclusive canonicalisation, and this
+/// one does, so that nothing of the assertion is left out of what is digested. Section 5.4.5
+/// leaves `ds:KeyInfo` optional and unrestricted: XML Signature 1.1 section 4.5.4 relates every
+/// certificate of an `X509Data` to the validation key, so the signer is the certificate whose key
+/// verifies the value, and with no certificate there is no key and the signature is not verified.
+///
+/// # Errors
+///
+/// [`XmlSignatureError`]: what stopped the validation, named; a digest or a value that does not
+/// match is an error too, because SAML 2.0 core section 2.3.3 forbids relying on the contents of
+/// an assertion whose signature is invalid.
+pub fn verify_saml(octets: &[u8], entries: usize) -> Result<Verified, XmlSignatureError> {
+    let mut remaining = entries;
+    let tree = xml::read_tree(octets, &mut remaining)?;
+    let found = Found::in_tree(&tree, Profile::Saml)?;
+    let root_id = tree
+        .elements
+        .first()
+        .and_then(|root| attribute(root, Profile::Saml.identifier()))
+        .ok_or(XmlSignatureError::AssertionNotCovered)?;
+    let signed_info = found.child(found.signature, "SignedInfo")?;
+    let references = found.children(signed_info, "Reference");
+    let [reference] = references.as_slice() else {
+        return Err(XmlSignatureError::NotOneReference(references.len()));
+    };
+    let checked = found.reference(octets, reference, entries)?;
+    let enveloped = checked.transforms.first() == Some(&ENVELOPED_SIGNATURE);
+    if checked.apex != 0 || checked.id.as_deref() != Some(root_id) || !enveloped {
+        return Err(XmlSignatureError::AssertionNotCovered);
+    }
+    if let Some(other) = checked
+        .transforms
+        .iter()
+        .skip(1)
+        .find(|transform| **transform != EXC_C14N && **transform != EXC_C14N_WITH_COMMENTS)
+    {
+        return Err(XmlSignatureError::Unsupported(format!(
+            "the transform {other}, which SAML 2.0 core section 5.4.4 lets a verifier reject"
+        )));
+    }
+    // The reference is checked before the key is looked for: a digest that does not match is a
+    // finding about the assertion whatever key would have verified the value.
+    let candidates = found.certificates()?;
+    if candidates.is_empty() {
+        return Err(XmlSignatureError::NoKey);
+    }
+    for signer in candidates.into_iter().take(MAX_KEY_CANDIDATES) {
+        if found.signature_verifies(octets, signed_info, &signer, entries)? {
+            return Ok(Verified { signer });
+        }
+    }
+    Err(XmlSignatureError::SignatureDiffers)
+}
+
+/// At most this many certificates of a SAML signature's `ds:KeyInfo` are tried as its key.
+const MAX_KEY_CANDIDATES: usize = 8;
+
+/// Which document's profile of XML Signature is applied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Profile {
+    /// ETSI TS 119 612 Annex B's, on a trusted list.
+    TrustedList,
+    /// SAML 2.0 core section 5.4's, on an assertion.
+    Saml,
+}
+
+impl Profile {
+    /// The unprefixed attribute a bare-name reference resolves through: `XAdES` and TS 119 612's
+    /// schemas declare `Id` as `xsd:ID`, and SAML 2.0 core section 1.3.4 its `ID`.
+    const fn identifier(self) -> &'static str {
+        match self {
+            Self::TrustedList => "Id",
+            Self::Saml => "ID",
+        }
     }
 }
 
@@ -321,10 +372,14 @@ fn prefix_list<'t>(found: &Found<'t>, method: &Element) -> Option<&'t str> {
         .and_then(|element| attribute(element, "PrefixList"))
 }
 
-/// What one reference established.
-struct Checked {
-    /// Whether it is Annex B.1.0 rule 2's reference to the whole list.
-    covers_list: bool,
+/// What one reference's digest was found to cover.
+struct Checked<'t> {
+    /// The index of the element its URI names, the root for the empty URI.
+    apex: usize,
+    /// Its URI.
+    uri: &'t str,
+    /// Its transforms' algorithms, in order.
+    transforms: Vec<&'t str>,
     /// The identifier it named, where it named one.
     id: Option<String>,
 }
@@ -333,11 +388,13 @@ struct Checked {
 struct Found<'t> {
     tree: &'t Tree,
     signature: &'t Element,
+    profile: Profile,
 }
 
 impl<'t> Found<'t> {
-    /// The one `ds:Signature` among the root's children (Annex B.1.0 rule 1's enveloped signature).
-    fn in_tree(tree: &'t Tree) -> Result<Self, XmlSignatureError> {
+    /// The one `ds:Signature` among the root's children: Annex B.1.0 rule 1's enveloped signature
+    /// on a list, and SAML 2.0 core section 5.4.1's on an assertion.
+    fn in_tree(tree: &'t Tree, profile: Profile) -> Result<Self, XmlSignatureError> {
         let root = tree
             .elements
             .first()
@@ -351,7 +408,11 @@ impl<'t> Found<'t> {
         if signatures.next().is_some() {
             return Err(XmlSignatureError::Ambiguous("ds:Signature".to_owned()));
         }
-        Ok(Self { tree, signature })
+        Ok(Self {
+            tree,
+            signature,
+            profile,
+        })
     }
 
     fn at(&self, index: usize) -> Option<&'t Element> {
@@ -392,29 +453,39 @@ impl<'t> Found<'t> {
             .ok_or(XmlSignatureError::Malformed(local))
     }
 
-    /// Clause 5.7.1's one certificate in `ds:KeyInfo`, as DER.
-    fn certificate(&self) -> Result<Vec<u8>, XmlSignatureError> {
-        let key_info = self.child(self.signature, "KeyInfo")?;
-        let certificates: Vec<&Element> = self
-            .children(key_info, "X509Data")
+    /// Every certificate of `ds:KeyInfo`'s `X509Data`, as DER; none where `ds:KeyInfo` is absent.
+    fn certificates(&self) -> Result<Vec<Vec<u8>>, XmlSignatureError> {
+        let Some(key_info) = self.children(self.signature, "KeyInfo").into_iter().next() else {
+            return Ok(Vec::new());
+        };
+        self.children(key_info, "X509Data")
             .into_iter()
             .flat_map(|data| self.children(data, "X509Certificate"))
-            .collect();
-        match certificates.as_slice() {
-            [one] => base64(&one.text).ok_or(XmlSignatureError::Malformed("X509Certificate")),
-            other => Err(XmlSignatureError::Certificates(other.len())),
+            .map(|one| base64(&one.text).ok_or(XmlSignatureError::Malformed("X509Certificate")))
+            .collect()
+    }
+
+    /// Clause 5.7.1's one certificate in `ds:KeyInfo`, as DER.
+    fn certificate(&self) -> Result<Vec<u8>, XmlSignatureError> {
+        self.child(self.signature, "KeyInfo")?;
+        let mut certificates = self.certificates()?;
+        match certificates.len() {
+            1 => Ok(certificates.remove(0)),
+            other => Err(XmlSignatureError::Certificates(other)),
         }
     }
 
-    /// The one element carrying the unprefixed attribute `Id` with `id`: XML Signature section
-    /// 4.4.3.3's bare-name reference, which `XAdES` and TS 119 612's schemas declare as `xsd:ID`.
+    /// The one element carrying the profile's identifier attribute with `id`: XML Signature
+    /// section 4.4.3.3's bare-name reference, which `XAdES` and TS 119 612's schemas declare as
+    /// `xsd:ID`, and SAML 2.0 core section 1.3.4 its `ID`.
     fn identified(&self, id: &str) -> Result<usize, XmlSignatureError> {
+        let name = self.profile.identifier();
         let mut carriers = self
             .tree
             .elements
             .iter()
             .enumerate()
-            .filter(|(_, element)| attribute(element, "Id") == Some(id))
+            .filter(|(_, element)| attribute(element, name) == Some(id))
             .map(|(index, _)| index);
         let first = carriers
             .next()
@@ -432,17 +503,12 @@ impl<'t> Found<'t> {
     fn reference(
         &self,
         octets: &[u8],
-        reference: &Element,
+        reference: &'t Element,
         entries: usize,
-    ) -> Result<Checked, XmlSignatureError> {
+    ) -> Result<Checked<'t>, XmlSignatureError> {
         let uri = attribute(reference, "URI").ok_or_else(|| {
             XmlSignatureError::Unsupported("a reference without a URI".to_owned())
         })?;
-        let root_id = self
-            .tree
-            .elements
-            .first()
-            .and_then(|root| attribute(root, "Id"));
         let (apex, whole_document, id) = if uri.is_empty() {
             (0, true, None)
         } else if let Some(id) = uri.strip_prefix('#') {
@@ -510,12 +576,77 @@ impl<'t> Found<'t> {
         if hasher.finish() != stated {
             return Err(XmlSignatureError::DigestDiffers(uri.to_owned()));
         }
-        // Annex B.1.0 rule 2: the list itself, enveloped transform first, exclusive
-        // canonicalisation second, and nothing else.
-        let names_list = apex == 0
-            && (uri.is_empty() || root_id.is_some_and(|root| Some(root) == id.as_deref()));
-        let covers_list = names_list && transforms == [ENVELOPED_SIGNATURE, EXC_C14N];
-        Ok(Checked { covers_list, id })
+        Ok(Checked {
+            apex,
+            uri,
+            transforms,
+            id,
+        })
+    }
+
+    /// Section 3.2.2: `ds:SignedInfo` canonicalised by its own method, and the value verified under
+    /// the key of `signer`.
+    fn signature_verifies(
+        &self,
+        octets: &[u8],
+        signed_info: &Element,
+        signer: &[u8],
+        entries: usize,
+    ) -> Result<bool, XmlSignatureError> {
+        let certificate = x509::parse(signer)
+            .map_err(|error| XmlSignatureError::Certificate(error.to_string()))?;
+        let canonicalization = self.child(signed_info, "CanonicalizationMethod")?;
+        let uri = algorithm(canonicalization)?;
+        let method = Method::of(uri, prefix_list(self, canonicalization))
+            .ok_or_else(|| XmlSignatureError::Unsupported(uri.to_owned()))?;
+        let signature_method = algorithm(self.child(signed_info, "SignatureMethod")?)?;
+        let (family, digest) = signature_algorithm(signature_method)?;
+        let mut canonical = Vec::new();
+        let subset = Subset {
+            apex: Target::Ordinal(self.index_of(signed_info)?),
+            excluded: None,
+            whole_document: false,
+        };
+        canonical_xml::canonicalize_subset(octets, &subset, &method, entries, &mut |piece| {
+            canonical.extend_from_slice(piece);
+        })?;
+        let value = base64(&self.child(self.signature, "SignatureValue")?.text)
+            .ok_or(XmlSignatureError::Malformed("SignatureValue"))?;
+        let computed = digest.compute(&[&canonical]);
+        match (family, certificate.public_key) {
+            (Family::Pkcs1, PublicKey::Rsa(key)) => pkcs1::verify(key, &value, digest, &computed)
+                .map_err(|error| XmlSignatureError::Certificate(error.to_string())),
+            // RFC 4055 section 1.2: a key restricted to RSASSA-PSS is the same RSA key, and it is
+            // how Germany's list signer states its key.
+            (Family::Pss, PublicKey::Rsa(key) | PublicKey::RsaPss { key, .. }) => {
+                // RFC 6931 section 2.3.10: the hash names MGF1's too, and the salt is the hash's
+                // length.
+                let parameters = pss::Parameters {
+                    hash: digest,
+                    mgf_hash: digest,
+                    salt_length: digest.compute(&[]).len(),
+                };
+                // RFC 4055 section 3.3: where the certificate states the parameters its key is
+                // restricted to, the method's must be those.
+                pss::admitted_by_key(parameters, certificate.public_key.pss_parameters()).map_err(
+                    |problem| {
+                        XmlSignatureError::Unsupported(format!(
+                            "{signature_method} under a key RFC 4055 section 3.3 restricts \
+                             otherwise: {problem:?}"
+                        ))
+                    },
+                )?;
+                pss::verify(key, &value, parameters, &computed)
+                    .map_err(|error| XmlSignatureError::Certificate(error.to_string()))
+            }
+            (Family::Ecdsa, PublicKey::Ec(key)) => {
+                ecdsa::verify_concatenated(key, &value, &computed)
+                    .map_err(|error| XmlSignatureError::Certificate(error.to_string()))
+            }
+            _ => Err(XmlSignatureError::Unsupported(format!(
+                "{signature_method} over the certificate's kind of key"
+            ))),
+        }
     }
 
     /// EN 319 132-1 clause 5.2.2: where a signed `SignedProperties` states a signing certificate

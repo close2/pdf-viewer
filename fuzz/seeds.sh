@@ -178,6 +178,25 @@ seed() {
     # §12.8.3.4.4's stored policy document under its three syntaxes; no corpus document stores one.
     policy_document) python3 "$here/seed_policy_document.py" "$root/$t" > /dev/null ;;
     revocation) documents | python3 "$here/seed_revocation.py" "$root/$t" - ;;
+    # A SAML 2.0 assertion (ADR 2922): eight octets of instant, then an unsigned assertion with
+    # conditions and an attribute statement, and the same carrying a signature with no key, so the
+    # reader and section 5.4's reference check both run.
+    saml)
+        python3 -I -c 'import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+head = "<saml:Assertion xmlns:saml=\"urn:oasis:names:tc:SAML:2.0:assertion\" ID=\"A1\" IssueInstant=\"2026-01-01T00:00:00Z\" Version=\"2.0\"><saml:Issuer>https://attributes.example</saml:Issuer>"
+body = ("<saml:Subject><saml:NameID>signer@example</saml:NameID></saml:Subject>"
+    "<saml:Conditions NotBefore=\"2026-01-01T00:00:00Z\" NotOnOrAfter=\"2027-01-01T00:00:00Z\"><saml:AudienceRestriction><saml:Audience>https://rp.example</saml:Audience></saml:AudienceRestriction></saml:Conditions>"
+    "<saml:AttributeStatement><saml:Attribute Name=\"urn:oid:2.5.4.72\" NameFormat=\"urn:oasis:names:tc:SAML:2.0:attrname-format:uri\"><saml:AttributeValue>director</saml:AttributeValue></saml:Attribute></saml:AttributeStatement></saml:Assertion>")
+signature = ("<ds:Signature xmlns:ds=\"http://www.w3.org/2000/09/xmldsig#\"><ds:SignedInfo><ds:CanonicalizationMethod Algorithm=\"http://www.w3.org/2001/10/xml-exc-c14n#\"></ds:CanonicalizationMethod>"
+    "<ds:SignatureMethod Algorithm=\"http://www.w3.org/2001/04/xmldsig-more#rsa-sha256\"></ds:SignatureMethod><ds:Reference URI=\"#A1\"><ds:Transforms>"
+    "<ds:Transform Algorithm=\"http://www.w3.org/2000/09/xmldsig#enveloped-signature\"></ds:Transform><ds:Transform Algorithm=\"http://www.w3.org/2001/10/xml-exc-c14n#\"></ds:Transform></ds:Transforms>"
+    "<ds:DigestMethod Algorithm=\"http://www.w3.org/2001/04/xmlenc#sha256\"></ds:DigestMethod><ds:DigestValue>AAAA</ds:DigestValue></ds:Reference></ds:SignedInfo>"
+    "<ds:SignatureValue>AAAA</ds:SignatureValue></ds:Signature>")
+instant = (1782864000).to_bytes(8, "little")
+(root / "unsigned").write_bytes(instant + (head + body).encode())
+(root / "signed").write_bytes(instant + (head + signature + body).encode())' "$root/$t"
+        ;;
     # ETSI TS 119 612's trusted list: eight octets of instant, then one list per territory class
     # (a Member State, `GB`, one outside the union) naming `x509_fixtures.rs`'s self-signed
     # certificate as a `CA/QC` service with a history instance, so the search's identity branch runs.

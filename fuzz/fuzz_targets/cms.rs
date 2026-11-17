@@ -124,9 +124,20 @@ fuzz_target!(|data: &[u8]| {
                 .claimed
                 .len()
                 .saturating_add(carried.certified.len())
-                .saturating_add(carried.assertions)
+                .saturating_add(carried.assertions.len())
                 <= signer_attributes::MAX_SIGNER_ATTRIBUTES
         );
+        // Each signed assertion of clause 5.2.6.3's form is read and its signature checked (ADR
+        // 2922); an invalid one hands on nothing.
+        for assertion in &carried.assertions {
+            if let Some(octets) = assertion.saml_octets() {
+                inside(octets);
+                let read = pdf_signature::saml::Saml::of(octets);
+                if read.signature.is_invalid() {
+                    assert!(read.attributes_relied_on().is_empty());
+                }
+            }
+        }
         // Each claimed attribute keeps its values beside its type, and an attribute is compared
         // by value only through them (ADR 2895): the comparison is total over what was read.
         assert_eq!(carried.claimed.len(), carried.claimed_values.len());

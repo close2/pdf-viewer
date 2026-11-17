@@ -2933,6 +2933,14 @@ fn applicability_sentences(report: &pdf_signature::verdict::applicability::Repor
     sentences.push(signer_sentence(&report.signer));
     sentences.push(times_sentence(&report.times));
     sentences.push(attributes_sentence(&report.attributes));
+    sentences.extend(
+        report
+            .attributes
+            .iter()
+            .flat_map(|attribute| &attribute.assertions)
+            .enumerate()
+            .map(|(index, assertion)| assertion_sentence(index.saturating_add(1), assertion)),
+    );
     if let Cryptography::Suite {
         digest,
         family,
@@ -3333,6 +3341,116 @@ fn attributes_sentence(
         "Its attributes (REQ-4.5-01 f)): signed — {}; unsigned — {}",
         list(true),
         list(false)
+    )
+}
+
+/// One SAML assertion a `signer-attributes-v2` carries, as ETSI EN 319 102-1 clause 5.2.8.4.2.7
+/// makes it available: what it says, and whether its signature was verified (ADR 2922). An
+/// assertion whose signature is invalid has its contents withheld, as SAML 2.0 core section 2.3.3
+/// forbids relying on them.
+fn assertion_sentence(
+    ordinal: usize,
+    assertion: &pdf_signature::verdict::applicability::CarriedAssertion,
+) -> String {
+    use pdf_signature::saml::SignatureCheck;
+    use pdf_signature::verdict::applicability::AssertionKind;
+    let member = match &assertion.kind {
+        AssertionKind::Claimed => "a claimed SAML assertion (ETSI EN 319 122-1 clause 5.2.6.2)",
+        AssertionKind::Signed => "a signed SAML assertion (ETSI EN 319 122-1 clause 5.2.6.3)",
+        AssertionKind::OtherForm(identifier) => {
+            return format!(
+                "Signer assertion {ordinal}: a signed assertion of form {identifier}, which ETSI \
+                 EN 319 122-1 does not define, so it is not read"
+            );
+        }
+    };
+    let Some(saml) = &assertion.saml else {
+        return format!("Signer assertion {ordinal}: {member} that carries no assertion");
+    };
+    let read = match &saml.assertion {
+        Ok(read) => read,
+        Err(why) => {
+            return format!("Signer assertion {ordinal}: {member} that cannot be read: {why}");
+        }
+    };
+    let signature = match &saml.signature {
+        SignatureCheck::Unsigned => "it is not signed, so it is the signer's claim".to_owned(),
+        SignatureCheck::Verified(_) => {
+            let by = assertion.signer.as_ref().map_or_else(
+                || "a certificate whose names do not read".to_owned(),
+                |signer| {
+                    signer
+                        .subject
+                        .iter()
+                        .map(|attribute| {
+                            format!(
+                                "{}={}",
+                                attribute_short_name(&attribute.kind),
+                                attribute
+                                    .text
+                                    .as_deref()
+                                    .unwrap_or("(a value that is not text)")
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                },
+            );
+            format!(
+                "its signature verifies under the certificate it carries, of {by}, which this \
+                 report does not chain to any anchor"
+            )
+        }
+        SignatureCheck::Failed(why) if saml.signature.is_invalid() => {
+            return format!(
+                "Signer assertion {ordinal}: {member} issued by {}, whose signature is invalid \
+                 ({why}); SAML 2.0 core section 2.3.3 forbids relying on its contents, so they \
+                 are not shown",
+                read.issuer
+            );
+        }
+        SignatureCheck::Failed(why) => format!("its signature is unverified, not valid: {why}"),
+    };
+    let interval = match (&read.not_before, &read.not_on_or_after) {
+        (None, None) => String::new(),
+        (start, end) => format!(
+            ", valid from {} until {}",
+            start
+                .as_ref()
+                .map_or("any time", |(spelled, _)| spelled.as_str()),
+            end.as_ref()
+                .map_or("no expiry", |(spelled, _)| spelled.as_str())
+        ),
+    };
+    let attributes = if read.attributes.is_empty() {
+        "no attribute".to_owned()
+    } else {
+        read.attributes
+            .iter()
+            .map(|attribute| {
+                let name = attribute.friendly_name.as_ref().map_or_else(
+                    || attribute.name.clone(),
+                    |friendly| format!("{friendly} ({})", attribute.name),
+                );
+                format!("{name} = {}", attribute.values.join(" | "))
+            })
+            .collect::<Vec<_>>()
+            .join("; ")
+    };
+    let encrypted = if read.encrypted_attributes > 0 {
+        format!(
+            ", and {} encrypted attribute(s) this program does not open",
+            read.encrypted_attributes
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "Signer assertion {ordinal}: {member} issued by {} at {} about {}{interval}: \
+         {attributes}{encrypted}; {signature}",
+        read.issuer,
+        read.issue_instant,
+        read.subject.as_deref().unwrap_or("no stated subject")
     )
 }
 
@@ -5278,6 +5396,49 @@ mod tests {
         assert!(!absent.contains("Not_Qualified"), "{absent}");
     }
 
+    /// ETSI EN 319 102-1 clause 5.2.8.4.2.7 makes an unconstrained assertion available, so a
+    /// claimed one is said with what it states; SAML 2.0 core section 2.3.3 forbids relying on one
+    /// whose signature is invalid, so its contents are withheld and the reason said (ADR 2922).
+    #[test]
+    fn a_signers_saml_assertion_is_said_and_an_invalid_one_withheld() {
+        use pdf_signature::saml::Saml;
+        use pdf_signature::verdict::applicability::{AssertionKind, CarriedAssertion};
+        let root = "<saml:Assertion xmlns:saml=\"urn:oasis:names:tc:SAML:2.0:assertion\" \
+                    ID=\"A1\" IssueInstant=\"2026-01-01T00:00:00Z\" Version=\"2.0\">\
+                    <saml:Issuer>https://attributes.example</saml:Issuer>";
+        let statement = "<saml:AttributeStatement><saml:Attribute FriendlyName=\"role\" \
+                         Name=\"urn:oid:2.5.4.72\" \
+                         NameFormat=\"urn:oasis:names:tc:SAML:2.0:attrname-format:uri\">\
+                         <saml:AttributeValue>sales director</saml:AttributeValue>\
+                         </saml:Attribute></saml:AttributeStatement></saml:Assertion>";
+        let claimed = CarriedAssertion {
+            kind: AssertionKind::Claimed,
+            saml: Some(Saml::of(format!("{root}{statement}").as_bytes())),
+            signer: None,
+        };
+        let said = super::assertion_sentence(1, &claimed);
+        assert!(said.contains("clause 5.2.6.2"), "{said}");
+        assert!(said.contains("https://attributes.example"), "{said}");
+        assert!(
+            said.contains("role (urn:oid:2.5.4.72) = sales director"),
+            "{said}"
+        );
+        assert!(said.contains("not signed"), "{said}");
+        // A signature with no `SignedInfo` is a shape XML Signature forbids: invalid, withheld.
+        let broken = format!(
+            "{root}<ds:Signature xmlns:ds=\"http://www.w3.org/2000/09/xmldsig#\">\
+             </ds:Signature>{statement}"
+        );
+        let signed = CarriedAssertion {
+            kind: AssertionKind::Signed,
+            saml: Some(Saml::of(broken.as_bytes())),
+            signer: None,
+        };
+        let said = super::assertion_sentence(2, &signed);
+        assert!(said.contains("is invalid"), "{said}");
+        assert!(!said.contains("sales director"), "{said}");
+    }
+
     /// ETSI TS 119 172-4 clause 4.4.2's answers worded (ADR 2866): "qualified" about the signature
     /// only where REQ-4.4.2-06 holds, the requirement that decided every answer named, and Annex
     /// A's type and identifier only where clause 4.2's validation passed.
@@ -5398,12 +5559,14 @@ mod tests {
                         "1.2.840.113549.1.9.16.6.1".to_owned(),
                         Some("proof of origin"),
                     )),
+                    assertions: Vec::new(),
                 },
                 SignatureAttribute {
                     identifier: "1.2.3.5".to_owned(),
                     name: None,
                     signed: false,
                     commitment: None,
+                    assertions: Vec::new(),
                 },
             ],
             cryptography: Cryptography::Suite {
