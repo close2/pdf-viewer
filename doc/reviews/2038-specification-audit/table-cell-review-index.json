@@ -2252,6 +2252,84 @@
       ],
       "artifact": "shards/fdf_dictionary_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "121",
+      "keys": [
+        "FixedPitch",
+        "Serif",
+        "Symbolic",
+        "Script",
+        "Nonsymbolic",
+        "Italic",
+        "AllCap",
+        "SmallCap",
+        "ForceBold"
+      ],
+      "ledger_rows": [
+        "9.8.2"
+      ],
+      "artifact": "shards/embedded_font_format_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "123",
+      "keys": [
+        "Adobe-GB1",
+        "Adobe-CNS1",
+        "Adobe-Japan1",
+        "Adobe-Japan2",
+        "Adobe-Korea1 / Adobe-KR"
+      ],
+      "ledger_rows": [
+        "9.8.3.3"
+      ],
+      "artifact": "shards/embedded_font_format_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "124",
+      "keys": [
+        "FontFile",
+        "FontFile2",
+        "FontFile3 Type1C",
+        "FontFile3 CIDFontType0C",
+        "FontFile3 OpenType"
+      ],
+      "ledger_rows": [
+        "9.9.1"
+      ],
+      "artifact": "shards/embedded_font_format_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "199",
+      "keys": [
+        "K",
+        "F",
+        "V",
+        "C"
+      ],
+      "ledger_rows": [
+        "12.6.3"
+      ],
+      "artifact": "shards/additional_action_event_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "200",
+      "keys": [
+        "WC",
+        "WS",
+        "DS",
+        "WP",
+        "DP"
+      ],
+      "ledger_rows": [
+        "12.6.3"
+      ],
+      "artifact": "shards/additional_action_event_cells_current/features.json",
+      "status": "partial"
     }
   ],
   "reconciliation_110": "Two Table227 reviews previously counted twice; merged into one matrix retaining both artifact links. Table87 now includes four continuation keys and corrected source span. Counts are selected unique table matrices, not certified features."

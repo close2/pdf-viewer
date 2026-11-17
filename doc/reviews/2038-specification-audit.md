@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (119)
+## Current checkpoint (120)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **112 failing test identities**: 111 behavior assertions/probes
@@ -501,6 +501,11 @@ Checkpoint 119 records B75: explicit FDF UTF-8 encoding fails for names, values
 and choice options. Seven public tests produce four passing ASCII/BOM controls
 and three failures, including live controls and saved content. Model Clippy
 passes. The manifest has112 identities;140 table matrices remain partial.
+
+Checkpoint 120 adds selected font-format and action-trigger table reviews, plus
+a second primary errata-target sample. A rendered table resolves the shared
+Korea1/KR row; no font behavior failure follows. D67 records obsolete whole-table
+script-exclusion prose in the #618 disposition. No new execution is claimed.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

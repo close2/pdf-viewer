@@ -1,0 +1,50 @@
+{
+  "shard": "additional_action_event_cells_current",
+  "decisions": [
+    {
+      "adr": "1614",
+      "question": "Do catalog additional actions run at their named lifecycle moments and bracket the public save/print operations?",
+      "evidence_read": [
+        "ISO 32000-2 EC3 Table 200, physical pp.524–525 / printed pp.509–510.",
+        "crates/pdf-model/src/view/script_sites.rs::run_document_scripts and current Viewer save/print/close call sites.",
+        "crates/viewer-core/tests/document_trigger_timing_audit.rs assertions for serialized WS value, post-save DS value, WC report order, WP print-page ink, DP state, and no-op Finish.",
+        "crates/viewer-core/tests/document_trigger_timing_residual_audit.rs assertions separating actual save/print from held or refused operations.",
+        "crates/pdf-script/tests/document_events.rs direct trigger identity, rc and engine-enabled WS edit assertions."
+      ],
+      "verdict": "Reaffirm the five call points narrowly. Existing tests reach public Viewer lifecycle operations and observe effects/ordering, with additional tests for denied or held policies. No distinct missing Table 200 event-dispatch test identified.",
+      "qualification": "ISO's rows state when an optional ECMAScript action shall be performed. The non-veto behavior for rc=false, script-level availability, restriction policy, and user-facing reporting include explicit owner decisions in ADR 1614 / CLAUDE.md, and should not be attributed solely to Table 200."
+    },
+    {
+      "adr": "2763",
+      "question": "Does Table 200 /DS depend on a save actually being written, distinct from XFA cleanup postSave?",
+      "evidence_read": [
+        "Table 200 /DS says after saving a document.",
+        "viewer-core/src/viewer/editing.rs::written_with_scripts dispatches DidSave only on Ok(saved).",
+        "document_trigger_timing_residual_audit.rs compares Off, On, Ask-no, Ask-yes, and XFA cleanup event traces."
+      ],
+      "verdict": "Reaffirm the narrow boundary. DS is absent when no file was written; XFA postSave cleanup is a separate XFA lifecycle and may run after cancellation. Existing public test has the needed affirmative and negative outcomes."
+    },
+    {
+      "adr": "1603",
+      "question": "Are the form-field additional action triggers wired to the relevant field edit, format, commit, and calculation consumer?",
+      "evidence_read": [
+        "ISO 32000-2 EC3 Table 199, physical p.524 / printed p.509.",
+        "pdf-model view scripts and field commit/format call paths.",
+        "pdf-script/tests/hook.rs::a_supplied_runner_is_handed_the_keystroke_and_the_format.",
+        "viewer-core/tests/script_levels.rs::at_run_the_total_is_computed_by_the_script.",
+        "viewer-core/tests/field_commit.rs value-entry and calculation assertions."
+      ],
+      "verdict": "Reaffirm only the sampled dispatch: K and F have an exact recorded site sequence and displayed-value oracle; the field calculation route has an independently literal total through public Viewer edits. V/commit ordering and richer form behavior are documented implementation choices in ADR 1603 and its RFC/reference inputs, not fully entailed by Table 199's event rows. No distinct missing trigger-cell test identified."
+    },
+    {
+      "adr": "2814 (B22 context only)",
+      "question": "Does this cell audit change the existing initial Catalog OpenAction/page O/annotation PO ordering finding?",
+      "evidence_read": [
+        "Tables 197 and 198 ordering language on physical pp.523–524 / printed pp.508–509.",
+        "Current findings.json B22 and expected-failures.json identify the public exact-order test and its observed failure/controls."
+      ],
+      "verdict": "No. B22 remains a separate, established finding. This shard does not copy it into Table 199 or Table 200 coverage."
+    }
+  ],
+  "no_draft_reason": "The selected Table 199 and 200 entry groups already have direct event/consumer assertions, including positive and non-trigger/denied controls; drafting duplicate cases would add no distinct source-derived oracle."
+}

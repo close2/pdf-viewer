@@ -1,0 +1,5 @@
+{
+  "source": "Parent independently matched primary annotation IRT links and strike QuadPoints to bbox words on48,81,132,133,153,656. All eight linked replacement pairs agree. Also retain251 unpaired deletion and276 note-number caret.",
+  "assertions": "Read wrong-generation test: valid generation yields42 and wrong generation Null; this is not a lexical rejection matrix. Read generated xref-stream assertions: selected direct Table17 values and indirect Root, not every nested Table5 member. Date instant test explicitly compares no-zone07:00 with12:00+05:00. Separate byte-string context exceptions and slideshow scope retained.",
+  "limits": "Six issue IDs sampled; no new mismatch, runtime test or full annotation certification. D66 and rejected #216 hypothesis remain distinct."
+}

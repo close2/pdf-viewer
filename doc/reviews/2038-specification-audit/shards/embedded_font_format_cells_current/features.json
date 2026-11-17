@@ -1,0 +1,188 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected effective EC3 tables 121, 123, and 124. This is a source-to-assertion cell review, not certification of §9.8 or §9.9.",
+  "source_method": "Primary doc/ISO_32000-2_sponsored_EC3.pdf was inspected by physical PDF page and footer, including each table caption and continuation. Table 121 is physical 360–361 (printed 345–346); Table 123 is physical 364–365 (printed 349–350); Table 124 is physical 367–368 (printed 352–353). Physical 368/printed 353 starts Table 125, which is outside this table review. There are no EC3 issue annotations on the Table 123/124 pages; nearby #337/#453 on physical 360 concern Table 120 and are not Table 121/124 edits.",
+  "features": [
+    {
+      "clause": "9.8.2",
+      "table": "Table 121 — Font flags",
+      "source_location": "Physical 360–361 / printed 345–346. The caption and first four entries (bits 1–4) are on physical 360; the continuation (bits 6, 7, 17, 18, 19) is on physical 361. Adjacent §9.8.2 prose states the 32-bit unsigned integer shape, reserved-zero writer rule, Symbolic/Nonsymbolic interpretation, and ForceBold behavior.",
+      "cells": [
+        {
+          "bit": 1,
+          "name": "FixedPitch",
+          "meaning": "All glyphs have the same width."
+        },
+        {
+          "bit": 2,
+          "name": "Serif",
+          "meaning": "Glyphs have serifs."
+        },
+        {
+          "bit": 3,
+          "name": "Symbolic",
+          "meaning": "Contains glyphs outside Standard Latin; mutually exclusive with bit 6 in valid writer output."
+        },
+        {
+          "bit": 4,
+          "name": "Script",
+          "meaning": "Glyphs resemble cursive handwriting."
+        },
+        {
+          "bit": 6,
+          "name": "Nonsymbolic",
+          "meaning": "Uses Standard Latin names/set or subset; mutually exclusive with bit 3 in valid writer output."
+        },
+        {
+          "bit": 7,
+          "name": "Italic",
+          "meaning": "Dominant vertical strokes are slanted."
+        },
+        {
+          "bit": 17,
+          "name": "AllCap",
+          "meaning": "No lowercase letters."
+        },
+        {
+          "bit": 18,
+          "name": "SmallCap",
+          "meaning": "Lowercase shapes correspond to uppercase, proportion-adjusted."
+        },
+        {
+          "bit": 19,
+          "name": "ForceBold",
+          "meaning": "The following prose says the processor shall use this flag to determine whether bold glyphs are painted with extra pixels at small sizes; thickening is permitted, not specified as a mandatory pixel kernel."
+        },
+        {
+          "bits": "all other positions",
+          "meaning": "Reserved and shall be zero in PDF-writer output."
+        }
+      ],
+      "ec3_and_errata": "No annotation on the Table 121 continuation changes these meanings. #337 and #453 share physical page 360 but their annotation rectangles target Table 120 FontName/MissingWidth material; they do not amend Table 121.",
+      "implementation_and_assertions": "`pdf-font::metrics::descriptor_flags` reads only nonnegative u32-valued integer flags; `truetype::is_symbolic` uses bit 3. `crates/pdf-font/src/truetype_flags_audit.rs::a_conflicting_flags_word_follows_symbolic_with_route_controls` has independently distinct MacRoman and Unicode cmap routes and asserts Symbolic-only, Nonsymbolic-only, and contradictory-bits behavior. This tests the §9.6.5.4 code-table consequence, not every Table 121 flag. `substitute::Style::derive` consumes FixedPitch/Serif/Italic/ForceBold as substitute style; several family-selection assertions are environment-gated. `rich_text::layout` uses Italic and ForceBold for constructed appearance style. Current durable descriptor shard `font_descriptor_cells_current` maps word bounds, invalid-type controls, contradictory flags and substitute consumers; its source reading treats zeroing of reserved bits as a writer rule and small-size thickening as underdetermined by the spec's permitted effect wording.",
+      "verdict": "Selected semantic consumers are tested. The symbolic precedence control is strong for the one reader recommendation the prose actually gives. No all-bits raster matrix is implied, and no pixel-exact ForceBold requirement was derived.",
+      "residuals": "This shard does not test each style bit's raster consequence, all valid/reserved-bit combinations, or a ForceBold small-device raster. Such behavior was not promoted as a defect: the source leaves whether to thicken at small sizes open and states no kernel or threshold. Font substitution ranking is also product policy."
+    },
+    {
+      "clause": "9.8.3.3",
+      "table": "Table 123 — Glyph classes in CJK fonts",
+      "source_location": "Physical 364–365 / printed 349–350. The caption and Adobe-GB1/Adobe-CNS1 rows start physical 364; Adobe-Japan1/Adobe-Japan2/Adobe-Korea1/Adobe-KR rows continue on physical 365. §9.8.3.3 introduces that class names depend on Registry, Ordering, and Supplement; Table 123 supplies the collection-specific names and descriptions.",
+      "cells": {
+        "Adobe-GB1": [
+          "Alphabetic",
+          "Dingbats",
+          "Generic",
+          "Hanzi",
+          "HRoman",
+          "HRomanRot",
+          "Kana",
+          "Proportional",
+          "ProportionalRot"
+        ],
+        "Adobe-CNS1": [
+          "Alphabetic",
+          "Dingbats",
+          "Generic",
+          "Hanzi",
+          "HRoman",
+          "HRomanRot",
+          "Kana",
+          "Proportional",
+          "ProportionalRot"
+        ],
+        "Adobe-Japan1": [
+          "Alphabetic",
+          "AlphaNum",
+          "Dingbats",
+          "DingbatsRot",
+          "Generic",
+          "GenericRot",
+          "HKana",
+          "HKanaRot",
+          "HRoman",
+          "HRomanRot",
+          "Kana",
+          "Kanji",
+          "Proportional",
+          "ProportionalRot",
+          "Ruby"
+        ],
+        "Adobe-Japan2 (deprecated in PDF 2.0)": [
+          "Alphabetic",
+          "Dingbats",
+          "HojoKanji"
+        ],
+        "Adobe-Korea1 (deprecated) and Adobe-KR (added): shared bordered row": [
+          "Alphabetic",
+          "Dingbats",
+          "Generic",
+          "Hangul",
+          "Hanja",
+          "HRoman",
+          "HRomanRot",
+          "Kana",
+          "Proportional",
+          "ProportionalRot"
+        ]
+      },
+      "ec3_and_errata": "The primary continuation itself marks Japan2/Korea1 deprecated and Adobe-KR added for PDF 2.0. No issue annotation was attached to physical 364–365. Do not confuse these Table 123 names with the separate predefined-CMap compatibility obligations.",
+      "implementation_and_assertions": "`pdf-font/src/glyph_class.rs` describes character-kind classification, collection-specific class inventories, ambiguous overlaps, and explicitly unclassifiable form/symbol classes. Unit tests assert Latin/digits/full-width Latin/Greek/Cyrillic/Kana/half-width Kana/ideograph/Hangul kinds; single-class membership, ambiguous Proportional+HRoman and Proportional+AlphaNum, the clause's Proportional+HKana example, and undecidable rotated/Ruby/Dingbats/Generic classes. `glyph_class_audit.rs::each_table_123_collection_row_recognizes_its_distinctive_character_classes` has a positive and cross-row negative for each of the six named collections (five physical rows), including added/deprecated collections. `loading.rs::a_glyph_class_descriptor_chooses_the_face_for_its_own_class_alone` exercises class-specific face application; public substitution choice remains dependent on available fonts.",
+      "verdict": "Table 123's names and representative character descriptions have unusually broad unit coverage, and the class override has a separate consumer test. The tests do not raster-certify every class cell; they do directly cover each named collection with discriminating controls.",
+      "residuals": "No public PDF fixture exercises every class name or every Unicode-to-class edge. Dingbats/Generic/rotated classes cannot be classified from Unicode character alone by this implementation and are refused with report; the source table descriptions do not supply an exact Unicode membership list for those categories. This is not a demonstrated reader defect."
+    },
+    {
+      "clause": "9.9.1",
+      "table": "Table 124 — Embedded font organisation for various font types",
+      "source_location": "Caption and first rows physical 367 / printed 352; OpenType continuation physical 368 / printed 353. Table 125 starts later on physical 368 and is excluded. Table 124's OpenType row distinguishes the font dictionary kind and internal `glyf`/`CFF ` program form.",
+      "cells": [
+        {
+          "key": "FontFile",
+          "subtype": "—",
+          "font_dictionary": "Type1 or MMType1",
+          "program": "Original Type 1 format."
+        },
+        {
+          "key": "FontFile2",
+          "subtype": "—",
+          "font_dictionary": "TrueType or CIDFontType2",
+          "program": "TrueType; required core tables listed in the row."
+        },
+        {
+          "key": "FontFile3",
+          "subtype": "Type1C",
+          "font_dictionary": "Type1 or MMType1",
+          "program": "Compact Type 1-equivalent CFF."
+        },
+        {
+          "key": "FontFile3",
+          "subtype": "CIDFontType0C",
+          "font_dictionary": "CIDFontType0",
+          "program": "Compact Type 0 CIDFont CFF."
+        },
+        {
+          "key": "FontFile3",
+          "subtype": "OpenType",
+          "font_dictionary": "TrueType or CIDFontType2",
+          "program": "OpenType with `glyf`, and the listed TrueType core tables."
+        },
+        {
+          "key": "FontFile3",
+          "subtype": "OpenType",
+          "font_dictionary": "CIDFontType0",
+          "program": "OpenType with CID-keyed `CFF ` Top DICT operators; row also requires `cmap`."
+        },
+        {
+          "key": "FontFile3",
+          "subtype": "OpenType",
+          "font_dictionary": "Type1 or CIDFontType0",
+          "program": "OpenType with non-CID-keyed `CFF `; row also requires `cmap`."
+        }
+      ],
+      "ec3_and_errata": "No effective issue annotation was found on Table 124's two physical pages. Table 124 itself gives the font-kind/program-format combinations and source table requirements; the detailed Type1/TrueType length fields belong to adjacent Table 125 and are intentionally not claimed here.",
+      "implementation_and_assertions": "`crates/pdf-model/tests/opentype_selection_audit.rs` builds exact-xref PDFs and uses bundled CFF-OTF/glyf-TTF programs. Five tests assert literal selected glyph IDs for: name-keyed CFF in simple Type1; glyf in simple TrueType; name-keyed CFF in CIDFontType0; glyf in CIDFontType2; and the same compact CFF payload as Type1C. Each requested outline is also asserted nonempty. These are concrete consumer controls for the table's route choices, with fixture-provided real sfnt/CFF program bytes; they are not an independent ISO/IEC 14496-22 conformance validation. Other Type1/TrueType tests exercise the original FontFile and FontFile2 routes. The durable OpenType shard `font_dictionaries_current` is explicitly partial and also notes the non-exhaustive cross-product.",
+      "verdict": "The principal format-selection branches in Table 124 have direct, differing expected glyph-index controls, including same-CFF comparison between OpenType and bare Type1C. This materially supports dispatch correctness; it is not full table conformance evidence.",
+      "residuals": "No exhaustive valid profile spans every table/dictionary subtype combination or checks every required sfnt table family independently. Program conformance to the referenced font standards and malformed-program handling are outside this bounded cell audit. No additional test draft is warranted because current tests already distinguish the main dispatch branches; remaining cases are a validation/cross-product boundary rather than an observed wrong route."
+    }
+  ],
+  "parent_correction": "Rendered primary physical365 shows Korea1 and KR share one bordered row and all ten classes. Text extraction had falsely split that row at the label positions. The implementation and Hangul test are correct. Table125 starts368, not369. Five physical collection rows name six collections."
+}

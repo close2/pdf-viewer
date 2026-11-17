@@ -482,7 +482,8 @@
       "shards/indirect_file_parameters_current/features.json",
       "shards/errata_weak_dispositions_batch4_current/features.json",
       "shards/catalog_table29_cells_current/features.json",
-      "shards/fixture_claim_validity_current/features.json"
+      "shards/fixture_claim_validity_current/features.json",
+      "shards/errata_overlay_targets_second_current/features.json"
     ],
     "prior_artifacts": [
       "basic_objects"
@@ -944,7 +945,8 @@
       "shards/errata_early_behavior_current/features.json",
       "shards/indirect_filter_parameters_current/features.json",
       "shards/errata_weak_dispositions_batch4_current/features.json",
-      "shards/xref_dictionary_cells_current/features.json"
+      "shards/xref_dictionary_cells_current/features.json",
+      "shards/errata_overlay_targets_second_current/features.json"
     ],
     "prior_artifacts": [
       "object_xref_streams"
@@ -1847,7 +1849,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/text_streams_rectangles_current/features.json"
+      "shards/text_streams_rectangles_current/features.json",
+      "shards/errata_overlay_targets_second_current/features.json"
     ],
     "prior_artifacts": [
       "text_strings"
@@ -1864,7 +1867,8 @@
     "current_artifacts": [
       "prior-assertion-reviews.json",
       "shards/errata_numeric_syntax_batch_current/features.json",
-      "shards/tree_string_cells_current/features.json"
+      "shards/tree_string_cells_current/features.json",
+      "shards/errata_overlay_targets_second_current/features.json"
     ],
     "prior_artifacts": [
       "dates"
@@ -2221,7 +2225,8 @@
       "shards/indirect_file_parameters_current/features.json",
       "shards/file_specification_cells_current/features.json",
       "shards/embedded_file_cells_current/features.json",
-      "shards/fixture_claim_validity_current/features.json"
+      "shards/fixture_claim_validity_current/features.json",
+      "shards/errata_overlay_targets_second_current/features.json"
     ],
     "prior_artifacts": [
       "associated_files_audit",
@@ -5139,7 +5144,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/font_descriptors_current/features.json",
-      "shards/font_descriptor_cells_current/features.json"
+      "shards/font_descriptor_cells_current/features.json",
+      "shards/embedded_font_format_cells_current/features.json"
     ],
     "prior_artifacts": [
       "font_descriptors_audit"
@@ -5201,7 +5207,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/font_descriptors_current/features.json",
-      "shards/font_descriptor_cells_current/features.json"
+      "shards/font_descriptor_cells_current/features.json",
+      "shards/embedded_font_format_cells_current/features.json"
     ],
     "prior_artifacts": [
       "font_descriptor_cid_audit",
@@ -5235,7 +5242,8 @@
       "shards/font_dictionaries_current/features.json",
       "shards/cid_opentype_current/features.json",
       "shards/shared_oracle_assertions_current/features.json",
-      "shards/fixed_font_substitution_assertions_current/features.json"
+      "shards/fixed_font_substitution_assertions_current/features.json",
+      "shards/embedded_font_format_cells_current/features.json"
     ],
     "prior_artifacts": [
       "cidfont_cmap_validation_audit",
@@ -7655,7 +7663,8 @@
       "shards/errata_interactive_batch_current/features.json",
       "shards/catalog_table29_cells_current/features.json",
       "shards/page_dictionary_cells_current/features.json",
-      "shards/form_dictionary_residual_consumers_current/features.json"
+      "shards/form_dictionary_residual_consumers_current/features.json",
+      "shards/additional_action_event_cells_current/features.json"
     ],
     "prior_artifacts": [
       "action_triggers_audit",
@@ -7916,7 +7925,8 @@
     "current_artifacts": [
       "shards/script_action_execution_current/features.json",
       "shards/rendition_preconditions_current/features.json",
-      "shards/script_corpus_error_provenance_current/features.json"
+      "shards/script_corpus_error_provenance_current/features.json",
+      "shards/additional_action_event_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -8032,7 +8042,8 @@
       "shards/variable_text_cells_current/features.json",
       "shards/choice_locality_current/features.json",
       "shards/required_submission_policy_current/features.json",
-      "shards/dynamic_field_flags_current/features.json"
+      "shards/dynamic_field_flags_current/features.json",
+      "shards/additional_action_event_cells_current/features.json"
     ],
     "prior_artifacts": [
       "interactive_form_structure_audit"
@@ -9711,7 +9722,8 @@
     "prior_ledger_status": "out-of-scope",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/remaining_multimedia_controls_current/features.json"
+      "shards/remaining_multimedia_controls_current/features.json",
+      "shards/errata_overlay_targets_second_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."

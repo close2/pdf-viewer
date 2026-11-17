@@ -1,0 +1,30 @@
+[
+  {
+    "adr": "ADR 0039 — The encoding a font program brings with it",
+    "source_slice": "§9.8.2 prose on physical 360–361, especially the paragraph saying a processor should always check Symbolic when Symbolic/Nonsymbolic conflict; Table 121 bits 3 and 6.",
+    "current_decision": "Use the Symbolic bit as the discriminator, including when an invalid writer-produced word sets both bits; do not let Nonsymbolic override it.",
+    "review": "The selected unit test independently makes the symbolic and nonsymbolic cmap routes return different glyph IDs and verifies each single-bit control plus both-set behavior. This is correctly framed as the source's processor recommendation, not a new SHALL to reject contradictory producer data.",
+    "status": "source and current assertion agree"
+  },
+  {
+    "adr": "ADR 1074 — A glyph class is decided by the character",
+    "source_slice": "§9.8.3.3 and Table 123, physical 364–365; Table 123 defines several classes by what glyphs represent, while some classes distinguish form/usage rather than a character identity.",
+    "current_decision": "Apply a class override only when the Unicode character evidence can distinguish the listed class; preserve the main descriptor and report classes the reader cannot determine from that evidence.",
+    "review": "The current classifier's single/overlap/example cases and collection-specific positive/negative controls support the premise. The public class-face test separately checks the consequence. This does not claim that the standard prescribes the exact substitute face, or that Unicode alone resolves rotated, ruby, dingbat, or generic glyphs.",
+    "status": "selected rationale remains supported; all-table-cell public rendering not claimed"
+  },
+  {
+    "adr": "ADR 2817 — A Type 1 font in an OpenType wrapper is read by its glyph names",
+    "source_slice": "§9.9.1 Table 124, physical 367–368; the Type1 dictionary + CFF table route is distinct from TrueType + glyf and CID CFF routes.",
+    "current_decision": "Choose glyph lookup by the font dictionary and contained program/table combination; a Type1 dictionary over name-keyed OpenType CFF uses the Type1 name-keyed route.",
+    "review": "The current exact-xref test includes same-program OpenType-CFF and bare-Type1C cases, and distinct real OpenType glyf and CFF cases under simple and CID dictionaries. Literal glyph-index expectations differ across branches, so it is not a shared-route/round-trip oracle. The fixture fonts are usable real programs but the test is not an independent ISO/IEC 14496-22 validator.",
+    "status": "selected decision has direct route assertions; standards conformance residual remains"
+  },
+  {
+    "adr": "ADR 0049 — A CID into a Type 1 program",
+    "source_slice": "Table 124's listed CIDFont program combinations versus the ADR's observed `/FontFile` on CIDFontType0.",
+    "current_decision": "The implementation supports an additional reader path for the encountered bare Type1/CIDFont case by analogy with name-keyed CFF.",
+    "review": "This ADR is not evidence that Table 124 lists FontFile as a permitted CIDFont embedding. Its adopted compatibility decision should remain separate from the table's producer mapping; no test in this shard treats the non-listed combination as a required valid case.",
+    "status": "scope distinction retained"
+  }
+]
