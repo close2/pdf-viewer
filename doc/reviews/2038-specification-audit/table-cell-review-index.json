@@ -1199,6 +1199,237 @@
       ],
       "artifact": "shards/stream_dictionary_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "180",
+      "keys": [
+        "Subtype",
+        "BS",
+        "IC",
+        "BE",
+        "RD"
+      ],
+      "ledger_rows": [
+        "12.5.6.8"
+      ],
+      "artifact": "shards/annotation_shapes_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "181",
+      "keys": [
+        "Vertices",
+        "LE",
+        "BS",
+        "IC",
+        "BE",
+        "IT/Measure",
+        "Path"
+      ],
+      "ledger_rows": [
+        "12.5.6.9"
+      ],
+      "artifact": "shards/annotation_shapes_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "182",
+      "keys": [
+        "Subtype",
+        "QuadPoints"
+      ],
+      "ledger_rows": [
+        "12.5.6.10"
+      ],
+      "artifact": "shards/annotation_shapes_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "183",
+      "keys": [
+        "RD",
+        "Sy"
+      ],
+      "ledger_rows": [
+        "12.5.6.11"
+      ],
+      "artifact": "shards/annotation_shapes_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "184",
+      "keys": [
+        "Name"
+      ],
+      "ledger_rows": [
+        "12.5.6.12"
+      ],
+      "artifact": "shards/annotation_shapes_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "185",
+      "keys": [
+        "InkList",
+        "BS",
+        "Path"
+      ],
+      "ledger_rows": [
+        "12.5.6.13"
+      ],
+      "artifact": "shards/annotation_shapes_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "186",
+      "keys": [
+        "Parent",
+        "Open"
+      ],
+      "ledger_rows": [
+        "12.5.6.14"
+      ],
+      "artifact": "shards/annotation_shapes_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "187",
+      "keys": [
+        "FS",
+        "Name",
+        "Contents versus FS.Desc"
+      ],
+      "ledger_rows": [
+        "12.5.6.15"
+      ],
+      "artifact": "shards/annotation_shapes_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "62",
+      "keys": [
+        "WhitePoint",
+        "BlackPoint",
+        "Gamma"
+      ],
+      "ledger_rows": [
+        "8.6.5.2"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "63",
+      "keys": [
+        "WhitePoint",
+        "BlackPoint",
+        "Gamma",
+        "Matrix"
+      ],
+      "ledger_rows": [
+        "8.6.5.3"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "64",
+      "keys": [
+        "WhitePoint/BlackPoint",
+        "Range",
+        "explicit functions/matrix parameters"
+      ],
+      "ledger_rows": [
+        "8.6.5.4"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "65",
+      "keys": [
+        "N",
+        "Alternate",
+        "Range",
+        "Metadata"
+      ],
+      "ledger_rows": [
+        "8.6.5.5"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "66",
+      "keys": [
+        "supported ICC version"
+      ],
+      "ledger_rows": [
+        "8.6.5.5"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "67",
+      "keys": [
+        "profile class and colorSpace signatures"
+      ],
+      "ledger_rows": [
+        "8.6.5.5"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "68",
+      "keys": [
+        "component ranges"
+      ],
+      "ledger_rows": [
+        "8.6.5.5"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "70",
+      "keys": [
+        "Subtype",
+        "Colorants",
+        "Process",
+        "MixingHints"
+      ],
+      "ledger_rows": [
+        "8.6.6.5"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "71",
+      "keys": [
+        "ColorSpace",
+        "Components"
+      ],
+      "ledger_rows": [
+        "8.6.6.5"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "72",
+      "keys": [
+        "Solidities",
+        "PrintingOrder",
+        "DotGain"
+      ],
+      "ledger_rows": [
+        "8.6.6.5"
+      ],
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "status": "partial"
     }
   ]
 }

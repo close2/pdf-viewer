@@ -7484,9 +7484,10 @@ fn with_a_popup(open: bool) -> Vec<u8> {
          /Resources << >> /Contents 4 0 R /Annots [5 0 R 6 0 R] >>\nendobj\n\
          4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
          5 0 obj\n<< /Type /Annot /Subtype /Text /Rect [10 80 30 100] /Popup 6 0 R \
-         /T (the author) /Contents (a sticky note) /C [1 1 0] >>\nendobj\n\
+         /T (the author) /Contents (a sticky note) /C [1 1 0] /M (D:20261117100000Z) >>\nendobj\n\
          6 0 obj\n<< /Type /Annot /Subtype /Popup /Rect [30 20 90 70] /Parent 5 0 R \
-         /Open {open} >>\nendobj\n"
+         /Contents (popup decoy text) /T (popup decoy title) /C [0 0 1] \
+         /M (D:20200101000000Z) /Open {open} >>\nendobj\n"
     );
 
     let mut out = String::from("%PDF-1.7\n");
@@ -7511,11 +7512,18 @@ fn with_a_popup(open: bool) -> Vec<u8> {
 
 /// Opens `with_a_popup` into a 200×200 viewport and settles the first frame.
 fn popup_viewer(open: bool) -> Viewer {
+    let bytes = with_a_popup(open);
+    let parsed = pdf_syntax::Document::open(bytes.clone()).expect("complete popup fixture");
+    assert!(
+        !parsed.was_recovered(),
+        "popup fixture has exact cross references"
+    );
+    assert!(!parsed.cross_reference_chain_was_cut());
     let mut viewer = Viewer::new(200, 200, 1.0);
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_a_popup(open).into(),
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -7534,7 +7542,9 @@ fn a_document_that_opens_a_popup_window_says_so_before_anybody_clicks() {
     assert_eq!(windows.len(), 1);
     let window = &windows[0];
     // Table 186: the parent's `Contents`, `M`, `C` and `T` "shall override those of the popup
-    // annotation itself" — and the popup here states none of the four.
+    // annotation itself". All four popup entries conflict, so copying whichever is
+    // present first cannot masquerade as the required parent precedence.
+    assert_eq!(window.modified.as_deref(), Some("D:20261117100000Z"));
     assert_eq!(window.text.as_deref(), Some("a sticky note"));
     assert_eq!(window.title.as_deref(), Some("the author"));
     assert_eq!(

@@ -30,11 +30,11 @@ composites overlapping same-object geometry twice. Literal measurement, join/fil
 WritingMode and new-file ID controls pass. The stroke failure also reaches PDF and three GPU lanes; CMYK-image OP passes.
 Embedded-font, Type3 image and corrected FDF controls pass. Next scopes cover
 remaining errata and consumer assertions; native print, xref and four transition-window checks pass.
-UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage72%;ceiling85%.
+UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage73%;ceiling85%.
 
 TSA keyCompromise time selection fails with genuine signed material; FieldMDP
 rename coverage is an unresolved policy probe. Independent colour/annotation tests pass.
 Alpha, filtered-checksum and cross-Contents controls pass; archive path cap fails. Model/transform Clippy pass.
 Revocation findings survive second review; older indexes omit four grouped errata IDs.
-All69file pointers partially reviewed. Type1 spacing fails; FitR narrowed to SHOULD. Mesh widths, DL and corrected standalone callout fixtures pass.
+All69file pointers partially reviewed. Type1 spacing fails; FitR narrowed to SHOULD. Mesh widths, DL, corrected standalone callouts and four-field popup precedence pass.
 Malformed XFA, near-similarity thick strokes and TM export naming and field-AA/DS/TI/I inheritance fail; save/font controls pass.

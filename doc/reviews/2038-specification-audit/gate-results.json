@@ -2864,6 +2864,20 @@
       "log": "quality-syntax-wave103.log",
       "exit": 0,
       "scope": "Syntax all-target Clippy."
+    },
+    {
+      "log": "popup-precedence-wave104.log",
+      "run": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 149,
+      "exit": 0,
+      "scope": "Strengthened four-field precedence, closed-click and host activation."
+    },
+    {
+      "log": "quality-core-wave104.log",
+      "exit": 0,
+      "scope": "Viewer-core all-target Clippy."
     }
   ],
   "prior_expected_failures": {

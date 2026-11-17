@@ -1,0 +1,25 @@
+{
+  "reviews": [
+    {
+      "adr": "2818",
+      "slice": "Polygon/PolyLine closure, Path/Vertices and line-ending geometry",
+      "verdict": "Current EC3 #444 expressly makes Vertices ignorable when Path exists; current focused tests discriminate the Path shape from decoy Vertices and check Polygon closure versus PolyLine openness. This supports the selected implementation. It is not a whole-ADR or whole-table review."
+    },
+    {
+      "adr": "0278",
+      "slice": "Ink Path versus InkList precedence",
+      "verdict": "The historical unresolved-row position is superseded by effective EC3 #444 on Table185. Current Path-first behavior matches the correction. Existing durable finding 2038-D12 records the stale ledger/comment and exact source correction. This shard does not duplicate it."
+    },
+    {
+      "adr": "1622",
+      "slice": "Do not synthesize artwork solely from recommendation/underspecified shape",
+      "verdict": "Table184 says readers should provide standard Stamp appearances; Table183 requires a P symbol associated with Caret but does not specify its artwork. Current no-AP choices remain product policy, not mandated refusal. A supplied AP is a separate path and is tested."
+    },
+    {
+      "adr": "0109 / 0457",
+      "slice": "No-AP Stamp/Caret fallback",
+      "verdict": "The decision to decline synthesized Stamp legend/Caret artwork is consistent with the chosen product boundary, but no-AP tests are not valid-input conformance evidence for nondegenerate PDF 2.0 annotations because of Table166's writer AP rule. The pass does not infer a required reader refusal."
+    }
+  ],
+  "source_qualification": "For every table, PDF writer constraints, reader should recommendations and reader behavior are kept separate. No invalid-fixture rejection obligation was inferred. Existing no-AP tests are expressly classified as policy evidence."
+}

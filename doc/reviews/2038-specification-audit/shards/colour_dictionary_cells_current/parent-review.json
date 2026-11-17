@@ -1,0 +1,8 @@
+{
+  "verdict": "Ten selected tables plus Indexed/Separation prose reviewed; existing B25 remains confirmed and no new runtime identity added.",
+  "source": "Parent independently checked actual captions62 at201,63 at202,64 at204,65 at206,66/67 at207,68 at208,70 at221,71 at223,72 at224; these are physical pages. #181 reframes ICC header versions, #228 private tags may be ignored, #309 forbids None in NChannel as a producer rule. Tables69/73 are not dictionary tables in this scope.",
+  "correction": "Agent initially repeated older scratch ICC fallback candidate status. Current colour_spaces_current/parent-review and findingB25 show independently validated ICC2 fallback failure [255,0,128] versus [255,0,126], with literal clamping controls. Corrected current cell/decision records; original scratch prose is superseded here.",
+  "assertions": "Parent reread independent CalRGB gamma/matrix-to-sRGB literal samples plus DeviceRGB control; prior mutation proved this oracle catches ignored gamma. Indexed minus-one mutation/half-tie/range controls and special-space initial tints remain prior bounded evidence. Fixture-based support does not establish actual subtractive device availability.",
+  "decisions": "Retain selected display alternate/process mapping and optional MixingHints policy. Neither current colorant hardware nor all ICC tags/versions/black-point algorithms are certified. Calibrated producer parameter constraints alone do not create reader refusal duties.",
+  "execution": "No new color run; unchanged tests and B25 use prior broad99 execution. Table-cell inventory is source/assertion coverage, not another execution verdict."
+}

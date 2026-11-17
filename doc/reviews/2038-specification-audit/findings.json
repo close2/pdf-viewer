@@ -3326,5 +3326,16 @@
     "evidence": "Literal Flate payload with distinct Length/DL and no-DL control; repaired binary-header marker, object offset and page resources in shared fixture.",
     "execution": "All14 filters tests PASS; syntax Clippy PASS.",
     "qualification": "Valid hint case only, not arbitrary inaccurate hints or every filter."
+  },
+  {
+    "id": "2038-T142",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "12.5.6.14"
+    ],
+    "summary": "Public popup query now proves all four parent metadata values override conflicting popup entries.",
+    "evidence": "Contents, title, color and modification date each have distinct decoys. Exact-xref PDF1.7 and no recovery/cut; public query asserts literal parent values.",
+    "execution": "Three popup consumer tests PASS; viewer-core Clippy PASS.",
+    "qualification": "Previously C/M checked inheritance, not precedence. Native window drawing and all other metadata remain outside this test."
   }
 ]
