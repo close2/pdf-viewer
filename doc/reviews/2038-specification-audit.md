@@ -11,16 +11,16 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (110)
+## Current checkpoint (111)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **106 failing test identities**: 105 behavior assertions/probes
 and one stale ignored-gate expectation. These are grouped findings, not 106 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
-The refreshed broad run, wave99, covered eleven crates: **7,283 tests ran, 7,185 passed,
-and exactly the 98 recorded in-scope assertions failed; 58 were skipped**.
+The refreshed broad run, wave111, covered eleven crates: **7,298 tests ran, 7,199 passed,
+and exactly the 99 recorded in-scope assertions failed; 58 were skipped**.
 Exact binary/test identities matched the manifest at that checkpoint, with no extra or missing failures.
-Wave99 includes all default-scope additions and strengthened assertions through checkpoint98.
+Wave111 includes all default-scope additions and strengthened assertions through checkpoint110.
 Passing status includes successful early returns; two are reproduced under D45.
 Five GPU failures and one engine-only Matrix2D availability failure under the adopted
 A193 reference scope are recorded separately, as is D51’s ignored stale test expectation. The new outline-panel raster test also
@@ -453,6 +453,11 @@ tests; all four pass, with model Clippy clean. The source review corrects a stal
 errata table number and the earlier image-table continuation omission. After merging
 a duplicate Table 227 entry while retaining both reviews, the index has 110 unique
 partial table matrices. No new failing identity is added.
+
+Checkpoint 111 refreshes the eleven-crate run after the network interruption. Every
+failing binary/test identity matches the manifest, with no extra or missing failures.
+The run completed in 64 seconds with a peak of 7.02 GiB; its failing exit status is
+expected for this audit branch. Font, filter and image-measurement reviews continue.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

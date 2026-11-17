@@ -1,0 +1,8 @@
+{
+  "log": "eleven-crate-wave111.log",
+  "observed_failure_count": 99,
+  "expected_failure_count": 99,
+  "extra": [],
+  "missing": [],
+  "scope": "Eleven default-feature crates through checkpoint110. Five GPU, one engine and D51 ignored gate outside this scope."
+}

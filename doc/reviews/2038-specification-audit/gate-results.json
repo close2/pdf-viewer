@@ -3010,6 +3010,18 @@
       "log": "quality-wave110.log",
       "exit": 0,
       "scope": "Final model all-target Clippy."
+    },
+    {
+      "log": "eleven-crate-wave111.log",
+      "scope": "Eleven default-feature crates through checkpoint110; exact binary/test manifest reconciliation.",
+      "run": 7298,
+      "passed": 7199,
+      "failed": 99,
+      "skipped": 58,
+      "exit": 100,
+      "expected_failures": 99,
+      "unexpected_failures": 0,
+      "comparison": "broad111-comparison.json"
     }
   ],
   "prior_expected_failures": {

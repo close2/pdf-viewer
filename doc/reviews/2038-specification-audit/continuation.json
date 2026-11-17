@@ -3,10 +3,10 @@
   "baseline": "b901326c230faa5d2cb288016339b9d5c6288527",
   "previous_audit": "1983-specification-audit",
   "current_execution": {
-    "broad": "Wave99:7283run7185PASS98FAIL58skip;exactbinary/testmanifestmatch,noextra/missing. Includes additions/strengthenings through98.",
+    "broad": "Wave111: 7,298 run, 7,199 PASS, 99 FAIL, 58 skipped. Exact binary/test manifest match; no extra or missing failures. Includes additions and strengthening through110.",
     "gtk": "Earlier20 tests PASS; checkpoint68 adds one GTK settings test PASS under Xvfb and one Qt bridge test PASS.",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "Latestbroad99matches98defaultscopefailures; sevenidentitiesoutside:5GPU,1engine,1ignoredstalegate. PASS includes knownfixtureearlyreturns; scopedactualexecution recordsremainseparate.",
+    "later_targets": "Latest broad111 matches all 99 default-scope failures. Seven identities remain outside: five GPU, one engine, one ignored stale gate. PASS includes known fixture early returns; source/assertion reviews remain separately qualified.",
     "quality": "Checkpoint52 syntax/model/script/core/UI all-targets with engine PASS;51signature and earlier scopes recorded.",
     "script_engine": "247PASS4ignored plus separate corpus2PASS249filtered. Corpus counters documented; semantic/error provenance follow-up active.",
     "rendition_and_font": "B49/B50:7new tests,5PASS2FAIL;73total expected failures,70in eleven-crate scope+3GPU. Model/core Clippy PASS.",
@@ -19,7 +19,8 @@
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
       "image_measurement_consumer_current",
-      "simple_font_dictionary_cells_current"
+      "simple_font_dictionary_cells_current",
+      "filter_parameter_cells_current"
     ],
     "recorded_shards": [
       "image_alternatives_inline_current",
@@ -303,7 +304,7 @@
     "All 883 rows remain partially reviewed. Current work checks uncited EC3 annotation candidates against primary pages, effective wording, code and actual assertions.",
     "All69 file-only pointers have partial selected-assertion review; this does not certify entire files or features.",
     "Literal issue citation candidates are discovery metadata only, not counts of missing features. Selected batches remain under parent source review.",
-    "Broad99 predates fourteen new default-scope passing tests and B72 failure through110, plus assertion/fixture strengthening. Broad refresh next; all110 matrices and883 ledger rows remain partial.",
+    "Broad111 reconciles every default-scope failure through110. All 110 unique table matrices and 883 ledger rows remain partial. Current font, filter and image-measurement reviews are pending parent validation.",
     "Stop new dispatch near 81%; preserve 15% weekly allowance at 85%."
   ],
   "budget": {
@@ -312,6 +313,6 @@
     "ceiling": 85,
     "remaining_reserved": 15,
     "last_weekly_used_percent": 75,
-    "last_read_utc": "2026-11-17T16:46:58.668281+00:00"
+    "last_read_utc": "2026-11-17T19:26:15.249852+00:00"
   }
 }
