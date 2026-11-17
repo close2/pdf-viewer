@@ -1,0 +1,38 @@
+{
+  "baseline": "b901326c",
+  "scope": "Bounded current-state review of named-page /APRef appearance conversion, especially page geometry/resources/group transfer and the same-file vs host-supplied-file path. Does not recertify all FDF behavior or general annotation handling.",
+  "source": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "locators": [
+      {"clause":"§12.7.7 Named pages", "physical_page":572, "printed_page":557, "rule":"A named page intended to be visible stays in the page tree and /Pages name tree; an invisible named page belongs in /Templates, has /Type /Template, and has no /Parent or /B. Import-data may add named pages either as pages or button appearances."},
+      {"clause":"§12.7.8.3.2 Table 249", "physical_pages":"577–579", "printed_pages":"562–564", "rule":"/APRef supplies N/R/D named-page references for push-button appearances; it is ignored when /AP is present."},
+      {"clause":"§12.7.8.3.3 Tables 251–253", "physical_pages":"580–581", "printed_pages":"565–566", "rule":"A template reference names a page; Table 253 /F is optional, and absent /F means the named page resides in the associated PDF."},
+      {"clause":"§12.5.5 appearance-stream algorithm", "physical_page":489, "printed_page":474, "rule":"An appearance is a Form XObject. Its BBox is transformed by Matrix, bounded upright, then scaled/translated onto the annotation Rect; Matrix is concatenated with that mapping."},
+      {"clause":"§8.10.2 Table 93", "physical_page":286, "printed_page":272, "rule":"Form XObjects require Subtype /Form and BBox; Matrix defaults to identity; Resources are strongly recommended (and required for independent forms); Group carries transparency-group attributes."},
+      {"clause":"Table 31 / §7.7.3.4 / §11.4.7", "physical_page":120, "printed_page":105, "rule":"Page Rotate defines clockwise display rotation; inheritable Resources are effective at the page; page Group identifies page transparency-group attributes."},
+      {"clause":"§8.3.3 Common transformations", "physical_page":168, "printed_page":153, "rule":"A rotation matrix is [cos(q), sin(q), -sin(q), cos(q), 0, 0], rotating coordinate axes counterclockwise by q; a clockwise quarter-turn is q=-90°, which maps points (x,y) to (y,-x)."}
+    ],
+    "errata": "Direct annotation inspection: the pages containing Tables 249 and 251–253 (physical 577–581) have no Issue annotations. Physical 572 contains Issue #176 on the FDF media-type paragraph in §12.7.8.2.2, not a named-page correction. No APRef/page-appearance amendment was identified in this bounded inspection."
+  },
+  "implementation": {
+    "form_constructor": "crates/pdf-model/src/named_page.rs::page_as_form reads page.content_with_report; uses effective page.crop_box as /BBox, page.rotate as form /Matrix, effective inherited page.resources as /Resources, and clones page /Group when present. It refuses the whole form if page contents do not decode.",
+    "same_document": "crates/pdf-model/src/view/pages.rs::NamedPageAppearances::resolve resolves the page name, caches page_as_form, and places it in the same Import::appearance dictionary used by /AP; annotation interpretation then draws it and ViewState::save writes it.",
+    "external_file": "Table253 /F raises Purpose::NamedPage from viewer-core while import is in progress; the host supplies bytes. viewer-core::interact::supply_named_page opens the supplied document with source limits; view::supply_named_pages converts the page and forms_data::carried copies all stream/resource references into target-owned direct objects. The branch reports pending/declined/errors by name. ADR1335 consolidates retry/password handling; it does not revive ADR1235's old missing-hop state.",
+    "annotation_exclusion": "Source page /Annots are not part of its content stream and page_as_form does not compose them; the caller reports their count."
+  },
+  "current_assertions": [
+    {"test":"crates/pdf-model/tests/forms_data.rs::an_apref_naming_a_page_of_this_document_becomes_the_widgets_appearance", "oracle":"Interpretation text contains `stamped` and not `original`; tests name resolution and content delivery, not raster geometry."},
+    {"test":"crates/pdf-model/tests/forms_data.rs::an_apref_appearance_is_written_into_the_saved_file", "oracle":"Saves, reopens, and checks same text replacement; does not assert generated /BBox, /Matrix, inherited Resources, or Group."},
+    {"test":"crates/pdf-model/tests/forms_data.rs::an_apref_naming_another_file_is_drawn_once_the_file_arrives", "oracle":"Model-level supply of a second Document changes text to its page text; no geometry pixels."},
+    {"test":"crates/viewer-core/tests/named_pages_and_threads.rs::a_supplied_file_gives_the_button_its_appearance", "oracle":"Host handoff reports one supplied appearance and no further question; it does not render or assert saved output."},
+    {"test":"crates/pdf-model/tests/annotations.rs::an_appearance_is_scaled_and_translated_onto_the_annotation_rectangle; a_rotating_matrix_is_measured_before_the_scale_is_computed", "oracle":"Strong pixel tests for generic, producer-supplied AP Form XObjects; they do not exercise page_as_form's generated /BBox, /Rotate, or inherited resources."}
+  ],
+  "test_quality_assessment": "Current code paths and assertion bodies show the same-document and external-file delivery branch work at content level, with external host request/error reporting. The helper that turns a page into a form has no direct tests and the APRef integration tests use text readback. Generic annotation tests prove the later Table93 transform but not that named-page source CropBox/Rotate/resources are translated into that form correctly. A narrow public raster+save/reopen draft is justified for this conversion seam.",
+  "draft": "drafts/named_page_rotation_geometry.rs",
+  "unreviewed": [
+    "No Cargo execution of the draft.",
+    "Draft adds a saved-stream structural assertion for page /Group transfer, but no isolated APRef-generated-group pixel comparison; downstream group semantics remain supported by generic appearance-group tests.",
+    "The draft covers a same-document visible page and rotated widget appearance; it does not repeat host-policy integration, password retry, or external-copy assertions.",
+    "No full certification of §12.7.7, §12.7.8.3, Table 93, or §12.5.5."
+  ]
+}

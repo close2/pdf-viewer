@@ -2446,7 +2446,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/coordinates_graphics_state_current/features.json"
+      "shards/coordinates_graphics_state_current/features.json",
+      "shards/adr1235_named_page_appearance_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -6940,7 +6941,8 @@
       "shards/departure_decisions_residual_current/features.json",
       "shards/stored_ap_blend_residual_current/features.json",
       "shards/indirect_annotation_parameters_current/features.json",
-      "shards/annotation_view_flags_current/features.json"
+      "shards/annotation_view_flags_current/features.json",
+      "shards/adr1235_named_page_appearance_current/features.json"
     ],
     "prior_artifacts": [
       "annotation_appearance_audit"
@@ -7749,7 +7751,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/forms_current/features.json"
+      "shards/forms_current/features.json",
+      "shards/adr1257_1270_archive_claims_current/features.json"
     ],
     "prior_artifacts": [
       "interactive_form_structure_audit"
@@ -7765,7 +7768,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "prior-assertion-reviews.json",
-      "shards/xfa_attachment_assertions_current/features.json"
+      "shards/xfa_attachment_assertions_current/features.json",
+      "shards/adr1257_1270_archive_claims_current/features.json"
     ],
     "prior_artifacts": [
       "interactive_form_structure_audit"
@@ -8101,9 +8105,10 @@
     "ledger_status": "implemented",
     "prior_review_state": "partial-parent-review",
     "prior_ledger_status": "implemented",
-    "current_review_state": "partial-current-assertion-review",
+    "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "prior-assertion-reviews.json"
+      "prior-assertion-reviews.json",
+      "shards/adr1235_named_page_appearance_current/features.json"
     ],
     "prior_artifacts": [
       "named_pages_residual_audit"
@@ -8111,7 +8116,8 @@
     "reviewed_assertions": [
       "pdf-model::named_pages_spec_audit::a_template_without_type_is_reported_as_not_a_template",
       "pdf-model::named_pages_spec_audit::a_template_with_non_name_type_is_reported_as_not_a_template"
-    ]
+    ],
+    "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
   },
   {
     "clause": "12.7.8",
@@ -8249,7 +8255,8 @@
     "current_artifacts": [
       "prior-assertion-reviews.json",
       "shards/forms_current/features.json",
-      "shards/fdf_current/features.json"
+      "shards/fdf_current/features.json",
+      "shards/adr1235_named_page_appearance_current/features.json"
     ],
     "prior_artifacts": [
       "fdf_absent_value_audit",
@@ -8271,7 +8278,8 @@
     "current_artifacts": [
       "shards/fdf_current/features.json",
       "shards/departure_decisions_residual_current/features.json",
-      "shards/structured_errata_interactive_current/features.json"
+      "shards/structured_errata_interactive_current/features.json",
+      "shards/adr1235_named_page_appearance_current/features.json"
     ],
     "prior_artifacts": [
       "fdf_pages_import_audit",
@@ -12119,7 +12127,8 @@
       "prior-assertion-reviews.json",
       "shards/file_specs_current/features.json",
       "shards/indirect_file_parameters_current/features.json",
-      "shards/xfa_attachment_assertions_current/features.json"
+      "shards/xfa_attachment_assertions_current/features.json",
+      "shards/adr1257_1270_archive_claims_current/features.json"
     ],
     "prior_artifacts": [
       "associated_files_audit"
@@ -12138,7 +12147,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/file_specs_current/features.json",
-      "shards/xfa_attachment_assertions_current/features.json"
+      "shards/xfa_attachment_assertions_current/features.json",
+      "shards/adr1257_1270_archive_claims_current/features.json"
     ],
     "prior_artifacts": [
       "associated_files_audit"
@@ -12779,7 +12789,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/annex_i_k_current/features.json"
+      "shards/annex_i_k_current/features.json",
+      "shards/adr1257_1270_archive_claims_current/features.json"
     ],
     "prior_artifacts": [
       "annex_k_audit"
@@ -12794,7 +12805,8 @@
     "prior_ledger_status": "partial",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/annex_i_k_current/features.json"
+      "shards/annex_i_k_current/features.json",
+      "shards/adr1257_1270_archive_claims_current/features.json"
     ],
     "prior_artifacts": [
       "annex_k_audit"

@@ -1,0 +1,112 @@
+{
+  "scope": "Bounded review of root ADRs 1257 and 1270: archive conversion of NeedAppearances/XFA and attachment preservation for replaced XFA/XMP. Focuses target-conditioned public archive output, current dynamic-XFA scope, original payload, file association and date. Not a recertification of form rendering, XFA 3.3, PDF/A, or all attachment rules.",
+  "source": {
+    "effective_pdf": "ISO 32000-2:2020 EC3 local primary: \u00a77.7.2 Table 29 (NeedsRendering), \u00a712.7.3 Table 224 (XFA), Annex K K.1-K.2 (XFA stream/packet shape and hybrid form consistency). Annex K locators and no direct Annex K errata are separately recorded in the promoted annex_i_k_current shard: physical 959-961 / printed 944-946. Effective Table 29/224 should be checked against the local EC3 PDF before reusing any older physical-page number.",
+    "pdfa": "ADR 1257 cites ISO 19005-2/-4 \u00a7\u00a76.4.1-.2; ADR 1270 cites ISO 19005-2 \u00a76.8 and ISO 19005-4 \u00a76.9 plus ISO 32000-2 \u00a7\u00a77.11.2-.4, 14.3.3, 14.13.2-.3. This pass checked the repository's adoption rationale and output implementation; it did not independently inspect licensed ISO 19005 text, so those clause readings remain project-record claims here.",
+    "current_owner_scope": "Current doc/scope-ratifications.md, ADR 2876 (accepted on A840 dated 2026-11-13), and CLAUDE.md include producer-template pages outside XFAF: /NeedsRendering true OR XFA 3.3 template grammar outside XFAF (for example differing occur bounds or subformSet). This supersedes ADR 1257's claim that Table 29 alone exactly classifies dynamic XFA for this project. Dynamic layout is accepted but scheduled after ledger work and is not yet built; prior Annex K shard confirms the interim K.1 choice to decline schema page generation is disclosed to users.",
+    "errata": "This review found no directly relevant EC3 erratum to Table 29, Table 224, or Annex K in the current reviewed materials. No claim is made about unexamined ISO 19005 errata."
+  },
+  "features": [
+    {
+      "id": "archive-needappearances",
+      "source_rule": "PDF/A conversion clears NeedAppearances only after appearances are constructed for the visible widgets for which the implementation can provide them; widgets without a constructible AP keep the requirement refused. This is a writer/output assertion and should not be confused with a reader's AP rendering duty.",
+      "implementation": [
+        "crates/pdf-transform/src/archive/sites.rs::interactive_form",
+        "crates/pdf-transform/src/archive/prepare/annotations_and_attachments.rs",
+        "crates/pdf-transform/src/archive/rewrite/catalogue.rs"
+      ],
+      "assertions": [
+        "crates/pdf-transform/tests/archive.rs::need_appearances_is_cleared_with_the_field_appearances_written_first",
+        "...::a_widget_whose_appearance_cannot_be_built_keeps_the_flag_and_is_named",
+        "...::a_widget_the_producer_gave_an_appearance_keeps_the_producer_s_bytes"
+      ],
+      "assessment": "The public conversion test checks target verdict, removed flag, that the output widget names a normal appearance stream, and one report row. The refused control covers an unconstructible button; the supplied-AP control compares preserved stream bytes. This is useful but bounded to one simple text widget and one unconstructible button; it does not establish all-widget or all-appearance construction correctness."
+    },
+    {
+      "id": "archive-xfa-removal-dynamic-gate",
+      "source_rule": "PDF/A target policy requires the XFA entry removed (ADR 1257's cited PDF/A clauses); Annex K says how the XFA resource and AcroForm relate. Separately, the application has a policy gate that defaults to stopping when it considers an XFA form dynamic, unless the operator selects dynamic=discard and authorizes loss.",
+      "implementation": [
+        "crates/pdf-transform/src/archive/sites.rs::xfa_form_is_dynamic",
+        "crates/pdf-transform/src/archive/prepare.rs::DYNAMIC_XFA_DECLINED and XFA preparation",
+        "crates/pdf-transform/src/archive/config.rs::FormAnswers",
+        "crates/pdf-transform/src/archive/rewrite/catalogue.rs"
+      ],
+      "assertions": [
+        "crates/pdf-transform/tests/archive.rs::a_static_xfa_form_loses_its_packet_and_keeps_its_fields",
+        "...::a_dynamic_xfa_form_is_refused_until_the_configuration_says_otherwise"
+      ],
+      "assessment": "The current predicate only checks Catalog /NeedsRendering == true. Current owner scope ratification/ADR 2876 also treats non-XFAF template grammar as dynamic, regardless of the flag. The existing dynamic test uses /NeedsRendering true and therefore does not exercise this newly accepted classification. This is a stale project-policy gap, not a claimed ISO requirement that every archive writer infer dynamicity from XML. The ledger's output requirement to remove XFA and the optional user-authorized loss remain separate from the application's default dynamic-form stop policy."
+    },
+    {
+      "id": "archive-xfa-attachment-payload",
+      "source_rule": "Annex K's XFA resource can be one XML stream or an array of named XML packets; packet order and complete stream text define the reconstructed resource. ADR 1270 attaches the producer's replaced resource only when operator asks and selected PDF/A target permits associated files.",
+      "implementation": [
+        "crates/pdf-transform/src/archive/attach.rs::xfa_resource and attach",
+        "crates/pdf-transform/src/archive/prepare/annotations_and_attachments.rs::the_attached_files",
+        "crates/pdf-transform/src/archive/config.rs::PRESERVABLE_XFA"
+      ],
+      "assertions": [
+        "crates/pdf-transform/tests/archive.rs::an_xfa_resource_written_as_packets_is_kept_as_one_file_where_the_target_holds_one"
+      ],
+      "assessment": "The public output is reopened and the concatenated decoded XML bytes are compared exactly in packet order; output XFA is absent, embedded stream has application/octet-stream fallback, target is PDF/A-4e, and report identifies the attachment. Input includes Info /ModDate but the XFA-specific test does not assert the output Params /ModDate, /AFRelationship Source, or that catalog /AF points to the same specification. Shared XMP attachment tests assert Source, ModDate, and payload byte equality through the same generic attach writer, reducing but not eliminating XFA-route-specific assertion coverage."
+    },
+    {
+      "id": "archive-xmp-payload",
+      "source_rule": "For an operator-selected attachment remedy, preserve the original metadata packet while output carries the replacement packet; attached associated-file payload is the bytes from the replaced source packet.",
+      "implementation": [
+        "crates/pdf-transform/src/archive/prepare/annotations_and_attachments.rs::the_attached_files",
+        "crates/pdf-transform/src/archive/attach.rs::attach"
+      ],
+      "assertions": [
+        "crates/pdf-transform/tests/archive.rs::a_packet_this_tree_cannot_read_is_kept_as_a_file_where_the_target_holds_one",
+        "...::keeping_a_packet_as_a_file_is_refused_where_the_target_will_not_hold_one"
+      ],
+      "assessment": "The PDF/A-4f output test reopens the archive, compares attached bytes exactly to the original packet string, checks Source relationship, Params Size and ModDate, and catalog AF. It is strong generic attach-path evidence for XMP. It does not test every XFA-specific extraction path or claim XMP replacement is byte-identical to the fresh packet."
+    },
+    {
+      "id": "attachment-target-and-metadata",
+      "source_rule": "ADR 1270 says XFA attachment is available at PDF/A-4e/-4f; Table 45 / \u00a714.13 rules govern associated-file stream metadata and catalog association. The ADR's interpretation is project-recorded; ISO 19005 source text was not independently consulted here.",
+      "implementation": [
+        "crates/pdf-transform/src/archive/config.rs::PRESERVABLE_XFA and validate_keep_xfa",
+        "crates/pdf-transform/src/archive/attach.rs::modification_date/attach"
+      ],
+      "assertions": [
+        "crates/pdf-transform/tests/archive.rs::an_xfa_resource_written_as_packets_is_kept_as_one_file_where_the_target_holds_one",
+        "generic XMP attach tests and archive configuration tests"
+      ],
+      "assessment": "XFA positive output is explicitly exercised at 4e. Generic associated-file tests cover common stream metadata; this bounded pass did not find an XFA-specific 4f positive output assertion. The generic code path writes the same generic `attached` structures, but target-conditioned config and source extraction are different predicates."
+    },
+    {
+      "id": "dynamic-xfa-grammar-policy-witness",
+      "source_rule": "Owner policy, not an ISO archive mandate: ADR 2876/A840 classify a template outside XFAF as dynamic even without /NeedsRendering. XFA 3.3 page 333 and current pdf_model::xfa::Template::dynamic identify subformSet as a marker; fixed occur bounds 1..1 are a direct static control.",
+      "implementation": [
+        "crates/pdf-model/src/xfa/template.rs::Template::dynamic",
+        "crates/pdf-transform/src/archive/sites.rs::xfa_form_is_dynamic"
+      ],
+      "assertions": [
+        "crates/pdf-model/src/xfa/template.rs::a_varying_occurrence_or_a_subform_set_is_dynamic",
+        "crates/pdf-transform/tests/archive.rs::a_dynamic_xfa_form_is_refused_until_the_configuration_says_otherwise"
+      ],
+      "assessment": "The model already implements and tests both grammar markers, while the archive gate does not consult that parsed model. A valid XDP document with subformSet and no catalog NeedsRendering can discriminate this policy path against an otherwise identical fixed-occurrence control. A scratch integration draft exists; its refusal expectation is explicitly the owner policy from ADR 2876, not an ISO conformance rule. No archive execution was performed."
+    },
+    {
+      "id": "xfa-array-preservation-all-or-nothing",
+      "source_rule": "Annex K describes packet-array entries as pairs of a string name and a stream holding complete XML for that element. The archive implementation additionally documents malformed/unreadable resource preservation as refusal rather than attaching a partial resource.",
+      "implementation": [
+        "crates/pdf-transform/src/archive/attach.rs::xfa_resource",
+        "crates/pdf-transform/src/archive/prepare/annotations_and_attachments.rs::XFA_NOT_READABLE"
+      ],
+      "assertions": [
+        "crates/pdf-transform/tests/archive.rs::an_xfa_resource_written_as_packets_is_kept_as_one_file_where_the_target_holds_one"
+      ],
+      "assessment": "The loop skips non-stream resolved items (`continue`) and may attach remaining decoded streams, contradicting the local all-or-nothing refusal description. A scratch negative probe is drafted with the existing valid packet-array test as positive control. This is a malformed-input integrity safeguard, not a claim that ISO obliges readers to reject malformed arrays."
+    }
+  ],
+  "explicitly_unreviewed": [
+    "Full PDF/A-2/-4 source clauses and all veraPDF constraints",
+    "All target/configuration combinations for XFA attachments",
+    "Malformed XFA packet-array recovery as an ISO conformance claim",
+    "Full NeedAppearances coverage across all widget subtypes and all visible-widget populations",
+    "External XFA 3.3 conformance and template grammar parser behavior"
+  ]
+}

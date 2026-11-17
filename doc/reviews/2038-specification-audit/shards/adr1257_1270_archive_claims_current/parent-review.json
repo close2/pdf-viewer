@@ -1,0 +1,7 @@
+{
+  "source": "Read current owner scope ratification, ADR1257/1270/2876, sites::xfa_form_is_dynamic, prepare gate and attach::xfa_resource plus XFA_NOT_READABLE contract.",
+  "confirmed": "Malformed packet-array witness has exact xref and one deliberately non-stream packet. Public archive still emits output; decoded attachment contains only opening XDP packet while report says content is preserved. Valid packet-array control passes. This violates the repository all-or-nothing preservation promise, not a mandatory valid-PDF rejection rule.",
+  "execution": "Malformed witness FAIL; valid control PASS; APRef separate PASS. Model/transform Clippy PASS.",
+  "dynamic_scope": "Broader grammar-dynamic class is accepted for future layout. Old absence-of-information rationale is stale, but no explicit archive-policy amendment found. Do not infer a required stop from layout acceptance alone. Draft remains a policy proposal, unexecuted.",
+  "limits": "No production repair, ledger relabeling or historical ADR edits. PDF/A source constraints attributed to repository documents; no fresh ISO19005 text read."
+}

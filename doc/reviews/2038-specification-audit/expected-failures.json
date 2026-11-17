@@ -503,6 +503,12 @@
       "log": "fixed-documents-wave75b.log",
       "requires": "explicit ignored gate",
       "disposition": "stale-test-expectation"
+    },
+    {
+      "binary": "pdf-transform::archive",
+      "test": "xfa_attachment_refuses_a_packet_array_with_a_non_stream_packet",
+      "finding": "2038-B58",
+      "log": "appearance-archive-wave82b.log"
     }
   ]
 }

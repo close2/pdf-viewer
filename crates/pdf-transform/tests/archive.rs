@@ -17085,3 +17085,59 @@ mod associated_files_date_audit;
 
 #[path = "archive/action_promotion_audit.rs"]
 mod action_promotion_audit;
+
+// The preserve remedy promises the original resource atomically, including for malformed input.
+// This is a repository integrity contract, not a valid-PDF conformance requirement.
+#[test]
+fn xfa_attachment_refuses_a_packet_array_with_a_non_stream_packet() {
+    let packet = b"<xdp:xdp xmlns:xdp=\"http://x/\">\n";
+    let opening = stream(&format!("/Length {}", packet.len()), packet);
+    let field = "<< /FT /Tx /T (Total) /V (7) >>".to_owned();
+    let source = Conforming {
+        catalog: "/AcroForm << /Fields [6 0 R] \
+                  /XFA [(xdp:xdp) 7 0 R (template) (not-a-stream)] >>"
+            .to_owned(),
+        objects: vec![field, String::from_utf8(opening).expect("ASCII stream")],
+        info: Some("/ModDate (D:20260101000000Z)".to_owned()),
+        ..Conforming::default()
+    }
+    .build();
+    let parsed = Document::open(source.clone()).expect("exact-xref malformed-packet fixture opens");
+    assert!(
+        !parsed.was_recovered(),
+        "packet type is the intentional defect, not xref framing"
+    );
+    let config = "[site.\"forms/no-xfa-key\"]\nremedy = \"preserve\"\nkeep-xfa = \"attach\"\n";
+    let plan = plan_from(config, Target::Four(Flavour::E));
+    let (report, output) = convert_with_plan(&source, &plan);
+    if let Some(bytes) = &output {
+        let result = Document::open(bytes.clone()).expect("unexpected output opens");
+        let catalog = result.catalog().expect("output catalog");
+        let associated = result.get_key(&catalog, "AF");
+        let associated = associated
+            .as_array()
+            .expect("unexpected attachment association");
+        let spec = result.resolve(associated.first().expect("attached file specification"));
+        let spec = spec.as_dict().expect("file specification dictionary");
+        let ef = result.get_key(spec, "EF");
+        let ef = ef.as_dict().expect("EF dictionary");
+        let embedded = result.get_key(ef, "F");
+        let embedded = embedded.as_stream().expect("unexpected attachment stream");
+        let payload = result
+            .decoded_stream_data(embedded)
+            .expect("payload decodes");
+        eprintln!(
+            "unexpected attachment: {:?}; decision: {:?}",
+            String::from_utf8_lossy(&payload),
+            decision(&report, "forms/no-xfa-key")
+        );
+    }
+    assert!(
+        output.is_none(),
+        "a partial XML packet must not be filed as the original resource"
+    );
+    assert!(matches!(
+        decision(&report, "forms/no-xfa-key"),
+        Decision::Refused(Because::NotBuiltYet(reason)) if reason.contains("XFA")
+    ));
+}

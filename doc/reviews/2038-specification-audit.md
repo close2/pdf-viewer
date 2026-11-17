@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (81)
+## Current checkpoint (82)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **83 failing test identities**: 82 behavior assertions/probes
@@ -271,6 +271,13 @@ sampled public paths; the initial suspicion from a lower-level trace was withdra
 FileSelect acquisition timing and Archive+Protect API handling remain qualified decision
 findings (D55/D56), with no production changes. The expected-failure manifest remains83.
 Weekly usage was65%; further geometry and archive-policy reviews continue.
+
+Checkpoint82 verifies named-page appearance geometry and saved output with independent
+RGBA controls. That test and the valid XFA attachment control pass. A new malformed-input
+integrity test fails: the archive attaches only part of an XFA resource while reporting
+preservation (B58). This is a repository contract issue, not valid-PDF nonconformance.
+The expected-failure manifest is84; model/transform Clippy passes. Grammar-only dynamic-XFA
+refusal remains a policy proposal (D57), outside the manifest. No production code changed.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

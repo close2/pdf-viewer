@@ -2696,5 +2696,44 @@
     "summary": "Public apply_protected accepts Archive plus Protect, but archive dispatch silently ignores supplied output protection; CLI rejects this combination.",
     "disposition": "Prefer explicit refusal or document and test intentional ignore. No production change in audit.",
     "qualification": "Source trace, not a new failing test or ISO breach. Archive plaintext requirement does not prescribe API error handling."
+  },
+  {
+    "id": "2038-T113",
+    "kind": "test-assurance-gap",
+    "clauses": [
+      "12.7.7",
+      "12.7.8.3.2",
+      "12.5.5"
+    ],
+    "summary": "APRef named-page tests checked text but lacked direct page-to-form geometry assertions before and after save.",
+    "change": "New rotation/CropBox/inherited-only-font/transparent-margin RGBA controls, exact xrefs and complete interpretation; saved Group dictionary transfer asserted separately.",
+    "execution": "New test PASS; modelClippyPASS.",
+    "remaining": "One local page/rotation; no new external-hop pixel or nontrivial transparency-group semantic control."
+  },
+  {
+    "id": "2038-B58",
+    "kind": "malformed-input-integrity",
+    "clauses": [
+      "12.7.3",
+      "14.13.2"
+    ],
+    "summary": "Archive preserve attaches only readable XFA packet fragments and reports original content preserved when another packet is not a stream.",
+    "test": "pdf-transform::archive::xfa_attachment_refuses_a_packet_array_with_a_non_stream_packet",
+    "evidence": "Exact-xref fixture deliberately replaces one packet stream with a string. Output exists; decoded attachment contains only opening XDP tag. Configured Preserve report still says original content kept. Valid packet array control passes.",
+    "contract": "ADR1270, attach::xfa_resource documentation and XFA_NOT_READABLE promise refusal rather than partial attachment.",
+    "qualification": "Defensive repository integrity requirement for malformed input, not an ISO valid-file nonconformance finding.",
+    "execution": "FAIL with observed payload/report in appearance-archive-wave82b.log; transformClippyPASS."
+  },
+  {
+    "id": "2038-D57",
+    "kind": "decision-revisit",
+    "clauses": [
+      "12.7.3",
+      "K.1",
+      "K.2"
+    ],
+    "summary": "Archive dynamic-XFA rationale says missing NeedsRendering leaves no distinguishing information, but current template grammar can identify a wider class.",
+    "disposition": "Revisit flag-only archive policy in light of accepted grammar-dynamic layout scope; keep layout acceptance distinct from a requirement to change archive refusal.",
+    "qualification": "ADR2876 does not explicitly amend archive stop policy. Proposed grammar-only refusal test is retained as unexecuted review material, not a failure-manifest obligation."
   }
 ]

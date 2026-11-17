@@ -1,0 +1,40 @@
+# Named-page /APRef appearance: current-state source and assertion review
+
+## Current disposition
+
+The old ADR 1235 claim that external `/APRef` pages lacked a host hop is historical. ADR 1239 built it, and ADR 1335 later consolidated file arrival/password retry. The no-`/F` branch is also implemented: `/APRef` resolves to a page in the associated PDF and the page's marks become the widget's Form XObject appearance. I found no basis to reopen either branch as an absent behavior.
+
+The remaining bounded test gap is narrower: tests establish that the named page's text reaches the widget and survives save/reopen, but do not exercise the page-to-form geometry/resources through a raster. `named_page::page_as_form` has no direct unit tests. Existing `annotations.rs` pixel tests prove the generic appearance algorithm after a Form XObject already exists; they do not prove that a page's effective CropBox, Rotate, and inherited Resources are copied into the generated form. I drafted `drafts/named_page_rotation_geometry.rs` to test that seam publicly and to save/reopen the result. Parent must integrate/run it; it is not current execution evidence.
+
+## Source and locators
+
+Primary PDF page/footer checks put §12.7.7 at physical 572 / printed 557; Table 249 spans physical 577–579 / printed 562–564; Tables 251–253 are physical 580–581 / printed 565–566. §12.7.7 says visible named pages stay in the page tree and its `/Pages` name tree, while non-displayed pages go in `/Templates` with `/Type /Template` and no `/Parent` or `/B`. Its two purposes include import-data adding a page “as a button appearance”. Table 249 `/APRef` names appearances for push buttons and says it is ignored when `/AP` is present. Table 253 says that absent `/F` places the page in the associated PDF. These requirements line up with the separate same-file and external-file paths in current code.
+
+The later appearance geometry source is §12.5.5, physical 489 / printed 474: appearance stream is a form XObject; transform its BBox by Matrix, bound the quadrilateral upright, then map the transformed box onto the annotation Rect. Table 93, §8.10.2, is physical 286 / printed 272. It requires Form subtype and BBox; Matrix defaults to identity; Resources are strongly recommended and Group carries the group attributes. Table 31's `/Rotate` is clockwise and page resources follow §7.7.3.4 inheritance.
+
+Direct inspection of the sponsored primary PDF annotations found no Issue annotations on physical 577–581. Physical 572 has Issue #176 in the FDF header/media-type discussion (§12.7.8.2.2); its target does not alter named-page lookup or page-to-form construction. This is a locator-specific observation, not a claim about every amendment elsewhere.
+
+## Code and consumer path
+
+`named_page.rs::page_as_form` reads `Page::content_with_report`, refusing if any content part fails. It sets `/BBox` to the effective `page.crop_box`, `/Matrix` from effective clockwise `page.rotate`, and `/Resources` to the effective inherited resources. If the source page states `/Group`, it clones that dictionary into the form. It does not compose page `/Annots` into the form.
+
+For same-document references, `ViewState::resolve` resolves the name and caches `page_as_form`; the generated stream is placed into `Import::appearance`, the same route used for a stated `/AP`. It is drawn in `content::interpret_with` and serialized by `ViewState::save`. For `/F`, `viewer-core` raises `Purpose::NamedPage`; the host answers with bytes, `interact::supply_named_page` opens under the document's limits, and `ViewState::supply_named_pages` makes the form then `forms_data::carried` copies source-document resources/streams so no reference points into the second Document. This is the current ADR 1239/1335 design, not the old missing-hop departure.
+
+## Actual assertions
+
+- `forms_data::an_apref_naming_a_page_of_this_document_becomes_the_widgets_appearance`: checks the interpretation text changes from `original` to `stamped`; it tests lookup/content delivery, not pixels.
+- `forms_data::an_apref_is_ignored_where_the_field_also_states_an_ap`: tests Table 249 precedence by observing `imported` and no `stamped` text.
+- `forms_data::an_apref_appearance_is_written_into_the_saved_file`: saves and reopens, then checks text content. It does not check the form dictionary's generated BBox, Matrix, resources, or Group.
+- `forms_data::an_apref_naming_another_file_is_drawn_once_the_file_arrives`: supplies a second Document and observes that its page text replaces the original, not its geometry.
+- `viewer-core::a_supplied_file_gives_the_button_its_appearance`: asserts the host supply report (one appearance, no page), not a rendered/saved output.
+- Generic tests `annotations::an_appearance_is_scaled_and_translated_onto_the_annotation_rectangle` and `annotations::a_rotating_matrix_is_measured_before_the_scale_is_computed` use pixel positions and independently target §12.5.5. They start from explicit AP Form streams and therefore do not traverse `page_as_form`.
+
+The revised draft closes that specific transformation gap with a named page that has a clockwise quarter turn, a crop box narrower than its media box, and inherited font resources. Table 31 (§7.7.3.3) defines `/Rotate` as clockwise; §8.3.3's clockwise quarter-turn maps `(x,y)` to `(y,-x)`. The source CropBox `[0,0,100,100]` therefore becomes upright bounds `[0,-100,100,0]`; §12.5.5 then aligns those bounds with widget `/Rect [40,40,140,140]`. That yields the four stated source-corner-to-widget-quadrant expectations without consulting the renderer's transform helper.
+
+The crop-exterior cyan square at source `[105,5]..[115,15]` would land around widget-space `[45,25]..[55,35]` when the correct CropBox is the form BBox; `(50,30)` must remain transparent. If an implementation substitutes the larger MediaBox `[0,0,120,120]` as BBox, the transformed BBox is 120 square and that marker maps inside the widget around `(45..55,45..55)`, changing the green interior sample `(50,50)` to cyan. Separate alpha checks at `(35,60)` and `(145,60)` establish the page remains transparent just outside the widget Rect. The draft checks the same marks and transparent controls after save/reopen and separately checks inherited font text.
+
+The source page also states a valid `/Group << /S /Transparency /CS /DeviceRGB /I true >>`. The draft checks that the saved normal appearance stream still carries those three group entries. This is a structural, page-to-form transfer control; it does not independently retest group compositing pixels. Existing `annotations::an_appearance_group_is_isolated_and_knocked_out_as_the_file_states` and adjacent controls test the meaning of Group on an already supplied appearance, while this draft tests conversion of a page's stated Group to the generated form.
+
+## Limits
+
+The draft is not executed and must be integrated/run by the parent. It covers only the same-document page-tree branch; the existing external-file tests remain host/text controls. The Group check proves saved dictionary transfer, not isolated group pixel semantics in an APRef-generated form. No sweeping certification of §12.7.7, §12.7.8.3, §12.5.5, or §8.10 is claimed.

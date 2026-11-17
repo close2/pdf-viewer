@@ -2184,6 +2184,31 @@
       "log": "quality-wave81d.log",
       "exit": 0,
       "scope": "transform/render-raster all-targets Clippy; earlier81/a-b-c failed only audit-test compile/lint issues, corrected"
+    },
+    {
+      "log": "appearance-archive-wave82.log",
+      "run": 3,
+      "passed": 2,
+      "failed": 1,
+      "exit": 100
+    },
+    {
+      "log": "appearance-archive-wave82b.log",
+      "run": 3,
+      "passed": 2,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Added exact-xref guard and decoded partial-attachment/report diagnostic"
+    },
+    {
+      "log": "quality-wave82.log",
+      "exit": 101,
+      "scope": "New APRef test doc-markdown lint, corrected"
+    },
+    {
+      "log": "quality-wave82b.log",
+      "exit": 0,
+      "scope": "model/transform all-targets Clippy"
     }
   ],
   "prior_expected_failures": {
