@@ -2246,6 +2246,53 @@
       "log": "quality-wave84.log",
       "exit": 0,
       "scope": "viewer-ui all-targets Clippy"
+    },
+    {
+      "log": "table-cells-wave85.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Draft coordinate encoding expectation failure; not accepted as behavior finding"
+    },
+    {
+      "log": "table-cells-wave85b.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Expanded validFontPASS; merged/separate ancestorTMFAIL with6positivecontrols"
+    },
+    {
+      "log": "tm-html-wave85.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Draft omitted ExportFormat; rejected as behavior finding"
+    },
+    {
+      "log": "tm-html-wave85b.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Corrected HTMLTM bodyFAIL; noTM controlPASS"
+    },
+    {
+      "log": "quality-wave85.log",
+      "exit": 101,
+      "scope": "New fixture arithmetic lint, corrected"
+    },
+    {
+      "log": "quality-wave85b.log",
+      "exit": 0,
+      "scope": "model all-targets Clippy before HTML fixture"
+    },
+    {
+      "log": "quality-wave85c.log",
+      "exit": 0,
+      "scope": "model all-targets Clippy final"
     }
   ],
   "prior_expected_failures": {

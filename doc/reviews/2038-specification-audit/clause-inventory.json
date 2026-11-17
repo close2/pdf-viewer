@@ -2653,7 +2653,8 @@
       "prior-assertion-reviews.json",
       "shards/indirect_graphics_state_current/features.json",
       "shards/errata_weak_dispositions_batch3_current/features.json",
-      "shards/structured_errata_graphics_current/features.json"
+      "shards/structured_errata_graphics_current/features.json",
+      "shards/table57_graphics_state_matrix_current/features.json"
     ],
     "prior_artifacts": [
       "extgstate_defaults",
@@ -4281,7 +4282,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/text_state_current/features.json"
+      "shards/text_state_current/features.json",
+      "shards/table57_graphics_state_matrix_current/features.json"
     ],
     "prior_artifacts": [
       "text_state_audit",
@@ -4297,7 +4299,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/text_state_current/features.json"
+      "shards/text_state_current/features.json",
+      "shards/table57_graphics_state_matrix_current/features.json"
     ],
     "prior_artifacts": [
       "text_state_audit",
@@ -5345,7 +5348,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/colour_conversion/features.json",
-      "shards/rendering_intent_transfer_current/features.json"
+      "shards/rendering_intent_transfer_current/features.json",
+      "shards/table57_graphics_state_matrix_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -7776,7 +7780,8 @@
       "prior-assertion-reviews.json",
       "shards/xfa_attachment_assertions_current/features.json",
       "shards/adr1257_1270_archive_claims_current/features.json",
-      "shards/adr1190_confined_operations_current/features.json"
+      "shards/adr1190_confined_operations_current/features.json",
+      "shards/feature_table_cell_granularity_current/features.json"
     ],
     "prior_artifacts": [
       "interactive_form_structure_audit"
@@ -7809,7 +7814,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/forms_current/features.json",
-      "shards/errata_interactive_batch_current/features.json"
+      "shards/errata_interactive_batch_current/features.json",
+      "shards/feature_table_cell_granularity_current/features.json"
     ],
     "prior_artifacts": [
       "interactive_form_structure_audit"
@@ -8068,7 +8074,8 @@
     "current_artifacts": [
       "shards/forms_remaining_current/features.json",
       "shards/errata_font_annotation_reference_batch_current/features.json",
-      "shards/structured_errata_interactive_current/features.json"
+      "shards/structured_errata_interactive_current/features.json",
+      "shards/feature_table_cell_granularity_current/features.json"
     ],
     "prior_artifacts": [
       "form_actions_audit"

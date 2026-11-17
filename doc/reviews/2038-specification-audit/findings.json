@@ -2780,5 +2780,41 @@
     "summary": "ADR1190 no-form-fill/no-save premise expired when confined editing and saving were added.",
     "evidence": "ADRs1592/1987 add operations. CLI rejects document-restriction settings; worker receives no Restrict. Off remains reader-friendly project default.",
     "disposition": "Reconcile operation-level controls policy with current confined host. No mandatory ISO violation or Ctrl+S confirmation requirement inferred."
+  },
+  {
+    "id": "2038-B60",
+    "kind": "behavior-gap",
+    "clauses": [
+      "12.7.4.1",
+      "12.7.6.2"
+    ],
+    "summary": "SubmitCoordinates inherits TM from an enclosing field although Table226 does not designate TM inheritable.",
+    "evidence": "Both merged and separate widgets output parentmap.x/y instead of group.submit.x/y; local terminal mapping, absence and single-space controls pass.",
+    "cause": "submission::mapping_name searches the entire ancestor chain instead of stopping at the own terminal field.",
+    "execution": "tm_coordinate_name_spec_audit FAIL,table-cells-wave85b.log."
+  },
+  {
+    "id": "2038-B61",
+    "kind": "behavior-gap",
+    "clauses": [
+      "12.7.4.1",
+      "12.7.6.2"
+    ],
+    "summary": "HTML form export ignores the terminal field mapping name TM.",
+    "evidence": "Fields[(person)] selects the field; TM(exportkey) with V(Ada) still outputs person=Ada. No-TM control passes.",
+    "cause": "Submission Entry.name uses qualified field identity unchanged.",
+    "execution": "tm_html_export_spec_audit FAIL,tm-html-wave85b.log.",
+    "qualification": "HTML body only; no FDF/XFDF assertion or network delivery claim."
+  },
+  {
+    "id": "2038-T115",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "8.4.5",
+      "9.3.1"
+    ],
+    "summary": "Valid indirect ExtGState Font now has independent literal advance and state-replacement controls.",
+    "evidence": "Standard14 Helvetica24 advances16.008; Courier12 advances7.2; directTf agrees, gs replaces both, unrelatedgs preserves. Complete/no-recovery guards.",
+    "execution": "One new testPASS,table-cells-wave85b.log;modelClippyPASS."
   }
 ]

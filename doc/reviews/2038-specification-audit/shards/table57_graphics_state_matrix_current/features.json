@@ -1,0 +1,353 @@
+{
+  "baseline": "b901326c",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "scope": "Effective Table 57 entry/condition matrix and assertion-owner crosswalk. This is not a re-audit of each child clause; existing fresh child shards are referenced and their exact limits retained.",
+  "source": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf, Table 57 begins physical p.180 / printed p.165, continues physical pp.181–183 / printed pp.166–168; page footers checked. EC3 #360 at physical182/printed167 deletes the Table 57 UseBlackPtComp default sentence. HTO appears in the effective continuation at physical183/printed168.",
+    "general_rules": [
+      "Any subset of entries may be supplied to gs; results are cumulative and previously established values persist until explicitly overridden.",
+      "Table 56 overlaps some entries with operators; §8.4.1 NOTE 1 allows either route.",
+      "Initial graphics-state values come from Table 51, not from omission in a Table 57 dictionary. A missing entry preserves current state."
+    ],
+    "source_cautions": [
+      "Most Table 57 entries are optional producer entries; malformed producer constraints do not automatically imply mandatory reader rejection.",
+      "The device's output condition matters: continuous-tone display rendering may omit PDF halftoning, but §10.5 transfer-function work carried inside /HT remains applicable."
+    ]
+  },
+  "ledger": {
+    "owner": "doc/conformance/ledger.toml §8.4.5 (implemented)",
+    "current_test_references": [
+      "pdf-colour/src/black_generation.rs::table_57_decides_which_of_each_pair_is_in_force",
+      "pdf-model/tests/line_parameters.rs::an_ext_gstate_sets_all_three_too",
+      "pdf-model/tests/line_parameters.rs::the_later_of_the_two_routes_wins",
+      "pdf-model/tests/line_parameters.rs::flatness_is_read_and_reaches_nothing",
+      "pdf-model/tests/colour_paths.rs::flatness_changes_nothing_because_the_clause_permits_ignoring_it"
+    ],
+    "assessment": "The five references are a short index, not coverage of all effective table entries. Current code reads or intentionally ignores substantially more keys; the parent note enumerates those routes but is not itself assertion evidence. This matrix links those keys to child evidence and records gaps.",
+    "implementation": [
+      "crates/pdf-model/src/content/ext_gstate.rs::Interpreter::apply_ext_gstate",
+      "crates/pdf-model/src/content/font.rs::apply_ext_gstate_font",
+      "crates/pdf-model/src/content/transparency/*",
+      "crates/pdf-model/src/transfer.rs",
+      "crates/pdf-colour/src/black_generation.rs"
+    ]
+  },
+  "entries": [
+    {
+      "key": "Type",
+      "effective_rule": "Optional dictionary type marker; if present it shall be /ExtGState.",
+      "consumer": "No semantic branch in apply_ext_gstate; lookup dispatch treats the resource as a dictionary. Producer validity only.",
+      "assertions": [],
+      "verdict": "No required reader rejection inferred; no behavior gap claimed."
+    },
+    {
+      "key": "LW",
+      "effective_rule": "Optional nonnegative line width; cumulative with w, later setter wins; §8.4.1 clips out-of-range numeric value without storing device adjustment.",
+      "consumer": "apply_ext_gstate sets Stroke.width; Stroke::device_width resolves zero/SA at paint time.",
+      "assertions": [
+        "pdf-model/tests/line_parameters.rs::a_negative_line_width_is_clipped_into_range",
+        "pdf-model/tests/line_parameters.rs::the_later_of_the_two_routes_wins",
+        "pdf-render/tests/stroke_width.rs width ladder (paint-time device width)"
+      ],
+      "verdict": "Meaningful selected state and paint-time controls; no new gap."
+    },
+    {
+      "key": "LC",
+      "effective_rule": "Optional integer line cap, Table 53 codes 0..2; cumulative and equivalent to J.",
+      "consumer": "apply_ext_gstate -> Stroke.cap -> path rendering.",
+      "assertions": [
+        "pdf-model/tests/line_parameters.rs::an_ext_gstate_sets_all_three_too",
+        "pdf-model/tests/line_parameters.rs::a_code_outside_the_clauses_three_is_the_initial_value"
+      ],
+      "verdict": "Selected state mapping covered; downstream cap behavior belongs to stroke shards."
+    },
+    {
+      "key": "LJ",
+      "effective_rule": "Optional integer line join, Table 54 codes 0..2; cumulative and equivalent to j.",
+      "consumer": "apply_ext_gstate -> Stroke.join.",
+      "assertions": [
+        "pdf-model/tests/line_parameters.rs::an_ext_gstate_sets_all_three_too",
+        "pdf-model/tests/line_parameters.rs::a_code_outside_the_clauses_three_is_the_initial_value"
+      ],
+      "verdict": "Selected state mapping covered; downstream join geometry belongs to stroke shards."
+    },
+    {
+      "key": "ML",
+      "effective_rule": "Optional numeric miter limit, clipped to minimum 1; equivalent to M.",
+      "consumer": "apply_ext_gstate -> Stroke.miter_limit.",
+      "assertions": [
+        "pdf-model/tests/line_parameters.rs::an_ext_gstate_sets_all_three_too",
+        "pdf-model/tests/line_parameters.rs::a_miter_limit_below_one_is_clipped_into_range"
+      ],
+      "verdict": "Selected state mapping covered; downstream miter geometry belongs to stroke shards."
+    },
+    {
+      "key": "D",
+      "effective_rule": "Optional [dashArray dashPhase], with dashArray itself an array; equivalent to d and cumulative.",
+      "consumer": "apply_ext_gstate resolves outer array, nested array and members before applying dash.",
+      "assertions": [
+        "pdf-model/tests/line_dash.rs::an_ext_gstate_sets_the_dash_pattern_too",
+        "pdf-model/tests/indirect_extgstate_values_spec_audit.rs::indirect_dash_array_and_numeric_members_match_the_direct_extgstate_control (2 PASS wave58)"
+      ],
+      "verdict": "Nested dash-array/member indirection has a direct-control public pixel test; T77 two new assertions PASS wave58."
+    },
+    {
+      "key": "RI",
+      "effective_rule": "Optional rendering-intent name; initial value is Table 51 RelativeColorimetric; unknown intent falls back to RelativeColorimetric.",
+      "consumer": "apply_ext_gstate sets state intent; colour conversion asks it at paint time.",
+      "assertions": [
+        "pdf-model/tests/rendering_intent.rs::an_ext_gstate_intent_replaces_the_one_in_force",
+        "pdf-model/tests/rendering_intent.rs::an_unrecognised_intent_name_is_relative_colorimetric",
+        "pdf-model/tests/rendering_intent.rs::a_later_intent_does_not_restore_a_black_point_the_state_turned_off"
+      ],
+      "verdict": "Distinct profile tables and state precedence are exercised; intent and BPC remain jointly scoped by child review."
+    },
+    {
+      "key": "OP",
+      "effective_rule": "Optional boolean overprint for stroke; when op absent, OP also sets nonstroking; when op present, OP sets stroke only.",
+      "consumer": "apply_ext_gstate applies both entries jointly to stroking/filling state.",
+      "assertions": [
+        "pdf-model/tests/overprint.rs::the_non_stroking_parameter_is_its_own",
+        "pdf-model/tests/overprint.rs::the_overprint_parameters_are_saved_and_restored",
+        "pdf-model/tests/overprint.rs::a_zero_component_under_overprint_mode_one_keeps_the_backdrops"
+      ],
+      "verdict": "Precedence and paint consumer controls exist; conditional CMYK support is covered in overprint shard."
+    },
+    {
+      "key": "op",
+      "effective_rule": "Optional boolean nonstroking overprint; if absent, inherits OP value in same dictionary.",
+      "consumer": "Joint OP/op state update in apply_ext_gstate.",
+      "assertions": [
+        "pdf-model/tests/overprint.rs::the_non_stroking_parameter_is_its_own",
+        "pdf-model/tests/overprint.rs::overprint_mode_zero_erases_the_components_the_source_does_not_name"
+      ],
+      "verdict": "Selected independent stroke/fill behavior tested."
+    },
+    {
+      "key": "OPM",
+      "effective_rule": "Optional integer overprint mode; special zero-tint treatment only where supported process/spot output path applies.",
+      "consumer": "GraphicsState overprint_mode then per-paint overprint decision.",
+      "assertions": [
+        "pdf-model/tests/overprint.rs::overprint_mode_zero_erases_the_components_the_source_does_not_name",
+        "pdf-model/tests/overprint.rs::overprint_mode_one_alone_changes_nothing",
+        "pdf-model/tests/overprint.rs::a_page_on_the_devices_own_components_is_unchanged"
+      ],
+      "verdict": "OPM 0/1 and device-component control exist; sampled rows are not all Table 146 combinations."
+    },
+    {
+      "key": "Font",
+      "effective_rule": "Optional [font size], corresponding to Tf. The font item specifically shall be an indirect reference; size is text-space number.",
+      "consumer": "content/font.rs::apply_ext_gstate_font loads by object identity and sets font and size.",
+      "assertions": [
+        "pdf-model/tests/null_font_substitute.rs unresolved-target policy control",
+        "pdf-model/tests/extgstate_font_valid_consumer_spec_audit.rs::extgstate_font_sets_the_indirect_font_and_text_size_like_tf"
+      ],
+      "verdict": "Valid indirect /Font consumer is exercised against Tf; independent Courier 600/1000 at 12 and Helvetica AFM 667/1000 at 24 predict distinct literal advances; parent reports test and Clippy PASS. The same test verifies a later gs replaces both font and size and an unrelated gs preserves them."
+    },
+    {
+      "key": "BG",
+      "effective_rule": "Optional black-generation function mapping [0,1] to [0,1]; interacts with BG2.",
+      "consumer": "BlackGeneration::read stores stated pair; DeviceRGB-to-CMYK route may evaluate it.",
+      "assertions": [
+        "pdf-colour/src/black_generation.rs::table_57_decides_which_of_each_pair_is_in_force",
+        "pdf-model/tests/black_generation_paint.rs::solid_selection_order_matches_image_and_clause_arithmetic",
+        "pdf-model/tests/black_generation_transfer_audit.rs paint controls"
+      ],
+      "verdict": "State-pair precedence and selected paint route have assertions; unsupported conversion branches remain explicitly qualified."
+    },
+    {
+      "key": "BG2",
+      "effective_rule": "Same function or /Default meaning the black-generation function at page start; takes precedence over BG if both occur.",
+      "consumer": "BlackGeneration::read resolves function/default and selects later BG2.",
+      "assertions": [
+        "pdf-colour/src/black_generation.rs::table_57_decides_which_of_each_pair_is_in_force",
+        "pdf-model/tests/black_generation_paint.rs::changes_and_restores_do_not_keep_a_converted_colour"
+      ],
+      "verdict": "Selected precedence/restore evidence; not every group/image consumer recertified here."
+    },
+    {
+      "key": "UCR",
+      "effective_rule": "Optional undercolour-removal function mapping [0,1] to [-1,1]; paired with UCR2.",
+      "consumer": "BlackGeneration route into RGB-to-CMYK conversion.",
+      "assertions": [
+        "pdf-colour/src/black_generation.rs::table_57_decides_which_of_each_pair_is_in_force",
+        "pdf-model/tests/black_generation_paint.rs::solid_selection_order_matches_image_and_clause_arithmetic"
+      ],
+      "verdict": "Selected values have literal arithmetic controls."
+    },
+    {
+      "key": "UCR2",
+      "effective_rule": "Same function or /Default meaning page-start UCR; takes precedence over UCR when both occur.",
+      "consumer": "BlackGeneration::read selects UCR2; state saved/restored with graphics state.",
+      "assertions": [
+        "pdf-colour/src/black_generation.rs::table_57_decides_which_of_each_pair_is_in_force",
+        "pdf-model/tests/extgstate_defaults_audit.rs::ucr2_function_wins_over_ucr_in_the_same_gs_dictionary"
+      ],
+      "verdict": "Specific precedence assertion exists; device route conditions remain with colour-conversion shard."
+    },
+    {
+      "key": "TR",
+      "effective_rule": "Optional transfer function, Identity or four functions; deprecated in PDF 2.0; RGB uses first three channels.",
+      "consumer": "TransferState applies after colour conversion and before optional device halftoning.",
+      "assertions": [
+        "pdf-model/tests/transfer_functions.rs::an_axial_ramps_pixels_go_through_the_transfer_function",
+        "pdf-model/tests/transfer_functions.rs::a_pattern_is_painted_under_the_transfer_function_the_mark_states",
+        "pdf-model/tests/halftone_transfer_public_spec_audit.rs::a_four_function_array_uses_the_first_three_for_rgb_not_the_gray_function (literal channel outputs); plus the three public tests named for /TR raster paths"
+      ],
+      "verdict": "Public RGB first-three behavior and distinct-slot selection have four reviewed CPU-raster tests (4/4 PASS, fonts-transfer-wave23c.log); not all transfer carriers are covered."
+    },
+    {
+      "key": "TR2",
+      "effective_rule": "Same as TR, admits /Default for page-start function, and takes precedence over TR if both are present; deprecated in PDF 2.0.",
+      "consumer": "Transfer::read distinguishes unsaid vs Identity/Default; RGB transfer map consumed by marks.",
+      "assertions": [
+        "pdf-model/tests/extgstate_defaults_audit.rs::tr2_default_resets_a_transfer_from_an_earlier_gs",
+        "pdf-model/tests/extgstate_defaults_audit.rs::tr2_function_wins_over_tr_in_the_same_gs_dictionary",
+        "pdf-model/tests/halftone_transfer_public_spec_audit.rs::tr2_takes_precedence_over_tr_when_both_graphics_state_entries_are_present"
+      ],
+      "verdict": "Model state precedence tested; public raster distinction is covered by the four parent-reviewed tests (4/4 PASS)."
+    },
+    {
+      "key": "HT",
+      "effective_rule": "Optional halftone dict/stream or /Default; screen may be omitted for continuous-tone device, but a contained TransferFunction overrides corresponding TR component under §10.5.",
+      "consumer": "halftone_transfer reads Type 5 component values or other dict TransferFunction; no screen generator used.",
+      "assertions": [
+        "pdf-model/tests/transfer_functions.rs::a_halftone_dictionarys_transfer_function_overrides_the_graphics_states",
+        "pdf-model/tests/transfer_functions.rs::a_halftone_naming_identity_turns_the_graphics_states_function_off",
+        "pdf-model/tests/transfer_functions.rs::a_type_5_halftone_gives_each_colourant_its_own_function",
+        "pdf-model/tests/halftone_transfer_public_spec_audit.rs::type_5_halftone_transfer_overrides_are_applied_per_rgb_component_in_the_public_raster; ::type_6_stream_transfer_override_is_applied_even_when_its_screen_is_ignored"
+      ],
+      "verdict": "Screen omission is conditional device scope; Type 5 and Type 6 transfer overrides have reviewed public raster assertions (4/4 PASS aggregate)."
+    },
+    {
+      "key": "FL",
+      "effective_rule": "Optional flatness tolerance equivalent to i; §10.7.2 expressly permits ignoring file-specified values.",
+      "consumer": "apply_ext_gstate reads and discards FL; raster chooses its own device-space tolerance.",
+      "assertions": [
+        "pdf-model/tests/line_parameters.rs::flatness_is_read_and_reaches_nothing",
+        "pdf-model/tests/colour_paths.rs::flatness_changes_nothing_because_the_clause_permits_ignoring_it"
+      ],
+      "verdict": "Valid deliberate ignore is source-authorized; equal-raster assertion is consistency only, while independent curve oracles live in raster tests."
+    },
+    {
+      "key": "SM",
+      "effective_rule": "Optional smoothness tolerance; output device may impose internal limits; function sampling controls only shading smoothness.",
+      "consumer": "apply_ext_gstate sets state.smoothness; Ramp::resolution_for applies device floor.",
+      "assertions": [
+        "pdf-model/tests/extgstate_defaults_audit.rs::extgstate_smoothness_improves_sampling_accuracy",
+        "raster/crates/raster-gpu/src/raster/tests/flatten.rs curve-area controls do not cover shading smoothness"
+      ],
+      "verdict": "A public shading ramp compares requested smoothness with device sampling; limit is intentionally implementation/device bounded."
+    },
+    {
+      "key": "SA",
+      "effective_rule": "Optional automatic stroke-adjustment flag; initial value is Table 51 false. Adjustment has separate thin-width and coordinate-grid effects.",
+      "consumer": "apply_ext_gstate sets Stroke.adjust; backend applies paint-time resolution/selected coordinate fitting.",
+      "assertions": [
+        "pdf-model/tests/stroke_adjustment.rs and raster/ADR0085 current public width tests; ledger §10.7.5 remains partial for coordinate uniformity"
+      ],
+      "verdict": "Width effect is controlled; do not equate Table57 read with full §10.7.5 coordinate-adjustment certification."
+    },
+    {
+      "key": "BM",
+      "effective_rule": "Optional name or array; array deprecated in PDF 2.0. Reader uses first recognized array member, else Normal.",
+      "consumer": "stated_blend_mode sets blend, and resources_blend probes nested resources.",
+      "assertions": [
+        "pdf-model/tests/transparency.rs blend-array cases",
+        "pdf-model/tests/blend_gray_consumer_audit.rs named blend routes",
+        "pdf-model/tests/indirect_extgstate_values_spec_audit.rs::indirect_blend_names_and_alpha_match_the_pdf_17_direct_control (PASS wave58)"
+      ],
+      "verdict": "Name/array recognition and indirect blend-name resolution are covered by direct and public pixel controls; T77 PASS wave58."
+    },
+    {
+      "key": "SMask",
+      "effective_rule": "Optional dict or /None; replaces prior soft mask rather than intersecting it; /None clears state.",
+      "consumer": "apply_ext_gstate builds or removes current soft mask.",
+      "assertions": [
+        "pdf-model/tests/soft_masks.rs::none_removes_the_mask",
+        "pdf-model/tests/soft_masks.rs coordinate and transfer tests",
+        "pdf-model/tests/soft_mask_derivation_audit.rs::a_pdf_alpha_soft_mask_applies_transfer_to_group_alpha_and_to_zero_outside"
+      ],
+      "verdict": "Replacement/clear and selected alpha/luminosity consumers are tested; not every nested profile route recertified here."
+    },
+    {
+      "key": "CA",
+      "effective_rule": "Optional stroking alpha constant; initial value Table 51 1.0; shape/opacity meaning follows AIS.",
+      "consumer": "state.stroke_alpha; converted to stroke source shape/opacity in transparency pipeline.",
+      "assertions": [
+        "pdf-model/tests/stroke_composition_pdf_spec_audit.rs alpha vs opacity controls",
+        "pdf-model/tests/transparency_groups.rs and pdf-model/tests/overprint.rs selected stroke alpha consumer"
+      ],
+      "verdict": "Selected stroke-specific alpha consumer has controls; not every operation family."
+    },
+    {
+      "key": "ca",
+      "effective_rule": "Optional nonstroking alpha constant, same as CA; initial value 1.0; interacts with AIS and soft mask.",
+      "consumer": "state.fill_alpha for fills/images/text/shadings, with shape/opacity tracking.",
+      "assertions": [
+        "pdf-model/tests/transparency_groups.rs selected fill/image alpha controls",
+        "pdf-model/tests/annotations.rs half alpha appearance control",
+        "pdf-model/tests/indirect_extgstate_values_spec_audit.rs::indirect_blend_names_and_alpha_match_the_pdf_17_direct_control (PASS wave58)"
+      ],
+      "verdict": "Selected alpha consumer and indirect alpha vs direct-control pixel test; T77 PASS wave58."
+    },
+    {
+      "key": "AIS",
+      "effective_rule": "Alpha-is-shape flag: true means SMask/constants are shape, false means opacity; applies also image dictionary SMask interpretation.",
+      "consumer": "state.alpha_is_shape plus group-scope readings; Transparency shape and image mask routes.",
+      "assertions": [
+        "pdf-model/tests/transparency_groups.rs AIS shape-vs-opacity controls and explicit state-history tests",
+        "pdf-model/tests/image_masks.rs image SMask/AIS routes"
+      ],
+      "verdict": "Source distinction reaches public group/image consumers; no new gap found in this matrix pass."
+    },
+    {
+      "key": "TK",
+      "effective_rule": "Optional text knockout flag for any font type; gs-installed TK inside BT..ET is ignored.",
+      "consumer": "state.text.knockout; text object is wrapped as group only where glyph overlap and compositing make it observable.",
+      "assertions": [
+        "pdf-model/tests/text_state.rs::text_knockout_becomes_a_group_only_where_the_two_models_differ",
+        "pdf-model/tests/text_state.rs::a_text_knockout_set_inside_a_text_object_is_ignored",
+        "pdf-model/tests/type3_spec_audit.rs::text_knockout_applies_to_overlapping_type3_glyphs"
+      ],
+      "verdict": "Conditional behavior has valid overlapping controls and Type3 route."
+    },
+    {
+      "key": "UseBlackPtComp",
+      "effective_rule": "PDF 2.0 ON/OFF/Default; absent/Default semantics are processor-selected by §8.6.5.9. AbsoluteColorimetric forces compensation off. EC3 #360 deletes Table57 stated default, not the section rule.",
+      "consumer": "state.use_black_pt_comp combined with per-painted-object intent and ICC transform selection.",
+      "assertions": [
+        "pdf-model/tests/rendering_intent.rs::the_profile_distinguishes_compensating_from_not",
+        "pdf-model/tests/rendering_intent.rs::an_absolute_intent_overrides_a_black_point_entry_set_after_it",
+        "pdf-model/tests/rendering_intent.rs::an_ext_gstate_omitting_black_point_compensation_preserves_the_current_value"
+      ],
+      "verdict": "Explicit ON/OFF/Default, intent precedence and omission preservation have assertions; default remains policy, not an ISO exact-value defect."
+    },
+    {
+      "key": "HTO",
+      "effective_rule": "Optional PDF 2.0 pair of origin coordinates; origin is in current coordinates but does not move with later coordinate-system changes; applies to halftone origin.",
+      "consumer": "No continuous-tone screen renderer/output path consumes an HTO origin; halftone-screen implementation is outside current device capability.",
+      "assertions": [],
+      "verdict": "No test needed for the unsupported screen condition; do not claim HTO rendering behavior. Relevant only if a halftone-capable device route is added."
+    }
+  ],
+  "related_shards_consulted": [
+    "structured_errata_graphics_current",
+    "indirect_graphics_state_current",
+    "rendering_intent_transfer_current",
+    "halftones_separations_current",
+    "default_colour_bpc_current",
+    "overprint_transparency_current",
+    "transparency_compositing_current",
+    "graphics_transparency_framing_current",
+    "stroke_fill_geometry_current",
+    "file_only_transparency_colour_assertions_current"
+  ],
+  "residuals": [
+    "Valid Font positive control executed PASS; see parent-review.json for expanded override/cumulative controls.",
+    "Four reviewed public CPU-raster tests for distinct RGB /TR channels and Type 5/Type 6 HT TransferFunction overrides pass (fonts-transfer-wave23c.log); this does not cover every transfer-carrier shape or screen generation.",
+    "HTO and screen rendering remain outside this continuous-tone output; no broad Table 57 field certification is made.",
+    "Table 57's optional/writer-side constraints are not converted into reader rejection obligations."
+  ],
+  "checkpoint85_followup": "Parent checkpoint85: expanded valid Font consumer PASS; original draft execution labels are superseded by parent-review.json. Tests assert independent advances, replacement and cumulative gs state."
+}

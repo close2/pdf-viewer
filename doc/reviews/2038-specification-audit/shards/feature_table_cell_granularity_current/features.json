@@ -1,0 +1,239 @@
+{
+  "baseline": "b901326c",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "scope": "Cell-level inventory of ISO 32000-2:2020 EC3 Table 224 (§12.7.3) and Table 226 (§12.7.4.1), chosen because prior form shards examined particular behaviors but the parent ledger rows aggregate several independent keys. Primary PDF pages were read directly, including effective EC3 annotations. This is not whole-clause certification.",
+  "source_locators": {
+    "table_224": "ISO 32000-2 sponsored EC3 PDF physical 544 / printed 529; XFA continuation physical 545 / printed 530; Table 225 continues physical 545 / printed 530.",
+    "table_226": "ISO 32000-2 sponsored EC3 PDF physical 546 / printed 531; Table 226's last cells continue on physical 547 / printed 532.",
+    "effective_errata": "EC3 #318 changes Table 224 /DA type to byte string. EC3 #28 corrects Table 226 /T from Required to Optional. EC3 #313 updates Table 226 /AA's Widget annotation cross-reference; #618 adds the Table 199 trigger reference. Issue pages/annotation bodies are recorded in doc/errata-read.md and previous parent-reviewed form shards; page-local PDF text and overlays were checked for this inventory."
+  },
+  "rows": [
+    {
+      "ledger_row": "12.7.3",
+      "ledger_status": "implemented",
+      "table": "224",
+      "cells": [
+        {
+          "key": "Fields",
+          "source_rule": "Required array of references to root fields (fields with no ancestors).",
+          "consumer": "pdf-model view field tree starts at Catalog/AcroForm/Fields; signature reader also starts the field walk here.",
+          "assertions": [
+            "pdf-model/src/view.rs::tests::a_root_field_that_nothing_names_is_not_a_field",
+            "pdf-signature/src/signature.rs::tests::a_form_declaring_no_signature_fields_is_walked_all_the_same",
+            "viewer-core signature candidate discovery controls recorded in acroform_structure_audit (forms-reviewed-target-v3.log parent record)"
+          ],
+          "coverage": "Partial. Existing root-array tests establish selected discovery/omission behavior, not full valid producer-tree shape. The newer public signature candidate test reaches a real complete-xref form; malformed or absent structures are separately exercised.",
+          "qualification": "Required producer structure does not imply a reader should reject all nonconforming roots; recovery policy is a separate question."
+        },
+        {
+          "key": "NeedAppearances",
+          "source_rule": "Optional, deprecated in PDF 2.0, default false. A writer shall include true if it has not provided appearance streams for all visible widgets; PDF 2.0 requires appearance streams.",
+          "consumer": "Variable-text save/rewrite and failed appearance construction reporting in pdf-model/src/appearance.rs, variable_text.rs and view/writing.rs.",
+          "assertions": [
+            "pdf-model/tests/saving.rs::a_value_that_cannot_be_laid_out_sets_the_flag_and_names_its_field",
+            "pdf-model/tests/script_properties.rs::a_style_with_no_on_state_is_owed_and_flagged_in_a_direct_form",
+            "pdf-model/tests/variable_text.rs::need_appearances_rewrites_the_marked_content_region_and_keeps_the_rest"
+          ],
+          "coverage": "Writer-residue behavior is tested for an edited widget whose appearance could not be constructed, and successful appearance rewrite behavior is covered separately. The save path calls owe_appearances only for widgets marked owed; this audit did not find a census of untouched visible widgets with no stored AP when saving another widget. That boundary is unresolved rather than a proven defect because the source PDF may already violate the producer AP requirement.",
+          "qualification": "Do not turn the PDF 2.0 producer AP requirement into an invented blanket reader rejection or unconditional regeneration rule. The distinction is producer duty versus reader behavior."
+        },
+        {
+          "key": "SigFlags",
+          "source_rule": "Optional, unsigned 32-bit flags, default 0; undefined bits reserved 0. Table 225 bit 1: if set, signature field exists, allowing UI without scanning. Bit 2 lets an interactive processor warn before a full save that invalidates signatures; incremental append is safe.",
+          "consumer": "pdf-signature signature-field discovery and pdf-transform archive/full-rewrite path.",
+          "assertions": [
+            "pdf-signature/src/signature.rs::tests::a_form_declaring_no_signature_fields_is_walked_all_the_same",
+            "viewer-core/tests/sigflags_discovery_audit.rs::absent_sigflags_does_not_hide_a_candidate_from_the_public_signature_api",
+            "viewer-core/tests/sigflags_discovery_audit.rs::zero_sigflags_does_not_hide_a_candidate_from_the_public_signature_api",
+            "archive rewrite behavior reviewed in transform/archive shards"
+          ],
+          "coverage": "Current candidate-discovery path is tested for set, absent, and explicit-zero flags in viewer-core/tests/sigflags_discovery_audit.rs; the model-level signature unit test also exercises absent flags. These tests assert actual signature field discovery, not CMS validity. The one-way wording is separately stated in the tests and current implementation walks regardless of the bit. Bit 2 remains a may, not a required modal warning.",
+          "qualification": "Bit 2's may permits UI policy; its wording is not a mandatory dialog requirement. Do not infer signature absence from zero flags."
+        },
+        {
+          "key": "CO",
+          "source_rule": "Required if any field AA contains C; indirect references to calculation-action fields, defining recalculation order after a field value change.",
+          "consumer": "pdf-model/src/view/scripts.rs calculation sequence before dependent field recalculation.",
+          "assertions": [
+            "pdf-model/tests/aform.rs::the_calculation_order_is_walked_once_per_change"
+          ],
+          "coverage": "Good direct-order and changed-value evidence: the public integration assertion establishes Total before Twice and verifies resulting values/appearances. It does not certify every error case or all script event order.",
+          "qualification": "The requirement has a condition. Do not claim CO is required for forms with no calculation action."
+        },
+        {
+          "key": "DR",
+          "source_rule": "Optional resource dictionary for form-field appearance streams; if present, at minimum it shall contain a Font entry specifying default font resource name and dictionary.",
+          "consumer": "Variable text appearance font/resource lookup and transform merge resource-category handling.",
+          "assertions": [
+            "pdf-model/tests/variable_text.rs::need_appearances_rewrites_the_marked_content_region_and_keeps_the_rest"
+          ],
+          "coverage": "Runtime use is witnessed as part of appearance rewriting, but prior form inventory found no assertion isolating minimal-DR producer validity. This entry's minimum is a writer/resource conformance condition; absence of a minimal-font rejection test is not by itself a reader defect.",
+          "qualification": "Resource inheritance/merge and exact appearance rendering are broader than this cell."
+        },
+        {
+          "key": "DA",
+          "source_rule": "Optional document-wide default value for variable-text fields; EC3 #318 makes the type a byte string.",
+          "consumer": "Variable text parses/resolves the default appearance and transforms preserve DA policy.",
+          "assertions": [
+            "pdf-model/tests/variable_text.rs::need_appearances_rewrites_the_marked_content_region_and_keeps_the_rest",
+            "DA and font-resource path in the same variable-text test family"
+          ],
+          "coverage": "Selected use is covered; no blanket writer conformance or all-byte-string-encoding claim. Source type must be read under #318, not the superseded string cell.",
+          "qualification": "An isolated DA-default vs field-local DA precedence assertion was not located in the exact cell's parent record."
+        },
+        {
+          "key": "Q",
+          "source_rule": "Optional document-wide default for variable-text field quadding.",
+          "consumer": "Variable text layout uses default alignment where field-level value is absent.",
+          "assertions": [
+            "pdf-model/tests/variable_text.rs::quadding_moves_the_line_within_its_box"
+          ],
+          "coverage": "Literal placement separates left/right quadding; a selected consumer assertion exists.",
+          "qualification": "No full default/local/inherited precedence matrix claimed."
+        },
+        {
+          "key": "XFA",
+          "source_rule": "Optional, deprecated in PDF 2.0 stream or array containing XDP-conforming XFA resource; see Annex K.",
+          "consumer": "pdf-model/src/xfa.rs reads static packets and archive transforms preserve supported static XFA as an associated file; dynamic XFA remains governed by ratified product scope.",
+          "assertions": [
+            "pdf-model/src/xfa.rs::tests::a_stream_or_an_array_of_packets_is_an_xfa_resource",
+            "pdf-model/src/xfa.rs::tests::needs_rendering_is_read_only_where_it_is_true",
+            "public archive XFA attachment assertions in adr1257_1270_archive_claims_current (parent reports integrated and passing)"
+          ],
+          "coverage": "Parser has stream/array controls; the newer archive consumer test separately verifies packet attachment preservation. No claim to validate every XDP grammar condition or implement dynamic-XFA layout.",
+          "qualification": "Deprecated optional data and reader support boundaries must not be rewritten as an ISO requirement to execute dynamic XFA."
+        }
+      ]
+    },
+    {
+      "ledger_row": "12.7.4.1 common field dictionary entries",
+      "ledger_status": "implemented",
+      "table": "226",
+      "cells": [
+        {
+          "key": "FT",
+          "source_rule": "Required for terminal fields and inheritable. A nonterminal may carry inherited FT, but has no logical type of its own.",
+          "consumer": "Field::read/inheritance and public field/control construction.",
+          "assertions": [
+            "pdf-model/src/form.rs::tests::a_fields_type_flags_and_value_come_from_the_ancestor_that_states_them",
+            "pdf-model/tests/variable_text.rs::a_parent_chain_deeper_than_any_bound_is_read_to_its_end"
+          ],
+          "coverage": "Direct inherited type path; nonterminal-container semantics are separately described in the test and model feature record.",
+          "qualification": "Terminal-required is a producer shape; reader behavior on a missing type is separate."
+        },
+        {
+          "key": "Parent",
+          "source_rule": "Required only for a child, immediate parent whose Kids contains the child; no more than one parent.",
+          "consumer": "field_tree traversal and inherited attribute lookup.",
+          "assertions": [
+            "pdf-model/src/view.rs::tests::one_field_name_may_reach_several_widgets",
+            "pdf-model/src/view.rs::tests::a_root_field_takes_the_name_its_parent_chain_states",
+            "deep-chain/cycle controls in inheritance and variable_text test modules"
+          ],
+          "coverage": "Selected shared-parent, merged root, depth and cycle paths; not every invalid parent/Kids contradiction or producer writer shape.",
+          "qualification": "A recovery path for contradictory Parent/Kids is not evidence the source permits multiple parents."
+        },
+        {
+          "key": "Kids",
+          "source_rule": "Sometimes required; nonterminal Kids lists immediate child field dictionaries. Terminal Kids ordinarily lists associated widgets, except a sole merged widget is represented in the field itself and Kids is omitted.",
+          "consumer": "field tree plus page widget association.",
+          "assertions": [
+            "pdf-model/src/view.rs::tests::one_field_name_may_reach_several_widgets",
+            "pdf-model/src/view.rs::tests::a_root_field_takes_the_name_its_parent_chain_states",
+            "parent-chain/reset controls from forms_current"
+          ],
+          "coverage": "Several-widget and merged-field shapes are exercised; the table's full producer/reader combinations are not enumerated by one assertion family.",
+          "qualification": "Keep child-field dictionaries distinct from same-field widget annotations; an array of widgets is not an array of terminal children."
+        },
+        {
+          "key": "T",
+          "source_rule": "Partial field name. Effective EC3 #28 changes the Table 226 cell from Required to Optional; §12.7.4.2 says without own T an annotation is simply a Widget.",
+          "consumer": "qualified names, field controls, hide/reset/import/submission keying.",
+          "assertions": [
+            "pdf-model/src/view.rs::tests::a_root_field_that_nothing_names_is_not_a_field",
+            "pdf-model/src/view.rs::tests::an_empty_partial_name_is_still_a_name",
+            "pdf-model/tests/field_names_buttons_spec_audit.rs::a_complete_form_reports_the_period_joined_name_and_terminal_partial_name"
+          ],
+          "coverage": "Absent versus empty name is directly distinguished. Do not report absent /T as malformed-input-only: #28 explicitly corrects the cell to optional.",
+          "qualification": "The producer must still construct unambiguous qualified field identities for actual fields."
+        },
+        {
+          "key": "TU",
+          "source_rule": "Optional alternative name, used instead of actual name wherever the field is identified in UI; also useful for accessibility/content extraction.",
+          "consumer": "FieldName.shown feeds native tooltip/label and accessibility consumers.",
+          "assertions": [
+            "pdf-model/src/form.rs::tests::a_text_fields_flags_cross_as_the_control_they_describe (T remains identity; TU is shown name)",
+            "crates/viewer-accessibility/tests/tree.rs::an_untagged_pages_widgets_are_controls_beside_the_untagged_sentence",
+            "viewer host form tooltip helper"
+          ],
+          "coverage": "Distinct identity/UI name behavior has a literal unit assertion and user-facing consumers. The accessibility test shown uses the public widget label path; no full language/locale policy claim.",
+          "qualification": "Accessibility availability alone does not prove all UI contexts substitute TU; inspect each consumer if claiming that."
+        },
+        {
+          "key": "TM",
+          "source_rule": "Optional mapping name to use when exporting interactive form field data. Table 226 does not mark /TM inheritable, unlike /FT, /Ff, /V and /DV.",
+          "consumer": "pdf-model/src/submission.rs::mapping_name is used for Table 240 bit 5 click-coordinate parameter naming. It walks `inheritance::ancestors`, despite /TM not being designated inheritable. Ordinary `chosen`/Entry names are selected from fully qualified T names.",
+          "assertions": [
+            "pdf-model/tests/form_actions_spec_audit.rs::submit_coordinates_suppresses_name_for_space_tm covers local /TM=space suppression and absent-/TM qualified fallback",
+            "viewer-host/tests/submit.rs asserts composed request bodies and coordinates for the existing fixture",
+            "Parent reports the HTML export witness is promoted and failed with distinct /T and /TM; it is scoped to HTML."
+          ],
+          "coverage": "The direct Table 226 export-mapping behavior has a public HTML-only consumer witness: parent reports an exact-xref fixture with terminal /T=person, /TM=exportkey, /V=Ada produces person=Ada instead of exportkey=Ada; the no-/TM control correctly produces person=Ada. This is a confirmed behavior gap for that HTML route, not a statement about FDF/XFDF. Separately, mapping_name walks ancestors although Table 226 does not designate /TM inheritable; the scratch coordinate draft tests terminal-local, ancestor-only, and absent mappings, but remains unexecuted and interpretation should be checked against Table 240.",
+          "qualification": "Table 240 separately specifies coordinate parameter names; reconcile it with Table 226 and the format-specific submission rules before calling ordinary export a failure. Do not assume general-field import matching semantics are identical to export."
+        },
+        {
+          "key": "Ff",
+          "source_rule": "Optional, inheritable common field flags; default zero. Common bit meanings in Table 227, with type-specific flags elsewhere.",
+          "consumer": "Inherited field flags reach model control behavior and submission exclusion/required checks.",
+          "assertions": [
+            "pdf-model/src/form.rs::tests::a_fields_type_flags_and_value_come_from_the_ancestor_that_states_them",
+            "forms_data read-only/import control tests",
+            "button/choice/text field-specific flag tests in their owning shards"
+          ],
+          "coverage": "Common inheritance exists; individual common bits are asserted across separate consumer tests, while table-wide all-bits and all-control event behavior are not implied.",
+          "qualification": "Separate common Table 227 flags from subtype-specific Table 229/231/233 flags."
+        },
+        {
+          "key": "V",
+          "source_rule": "Optional, inheritable current field value; type-dependent.",
+          "consumer": "field value read, appearance, editing, submission, and save.",
+          "assertions": [
+            "pdf-model/src/form.rs::tests::a_fields_type_flags_and_value_come_from_the_ancestor_that_states_them",
+            "forms_current reset/import/save/reopen controls",
+            "text/button/choice value tests in their owning shards"
+          ],
+          "coverage": "Read inheritance and ordinary writes are broadly exercised. The two-terminal shared-ancestor reset artifact identified an existing persistence-specific gap: at runtime values/appearances passed, but parent wave9 reported the saved/reopened shared-default case failed; classify that as persistence defect only, not runtime inheritance failure.",
+          "qualification": "Inherited /V is shared by field descendants; widgets of one field are not independent fields."
+        },
+        {
+          "key": "DV",
+          "source_rule": "Optional, inheritable default value used by reset; same format as V.",
+          "consumer": "Reset action chooses effective default, then save serializes.",
+          "assertions": [
+            "value_statements and forms_data reset tests",
+            "forms_current two-terminal runtime and save/reopen controls"
+          ],
+          "coverage": "Local merged-field reset controls cover routine behavior. Parent-reported current test distinguishes runtime pass from saved/reopened failure when two descendants share inherited V but have distinct effective DVs.",
+          "qualification": "This is a selected tree-storage interaction, not proof every reset target selection row/Table242 has the same defect."
+        },
+        {
+          "key": "AA",
+          "source_rule": "Optional additional-actions dictionary; effective #313 and #618 text points to Widget annotation and Table 199 trigger entries; same meaning as annotation AA.",
+          "consumer": "pdf-model/src/view/script_sites.rs and inherited lookup / widget-proximity event routing.",
+          "assertions": [
+            "Field action and widget event tests exist in §12.6.3/§12.6.4 shards, but no isolated assertion was found for nonterminal ancestor AA versus terminal field-local AA on a field event."
+          ],
+          "coverage": "The implementation resolves field-level AA from a widget and its Parent chain, but this pass found no isolated assertion distinguishing a terminal field-local field event from a nonterminal ancestor-only AA. The Table 226 cell does not mark AA inheritable. Treat this as an assertion gap and source-interpretation question, not a confirmed runtime defect; widget annotation trigger actions are covered separately.",
+          "qualification": "This is a candidate assertion gap, not a claim that all AA script/action execution is absent or that out-of-scope effects must run."
+        }
+      ]
+    }
+  ],
+  "explicit_limits": [
+    "No new test was compiled or run by this inventory agent. Parent's recorded test execution was quoted only where identified.",
+    "Earlier shard-level findings were reused as pointers and checked against current code/tests where this inventory made a cell-level claim; no full ISO, table, ledger row or ADR is certified.",
+    "Table 201 action-type cells were not included because the action-chain and action-type shards already review the individual action families; no third row is claimed covered here.",
+    "Producer dictionary constraints are not automatically reader-rejection requirements; optional UI wording and owner policy remain separate from normative duties."
+  ],
+  "checkpoint85_followup": "Parent checkpoint85: expanded coordinate test FAIL for merged and separate widgets after local/absent/space controls PASS (B60); ordinary HTML TM test FAIL after unmapped controlPASS (B61). Parent source reconciliation and executions supersede candidate/unrun labels above. FDF/XFDF remain untested."
+}

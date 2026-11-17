@@ -1,0 +1,46 @@
+{
+  "scope": "Reconsider selected ADR premises touching effective Table 57 keys and reader/device boundaries.",
+  "decisions": [
+    {
+      "adr": "0849",
+      "decision": "agree; initial-value references must remain Table 51 rather than the continuation Table 52",
+      "evidence": "The Table 57 state defaults and Table 52 device-dependent parameters are distinct in the primary table. The source and current GraphicsState defaults are read with that distinction.",
+      "limit": "This is citation/source placement evidence, not proof every Table 51 parameter has a unique literal test."
+    },
+    {
+      "adr": "0115",
+      "decision": "retain object-identity caching rationale; the valid consumer assertion is now promoted and passed",
+      "evidence": "Table 57 requires the font operand be an indirect reference. apply_ext_gstate_font loads through FontKey::Referenced and sets font plus size. Existing null-font tests only establish the invalid/unresolved route; the scratch positive-control test covers the valid route.",
+      "limit": "The test covers one valid Standard14 route and is not a whole-font or cache-population certificate."
+    },
+    {
+      "adr": "0204",
+      "decision": "agree that the halftone screen and transfer function carried in /HT are separate reader questions",
+      "evidence": "Table 57 /HT can specify a screen, while §10.5 unconditionally applies a transfer function and expressly allows a halftone dictionary to override the corresponding current transfer function. Current code reads the latter.",
+      "limit": "Four public CPU-raster tests covering distinct /TR channels and Type 5/Type 6 transfer overrides were reviewed and passed; other transfer-carrier shapes remain outside that bounded set."
+    },
+    {
+      "adr": "1535",
+      "decision": "retain continuous-tone device condition for omitting PDF halftone screens; do not generalize it to transfer mapping",
+      "evidence": "§10.1/§10.6.1 condition screen application on device support and continuous-tone behavior; current application emits continuous-tone RGB. §10.5 transfer obligations are separate.",
+      "limit": "No PDF-defined screen output, HTO origin, or physical printer route is certified by this shard."
+    },
+    {
+      "adr": "1069",
+      "decision": "retain BG/UCR branch scope, with paint assertions limited to conversions the implementation performs",
+      "evidence": "Current code carries Table 57 pair state and invokes the pair only along the supported conversion path; pair precedence and sample output have separate checks.",
+      "limit": "This does not assert support for the lower-ranked implicit DeviceRGB-to-CMYK algorithm that this renderer declines."
+    },
+    {
+      "adr": "0848",
+      "decision": "do not treat Table 57 SA parsing as completion of §10.7.5",
+      "evidence": "The SA parameter is consumed, and the selected width adjustment is measured, but the coordinate-adjustment/line uniformity subfeature remains partial in its own ledger row.",
+      "limit": "No new SA defect is asserted by this Table 57 matrix."
+    }
+  ],
+  "new_test_draft": {
+    "path": "drafts/extgstate_font_valid_consumer.rs",
+    "purpose": "Establish that valid Table 57 /Font sets an indirect font and text size at a public interpretation consumer, distinct from the existing unresolved-reference refusal test.",
+    "status": "promoted as extgstate_font_valid_consumer_spec_audit::extgstate_font_sets_the_indirect_font_and_text_size_like_tf; parent reports test and Clippy PASS"
+  }
+}

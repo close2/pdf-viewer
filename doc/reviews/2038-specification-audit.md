@@ -11,16 +11,16 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (84)
+## Current checkpoint (85)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
-failure manifest contains **86 failing test identities**: 85 behavior assertions/probes
-and one stale ignored-gate expectation. These are grouped findings, not 86 independent defects. B08 and B42 remain unresolved interpretation/policy
+failure manifest contains **88 failing test identities**: 87 behavior assertions/probes
+and one stale ignored-gate expectation. These are grouped findings, not 88 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
 The refreshed broad run, wave76, covered eleven crates: **7,237 tests ran, 7,159 passed,
 and exactly the 78 recorded in-scope assertions failed; 58 were skipped**.
 Exact binary/test identities matched the manifest at that checkpoint, with no extra or missing failures.
-Wave76 predates B58; the current default broad-scope manifest has79 failures.
+Wave76 predates B58–B61; the current default broad-scope manifest has81 failures.
 Passing status includes successful early returns; two are reproduced under D45.
 Five GPU failures and one engine-only Matrix2D availability failure under the adopted
 A193 reference scope are recorded separately, as is D51’s ignored stale test expectation. The new outline-panel raster test also
@@ -292,6 +292,13 @@ preservation for ordinary/already-edited names, and failed-write preservation of
 conflicting directory and its contents (T114). The older no-form-fill/no-save premise
 is stale; restriction-control UI remains a qualified policy question (D59). Viewer-ui
 Clippy passes. The manifest remains86; no production behavior was changed.
+
+Checkpoint85 adds explicit entry matrices for Tables57/224/226 and confirms two
+form-name defects: coordinate names inherit an ancestor TM when they must use the
+terminal field (B60), and ordinary HTML export ignores TM (B61). Local/absent/space
+controls pass. A valid indirect graphics-state font test independently checks
+advances, replacement and cumulative state (T115). Model Clippy passes; manifest88.
+Stale pending-transfer and signature no-walk citations were corrected before promotion.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

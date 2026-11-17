@@ -1,0 +1,83 @@
+{
+  "scope": "Selected explicit per-entry matrices added from checkpoint85. Existing223 earlier shards may cover other tables/entries; absence here is not absence of review.",
+  "limits": "Enumerating every key does not establish every condition/combination or certify a ledger row. Follow parent-review execution and qualifications.",
+  "matrices": [
+    {
+      "table": "57",
+      "ledger_rows": [
+        "8.4.5"
+      ],
+      "keys": [
+        "Type",
+        "LW",
+        "LC",
+        "LJ",
+        "ML",
+        "D",
+        "RI",
+        "OP",
+        "op",
+        "OPM",
+        "Font",
+        "BG",
+        "BG2",
+        "UCR",
+        "UCR2",
+        "TR",
+        "TR2",
+        "HT",
+        "FL",
+        "SM",
+        "SA",
+        "BM",
+        "SMask",
+        "CA",
+        "ca",
+        "AIS",
+        "TK",
+        "UseBlackPtComp",
+        "HTO"
+      ],
+      "artifact": "shards/table57_graphics_state_matrix_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "224",
+      "ledger_rows": [
+        "12.7.3"
+      ],
+      "keys": [
+        "Fields",
+        "NeedAppearances",
+        "SigFlags",
+        "CO",
+        "DR",
+        "DA",
+        "Q",
+        "XFA"
+      ],
+      "artifact": "shards/feature_table_cell_granularity_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "226",
+      "ledger_rows": [
+        "12.7.4.1"
+      ],
+      "keys": [
+        "FT",
+        "Parent",
+        "Kids",
+        "T",
+        "TU",
+        "TM",
+        "Ff",
+        "V",
+        "DV",
+        "AA"
+      ],
+      "artifact": "shards/feature_table_cell_granularity_current/features.json",
+      "status": "partial"
+    }
+  ]
+}

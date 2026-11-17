@@ -521,6 +521,18 @@
       "test": "a_pdf_stroke_under_near_similarity_keeps_its_horizontal_width",
       "finding": "2038-B59",
       "log": "thick-stroke-wave83b.log"
+    },
+    {
+      "binary": "pdf-model::tm_coordinate_name_spec_audit",
+      "test": "nonterminal_mapping_is_not_inherited_by_a_terminal_field_or_its_widget",
+      "finding": "2038-B60",
+      "log": "table-cells-wave85b.log"
+    },
+    {
+      "binary": "pdf-model::tm_html_export_spec_audit",
+      "test": "html_export_uses_mapping_name_while_field_selection_uses_field_identity",
+      "finding": "2038-B61",
+      "log": "tm-html-wave85b.log"
     }
   ]
 }
