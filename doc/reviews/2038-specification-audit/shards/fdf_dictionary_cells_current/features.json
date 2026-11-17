@@ -1,0 +1,133 @@
+{
+  "baseline": "b901326c",
+  "source": "ISO 32000-2:2020 as amended by Errata Collection 3",
+  "scope": "Selected review of catalog/FDF dictionary import tables 245, 246 and 249. Focus is version resolution and valid FDF Encoding reaching field-name matching, choice-option labels, and field-value writeback; not whole FDF certification.",
+  "source_tables": [
+    {
+      "table": 245,
+      "physical_printed": "574–575 / 559–560",
+      "caption_check": "Caption and Version on574; required FDF row continues575 before Table246.",
+      "selected_cells": [
+        {
+          "key": "FDF",
+          "rule": "Required catalog entry; its value is the FDF dictionary in Table 246. The required /FDF row continues onto physical 575."
+        },
+        {
+          "key": "Version",
+          "rule": "Optional, PDF 1.4 name. It states a version later than the file header; otherwise the header controls. The version is a name object."
+        }
+      ],
+      "errata": "No direct Table 245 cell change identified. #176 changes §12.7.8.1 media-type wording, not catalog cells. EC3 #173 clarifies the nearby encrypted-EmbeddedFDF prose and does not change Version/FDF. #264 adds punctuation in §12.7.8.3.1.",
+      "code_assertions": "FormsData::read requires the FDF catalog dictionary and obtains effective version from Document::version. `forms_data.rs::the_version_an_fdf_conforms_to_is_the_later_of_its_header_and_its_entry` checks later/earlier/absent Version with canonical %FDF-1.2 header. The promoted public FDF page-import fixture uses %FDF-1.2 plus catalog /Version /1.4, respecting §12.7.8.2.2 and the Version entry's later-version condition.",
+      "verdict": "Selected Version behavior has a literal unit oracle and a corrected public import fixture; no distinct gap identified. The public test does not imply all malformed-header cases require rejection."
+    },
+    {
+      "table": 246,
+      "physical_printed": "575–576 / 560–561",
+      "caption_check": "Table 246 begins physical 575 and continues through physical 576; the text mentioning its caption on physical 574 is preceding prose.",
+      "selected_cells": [
+        {
+          "key": "F",
+          "rule": "Optional source/target file specification."
+        },
+        {
+          "key": "ID",
+          "rule": "Optional pair of byte strings identifying source/target file."
+        },
+        {
+          "key": "Fields",
+          "rule": "Optional root field array; writer must not combine it with Pages."
+        },
+        {
+          "key": "Status",
+          "rule": "Optional PDFDocEncoded status string to display; writer must not combine with Pages."
+        },
+        {
+          "key": "Pages",
+          "rule": "Optional PDF1.3 page dictionaries; neither Fields nor Status shall be present with Pages (producer construction rule, not mandatory reader rejection)."
+        },
+        {
+          "key": "Encoding",
+          "rule": "Optional PDF 1.3 encoding for string field values/options/names without a U+FEFF prefix. Default PDFDocEncoding. Listed alternatives include Shift_JIS, BigFive, GBK, UHC, utf_8 and utf_16."
+        },
+        {
+          "key": "Annots",
+          "rule": "Optional FDF annotation array with the listed subtype exclusions."
+        },
+        {
+          "key": "Differences",
+          "rule": "Optional PDF 1.4 incremental-update stream, with trust relationship to signature data described in the cell."
+        },
+        {
+          "key": "Target",
+          "rule": "Optional PDF 1.4 browser-frame target."
+        },
+        {
+          "key": "EmbeddedFDFs",
+          "rule": "Optional PDF 1.4 embedded FDF file specifications."
+        },
+        {
+          "key": "JavaScript",
+          "rule": "Optional PDF 1.4 Table 248 scripts."
+        }
+      ],
+      "errata": "EC3 #173 targets the immediately following encryption prose and clarifies deprecation is FDF file encryption, not EmbeddedFDFs generally. #264 is punctuation in §12.7.8.3.1; #176 is MIME media-type wording. No direct replacement of Table 246 cells identified.",
+      "implementation_assertion_map": {
+        "F_ID": "FormsData::source/identifier and forms_data.rs file-identifier tests; Table 43 file specification parser supports string/dictionary forms.",
+        "Fields": "read_fields + ViewState::import; current FDF field tests cover options/flags/value replacement and matching, including same-name widgets and writeback.",
+        "Status": "read/display path has `fdf_status_consumer_audit.rs`, comparing present-status message to absent control.",
+        "Pages": "FDF template count, field, named-page and public page-import tests; save persistence remains expressly departed/reported under ADR 2154.",
+        "Encoding": "Encoding::read maps utf_8 and utf_16 to Unicode, but Encoding::decode delegates to pdf_syntax::text_string, which treats no-BOM bytes as PDFDocEncoding. The public `fdf_utf8_import_spec_audit.rs` tests `utf8_non_bom_field_name_matches_the_target_on_import` and `utf8_non_bom_value_is_transcoded_on_import_and_save`: parent execution wave119 reports both fail (field import count 1 rather than 2; saved value `Ã©` rather than `é`), while `ascii_utf8_field_import_is_a_positive_control` and `utf16_bom_overrides_the_fdf_encoding_for_names_and_values` pass. `/Opt` also reaches this decode path through `forms_data.rs::options`; the scratch choice-label test covers it but is unrun.",
+        "Annots": "Table 254 Page ordinal import/writeback tests; unsupported subtype handling is implementation policy, not inferred as mandatory reader refusal.",
+        "Differences": "Presence is named in `owed`; no signed-trust application is claimed by this selected review.",
+        "Target": "Parsed field exists but no browser-frame host consumer is asserted; no browser-frame behavior is required by the current viewer host scope in this review.",
+        "EmbeddedFDFs": "Nested FDF and independent per-file Encoding/Status tests exist; recursion/resource limits are explicit and reported.",
+        "JavaScript": "Table 248 public event-order test exercises Doc, Before, After and AfterPermsReady with runner-provided callbacks."
+      },
+      "verdict": "Confirmed bounded valid-input behavior gap for Table 246 /Encoding across Table 249 /T and string /V: the parent’s exact-xref public tests fail on non-BOM UTF-8 and pass ASCII/BOM controls. A scratch exact-xref /Opt consumer test is drafted but not yet run. This is one shared decoding behavior, not separate findings for each consumer.",
+      "related_adrs": [
+        "ADR 0919 (Version resolution)",
+        "ADR 2816 (FDF scripts; unrelated to character decoding)"
+      ],
+      "residuals": [
+        "The scratch /Opt test covers simple-string option entries, ASCII and UTF-16-BOM controls, and save-back; it remains unexecuted.",
+        "utf_16 without a BOM and registered Shift_JIS/BigFive/GBK/UHC paths need separate source-derived positive coverage or explicit implementation disposition.",
+        "The Table 246 producer-only exclusions Fields+Pages and Status+Pages do not prescribe reader rejection; this review does not test them."
+      ]
+    },
+    {
+      "table": 249,
+      "physical_printed": "578–579 / 563–564",
+      "caption_check": "Table 249 caption and entries begin physical 578; the prior FDF-fields heading/prose on physical 577 is not the table itself.",
+      "selected_cells": [
+        {
+          "key": "T",
+          "rule": "Required partial field name; Table 246 Encoding applies to string field names that do not begin with U+FEFF."
+        },
+        {
+          "key": "V",
+          "rule": "Optional typed field value; if a corresponding entry is imported it replaces the target field entry. Table 246 Encoding applies when this value is a non-BOM string."
+        },
+        {
+          "key": "Ff/SetFf/ClrFf",
+          "rule": "Full Ff replaces and suppresses set/clear companions; otherwise set then clear as table says."
+        },
+        {
+          "key": "Opt",
+          "rule": "Required for choice fields; the option label and optional default appearance string pair are interpreted by the field type."
+        },
+        {
+          "key": "AP/APRef",
+          "rule": "AP entry takes precedence; APRef is ignored if AP is present. APRef named-page handling is already audited separately."
+        }
+      ],
+      "implementation_assertions": "`forms_data::read_fields/read_field` form fully-qualified names and read typed values; `ViewState::import` matches target fields and `ViewState::save` writes updates. `forms_data.rs::options` decodes each Table 249 /Opt string (including the first string of a two-item option/DA pair) through the Table 246 Encoding value; `ViewState::import` exposes labels and selected indices through `pdf_model::form::fields`, while `ViewState::save` writes updated `/Opt`. Existing `fdf_field_dictionary_audit.rs` checks ASCII option replacement/save, not non-BOM UTF-8. Scratch `fdf_utf8_choice_options_spec_audit.rs` adds public label/selection and save assertions with ASCII/BOM controls; unrun.",
+      "verdict": "The runtime gap is confirmed for /T and string /V by parent execution; the source and call path establish /Opt as the same shared Table 246 decoding gap, with a discriminating public regression drafted but not yet executed.",
+      "residuals": [
+        "No other Table 249 cells are certified by this selected audit; existing mapped assertions are cited only to show the encoding-specific gap is distinct."
+      ]
+    }
+  ],
+  "execution": "Parent ran the original four tests in crates/pdf-model/tests/fdf_utf8_import_spec_audit.rs during fdf-wave119: ASCII and UTF-16-BOM controls passed; no-BOM UTF-8 /T and /V cases failed; Clippy passed. Parent integrated this review's three /Opt cases into that file and reports the combined seven-test target is running. This reviewer did not run Cargo; the scratch duplicate in drafts/ remains unexecuted.",
+  "parent_execution": "B75: seven tests run, four PASS and three FAIL. Non-BOM UTF8 T mismatches the target; V saves mojibake; Opt shows/saves mojibake and loses the selected choice. ASCII and UTF16-BOM controls pass. Draft/pending statements below are superseded by this execution and parent-review.json."
+}

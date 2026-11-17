@@ -2193,6 +2193,65 @@
       ],
       "artifact": "shards/destination_action_dictionary_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "245",
+      "keys": [
+        "Version",
+        "FDF"
+      ],
+      "ledger_rows": [
+        "12.7.8.3.1"
+      ],
+      "artifact": "shards/fdf_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "246",
+      "keys": [
+        "F",
+        "ID",
+        "Fields",
+        "Status",
+        "Pages",
+        "Encoding",
+        "Annots",
+        "Differences",
+        "Target",
+        "EmbeddedFDFs",
+        "JavaScript"
+      ],
+      "ledger_rows": [
+        "12.7.8.3.1"
+      ],
+      "artifact": "shards/fdf_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "249",
+      "keys": [
+        "Kids",
+        "T",
+        "V",
+        "Ff",
+        "SetFf",
+        "ClrFf",
+        "F",
+        "SetF",
+        "ClrF",
+        "AP",
+        "APRef",
+        "IF",
+        "Opt",
+        "A",
+        "AA",
+        "RV"
+      ],
+      "ledger_rows": [
+        "12.7.8.3.2"
+      ],
+      "artifact": "shards/fdf_dictionary_cells_current/features.json",
+      "status": "partial"
     }
   ],
   "reconciliation_110": "Two Table227 reviews previously counted twice; merged into one matrix retaining both artifact links. Table87 now includes four continuation keys and corrected source span. Counts are selected unique table matrices, not certified features."

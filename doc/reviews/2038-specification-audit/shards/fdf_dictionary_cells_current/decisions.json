@@ -1,0 +1,29 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "topic": "Table 246 utf_8 versus PDF text-string decoding",
+      "source": "Table 246 physical 575–576 / printed 560–561 says `/Encoding` shall be used for non-U+FEFF string field values, options and names; utf_8 is explicitly listed. Table 249 physical 578–579 / printed 563–564 defines T and typed V; §12.7.8.3.2 gives name-based entry replacement. Table 246 also explicitly applies Encoding to `/Opt`; Table 249 defines choice options.",
+      "current": "Encoding::read recognizes utf_8 as Unicode, but Encoding::decode delegates to pdf_syntax::text_string, which uses PDFDocEncoding for no-BOM bytes. Parent's public exact-xref `fdf_utf8_import_spec_audit.rs` execution (wave119) confirms `utf8_non_bom_field_name_matches_the_target_on_import` imports 1 rather than 2 and `utf8_non_bom_value_is_transcoded_on_import_and_save` stores `Ã©` rather than `é`; the ASCII and BOM positive controls pass. The `/Opt` consumer also calls Encoding::decode; the public choice-label/save draft is scratch-only and unrun.",
+      "verdict": "Confirmed shared Table 246 valid-input decoding gap for /T and string /V; /Opt has the same direct implementation path and an unrun discriminating public draft. Do not split these into separate behavior IDs absent distinct causes."
+    },
+    {
+      "topic": "Table 245 Version and FDF header compatibility",
+      "source": "Table 245 physical 574–575 / printed 559–560; §12.7.8.2.2 physical 573 / printed 558 fixes first-line %FDF-1.2 header, while the catalog Version may specify a later conformance version.",
+      "current": "Existing test distinguishes later, earlier and absent catalog Version against FDF-1.2 header. Public FDF import fixture was corrected to FDF-1.2 plus /Version /1.4, avoiding reliance on a noncanonical 1.3 header.",
+      "verdict": "No new gap; avoid describing producer-invalid headers as mandatory reader refusal cases."
+    },
+    {
+      "topic": "Producer restrictions in Table 246",
+      "source": "Fields and Status cells each say not to co-occur with Pages; these are file construction constraints. No clause here directs the reader to reject a contradictory file.",
+      "current": "No dedicated ADR justifying unsupported utf_8 decoding was identified in this selected review. Parent execution confirms the behavior; scratch `fdf_utf8_choice_options_spec_audit.rs` tests the third consumer but remains unrun.",
+      "verdict": "Record the Table 246 decoding defect with exact parent test identities and keep the `/Opt` test as pending supplementary consumer evidence; do not attribute to an ADR."
+    },
+    {
+      "topic": "Errata and ADR attribution",
+      "source": "EC3 #173 is nearby embedded-FDF encryption deprecation clarification; #264 punctuation; #176 MIME type. Table 246 and Table 249 content cells are otherwise unchanged in the selected reading.",
+      "current": "ADR 0919 concerns FDF effective version; ADR 2816 concerns script order. No dedicated ADR justifying unsupported utf_8 decoding was located in the selected prior reviews.",
+      "verdict": "Do not attribute the character-decoding behavior to an ADR; record it as an unreviewed valid-input branch pending parent disposition."
+    }
+  ]
+}

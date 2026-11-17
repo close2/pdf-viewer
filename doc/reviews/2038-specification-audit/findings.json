@@ -3594,5 +3594,17 @@
     ],
     "summary": "Embedded target integer P/A traverses the actual page annotation, Filespec and embedded stream to its target page.",
     "execution": "One new public Viewer test PASS; exact unrecovered PDF1.7 fixtures."
+  },
+  {
+    "id": "2038-B75",
+    "kind": "behavior-gap",
+    "clauses": [
+      "12.7.8.3.1",
+      "12.7.8.3.2"
+    ],
+    "summary": "FDF Encoding utf_8 is ignored for non-BOM field names, values and options: names fail to match, values/options save mojibake, and the choice loses its selection.",
+    "source": "Table246 Encoding applies to non-U+FEFF string T/V/Opt and explicitly allows utf_8; Table249 gives name-based import replacement.",
+    "execution": "Seven public import/save tests: four ASCII/BOM controls PASS, three UTF8 witnesses FAIL. Live choice and saved options independently observed. Model all-target Clippy PASS.",
+    "limits": "Grouped encoding gap, not three independent defects; no full registered-charset/UTF16-no-BOM certification."
   }
 ]

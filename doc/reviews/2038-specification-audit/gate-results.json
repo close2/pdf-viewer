@@ -3136,6 +3136,20 @@
       "log": "quality-core-wave118b.log",
       "exit": 0,
       "scope": "Core all-target Clippy including both B74 witnesses."
+    },
+    {
+      "log": "fdf-wave119b.log",
+      "run": 7,
+      "passed": 4,
+      "failed": 3,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "Table246 UTF8 T/V/Opt public consumers with ASCII/BOM controls"
+    },
+    {
+      "log": "quality-model-wave119d.log",
+      "exit": 0,
+      "scope": "All-target model Clippy including seven FDF encoding tests"
     }
   ],
   "prior_expected_failures": {

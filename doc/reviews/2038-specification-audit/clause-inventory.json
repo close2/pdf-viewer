@@ -8474,7 +8474,8 @@
     "current_artifacts": [
       "prior-assertion-reviews.json",
       "shards/fdf_current/features.json",
-      "shards/errata_font_annotation_reference_batch_current/features.json"
+      "shards/errata_font_annotation_reference_batch_current/features.json",
+      "shards/fdf_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "fdf_script_order_audit",
@@ -8496,7 +8497,8 @@
       "prior-assertion-reviews.json",
       "shards/forms_current/features.json",
       "shards/fdf_current/features.json",
-      "shards/adr1235_named_page_appearance_current/features.json"
+      "shards/adr1235_named_page_appearance_current/features.json",
+      "shards/fdf_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "fdf_absent_value_audit",
