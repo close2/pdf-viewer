@@ -52,6 +52,20 @@
 # by about a tenth of that share. A count of the binary's own object read the same, to a tenth of a
 # thousand, linked either way.
 #
+# **`frame_kinstructions` is the first frame's count, beside the open's and never in its place**
+# (ADR 2944). The program's open has no viewport (ADR 2926): page one is interpreted after it, on
+# the document's thread (`Viewer::anticipate`), and the window's first `Resize` then arranges the
+# pages, raises Table 197's `/PV` (§12.6.3) and asks for page one's render. Until this figure only
+# the first-page clocks saw that work, and a regression in it could sit inside a clock's band. The
+# child runs the open, `anticipate` and that `Resize` at `quorra`'s default window, 800 x 1000 at
+# scale 1.0, less the panel the document's `/PageMode` opens, and stops at the render request: the
+# device's encoding and draw are the device's and are not counted. It is counted as the open is, in
+# this program's own object on every thread, with one difference: rayon's pool is held to one
+# thread, because the decode of page one's images ahead of their `Do`s (ADR 1321) races the
+# interpreter, and four children of HEAD read the font-walk row from 66.7 to 91.8 million with it
+# on, against four that agree to 0.005 % with it off. So the decode ahead, and any work it
+# duplicates, are seen by the first-page clocks and not by this figure.
+#
 # **`read_calls` is the fifth**, and it is the other half of what a cold open is made of. A cold
 # open's elapsed time is the program's work plus one round trip to the disk for each read that
 # misses the page cache, and the *duration* of a round trip is the machine's — measured on a quiet
@@ -439,6 +453,11 @@ read_calls = 23 .. 27
 # What this program's own object executes (ADR 2666): 2201.3 thousand in four children of HEAD on
 # 2026-11-03, this file's rule — the observed range widened by one per cent, rounded outwards.
 open_kinstructions = 2179 .. 2224
+# What the program's sequence to page one's render request executes in this program's own object
+# (ADR 2944): the open, page one interpreted, and the first `Resize` at `quorra`'s 800 x 1000 window
+# less the panel its `/PageMode` opens (300 pixels), rayon's pool at one thread. 10840.2 thousand in
+# four children of HEAD on 2026-11-17, this file's rule.
+frame_kinstructions = 10731 .. 10949
 why = "the five-page end of principle 2's own claim that a 500-page document must open no slower than a five-page one"
 
 [[document]]
@@ -462,6 +481,11 @@ read_calls = 28 .. 32
 # What this program's own object executes (ADR 2666): 9559.4 thousand in four children of HEAD on
 # 2026-11-03, this file's rule — the observed range widened by one per cent, rounded outwards.
 open_kinstructions = 9463 .. 9656
+# What the program's sequence to page one's render request executes in this program's own object
+# (ADR 2944): the open, page one interpreted, and the first `Resize` at `quorra`'s 800 x 1000 window
+# less the panel its `/PageMode` opens (300 pixels), rayon's pool at one thread. 41201.8 to 41204.2
+# thousand in four children of HEAD on 2026-11-17, this file's rule.
+frame_kinstructions = 40789 .. 41617
 why = "a middling text-heavy document, so that the two ends of the set are not the only shape measured"
 
 [[document]]
@@ -487,6 +511,11 @@ read_calls = 25 .. 29
 # What this program's own object executes (ADR 2666): 53396.4 thousand in four children of HEAD on
 # 2026-11-03, this file's rule — the observed range widened by one per cent, rounded outwards.
 open_kinstructions = 52862 .. 53931
+# What the program's sequence to page one's render request executes in this program's own object
+# (ADR 2944): the open, page one interpreted, and the first `Resize` at `quorra`'s 800 x 1000 window
+# less the panel its `/PageMode` opens (300 pixels), rayon's pool at one thread. 157676.7 to
+# 157676.8 thousand in four children of HEAD on 2026-11-17, this file's rule.
+frame_kinstructions = 156099 .. 159254
 why = "the other end of that claim at two hundred times its pages — 1023 of them and 19 MB, the document every launch measurement in doc/performance.md is taken on. Its cold open is 36 times the five-page document's, which is the claim not holding of the open; its time to first page is inside the same band, which is the claim holding of the launch, because the graphics device is longer than either"
 
 [[document]]
@@ -518,6 +547,13 @@ read_calls = 23 .. 27
 # its first `Resize`, inside the first-page clocks. A counted child given a viewport interprets page
 # one in the open, 66839.3 thousand here, so the child keeps none (ADR 2926).
 open_kinstructions = 1726 .. 1762
+# What the program's sequence to page one's render request executes in this program's own object
+# (ADR 2944): the open, page one interpreted, and the first `Resize` at `quorra`'s 800 x 1000
+# window, rayon's pool at one thread. 64752.1 to 64752.2 thousand in four children of HEAD on
+# 2026-11-17, this file's rule, with the sandbox worker built beside the test binary: one of this
+# page's images is decoded in it, in a process callgrind does not follow, and with no worker there
+# the page drew 1490 commands rather than 1522 and counted 63549.0 (trap 10, ADR 2944).
+frame_kinstructions = 64104 .. 65400
 why = "the launch path's expensive case, and the one the other three rows cannot see: this page names a font it does not embed, so drawing it walks the machine's font directories (ADR 0870) — 23 files opened under share/fonts and 47 more directory listings than a document whose fonts are its own, and the row whose page one costs the most to interpret, 20 ms of the device's 23. `CLAUDE.md` principle 2's first bullet says `[n]o system font enumeration` flat, and this row is where that sentence meets the clock"
 
 [[document]]
@@ -549,6 +585,11 @@ read_calls = 22 .. 26
 # What this program's own object executes (ADR 2666): 272.3 to 272.4 thousand in four children of HEAD on
 # 2026-11-03, this file's rule — the observed range widened by one per cent, rounded outwards.
 open_kinstructions = 269 .. 276
+# What the program's sequence to page one's render request executes in this program's own object
+# (ADR 2944): the open, page one interpreted, and the first `Resize` at `quorra`'s 800 x 1000
+# window, rayon's pool at one thread. 3236.4 thousand in four children of HEAD on 2026-11-17, this
+# file's rule.
+frame_kinstructions = 3204 .. 3269
 why = "the population's missing case: large **and** signed. Three megabytes, one page, and a §12.8 signature — so opening it used to read 1304 KiB in 118 calls and execute 47.6 M instructions, against the 99 KiB, 26 calls and 1.80 M that page one actually needs. None of the other four rows is signed, so none of them could see it (round 1027, ADR 1044)"
 
 [[document]]
@@ -580,4 +621,9 @@ read_calls = 29 .. 33
 # 429.7 to 431.0, and moved for the reason the font-walk row gives: 42.9 thousand of `raise` (ADR 2916),
 # raised now at the window's first `Resize` rather than in its open (ADR 2926).
 open_kinstructions = 392 .. 401
+# What the program's sequence to page one's render request executes in this program's own object
+# (ADR 2944): the open, page one interpreted, and the first `Resize` at `quorra`'s 800 x 1000
+# window, rayon's pool at one thread. 3094.7 to 3094.8 thousand in four children of HEAD on
+# 2026-11-17, this file's rule.
+frame_kinstructions = 3063 .. 3126
 why = "a document whose open sequence runs a script, so the launch gate times the third confined process where a window starts it: after page one's frame, at the open sequence's first trigger (RFC 0008 section 6.6). Every other row hands its viewer the same runner and starts no worker before its frame either"

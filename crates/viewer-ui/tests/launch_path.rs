@@ -30,6 +30,7 @@
 //! | **what an open allocates** | `VmHWM` of a process that only opened the document, with its transparent huge pages off, less the resident pages of the files it has mapped ([`Row::open_anon_mib`], ADR 2244) | the test binary's and the C library's resident text, seven parts in eight of that process's `VmHWM`, whose size is the page cache's decision |
 //! | **bytes read** | `rchar` from `/proc/self/io` across the open, which is what principle 2's "reads the trailer and the objects page one needs — not the whole file" is a claim about | the binary's own loading, which is `mmap` rather than `read` |
 //! | **instructions an open executes** | every thread of a process that opens the document and stops, counted under callgrind in this program's own object — what principle 2's "cold open" asks about, with no clock in it (see [`open_kinstructions`]) | the disk, and how fast this machine happens to be executing today; the dynamic loader's relocation of the binary, which the link editor decides, and the C library's instructions, which the system's C library decides — both printed beside it (ADR 2666) |
+//! | **instructions a first frame executes** | every thread of a process that runs the program's sequence to page one's render request — the open, page one interpreted (`Viewer::anticipate`), and the first `Resize` at `quorra`'s default window, which arranges, raises Table 197's `/PV` and asks for the render — counted the same way (see [`phase_count_first_frame`], ADR 2944) | the device's encoding and draw of the request, and the window's own handling of the open's events; what the open alone executes is the row above |
 //!
 //! **Every duration above is elapsed time less the time the thread spent waiting for a
 //! processor**, which the kernel counts exactly and which is not this program's (see
@@ -179,6 +180,9 @@ const MARKER: &str = "measured ";
 /// Names the phase a child process is to run; unset in the parent.
 const PHASE: &str = "PDFVIEWER_LAUNCH_PHASE";
 
+/// The phase that counts the program's first frame, [`phase_count_first_frame`].
+const FIRST_FRAME: &str = "count-first-frame";
+
 /// Names the document a child process is to open.
 const DOCUMENT_PATH: &str = "PDFVIEWER_LAUNCH_DOCUMENT";
 
@@ -254,6 +258,21 @@ const DOCUMENT: DocumentId = DocumentId(0);
 /// so a gate that took the machine's screen size would compare two different questions on two
 /// machines. This is a window a person would have.
 const VIEWPORT: (u32, u32) = (1600, 1000);
+
+/// The window `quorra` opens, in logical pixels, which is what the counted first frame is given.
+///
+/// **Not [`VIEWPORT`], and on purpose**: the clocks above ask a question about a window a person
+/// would have, while [`phase_count_first_frame`] counts the sequence the program runs, and the
+/// program's first `Resize` is its window's default inner size (`quorra/window.rs`'s
+/// `with_inner_size`, 800 × 1000 logical), less the panel Table 29's `/PageMode` opened. The size
+/// is the program's choice and no ADR argues it (ADR 2926 §5); the figure follows it.
+const WINDOW: (u32, u32) = (800, 1000);
+
+/// The device scale the counted first frame's `Resize` states: 1.0, the scale every figure of
+/// this gate is taken at, under which [`WINDOW`]'s logical pixels are its device pixels. A window
+/// on a display of another scale is told `winit`'s `scale_factor`, and would count a different
+/// number of pixels' arrangement; the gate states one (ADR 2944).
+const WINDOW_SCALE: f32 = 1.0;
 
 /// How many pages a page-turn sample turns.
 ///
@@ -1378,7 +1397,7 @@ fn phase_page_turn() {
 /// **Phase `count-open`**: the same open as [`phase_open`], with nothing beside it, for counting.
 ///
 /// **This phase's figure is not the one it prints.** What is measured is the whole process, from
-/// outside, by callgrind: [`open_kinstructions`] runs this and reads the instruction count off
+/// outside, by callgrind: [`counted_kinstructions`] runs this and reads the instruction count off
 /// the profile. So the phase does the open and stops — no calibration probe, no `/proc`, no
 /// memory reading — because every instruction it executes beside the open is an instruction in
 /// the figure.
@@ -1397,6 +1416,74 @@ fn phase_count_open() {
     let (viewer, pages) = open_document(&path, None);
     drop(viewer);
     measured(&[("pages", pages.to_string())]);
+}
+
+/// **Phase `count-first-frame`**: the program's sequence from the open to page one's render
+/// request, with nothing beside it, for counting (ADR 2944).
+///
+/// `quorra`'s document thread opens the document ([`open_document`], the program's open) and
+/// interprets page one (`Viewer::anticipate`, ADR 1531); its window joins that thread, obeys
+/// Table 29's `/PageMode`, whose panel narrows the page's share of the window, and dispatches the
+/// first `Command::Resize`. That `Resize` settles: it arranges the pages, raises Table 197's `/PV`
+/// for the page that became visible (§12.6.3, through `visibility_of`), and asks for page one's
+/// render. Those three, in that order, are what this child does, at [`WINDOW`] and
+/// [`WINDOW_SCALE`].
+///
+/// **The count stops at the request.** The render request's display list is the last thing the
+/// core hands over; what follows is the host handing it to the device, the device's encoding and
+/// the draw, which are the graphics device's work and which this child, with no device, does not
+/// do. The window's own handling of the open's events — its title, its panel's lists, its
+/// terminal lines — is the toolkit host's and is not counted either; the one answer of it that
+/// decides what the core is asked, the page mode's panel, is.
+///
+/// **`Viewer::anticipate` and not the program's `viewer_host::Ahead`**: the program's call draws
+/// page one beside its read only once the read has run `GLIMPSE_AFTER`, a clock this child runs
+/// fifty times slower under callgrind, so a count of it would depend on the machine's speed. A
+/// page read inside that wait is read and taken in exactly as `Viewer::anticipate` takes it
+/// (`viewer-host`'s own test says so), and every row of this gate is read inside it.
+///
+/// **Run with rayon's pool at one thread** ([`counted_kinstructions`] sets it): the program decodes
+/// page one's images ahead of their `Do`s on the pool (ADR 1321), which races the interpreter and
+/// makes the count a function of the scheduler; one thread turns that decode off, and each image
+/// is decoded once, by the interpreter (ADR 2944).
+///
+/// It prints its page count, page one's command count and the panel's inset, and the parent
+/// checks the first two, because a child that found no page or drew nothing would count fewer
+/// instructions and read as a win (trap 16).
+fn phase_count_first_frame() {
+    let path = document_of_the_child();
+    let (mut viewer, pages) = open_document(&path, None);
+    viewer.anticipate().for_each(drop);
+    // `obey_page_mode`'s one answer that reaches the core: the panel it opens, before the first
+    // `Resize` is dispatched.
+    let mut panel = viewer_ui::chrome::Sidebar::default();
+    if let viewer_core::Answer::Opening(opening) = viewer.query(viewer_core::Query::Opening)
+        && let Some(tab) = viewer_ui::chrome::Tab::of_page_mode(opening.mode)
+    {
+        panel.show(tab);
+    }
+    let inset = panel.inset(WINDOW_SCALE);
+    let events: Vec<Event> = viewer
+        .handle(Command::Resize {
+            width: WINDOW.0.saturating_sub(inset).max(1),
+            height: WINDOW.1,
+            scale: WINDOW_SCALE,
+        })
+        .collect();
+    let commands = events
+        .iter()
+        .find_map(|event| match event {
+            Event::NeedsRender(request) => Some(request.list.command_count()),
+            _ => None,
+        })
+        .unwrap_or(0);
+    drop(events);
+    drop(viewer);
+    measured(&[
+        ("pages", pages.to_string()),
+        ("commands", commands.to_string()),
+        ("inset", inset.to_string()),
+    ]);
 }
 
 /// **Phase `calibrate`**: is this machine the machine the bands were taken on, and is it busy?
@@ -1522,6 +1609,7 @@ fn launch_probe() {
         "open" => phase_open(false),
         "warm-open" => phase_open(true),
         "count-open" => phase_count_open(),
+        FIRST_FRAME => phase_count_first_frame(),
         "bring-up" => phase_bring_up(),
         "first-page" => phase_first_page(),
         "page-turn" => phase_page_turn(),
@@ -1669,6 +1757,14 @@ struct Row {
     /// Counted under callgrind, which this tree has used for the same reason since ADR 0180.
     /// Thousands of instructions, the way [`Row::read_kib`] is kibibytes.
     open_kinstructions: Pin,
+    /// The band on how many thousands of instructions the program's sequence to page one's render
+    /// request executes: the open, `Viewer::anticipate`, and the first `Resize` at [`WINDOW`].
+    ///
+    /// **The counted figure for the first frame**, beside [`Row::open_kinstructions`] and never in
+    /// place of it (ADR 2944): the program's open has no viewport, so page one's interpretation,
+    /// the arrangement and Table 197's `/PV` (§12.6.3) are after it, and until this figure only
+    /// the first-page clocks saw them. Counted as the open is, in this program's own object.
+    frame_kinstructions: Pin,
     /// What this row is here to say, in one line.
     why: String,
 }
@@ -1774,6 +1870,8 @@ struct Partial {
     read_calls: Option<Pin>,
     /// See [`Row::open_kinstructions`]. `None` here is "the key was not stated at all".
     open_kinstructions: Option<Pin>,
+    /// See [`Row::frame_kinstructions`]. `None` here is "the key was not stated at all".
+    frame_kinstructions: Option<Pin>,
     /// See [`Row::why`].
     why: Option<String>,
 }
@@ -1795,6 +1893,7 @@ fn finish(partial: Partial, at: usize, into: &mut Vec<Row>) -> Result<(), String
         read_kib: Some(read_kib),
         read_calls: Some(read_calls),
         open_kinstructions: Some(open_kinstructions),
+        frame_kinstructions: Some(frame_kinstructions),
         why: Some(why),
     } = partial
     else {
@@ -1802,7 +1901,7 @@ fn finish(partial: Partial, at: usize, into: &mut Vec<Row>) -> Result<(), String
             "the row ending at line {at} is missing one of path, pages, cold_open_ms, \
              warm_open_ms, first_page_ms, cold_first_page_ms, turn_ms, script_spawn_ms, \
              script_first_run_ms, peak_anon_mib, open_anon_mib, read_kib, read_calls, \
-             open_kinstructions, why"
+             open_kinstructions, frame_kinstructions, why"
         ));
     };
     into.push(Row {
@@ -1820,6 +1919,7 @@ fn finish(partial: Partial, at: usize, into: &mut Vec<Row>) -> Result<(), String
         read_kib,
         read_calls,
         open_kinstructions,
+        frame_kinstructions,
         why,
     });
     Ok(())
@@ -1881,6 +1981,7 @@ fn parse(text: &str) -> Result<Check, String> {
                 "read_kib" => row.read_kib = Some(band(value, at)?),
                 "read_calls" => row.read_calls = Some(band(value, at)?),
                 "open_kinstructions" => row.open_kinstructions = Some(band(value, at)?),
+                "frame_kinstructions" => row.frame_kinstructions = Some(band(value, at)?),
                 other => return Err(format!("line {at} states an unknown row key `{other}`")),
             }
             continue;
@@ -2446,9 +2547,12 @@ fn run_phase(phase: &str, document: Option<&Path>) -> Result<Fields, String> {
         .collect())
 }
 
-/// How many thousands of instructions a process that opens `document` and does nothing else
-/// executes in this program's own object, how many it executes in all, and how many pages it
-/// found — counted by callgrind.
+/// How many thousands of instructions a child running `phase` on `document` executes in this
+/// program's own object, how many it executes in all, and the numbers it said — counted by
+/// callgrind.
+///
+/// Two phases are counted: [`phase_count_open`], the open and nothing else, and
+/// [`phase_count_first_frame`], the program's sequence to page one's render request (ADR 2944).
 ///
 /// **The one figure here with no machine in it**, and the reason it is here (ADR 0917). Every other
 /// duration this gate judges is a claim about an afternoon, and the check file's own header now
@@ -2476,18 +2580,23 @@ fn run_phase(phase: &str, document: Option<&Path>) -> Result<Fields, String> {
 /// Every thread is counted, so work moved off the opening thread is still in the figure; the
 /// whole-process total is returned and printed beside it, unbanded.
 ///
-/// The child is [`phase_count_open`], which does the open and stops: no calibration probe and no
-/// `/proc`, because every instruction beside the open is an instruction in the figure. It is not
+/// Each child does its sequence and stops: no calibration probe and no `/proc`, because every
+/// instruction beside the sequence is an instruction in the figure. It is not
 /// pinned — a count does not care which core runs it — and it costs a fifth of a second for
 /// three of the documents and two fifths for the 1023-page one.
-fn open_kinstructions(document: &Path, into: &Path) -> Result<(f64, f64, f64), String> {
+fn counted_kinstructions(
+    phase: &str,
+    document: &Path,
+    into: &Path,
+) -> Result<(f64, f64, HashMap<String, f64>), String> {
     let exe = std::env::current_exe().map_err(|error| format!("no current exe: {error}"))?;
-    let profile = into.join("callgrind.out");
+    let profile = into.join(format!("callgrind-{phase}.out"));
     // Removed rather than overwritten, so that a run in which valgrind produced nothing reads
     // the *previous* run's total and reports it as this one's (trap 10a — a stale artefact is a
     // measurement of the past wearing today's date).
     let _ = std::fs::remove_file(&profile);
-    let output = Child::new("valgrind")
+    let mut child = Child::new("valgrind");
+    child
         .arg("--tool=callgrind")
         .arg(format!("--callgrind-out-file={}", profile.display()))
         .arg(&exe)
@@ -2496,28 +2605,41 @@ fn open_kinstructions(document: &Path, into: &Path) -> Result<(f64, f64, f64), S
         // environment is copied and walked at start-up, so the same binary counted under `cargo
         // test` and counted from a shell differed by 22 thousand instructions — a figure that
         // moved with *how the gate was invoked* would not be the property of the program this
-        // row claims it is. Two variables in, and nothing else.
+        // row claims it is. Two variables in, and one more for the first frame.
         .env_clear()
-        .env(PHASE, "count-open")
-        .env(DOCUMENT_PATH, document)
+        .env(PHASE, phase)
+        .env(DOCUMENT_PATH, document);
+    // **The first frame is counted with rayon's pool at one thread** (ADR 2944). Page one's
+    // interpretation decodes its images ahead of their `Do`s on the pool (ADR 1321), and how much
+    // of that the walk ahead does before the interpreter reaches each image is a race between
+    // threads: four children of HEAD read the font-walk row from 66.7 to 91.8 million, the higher
+    // ones decoding its images twice, and the idle workers' search for work moved the 57-page
+    // row by 6 %. One thread turns the decode ahead off (it asks for two) and leaves each image
+    // decoded once, by the interpreter: the same four children then agree to 0.005 %. What that
+    // costs is written in the ADR; the open does not touch the pool and is counted as it was.
+    if phase == FIRST_FRAME {
+        child.env("RAYON_NUM_THREADS", "1");
+    }
+    let output = child
         .output()
         .map_err(|error| format!("valgrind did not run: {error}"))?;
     let said = String::from_utf8_lossy(&output.stdout);
     // **The count is a number whatever the child did**, so the child has to say it opened
     // something: a process that failed to find the document executes fewer instructions and
     // would read as a win (trap 16).
-    let pages = said
+    let fields: HashMap<String, f64> = said
         .lines()
         .find_map(|line| line.find(MARKER).map(|at| &line[at..]))
-        .and_then(|line| {
+        .map(|line| {
             line.split_whitespace()
                 .filter_map(|piece| piece.split_once('='))
-                .find(|&(key, _)| key == "pages")
-                .and_then(|(_, value)| value.parse::<f64>().ok())
+                .filter_map(|(key, value)| Some((key.to_owned(), value.parse::<f64>().ok()?)))
+                .collect()
         })
+        .filter(|fields: &HashMap<String, f64>| fields.contains_key("pages"))
         .ok_or_else(|| {
             format!(
-                "the counted open said nothing: {} / {}",
+                "the counted {phase} said nothing: {} / {}",
                 output.status,
                 String::from_utf8_lossy(&output.stderr)
                     .lines()
@@ -2540,7 +2662,7 @@ fn open_kinstructions(document: &Path, into: &Path) -> Result<(f64, f64, f64), S
         .to_string_lossy()
         .into_owned();
     let own = instructions_in_object(&text, &own_name)?;
-    Ok((own / 1e3, total / 1e3, pages))
+    Ok((own / 1e3, total / 1e3, fields))
 }
 
 /// The instructions a callgrind profile charges to the object whose file name is `own`, as the
@@ -3451,7 +3573,7 @@ fn the_launch_path_stays_inside_its_bands() {
     if !callgrind_is_here() {
         println!(
             "launch-path: NOT COUNTED — valgrind is not on this machine, so no row's \
-             open_kinstructions is measured; every clock figure below is a claim about this \
+             open_kinstructions or frame_kinstructions is measured; every clock figure below is a claim about this \
              afternoon and nothing here is a claim about the program"
         );
     }
@@ -3668,33 +3790,75 @@ fn the_launch_path_stays_inside_its_bands() {
                 },
             );
         }
-        // The counted open, and the one figure a loaded machine cannot touch. After the cold
-        // arm, because it runs the document through callgrind and would leave its pages hot.
+        // The counted open and the counted first frame, the figures a loaded machine cannot
+        // touch. After the cold arm, because they run the document through callgrind and would
+        // leave its pages hot.
         match (callgrind_is_here(), cache.as_deref()) {
-            (true, Some(directory)) => match open_kinstructions(cold_source, directory) {
-                Ok((value, whole, counted_pages)) => {
-                    println!(
-                        "launch-path:   the open executes {value:.1} thousand instructions \
-                         for {counted_pages:.0} pages in this program, {whole:.1} thousand in \
-                         the whole process with the loader and the C library (ADR 2666)"
-                    );
-                    band_it(
-                        &mut judged,
-                        format!("{}: the instructions an open executes", row.path),
-                        "open_kinstructions",
-                        value,
-                        row.open_kinstructions,
-                        true,
-                        Sample {
-                            fields: &Vec::new(),
-                            waited: None,
-                        },
-                    );
+            (true, Some(directory)) => {
+                match counted_kinstructions("count-open", cold_source, directory) {
+                    Ok((value, whole, said)) => {
+                        println!(
+                            "launch-path:   the open executes {value:.1} thousand instructions \
+                             for {:.0} pages in this program, {whole:.1} thousand in the whole \
+                             process with the loader and the C library (ADR 2666)",
+                            said.get("pages").copied().unwrap_or(0.0)
+                        );
+                        band_it(
+                            &mut judged,
+                            format!("{}: the instructions an open executes", row.path),
+                            "open_kinstructions",
+                            value,
+                            row.open_kinstructions,
+                            true,
+                            Sample {
+                                fields: &Vec::new(),
+                                waited: None,
+                            },
+                        );
+                    }
+                    Err(complaint) => {
+                        complaints.push(format!("{}: the counted open: {complaint}", row.path));
+                    }
                 }
-                Err(complaint) => {
-                    complaints.push(format!("{}: the counted open: {complaint}", row.path));
+                match counted_kinstructions(FIRST_FRAME, cold_source, directory) {
+                    // A first frame that asked for no render drew nothing, and would read as a
+                    // win (trap 16).
+                    Ok((_, _, said)) if said.get("commands").is_none_or(|&count| count < 1.0) => {
+                        complaints.push(format!(
+                            "{}: the counted first frame asked for no render of page one",
+                            row.path
+                        ));
+                    }
+                    Ok((value, whole, said)) => {
+                        println!(
+                            "launch-path:   the first frame executes {value:.1} thousand \
+                             instructions to page one's render request of {:.0} commands, at \
+                             {} x {} less a panel of {:.0}, {whole:.1} thousand in the whole \
+                             process (ADR 2944)",
+                            said.get("commands").copied().unwrap_or(0.0),
+                            WINDOW.0,
+                            WINDOW.1,
+                            said.get("inset").copied().unwrap_or(0.0)
+                        );
+                        band_it(
+                            &mut judged,
+                            format!("{}: the instructions a first frame executes", row.path),
+                            "frame_kinstructions",
+                            value,
+                            row.frame_kinstructions,
+                            true,
+                            Sample {
+                                fields: &Vec::new(),
+                                waited: None,
+                            },
+                        );
+                    }
+                    Err(complaint) => complaints.push(format!(
+                        "{}: the counted first frame: {complaint}",
+                        row.path
+                    )),
                 }
-            },
+            }
             (true, None) => complaints.push(format!(
                 "{}: the counted open has nowhere to write a profile",
                 row.path
