@@ -3,6 +3,41 @@
   "numbering": "Logical content items use published ledger owners14.7.5.1.1/.2/.3/.4 for effective EC3 .2/.3/.4/.5; navigator owner12.3.6 maps effective12.3.5.3. JBIG2 external Annex D is not ISO PDF Annex D.",
   "shards": [
     {
+      "shard": "adr0812_descriptor_boundary_current",
+      "artifact": "shards/adr0812_descriptor_boundary_current/features.json",
+      "ledger_owners": [
+        "7.5.1",
+        "7.5.4",
+        "7.5.5",
+        "12.8.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "valid_icc_consumer_fixture_current",
+      "artifact": "shards/valid_icc_consumer_fixture_current/features.json",
+      "ledger_owners": [
+        "8.6.5.5",
+        "8.6.5.8",
+        "11.7.5.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "adr1161_encrypted_writer_current",
+      "artifact": "shards/adr1161_encrypted_writer_current/features.json",
+      "ledger_owners": [
+        "7.6.2",
+        "7.6.3.3",
+        "7.6.4.3.3",
+        "7.6.4.3.4",
+        "7.6.4.4.7",
+        "7.6.4.4.8",
+        "7.6.4.4.9"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
       "shard": "file_only_transparency_assertions_current",
       "artifact": "shards/file_only_transparency_assertions_current/features.json",
       "ledger_owners": [

@@ -46,7 +46,7 @@
       "key_assertions":["late_ri_and_extgstate_intent_change_the_selected_source","nested_saves_restore_profile_and_current_intent","fill_and_stroke_keep_independent_sources_at_paint_time","one_stencil_reuses_the_current_source_across_intent_and_restore","late_black_point_compensation_and_absolute_intent_use_current_parameters"],
       "consumer":"PDF content operators → model interpretation → CPU raster pixel assertions.",
       "oracle":"Independent from the production ICC evaluator: test-local generated A2B intent tables, quantized middle entries, explicitly written D50 XYZ-to-sRGB matrix and transfer curve produce expected visible colors.",
-      "fixture_limit":"Custom synthetic ICC headers are not complete-profile validity certificates; tests pin this parser/renderer behavior with intentionally different tables." 
+      "fixture_limit":"Custom synthetic ICC headers are not complete-profile validity certificates; tests pin this parser/renderer behavior with intentionally different tables."
     }
   ],
   "implementation_path": [

@@ -1,0 +1,41 @@
+{
+  "shard": "adr0812_descriptor_boundary_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "source_scope": [
+    {
+      "feature": "PDF byte offsets and file access",
+      "source": "ISO 32000-2:2020 §7.5.1, §7.5.4, §7.5.5; Annex C.4 (informative)",
+      "effective_requirement": "PDF cross-reference structures and startxref identify byte offsets in the file. Annex C.4 discusses a traditional cross-reference-table offset limit as implementation guidance. The clauses do not prescribe Unix descriptors, SCM_RIGHTS, seccomp syscalls, a descriptor quota, or whether a host transfers bytes versus a handle.",
+      "decision": "ADR 0812 is an implementation/confinement decision that carries an already-open file handle and the host-measured length. It preserves the byte-addressed input expected by the parser; the OS transport is not itself a PDF conformance requirement."
+    },
+    {
+      "feature": "Signed byte-range reading",
+      "source": "ISO 32000-2 §12.8.1; §12.8.3.2–.3.4 as applicable",
+      "effective_requirement": "Signature validation interprets the declared ByteRange against document bytes. This review records the file-window/error handoff only; it does not re-audit digest, CMS, certificate, timestamp, or signature-policy correctness already assigned to the signature shards.",
+      "decision": "Windowed I/O is compatible with reading the declared byte ranges. Streaming is an implementation choice, not mandated by this PDF transport boundary."
+    },
+    {
+      "feature": "Host-to-worker descriptor transfer",
+      "consumer": "viewer-confined protocol encode/decode → confined-transport host frame → Unix SCM_RIGHTS → worker recvmsg → FileBytes::from_handle → PDF parser",
+      "assertion_review": "Protocol unit test checks wire length, ON_DISK tag, missing-descriptor named refusal, descriptor consumption, memory-byte route, and actual decoded content. Confined integration test opens the committed specification PDF through the sandbox and checks page count, raster dimensions, pixel-for-pixel equality with the memory route, and nonblank ink. Separate kernel probes check pread is allowed and metadata/stat is denied. FileBytes tests check stated lengths shorter/equal/longer than the physical file and prefix descriptor reuse.",
+      "verdict": "The critical descriptor route has both protocol and real host→worker consumer evidence. Existing protocol fixture opens the same pathname independently for the supplied descriptor, so its local 'same file' assertion is not a same-open-file-description identity probe; the integration route does pass FileBytes' actual borrowed descriptor. No source requirement mandates a separate identity regression."
+    },
+    {
+      "feature": "EOF and errors",
+      "implementation": "worker read_frame treats UnexpectedEof while filling the fixed frame header as end-of-input; truncation while filling the advertised payload propagates as an I/O error. NoDescriptor and Uncarried are explicit protocol errors; worker drops unclaimed/excess descriptors after decode and refuses malformed command payloads by name. Host maps worker-output EOF to worker-death handling.",
+      "verdict": "This is transport lifecycle/error policy. It is not a PDF-level rule. A partial frame header currently ends the worker as if clean EOF, while a partial payload takes an error path; no user-visible PDF misclassification was identified in the reviewed host API."
+    }
+  ],
+  "reviewed_paths": [
+    "doc/adr/0812-the-document-crosses-the-confinement-as-a-descriptor-and-a-signature-is-digested-a-window-at-a-time.md",
+    "crates/viewer-confined/src/protocol/command.rs",
+    "crates/viewer-confined/src/protocol/tests/commands.rs::a_document_on_disk_crosses_as_a_descriptor_and_its_length",
+    "crates/viewer-confined/src/worker.rs::read_frame/answer",
+    "crates/confined-transport/src/host.rs::write_frame/read_exactly",
+    "crates/confined-transport/src/channel_unix.rs::send_header",
+    "crates/confined-transport/src/link.rs::Source::fill/skip",
+    "crates/viewer-confined/tests/confined.rs::a_document_open_on_disk_crosses_as_a_descriptor_and_draws_the_same_page",
+    "crates/pdf-syntax/src/file.rs::FileBytes::on_disk/from_handle/descriptor/read and a_handed_file_is_read_to_the_length_its_opener_stated"
+  ],
+  "execution": "No commands or tests were run for this shard."
+}

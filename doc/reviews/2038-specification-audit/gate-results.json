@@ -2112,6 +2112,47 @@
       "exit": 4,
       "run": 0,
       "scope": "Both selected tests excluded by debug ignore; nextest no-tests policy exits4.64 total skipped includes filtered tests; not64 debug exclusions and not a test failure."
+    },
+    {
+      "log": "descriptor-wave80.log",
+      "run": 4,
+      "passed": 4,
+      "exit": 0,
+      "scope": "Pre-strengtheningbaseline"
+    },
+    {
+      "log": "descriptor-wave80b.log",
+      "run": 4,
+      "passed": 4,
+      "exit": 0,
+      "scope": "Strengtheneddescriptorunit/integrationandtwoactualkernelprobes"
+    },
+    {
+      "log": "valid-icc-wave80.log",
+      "run": 1,
+      "passed": 1,
+      "exit": 0
+    },
+    {
+      "log": "r6-vector-wave80.log",
+      "run": 12,
+      "passed": 12,
+      "exit": 0
+    },
+    {
+      "log": "quality-descriptor-wave80.log",
+      "exit": 0,
+      "scope": "viewer-confined all-targetsClippy"
+    },
+    {
+      "log": "quality-wave80.log",
+      "exit": 101,
+      "scope": "Docmarkdownlintinnewtestcomment; corrected"
+    },
+    {
+      "log": "quality-wave80b.log",
+      "exit": 0,
+      "scope": "syntax/modelall-targetsClippy"
     }
   ],
   "prior_expected_failures": {

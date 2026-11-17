@@ -1097,7 +1097,8 @@
     ],
     "summary": "Perms-over-P tamper assertion establishes inconsistent-input recovery, not a prescribed normative authority rule.",
     "source": "2.A stepf requires P consistency; Algorithm13 uses should. ADR0031/0820 reviewed.",
-    "change": "Retain permissive policy as policy; no valid-input defect asserted."
+    "change": "Retain permissive policy as policy; no valid-input defect asserted.",
+    "follow_up_checkpoint80": "Corrected serialize_encrypted tamper comments tolabelrecoverypolicy; separateindependentR6vectornowpinsconsistentwriterPerms."
   },
   {
     "id": "2038-D17",
@@ -2591,5 +2592,43 @@
     "change": "Add parsed-PDF Screen group regression: initial white, black overpaint, second invocation gray, and outside-BBox black. Check exact-xref selection and interpretation completeness.",
     "execution": "New test PASS; model Clippy PASS.",
     "remaining": "Covers backdrop-dependent compositing, not every group-cache or state combination; permits correctly composited cached contents."
+  },
+  {
+    "id": "2038-T106",
+    "kind": "test-assurance-gap",
+    "clauses": [
+      "7.5.1",
+      "7.5.4"
+    ],
+    "summary": "Descriptor protocol unit test claimed duplicate identity but reopened the pathname; integration did not explicitly remove path availability.",
+    "change": "Duplicate the actual sender-selected descriptor. Unlink the integration fixture after opening it and before transfer; retain content, pixel, page-count and nonblank controls.",
+    "execution": "Four selected transport/kernel tests PASS; viewer-confined Clippy PASS.",
+    "remaining": "Local OS/security contract, not a PDF mandate. No actual descriptor-transport failure found."
+  },
+  {
+    "id": "2038-T107",
+    "kind": "fixture-validity-gap",
+    "clauses": [
+      "8.6.5.5",
+      "8.6.5.8",
+      "11.7.5.3"
+    ],
+    "summary": "Intent tests with minimal ICC headers do not establish a conforming-profile consumer path.",
+    "change": "Add an independently validated ICC.1 v4.4 Gray Display profile with three A2B transforms, a deterministic generator and a separate expected-value script reading the profile bytes. The public PDF test checks three intent pixels, dimensions, alpha, complete interpretation and exact xref.",
+    "execution": "ICCDEV 2.3.2.5 ValidationStatus.OK; public consumer PASS; model Clippy PASS.",
+    "remaining": "One profile and three intent routes. Expected RGB pins renderer policy, not universal ISO colors. Minimal focused fixtures remain useful."
+  },
+  {
+    "id": "2038-T108",
+    "kind": "test-oracle-gap",
+    "clauses": [
+      "7.6.4.4.7",
+      "7.6.4.4.8",
+      "7.6.4.4.9"
+    ],
+    "summary": "R6 writer tests relied on structural assertions and same-family reader roundtrips without independently pinning five encrypted dictionary fields.",
+    "change": "Add a deterministic Algorithms 8\u201310 literal vector derived with PyCryptodome. Cross-check the helper against an independently generated qpdf R6 file for both credentials.",
+    "execution": "All 12 writer integration tests PASS, including the new vector; syntax Clippy PASS.",
+    "remaining": "One ASCII-password/entropy vector, not exhaustive crypto certification. The ID exception assertion remains weak."
   }
 ]

@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (79)
+## Current checkpoint (80)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **83 failing test identities**: 82 behavior assertions/probes
@@ -254,6 +254,15 @@ a group uses its changed backdrop. All three affected crates pass Clippy.
 Historical ADR1242's profile exception is superseded by2549; audit evidence records
 that distinction. Deeper descriptor-confinement, encrypted-output and valid-ICC
 reviews continue. The failure manifest remains83; broad76 predates the new test.
+
+Checkpoint80 strengthens descriptor identity tests and adds independent color/encryption
+controls. The real confined worker still renders the held file after its pathname is
+removed; protocol and kernel probes pass. An ICCDEV-validated v4.4 Gray profile selects
+three distinct intent transforms with independently calculated pixels. R6 writer fields
+match a PyCryptodome-derived vector, whose helper is cross-checked against qpdf output.
+All17 selected tests pass; confined/syntax/model Clippy passes. Tampered permissions
+comments now identify malformed-input policy, followingD16. The manifest remains83;
+this checkpoint adds two passing test identities. Further ADR reviews are active.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

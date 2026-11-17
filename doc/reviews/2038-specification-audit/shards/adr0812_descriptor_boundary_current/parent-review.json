@@ -1,0 +1,7 @@
+{
+  "decision": "Agree with held-descriptor/no-path design; PDF offsets and signed ranges do not prescribe OS transport. No new production defect established.",
+  "inspection": "Read actual encoder borrowing FileBytes descriptor, worker ownership/drop and EOF handling, FileBytes shorter/exact/longer length tests, and real confined render comparison.",
+  "change": "Protocol unit test now duplicates the actual sender-selected descriptor instead of reopening the same pathname. Integration test copies committed5-page note to create_new tempfile, opens it, unlinks it, then sends held FileBytes. Keeps5-page, all-pixel equality andnonblank guards.",
+  "execution": "Both strengthenedtests and pread-allowed/stat-killed kernel probes PASS:4/4. viewer-confined all-targets Clippy PASS.",
+  "limits": "Tests OS transport and local confinement contract, not independent rendering or all signature algorithms. Partial-header EOF normalization remains a transport residual; no observed PDF misclassification."
+}
