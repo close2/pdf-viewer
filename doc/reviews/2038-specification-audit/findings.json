@@ -3618,5 +3618,25 @@
     "summary": "The #618 disposition in errata-read still says Table199 is wholly excluded, although ADR1904 admits confined in-document scripts and current tests exercise its triggers.",
     "evidence": "doc/errata-read.md:1985; ADR1904 sections1–3; Table199 physical524; actual hook and Viewer field/event assertion bodies.",
     "qualification": "The erratum itself only adds a cross-reference. This is stale scope rationale, not a new behavioral failure or a request to widen host permissions. Historical text left intact; current interpretation recorded here."
+  },
+  {
+    "id": "2038-T160",
+    "kind": "assertion-quality",
+    "clauses": [
+      "7.8.2",
+      "8.4.2"
+    ],
+    "summary": "Balanced graphics-state restoration neither reopens nor closes a compatibility section; both directions have public report and literal raster controls.",
+    "execution": "One new test PASS; existing compatibility pixel control also PASS."
+  },
+  {
+    "id": "2038-T161",
+    "kind": "assertion-quality",
+    "clauses": [
+      "12.5.6.19"
+    ],
+    "summary": "Widget BC/BG component counts now have literal border/background raster assertions for transparent, Gray, RGB and CMYK no-ink cases.",
+    "execution": "Two new tests PASS; all six widget tests PASS. Old background test only asserted commands and missingDA report; overstatement corrected.",
+    "qualification": "Initial pure-K exact-black expectation rejected as an unsupported device-conversion oracle; no new behavior defect. No all-profile/all-color claim."
   }
 ]

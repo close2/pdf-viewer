@@ -1,0 +1,7 @@
+{
+  "source": "Read physical514–516:191 all514;192 R throughIF515, onlyTP516. BC/BG0/1/3/4 select transparent/Gray/RGB/CMYK. Reviewed source defaultI, P/T, state-caption scope, indirect icons, sharedIF and TP codes.",
+  "assertions": "Read widget_annotation_spec_audit actual literal pixels and glyph count; variable_text caption widths/rotation; annotations background test only asserts commands+missingDA, not pixels. Added valid PDF1.7 no-caption pushbutton with NeedAppearances, resources, BS and exact unrecovered xrefs. Two tests assert BC/BG color and separate center/border positions for all four counts.",
+  "rejected_oracle": "Initial fifth pure-K sample expected exact RGB black, but this device-CMYK route produced35,31,32. Rejected that unsupported device-conversion oracle after rereading ADR0048; it is not a new defect. Retain all four component counts, with no-ink CMYK white independently distinguishable from RGB zero black. No claim of universal CMYK device profile or all component values.",
+  "adr": "Reread1090 pointer-state/fallback rationale,1299 reported one-third split and2813 highlight/print distinctions. Missing-state fallback and numeric caption share remain choices, not ISO quantities.0239 historical refusal superseded.",
+  "execution": "widget-colour-wave121 first4PASS2FAIL solely unsupported pure-K exact-black expectation; final121b6PASS after rejecting it. Model/core all-target Clippy122bPASS. No native-host pointer certification."
+}

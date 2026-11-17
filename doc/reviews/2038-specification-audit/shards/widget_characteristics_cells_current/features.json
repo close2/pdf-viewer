@@ -1,0 +1,182 @@
+{
+  "scope": {
+    "status": "bounded selected-cell review",
+    "source": "ISO 32000-2:2020(E), effective EC3 source PDF",
+    "locators": [
+      {
+        "table": "191",
+        "physical_page": 514,
+        "printed_page": 499,
+        "verification": "caption and complete table on this page"
+      },
+      {
+        "table": "192",
+        "physical_pages": [
+          515,
+          516
+        ],
+        "printed_pages": [
+          500,
+          501
+        ],
+        "verification": "Caption and R through IF on515; only TP continues516."
+      }
+    ],
+    "excluded": [
+      "generic annotation/AP-state clauses except where needed to evaluate widget state",
+      "full widget field editing/export",
+      "native host pixel automation",
+      "all malformed-value recovery behavior"
+    ]
+  },
+  "features": [
+    {
+      "source_cell": "Table 191 /H",
+      "source_rule": "Optional highlighting name; N, I, O, P, T; default I. T is equivalent to P. Any mode other than P overrides a defined down appearance. P displays the down appearance if any; without one, the rectangle contents are offset as if pressed.",
+      "source_note": "Table 191 physical 514/printed 499. The override is explicitly conditional and must not be generalized to link annotations or other subtypes.",
+      "ledger": "§12.5.6.19 implemented; ledger names widget highlight and down-appearance coverage.",
+      "implementation": "crates/pdf-model/src/annotation.rs highlight-mode parsing/down_overridden; viewer/model pointer state; appearance selection in pdf-model.",
+      "assertions": [
+        {
+          "test": "crates/pdf-model/tests/annotations.rs::a_widgets_highlighting_mode_overrides_its_down_appearance",
+          "witness": "stored red normal and blue down appearances; asserts N/O and P/T behavior and override semantics by pixels"
+        },
+        {
+          "test": "crates/pdf-model/tests/widget_annotation_spec_audit.rs::widget_highlighting_t_is_the_same_as_p_for_a_stored_down_appearance",
+          "witness": "normal and down literal pixel comparisons for /H /P versus /H /T"
+        },
+        {
+          "test": "crates/pdf-model/tests/widget_annotation_spec_audit.rs::omitted_widget_h_retains_the_table_191_invert_default_even_with_a_down_stream",
+          "witness": "default /H and down stream; distinct pixels assert source default/override path"
+        }
+      ],
+      "assessment": "Good discriminating coverage for selected modes, default and D override; does not establish every color-space/highlight combination or every host pointer route."
+    },
+    {
+      "source_cell": "Table 191 /MK and Table 192 /R",
+      "source_rule": "MK is an optional appearance-characteristics dictionary used in constructing a dynamic appearance. R is optional integer rotation, counterclockwise relative to page, multiple of 90, default 0.",
+      "source_note": "Table 192 physical 515/printed 500. Rotation applies to the widget appearance construction path; producer type/range constraints are separate from malformed-reader behavior.",
+      "ledger": "§12.5.6.19 implemented; tests cited for widget background, text rotation and MK characteristics.",
+      "implementation": "crates/pdf-model/src/appearance.rs::construct/widget rotation and appearance characteristics handling.",
+      "assertions": [
+        {
+          "test": "crates/pdf-model/tests/variable_text.rs::a_widgets_contents_turn_by_table_192s_r",
+          "witness": "tests 0/90/180 rotation and ink bounds; non-multiple case is a parser/policy refusal and is not treated here as normative reader-rejection proof"
+        },
+        {
+          "test": "crates/pdf-model/tests/annotations.rs::a_widget_draws_its_background_and_reports_its_field_value",
+          "witness": "Only nonempty display commands and a missing-DA report; this intentionally incomplete fixture does not assert literal background or border pixels."
+        }
+      ],
+      "assessment": "Selected dynamic-appearance behavior has public raster assertions; the source says MK is used in construction but does not require readers to synthesize every missing AP."
+    },
+    {
+      "source_cell": "Table 192 /BC and /BG",
+      "source_rule": "Optional arrays of 0, 1, 3 or 4 components selecting transparent, DeviceGray, DeviceRGB or DeviceCMYK; each supplied component is in [0,1]. BG uses the same count-to-space mapping as BC.",
+      "source_note": "Table 192 physical 515/printed 500. These are widget border/background colors, distinct from image masks and general color-conversion clauses.",
+      "ledger": "§12.5.6.19 implemented.",
+      "implementation": "crates/pdf-model/src/appearance.rs widget color parsing/painting.",
+      "assertions": [
+        {
+          "test": "crates/pdf-model/tests/annotations.rs::a_widget_draws_its_background_and_reports_its_field_value",
+          "witness": "Only nonempty display commands and a missing-DA report; this intentionally incomplete fixture does not assert literal background or border pixels."
+        },
+        {
+          "test": "crates/pdf-model/tests/script_properties.rs::a_fill_colour_is_the_background_and_is_drawn",
+          "witness": "constructed appearance background pixels"
+        }
+      ],
+      "assessment": "RGB/drawn color path has direct output evidence. This review did not find a single current widget test matrix covering all 0/1/3/4 lengths for both BC and BG; the gap is bounded assertion breadth, not a confirmed wrong behavior."
+    },
+    {
+      "source_cell": "Table 192 /CA, /RC, /AC",
+      "source_rule": "CA is optional normal caption for any button field, including checkbox/radio. RC and AC are optional rollover/down captions for push-button fields only.",
+      "source_note": "Table 192 physical 515/printed 500. Preserve scope distinction; not every button-field caption entry applies to every widget type.",
+      "ledger": "§12.5.6.19 implemented.",
+      "implementation": "crates/pdf-model/src/appearance.rs::caption_entries and button/widget construction; form state feeds appearance selection.",
+      "assertions": [
+        {
+          "test": "crates/pdf-model/tests/variable_text.rs::table_192s_three_captions_are_chosen_by_what_the_pointer_is_doing",
+          "witness": "distinct pointer states select normal/rollover/down caption output"
+        },
+        {
+          "test": "crates/pdf-model/tests/variable_text.rs::a_check_box_keeps_its_own_caption_under_every_pointer_state",
+          "witness": "checkbox CA remains across pointer states"
+        },
+        {
+          "test": "crates/pdf-model/tests/variable_text.rs::a_check_box_shows_its_caption_only_when_it_is_on",
+          "witness": "checkbox value/state controls CA visibility"
+        }
+      ],
+      "assessment": "Public caption and checkbox scope assertions are present; not an exhaustive radio-button state/caption matrix."
+    },
+    {
+      "source_cell": "Table 192 /I, /RI, /IX, /IF",
+      "source_rule": "Optional indirect form XObjects define push-button normal/rollover/down icons. One optional IF icon-fit dictionary applies to all three icons.",
+      "source_note": "Table 192 physical 515–516/printed 500–501. The indirect-reference condition is explicit for each icon. Table 250 supplies IF details and is outside this selected-cell certification.",
+      "ledger": "§12.5.6.19 implemented.",
+      "implementation": "crates/pdf-model/src/appearance.rs::push_button_icon/icon_entries and icon-fit handling.",
+      "assertions": [
+        {
+          "test": "crates/pdf-model/tests/widget_annotation_spec_audit.rs::widget_if_is_applied_to_normal_rollover_and_alternate_icons",
+          "witness": "red/green/blue distinct state icons; default-fit positive control versus no-scale centered IF; asserts literal center and unpainted corner for all three pointer states"
+        },
+        {
+          "test": "crates/pdf-model/tests/annotations.rs::table_192s_three_icons_are_chosen_by_what_the_pointer_is_doing",
+          "witness": "three selected state icons have distinguishable output"
+        },
+        {
+          "test": "crates/pdf-model/tests/annotations.rs::a_push_buttons_normal_icon_is_drawn_where_it_has_no_appearance_stream",
+          "witness": "normal icon drives a constructed appearance when stored AP is absent"
+        }
+      ],
+      "assessment": "Strong direct visual evidence for state selection and applying shared IF to all three; no claim here about all Table 250 subentries."
+    },
+    {
+      "source_cell": "Table 192 /TP",
+      "source_rule": "Optional push-button caption/icon placement code 0–6; default 0. Codes 0 and 1 suppress icon or caption respectively; 2–5 name relative side; 6 overlays.",
+      "source_note": "Table 192 physical 516/printed 501. Table gives sides, not proportions for 2–5; any particular division is implementation policy rather than a source numeric requirement.",
+      "ledger": "§12.5.6.19 implemented.",
+      "implementation": "crates/pdf-model/src/appearance.rs caption-position selection and button construction.",
+      "assertions": [
+        {
+          "test": "crates/pdf-model/tests/widget_annotation_spec_audit.rs::widget_tp_six_overlays_the_caption_on_the_icon",
+          "witness": "TP=1 icon-only control has zero glyphs; TP=6 asserts one glyph and distinct caption ink over icon"
+        },
+        {
+          "test": "crates/pdf-model/tests/annotations.rs::table_192s_default_caption_position_draws_no_icon",
+          "witness": "default placement behavior"
+        },
+        {
+          "test": "crates/pdf-model/tests/annotations.rs::table_192s_beside_codes_divide_the_rectangle_at_a_chosen_share",
+          "witness": "codes 2–5 are rendered and the chosen share is reported as implementation choice"
+        }
+      ],
+      "assessment": "Code identities are directly asserted; one-third share for codes 2–5 is an explicit project choice, not a normative table value."
+    },
+    {
+      "source_cell": "Table 191 /Subtype, /A, /AA, /BS, /Parent (context only)",
+      "source_rule": "Subtype required Widget; action/additional-actions/border-style optional; Parent required only for a widget that is one of multiple field children and otherwise optional.",
+      "source_note": "Table 191 physical 514/printed 499. Parent's field inheritance belongs primarily to §12.7 and is not re-certified here. Actions and BS are delegated to their own ledger clauses.",
+      "ledger": "§12.5.6.19 current ledger is implemented; related actions/border/field clauses separately own delegated semantics.",
+      "implementation": "annotation/form/action/border paths.",
+      "assertions": [
+        {
+          "test": "crates/pdf-model/tests/annotations.rs widget assertions and form tests",
+          "witness": "the cited tests exercise selected widget consumers but this shard does not certify all A/AA/BS/Parent branches"
+        }
+      ],
+      "assessment": "Context cells enumerated, deliberately not treated as reviewed by this shard."
+    }
+  ],
+  "annotations": {
+    "physical_pages_checked": [
+      514,
+      515,
+      516
+    ],
+    "finding": "Pages contain no effective errata edits to Tables 191–192. Adjacent Issue #42 is on physical 513 and targets the screen-annotation AP paragraph; it does not amend these widget tables."
+  },
+  "verification_status": "Source/assertion review only. No tests executed by this shard; current execution evidence, where cited, is from existing parent audit artifacts and test bodies.",
+  "parent_execution": "T161 adds independent BC/BG component-count raster tests: empty transparent, Gray black, RGB red and CMYK no-ink white. All six widget target tests PASS; parent corrected the overstated old background assertion and actual continuation rows."
+}

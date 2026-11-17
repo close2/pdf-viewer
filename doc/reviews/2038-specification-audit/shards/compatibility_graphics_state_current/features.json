@@ -1,0 +1,15 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected Table33 and §7.8.2 compatibility sections outside graphics state.",
+  "features": [
+    {
+      "clause": "7.8.2",
+      "table": "33",
+      "source": "Physical126/printed111 explicitly says BX/EX are outside graphics state; Table33 actual127/112. Balanced nested sections ignore unknown operators and their operands until matchingEX.",
+      "implementation": "Machine compatibility depth is separate from saved graphics state. Existing tests cover ordinary nested/outside reporting and a preserved in-progress path.",
+      "assertion": "New public two-case test crosses balanced q/Q and BX/EX in both orders. Closing beforeQ stays closed and reports futureOp; opening afterq stays open throughQ and suppresses it. Both raster centers independently remain opaque black after restoring initial fill.",
+      "execution": "compatibility-wave1212PASS including one new test; model/core Clippy122bPASS.",
+      "limits": "No prescribed recovery for unpaired BX/EX or q/Q. Outside unknown operator is deliberate error control, not a conforming future extension fixture."
+    }
+  ]
+}

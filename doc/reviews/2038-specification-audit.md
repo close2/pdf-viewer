@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (120)
+## Current checkpoint (121)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **112 failing test identities**: 111 behavior assertions/probes
@@ -506,6 +506,12 @@ Checkpoint 120 adds selected font-format and action-trigger table reviews, plus
 a second primary errata-target sample. A rendered table resolves the shared
 Korea1/KR row; no font behavior failure follows. D67 records obsolete whole-table
 script-exclusion prose in the #618 disposition. No new execution is claimed.
+
+Checkpoint 121 adds three passing public tests: graphics-state restoration leaves
+compatibility sections independent, and widget border/background component counts
+select the expected transparency and device spaces. An overstated old background
+assertion is corrected. An unsupported pure-K RGB oracle was rejected.
+Model/core Clippy passes;148 table matrices remain partial.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

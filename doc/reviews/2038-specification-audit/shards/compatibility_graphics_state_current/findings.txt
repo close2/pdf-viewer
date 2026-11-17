@@ -1,0 +1,1 @@
+T160 closes a distinct assertion gap for compatibility state versus q/Q. Both source-derived directions and black raster controls pass. Table33 and the adjacent prose remain partially reviewed.

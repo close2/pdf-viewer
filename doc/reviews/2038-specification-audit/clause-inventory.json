@@ -1666,7 +1666,8 @@
     "current_artifacts": [
       "shards/page_resources_current/features.json",
       "shards/compatibility_extensions_current/features.json",
-      "shards/content_stream_foundations_current/features.json"
+      "shards/content_stream_foundations_current/features.json",
+      "shards/compatibility_graphics_state_current/features.json"
     ],
     "prior_artifacts": [
       "content_resources_audit"
@@ -2588,7 +2589,8 @@
     "current_artifacts": [
       "shards/paths_current/features.json",
       "shards/coordinates_graphics_state_current/features.json",
-      "shards/content_stream_foundations_current/features.json"
+      "shards/content_stream_foundations_current/features.json",
+      "shards/compatibility_graphics_state_current/features.json"
     ],
     "prior_artifacts": [
       "graphics_stack_paths"
@@ -7496,7 +7498,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/annotation_types_current/features.json"
+      "shards/annotation_types_current/features.json",
+      "shards/widget_characteristics_cells_current/features.json"
     ],
     "prior_artifacts": [
       "widget_annotation_audit"

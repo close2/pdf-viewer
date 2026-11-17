@@ -81,3 +81,34 @@ fn unknown_operator_and_its_operands_inside_bx_ex_leave_the_path_like_the_contro
         "known fill after the compatibility section is still drawn"
     );
 }
+
+/// Section 7.8.2 explicitly places compatibility sections outside the graphics state.
+/// A balanced Q must neither reopen a closed section nor close an open section.
+#[test]
+fn restoring_graphics_state_does_not_restore_compatibility_section_depth() {
+    for (content, outside) in [
+        ("BX q 1 0 0 rg EX Q 17 futureOp 0 0 10 10 re f", true),
+        ("q BX 1 0 0 rg Q 17 futureOp EX 0 0 10 10 re f", false),
+    ] {
+        let document = Document::open(page(content)).expect("exact-xref fixture opens");
+        assert!(!document.was_recovered());
+        assert!(!document.cross_reference_chain_was_cut());
+        let page = pdf_model::Pages::new(&document).get(0).expect("one page");
+        let interpreted = pdf_model::interpret(&document, &page);
+        if outside {
+            assert_eq!(interpreted.unsupported.len(), 1);
+            assert!(format!("{:?}", interpreted.unsupported).contains("futureOp"));
+        } else {
+            assert!(interpreted.is_complete(), "{:?}", interpreted.unsupported);
+        }
+        // Q restores the initial black fill in both cases. The compatibility state must
+        // follow BX/EX independently, so only the first unknown operator is reported.
+        let target =
+            TargetSpec::for_page(&interpreted.display_list, 1.0, 1 << 20).expect("small page");
+        let raster = CpuRasterizer::new()
+            .rasterize(&interpreted.display_list, target)
+            .expect("remaining ordinary fill renders");
+        assert_eq!((raster.width, raster.height), (10, 10));
+        assert_eq!(&raster.data[220..224], &[0, 0, 0, 255]);
+    }
+}
