@@ -11,11 +11,11 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (127)
+## Current checkpoint (128)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
-failure manifest contains **114 failing test identities**: 113 behavior assertions/probes
-and one stale ignored-gate expectation. These are grouped findings, not 114 independent defects. B08 and B42 remain unresolved interpretation/policy
+failure manifest contains **117 failing test identities**: 116 behavior assertions/probes
+and one stale ignored-gate expectation. These are grouped findings, not 117 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
 The refreshed broad run, wave123, covered eleven crates: **7,321 tests ran, 7,216 passed,
 and exactly the 105 recorded in-scope assertions failed; 58 were skipped**.
@@ -542,6 +542,12 @@ under screen-only loss authorization, changing literal RGB191 to64. The TF-free
 control stays64; the PDF/A-2 separate-authorization control passes. This challenges
 the converter loss contract, not PDF/A-4 conformance. Manifest114 includes107
 default-scope failures; broad123 predates two failures and seven passing additions.
+
+Checkpoint 128 records B78: three enabled-runner tests distinguish visibility
+entry, exit, and unchanged visibility during a current-page change. All three fail
+while initial open/visible controls pass. ADR2814’s retained script delay needs
+reconsideration; the ledger’s one-page premise is stale. Core Clippy passes.
+Manifest117 includes110 default-scope identities;166 matrices remain partial.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

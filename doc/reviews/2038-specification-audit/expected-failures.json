@@ -690,6 +690,24 @@
       "test": "threshold_screen_authorisation_preserves_active_transfer_in_pdf_a_four",
       "finding": "2038-B77",
       "log": "archive-transfer-wave126f.log"
+    },
+    {
+      "binary": "viewer-core::page_visible_script_runner_spec_audit",
+      "test": "visible_page_runner_site_is_timed_to_visibility_not_open_or_current_page",
+      "finding": "2038-B78",
+      "log": "page-visible-wave128b.log"
+    },
+    {
+      "binary": "viewer-core::page_visible_script_runner_spec_audit",
+      "test": "page_still_visible_after_current_page_changes_gets_no_pi_or_duplicate_pv",
+      "finding": "2038-B78",
+      "log": "page-visible-wave128b.log"
+    },
+    {
+      "binary": "viewer-core::page_visible_script_runner_spec_audit",
+      "test": "page_that_leaves_the_arrangement_gets_pi_at_the_visibility_transition",
+      "finding": "2038-B78",
+      "log": "page-visible-wave128b.log"
     }
   ]
 }

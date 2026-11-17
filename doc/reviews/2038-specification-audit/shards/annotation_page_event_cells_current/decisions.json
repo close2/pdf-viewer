@@ -1,0 +1,37 @@
+{
+  "shard": "annotation_page_event_cells_current",
+  "decisions": [
+    {
+      "adr": "0164",
+      "question": "Are page open/close and annotation visibility events distinct where the layout shows multiple pages?",
+      "verdict": "ADR 2814 superseded the one-page-only premise for non-script event dispatch. Current TwoPageLeft tests prove page 1 can become visible while page 0 remains current. Retain the page's O/C versus annotation PO/PC distinction and the arrangement-based PV/PI dispatch for non-script actions. Do not repeat B22's catalog-action ordering finding."
+    },
+    {
+      "adr": "2814 §3",
+      "question": "May annotation PV/PI JavaScript be delayed until the page becomes current, by coalescing it with PO/PC?",
+      "evidence": [
+        "ISO 32000-2 EC3 Table 197 physical 523 / printed 508 says PV action shall be performed when page becomes visible and PI when no longer visible; §12.6.3 physical 522 / printed 507 says the pair distinguishes visible pages from open pages.",
+        "A286/ADR 1904 makes in-document/in-viewer script effects supported when a runner is enabled; scripts are off by default under A193/ADR 1616.",
+        "viewer/navigation.rs dispatches non-script PV/PI at arrangement diffs; script_sites.rs::annotation_triggers associates PageOpen with PO+PV and PageClose with PC+PI; pointer.rs suppresses JavaScript refusal as 'handed over' for visibility events without calling run_annotation_scripts."
+      ],
+      "verdict": "Reconsider the accepted delay for enabled scripts in a multi-page layout. Table 197 has no exception for JavaScript actions, and delaying the visible-neighbor's script until it becomes current means the script is not run at its Table 197 trigger. Engine-off remains an explicit reader policy and is not the concern. A recording-runner test of the existing viewer callback is the right discriminator; it makes no engine claim.",
+      "status": "Candidate source/implementation mismatch pending parent interpretation and execution of supplied draft."
+    },
+    {
+      "adr": "1752",
+      "question": "Are scripts handed to the runner at their event site, including visibility events?",
+      "verdict": "Pointer/focus events and page O/C sites are exercised; ADR's claim that page scripts are raised with open/close does not establish a multi-page PV/PI callback at the visibility transition. The supplied test isolates this boundary."
+    },
+    {
+      "adr": "1904 (A286/A193)",
+      "question": "Does the script exclusion prevent the proposed test or make this a policy departure?",
+      "verdict": "No. The enabled in-document/viewer runner path is within the accepted scope; the default Off and the absence of an interpreter in the test are not conflated with skipping the event dispatch when Run supplies a runner. No test asserts arbitrary script semantics."
+    },
+    {
+      "adr": "2448 / finding B62",
+      "question": "Is this the same AA inheritance defect as terminal-field K?",
+      "verdict": "No. B62 concerns field ancestor inheritance; this candidate has annotation-local AA on distinct pages and tests when an already-resolved action is delivered."
+    }
+  ],
+  "draft_status": "Parent ran the original recording-runner draft in page-visible-wave128.log: initial page0 open/visible control passed, but page1 PV was not delivered at the two-page visibility transition. Two additional tests in the same scratch draft now independently cover (a) a page still visible when current page changes, with no premature PI or duplicate PV, and (b) actual removal of a noncurrent neighbor with PI at that visibility transition. These two fragments are unexecuted; this reviewer ran no Cargo."
+}

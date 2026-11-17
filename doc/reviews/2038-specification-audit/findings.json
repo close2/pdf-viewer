@@ -3729,5 +3729,18 @@
     ],
     "summary": "PDF/A-2 combined threshold/transfer control distinguishes separate loss authorizations with public output pixels.",
     "execution": "One PASS: screen-only writes nothing; both authorizations permit transfer removal and output64. Header-corrected fixture; no inferred stream refusal."
+  },
+  {
+    "id": "2038-B78",
+    "kind": "behavior-gap",
+    "clauses": [
+      "12.6.3",
+      "12.6.4.17"
+    ],
+    "summary": "Enabled annotation visibility scripts follow current-page open/close instead of actual visibility transitions.",
+    "source": "Table197 PV/PI at physical523 and §12.6.3 distinction at522; accepted in-document/viewer scripting scope in ADR1904. ADR2814 section3 explicitly retains the incorrect script delay.",
+    "execution": "Three public recording-runner tests FAIL: no PV on neighbor entry, no PI on neighbor exit, and spurious PI/PV on current-page change while both pages remain visible. Initial PO/PV control passes in each. Core Clippy PASS.",
+    "cause": "visibility_of raises event set changes, but raise marks page scripts handed over without invoking the runner; run_page_scripts pairs PV/PI with PO/PC.",
+    "limits": "Runner callback timing within enabled scope, not engine interpretation or disabled-policy behavior. Independent of field inheritance B62. Ledger one-page premise stale; production and ledger unchanged."
   }
 ]

@@ -1,0 +1,7 @@
+{
+  "source": "Read §12.6.3 physical522, Table197 physical523, Table198 physical524 and mouse constraints525. PV/PI expressly distinguish visible/open pages and flags do not suppress these events. Relevant522–524 annotations are links only; #618 is a separate Table226 cross-reference.",
+  "assertions": "Read exact existing pointer/focus callback sequence, page C/O callbacks, six-event URI page-turn sequence and multi-page URI tests. Those cover non-script visibility or single-page scripts. Read current visibility_of set diff, raise event routing, annotation_triggers open/close pairing and handed_over removal. New fixtures are exact-xref PDF1.7 with Resources and valid annotation-local actions, no recovery/chain cut.",
+  "failure": "Three independent enabled-Run callback tests: entering neighbor noPV, leaving noncurrent neighbor noPI, changing current status with both pages still visible sends prematurePI and repeated/deferredPV. Each starts with current-page PO/PV positive control. No ECMAScript evaluation or engine-support claim.",
+  "decisions": "ADR2814 section3 explicitly retains script delay despite correcting non-script timing. Reopen that limited decision: Table197 has no script exception; ADR1904 records A286 support within document/viewer when runner supplied. DefaultOff is retained and not tested as a defect. Ledger3952 one-page premise is stale; ledger/historicalADR unchanged.",
+  "execution": "page-visible-wave128b3FAIL; quality-core-wave128PASS. B78 is one grouped timing defect with three independent failure identities."
+}

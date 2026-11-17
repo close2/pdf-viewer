@@ -6,7 +6,7 @@
     "broad": "Wave123: 7,321 run, 7,216 PASS, 105 FAIL, 58 skipped. Exact default-scope manifest match through122; no extra or missing failures.",
     "gtk": "Earlier20 tests PASS; checkpoint68 adds one GTK settings test PASS under Xvfb and one Qt bridge test PASS.",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "After broad123: seven new PASS and two promoted FAIL (B76,B77). Manifest114=107default+5GPU+1engine+1ignored. Four-package all-target Clippy126e PASS. Three script visibility failures await128 promotion.",
+    "later_targets": "After broad123: seven promoted new PASS, five promoted FAIL (B76 one,B77 one,B78 three). Manifest117=110default+5GPU+1engine+1ignored. Core Clippy128 PASS; stream-pattern tests await130 promotion.",
     "quality": "Checkpoint52 syntax/model/script/core/UI all-targets with engine PASS;51signature and earlier scopes recorded.",
     "script_engine": "247PASS4ignored plus separate corpus2PASS249filtered. Corpus counters documented; semantic/error provenance follow-up active.",
     "rendition_and_font": "B49/B50:7new tests,5PASS2FAIL;73total expected failures,70in eleven-crate scope+3GPU. Model/core Clippy PASS.",
@@ -18,12 +18,12 @@
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
-      "annotation_page_event_cells_current",
       "watermark_fixed_print_cells_current",
       "trapnet_table403_cells_current",
       "shading_pattern_type5_stream_current"
     ],
     "recorded_shards": [
+      "annotation_page_event_cells_current",
       "halftone_transfer_archive_loss_current",
       "collection_folder_cells_current",
       "structure_content_item_cells_current",
@@ -334,7 +334,7 @@
     "All 883 rows remain partially reviewed. Current work checks uncited EC3 annotation candidates against primary pages, effective wording, code and actual assertions.",
     "All69 file-only pointers have partial selected-assertion review; this does not certify entire files or features.",
     "Literal issue citation candidates are discovery metadata only, not counts of missing features. Selected batches remain under parent source review.",
-    "164 unique table matrices and all883 rows remain partial. Review callback timing, watermark/trap source matrices and stream-shading pattern follow-up before broad refresh.",
+    "166 unique table matrices and all883 rows remain partial. Finish watermark/trap source matrices and stream-pattern follow-up, then reconcile a fresh broad run.",
     "Stop new dispatch near 81%; preserve 15% weekly allowance at 85%."
   ],
   "budget": {

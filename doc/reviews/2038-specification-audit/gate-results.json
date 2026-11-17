@@ -3241,6 +3241,20 @@
       "skipped": 706,
       "exit": 100,
       "scope": "Threshold transfer loss: Four preservation and Two separate authorization"
+    },
+    {
+      "log": "page-visible-wave128b.log",
+      "run": 3,
+      "passed": 0,
+      "failed": 3,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "Enabled runner visibility entry/exit/current-page distinction"
+    },
+    {
+      "log": "quality-core-wave128.log",
+      "exit": 0,
+      "scope": "viewer-core all-target Clippy after three independent timing tests"
     }
   ],
   "prior_expected_failures": {
