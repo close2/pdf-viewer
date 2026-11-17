@@ -1,0 +1,35 @@
+{
+  "scope": "Selected decisions for external stream data and caller-owned resolution.",
+  "decisions": [
+    {
+      "adr": "ADR 0014",
+      "premise": "The viewer's image decoders run in a confined worker without filesystem or network access; the worker boundary remains intentional.",
+      "review": "Retain. The ordinary PDF reader refuses external stream data before decode rather than opening a document-derived path or allowing the worker to fetch. No defect follows from not implementing a file/network broker.",
+      "status": "retained"
+    },
+    {
+      "adr": "ADR 0104",
+      "premise": "Read file specifications as values, but never follow arbitrary paths in the viewer reader.",
+      "review": "Retain. It supports a separation between naming a file and accessing its contents. Table 5 /F is a stream source pointer, and the reader has no path resolution seam.",
+      "status": "retained"
+    },
+    {
+      "adr": "ADR 1199",
+      "premise": "External bytes are resolved by a caller and passed into pure archive conversion via ArchivePlan::external_data; the CLI's explicit local resolver is constrained to a file beside the source and does not fetch URLs.",
+      "review": "Retain and distinguish from viewer reading. This is an implemented conversion route, so a narrow integration test can verify that nondefault FDecodeParms moves with caller-supplied bytes and remains effective after embedding. Existing test uses only Predictor 1 and checks dictionary text, motivating the scratch draft.",
+      "status": "retained; bounded assertion-quality gap drafted"
+    },
+    {
+      "adr": "ADR 1176 (as cited by ADR 1199)",
+      "premise": "FFilter/FDecodeParms without F do not identify external stream data and are inert for reading the embedded stream; conversion can strip them while retaining bytes.",
+      "review": "Retained as the adopted interpretation. Existing archive test covers stripping orphan FFilter. No new reader behavior failure is claimed.",
+      "status": "retained"
+    },
+    {
+      "adr": "ADR 1155 (as cited by ADR 1199)",
+      "premise": "The optional conversion CLI resolves only the constrained path form, never a URL or arbitrary path traversal.",
+      "review": "Retain; this is an owner/tool access policy and does not narrow the PDF source text about how a supplied external stream is filtered.",
+      "status": "retained"
+    }
+  ]
+}

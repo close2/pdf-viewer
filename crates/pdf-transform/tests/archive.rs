@@ -6678,6 +6678,56 @@ fn the_external_filter_becomes_the_streams_filter() {
     );
 }
 
+/// Table 5 external filter parameters survive embedding and affect the decoded data.
+#[test]
+fn external_nondefault_decode_parameters_reach_the_embedded_stream_decoder() {
+    // One PNG Up row, one component, four bytes. The previous-row bytes are all zero, so these
+    // filtered bytes reconstruct literally to the valid form content `q\nQ\n`.
+    let png_up_row = [2, b'q', b'\n', b'Q', b'\n'];
+    let external_bytes = pdf_syntax::serialize::flate_encode(&png_up_row, 9)
+        .expect("the valid Flate payload encodes");
+    let source = a_document_whose_stream_points_outside_it(
+        "/F (logo.dat) /FFilter /FlateDecode \
+         /FDecodeParms << /Predictor 12 /Colors 1 /BitsPerComponent 8 /Columns 4 >>",
+        b"",
+    );
+    let parsed = Document::open(source.clone()).expect("valid source fixture");
+    assert!(!parsed.was_recovered());
+    assert!(!parsed.cross_reference_chain_was_cut());
+    let at = ObjectId {
+        number: 6,
+        generation: 0,
+    };
+    let (report, output) = convert_with_external_data(&source, at, &external_bytes);
+    assert_eq!(
+        decision(&report, "file-structure/no-external-stream-data"),
+        Decision::Mechanical(Rewrite::ExternalDataEmbedded)
+    );
+    let output = output.expect("the caller supplied the external file bytes");
+    assert_eq!(
+        holds(&output, Target::Four(Flavour::Plain)).verdict(),
+        Verdict::Conforms
+    );
+    let document = Document::open(output).expect("the rewritten PDF opens");
+    assert!(!document.was_recovered(), "the serializer writes its xref");
+    assert!(!document.cross_reference_chain_was_cut());
+    let object = document.get(at);
+    let stream = object
+        .as_stream()
+        .expect("object 6 remains the Form XObject stream");
+    assert!(!Document::is_external(stream), "F is removed");
+    assert!(stream.dict.get("FFilter").is_none());
+    assert!(stream.dict.get("FDecodeParms").is_none());
+    assert!(
+        matches!(stream.dict.get("Filter"), Some(pdf_syntax::Object::Name(name)) if name.as_bytes() == b"FlateDecode")
+    );
+    let decoded = document
+        .decoded_stream_data_reported(stream)
+        .expect("the rewritten filter chain and nondefault predictor decode");
+    assert_eq!(&*decoded.data, b"q\nQ\n");
+    assert_eq!(decoded.damage, None);
+}
+
 #[test]
 fn a_filter_key_with_no_file_is_removed_and_nothing_else_changes() {
     // Table 5 gives `/FFilter` meaning only through `/F`: with no external file named, it states

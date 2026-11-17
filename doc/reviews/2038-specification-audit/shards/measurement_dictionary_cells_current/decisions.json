@@ -1,0 +1,22 @@
+{
+  "reviews": [
+    {
+      "adr": "0082",
+      "question": "Does the current implementation and test evidence substantiate the accepted reading of Tables 265–268, in particular normalized BBox semantics and the §12.9.2 example?",
+      "evidence": "The model has reverse viewport selection, origin/orientation-aware rectilinear math and exact standard example output. The new T52 public test supplies a distinct numeric viewport-selection control. The existing public Query test for the worked formatting route only asserts fragments, while the model-level formatter test checks the complete exact string.",
+      "verdict": "Reaffirm the core model reading, but qualify the ADR's test-evidence claim at the public seam: a model exact-output test plus public fragment assertions is not an end-to-end exact result assertion. A scratch candidate adds that narrower public witness; this is an assertion-strength observation, not proof of a runtime defect."
+    },
+    {
+      "adr": "1191",
+      "question": "Does the public Query::Measure consumer carry document-selected formatting details to the returned text?",
+      "evidence": "viewer_core::Query::Measure calls through to the model and returns Traced strings; existing public test reaches the document's dictionary but does not compare its exact numeric string. Table 268 explicitly stores the formatting strings and choices in the PDF, while user-interface presentation is the processor's route.",
+      "verdict": "The architecture decision remains supported. Narrowly strengthen the assertion at the Query boundary for a non-default decimal separator and fixed precision, with a default-format positive control. Do not treat UI localization or native label rendering as an ISO defect."
+    },
+    {
+      "adr": "1593",
+      "question": "Does the accepted geospatial display choice affect this dictionary-cell audit?",
+      "evidence": "ADR 1593 fixes decimal-degree wording for geospatial positions; it does not define rectilinear number formatting or the Table 268 decimal separator. B73 concerns image-associated GEO data and is a separate coverage issue.",
+      "verdict": "No reconsideration of the geospatial affine/display choice is warranted by Tables 265–268. Keep the decimal formatter candidate separate from image Measure and the adopted geospatial mapping."
+    }
+  ]
+}

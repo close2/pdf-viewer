@@ -1,0 +1,7 @@
+{
+  "verdict": "T153: exact document-selected decimal output reaches Query; new test PASS.",
+  "source": "Parent read primary611–616, corrected all shifted table starts and algorithm range. Read model exact example and four-F-variant oracles. Existing public geometry used for actual device origin/scale, avoiding an assumed margin-free page.",
+  "oracle": "12.5 is a literal page-unit segment, X/D conversion1. RD comma and FDtrue/D100 require12,50; absent entries use period/default precision and adopted permitted trimming to12.5. Final spacing trimming is a documented choice, not an ISO MUST. Exact-xref valid PDF1.7 with required RL R/X/D/A.",
+  "execution": "measurement-format-wave114:1PASS; core/transform all-target Clippy PASS.",
+  "limits": "One decimal dictionary and default control. No claim that every fraction, prefix, native UI or measured geometry is covered. ADR0082/1191 architecture retained with public assertion strengthening."
+}

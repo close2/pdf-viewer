@@ -3050,6 +3050,29 @@
       "log": "quality-font-model-wave113b.log",
       "exit": 0,
       "scope": "Final font/model all-target Clippy after doc formatting repair."
+    },
+    {
+      "log": "measurement-format-wave114.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Exact public decimal formatting."
+    },
+    {
+      "log": "external-filter-wave114b.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 705,
+      "exit": 0,
+      "scope": "Nondefault external filter parameter archive conversion;705filtered."
+    },
+    {
+      "log": "quality-core-transform-wave114.log",
+      "exit": 0,
+      "scope": "Core/transform all-target Clippy."
     }
   ],
   "prior_expected_failures": {

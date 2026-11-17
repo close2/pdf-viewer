@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (113)
+## Current checkpoint (114)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **107 failing test identities**: 106 behavior assertions/probes
@@ -469,6 +469,12 @@ Checkpoint 113 adds passing literal Table 113 mapping and valid CCITT EOFB image
 controls. The fax fixture distinguishes black and white source rows, including a
 shorter Rows parameter. Font/model Clippy passes. Eight selected table matrices bring
 the unique partial count to 118; the failure manifest remains 107.
+
+Checkpoint 114 adds two passing public-consumer tests: exact decimal measurement
+formatting and nondefault external-filter parameters after archive embedding. Clippy
+passes. D66 corrects an audit error: issue 10 changes the external stream Length
+obligation, not the already-mandatory embedded-byte-ignore rule. Seven more selected
+matrices bring the unique partial count to 125; no new failing identity is added.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

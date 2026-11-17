@@ -1,0 +1,92 @@
+{
+  "baseline": "b901326c",
+  "scope": "Table 5 external stream entries /F, /FFilter, /FDecodeParms, plus the §7.4.1 external-filter rule and the adopted caller-supplied resolver boundary. Reconciles existing stream_dictionary_cells_current; not a general file-specification or filter-codec audit.",
+  "source": {
+    "document": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "locations": [
+      {
+        "source": "Table 5, rows F and FFilter",
+        "physical_page": 47,
+        "printed_page": 32
+      },
+      {
+        "source": "Table 5, row FDecodeParms",
+        "physical_page": 48,
+        "printed_page": 33
+      },
+      {
+        "source": "§7.3.8.1 external stream data and stream/endstream rule",
+        "physical_page": 47,
+        "printed_page": 32
+      },
+      {
+        "source": "§7.4.1 external Filter and DecodeParms descriptions plus reader SHALL invoke filters",
+        "physical_pages": [
+          49,
+          50
+        ],
+        "printed_pages": [
+          34,
+          35
+        ]
+      }
+    ],
+    "effective_rules": [
+      "/F is optional from PDF1.2. Present F already requires ignoring embedded bytes. EC3 issue10 separately changes Length should to shall: Length still specifies their count, usually zero.",
+      "/FFilter names filters for data in the external file. /FDecodeParms gives their parameters under the same rules as ordinary DecodeParms.",
+      "§7.4.1 identifies FFilter/FDecodeParms as the external equivalents and says a PDF reader shall invoke the corresponding filters to restore original data. The text does not require a processor to obtain an external file from disk/network.",
+      "If /F is not present, the F-prefixed entries do not describe the embedded data; ordinary /Filter and /DecodeParms govern the embedded stream. This matches ADR 1199's adopted conversion interpretation."
+    ],
+    "errata": "Parent matched issue10 linked strike x303.519–332.532/y181.409–191.369 to bbox word should at x303.51882/y648.838 on841.92-high physical47. It changes the Length requirement, not the already mandatory ignore-bytes sentence. FFilter/FDecodeParms semantics unchanged."
+  },
+  "implementation_and_contract": {
+    "viewer_reader": [
+      "crates/pdf-syntax/src/document/images.rs::Document::is_external tests presence of F directly; it does not resolve a FileSpec or open a path.",
+      "crates/pdf-syntax/src/document/decoding.rs::decoded_chain returns StreamRefusal::External before applying the ordinary Filter chain.",
+      "crates/pdf-syntax/src/document/sources.rs::stream_source refuses F streams; image_stream also refuses. These routes do not access a filesystem or network.",
+      "The sandbox worker is deliberately isolated from filesystem and network; no stream external-file resolver/broker is part of the viewer reader contract."
+    ],
+    "caller_supplied_conversion": [
+      "crates/pdf-transform/src/archive/mod.rs::ArchivePlan has external_data: BTreeMap<ObjectId, Arc<[u8]>> supplied by the caller.",
+      "crates/pdf-transform/src/bin/quorra-transform.rs::resolve_the_external_data honors explicit --resolve-external-data for a plain file name beside the source, refuses URLs and out-of-directory paths, and inserts supplied bytes into the plan.",
+      "crates/pdf-transform/src/archive/external.rs::embedded_stream replaces embedded bytes with caller-supplied bytes, maps FFilter to Filter and FDecodeParms to DecodeParms, recalculates Length, and removes external keys.",
+      "This conversion route is distinct from normal document viewing and does not grant the PDF reader host access."
+    ]
+  },
+  "assertions": [
+    {
+      "test": "crates/pdf-syntax/tests/spec_stream_objects_audit.rs::an_external_stream_is_refused_while_the_same_embedded_filter_decodes_without_f",
+      "evidence": "Exact-xref public API pair. Same embedded ASCIIHex bytes decode to literal content without F; with F and FFilter, stream_source and decoded_stream_data refuse and nested_content_source reports External. This exercises the pre-existing Table5 ignore-bytes rule while avoiding any claim that embedded bytes are external data.",
+      "limit": "Does not fetch external bytes or decode FFilter/FDecodeParms."
+    },
+    {
+      "test": "crates/pdf-transform/tests/archive.rs::the_external_filter_becomes_the_streams_filter",
+      "evidence": "Caller supplies encoded bytes through ArchivePlan; output has ordinary Filter and no F-prefixed keys. Existing parameter is Predictor 1 (default), and assertion checks key text/conformance but not decoded output or meaningful parameter effect.",
+      "limit": "It does not discriminate a lost/ignored nondefault FDecodeParms value."
+    },
+    {
+      "test": "crates/pdf-transform/tests/archive.rs::a_filter_key_with_no_file_is_removed_and_nothing_else_changes",
+      "evidence": "Covers transformation of orphan FFilter when no F exists, preserving stream bytes and output conformance. This concerns the archive rewrite, not viewer decoder behavior.",
+      "limit": "Does not test a public reader with orphan F-prefixed keys; no new malformed-input obligation inferred."
+    },
+    {
+      "test": "crates/pdf-transform/tests/archive.rs::the_command_line_program_reads_a_file_beside_the_document_and_refuses_everything_else",
+      "evidence": "Exercises the explicit local resolver rule, and refusal of parent traversal / mixed resolved-unresolved streams.",
+      "limit": "The test does not claim URL/network access; this scope is intentionally refused."
+    }
+  ],
+  "draft": {
+    "path": "drafts/external_filter_decodeparms_archive.rs",
+    "purpose": "Use explicit caller-supplied external bytes and a valid nondefault PNG Up DecodeParms value; verify the rewritten stream through the independent public pdf-syntax decoder returns literal q/Q form operators.",
+    "expected_data": "The raw Flate payload decompresses to [2,'q','\\n','Q','\\n']; Predictor 12 Up on the first row uses zero prior-row samples and reconstructs literal `q\\nQ\\n`.",
+    "status": "Unrun scratch test addition; parent reviews and executes.",
+    "fixture": "Reuses archive.rs Conforming builder (complete generated PDF/xref) and valid one-page Form XObject witness; F is a file-spec string. External bytes are supplied in-memory through the documented plan API, not retrieved by the test."
+  },
+  "limits": [
+    "No standards requirement to open arbitrary host paths or fetch URLs is inferred.",
+    "No requirement to add a general resolver to the viewer or sandbox is inferred.",
+    "The draft tests archive rewrite preservation of a nondefault external filter parameter, not viewer resolution of external data and not every filter/parameter pair.",
+    "Malformed F/FFilter/FDecodeParms combinations and producer rejection policy are outside this review."
+  ],
+  "parent_execution": "T154 new nondefault external predictor archive test PASS; parent fixed scratch escaped-newline/API errors, bound resolved object, and used decoded_stream_data_reported with damageNone assertion. No viewer resolver or host access added."
+}

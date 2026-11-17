@@ -3496,5 +3496,39 @@
     "summary": "A valid Group4 EOFB stream proves EndOfBlock overrides shorter Rows through image rendering.",
     "execution": "Distinct black/white source rows with Rows1/Rows2 controls PASS; model Clippy PASS.",
     "qualification": "Existing missing-RTC fixture is tolerance evidence. New fixture covers one valid stream; no general malformed-input or codec certification."
+  },
+  {
+    "id": "2038-T153",
+    "kind": "assertion-quality",
+    "clauses": [
+      "12.9.1",
+      "12.9.2"
+    ],
+    "summary": "Document decimal separator and fixed precision have an exact public Query string oracle.",
+    "execution": "One new test PASS; default formatting control uses documented permitted zero trimming. Core Clippy PASS."
+  },
+  {
+    "id": "2038-T154",
+    "kind": "assertion-quality",
+    "clauses": [
+      "7.3.8.1",
+      "7.3.8.2",
+      "7.4.1",
+      "7.4.4.4"
+    ],
+    "summary": "Archive embedding preserves a nondefault external filter parameter through actual decoded bytes.",
+    "execution": "One new archive test PASS; literal q/newline/Q/newline output and no damage. Transform Clippy PASS.",
+    "qualification": "Caller-supplied in-memory bytes; no viewer file/network resolution obligation or whole-PDF/A certificate."
+  },
+  {
+    "id": "2038-D66",
+    "kind": "audit-source-correction",
+    "clauses": [
+      "7.3.8.1",
+      "7.3.8.2"
+    ],
+    "summary": "Earlier audit notes attributed EC3 issue10 to the wrong sentence in Table5.",
+    "evidence": "Linked strike/bbox selects should in Length entry should still specify; replacement shall. Embedded bytes shall be ignored was already mandatory.",
+    "qualification": "Supersedes earlier audit attribution; tests of external refusal remain valid for the base table. No runtime defect or mandatory malformed-Length rejection inferred."
   }
 ]

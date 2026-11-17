@@ -1,0 +1,8 @@
+{
+  "verdict": "Selected CMap dictionary/support evidence reconciled; no new failure or test.",
+  "source": "Parent read actual114345,116350–352,117353 and118353–354, with direct#518/#278 annotations.117 is intentionally empty; following normative prose remains active. Table115 body345–346, not347 examples.",
+  "corrections": "Rejected draft claim that read_cmap enforces matching in-file base metadata: source tolerates omitted UseCMap if a carried in-file base is resolvable; only unresolved inheritance is refused. Producer mismatch constraints do not impose mandatory reader rejection. Historical UseCMap draft-only note is superseded by tracked T129 PASS in97/111.",
+  "adr": "Parent reread0140 and0045: carrying authoritative data lazily and using WMode-specific metrics remain supported. WMode conflict refusal is a defensible policy for inconsistent producer data, not a new mandatory rejection rule.",
+  "residual": "Newer-supplement rule is conditional on processor-supported version, not automatically each file header version. No later-than-supported authoritative CID example established, so record unresolved evidence without a runtime violation claim.",
+  "execution": "Read-only reconciliation of existing wave111 evidence; no new test run for unchanged consumers."
+}

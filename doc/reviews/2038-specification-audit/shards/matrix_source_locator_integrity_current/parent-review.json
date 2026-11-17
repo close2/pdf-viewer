@@ -1,0 +1,5 @@
+{
+  "verdict": "No confirmed span error in this selected15-matrix pass. Parent rejected the sole alleged mismatch.",
+  "correction": "Actual476 begins Table163 P/R continuation rows before the example. Existing475–476 span is correct. Reviewer initially skipped those two rows and amended its reconciliation after parent primary check.",
+  "scope": "Reconciliation is selected reviewer evidence, not certification of all118/125 table sources or meanings. Historical artifacts unchanged."
+}

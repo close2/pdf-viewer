@@ -1,0 +1,95 @@
+{
+  "scope": "Bounded review of ISO 32000-2:2020 §12.9.1 Tables 265–268 and §12.9.2, effective Errata Collection 3. This is not a certification of every measurement mode or all §12.10 behavior.",
+  "source": {
+    "primary": "ISO_32000-2_sponsored_EC3.pdf, viewed at scratchpad/r2038/spec-audit/ec3-parent-layout.txt; page footers checked against PDF pages",
+    "locators": [
+      {
+        "table": "265 — Entries in a viewport dictionary",
+        "printed_page": 596,
+        "physical_page": 611,
+        "coverage": "BBox geometry/orientation, Name, Measure, PtData"
+      },
+      {
+        "table": "266 — Entries in a measure dictionary",
+        "printed_page": 597,
+        "physical_page": 612,
+        "coverage": "Type, Subtype, RL default and GEO alternative"
+      },
+      {
+        "table": "267 — Additional entries in a rectilinear measure dictionary",
+        "printed_pages": [
+          598,
+          599
+        ],
+        "physical_pages": [
+          613,
+          614
+        ],
+        "coverage": "R, X, conditional Y, D, A, optional T/S/O/CYX and their scaling/availability conditions"
+      },
+      {
+        "table": "268 — Entries in a number format dictionary",
+        "printed_pages": [
+          599,
+          600
+        ],
+        "physical_pages": [
+          614,
+          615
+        ],
+        "coverage": "Type/U/C/F/D/FD/RT/RD/SS/PS/O and formatting defaults"
+      },
+      {
+        "clause": "12.9.2 — Algorithm: Use of a number format array to create a formatted text string",
+        "printed_pages": [
+          600,
+          601
+        ],
+        "physical_pages": [
+          615,
+          616
+        ],
+        "coverage": "five-step sequence and standard worked output"
+      }
+    ],
+    "errata_review": "The directly inspected PDF annotations over physical 611–615 are Links, not correction overlays. No EC3 correction affecting Tables 265–268 or §12.9.2 was found in this bounded range. This does not imply absence of errata elsewhere in §12.9.",
+    "parent_correction": "Actual table captions/rows:265611,266612,267613–614,268614–615; algorithm615–616. Parent corrected draft that mistook preceding prose references for actual table starts."
+  },
+  "features": [
+    {
+      "id": "measurement.viewport_dictionary_cells",
+      "source_rule": "Table 265: BBox is normalized lower-left then upper-right in measuring coordinates; its ordering sets positive-axis orientation independently of page rotation and is independent of O. Name is a descriptive UI string. Measure specifies scale/units for contents in viewport. PtData is optional PDF 2.0 extended geospatial data.",
+      "consumer": "pdf_model::measurement::Viewport/Viewports; viewer_core Query::Measure consumes page viewports. Image-XObject Measure query gap is separately captured by B73 and is not repeated here.",
+      "assertions": "Model tests cover viewport containment, array reverse-order selection, and first-point selection. Public measuring tests assert viewport names and paths; numeric distinct-scale first-point control is in measurement_geospatial_current / T52 and must not be counted as new here. The source's bbox-axis orientation and O independence are not proved by a name-only assertion; model implementation reads signs/origin separately. No additional failure is asserted in this shard.",
+      "status": "bounded coverage; no new defect asserted"
+    },
+    {
+      "id": "measurement.measure_dictionary_cells",
+      "source_rule": "Table 266: Type optional with Measure value; Subtype optional with RL or PDF 2.0 GEO; other subtypes may be used; default RL.",
+      "consumer": "pdf_model::measurement::measure_dictionary; viewer Query and annotation measurement consumers use the parsed subtype.",
+      "assertions": "a_geospatial_measure_carries_the_earth_model_and_not_a_scale exercises GEO; rectilinear fixtures exercise RL. Not a comprehensive acceptance/rejection test of every unknown subtype, which the source explicitly permits.",
+      "status": "bounded model behavior covered; no unknown-subtype mandate inferred"
+    },
+    {
+      "id": "measurement.rectilinear_dictionary_cells",
+      "source_rule": "Table 267: R/X/D/A required; Y required only when axis units or factors differ; T and S optional; O defaults to BBox lower-left; CYX only meaningful with Y, and without CYX distance/area/angle may not be performed. Axis factors are applied before distance/area; slope does not require CYX.",
+      "consumer": "Rectilinear model converts axes before distance/area, honors viewport orientation and O, and exposes distance/area/angle/slope through Query::Measure.",
+      "assertions": "a_distance_is_measured_in_the_first_points_viewport_with_its_axes_scaled_first has literal unequal X/Y/CYX value and a 1:1 control; two_axes_with_no_conversion_between_them_have_no_distance checks absence; slope and angle model tests have literal values. Public query's standard worked-example path currently checks the result's unit fragments and absent slope, not its exact length/area string; its model-level standard example is exact. No broader crosswalk of every optional-field combination is claimed.",
+      "status": "core numeric behavior has independent literals; public end-to-end formatting assertion is weaker than the model oracle"
+    },
+    {
+      "id": "measurement.number_format_cells_and_algorithm",
+      "source_rule": "Each array contains one or more NumberFormat dictionaries in descending granularity. Table 268 defines required U/C; F defaults D and applies only to the last dictionary; D defaults to 100 for decimal and 16 for fractional display; FD controls retaining low-order decimal zeros / unreduced denominator; RT and RD default comma/period; SS/PS default one space; O defaults suffix placement. §12.9.2 carries fractional remainders through the array and the example's literal result is 1 mi 2,378 ft 7 5/8 in. FD=false permits reducing fractions/truncating zeros, rather than requiring that presentation. Trimming final spacing is also a documented implementation choice.",
+      "consumer": "number_format parses the Table 268 values; measurement::format implements the algorithm; Query::Measure returns formatted strings to hosts.",
+      "assertions": "the_clauses_own_example_formats_the_string_it_states compares exact standard output, including grouping and fractional eighths. each_value_of_f_shows_the_fraction_its_own_way directly tests F= D/F/R/T, D=100/16, FD true/false with exact values. a_value_with_no_fraction_stops_at_the_first_unit tests O=P and the default spacing. The public query test reaches the standard dictionary but only checks starts_with/contains/ends_with, not the numeric result; the model exact test does not traverse PDF dictionary parsing and the public API together. Explicit custom RD/RT and parser-level FD/default combinations lack a single public end-to-end literal witness in the inspected tests.",
+      "status": "model algorithm is strongly tested; narrow public parser-to-query assertion gap drafted for decimal precision/separator and default control"
+    }
+  ],
+  "unreviewed_subfeatures": [
+    "Exhaustive malformed dictionary recovery/limits and every unknown number-format name.",
+    "All annotation-specific measurement dictionaries and producer-side construction obligations.",
+    "Complete §12.10 coordinate systems, image/form Measure attachment, and PtData interaction; image Measure is separate B73, and non-page consumers are not included in this table audit.",
+    "Native host presentation choices such as localized decimal conventions or RTL layout. Table 268 supports document-provided strings; no universal locale or right-to-left requirement is inferred here."
+  ],
+  "parent_execution": "T153 new dictionary-to-Query literal12,50 u and adopted-default12.5 u test PASS; actual PageGeometry used, exact xref and complete chain. Core/transform all-target Clippy PASS."
+}

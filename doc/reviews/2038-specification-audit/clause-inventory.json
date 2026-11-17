@@ -414,7 +414,9 @@
       "shards/syntax_streams_filters_current/features.json",
       "shards/errata_early_behavior_current/features.json",
       "shards/file_only_reference_assertions_current/features.json",
-      "shards/stream_dictionary_cells_current/features.json"
+      "shards/stream_dictionary_cells_current/features.json",
+      "shards/errata_10_target_correction_current/features.json",
+      "shards/stream_external_file_cells_current/features.json"
     ],
     "prior_artifacts": [
       "stream_objects_audit"
@@ -430,7 +432,9 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/syntax_streams_filters_current/features.json",
-      "shards/stream_dictionary_cells_current/features.json"
+      "shards/stream_dictionary_cells_current/features.json",
+      "shards/errata_10_target_correction_current/features.json",
+      "shards/stream_external_file_cells_current/features.json"
     ],
     "prior_artifacts": [
       "stream_objects_audit"
@@ -513,7 +517,8 @@
       "shards/indirect_filter_parameters_current/features.json",
       "shards/errata_graphics_security_batch_current/features.json",
       "shards/inline_filter_chain_separator_current/features.json",
-      "shards/stream_dictionary_cells_current/features.json"
+      "shards/stream_dictionary_cells_current/features.json",
+      "shards/stream_external_file_cells_current/features.json"
     ],
     "prior_artifacts": [
       "stream_objects_audit"
@@ -631,7 +636,8 @@
       "shards/predictors_current/features.json",
       "shards/indirect_filter_parameters_current/features.json",
       "shards/lang_hex_and_predictor_bpc_current/features.json",
-      "shards/filter_parameter_cells_current/features.json"
+      "shards/filter_parameter_cells_current/features.json",
+      "shards/stream_external_file_cells_current/features.json"
     ],
     "prior_artifacts": [
       "flate_lzw_predictors"
@@ -4882,7 +4888,8 @@
       "shards/errata_weak_dispositions_batch4_current/features.json",
       "shards/errata_weak_dispositions_batch5_current/features.json",
       "shards/cid_font_dictionary_cells_current/features.json",
-      "shards/type0_cmap_cells_current/features.json"
+      "shards/type0_cmap_cells_current/features.json",
+      "shards/cmap_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -4983,7 +4990,8 @@
     "current_artifacts": [
       "shards/font_substitution_current/features.json",
       "shards/cid_opentype_current/features.json",
-      "shards/type0_cmap_cells_current/features.json"
+      "shards/type0_cmap_cells_current/features.json",
+      "shards/cmap_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -4999,7 +5007,8 @@
       "shards/cid_opentype_current/features.json",
       "shards/errata_reference_editorial_current/features.json",
       "shards/errata_weak_dispositions_batch3_current/features.json",
-      "shards/type0_cmap_cells_current/features.json"
+      "shards/type0_cmap_cells_current/features.json",
+      "shards/cmap_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -5013,7 +5022,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/cid_opentype_current/features.json",
-      "shards/type0_cmap_cells_current/features.json"
+      "shards/type0_cmap_cells_current/features.json",
+      "shards/cmap_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -6946,7 +6956,8 @@
       "shards/outlines_threads_current/features.json",
       "shards/silent_fixture_skip_current/features.json",
       "shards/silent_fixture_skip_remaining_current/features.json",
-      "shards/viewer_preferences_cells_current/features.json"
+      "shards/viewer_preferences_cells_current/features.json",
+      "shards/matrix_source_locator_integrity_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -9060,7 +9071,8 @@
       "shards/measurement_geospatial_current/features.json",
       "shards/interactive_framing_current/features.json",
       "shards/errata_font_annotation_reference_batch_current/features.json",
-      "shards/image_measurement_consumer_current/features.json"
+      "shards/image_measurement_consumer_current/features.json",
+      "shards/measurement_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -9073,7 +9085,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/measurement_geospatial_current/features.json"
+      "shards/measurement_geospatial_current/features.json",
+      "shards/measurement_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."

@@ -1,0 +1,114 @@
+{
+  "method": "Cross-checked the newest 25 matrix entries in table-cell-review-index.json, taking the first 15 as the bounded first pass. For each selected matrix, located the table caption in the extracted primary EC3 PDF layout, followed its final table row(s) and any continuation page, and checked the printed footer. This reports source-span integrity only; it does not re-audit cell semantics or test claims.",
+  "primary": "ISO_32000-2_sponsored_EC3.pdf; page text at scratchpad/r2038/spec-audit/ec3-parent-layout.txt, with physical pages checked against their footer.",
+  "checked_matrices": [
+    {
+      "table": "68",
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "claimed": "physical 208 / printed 193",
+      "observed": "caption and table on physical 208 / printed 193",
+      "result": "verified"
+    },
+    {
+      "table": "70",
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "claimed": "physical 221 / printed 206",
+      "observed": "caption and rows on physical 221 / printed 206",
+      "result": "verified"
+    },
+    {
+      "table": "71",
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "claimed": "physical 223 / printed 208",
+      "observed": "caption and all table rows on physical 223 / printed 208; physical 222 is preceding table-referenced prose and initial Colorants/Process conditions",
+      "result": "verified"
+    },
+    {
+      "table": "72",
+      "artifact": "shards/colour_dictionary_cells_current/features.json",
+      "claimed": "physical 224 / printed 209",
+      "observed": "caption and rows on physical 224 / printed 209",
+      "result": "verified"
+    },
+    {
+      "table": "147",
+      "artifact": "shards/viewer_preferences_cells_current/features.json",
+      "claimed": "physical 452–455 / printed 437–440",
+      "observed": "caption begins physical 452 / printed 437; rows continue through physical 455 / printed 440",
+      "result": "verified"
+    },
+    {
+      "table": "148",
+      "artifact": "shards/viewer_preferences_cells_current/features.json",
+      "claimed": "physical 456 / printed 441",
+      "observed": "caption and sole Enforce-name row on physical 456 / printed 441; physical 455 / printed 440 contains the preceding PrintScaling row and cross-reference prose",
+      "result": "verified"
+    },
+    {
+      "table": "162",
+      "artifact": "shards/viewer_preferences_cells_current/features.json",
+      "claimed": "physical 475 / printed 460",
+      "observed": "caption and complete Type/F/I/Metadata rows on physical 475 / printed 460",
+      "result": "verified"
+    },
+    {
+      "table": "163",
+      "artifact": "shards/viewer_preferences_cells_current/features.json",
+      "claimed": "physical 475–476 / printed 460–461",
+      "observed": "caption and Type/T/N/V rows on physical 475 / printed 460; the required P and R rows continue at the top of physical 476 / printed 461 before the example bead objects and §12.4.4 heading.",
+      "result": "verified",
+      "reconciliation_note": "An initial read of only the lower page 476 region missed its table continuation at the top; parent caught the omitted P/R rows on direct page review. Existing source span is correct."
+    },
+    {
+      "table": "15",
+      "artifact": "shards/xref_dictionary_cells_current/features.json",
+      "claimed": "physical 73–74 / printed 58–59",
+      "observed": "caption/Size/Prev rows on physical 73 / printed 58; Root/Encrypt/Info/ID continuation rows on physical 74 / printed 59",
+      "result": "verified"
+    },
+    {
+      "table": "16",
+      "artifact": "shards/xref_dictionary_cells_current/features.json",
+      "claimed": "physical 77 / printed 62",
+      "observed": "caption and rows on physical 77 / printed 62",
+      "result": "verified"
+    },
+    {
+      "table": "17",
+      "artifact": "shards/xref_dictionary_cells_current/features.json",
+      "claimed": "physical 81–82 / printed 66–67",
+      "observed": "caption and Type/Size/Index rows on physical 81 / printed 66; Prev and W continuation rows on physical 82 / printed 67",
+      "result": "verified"
+    },
+    {
+      "table": "18",
+      "artifact": "shards/xref_dictionary_cells_current/features.json",
+      "claimed": "physical 82–83 / printed 67–68",
+      "observed": "caption and type-0 initial fields on physical 82 / printed 67; remaining type-0/type-1/type-2 rows on physical 83 / printed 68",
+      "result": "verified"
+    },
+    {
+      "table": "19",
+      "artifact": "shards/xref_dictionary_cells_current/features.json",
+      "claimed": "physical 83 / printed 68",
+      "observed": "caption and XRefStm row on physical 83 / printed 68; compatibility prose/example continues on physical 84 / printed 69",
+      "result": "verified for table; following prose is not part of the table"
+    },
+    {
+      "table": "103",
+      "artifact": "shards/text_state_cells_current/features.json",
+      "claimed": "physical 316 / printed 301",
+      "observed": "caption and all text-state operator rows on physical 316 / printed 301; physical 317 begins explanatory prose, not table continuation",
+      "result": "verified"
+    },
+    {
+      "table": "104",
+      "artifact": "shards/text_state_cells_current/features.json",
+      "claimed": "physical 319 / printed 304",
+      "observed": "caption and rendering-mode rows on physical 319 / printed 304; physical 320 continues explanatory prose, not table rows",
+      "result": "verified"
+    }
+  ],
+  "known_out_of_index_locator_note": "The immediately preceding measurement_dictionary_cells_current scratch artifact is outside this table-cell index subset. Parent's direct-source locator correction applies: Table 265 physical 611; Table 266 physical 612; Table 267 physical 613–614; Table 268 physical 614–615; §12.9.2 algorithm physical 615–616. Its source.locators entries in that shard currently need those corrected spans; parent has already been notified.",
+  "limits": "The remaining ten newest matrices were not checked in this pass. This review identifies no locator mismatch in the selected 15; it does not validate their feature interpretations or underlying assertions. This pass itself initially misread a continued table because it did not inspect the top of physical 476; the parent correction is recorded above."
+}

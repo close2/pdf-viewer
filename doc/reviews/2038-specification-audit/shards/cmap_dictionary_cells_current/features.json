@@ -1,0 +1,104 @@
+{
+  "scope": "Bounded review of Table 114 CIDSystemInfo semantics; Table 116 predefined CMap names/data; Table 117's explicit empty placeholder and the following collection-version prose; and Table 118 CMap stream dictionary cells. Table 115 CIDFont cells are owned by cid_font_dictionary_cells_current and are not re-certified here. Table 119 is cross-referenced only. This is not a whole-CMap syntax audit.",
+  "source": {
+    "primary_pdf": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "verified_locations": [
+      {
+        "item": "Table 114 — Entries in a CIDSystemInfo dictionary",
+        "physical_page": "345",
+        "printed_page": "330",
+        "verification": "actual header, all three rows, and footer"
+      },
+      {
+        "item": "Table 115 — Entries in a CIDFont dictionary",
+        "physical_pages": "345-346",
+        "printed_pages": "330-331",
+        "verification": "not re-audited; assigned to sibling cid_font_dictionary_cells_current"
+      },
+      {
+        "item": "Table 116 — Predefined CJK CMap names",
+        "physical_pages": "350-352",
+        "printed_pages": "335-337",
+        "verification": "actual header, continuation rows, and footers"
+      },
+      {
+        "item": "Table 117 — Character collections for predefined CMaps, by PDF version",
+        "physical_page": "353",
+        "printed_page": "338",
+        "verification": "actual header and explicit empty-table statement"
+      },
+      {
+        "item": "Table 118 — Additional entries in a CMap stream dictionary",
+        "physical_pages": "353-354",
+        "printed_pages": "338-339",
+        "verification": "actual header and continuation rows"
+      }
+    ],
+    "effective_errata": "Issue #518 is attached to §9.7.3 at physical p344/printed p329; its strikeout removes the CMap-side array form of CIDSystemInfo. The effective shape is a dictionary, matching Table 118. Issue #278 on physical p353 is punctuation-only in §9.7.5.3 and does not change Table 118. Table 116/117 rows have no directly applicable EC3 alteration found in the inspected source."
+  },
+  "features": [
+    {
+      "id": "table114-cidsysteminfo-identity-and-supplement",
+      "source_feature": "Table 114 requires ASCII-string Registry and Ordering and an integer Supplement. Registry has a registered-prefix/underscore format; Supplement tracks collection additions. §9.7.3 says compatibility is determined by Registry and Ordering, and explicitly says Supplement shall not be used to determine compatibility. The compatibility rule is a constraint on the PDF's CMap/CIDFont pair.",
+      "ledger": "doc/conformance/ledger.toml §9.7.3 and §9.7.4.1; Table 115 is reviewed separately",
+      "code": "crates/pdf-font/src/composite.rs::collection_names reads Registry and Ordering; it deliberately does not read Supplement. CID mappings use the Type0 CMap and descendant mapping, not a table-114 string validation path.",
+      "assertions": [
+        "crates/pdf-font/src/predefined.rs::a_cid_reaches_a_character_through_the_collections_own_table",
+        "crates/pdf-font/src/predefined.rs::a_code_reaches_a_character_through_a_cid",
+        "crates/pdf-font/src/composite.rs tests of collection-name reporting/refusal"
+      ],
+      "assertion_assessment": "The implementation follows the explicit no-Supplement-for-compatibility rule by using only Registry/Ordering where collection identity is needed. The tested CIDs are literal Adobe-Japan1 values. The ASCII/prefix constraints describe producer data; this pass does not infer a reader rejection duty for malformed strings.",
+      "verdict": "No new defect identified. Supplement is correctly absent from the compatibility identity calculation.",
+      "residuals": "No test varies only Supplement through a public rendering path. The post-Table117 version-specific CID ceiling is separately unresolved below; do not conflate that rule with Table114 compatibility."
+    },
+    {
+      "id": "table116-predefined-cmaps-and-required-collections",
+      "source_feature": "Table 116 lists CMap names and their code/CID and horizontal/vertical descriptions. §9.7.5.2 separately says a processor shall support Adobe-CNS1-7, Adobe-GB1-5, Adobe-Japan1-7 and Adobe-KR-9. Identity-H/V map two-byte codes to same-number CIDs, high byte first. The normative names/data are not fully enumerated by a test table copied into source.",
+      "ledger": "doc/conformance/ledger.toml §9.7.5.2 and aggregate §9.7",
+      "code": "crates/pdf-font/src/predefined.rs holds all 239 Adobe CMap resources (including inherited chains) and constructs Identity-H/V; crates/pdf-font/src/cmap.rs parses mappings/codespaces; crates/pdf-font/src/composite.rs routes Type0 Encoding to predefined CMaps.",
+      "assertions": [
+        "crates/pdf-font/src/predefined.rs::the_collections_the_clause_requires_are_carried",
+        "::every_carried_cmap_states_a_codespace_and_a_mapping",
+        "::a_shift_jis_cmap_decodes_both_its_code_lengths",
+        "::a_vertical_cmap_inherits_from_its_horizontal_twin",
+        "::no_carried_cmap_chain_is_cut_by_the_depth_bound",
+        "crates/pdf-model/tests/composite_font_fixtures.rs::a_predefined_cmap_named_by_the_type_0_font_is_resolved"
+      ],
+      "assertion_assessment": "Assertions cover required collection Unicode map data, every carried map's structural usability, a literal Shift-JIS code-to-CID pair, inherited vertical mappings and an exact Type0 public consumer of 90ms-RKSJ-H. ADR 0140 documents the checked-in Adobe source/hash inventory and why it contains all 239 files. These together provide strong but bounded data provenance/consumer evidence.",
+      "verdict": "No map omission or mapping defect identified in this sample. Predefined name and actual Type0 consumer paths are implemented and tested.",
+      "residuals": "The test does not independently enumerate all Table 116 rows or all source map outputs; pinned data hashes and whole-carried-map parser checks provide the current provenance. The version/supplement no-display rule after Table117 remains unresolved and is not certified by these tests."
+    },
+    {
+      "id": "table117-empty-table-and-following-version-rules",
+      "source_feature": "Table 117 is intentionally empty to retain numbering. The immediately following §9.7.5.2 prose still imposes support/version behavior: required collection versions are listed, later supplements are cumulative, unsupported newer CMap versions may error, and CIDs added in a supplement later than the processor's supported version are not displayed. Table 117 itself supplies no rows to transcribe.",
+      "ledger": "doc/conformance/ledger.toml §9.7.5.2; current ledger focuses required collection data and identity prohibition",
+      "code": "predefined data includes all carried Adobe CMaps independent of PDF document version; composite::composite_cmap receives the Document but selects a named map without a version/supplement ceiling. Glyph selection then applies the CMap CID to the descendant mapping.",
+      "assertions": [
+        "predefined.rs::the_collections_the_clause_requires_are_carried",
+        "predefined.rs::every_carried_cmap_states_a_codespace_and_a_mapping",
+        "composite.rs::an_escaped_cmap_name_is_the_name_it_spells",
+        "current global findings 2038-T129 for custom stream inheritance (not version ceiling)"
+      ],
+      "assertion_assessment": "The current suite tests collection availability and mapped CIDs, but I found no named assertion that checks the explicit newer-supplement no-display rule against the processor's supported version. The implementation path appears version-neutral. However, a valid counterexample requires a source-established CID introduced in a later-than-supported supplement; the held PDF 2.0 table intentionally has no Table 117 data and the shipped Adobe-Japan1 source stops at supplement 7. I did not invent a future collection assignment or claim a runtime conformance failure.",
+      "verdict": "Open evidence gap / bounded residual, not a confirmed defect. Needs authoritative version-to-supplement/CID provenance before a reliable exact-xref regression can be stated.",
+      "residuals": "No drafted test. A future review should source the supported-version supplement ceiling and at least one later-supplement CID from the appropriate normative reference or authoritative collection revision, then check both that code's suppression and an in-version positive control."
+    },
+    {
+      "id": "table118-cmap-stream-dictionary",
+      "source_feature": "Table 118 keys: Type (required CMap), CMapName (required and equal to CMap file), CIDSystemInfo (required dictionary and same as file except Identity maps need not match), WMode (optional/default 0, integer 0/1 and same as file), UseCMap (optional predefined name or stream; local CMap states differences). §9.7.5.4(a) additionally requires an in-file usecmap base also appear in dictionary UseCMap.",
+      "ledger": "doc/conformance/ledger.toml §9.7.5.3-.4 and §9.7.5.1",
+      "code": "composite_cmap/read_cmap resolves names/streams, compares WMode, parses mappings and follows UseCMap. If the dictionary entry is absent, it may resolve a carried in-file base directly. It refuses unresolved inheritance; it does not generally enforce identical base names or all producer metadata constraints.",
+      "assertions": [
+        "crates/pdf-model/tests/encoding_cmap_usecmap_spec_audit.rs::encoding_cmap_stream_usecmap_inherits_and_overrides_through_type0_page",
+        "crates/pdf-model/tests/composite_font_fixtures.rs::an_embedded_cmap_with_one_byte_ranges_makes_one_byte_one_code",
+        "::a_codespace_of_several_lengths_splits_a_string_where_its_ranges_say",
+        "crates/pdf-model/tests/text_state_vertical_spec_audit.rs vertical writing assertions"
+      ],
+      "assertion_assessment": "The prior shard's 'public UseCMap test missing' claim is superseded. Current tracked test and global 2038-T129 use exact xref/no recovery, matching child stream dictionary and in-file base references, exact inherited A→CID/GID36 and override B→CID/GID37, real embedded LiberationSans outlines, and two public display-list glyphs. It passed in font-crypt-controls-wave97 and again in eleven-crate-wave111. Matching metadata and WMode=1 vertical rendering have separate valid public coverage. This is discriminating consumer evidence, not full Table118 malformed-cell certification.",
+      "verdict": "Valid UseCMap inheritance and local override now have strong public evidence. No duplicate test warranted.",
+      "residuals": "No requirement to reject a producer-invalid metadata mismatch is claimed here. Table118's individual invalid-value diagnostics and all CMap operator syntax are outside this bounded pass."
+    }
+  ],
+  "bounded_review": "Tables 114, 116, 117, and 118 reviewed; Table 115 is explicitly delegated to the CIDFont dictionary cell shard. No whole-clause certification.",
+  "parent_review": "T129 remains current PASS evidence; no duplicate test. Processor-supported version is distinct from source document version, so version-neutral lookup alone does not demonstrate a defect. No authoritative later-than-supported CID witness established."
+}

@@ -1,0 +1,4 @@
+{
+  "decision": "Keep historical audit records and publish this explicit correction. Do not manufacture a reader rejection duty from a producer Length obligation.",
+  "test_consequence": "Current exact-xref fixtures state actual embedded Length, including zero for the new archive witness. No new behavior defect demonstrated."
+}

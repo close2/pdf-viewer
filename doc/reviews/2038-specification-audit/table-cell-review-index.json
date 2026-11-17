@@ -702,7 +702,10 @@
         "9.7.5.3"
       ],
       "artifact": "shards/type0_cmap_cells_current/features.json",
-      "status": "partial"
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/cmap_dictionary_cells_current/parent-review.json"
+      ]
     },
     {
       "table": "20",
@@ -1215,7 +1218,11 @@
         "7.3.8.2"
       ],
       "artifact": "shards/stream_dictionary_cells_current/features.json",
-      "status": "partial"
+      "status": "partial",
+      "supplemental_artifacts": [
+        "shards/stream_external_file_cells_current/parent-review.json",
+        "shards/errata_10_target_correction_current/features.json"
+      ]
     },
     {
       "table": "180",
@@ -1917,6 +1924,108 @@
         "7.4.7"
       ],
       "artifact": "shards/filter_parameter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "265",
+      "keys": [
+        "Type",
+        "BBox",
+        "Name",
+        "Measure",
+        "PtData"
+      ],
+      "ledger_rows": [
+        "12.9.1"
+      ],
+      "artifact": "shards/measurement_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "266",
+      "keys": [
+        "Type",
+        "Subtype"
+      ],
+      "ledger_rows": [
+        "12.9.1"
+      ],
+      "artifact": "shards/measurement_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "267",
+      "keys": [
+        "R",
+        "X",
+        "Y",
+        "D",
+        "A",
+        "T",
+        "S",
+        "O",
+        "CYX"
+      ],
+      "ledger_rows": [
+        "12.9.1"
+      ],
+      "artifact": "shards/measurement_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "268",
+      "keys": [
+        "Type",
+        "U",
+        "C",
+        "F",
+        "D",
+        "FD",
+        "RT",
+        "RD",
+        "PS",
+        "SS",
+        "O"
+      ],
+      "ledger_rows": [
+        "12.9.1"
+      ],
+      "artifact": "shards/measurement_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "114",
+      "keys": [
+        "Registry",
+        "Ordering",
+        "Supplement"
+      ],
+      "ledger_rows": [
+        "9.7.3"
+      ],
+      "artifact": "shards/cmap_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "116",
+      "keys": [
+        "selected predefined CMap support/data and inheritance"
+      ],
+      "ledger_rows": [
+        "9.7.5.2"
+      ],
+      "artifact": "shards/cmap_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "117",
+      "keys": [
+        "intentionally empty; following version/supplement prose reviewed"
+      ],
+      "ledger_rows": [
+        "9.7.5.2"
+      ],
+      "artifact": "shards/cmap_dictionary_cells_current/features.json",
       "status": "partial"
     }
   ],

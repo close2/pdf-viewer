@@ -1,0 +1,13 @@
+# CMap and character-collection dictionary cells
+
+The old `type0_cmap_cells_current` note that Encoding-CMap stream `/UseCMap` had only parser-unit coverage is stale. Current `crates/pdf-model/tests/encoding_cmap_usecmap_spec_audit.rs::encoding_cmap_stream_usecmap_inherits_and_overrides_through_type0_page` is the public Type0 control, and 2038-T129 records its exact-xref/no-recovery fixture, two literal GIDs/outlines, and complete page interpretation. It passed in font-crypt-controls-wave97 and eleven-crate-wave111. The child inherits A→CID/GID36 and locally changes B→CID/GID37; both produce real embedded LiberationSans outlines. This is meaningful stream-dictionary and consumer coverage, not evidence about every CMap operator.
+
+Source locations were checked against the primary PDF's actual table header and footer: Table114 physical345/printed330; Table116 physical350–352/printed335–337; Table117 physical353/printed338; Table118 physical353–354/printed338–339. Table115 is the CIDFont dictionary table and remains under the sibling shard. Table117 explicitly contains no rows; it is not a missing support table. The normative prose immediately after it remains active.
+
+Table114 requires Registry, Ordering and Supplement, but §9.7.3 expressly says Supplement must not determine collection compatibility. `composite::collection_names` uses Registry and Ordering only, consistent with that rule. #518 at physical344 removes the CMap-side array form of CIDSystemInfo; the effective Type 118 shape remains dictionary.
+
+Table116's name/data support has multiple kinds of evidence: ADR0140's pinned 239 Adobe CMap files/checksums, tests that each carried map parses with codespace and mapping, tests that required collections are represented, vertical inheritance controls, and the exact Type0 RKSJ-H consumer. This is strong bounded evidence, not an independent transcription of every Table116 row.
+
+A source-backed residual remains in the prose following empty Table117: newer-supplement CIDs than the processor's corresponding supported version are not displayed. The current mapping path is version-neutral, but I do not have an authoritative version-to-supplement/CID example from the held files that would make a valid discriminating test. I therefore record this as unresolved coverage, not a confirmed runtime defect, and drafted no test with invented collection assignments.
+
+No malformed producer metadata condition is treated as a required reader rejection. This review does not certify all CMap syntax, all predefined mappings, or all unsupported-version behavior.
