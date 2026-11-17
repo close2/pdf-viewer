@@ -1,0 +1,22 @@
+[
+  {
+    "decision": "test-scenes/src/lib.rs builders are fixture data, not assertions. For 11.6.6/11.7.2 evidence, count only their linked consumer tests and distinguish backend agreement from source-derived expected values.",
+    "basis": "Most headless cross-backend tests assert inter-renderer agreement; the direct PDF tests in transparency_groups.rs and literal CPU renderer tests provide the stronger conformance witnesses."
+  },
+  {
+    "decision": "The 11.6.6 repeated-Do sentence has no discriminating named assertion among sampled tests. A backdrop-sensitive non-isolated Screen group can test one invocation over the changed backdrop with a simple independent channel value.",
+    "basis": "Source final paragraph at printed p.423 / physical p.438: repeated Do calls shall each be a separate transparency group; Table 145 supplies the false/default non-isolated behavior and §11.3.5.2 defines Screen. The test detects stale reuse of a composited result, not backdrop-independent content caching with fresh compositing."
+  },
+  {
+    "decision": "The sampled 11.7.2 and soft-mask tests use useful literal or paired expectations; recommendations that group color spaces should be CIE-based or usually linear do not mandate reader rejection of other spaces.",
+    "basis": "§11.7.2's wording and notes explicitly distinguish `shall` conversion/inheritance behavior from `should` and usual-practice recommendations."
+  },
+  {
+    "decision": "Issue #134 modifies Table 145's /CS remapping authority to the transparency group's own resource dictionary. Issues #619 carets on the same physical page are Table 143 mask-image deprecation notes and must not be attributed to 11.6.6.",
+    "basis": "Primary annotations and the checked page-location/range analysis in doc/errata-read.md."
+  },
+  {
+    "decision": "Soft_masks.rs has 11.7 intersections but remains mainly a §11.5 soft-mask derivation suite; avoid crediting it as general 11.7 coverage or repeating mask-only issues owned by viewer agent.",
+    "basis": "Test names and asserted outputs show some group color conversion/overprinting routes; section ownership in the comments and source establishes the mask value calculations separately."
+  }
+]

@@ -1,0 +1,67 @@
+{
+  "baseline": "b901326c",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "scope": "Four exact file-only references selected by parent: §11.7 / colour_paths.rs; §11.7.5.3 / icc_paint_context.rs, black_generation_paint.rs, pattern_tint_context.rs. Bounded assertion, fixture, and consumer review only.",
+  "source": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "locators": [
+      {"clause":"§11.7.5.3", "physical":"450–451", "printed":"435–436", "bounded_rule":"CIE intent at elementary-object painting or group Do; current BG/UCR at DeviceRGB→DeviceCMYK elementary painting or group Do; functions apply only to that conversion; page-output default pair only under DeviceRGB page group plus DeviceCMYK native output; transfer/halftone are applied after compositing during rasterization."},
+      {"clause":"§10.4.2.4", "physical":"377–379", "printed":"362–364", "bounded_rule":"RGB complements, k=min(C,M,Y), K=BG(k), subtract UCR(k) from C/M/Y, and clamp final channels to [0,1]."},
+      {"clause":"EC3 #640", "physical":"377", "printed":"362", "bounded_rule":"Spelling correction in §§10.4.2.2–.3; no alteration to the .4 RGB→CMYK arithmetic."}
+    ],
+    "errata": "No effective annotation on primary physical pages 450–451 was found that alters the tested requirements. #640 is relevant only as a nearby conversion-formula correction and does not change §10.4.2.4.",
+    "locator_basis": "Footer page labels and primary PDF page indices, not markdown page numbering."
+  },
+  "ledger_pointer_review": [
+    {
+      "clause":"11.7",
+      "file":"crates/pdf-model/tests/colour_paths.rs",
+      "ledger_specific_test":"a_cmyk_colour_is_the_same_however_it_is_drawn",
+      "assertion":"Compares CMYK fill, named-space scn, and 8-bit CMYK image raster output, allowing image quantization.",
+      "consumer":"Public PDF interpretation and CPU raster output.",
+      "oracle_limit":"Useful path-equivalence assertion, not an independent exact color oracle and not a direct §11.7.5.3 DeviceRGB→DeviceCMYK BG/UCR test. File contains several other color-route assertions; file-only pointer must not be treated as one assertion or aggregate proof.",
+      "fixture_limit":"`a_cmyk_jpegs_samples_are_the_colour_spaces_and_not_the_decoders` is corpus-root optional and uses a real pdf.js witness when present; it was not executed in this shard."
+    },
+    {
+      "clause":"11.7.5.3",
+      "file":"crates/pdf-model/tests/black_generation_paint.rs",
+      "key_assertion":"solid_selection_order_matches_image_and_clause_arithmetic",
+      "source_arithmetic":"RGB(.2,.4,.6) → complements(.8,.6,.4), k=.4; BG(k)=.6 and UCR(k)=.2; result CMYK(.6,.4,.2,.6).",
+      "literal_expected_pixel":[52,62,79,255],
+      "discriminates":"Function pair set before or after selecting solid/stroke, stencil, or RGB image; checks painted result. Sibling state/cache tests cover changes, restores and repeated stencil/image use.",
+      "oracle_limit":"The CMYK-to-RGB sample depends on the viewer's assumed press output policy; literal is a regression value, not a uniquely specified ISO screen pixel.",
+      "fixture":"Generated PDF 1.7 with explicit object offsets/xref and a DeviceCMYK transparency group; statements use FunctionType 2 dictionaries. Test asserts a visible pixel."
+    },
+    {
+      "clause":"11.7.5.3",
+      "file":"crates/pdf-model/tests/pattern_tint_context.rs",
+      "key_assertions":["selected_pattern_tint_uses_current_black_generation","selected_tint_observes_later_pair_and_restores_after_q","nested_targets_preserve_source_and_definition_state"],
+      "consumer":"Uncoloured Pattern/DeviceRGB tint painted into DeviceCMYK group; visible CPU raster assertions, including literal [52,62,79,255] and later-pair/q-Q controls.",
+      "oracle_limit":"Literal ties to same assumed-press output policy as solid witness. Nested-target assertions compare pattern and solid controls; they do not independently derive every target-space output.",
+      "related_adr":"2199 prescribed retaining source/components through tint selection, applying current parameters at painting, and preserving conversion dependencies in cache identity."
+    },
+    {
+      "clause":"11.7.5.3",
+      "file":"crates/pdf-model/tests/icc_paint_context.rs",
+      "key_assertions":["late_ri_and_extgstate_intent_change_the_selected_source","nested_saves_restore_profile_and_current_intent","fill_and_stroke_keep_independent_sources_at_paint_time","one_stencil_reuses_the_current_source_across_intent_and_restore","late_black_point_compensation_and_absolute_intent_use_current_parameters"],
+      "consumer":"PDF content operators → model interpretation → CPU raster pixel assertions.",
+      "oracle":"Independent from the production ICC evaluator: test-local generated A2B intent tables, quantized middle entries, explicitly written D50 XYZ-to-sRGB matrix and transfer curve produce expected visible colors.",
+      "fixture_limit":"Custom synthetic ICC headers are not complete-profile validity certificates; tests pin this parser/renderer behavior with intentionally different tables." 
+    }
+  ],
+  "implementation_path": [
+    "crates/pdf-model/src/content/ext_gstate.rs reads BG/BG2/UCR/UCR2 into graphics state.",
+    "crates/pdf-colour/src/black_generation.rs implements the §10.4.2.4 pair arithmetic.",
+    "crates/pdf-model/src/content/colour.rs carries source and conversion state into paint resolution.",
+    "crates/pdf-model/src/content/pattern/initial.rs and pattern/colouring.rs carry pattern tint conversion state to painting.",
+    "crates/pdf-model/src/content/transparency/group_runs.rs and transparency/into_parent.rs handle group-context conversion; selected `transparency_groups.rs` siblings are directly named in the §11.7.5.3 ledger row."
+  ],
+  "assessment": "No concrete unasserted valid-input behavior found within these four exact pointers. Keep §11.7 aggregate file citation coarse; rely on named child assertions for specific requirements. No duplicate test draft supplied.",
+  "unreviewed": [
+    "No full §11.7/§11.7.5.3 certification; selected four file pointers only.",
+    "No test/Cargo execution in this shard.",
+    "No claim that the synthetic ICC profiles satisfy every ICC header/conformance requirement.",
+    "No claim that the listed RGB output pixels are uniquely mandated by ISO.",
+    "No exhaustive review of all BG/UCR, BPC, intent, pattern, image, shading, mesh or backend combinations."
+  ]
+}

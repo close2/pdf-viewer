@@ -1,0 +1,79 @@
+[
+  {
+    "clause": "11.6.6",
+    "path": "crates/test-scenes/src/lib.rs",
+    "source_location": "ISO 32000-2:2020 consolidated EC3, §11.6.6 printed pp.421–423 / physical pp.436–438. Table 145 begins on physical437/printed422, after the opening paragraph on436. #134 adds 'of the transparency group XObject' to the current-resource-dictionary remapping rule. #619 carets on physical p.436 are Table 143 / §11.6.5.2 soft-mask image rows, not §11.6.6 obligations.",
+    "scene_builders": ["transparency_group", "knockout_group", "non_isolated_group", "group_in_its_own_blending_space", "group_in_a_one_component_blending_space", "group_in_a_three_component_blending_space"],
+    "consumer_assertions": [
+      "render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_a_transparency_group",
+      "render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_a_knockout_group",
+      "render-raster/tests/headless_quorra.rs::cpu_and_quorra_agree_on_transparency_groups",
+      "render-cpu/tests/group_constructions.rs::a_group_with_its_own_blending_space_composites_in_it",
+      "render-cpu/tests/group_constructions.rs::a_group_in_a_one_component_blending_space_composites_its_component",
+      "render-cpu/tests/group_constructions.rs::a_group_in_a_three_component_blending_space_composites_its_components",
+      "pdf-model/tests/transparency_groups.rs::a_group_is_composited_once_rather_than_object_by_object",
+      "pdf-model/tests/transparency_groups.rs::a_group_resets_the_alpha_constants_and_the_blend_mode_for_its_elements",
+      "pdf-model/tests/transparency_groups.rs::a_form_becomes_a_group_only_for_the_transparency_subtype",
+      "pdf-model/tests/transparency_groups.rs::a_group_that_introduces_a_press_composites_in_it",
+      "pdf-model/tests/transparency_groups.rs::a_knockout_group_in_a_press_paints_only_its_topmost_element"
+    ],
+    "assertion_quality": "The test-scene functions are data builders, not assertions. Cross-backend scene tests mainly assert raster agreement and are not independent ISO oracles. The PDF-model tests provide direct specification assertions: group opacity applies once at overlap, caller alpha/blend are reset within group, only /S /Transparency groups, and exact literal four-component pixels. `a_group_that_introduces_a_press_composites_in_it` is an actual PDF fixture and pins [76,66,64] against the stated four-component grid; `a_knockout_group_in_a_press...` uses an independent topmost-only control and parsed group structure. The renderer-only scene tests include literal color-level checks, but one expected path reads the scene's own blending-grid converter; the separate 76-range guard limits that shared-oracle risk.",
+    "fixture_validity": "The test-scenes list builders are not source-valid PDFs. The linked `pdf-model/tests/transparency_groups.rs` fixture helper emits computed stream lengths and classic xref offsets; stream-content source tests exercise actual Form XObjects. Existing helper does not explicitly assert `Document::was_recovered()`. Group Dictionary `/CS` remapping source amendment #134 was matched to the annotation/caret and implementation's group-resource route. No test assertion was inferred from the scene builders alone.",
+    "verdict": "The pointer is implementation fixture data; its tests are elsewhere. Strong sampled tests support central subtype/opacity/space/knockout features but are not full §11.6.6 coverage. One specific assertion gap remains: no named direct test was located for the rule that repeated Do invocations are separate groups; scratch test tests this with a backdrop-dependent non-isolated blend.",
+    "residuals": "The table requires separate processing for repeated Do invocations; current interpreter visibly creates a group per Do, but that consumer consequence lacks a discriminating regression. Omitted-resource fallback, cache interactions, all Table 145 defaults and every transform/state restoration combination are not certified by the sampled tests. Producer restrictions/defaults should not automatically become reader-rejection assertions.",
+    "related_adrs": ["0490", "0492", "134", "1103", "0327", "0487"]
+  },
+  {
+    "clause": "11.7.2",
+    "path": "crates/test-scenes/src/lib.rs",
+    "source_location": "ISO 32000-2:2020 consolidated EC3, §11.7.2 printed pp.425–426 / physical pp.440–441. It requires an isolated group to declare or inherit a space and source colors to convert before compositing; recommendations to prefer CIE-based and linear spaces are `should`/`usually best`, not reader refusal duties. #134 affects the Table 145 `/CS` default-remapping resource dictionary as noted under §11.6.6.",
+    "scene_builders": ["four_component_page", "group_in_its_own_blending_space", "group_in_a_one_component_blending_space", "group_in_a_three_component_blending_space"],
+    "consumer_assertions": [
+      "render-cpu/tests/four_component_page.rs::a_four_component_page_composites_in_ink_and_converts_once",
+      "render-cpu/tests/group_constructions.rs::a_group_with_its_own_blending_space_composites_in_it",
+      "render-cpu/tests/group_constructions.rs::a_group_in_a_one_component_blending_space_composites_its_component",
+      "render-cpu/tests/group_constructions.rs::a_group_in_a_three_component_blending_space_composites_its_components",
+      "pdf-model/tests/transparency_groups.rs::the_blending_space_is_the_one_in_force_rather_than_the_one_declared",
+      "pdf-model/tests/transparency_groups.rs::a_group_that_introduces_a_press_composites_in_it",
+      "pdf-model/tests/transparency_groups.rs::a_colour_from_outside_the_blending_space_is_converted_into_it_and_comes_back",
+      "pdf-model/tests/transparency_groups.rs::a_device_rgb_group_inside_a_cal_rgb_page_is_that_cal_rgb",
+      "pdf-model/tests/transparency_groups.rs::a_cal_rgb_page_group_composites_its_components_and_leaves_by_the_matrix"
+    ],
+    "assertion_quality": "The `four_component_page` scene/tests exercise §11.4.7 page-level CMYK compositing, not by themselves the §11.7.2 isolated-XObject rule. The DisplayList scene group tests are independent backend consumer checks but use model-built conversion tables; the model PDF tests are the normative consumer evidence. They include hand-derived ink half-black value checks, in-gamut RGB round trip and outside-gamut literal red control, declared-vs-effective inherited-space reporting, and CalRGB matrix examples. A same-space pixel assertion is independently literal at key discriminating points.",
+    "fixture_validity": "The model tests construct exact PDF 1.7 Form XObjects with `/Group << /S /Transparency ... >>`; helper-calculated lengths/xrefs are used. Many tests inspect parsed command structure and rendered pixels. The test-scene only is a public DisplayList, not a PDF-validity test. Importantly, CIE recommendations and implementation-dependent treatment of unremapped device colors must not be turned into mandatory reader rejection tests.",
+    "verdict": "No new implementation failure established. Strong but sampled PDF consumer evidence exists for color-space inheritance, isolated override and conversion into/out of a group; scene-pointer assertions must be traced to their actual renderer/model consumers.",
+    "residuals": "No blanket verification of every permitted ICC profile, remapping nesting depth, or unsupported-conversion fallback. The unsupported DeviceN test branch is a product limitation/reporting decision for a space the current path cannot draw; it does not establish an ISO-mandated rejection outcome.",
+    "related_adrs": ["0251", "0262", "0263", "0327", "1056", "134"]
+  },
+  {
+    "clause": "11.7",
+    "path": "crates/pdf-model/tests/soft_masks.rs",
+    "source_location": "§11.7 is a broad aggregate; applicable direct tests here are at the §11.7.2 group-color conversions and §11.7.4 blend/overprint intersection. Primary §11.7.2 is printed pp.425–426 / physical pp.440–441; §11.7.4 begins printed p.428 / physical p.443. §11.5.3 luminosity/alpha calculations belong to the separate soft-mask derivation review.",
+    "assertions": [
+      "a_cmyk_mask_group_takes_its_luminosity_from_the_clauses_own_formula",
+      "an_absent_backdrop_in_a_cmyk_group_masks_everything_away",
+      "a_grey_masks_the_same_whichever_of_the_two_device_spaces_the_group_blends_in",
+      "half_covered_artwork_over_registration_black_is_clamped_after_the_compositing",
+      "a_cmyk_image_in_a_mask_group_is_decoded_into_the_groups_own_components",
+      "a_cmyk_shading_in_a_grey_mask_group_is_sampled_into_the_groups_own_components",
+      "a_blend_mode_in_a_four_component_mask_group_is_composited_there_and_not_reported",
+      "a_b_in_a_four_component_mask_group_keeps_the_pair_when_its_portions_differ_only_in_black"
+    ],
+    "assertion_quality": "The helper renders 40x40 PDF fixtures to CPU pixels; every stream's byte length and xref offset are generated. Color expectation bodies use direct clause arithmetic and literal level checks with ±1 for 8-bit channels. CMYK cyan, not neutral black, discriminates converting image samples into group components from an RGB-first shortcut. The `/B` fill/stroke case compares against separately rendered fill and stroke controls and distinguishes black-only tint changes. A report-only `/Multiply` case does not itself assert the output pixel, but the separate B case does. These tests are an intersection of transparency-group color spaces/overprinting with mask derivation, not full §11.7 coverage.",
+    "fixture_validity": "Hand-built PDF 1.7 files have exact lengths/xrefs; helper calls `Document::open` and interpretation-complete guards, though it does not explicitly assert `was_recovered()`. Fixtures use PDF color spaces and ExtGState operators directly. Most are valid group/mask inputs; source-supported malformed/unavailable combinations should remain labeled as limitations, not invalid-input conformance failures.",
+    "verdict": "No new failure. Direct independent pixels cover a few high-risk §11.7 group-conversion and overprint intersections; most soft-mask assertions primarily belong to §11.5 and should not be counted as full §11.7 evidence.",
+    "residuals": "The file does not test spot-colorant separation fidelity, separable/white-preserving blend-mode substitution for spot colors, or all Table 146 combinations. `a_blend_mode_in_a_four_component_mask_group...` only asserts no report, while the B-fill/stroke fixture supplies a real color-pair pixel control for its narrower rule. No §11.5 ownership conclusions are made here.",
+    "related_adrs": ["0217", "0220", "0857", "1342", "1657"]
+  },
+  {
+    "clause": "11.6.6",
+    "path": "crates/pdf-model/tests/transparency_groups.rs",
+    "source_location": "ISO 32000-2:2020 consolidated EC3, §11.6.6 printed pp.421–423 / physical pp.436–438. The final paragraph on printed p.423 / physical p.438 requires each repeated Do of a transparency-group XObject to be treated as a separate group.",
+    "assertions": ["a_group_is_composited_once_rather_than_object_by_object", "a_group_resets_the_alpha_constants_and_the_blend_mode_for_its_elements", "a_form_becomes_a_group_only_for_the_transparency_subtype", "a_group_that_introduces_a_press_composites_in_it", "a_knockout_group_in_a_press_paints_only_its_topmost_element"],
+    "assertion_quality": "The suite has strong direct PDF tests for group opacity and subtype, state reset, blending space, and knockout. The single-call group pixel test does not distinguish repeated invocation semantics. The group's fixture helper writes exact stream lengths and computes xref entries; assertions use literal pixels or paired controls. The added scratch test repeats one non-isolated group around an intervening black paint, making the second invocation's expected Screen result depend on its then-current backdrop.",
+    "fixture_validity": "The proposed test uses a `/Transparency` Form XObject with inherited page `/Resources`, exact computed stream lengths/xrefs via the existing helper, and a valid `/BM /Screen` ExtGState. It pairs first-call-only + intervening black fill against first-call + black fill + second call; target pixel expectation derives from standard Screen: 0 screened with 0.5 is 0.5. Xref recovery should be explicitly checked in the draft to establish that the computed xref is selected.",
+    "verdict": "A narrow conformance-assertion gap is credible for the explicit repeated-Do clause sentence. Draft one direct pixel regression; no behavior failure claimed before parent executes it.",
+    "residuals": "The proposed test detects reuse of a previously composited result that captured the first backdrop; it must pass if the renderer instead caches backdrop-independent group content and recomposites it correctly at each call. It covers only one non-isolated Screen group and does not certify repeated isolated groups or caching generally.",
+    "related_adrs": ["0490", "0237"]
+  }
+]

@@ -1,0 +1,7 @@
+{
+  "source": "Read primary430 CIE-Y/device-luminosity distinction; inspected #345 root notes407–408, #688 correction428, and #134 resource qualification437. Figures are illustrative, not formula oracles.",
+  "assertions": "Read actual soft-mask191/0/128 and64/255/128 controls, alpha191/64/255 controls and CPU256-value interpolation sweep. Scene helpers and shared SoftMask::value are not independent oracles.",
+  "change": "Both16-mode differential tests formerly returned success without assertions under debug_assertions. Replaced return with cfg_attr ignore and added actual adapter provenance.",
+  "execution": "Both differential tests execute and PASS in release-derived gates profile on AMD Radeon890M RADV STRIX1 Vulkan. Initial adapter logging compile error was fixed before successful execution; no product failure. Clippy PASS.",
+  "limits": "The copied agent review describes pre-change debug early returns; current tests explicitly skip there. Differential agreement remains distinct from independent formula correctness. Gates profile is used for correctness, not performance measurement."
+}

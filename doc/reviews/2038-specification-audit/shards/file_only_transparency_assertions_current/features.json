@@ -1,0 +1,52 @@
+{
+  "shard": "file_only_transparency_assertions_current",
+  "baseline": "b901326c",
+  "scope": "Five exact supplemental ledger pointers: §11.3.4, §11.3.5, §11.3.5.3 to crates/test-scenes/src/lib.rs; §11.5 to crates/pdf-model/tests/soft_masks.rs and crates/render-cpu/tests/soft_mask.rs. These are pointer reviews, not whole-clause certifications.",
+  "features": [
+    {
+      "pointer": {"clause":"11.3.4", "file":"crates/test-scenes/src/lib.rs"},
+      "feature": "The shared blend-mode scene supplies inputs in supported blending spaces only indirectly: its backdrop/source paint is RGB, so it is not evidence for DeviceGray/CMYK or CIE-based-space conversion requirements.",
+      "effective_source": "ISO 32000-2 §11.3.4, physical 406 / printed 391. Supported blend spaces are DeviceGray, DeviceRGB, DeviceCMYK, CalGray, CalRGB, and bidirectional ICCBased Gray/RGB/CMYK; Lab and lightness/chromaticity spaces are prohibited as blend spaces. Process colors convert into the blend space; subtractive component values are complemented before/after blend functions.",
+      "errata": "EC3 #345 is on physical 407–408 (printed 392–393), outside §11.3.4's defining paragraph. It clarifies the following RGB/CMYK blend-mode figures as illustrative rather than color-precise; no §11.3.4 conversion requirement is changed.",
+      "implementation_and_assertions": "The scene helper is not an assertion. The page/group conversion tests are in pdf-model/tests/transparency_groups.rs and render-cpu/tests/four_component_page.rs; the four-component page has literal expected pixels. This assignment's scene is all RGB and its cited comparisons cannot establish the supported-space list or conversions.",
+      "status_scope": "The ledger marks §11.3.4 implemented while expressly recording the one-component conversion into blending space as a processor choice (ADR 0790/0850). This supplemental scene pointer does not extend or independently verify that claim."
+    },
+    {
+      "pointer": {"clause":"11.3.5", "file":"crates/test-scenes/src/lib.rs"},
+      "feature": "The scene contains all 16 standard modes in a 4×4 tile grid with RGB backdrop/source band combinations; it is consumed by three-backend differential tests.",
+      "effective_source": "§11.3.5.1 and Tables 134–135: separable modes apply per corresponding component; nonseparable modes use all three components. Table 134 is physical 409–411 / printed 394–396; Table 135 physical 413 / printed 398.",
+      "errata": "EC3 #345: two root Text notes on physical 407 and 408, no IRT on the root notes; the issue's reply thread contains completed/accepted review replies. The correction marks Figures 72–73 as illustrative, not exact pixel/color oracles. It does not change Tables 134/135 or their equations.",
+      "implementation_and_assertions": "test_scenes::blend_modes has no assertions. render-gpu/tests/headless_gpu.rs::cpu_and_gpu_agree_on_every_blend_mode checks each tile's maximum per-channel CPU/GPU byte difference and compares the changed-mode set against an empty list. render-raster/tests/headless_quorra.rs::cpu_and_quorra_agree_on_all_sixteen_blend_modes does a separate CPU/raster comparison under its tolerance. Both return early in debug builds due to documented dependency SIMD overflow checks; their differential evidence is release-only. Neither differential test alone is a source-derived color oracle.",
+      "status_scope": "Ledger §11.3.5 lists the comparisons and explicitly ties formula proof for §11.3.5.3 to its CPU arithmetic tests. Do not count the helper as an assertion or say cross-backend agreement proves the source formulas."
+    },
+    {
+      "pointer": {"clause":"11.3.5.3", "file":"crates/test-scenes/src/lib.rs"},
+      "feature": "The same scene exercises Hue, Saturation, Color, and Luminosity as part of its all-mode differential comparison, but not an independent literal formula oracle.",
+      "effective_source": "§11.3.5.3, physical 411–413 / printed 396–398: RGB auxiliary functions and Table 135 define the four modes; gray blends convert to RGB and back; CMYK complements C/M/Y and applies a distinct K rule. The equations themselves are image/formula content in the source, not suitable to infer from Figures 72–73.",
+      "errata": "#345 bars reading Figures 72–73 as precise expected colors; Table 135 and the prose/equations remain the operative source. #688 is not a §11.3.5.3/§11.5 erratum: its strike/caret corrections on physical 428 (printed 413) update alpha symbols in §11.4.8 initialization.",
+      "implementation_and_assertions": "The independent source-derived checks are render-cpu/src/blend.rs tests: literal 0.30/0.59/0.11 luminosities; ClipColor range/luminosity preservation; SetSat channel permutations; Hue red-over-blue value 0.367 and backdrop luminosity 0.11; saturation over neutral; Color/Luminosity relation; and CMYK neutral-pair K rule over 200,000 inputs. Four-component page pixels provide a separate consumer witness. The three-backend scene is corroborating differential evidence, not the formula oracle.",
+      "status_scope": "Ledger §11.3.5.3 is implemented and records the own-arithmetic and CMYK route. ADR 0047's correction from the prior backend answer is supported by the literal Hue witness; its historical debug-overflow rationale was explicitly corrected, and the current test comments correctly say debug early return is not evidence."
+    },
+    {
+      "pointer": {"clause":"11.5", "file":"crates/pdf-model/tests/soft_masks.rs"},
+      "feature": "The public PDF-model integration tests exercise alpha- and luminosity-derived masks, their rendered pixels, transfer mapping, and outside-group-box behavior.",
+      "effective_source": "§11.5.1–.3: alpha masks use the group's alpha with a separate transfer function; luminosity masks composite onto an opaque selected backdrop, take resulting-color luminosity, then transfer it. For CIE spaces use CIE XYZ Y; for device spaces conversion to DeviceGray is implementation-defined (Example 2 supplies RGB/CMYK arithmetic).",
+      "errata": "No identified operative EC3 annotation in §11.5. The nearby #688 annotation is §11.4.8 alpha-symbol correction, not a soft-mask correction.",
+      "implementation_and_assertions": "soft_masks.rs uses exact-xref PDFs and reaches parse→interpret→CPU raster public pixels. Luminosity tests assert 191 for grey 0.25, 0 for 1.0, and 128 outside the group's BBox with BC=.5; transfer 1−x changes them to 64/255/128. The alpha test supplies valid group-local /ExtGState resources for same-black regions at alpha .25/.75 and asserts 191/64 plus opaque outside-BBox; BC is deliberately irrelevant for /S /Alpha. These are formula-derived literal expectations with discriminating values, not comparison to another renderer. Additional rows exercise /None and CMYK behavior.",
+      "status_scope": "The ledger classifies §11.5.3 as departed only for the owner's selected CIE-based luminosity branch; the device-space branch, BC, compositing, and transfer remain represented as implemented. Do not turn the implementation-defined device conversion into a fixed universal conversion requirement."
+    },
+    {
+      "pointer": {"clause":"11.5", "file":"crates/render-cpu/tests/soft_mask.rs"},
+      "feature": "CPU-raster unit tests pin soft-mask compositing arithmetic and important branch distinctions at the pixel level.",
+      "effective_source": "§11.5.2–.3 plus §11.3.6's color compositing; opaque backdrop / BC outside the group bounds determines luminosity value for the mask.",
+      "errata": "No operative §11.5 EC3 correction identified in the reviewed inventory.",
+      "implementation_and_assertions": "The constant grey BC test computes the byte-level interpolation directly; a 0..255 sweep checks the weighted average at every mask byte; black/white BC extrema check outside-BBox endpoints; and a half-alpha black group differentiates alpha from color/luminosity. These are direct CPU unit controls, separate from CPU/GPU parity. They do not exercise the full PDF dictionary parser; pdf-model/tests/soft_masks.rs is the corresponding public integration route.",
+      "status_scope": "This pointer adds meaningful direct arithmetic witnesses to the §11.5.1/3 ledger rows. The sweep's transfer table forces each mask value and is an arithmetic test, not a test of all possible transfer-function dictionary encodings."
+    }
+  ],
+  "residuals": [
+    "The RGB all-blend-mode scene does not prove conversions for every §11.3.4 supported blending space; those are assigned to separate model/color tests.",
+    "Cross-backend mask parity shares pdf_render::SoftMask::value, so it is not independent evidence for that derivation; the literal PDF-model and CPU arithmetic tests provide the stronger oracle.",
+    "This five-pointer review does not certify all EC3 annotations in clauses 11.3 or 11.5, every non-device luminosity profile route, nor every transfer dictionary syntax."
+  ]
+}

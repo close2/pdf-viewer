@@ -1,0 +1,30 @@
+{
+  "reviews": [
+    {
+      "decision": "Treat the RGB scene comparisons as differential renderer evidence, not as the independent expected-value proof for blend equations.",
+      "source_and_assertions": "The cross-backend tests rasterize the same DisplayList, compare CPU/GPU pixels or CPU/Quorra under a tolerance, and enumerate all 16 mode tiles. The source's Table 134/135 formulae, not an illustrative figure or another backend, define expected values.",
+      "related_adrs": ["ADR 0046", "ADR 0047"],
+      "verdict": "Reaffirmed with qualification. ADR 0047 moves the nonseparable formulas into render-cpu so the compared backend answers are independent. The local Hue red-over-blue test supplies the literal source-derived 0.367 expectation; the all-mode scene is useful to catch divergence, not an oracle for which side is correct. ADR 0047 explicitly corrects ADR 0046's debug-overflow inference, and the current test comments reflect that correction.",
+      "boundary": "The two differential tests early-return under debug assertions, so their evidence is release-only. This does not imply blend formula unit tests are similarly skipped."
+    },
+    {
+      "decision": "Retain the §11.3.4 processor-choice qualification for one-component blending-space conversion.",
+      "source_and_assertions": "The clause requires process colors be converted but does not define a universal numeric conversion; the current ledger says the DeviceGray/CalGray route is chosen. The five reviewed pointers do not broaden that claim.",
+      "related_adrs": ["ADR 0790", "ADR 0850", "ADR 1622"],
+      "verdict": "Reaffirmed; no test gap inferred from this RGB blend-mode scene."
+    },
+    {
+      "decision": "Keep the §11.5 luminosity branch status narrow: the declared departure is the CIE-based XYZ-Y conversion; device-space conversion is implementation-defined.",
+      "source_and_assertions": "§11.5.3 distinguishes CIE-based spaces from device spaces and expressly says device-space conversion to DeviceGray is implementation-defined. Model tests provide independent values for BC, group luminosity, alpha-vs-color, transfer, and outside-BBox behavior. Render-cpu tests pin interpolation directly.",
+      "related_adrs": ["ADR 0027", "ADR 0217", "ADR 0220", "ADR 2552"],
+      "verdict": "Reaffirmed, with no additional failing test proposed. ADR 0027's shared SoftMask::value explains why parity is not an independent derivation oracle; the direct formula assertions compensate for that at the tested routes. ADR 2552 records the selected CIE branch departure, not a general §11.5 failure."
+    },
+    {
+      "decision": "Do not use Figures 72–73 or #688 as a color-formula oracle/correction for these rows.",
+      "source_and_assertions": "EC3 #345 annotations are attached on physical pages 407 and 408 (printed 392–393) and clarify the figures are illustrative only. #688's strikes/carets are on physical 428 (printed 413), in §11.4.8 initialization notation.",
+      "related_adrs": [],
+      "verdict": "No impact to the tested formulas or soft-mask requirements. The #345 replies are review-thread state, not a separate change to Table 134/135. #688 is unrelated to §11.5 despite the Greek alpha symbol."
+    }
+  ],
+  "test_drafts": []
+}

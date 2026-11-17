@@ -6324,3 +6324,64 @@ fn a_black_generation_that_is_not_a_function_is_reported_as_the_files() {
         drawn.unsupported
     );
 }
+
+/// §11.6.6, final paragraph: each Do invocation is composited as a separate group.
+///
+/// This detects reusing a previously composited group result (which contains its first
+/// invocation's backdrop) as the second call's result. Reusing a backdrop-independent cached
+/// rendering of group content is allowed, provided it is composited against the current
+/// backdrop at each invocation.
+#[test]
+fn a_repeated_group_invocation_uses_its_new_backdrop() {
+    let group = "/Group << /S /Transparency >>"; // non-isolated by Table 145 default
+    let bbox = "[0 0 20 20]";
+    let form = "/GN gs 0.5 g 0 0 20 20 re f"; // screen 50% gray against current backdrop
+
+    let first_over_white = fixture(group, bbox, form, "1 g 0 0 100 100 re f /Fm Do");
+    let opened = Document::open(first_over_white.clone()).expect("exact-xref fixture opens");
+    assert!(!opened.was_recovered(), "the generated xref should be used");
+    let white = interpret(first_over_white);
+    assert!(white.is_complete(), "{:?}", white.unsupported);
+    assert_eq!(
+        pixel(&white, 10, 90),
+        [255, 255, 255, 255],
+        "Screen(white, 0.5 gray) remains white on the first invocation"
+    );
+
+    let after_black_overpaint = fixture(
+        group,
+        bbox,
+        form,
+        "1 g 0 0 100 100 re f /Fm Do 0 g 0 0 100 100 re f",
+    );
+    let opened = Document::open(after_black_overpaint.clone()).expect("exact-xref fixture opens");
+    assert!(!opened.was_recovered(), "the generated xref should be used");
+    let black = interpret(after_black_overpaint);
+    assert!(black.is_complete(), "{:?}", black.unsupported);
+    assert_eq!(
+        pixel(&black, 10, 90),
+        [0, 0, 0, 255],
+        "the later full-page black paint covers the first invocation"
+    );
+
+    let two_bytes = fixture(
+        group,
+        bbox,
+        form,
+        "1 g 0 0 100 100 re f /Fm Do 0 g 0 0 100 100 re f /Fm Do",
+    );
+    let opened = Document::open(two_bytes.clone()).expect("exact-xref fixture opens");
+    assert!(!opened.was_recovered(), "the generated xref should be used");
+    let two = interpret(two_bytes);
+    assert!(two.is_complete(), "{:?}", two.unsupported);
+    assert_eq!(
+        pixel(&two, 10, 90),
+        [128, 128, 128, 255],
+        "the second invocation screens gray against the then-current black backdrop"
+    );
+    assert_eq!(
+        pixel(&two, 30, 90),
+        [0, 0, 0, 255],
+        "outside the form's BBox the page remains black"
+    );
+}

@@ -2080,6 +2080,38 @@
       "log": "quality-wave78.log",
       "exit": 0,
       "scope": "Model all-targets Clippy after all Rust model test edits. Later GPU test edits are comments only."
+    },
+    {
+      "log": "blend-gates-wave79.log",
+      "exit": 101,
+      "scope": "Preliminary audit logging edit required mutable rasterizer bindings; compile-only failure corrected before execution."
+    },
+    {
+      "log": "blend-gates-wave79b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0,
+      "profile": "gates",
+      "adapter": "AMD Radeon 890M Graphics (RADV STRIX1), IntegratedGpu, Vulkan"
+    },
+    {
+      "log": "group-invocation-wave79.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave79.log",
+      "exit": 0,
+      "scope": "pdf-model/render-gpu/render-raster all-targets Clippy"
+    },
+    {
+      "log": "blend-debug-skip-wave79.log",
+      "exit": 4,
+      "run": 0,
+      "scope": "Both selected tests excluded by debug ignore; nextest no-tests policy exits4.64 total skipped includes filtered tests; not64 debug exclusions and not a test failure."
     }
   ],
   "prior_expected_failures": {

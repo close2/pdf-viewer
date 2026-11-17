@@ -1,0 +1,17 @@
+ADR revisit shortlist — audit-worktree b901326c
+
+I counted 2,331 files in root `doc/adr/`, 95 in `raster/doc/adr/`, and 814 files across the promoted 2038 shard tree at scan time. I used literal ADR-ID search as a discovery heuristic, then checked each proposed item against its ADR's clause/code/test metadata and the current code/test paths. Literal citation absence is not evidence that a decision is unreviewed: `standard_security_algorithms_current`, for example, substantively inspects the R6 writer behavior relevant to ADR 1161 without naming that ADR. Conversely, a shard citation alone does not prove it inspected the decision's premise.
+
+The strongest next-review candidates are:
+
+1. **root ADR 0812** — signature digest streaming and confined descriptor transport. `signatures_current` covers parts of digest/report behavior, but not the host-to-worker descriptor confinement or its resource/failure semantics. Security and large-file behavior make this high value.
+2. **root ADR 1161** — R6 encrypted output. `standard_security_algorithms_current` has already identified a concrete independent-oracle limitation: output writer round-trip is self-consistency, with no fixed independent R6 writer vector. Review only emitted bytes and exceptions to avoid duplicating reader algorithms.
+3. **root ADR 1162** — whether whole-file transforms keep caller-requested output protection and refuse unsupported/redaction cases. Existing transform preservation and redaction shards are adjacent, but do not review this Protect API as a whole.
+4. **root ADR 1187** — archive decryption plus durable, truthful preservation of former permission claims. Input public-key encryption and wrapper construction were reviewed, but archive output/report/history behavior remains a distinct security transition.
+5. **root ADR 1235** — FDF named-page appearance references and the unresolved external `/F` hop. FDF/form shards cover adjacent imports, but this feature changes the visible appearance imported onto a widget and has a distinct host filesystem boundary.
+
+Other worthwhile candidates are root ADRs 1240 (local-file chooser authorization), 1257 (target-conditioned archival form claims), and 1190 (confined-host operation restrictions). `actions_chains_current` partially overlaps the last; compare exact host operations before allocating it. Root ADR 1270 has substantial overlap with current file-specification, associated-file, DPart, and metadata shards, so it is lower priority unless the review is explicitly limited to byte-preservation and target gating. The full shortlist and the current tests/overlap notes are in `candidates.json`.
+
+Two separate raster-repository candidates are included: **raster ADR 0085** (stroke-width resolution across transforms) and **raster ADR 0082** (the bounded cross-adapter determinism contract). They are correctness-bearing, but the latter is a renderer contract rather than a PDF clause. Both have named live test gates and no direct raster-qualified ADR mention in the promoted shards. Do not confuse them with root ADR 0085 (PrintField, already reviewed) or root ADR 0082 (user-space units); the identities are repository-qualified.
+
+I recommend beginning with 0812, 1161, 1162, 1187, and 1235. This is a prioritization list, not a claim that any listed decision is defective. No code, tests, ledger, or ADR was changed, and no tests were run.

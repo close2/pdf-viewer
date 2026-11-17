@@ -1,8 +1,8 @@
 {
   "scope": "Selected assertion reading per exact ledger pointer, not full referenced-file/feature conformance. Some reviewed pointers have no direct assertion of the owning subtype; see shard limits.",
   "total": 69,
-  "partially_reviewed": 56,
-  "remaining": 13,
+  "partially_reviewed": 69,
+  "remaining": 0,
   "references": [
     {
       "clause": "7.3.7",
@@ -408,20 +408,26 @@
     {
       "clause": "11.3.4",
       "path": "crates/test-scenes/src/lib.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_transparency_assertions_current/features.json"
+      ]
     },
     {
       "clause": "11.3.5",
       "path": "crates/test-scenes/src/lib.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_transparency_assertions_current/features.json"
+      ]
     },
     {
       "clause": "11.3.5.3",
       "path": "crates/test-scenes/src/lib.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_transparency_assertions_current/features.json"
+      ]
     },
     {
       "clause": "11.4.6",
@@ -434,62 +440,82 @@
     {
       "clause": "11.5",
       "path": "crates/pdf-model/tests/soft_masks.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_transparency_assertions_current/features.json"
+      ]
     },
     {
       "clause": "11.5",
       "path": "crates/render-cpu/tests/soft_mask.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_transparency_assertions_current/features.json"
+      ]
     },
     {
       "clause": "11.6.6",
       "path": "crates/pdf-model/tests/transparency_groups.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_transparency_colour_assertions_current/features.json"
+      ]
     },
     {
       "clause": "11.6.6",
       "path": "crates/test-scenes/src/lib.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_transparency_colour_assertions_current/features.json"
+      ]
     },
     {
       "clause": "11.7",
       "path": "crates/pdf-model/tests/colour_paths.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_colour_context_assertions_current/features.json"
+      ]
     },
     {
       "clause": "11.7",
       "path": "crates/pdf-model/tests/soft_masks.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_transparency_colour_assertions_current/features.json"
+      ]
     },
     {
       "clause": "11.7.2",
       "path": "crates/test-scenes/src/lib.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_transparency_colour_assertions_current/features.json"
+      ]
     },
     {
       "clause": "11.7.5.3",
       "path": "crates/pdf-model/tests/icc_paint_context.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_colour_context_assertions_current/features.json"
+      ]
     },
     {
       "clause": "11.7.5.3",
       "path": "crates/pdf-model/tests/black_generation_paint.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_colour_context_assertions_current/features.json"
+      ]
     },
     {
       "clause": "11.7.5.3",
       "path": "crates/pdf-model/tests/pattern_tint_context.rs",
-      "state": "inventory-only",
-      "artifacts": []
+      "state": "partial-assertion-review",
+      "artifacts": [
+        "shards/file_only_colour_context_assertions_current/features.json"
+      ]
     },
     {
       "clause": "12.2",

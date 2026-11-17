@@ -1,0 +1,116 @@
+{
+  "shard": "adr_revisit_inventory_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "baseline": "b901326c",
+  "inventory_method": {
+    "repository_counts": {"root_doc_adr":2331,"raster_doc_adr":95,"promoted_shard_files_at_scan":814},
+    "coverage_probe": "Scanned promoted shards' JSON/TXT/Markdown text for literal ADR-number references; then checked candidates against current code/test pointers and the nearest completed feature shards. The count is discovery only: shards may deeply cover an ADR's code without citing it, and can cite an ADR without reviewing its premise.",
+    "identity_rule": "ADR identity is repository-qualified. At least root doc/adr/0082 and raster/doc/adr/0082 differ; likewise root doc/adr/0085 (Flattened PrintField) differs from raster/doc/adr/0085 (stroke width). Never use an unqualified number for either pair."
+  },
+  "candidates": [
+    {
+      "priority":1,"identity":"root:doc/adr/0812-the-document-crosses-the-confinement-as-a-descriptor-and-a-signature-is-digested-a-window-at-a-time.md",
+      "question":"Does the confined open path truly carry only a descriptor/length and preserve byte-addressed reads, while the signature report's streamed window digest remains equivalent to the in-memory path and truthfully reports files the process could not scan?",
+      "standard_scope":"§7.5.1/.4/.5, Annex C.4 (informative), §12.8.1/.3.2/.3.3/.3.3.1; descriptor confinement plus signature-byte processing.",
+      "current_consumer_tests":"crates/viewer-confined/tests/confined.rs (descriptor handoff, no-stat boundary, same page); crates/pdf-syntax/src/file.rs::a_handed_file_is_read_to_the_length_its_opener_stated; crates/pdf-model/src/signature.rs::a_signed_document_answers_the_same_on_disk_as_in_memory; viewer-core notes test for named scan refusal.",
+      "overlap":"signatures_current covers signature evidence/report and file digest parity; no direct ADR-0812 mention was found in promoted shards and no confined-descriptor shard was found. Signature portion is partially covered; seccomp/Landlock/transport and refusal-note composition appear novel.",
+      "novelty_confidence":"high",
+      "why_review":"Security boundary and hostile-large-file resource behavior have high consequence. Check real host→worker descriptor path, descriptor identity/lifetime, and whether every inability-to-scan path stays distinguishable from a clean/complete scan; avoid redoing signature cryptography."
+    },
+    {
+      "priority":2,"identity":"root:doc/adr/1161-encryption-on-the-way-out-is-asked-for-never-inherited.md",
+      "question":"Does output R6 encryption construction satisfy the active PDF 2.0 algorithms/exception rules, and are fresh randomness, object encryption, metadata and signature exceptions correct independently of the same writer's round-trip reader?",
+      "standard_scope":"§7.6.2–.4 (including Algorithms 8–13), §7.5.7 and §14.4; encrypted writer output.",
+      "current_consumer_tests":"crates/pdf-syntax/tests/serialize_encrypted.rs and related encryption writer/reader tests; ADR 1161 itself calls out direct structural checks for /O,/U,/OE,/UE,/Perms.",
+      "overlap":"standard_security_algorithms_current already reviewed read algorithms and notes the R6 writer has structural/round-trip assertions but no fixed independently generated output vector. This is a concrete follow-up rather than a wholly untouched feature; encryption and metadata shards are nearby.",
+      "novelty_confidence":"medium-high",
+      "why_review":"Cryptographic writer conformance is high consequence, and the current promoted review records an independent-oracle limit. Focus solely on emitted R6 bytes and source exceptions; do not repeat reader algorithm tests or misclassify malformed /Perms conflicts as valid producer evidence."
+    },
+    {
+      "priority":3,"identity":"root:doc/adr/1162-a-derived-file-is-protected-where-the-caller-supplies-the-means.md",
+      "question":"When a caller chooses Protect, are passwords/permissions applied to each whole-file transform output, rejected for unsupported operations, and protected data never silently rewritten in clear; are the redaction and archive asymmetries source/scope-grounded?",
+      "standard_scope":"§7.6.4.1/.2 and §12.5.6.23; derived-file protection and redaction removal.",
+      "current_consumer_tests":"crates/pdf-transform/tests/redact.rs (protected split/merge/pages/optimize/redact paths); transform CLI password-fd handling; Source/Protect API.",
+      "overlap":"transform_preservation_residual_current covers incremental save prefix/reopen/signature behavior, not this new-file Protect argument. annotation_types_current reviews redaction content removal but not Protect propagation across verbs. Direct ADR number not found in promoted shards.",
+      "novelty_confidence":"high",
+      "why_review":"Security can regress if one transform drops output encryption or consumes credentials on a no-op. Inspect each public verb and assert encrypted output opens only with the intended credential, with an unencrypted control; distinguish this from read-side document permission policy."
+    },
+    {
+      "priority":4,"identity":"root:doc/adr/1187-an-encryption-cannot-be-carried-and-its-claim-can.md",
+      "question":"Does archive conversion remove encryption only where PDF/A forbids it and preserve a truthful, durable account of permissions that are no longer enforced, without claiming source flags are still effective?",
+      "standard_scope":"ISO 32000-2 §7.6.1/.2/.4 and §7.4.10; ISO 19005-2/-4 encryption prohibition and output metadata.",
+      "current_consumer_tests":"crates/pdf-transform/tests/archive.rs archive rules for encryption/identity crypt filter; report and XMP history writers in pdf-transform/src/archive/protection.rs.",
+      "overlap":"public_key_encryption_current covers input encryption; unencrypted_wrapper_current covers §7.6.7 conditional writer; neither appears to review archive's removal/report claim end to end. Promoted shards have no literal ADR-1187 citation.",
+      "novelty_confidence":"high",
+      "why_review":"The implementation changes the security state and permissions of a deliverable archive. Verify source and output independently, including what report/history says and does not say, and distinguish PDF/A producer constraints from ordinary-reader duties."
+    },
+    {
+      "priority":5,"identity":"root:doc/adr/1190-the-fourth-window-is-not-a-fourth-toolkit.md",
+      "question":"Are restrictions checked at the user operation boundary across the confined host, and do new UI affordances preserve the same authorization/policy semantics as the ordinary hosts?",
+      "standard_scope":"§7.6.4.1, §12.6.4.8, §12.7.6.2 plus owner principle 3; confined window controls and policy.",
+      "current_consumer_tests":"crates/viewer-host tests around Restrictions/Policy; confined UI action dispatch and host parity tests referenced by ADR 1190.",
+      "overlap":"actions_chains_current reviews action sequencing and selected host effects but records that it does not certify every host configuration. No explicit ADR-1190 citation found. This is adjacent rather than fully novel, so first compare the exact tested actions before allocating.",
+      "novelty_confidence":"medium",
+      "why_review":"A host-policy difference can create an unintended file/network/user-operation path. Keep this to operation-level permission behavior and user-visible controls; do not expand into all actions or impose unratified host behavior."
+    },
+    {
+      "priority":6,"identity":"root:doc/adr/1235-a-named-page-becomes-a-buttons-appearance-and-a-second-file-is-a-hop.md",
+      "question":"For FDF /APRef, are in-document named-page appearances copied/rendered correctly and external /F references accurately surfaced as unsupported pending a host target hop, without importing unrelated annotations or losing producer-owned appearance data?",
+      "standard_scope":"§12.7.8.3.2 Table 249, §12.7.8.3.3 Tables 252–253, §12.7.7, §12.5.5, and file-opening boundary in §7.11.",
+      "current_consumer_tests":"crates/pdf-model/tests/forms_data.rs APRef cases; forms_data::Import and viewer-core import refusal/report consumer; `page_as_form` implementation.",
+      "overlap":"fdf_forms_current and forms_current cover adjacent import/value routes, but the named-page `/APRef` branch and external-reference second-hop policy need distinct inspection. No explicit ADR-1235 mention found in promoted shards.",
+      "novelty_confidence":"high",
+      "why_review":"A stale/imported appearance changes visible form behavior and can be mistaken for the document's stored appearance. Check exact branch precedence, target provenance, page transform, and error report; treat an unavailable external target as host scope rather than silently claiming full support."
+    },
+    {
+      "priority":7,"identity":"root:doc/adr/1240-a-file-select-field-gets-a-chooser-and-the-gate-is-asked-twice.md",
+      "question":"Does a FileSelect field alone expose a chooser, is the policy gate applied at both offer and use time, and do GTK/Qt bindings use the chosen file rather than a typed pathname or stale selection?",
+      "standard_scope":"§12.7.5.3 Table 231 bit 21, §12.5.2 and §12.7.4.3; user-mediated file acquisition.",
+      "current_consumer_tests":"crates/viewer-host/tests/host_mappings.rs::only_a_file_select_control_offers_a_chooser and `table_231_bit_21...`; GTK `offer_a_chooser`, Qt `choose_file` and host control projections.",
+      "overlap":"forms_buttons_choices_current explicitly bounded radio/checkbox/choice behavior; it did not cover file-select text control host affordances. No direct ADR-1240 mention in promoted shard files.",
+      "novelty_confidence":"high",
+      "why_review":"This is a boundary where PDF-supplied field semantics can trigger local file access. Verify the chosen path/payload is only obtained after a deliberate user choice and repeated authorization, with disabled-control and ordinary-text controls. Platform-native runtime may be unavailable in this Linux worktree; mark static evidence separately."
+    },
+    {
+      "priority":8,"identity":"root:doc/adr/1257-a-flag-is-a-claim-and-a-form-says-whether-its-pages-are-its-own.md",
+      "question":"Does archival transformation remove /NeedAppearances or /XFA only under the exact target, form, and generated-appearance predicates that make the resulting document's claims true?",
+      "standard_scope":"§12.7.2/.3, §12.7.4.3, §12.7.5.2.3, §12.5.3/.5, ISO 19005-2/-4 form rules and Annex K.",
+      "current_consumer_tests":"crates/pdf-transform/tests/archive.rs form compliance rules and appearance generation; archive table/form analysis in pdf-archive/src/table/interaction.rs.",
+      "overlap":"forms_current and forms_remaining_current review interactive value/appearance behavior, but not necessarily target-conditioned archive claims. Archive presence appears only indirectly in other shards. No explicit ADR-1257 citation found.",
+      "novelty_confidence":"medium-high",
+      "why_review":"Removing a flag is an assertion about output completeness. Focus on valid output predicates, preserved visible widgets, dynamic XFA scope and exact archive profile; don't broaden from a producer requirement into arbitrary reader rejection."
+    },
+    {
+      "priority":9,"identity":"root:doc/adr/1270-the-second-mechanism-a-preserve-has-and-the-type-a-clause-names-for-bytes-nobody-read.md",
+      "question":"Does the explicit attachment-preserve choice carry the source XMP/XFA bytes intact, emit a correct associated-file wrapper/type/relationship, and refuse only when the chosen archive target cannot carry the payload?",
+      "standard_scope":"§7.7.4, §7.9.6, §7.11.2–.4, §12.7.3, §14.3.3, §14.13.2–.3, Annex K and PDF/A targets.",
+      "current_consumer_tests":"crates/pdf-transform/tests/archive.rs; archive/attach.rs and pdf-model/src/attachment/filing.rs. Associated-file test route in viewer-core plus archive namespace reconstruction.",
+      "overlap":"file_specification_remaining_current, dpart_associated_files_current, metadata_current and structured_errata_metadata_media_current cover substantial adjacent branches, including /AFRelationship and associated stream fields. No explicit ADR-1270 citation in shards; novelty is only medium because feature-level overlap is substantial.",
+      "novelty_confidence":"medium",
+      "why_review":"Preserving uninterpreted bytes is valuable but can falsely label or misdate payloads. Review only exact original-byte provenance, target gating, required MIME type/ModDate, and emitted /AFRelationship; avoid repeating general file-specification coverage."
+    },
+    {
+      "priority":10,"identity":"raster:raster/doc/adr/0085-the-stroke-width-crosses-the-boundary-unresolved.md",
+      "question":"Is the renderer's scene-space stroke width and transform-time resolution equivalent to the viewer/caller contract for zero width, hairlines, automatic adjustment, anisotropic transforms, and transformed caps?",
+      "standard_scope":"Root PDF view: §8.4.3.2 hairline and §10.7.5 automatic stroke adjustment. Raster crate itself has no separate PDF conformance ledger; its public contract must match the calling renderer.",
+      "current_consumer_tests":"raster/crates/raster-gpu/tests/{scale_invariance.rs,thin_marks.rs,coverage_lanes.rs}; caller's render-quorra test set (ADR names 60-test gate); current resolve_width/max_stretch implementation.",
+      "overlap":"No direct raster-qualified ADR-0085 reference or dedicated 2038 audit shard found. Root `doc/adr/0085-what-a-flattened-form-was.md` is an unrelated ID collision and was reviewed under PrintField; do not merge identities.",
+      "novelty_confidence":"high",
+      "why_review":"Stroke width and caps affect essentially every line at transformed scales. The ADR says upstream degenerate-subpath splitting remains view-dependent, so a focused review can check whether the claimed boundary is actually met and whether test oracles vary transforms independently."
+    },
+    {
+      "priority":11,"identity":"raster:raster/doc/adr/0082-the-determinism-contract-relaxes-to-a-close-best-effort.md",
+      "question":"Does the relaxed cross-adapter closeness contract retain a derived numerical bound and same-adapter determinism, with the CPU lane still an independent correctness reference for the feature families using it?",
+      "standard_scope":"Project renderer contract §4.6/ADR 0072, not an ISO 32000 clause. Relevant to numerical PDF output across devices.",
+      "current_consumer_tests":"raster/crates/raster-gpu/tests/compute_coverage_determinism.rs, compute_lane.rs, encode_threads.rs and cross-adapter raster integration tests named in the ADR.",
+      "overlap":"No direct raster-qualified ADR-0082 mention in promoted shards. Nearby GPU/shading test audits discuss selected pixel expectations but not the owner-relaxed global adapter contract. Root `doc/adr/0082-what-a-unit-of-user-space-is-worth.md` is a distinct ID collision.",
+      "novelty_confidence":"medium-high",
+      "why_review":"A broad relaxation could weaken color/geometry correctness if later code cites 'close' without a bound. Review derived tolerances and adversarial paths, not demand byte equality that the owner expressly retired."
+    }
+  ],
+  "not_shortlisted_due_to_overlap": [
+    {"identity":"root:doc/adr/1124-a-redaction-removes-the-bytes-and-refuses-what-it-cannot-clear.md", "reason":"redaction_is_removal_current and annotation_types_current already assess byte removal, output preservation, and current /RO versus /IC-/OverlayText scope; revisit only if a distinct source rule appears."},
+    {"identity":"root:doc/adr/1195-a-redaction-cuts-a-painted-path-to-the-region-s-complement.md", "reason":"same active redaction feature family and current tests; low novelty for this round."},
+    {"identity":"root:doc/adr/0085-what-a-flattened-form-was.md", "reason":"Distinct from raster ADR 0085; PrintField parser-vs-accessibility delivery was directly examined in structure_attributes_remaining_current and fdf_forms_current, with a parent-run failing public consumer witness."}
+  ]
+}

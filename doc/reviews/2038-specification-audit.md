@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (78)
+## Current checkpoint (79)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **83 failing test identities**: 82 behavior assertions/probes
@@ -244,6 +244,16 @@ Clippy passes. Two GPU test comments now distinguish shading-sampling policy fro
 the specification's image-specific pixel-centre rule. The exact file-only pointer
 index reaches 56 of 69 partial reviews, with 13 under active review. No new behavior
 failure or new test identity is added by this checkpoint.
+
+Checkpoint79 completes the selected-assertion review of all69 file-only pointers;
+this is partial evidence, not certification of entire files or features. Both16-mode
+GPU differential tests now explicitly skip in debug instead of returning success
+without assertions. Both actually execute and pass in the release-derived gates
+profile on the Radeon890M. A new parsed-PDF test confirms repeated invocation of
+a group uses its changed backdrop. All three affected crates pass Clippy.
+Historical ADR1242's profile exception is superseded by2549; audit evidence records
+that distinction. Deeper descriptor-confinement, encrypted-output and valid-ICC
+reviews continue. The failure manifest remains83; broad76 predates the new test.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

@@ -484,6 +484,10 @@ fn the_gpu_refuses_a_group_in_a_three_component_blending_space() {
 /// and because two independent implementations of a clause's formula agreeing to the channel
 /// is the strongest evidence this project can produce about arithmetic.
 #[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "requires the gates or release profile: tiny-skia uses wrapping SIMD arithmetic"
+)]
 fn cpu_and_gpu_agree_on_every_blend_mode() {
     /// The modes whose two implementations are known to differ; empty since ADR 0047.
     const DISAGREE: [pdf_render::BlendMode; 0] = [];
@@ -499,17 +503,15 @@ fn cpu_and_gpu_agree_on_every_blend_mode() {
     // agrees with Vello to the channel in release. So an overflow panic in a dependency
     // whose arithmetic is modular is not evidence of anything, and ADR 0046 leaned on it —
     // see ADR 0047. What settled these three was the clause's closed form.
-    if cfg!(debug_assertions) {
-        return;
-    }
-
     let list = test_scenes::blend_modes();
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
 
     let cpu = CpuRasterizer::new()
         .rasterize(&list, target)
         .expect("supported");
-    let gpu = gpu().rasterize(&list, target).expect("supported");
+    let mut backend = gpu();
+    println!("adapter: {}", backend.context().adapter_description());
+    let gpu = backend.rasterize(&list, target).expect("supported");
     assert_eq!((cpu.width, cpu.height), (gpu.width, gpu.height));
 
     let (tile_width, tile_height) = (cpu.width / ACROSS, cpu.height / ACROSS);

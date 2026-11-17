@@ -2568,5 +2568,28 @@
     "source": "\u00a710.7.4 sampled-image paragraph, physical399/printed384; Type2 pointwise equation does not choose every renderer sample location.",
     "change": "Qualify current test comments as renderer policy; retain discriminating arithmetic assertions.",
     "remaining": "Historical raster ADR0053 unchanged; it concerns Type1 calculator shading and is distinct from root ADR0053 about trees. No new GPU execution or production failure claimed."
+  },
+  {
+    "id": "2038-T104",
+    "kind": "test-execution-gap",
+    "clauses": [
+      "11.3.5",
+      "11.3.5.3"
+    ],
+    "summary": "Two16-mode backend differential tests silently returned successful status without executing assertions in debug builds.",
+    "change": "Report intentional debug exclusion with cfg_attr(ignore); remove early return. Print actual adapter on execution.",
+    "execution": "Both PASS in release-derived gates profile on Radeon890M Vulkan; Clippy PASS.",
+    "remaining": "Backend agreement is supplementary to independent formulas. Debug dependency overflow remains a reason to execute these in gates/release. No performance claim."
+  },
+  {
+    "id": "2038-T105",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "11.6.6"
+    ],
+    "summary": "No direct discriminating regression found for repeated invocation of the same transparency group against a changed backdrop.",
+    "change": "Add parsed-PDF Screen group regression: initial white, black overpaint, second invocation gray, and outside-BBox black. Check exact-xref selection and interpretation completeness.",
+    "execution": "New test PASS; model Clippy PASS.",
+    "remaining": "Covers backdrop-dependent compositing, not every group-cache or state combination; permits correctly composited cached contents."
   }
 ]
