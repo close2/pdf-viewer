@@ -505,6 +505,60 @@ pub unsafe extern "C" fn quorra_report(
     }
 }
 
+/// How many trusted lists the focused document's bound signature policies reference.
+///
+/// ETSI TS 119 172-2 clause 4.22.2.1 b) determines a trust point's anchors from the list a
+/// policy's `TAsInTrustedList` references, and the reference is the one way to the list. A caller
+/// that supplies its lists through `quorra_trusted_lists` fetches them itself (ADR 2879), so it is
+/// handed these locations to put to the reader, at their network level, beside the European
+/// Commission's list it already fetches (ADR 2936). A `quorra_window` asks for them inside
+/// `QUORRA_ACT_TRUSTED_LISTS`, and its caller owes nothing.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_trusted_list_references(
+    viewer: *const Session,
+    count: *mut usize,
+) -> c_int {
+    let (Some(viewer), Some(count)) = (viewer.as_ref(), count.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match viewer.trusted_list_references() {
+        Ok(locations) => {
+            *count = locations.len();
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// One of those locations, as the policy wrote it.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_trusted_list_reference(
+    viewer: *const Session,
+    index: usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(viewer) = viewer.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match viewer.trusted_list_references() {
+        Ok(locations) => match locations.get(index) {
+            Some(location) => copy_out(location, out, cap, needed),
+            None => Status::OutOfRange.code(),
+        },
+        Err(status) => status.code(),
+    }
+}
+
 /// How many control kinds this library defines, and the name of one.
 ///
 /// The pair `quorra_event_kind_count` and `quorra_event_kind_name` make for an event, and for the same

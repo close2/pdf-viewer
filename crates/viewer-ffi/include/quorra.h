@@ -1569,6 +1569,14 @@ int32_t quorra_reported_page(const quorra_viewer *viewer, size_t entry, size_t *
 int32_t quorra_reports_len(const quorra_viewer *viewer, size_t entry, size_t *count);
 int32_t quorra_report(const quorra_viewer *viewer, size_t entry, size_t index, char *out, size_t cap,
                     size_t *needed);
+/* The location of every trusted list the focused document's bound signature policies reference
+ * (ETSI TS 119 172-2 clause 4.22.2.1 b)'s TLReference), each once. A caller that supplies its lists
+ * through quorra_trusted_lists fetches them itself (ADR 2879): it puts these locations to the
+ * reader at their network level and fetches them beside the Commission's list. A quorra_window
+ * does this inside QUORRA_ACT_TRUSTED_LISTS (ADR 2936). NO_ANSWER where nothing is focused. */
+int32_t quorra_trusted_list_references(const quorra_viewer *viewer, size_t *count);
+int32_t quorra_trusted_list_reference(const quorra_viewer *viewer, size_t index, char *out, size_t cap,
+                                      size_t *needed);
 
 /* ------------------------------------------------------------------------------------------- */
 /* Geometry: what a caller draws over the page in its own colours.                               */

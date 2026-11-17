@@ -25,6 +25,15 @@
 //! asked, the question put at `ask`, the refresh run on a [`Refresher`] thread of its own — never
 //! the event thread, and never the confined worker — and the directory read again there, so that
 //! what crosses back is the [`viewer_core::Command::Trust`] the core words its verdicts from.
+//!
+//! **And the lists a signature policy references are fetched within it** (ADR 2936). ETSI TS 119
+//! 172-2 clause 4.22.2.1 b) determines a `TAsInTrustedList` trust point's anchors from the list its
+//! `TLReference` names, and the reference is the policy's only way to it, so a window asks the
+//! core for the focused document's references ([`referenced_lists`]), the question names each, and
+//! `pdf_signature::trusted_list::refresh::refresh_with` is given them (ADR 2932). These locations
+//! do come from a document, which is why they are named one by one, as ADR 1728's question names
+//! a policy's URL; but the document only adds locations to a refresh the reader asked for at
+//! their own level, and never starts one.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -42,8 +51,15 @@ use crate::policy::Submissions;
 /// fetch, and the core reads lists only from there, so it refuses at every level before the level
 /// is read — as a URL that names no server is refused before it in
 /// [`crate::policy::may_fetch_signature_policy`].
+///
+/// `references` are the lists a signature policy references ([`referenced_lists`]), which the
+/// question names; the level is the same one, since a GET to any of them is the same act.
 #[must_use]
-pub fn may_fetch_trusted_lists(directory: Option<&Path>, level: Submissions) -> Sending {
+pub fn may_fetch_trusted_lists(
+    directory: Option<&Path>,
+    references: &[String],
+    level: Submissions,
+) -> Sending {
     let Some(directory) = directory else {
         return Sending::Refuse(format!(
             "no directory of trusted lists was named ({}), so there is nowhere to keep them",
@@ -58,7 +74,7 @@ pub fn may_fetch_trusted_lists(directory: Option<&Path>, level: Submissions) -> 
             Submissions::Refuse.as_str(),
             Submissions::Ask.as_str()
         )),
-        Submissions::Ask => Sending::Ask(asked_to_fetch_trusted_lists(directory)),
+        Submissions::Ask => Sending::Ask(asked_to_fetch_trusted_lists(directory, references)),
         Submissions::Warn => Sending::Warn(format!(
             "the trusted lists were fetched without asking you first, because this reader is set \
              to {} ({})",
@@ -70,16 +86,34 @@ pub fn may_fetch_trusted_lists(directory: Option<&Path>, level: Submissions) -> 
 }
 
 /// What a window puts in front of a person when [`may_fetch_trusted_lists`] answers
-/// [`Submissions::Ask`]: where the lists come from, where they are kept, and what fetching does.
+/// [`Submissions::Ask`]: where the lists come from, where they are kept, and what fetching does —
+/// and, where a signature policy references lists, each location by name, since those come from
+/// a document and a person is owed the server's name before it is asked (ADR 1728's question,
+/// ADR 2936).
 #[must_use]
-pub fn asked_to_fetch_trusted_lists(directory: &Path) -> crate::restriction::Question {
+pub fn asked_to_fetch_trusted_lists(
+    directory: &Path,
+    references: &[String],
+) -> crate::restriction::Question {
+    let policies = if references.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " The signature policy of the document in front names {} trusted list(s) its trust \
+             anchors are taken from (ETSI TS 119 172-2 clause 4.22.2.1 b)), and they are fetched \
+             too, where the list of trusted lists does not already lead to them: {}. Each is kept \
+             only where the list of trusted lists authenticates the Member State's list it is.",
+            references.len(),
+            references.join(", ")
+        )
+    };
     crate::restriction::Question {
         reasons: format!(
             "Signatures are checked against the European Union's trusted lists in {}. Updating \
              them fetches the European Commission's list of trusted lists and each Member State's \
              list from the servers that publish them, which tells those servers this reader is \
              checking signatures now; what comes back is kept only where its own signatures \
-             authenticate it (ETSI TS 119 615 clauses 4.1 and 4.2).",
+             authenticate it (ETSI TS 119 615 clauses 4.1 and 4.2).{policies}",
             directory.display()
         ),
         choice: format!(
@@ -106,9 +140,14 @@ pub fn asked_to_fetch_trusted_lists(directory: &Path) -> crate::restriction::Que
 /// event thread, for [`crate::submit`]'s reason. `warned` is the [`Sending::Warn`] sentence,
 /// where the level gave one.
 #[must_use]
-pub fn fetch_trusted_lists(directory: &Path, at: Instant, warned: Option<&str>) -> Vec<String> {
+pub fn fetch_trusted_lists(
+    directory: &Path,
+    at: Instant,
+    references: &[String],
+    warned: Option<&str>,
+) -> Vec<String> {
     let mut obtain = |uri: &str| obtained(crate::submit::fetch(uri));
-    let mut said = refresh_trusted_lists(directory, at, &mut obtain);
+    let mut said = refresh_trusted_lists(directory, at, references, &mut obtain);
     if let Some(warned) = warned {
         said.insert(0, format!("trusted lists: {warned}"));
     }
@@ -137,11 +176,13 @@ pub fn obtained(
 }
 
 /// The lists in `directory` refreshed through `obtain`, at `at`: the procedure run over the files
-/// the directory holds, its answer persisted, and every outcome said.
+/// the directory holds and the lists `references` names, its answer persisted, and every outcome
+/// said.
 #[must_use]
 pub fn refresh_trusted_lists(
     directory: &Path,
     at: Instant,
+    references: &[String],
     obtain: &mut refresh::Obtain<'_>,
 ) -> Vec<String> {
     let (lists, refused) = crate::policy::trusted_lists(Some(directory));
@@ -149,7 +190,7 @@ pub fn refresh_trusted_lists(
         .iter()
         .map(|refusal| format!("trusted lists: {refusal}"))
         .collect();
-    match refresh::refresh(&lists, at, obtain) {
+    match refresh::refresh_with(&lists, at, references, obtain) {
         Err(refusal @ RefreshRefusal::NoOfficialJournalCertificates) => {
             said.push(format!("trusted lists: nothing was fetched: {refusal}"));
         }
@@ -254,11 +295,30 @@ pub fn trusted_lists_declined(why: &str) -> String {
 /// What a window says as the refresh starts, so that the minutes a fetch of some thirty lists can
 /// take are not silent (trap 5).
 #[must_use]
-pub fn refresh_note(directory: &Path) -> String {
+pub fn refresh_note(directory: &Path, references: &[String]) -> String {
+    let policies = if references.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ", and the {} list(s) a signature policy references",
+            references.len()
+        )
+    };
     format!(
-        "trusted lists: fetching the list of trusted lists and the Member States' lists into {}",
+        "trusted lists: fetching the list of trusted lists and the Member States' lists{policies} \
+         into {}",
         directory.display()
     )
+}
+
+/// The trusted lists the focused document's bound signature policies reference, as the core
+/// answers `viewer_core::Query::TrustedListReferences`; none where nothing is open (ADR 2936).
+#[must_use]
+pub fn referenced_lists(viewer: &viewer_core::Viewer) -> Vec<String> {
+    match viewer.query(viewer_core::Query::TrustedListReferences) {
+        viewer_core::Answer::TrustedListReferences(locations) => locations.to_vec(),
+        _ => Vec::new(),
+    }
 }
 
 /// The transport a [`Refresher`] hands the procedure: a location in, octets or a sentence out.
@@ -308,8 +368,9 @@ impl Refresher {
         }
     }
 
-    /// Refreshes the lists in `trusting`'s directory over the network on a `fetch-trusted-lists`
-    /// thread of its own, at `at`, then reads both directories again there.
+    /// Refreshes the lists in `trusting`'s directory, and the lists `references` names, over the
+    /// network on a `fetch-trusted-lists` thread of its own, at `at`, then reads both directories
+    /// again there.
     ///
     /// Asked first, as [`fetch_trusted_lists`] is; `wake` is [`crate::submit::Submitter::send`]'s.
     ///
@@ -320,11 +381,12 @@ impl Refresher {
         &mut self,
         trusting: crate::Trusting,
         at: Instant,
+        references: Vec<String>,
         warned: Option<String>,
         wake: Option<Box<dyn Fn() + Send>>,
     ) -> Result<(), String> {
         let transport: Transport = Box::new(|uri: &str| obtained(crate::submit::fetch(uri)));
-        self.start_with(trusting, at, warned, transport, wake)
+        self.start_with(trusting, at, references, warned, transport, wake)
     }
 
     /// [`Self::start`] through `transport` rather than [`crate::submit::fetch`], which is how a
@@ -338,6 +400,7 @@ impl Refresher {
         &mut self,
         trusting: crate::Trusting,
         at: Instant,
+        references: Vec<String>,
         warned: Option<String>,
         mut transport: Transport,
         wake: Option<Box<dyn Fn() + Send>>,
@@ -357,7 +420,7 @@ impl Refresher {
         std::thread::Builder::new()
             .name("fetch-trusted-lists".to_owned())
             .spawn(move || {
-                let mut said = refresh_trusted_lists(&directory, at, &mut *transport);
+                let mut said = refresh_trusted_lists(&directory, at, &references, &mut *transport);
                 if let Some(warned) = warned {
                     said.insert(0, format!("trusted lists: {warned}"));
                 }

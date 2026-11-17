@@ -75,6 +75,8 @@ pub(super) mod answer_kind {
     pub(in crate::protocol) const OVER_TEXT: u8 = 39;
     // `query_kind::PRINT_SIZE`'s answer: a page's width and height in user space units (ADR 2919).
     pub(in crate::protocol) const PRINT_SIZE: u8 = 40;
+    // `query_kind::TRUSTED_LIST_REFERENCES`'s answer: the locations, as strings (ADR 2936).
+    pub(in crate::protocol) const TRUSTED_LIST_REFERENCES: u8 = 41;
 }
 
 /// Encodes one answer.
@@ -341,6 +343,9 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
                     .usize(reaching_a_blank_glyph)
                     .usize(without_a_vertical_form);
             }
+        }
+        Answer::TrustedListReferences(locations) => {
+            writer.u8(k::TRUSTED_LIST_REFERENCES).strings(locations);
         }
         Answer::Text(pages) => {
             writer.u8(k::TEXT).usize(pages.len());
@@ -614,6 +619,9 @@ pub(crate) fn decode_answer_reusing(
                 text: reader.string("a page's text")?,
             })
         })?),
+        k::TRUSTED_LIST_REFERENCES => {
+            Reply::TrustedListReferences(reader.strings("a trusted list's location")?)
+        }
         k::OUTLINE => Reply::Outline(panels::decode_outline(&mut reader)?),
         k::LAYERS => Reply::Layers(panels::decode_layers(&mut reader)?),
         k::ATTACHMENTS => Reply::Attachments(panels::decode_attachments(&mut reader)?),

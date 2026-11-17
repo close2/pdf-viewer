@@ -341,6 +341,9 @@ fn what_it_printed(said: &str) {
         // "001:" (ADR 1553).
         "prepared: page 1 is in \"PDF 2.0 Application Note 001:",
         "outline: 14 row(s)",
+        // The application note is unsigned, so no policy references a trusted list; the answer is
+        // an empty list rather than no answer, which is a document that is open (ADR 2936).
+        "trusted list references: 0",
         // Annex O's `search`, pumped one page at a time by the C loop, and the view moves to the
         // page the occurrence is on, which is the annex's "selecting the first matching word in
         // the document" as far as a C caller can see it. The first occurrence is page one's title,

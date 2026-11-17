@@ -1600,6 +1600,11 @@ pub enum Enforcement {
         syntax: Syntax,
         /// One finding per constraint.
         findings: Vec<Finding>,
+        /// The location of every trusted list the document's `TAsInTrustedList`s reference
+        /// (TS 119 172-2 clause 4.22.2.1 b)), each once: what a host asks the reader to fetch so
+        /// that those trust points' anchors can be determined (ADR 2936). Empty for TR 102 272,
+        /// whose trust trees name certificates only.
+        references: Vec<String>,
     },
     /// They were not, and why.
     NotEnforced(NotEnforced),
@@ -1699,6 +1704,7 @@ fn enforce_copy(
     Enforcement::Enforced {
         syntax: Syntax::Tr102272,
         findings: findings(&document, cms, facts),
+        references: Vec::new(),
     }
 }
 
@@ -1734,6 +1740,7 @@ fn enforce_components(
     Enforcement::Enforced {
         syntax: Syntax::Ts1191723,
         findings: ts_119_172_3::findings(&document, cms, facts),
+        references: document.trusted_list_references(),
     }
 }
 
@@ -1775,6 +1782,7 @@ fn enforce_xml(
     Enforcement::Enforced {
         syntax: Syntax::Ts1191722,
         findings: ts_119_172_2::findings(&document, cms, facts),
+        references: document.trusted_list_references(),
     }
 }
 

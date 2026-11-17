@@ -152,6 +152,10 @@ fn entry_points(query: &Query<'_>) -> &'static [&'static str] {
         // entry is, and the entry's text in C's two-call idiom. A reading at every level, not a
         // second copy accessor (ADR 2844).
         Query::Text => &["quorra_text_pages", "quorra_text_page", "quorra_page_text"],
+        Query::TrustedListReferences => &[
+            "quorra_trusted_list_references",
+            "quorra_trusted_list_reference",
+        ],
     }
 }
 
@@ -202,6 +206,7 @@ fn every_query() -> Vec<Query<'static>> {
         Query::Reports,
         Query::Readback,
         Query::Text,
+        Query::TrustedListReferences,
         Query::Measure(&[]),
     ]
 }

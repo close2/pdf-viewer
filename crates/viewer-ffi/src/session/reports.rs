@@ -70,6 +70,21 @@ impl Session {
             .ok_or(Status::OutOfRange)
     }
 
+    /// The location of every trusted list the focused document's bound signature policies
+    /// reference (ETSI TS 119 172-2 clause 4.22.2.1 b)'s `TLReference`), each once: what a caller
+    /// that fetches its own lists, as ADR 2879's caller does, asks the reader about and fetches
+    /// beside them (ADR 2936).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused.
+    pub fn trusted_list_references(&self) -> Result<&[String], Status> {
+        match self.viewer.query(Query::TrustedListReferences) {
+            Answer::TrustedListReferences(locations) => Ok(locations),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
     /// Table 29's `/PageMode` and `/PageLayout`: what the catalogue asks of the window opening it.
     ///
     /// Both, in one call, because §7.7.2 states them as one instruction to a window and a caller

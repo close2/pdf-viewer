@@ -266,6 +266,9 @@ impl Viewer {
                     })
                     .collect(),
             ),
+            Query::TrustedListReferences => {
+                Answer::TrustedListReferences(&open.about(&self.trust).references)
+            }
         }
     }
 }

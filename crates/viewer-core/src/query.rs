@@ -546,6 +546,24 @@ pub enum Query<'a> {
     /// technology, a PDF reader should behave as if this bit was set to 1". Bit 10, which ISO
     /// 32000-1 used for that purpose, "PDF readers shall ignore".
     Text,
+    /// The location of every trusted list the focused document's signature policies reference:
+    /// the `TLReference` of each ETSI TS 119 172-2 clause 4.22.2.1 b) `TAsInTrustedList` (TS
+    /// 119 172-3's `uri`), each once, from every policy document bound to its signature — the
+    /// copy the file stores, or one a host handed in as [`crate::Command::PolicyCopy`].
+    ///
+    /// **A question no host can answer for itself**, which is `doc/ui-boundary.md`'s test: the
+    /// references are inside a policy document this crate reads and binds, and a host holds
+    /// neither. Clause 4.22.2.1 b) determines those trust points' anchors from the certificates
+    /// in the referenced list, and the reference is the policy's only way to it, so a host that
+    /// refreshes the trusted lists asks the reader about these locations and hands them to the
+    /// refresh (ADRs 2932, 2936). **Asked when a refresh is**, not raised as an event: a copy a
+    /// host fetches later adds references, and the question is put only when the person asks for
+    /// the lists, which is the one moment a host needs them.
+    ///
+    /// A list only where the document is open: [`Answer::None`] where nothing is focused, and
+    /// an empty list where no bound policy references a list. Answered from the report's own
+    /// reading of the signatures, which this question words where nothing has asked for it yet.
+    TrustedListReferences,
 }
 
 /// The answer to a [`Query`].
@@ -811,6 +829,9 @@ pub enum Answer<'a> {
     /// The text of the pages on the screen, one entry per page, in page order. See
     /// [`Query::Text`].
     Text(Vec<PageText<'a>>),
+    /// The trusted lists the focused document's bound signature policies reference, by
+    /// location, each once. See [`Query::TrustedListReferences`].
+    TrustedListReferences(&'a [String]),
 }
 
 /// One page's worth of [`Answer::Reports`].

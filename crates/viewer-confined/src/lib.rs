@@ -643,6 +643,9 @@ pub enum Reply {
     /// §9.10.1's text of the pages on the screen, one entry per page. See
     /// [`viewer_core::Query::Text`].
     Text(Vec<PageText>),
+    /// The trusted lists the focused document's bound signature policies reference, by location.
+    /// See [`viewer_core::Query::TrustedListReferences`].
+    TrustedListReferences(Vec<String>),
     /// §12.3.3's outline, whole.
     Outline(pdf_model::outline::Outline),
     /// §8.11.4.3's layers, in `/Order`.

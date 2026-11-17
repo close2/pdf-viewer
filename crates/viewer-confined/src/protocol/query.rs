@@ -80,6 +80,10 @@ mod query_kind {
     // `/PickTrayByPDFSize` chooses the sheet from it. It crosses because the worker holds the page
     // dictionaries; the window process holds the printer (ADR 2919).
     pub(in crate::protocol) const PRINT_SIZE: u8 = 40;
+    // The trusted lists a bound signature policy references, which a window asks the reader about
+    // before a refresh. It crosses because the worker holds and binds the policy documents (ADR
+    // 2936).
+    pub(in crate::protocol) const TRUSTED_LIST_REFERENCES: u8 = 41;
 }
 
 /// Encodes one question.
@@ -176,6 +180,9 @@ pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
         }
         Query::Text => {
             writer.u8(k::TEXT);
+        }
+        Query::TrustedListReferences => {
+            writer.u8(k::TRUSTED_LIST_REFERENCES);
         }
         Query::Outline => {
             writer.u8(k::OUTLINE);
@@ -294,6 +301,7 @@ pub(crate) enum PlainQuery {
     Reports,
     Readback,
     Text,
+    TrustedListReferences,
     Outline,
     Layers,
     Attachments,
@@ -342,6 +350,7 @@ impl OwnedQuery {
                 PlainQuery::Reports => Query::Reports,
                 PlainQuery::Readback => Query::Readback,
                 PlainQuery::Text => Query::Text,
+                PlainQuery::TrustedListReferences => Query::TrustedListReferences,
                 PlainQuery::Outline => Query::Outline,
                 PlainQuery::Layers => Query::Layers,
                 PlainQuery::Attachments => Query::Attachments,
@@ -415,6 +424,7 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<OwnedQuery, ProtocolError> {
         k::REPORTS => OwnedQuery::Plain(PlainQuery::Reports),
         k::READBACK => OwnedQuery::Plain(PlainQuery::Readback),
         k::TEXT => OwnedQuery::Plain(PlainQuery::Text),
+        k::TRUSTED_LIST_REFERENCES => OwnedQuery::Plain(PlainQuery::TrustedListReferences),
         k::OUTLINE => OwnedQuery::Plain(PlainQuery::Outline),
         k::LAYERS => OwnedQuery::Plain(PlainQuery::Layers),
         k::ATTACHMENTS => OwnedQuery::Plain(PlainQuery::Attachments),

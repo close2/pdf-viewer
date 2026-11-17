@@ -81,11 +81,14 @@ fn a_signing_period_that_ended_before_the_signing_time_is_broken() {
     let octets = document_of(&rule(AUGMENTATION, None), Some("2026-06-01T00:00:00Z"));
     let octets = octets.as_bytes();
     let whole = Digest::Sha256.compute(&[octets]);
-    let Enforcement::Enforced { syntax, findings } = enforce(
+    let Enforcement::Enforced {
+        syntax, findings, ..
+    } = enforce(
         &policy(octets, &whole, "1.2.3.4"),
         &default_cms(),
         &facts(Some("20260701000000Z")),
-    ) else {
+    )
+    else {
         panic!("a bound document is enforced");
     };
     assert_eq!(syntax, Syntax::Ts1191722);
@@ -1334,4 +1337,59 @@ fn an_entry_naming_no_usage_constrains_the_attribute_authority_too() {
     );
     // No attribute certificate, and no entry naming the usage outright: nothing is said.
     assert!(verdicts(&[suite(ECDSA_SHA256_URI, None, None)], 0).is_empty());
+}
+
+/// Clause 4.22.2.1 b)'s `TLReference`s are what the document hands a host to fetch (ADR 2936):
+/// every rule's, in the order stated and each location once, and none from a document whose trust
+/// points name certificates only.
+#[test]
+fn the_trusted_lists_a_document_references_are_collected_once_each() {
+    let conditions = |anchors: &[&str]| {
+        let listed = anchors
+            .iter()
+            .map(|reference| {
+                format!(
+                    "<TAsInTrustedList><TLReference>{reference}</TLReference></TAsInTrustedList>"
+                )
+            })
+            .collect::<Vec<_>>()
+            .concat();
+        rule(
+            &format!(
+                "<SigningCertRules><SigningCertTrustConditions><SignerTrustTrees>\
+                 <CertificateTrustPoint><TrustAnchors>{listed}</TrustAnchors>\
+                 </CertificateTrustPoint></SignerTrustTrees><SignerRevTrust><CertificateRevReq>\
+                 <EndRevReq>nocheck</EndRevReq><CACerts>nocheck</CACerts></CertificateRevReq>\
+                 </SignerRevTrust></SigningCertTrustConditions></SigningCertRules>"
+            ),
+            None,
+        )
+    };
+    let references = |rules: &[String]| {
+        let octets = document_of(&rules.concat(), None);
+        let reading = Reading::parse(octets.as_bytes()).expect("a clause 4 document");
+        reading
+            .document()
+            .expect("a clause 4 document")
+            .trusted_list_references()
+    };
+    assert_eq!(
+        references(&[
+            conditions(&["https://example.at/tl.xml"]),
+            conditions(&["https://example.at/tl.xml", "https://example.be/tl.xml"]),
+        ]),
+        ["https://example.at/tl.xml", "https://example.be/tl.xml"],
+        "both rules', in order, the repeated one once"
+    );
+    assert!(
+        references(&[rule(
+            "<SigningCertRules><SigningCertTrustConditions><SignerTrustTrees>\
+             </SignerTrustTrees><SignerRevTrust><CertificateRevReq><EndRevReq>nocheck</EndRevReq>\
+             <CACerts>nocheck</CACerts></CertificateRevReq></SignerRevTrust>\
+             </SigningCertTrustConditions></SigningCertRules>",
+            None,
+        )])
+        .is_empty(),
+        "no reference, nothing to fetch"
+    );
 }

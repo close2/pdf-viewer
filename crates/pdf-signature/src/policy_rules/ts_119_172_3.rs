@@ -786,7 +786,57 @@ fn other_identifier<'a>(
         .ok_or(malformed(member))
 }
 
+/// The location of every trusted list `rules` reference: the `uri` (TS 119 172-2's
+/// `TLReference`) of each clause 4.22.2.1 b) `TAsInTrustedList` in a trust condition's trust trees,
+/// in the order the rules state them and each location once.
+///
+/// Clause 4.22.2.1 b) determines a trust point's anchors from the certificates in the referenced
+/// list, and the reference is the policy's only way to the list, so these are the locations a host
+/// asks the reader about before it fetches them (ADRs 2932, 2936). The trust trees are those of
+/// clause 4.24's signing-certificate condition, clause 4.25's time-stamping authority's condition
+/// and clause 4.26's attribute-certificate condition, wherever a rule states one — each scope and
+/// each commitment rule, since which applies is decided per signature and the fetch is not.
+pub(super) fn trusted_list_references(rules: &[ScopedRule<'_>]) -> Vec<String> {
+    let mut references: Vec<String> = Vec::new();
+    let mut take = |trees: &TrustTrees<'_>| {
+        for listed in &trees.listed {
+            if !references.contains(&listed.reference.reference) {
+                references.push(listed.reference.reference.clone());
+            }
+        }
+    };
+    let basic_rules = rules.iter().flat_map(|scoped| match &scoped.rule {
+        PolicyRule::Basic(rule) => vec![rule],
+        PolicyRule::Commitments(commitments) => commitments
+            .iter()
+            .flat_map(|commitment| &commitment.rules)
+            .collect(),
+    });
+    for rule in basic_rules {
+        match rule {
+            BasicRule::SigningCertificate { trust, .. } => take(&trust.trees),
+            BasicRule::TimeEvidences(evidences) => evidences
+                .iter()
+                .filter_map(|evidence| evidence.trust.as_ref()?.trees.as_ref())
+                .for_each(&mut take),
+            BasicRule::SignerAttributes { sets, .. } => sets
+                .iter()
+                .filter_map(|set| set.trust_trees.as_ref())
+                .for_each(&mut take),
+            _ => {}
+        }
+    }
+    references
+}
+
 impl<'a> PolicyDocument<'a> {
+    /// The location of every trusted list the policy's `TAsInTrustedList`s reference, each once
+    /// (TS 119 172-3 clause 4.22.2.2), from clauses 4.24 to 4.26's trust trees in every rule.
+    #[must_use]
+    pub fn trusted_list_references(&self) -> Vec<String> {
+        trusted_list_references(&self.rules)
+    }
+
     /// Reads TS 119 172-3 clause 4.2's `SignaturePolicy` out of a policy document's octets.
     ///
     /// # Errors

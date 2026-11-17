@@ -102,11 +102,14 @@ fn a_signing_period_that_ended_before_the_signing_time_is_broken() {
         Some("20260601000000Z"),
     ));
     let whole = Digest::Sha256.compute(&[&octets]);
-    let Enforcement::Enforced { syntax, findings } = enforce(
+    let Enforcement::Enforced {
+        syntax, findings, ..
+    } = enforce(
         &policy(&octets, &whole, "1.2.3.4"),
         &default_cms(),
         &facts(Some("20260701000000Z")),
-    ) else {
+    )
+    else {
         panic!("a bound document is enforced");
     };
     assert_eq!(syntax, Syntax::Ts1191723);

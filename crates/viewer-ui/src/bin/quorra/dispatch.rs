@@ -472,17 +472,24 @@ impl App {
     ///
     /// **One question at a time**, for [`Self::fetch_policy`]'s reason.
     pub(crate) fn fetch_trusted_lists(&mut self) {
-        use viewer_host::trusted_list_fetch::{may_fetch_trusted_lists, trusted_lists_declined};
+        use viewer_host::trusted_list_fetch::{
+            may_fetch_trusted_lists, referenced_lists, trusted_lists_declined,
+        };
         let directory = self.trusting.trusted_lists.clone();
-        match may_fetch_trusted_lists(directory.as_deref(), self.restrictions.submissions()) {
-            viewer_host::Sending::Send => self.start_refresh(None),
-            viewer_host::Sending::Warn(note) => self.start_refresh(Some(note)),
+        let references = referenced_lists(&self.viewer);
+        match may_fetch_trusted_lists(
+            directory.as_deref(),
+            &references,
+            self.restrictions.submissions(),
+        ) {
+            viewer_host::Sending::Send => self.start_refresh(references, None),
+            viewer_host::Sending::Warn(note) => self.start_refresh(references, Some(note)),
             viewer_host::Sending::Ask(_) if self.asked.is_some() => println!(
                 "{}",
                 trusted_lists_declined("another question was already waiting for your answer")
             ),
             viewer_host::Sending::Ask(words) => {
-                self.put_a_question(crate::app::Pending::TrustedLists, &words);
+                self.put_a_question(crate::app::Pending::TrustedLists { references }, &words);
             }
             viewer_host::Sending::Refuse(why) => println!("{}", trusted_lists_declined(&why)),
         }
@@ -490,9 +497,9 @@ impl App {
 
     /// The answer to [`Self::fetch_trusted_lists`]' question: a yes fetches, and a `no` fetches
     /// nothing and says the lists held stay (ADR 2886).
-    fn trusted_lists_answered(&mut self, proceed: bool) {
+    fn trusted_lists_answered(&mut self, references: Vec<String>, proceed: bool) {
         if proceed {
-            self.start_refresh(None);
+            self.start_refresh(references, None);
         } else {
             println!(
                 "{}",
@@ -506,11 +513,11 @@ impl App {
 
     /// Puts the refresh on a `fetch-trusted-lists` thread of its own, woken and collected as a
     /// submission is, at this machine's clock.
-    fn start_refresh(&mut self, warned: Option<String>) {
+    fn start_refresh(&mut self, references: Vec<String>, warned: Option<String>) {
         if let Some(directory) = &self.trusting.trusted_lists {
             println!(
                 "{}",
-                viewer_host::trusted_list_fetch::refresh_note(directory)
+                viewer_host::trusted_list_fetch::refresh_note(directory, &references)
             );
         }
         let wake = self.waker.clone().map(|waker| -> Box<dyn Fn() + Send> {
@@ -522,6 +529,7 @@ impl App {
         if let Err(sentence) = self.refresher.start(
             self.trusting.clone(),
             viewer_host::policy::now(),
+            references,
             warned,
             wake,
         ) {
@@ -1170,7 +1178,9 @@ impl App {
             crate::app::Pending::Policy { document, policy } => {
                 self.policy_answered(document, *policy, proceed);
             }
-            crate::app::Pending::TrustedLists => self.trusted_lists_answered(proceed),
+            crate::app::Pending::TrustedLists { references } => {
+                self.trusted_lists_answered(references, proceed);
+            }
             // Table Annex O.4's `fdf` from a server: a `no` fetches nothing, and the core is told
             // so the import says it declined (ADR 1527).
             crate::app::Pending::Fetch { document, url } => {

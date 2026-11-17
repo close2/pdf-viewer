@@ -63,8 +63,13 @@ pub enum Asked {
         policy: Box<crate::PublishedPolicy>,
     },
     /// The European Union's trusted lists, answered by fetching them into the directory the
-    /// reader named (ADR 2886). No document asked, so none is carried.
-    TrustedLists,
+    /// reader named (ADR 2886). No document asked, so none is carried; the lists the focused
+    /// document's signature policies reference are, because the question named them and a yes
+    /// fetches what it named (ADR 2936).
+    TrustedLists {
+        /// The locations `viewer_core::Query::TrustedListReferences` answered with when asked.
+        references: Vec<String>,
+    },
     /// A file a document named, answered by reading it and supplying it (ADRs 1227, 1239).
     RemoteDocument {
         /// Which of the three purposes asked, so that the answer goes back to the right one.
@@ -111,7 +116,7 @@ impl Asked {
             Self::Submit { .. } => crate::Subject::Submission,
             Self::Fetch { .. } => crate::Subject::Fetch,
             Self::Policy { .. } => crate::Subject::Policy,
-            Self::TrustedLists => crate::Subject::TrustedLists,
+            Self::TrustedLists { .. } => crate::Subject::TrustedLists,
             Self::RemoteDocument { .. } | Self::LaunchedDocument { .. } => crate::Subject::Document,
             Self::Embedded { .. } => crate::Subject::Embedded,
             Self::Scripts { .. } => crate::Subject::Scripts,
@@ -191,7 +196,9 @@ pub(super) fn answer<W: NativeWindow + ?Sized>(window: &mut W, about: Asked, pro
                 });
             }
         }
-        Asked::TrustedLists => trusted_lists_answered(window, proceed),
+        Asked::TrustedLists { references } => {
+            trusted_lists_answered(window, references, proceed);
+        }
         // A signature policy's copy from a server: a `no` fetches nothing and says so (ADR 1738).
         Asked::Policy { document, policy } => {
             if proceed {
@@ -305,28 +312,42 @@ pub(super) fn fetch_policy<W: NativeWindow + ?Sized>(
 ///
 /// **Asked while another question waits, it is declined with that reason** rather than put in the
 /// first's place, as [`fetch_policy`] declines.
+///
+/// **The lists the focused document's signature policies reference go with them** (ADR 2936):
+/// ETSI TS 119 172-2 clause 4.22.2.1 b) determines those trust points' anchors from the referenced
+/// list, so the core is asked for the locations, the question names each, and the refresh is given
+/// them. The level is the reader's for both; a document adds locations to a refresh the person
+/// asked for, and never starts one.
 pub(super) fn trusted_lists<W: NativeWindow + ?Sized>(window: &mut W) {
-    use crate::trusted_list_fetch::{may_fetch_trusted_lists, trusted_lists_declined};
+    use crate::trusted_list_fetch::{
+        may_fetch_trusted_lists, referenced_lists, trusted_lists_declined,
+    };
     let directory = window.state().trusting.trusted_lists.clone();
+    let references = referenced_lists(&window.state().viewer);
     match may_fetch_trusted_lists(
         directory.as_deref(),
+        &references,
         window.state().restrictions.submissions(),
     ) {
-        crate::Sending::Send => start_refresh(window, None),
-        crate::Sending::Warn(note) => start_refresh(window, Some(note)),
+        crate::Sending::Send => start_refresh(window, references, None),
+        crate::Sending::Warn(note) => start_refresh(window, references, Some(note)),
         crate::Sending::Ask(_) if window.question_waiting() => window.say(&trusted_lists_declined(
             "another question was already waiting for your answer",
         )),
-        crate::Sending::Ask(words) => window.ask(Asked::TrustedLists, &words),
+        crate::Sending::Ask(words) => window.ask(Asked::TrustedLists { references }, &words),
         crate::Sending::Refuse(why) => window.say(&trusted_lists_declined(&why)),
     }
 }
 
-/// The answer to [`trusted_lists`]' question: a yes fetches, and a `no` fetches nothing and says
-/// the lists held stay (ADR 2886).
-fn trusted_lists_answered<W: NativeWindow + ?Sized>(window: &mut W, proceed: bool) {
+/// The answer to [`trusted_lists`]' question: a yes fetches what it named, and a `no` fetches
+/// nothing and says the lists held stay (ADR 2886).
+fn trusted_lists_answered<W: NativeWindow + ?Sized>(
+    window: &mut W,
+    references: Vec<String>,
+    proceed: bool,
+) {
     if proceed {
-        start_refresh(window, None);
+        start_refresh(window, references, None);
     } else {
         window.say(&crate::trusted_list_fetch::trusted_lists_declined(
             &format!("you answered \"{}\"", crate::restriction::DO_NOT),
@@ -336,17 +357,24 @@ fn trusted_lists_answered<W: NativeWindow + ?Sized>(window: &mut W, proceed: boo
 
 /// Puts the refresh on a `fetch-trusted-lists` thread of its own, looked for as a submission's
 /// answer is, at this machine's clock.
-fn start_refresh<W: NativeWindow + ?Sized>(window: &mut W, warned: Option<String>) {
+fn start_refresh<W: NativeWindow + ?Sized>(
+    window: &mut W,
+    references: Vec<String>,
+    warned: Option<String>,
+) {
     let trusting = window.state().trusting.clone();
     if let Some(directory) = &trusting.trusted_lists {
-        window.say(&crate::trusted_list_fetch::refresh_note(directory));
+        window.say(&crate::trusted_list_fetch::refresh_note(
+            directory,
+            &references,
+        ));
     }
     let first = !window.state().looking();
     if let Err(sentence) =
         window
             .state_mut()
             .refresher
-            .start(trusting, crate::policy::now(), warned, None)
+            .start(trusting, crate::policy::now(), references, warned, None)
     {
         window.say(&sentence);
         return;

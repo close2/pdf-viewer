@@ -116,19 +116,20 @@ fn configured(name: &str, lotl: &str) -> PathBuf {
 fn the_level_decides_and_no_directory_refuses_at_every_level() {
     let directory = directory("level");
     assert!(matches!(
-        may_fetch_trusted_lists(Some(&directory), Submissions::Refuse),
+        may_fetch_trusted_lists(Some(&directory), &[], Submissions::Refuse),
         Sending::Refuse(_)
     ));
-    let Sending::Ask(question) = may_fetch_trusted_lists(Some(&directory), Submissions::Ask) else {
+    let Sending::Ask(question) = may_fetch_trusted_lists(Some(&directory), &[], Submissions::Ask)
+    else {
         panic!("ask puts the question");
     };
     assert!(question.reasons.contains(&directory.display().to_string()));
     assert!(matches!(
-        may_fetch_trusted_lists(Some(&directory), Submissions::Warn),
+        may_fetch_trusted_lists(Some(&directory), &[], Submissions::Warn),
         Sending::Warn(_)
     ));
     assert_eq!(
-        may_fetch_trusted_lists(Some(&directory), Submissions::Send),
+        may_fetch_trusted_lists(Some(&directory), &[], Submissions::Send),
         Sending::Send
     );
     for level in [
@@ -137,7 +138,7 @@ fn the_level_decides_and_no_directory_refuses_at_every_level() {
         Submissions::Warn,
         Submissions::Send,
     ] {
-        let Sending::Refuse(why) = may_fetch_trusted_lists(None, level) else {
+        let Sending::Refuse(why) = may_fetch_trusted_lists(None, &[], level) else {
             panic!("no directory refuses at {level:?}");
         };
         assert!(why.contains("--trusted-lists"), "{why}");
@@ -156,7 +157,12 @@ fn without_the_official_journals_certificates_the_transport_is_never_asked() {
         asked = asked.saturating_add(1);
         Err("not reached".to_owned())
     };
-    let said = refresh_trusted_lists(&directory, Instant::from_unix_seconds(NOW), &mut obtain);
+    let said = refresh_trusted_lists(
+        &directory,
+        Instant::from_unix_seconds(NOW),
+        &[],
+        &mut obtain,
+    );
     assert_eq!(asked, 0);
     assert!(
         said.iter().any(
@@ -175,7 +181,7 @@ fn a_lotl_the_server_does_not_answer_with_keeps_the_directory_as_it_was() {
     let lotl = format!("{base}/eu-lotl.xml");
     let directory = configured("not-found", &lotl);
     let before = files(&directory);
-    let said = fetch_trusted_lists(&directory, Instant::from_unix_seconds(NOW), None);
+    let said = fetch_trusted_lists(&directory, Instant::from_unix_seconds(NOW), &[], None);
     assert_eq!(
         server.join().expect("the server ran"),
         "GET /eu-lotl.xml HTTP/1.1"
@@ -199,6 +205,7 @@ fn an_answer_clause_4_1_does_not_authenticate_is_not_kept() {
     let said = fetch_trusted_lists(
         &directory,
         Instant::from_unix_seconds(NOW),
+        &[],
         Some("fetched without asking"),
     );
     server.join().expect("the server ran");
@@ -347,6 +354,7 @@ fn a_refresh_hands_the_core_the_lists_it_kept() {
     out.start_with(
         trusting,
         Instant::from_unix_seconds(NOW),
+        Vec::new(),
         None,
         serving("be-tsl.xml"),
         None,
@@ -390,6 +398,7 @@ fn a_list_clause_4_2_refuses_is_not_handed_to_the_core() {
     out.start_with(
         trusting,
         Instant::from_unix_seconds(NOW),
+        Vec::new(),
         None,
         serving("be-tsl-other-signer.xml"),
         None,
@@ -416,6 +425,7 @@ fn a_second_refresh_and_one_with_no_directory_are_declined() {
     out.start_with(
         trusting.clone(),
         Instant::from_unix_seconds(NOW),
+        Vec::new(),
         None,
         transport,
         None,
@@ -425,6 +435,7 @@ fn a_second_refresh_and_one_with_no_directory_are_declined() {
         .start_with(
             trusting,
             Instant::from_unix_seconds(NOW),
+            Vec::new(),
             None,
             serving("be-tsl.xml"),
             None,
@@ -437,9 +448,75 @@ fn a_second_refresh_and_one_with_no_directory_are_declined() {
         .start(
             Trusting::default(),
             Instant::from_unix_seconds(NOW),
+            Vec::new(),
             None,
             None,
         )
         .expect_err("nowhere to keep them");
     assert!(none.contains("--trusted-lists"), "{none}");
+}
+
+/// TS 119 172-2 clause 4.22.2.1 b) through a window's refresh (ADRs 2932, 2936): the location a
+/// policy references is named in the question, handed to the refresh, asked for after the lists
+/// the list of trusted lists leads to, and `AT`'s list served there is kept under that location
+/// and crosses to the core. A refresh given no reference never asks for it.
+#[test]
+fn a_referenced_list_is_named_fetched_and_handed_to_the_core() {
+    const MIRROR: &str = "https://mirror.example/at.xml";
+    let (directory, words) = trusting("window-referenced");
+    let references = vec![MIRROR.to_owned()];
+    let Sending::Ask(named) =
+        may_fetch_trusted_lists(Some(&directory), &references, Submissions::Ask)
+    else {
+        panic!("ask puts the question");
+    };
+    assert!(named.reasons.contains(MIRROR), "{}", named.reasons);
+    assert!(named.reasons.contains("4.22.2.1"), "{}", named.reasons);
+    let Sending::Ask(plain) = may_fetch_trusted_lists(Some(&directory), &[], Submissions::Ask)
+    else {
+        panic!("ask puts the question");
+    };
+    assert!(!plain.reasons.contains("4.22.2.1"), "{}", plain.reasons);
+
+    let run = |words: Trusting, references: Vec<String>| {
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let seen = std::sync::Arc::clone(&asked);
+        let mut serve = serving("be-tsl.xml");
+        let transport: Transport = Box::new(move |uri: &str| {
+            seen.lock().expect("one writer").push(uri.to_owned());
+            if uri == MIRROR {
+                Ok(fixture("at-tsl.xml"))
+            } else {
+                serve(uri)
+            }
+        });
+        let mut out = Refresher::new();
+        out.start_with(
+            words,
+            Instant::from_unix_seconds(NOW),
+            references,
+            None,
+            transport,
+            None,
+        )
+        .expect("a refresh starts");
+        let refreshed = collected(&mut out);
+        let asked = asked.lock().expect("the thread is done").clone();
+        (refreshed, asked)
+    };
+
+    let (refreshed, asked) = run(words, references);
+    assert_eq!(asked.last().map(String::as_str), Some(MIRROR), "{asked:?}");
+    let after = names(&refreshed.trust);
+    assert!(after.contains(&stored_name(MIRROR)), "{after:?}");
+    assert!(
+        refreshed.said.iter().any(|line| line.contains(MIRROR)),
+        "{:?}",
+        refreshed.said
+    );
+
+    let (_, unreferenced) = trusting("window-unreferenced");
+    let (refreshed, asked) = run(unreferenced, Vec::new());
+    assert!(!asked.iter().any(|uri| uri == MIRROR), "{asked:?}");
+    assert!(!names(&refreshed.trust).contains(&stored_name(MIRROR)));
 }

@@ -3,8 +3,8 @@
 Status: **open** — locally valid, the list reader, the lists' authentication, RSASSA-PSS subject
 keys, the QC statements, TS 119 615 clauses 4.4 to 4.7, TS 119 172-4 clause 4.4.2's level, most of
 clause 4.5's report with a)'s text and h)'s TS 119 312 assessment, a policy's trusted-list anchors, a C host's lists, the lists' fetch and the
-window that asks for it, and a policy's referenced list fetched within a refresh, are built (ADRs 2834, 2835, 2842, 2843,
-2852, 2853, 2864, 2865, 2866, 2872, 2874, 2878, 2879, 2882, 2886, 2896, 2897, 2932), and
+window that asks for it, and a policy's referenced list fetched within a refresh that every window and the C ABI hand it, are built (ADRs 2834, 2835, 2842, 2843,
+2852, 2853, 2864, 2865, 2866, 2872, 2874, 2878, 2879, 2882, 2886, 2896, 2897, 2932, 2936, 2937), and
 Annex A's time-stamp type is read as a silence (ADR 2883);
 section 2 is the order for the rest.
 Priority: the owner's, 2026-11-06, `doc/questions/A800` item 3: "we should be able to validate all
@@ -135,6 +135,10 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
   list of trusted lists never. `Lists::read` holds a file stored from a location the LOTL does not
   point at as `Reading::referenced`: it answers only the reference that names it, and clauses 4.3 to
   4.7 never search it.
+- **The references, handed to it** (ADRs 2936, 2937). A bound policy's `TAsInTrustedList`
+  locations are `Enforcement::Enforced`'s and the core's `Query::TrustedListReferences`; Shift + T in
+  each window asks for them, names each in the question, and gives them to the refresh; a C session
+  reads them through `quorra_trusted_list_references` and `quorra_trusted_list_reference`.
 - **Annex A's `id-etsi-dst-euqtst`, read** (ADR 2883): TS 119 172-4 states no process that gives a
   time-stamp token a type — clause 4's processes are a signature's or a seal's, and REQ-4.5-02's
   identifiers are a "may" — so a document timestamp is reported by TS 119 615 clause 4.7's answer
@@ -152,7 +156,6 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
    needs verifying, an instant the report is not given.
 4. **The fetch's remainder.** GPR-4.0-03's *should* — go on past a failed `https` validation with
    a warning — is not taken: the client has no unvalidated mode, and a failed connection is said as
-   the location not fetched (re-read 2026-11-16, ADR 2886; unchanged under ADR 2932). No host hands a
-   policy's references to `refresh_with` yet. That needs the core's event naming the references of a
-   shown signature's policy, each window's question naming the locations (ADR 1728's shape), and the
-   C ABI, which are the hosts' work (ADR 2932).
+   the location not fetched (re-read 2026-11-16, ADR 2886; unchanged under ADRs 2932 and 2936). The
+   WinUI window, which is not built on this machine, owes the references only if it ever fetches
+   lists outside `quorra_window` (ADR 2937).

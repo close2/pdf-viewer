@@ -29,6 +29,31 @@ pub(crate) struct About {
     /// Each signature's [`pdf_signature::policy::SignaturePolicy::published`] list, in signature
     /// order, with a URL a second signature names under the same commitment listed once.
     pub(crate) published: Vec<pdf_signature::policy::PublishedPolicy>,
+    /// The location of every trusted list a bound policy document's `TAsInTrustedList`s
+    /// reference, each once (TS 119 172-2 clause 4.22.2.1 b)): what
+    /// [`crate::Query::TrustedListReferences`] answers (ADR 2936).
+    pub(crate) references: Vec<String>,
+}
+
+/// What a document's signatures name that only a host may fetch, gathered as its report is
+/// worded: [`About`]'s two lists.
+#[derive(Debug, Default)]
+struct Fetchable {
+    /// As [`About::published`].
+    published: Vec<pdf_signature::policy::PublishedPolicy>,
+    /// As [`About::references`].
+    references: Vec<String>,
+}
+
+impl Fetchable {
+    /// The report: `notes`, and these lists beside them.
+    fn beside(self, notes: Vec<String>) -> About {
+        About {
+            notes,
+            published: self.published,
+            references: self.references,
+        }
+    }
 }
 
 /// A copy of a signature policy's document a host fetched from the URL ETSI EN 319 122-1 clause
@@ -86,7 +111,7 @@ pub(crate) fn about(
     copies: &[FetchedCopy],
 ) -> About {
     let mut notes = Vec::new();
-    let mut published = Vec::new();
+    let mut fetchable = Fetchable::default();
 
     if document.was_recovered() {
         // Worth saying: the file's own cross-reference table was unusable and the document was
@@ -250,8 +275,8 @@ pub(crate) fn about(
     external_associated_files(document, &mut notes);
     xfa_form(document, &mut notes);
     tagged_structure(document, &mut notes);
-    signatures(document, trust, copies, &mut notes, &mut published);
-    About { notes, published }
+    signatures(document, trust, copies, &mut notes, &mut fetchable);
+    fetchable.beside(notes)
 }
 
 /// §14.13.2's *other* form, and the reason it is said here rather than listed with [`about`]'s
@@ -745,7 +770,7 @@ fn signatures(
     trust: &crate::TrustPolicy,
     copies: &[FetchedCopy],
     notes: &mut Vec<String>,
-    published: &mut Vec<pdf_signature::policy::PublishedPolicy>,
+    fetchable: &mut Fetchable,
 ) {
     // Read once and lent on: §12.8.6's dictionary says which signature carries §12.8.2.2's
     // `/DocMDP` and which carries §12.8.2.3's `/UR3`, which is what decides whether a comparison of
@@ -814,7 +839,7 @@ fn signatures(
             now: trust.anchors.at(),
             signatures: &signatures,
         };
-        about_one(signature, document, length, &asked, notes, published);
+        about_one(signature, document, length, &asked, notes, fetchable);
         modifications(signature, document, &permissions, notes);
     }
     permissions_stated(&permissions, notes);
@@ -1331,7 +1356,7 @@ fn about_one(
     length: u64,
     asked: &Asked<'_>,
     notes: &mut Vec<String>,
-    published: &mut Vec<pdf_signature::policy::PublishedPolicy>,
+    fetchable: &mut Fetchable,
 ) {
     {
         let who = signature.name.as_deref().unwrap_or("an unnamed signer");
@@ -1674,7 +1699,7 @@ fn about_one(
                     }
                 ));
             }
-            signature_policy(signature, &cms, asked, notes, published);
+            signature_policy(signature, &cms, asked, notes, fetchable);
             // §12.8.3.4.5 (a)'s first sentence, said whether or not the signature verifies and
             // whatever the `/SubFilter` is: RFC 5035 section 5.4.1 puts the same rule on any CMS
             // object carrying the attribute, and `Signature::authenticity` already refuses on a
@@ -1735,7 +1760,7 @@ fn signature_policy(
     cms: &pdf_signature::cms::SignedData<'_>,
     asked: &Asked<'_>,
     notes: &mut Vec<String>,
-    published: &mut Vec<pdf_signature::policy::PublishedPolicy>,
+    fetchable: &mut Fetchable,
 ) {
     use pdf_signature::policy::Binding;
 
@@ -1760,8 +1785,8 @@ fn signature_policy(
     // reader's network level rather than a sentence (ADRs 1728, 1738). A second signature under
     // the same policy, URL and digest would be the same question asked twice.
     for copy in policy.published() {
-        if !published.contains(&copy) {
-            published.push(copy);
+        if !fetchable.published.contains(&copy) {
+            fetchable.published.push(copy);
         }
     }
     notes.push(match policy.binding() {
@@ -1836,6 +1861,7 @@ fn signature_policy(
             lists: asked.supplied,
         },
         notes,
+        &mut fetchable.references,
     );
 }
 
@@ -1873,6 +1899,7 @@ fn policy_constraints(
     copies: &[FetchedCopy],
     asked: PolicyAsked<'_>,
     notes: &mut Vec<String>,
+    references: &mut Vec<String>,
 ) {
     use pdf_signature::policy_rules::{Enforcement, NotEnforced, SignerFacts, enforce};
 
@@ -1888,7 +1915,13 @@ fn policy_constraints(
     };
     let fetched = fetched_copies(policy, copies);
     let stored = enforce(policy, cms, &facts);
-    if let Enforcement::Enforced { syntax, findings } = &stored {
+    if let Enforcement::Enforced {
+        syntax,
+        findings,
+        references: stated,
+    } = &stored
+    {
+        referenced(stated, references);
         enforced(*syntax, findings, "the copy this file carries", notes);
         for copy in fetched {
             notes.push(format!(
@@ -1904,7 +1937,12 @@ fn policy_constraints(
     for copy in &fetched {
         let source = format!("the copy fetched from {}", copy.published.url);
         match enforce_fetched_once(policy, copy, cms, &facts, fetched_enforced) {
-            Some(Enforcement::Enforced { syntax, findings }) => {
+            Some(Enforcement::Enforced {
+                syntax,
+                findings,
+                references: stated,
+            }) => {
+                referenced(&stated, references);
                 enforced(syntax, &findings, &source, notes);
                 fetched_enforced = true;
             }
@@ -1942,6 +1980,20 @@ fn policy_constraints(
          this program did not: {why}. Everything the signature itself states about the policy is \
          above"
     ));
+}
+
+/// The trusted lists an enforced copy's `TAsInTrustedList`s reference, added to the document's
+/// once each (TS 119 172-2 clause 4.22.2.1 b)).
+///
+/// **Only a bound copy's**: a store is unsigned and a server is not the signer, so a copy neither
+/// digest binds is nobody's agreement, and a location it names is not one this program would put to
+/// the reader as the policy's (ADRs 2580, 2624, 2936).
+fn referenced(stated: &[String], references: &mut Vec<String>) {
+    for reference in stated {
+        if !references.contains(reference) {
+            references.push(reference.clone());
+        }
+    }
 }
 
 /// The fetched copies that are of this signature's policy: the ones whose published entry is one
@@ -5207,6 +5259,98 @@ mod tests {
             unsupplied.contains("1 of its trust anchors were not searched"),
             "{unsupplied}"
         );
+    }
+
+    /// **The reference a bound policy names is what a host is asked to fetch** (ADR 2936): ETSI
+    /// TS 119 172-2 clause 4.22.2.1 b) determines the trust point's anchors from the list its
+    /// `TLReference` names. A focused document answers `Query::TrustedListReferences` with an
+    /// empty list until a bound copy of its policy is held, and with the reference once it is.
+    ///
+    /// **The calibration is a copy no digest binds** (trap 13): the same policy with one octet
+    /// added is nobody's agreement, so a location it names is not put to the reader.
+    #[test]
+    fn a_bound_policys_list_reference_is_answered_to_a_host() {
+        use crate::{Answer, Command, DocumentId, Query, Viewer};
+        let signer = hex(ITS_SIGNER);
+        let leaf = pdf_signature::x509::parse(&signer).expect("the fixture signer");
+        let policy = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<SignaturePolicy xmlns="http://uri.etsi.org/19172/v1.1.1#" xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
+  <Digest>
+    <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+    <ds:DigestValue>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</ds:DigestValue>
+    <ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+  </Digest>
+  <PolicyComponents>
+    <GeneralDetails>
+      <SigPolicyDetails>
+        <PolicyIdentifier>urn:oid:2.16.724.1.3.1.1.2.1.9</PolicyIdentifier>
+        <PolicyName><tsl:Name xmlns:tsl="http://uri.etsi.org/02231/v2#" xml:lang="en">tests</tsl:Name></PolicyName>
+      </SigPolicyDetails>
+      <OtherDetails><DateOfIssue>2025-12-01T00:00:00Z</DateOfIssue>
+        <SigningPeriod><NotBefore>2026-01-01T00:00:00Z</NotBefore></SigningPeriod></OtherDetails>
+    </GeneralDetails>
+    <PolicyRules><PolicyRule><SigningCertRules><SigningCertTrustConditions><SignerTrustTrees>
+      <CertificateTrustPoint><TrustAnchors><TAsInTrustedList>
+        <TLReference>https://example.at/tl.xml</TLReference>
+        <ServiceTypes><tsl:URI xmlns:tsl="http://uri.etsi.org/02231/v2#">{}</tsl:URI></ServiceTypes>
+      </TAsInTrustedList></TrustAnchors></CertificateTrustPoint></SignerTrustTrees>
+      <SignerRevTrust><CertificateRevReq><EndRevReq>nocheck</EndRevReq><CACerts>nocheck</CACerts>
+      </CertificateRevReq></SignerRevTrust></SigningCertTrustConditions></SigningCertRules>
+    </PolicyRule></PolicyRules>
+  </PolicyComponents>
+</SignaturePolicy>"#,
+            pdf_signature::trusted_list::CA_QC
+        );
+        let digest = pdf_signature::cms::Digest::Sha1.compute(&[policy.as_bytes()]);
+        let bytes = signed_with_cms(&policy_cms_carrying(
+            &digest,
+            Some("http://127.0.0.1:9/policy.xml"),
+            &[&signer],
+            (&der(0x30, leaf.issuer), leaf.serial_number),
+        ));
+        let published = about(
+            &Document::open(bytes.clone()).expect("a valid file"),
+            &crate::TrustPolicy::default(),
+        )
+        .published;
+        let published = published.first().expect("the URL qualifier's copy").clone();
+        let answered = |copy: Option<Vec<u8>>| {
+            let mut viewer = Viewer::new(200, 200, 1.0);
+            let _ = viewer
+                .handle(Command::Open {
+                    id: DocumentId(1),
+                    bytes: bytes.clone().into(),
+                    password: None,
+                    fragment: None,
+                })
+                .count();
+            if let Some(copy) = copy {
+                let _ = viewer
+                    .handle(Command::PolicyCopy {
+                        document: DocumentId(1),
+                        policy: published.clone(),
+                        copy,
+                    })
+                    .count();
+            }
+            match viewer.query(Query::TrustedListReferences) {
+                Answer::TrustedListReferences(locations) => locations.to_vec(),
+                other => panic!("an open document answers with a list: {other:?}"),
+            }
+        };
+        assert_eq!(answered(None), Vec::<String>::new());
+        assert_eq!(
+            answered(Some(policy.clone().into_bytes())),
+            ["https://example.at/tl.xml"]
+        );
+        let mut unbound = policy.into_bytes();
+        unbound.push(b'\n');
+        assert_eq!(answered(Some(unbound)), Vec::<String>::new());
+        assert!(matches!(
+            Viewer::new(200, 200, 1.0).query(Query::TrustedListReferences),
+            Answer::None
+        ));
     }
 
     /// The event comes from `Command::Report`, after the sentences, once per asking, and not at

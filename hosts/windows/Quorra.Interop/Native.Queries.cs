@@ -81,4 +81,19 @@ internal static unsafe partial class Native
         byte* @out,
         nuint cap,
         nuint* needed);
+
+    // The trusted lists a bound signature policy references, which this host puts to the reader
+    // and fetches beside the Commission's list before quorra_trusted_lists (ADRs 2879, 2936).
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static partial int quorra_trusted_list_references(nint viewer, nuint* count);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static partial int quorra_trusted_list_reference(
+        nint viewer,
+        nuint index,
+        byte* @out,
+        nuint cap,
+        nuint* needed);
 }

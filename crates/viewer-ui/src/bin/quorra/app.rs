@@ -61,8 +61,12 @@ pub(crate) enum Pending {
         policy: Box<viewer_host::PublishedPolicy>,
     },
     /// The European Union's trusted lists, answered by fetching them into the directory the
-    /// reader named (ADR 2886). No document asked, so none is carried.
-    TrustedLists,
+    /// reader named (ADR 2886), with the lists the focused document's signature policies
+    /// reference, which the question named (ADR 2936).
+    TrustedLists {
+        /// The locations the core answered with when the question was put.
+        references: Vec<String>,
+    },
     /// A file a document named, answered by reading it and supplying it (ADRs 1227, 1239).
     RemoteDocument {
         /// Which of the three purposes asked, so that the answer goes back to the right one.

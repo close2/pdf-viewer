@@ -1636,6 +1636,27 @@ int main(int argc, char **argv)
         }
     }
 
+    /* The trusted lists the document's bound signature policies reference: the locations a caller
+     * that fetches its own lists puts to the reader before it fetches them (ADR 2936). */
+    size_t references = 0;
+    if (check("quorra_trusted_list_references",
+              quorra_trusted_list_references(viewer, &references))) {
+        printf("trusted list references: %zu\n", references);
+        for (size_t index = 0; index < references; ++index) {
+            size_t needed = 0;
+            (void)quorra_trusted_list_reference(viewer, index, NULL, 0, &needed);
+            char *location = malloc(needed);
+            if (location == NULL) {
+                break;
+            }
+            if (quorra_trusted_list_reference(viewer, index, location, needed, &needed)
+                == QUORRA_OK) {
+                printf("  %s\n", location);
+            }
+            free(location);
+        }
+    }
+
     /* The three policy values and the clock, each of which only a host can supply. None of them
      * has to produce an event, and none of these is checked for one: what is being demonstrated is
      * that a C caller can *say* them. */

@@ -235,6 +235,13 @@ impl PolicyDocument<'_> {
     pub fn identifier_oid(&self) -> Option<&str> {
         urn_oid(self.identifier)
     }
+
+    /// The location of every trusted list the policy's clause 4.22.2.1 b) `TAsInTrustedList`s
+    /// name in their `TLReference`, each once, in the order the rules state them (ADR 2936).
+    #[must_use]
+    pub fn trusted_list_references(&self) -> Vec<String> {
+        ts_119_172_3::trusted_list_references(&self.rules)
+    }
 }
 
 const fn malformed(member: &'static str) -> PolicyDocumentError {

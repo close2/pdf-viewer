@@ -330,7 +330,9 @@ fn a_fetched_policy_copy_is_enforced_as_a_stored_one_is_and_a_changed_one_is_not
     let verdict = verdict_under(&[fixtures::ROOT], Acceptance::UnknownRevocationAccepted);
     assert!(verdict.valid().is_some(), "{verdict:?}");
 
-    let Enforcement::Enforced { syntax, findings } = enforce_fetched(&policy, &copy, &cms, &facts)
+    let Enforcement::Enforced {
+        syntax, findings, ..
+    } = enforce_fetched(&policy, &copy, &cms, &facts)
     else {
         panic!("a fetched copy bound by its octets is enforced");
     };
@@ -452,8 +454,9 @@ fn an_xml_policy_bound_by_its_canonical_digest_is_enforced_and_a_changed_one_is_
     assert!(verdict.valid().is_some(), "{verdict:?}");
 
     for octets in [&stored, &swapped] {
-        let Enforcement::Enforced { syntax, findings } =
-            enforce(&policy(octets, &signed), &cms, &facts)
+        let Enforcement::Enforced {
+            syntax, findings, ..
+        } = enforce(&policy(octets, &signed), &cms, &facts)
         else {
             panic!("a document bound by its canonical digest is enforced");
         };

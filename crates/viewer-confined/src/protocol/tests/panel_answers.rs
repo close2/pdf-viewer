@@ -1265,6 +1265,18 @@ fn every_panel_answer_round_trips() {
         "both pages, in order, each naming its page"
     );
 
+    // The trusted lists a bound policy references, in order and every location intact: a window
+    // asks the reader about exactly these before a refresh (ADR 2936).
+    let locations = vec![
+        "https://tl.example/a.xml".to_owned(),
+        "http://tl.example/b%20c.xml".to_owned(),
+    ];
+    let Reply::TrustedListReferences(read) = round_trip(&Answer::TrustedListReferences(&locations))
+    else {
+        panic!("the references come back as themselves");
+    };
+    assert_eq!(read, locations, "every location, in order");
+
     // And the sentences, per page, with the pages named: a status bar under a column that
     // took the first entry for all of them would say one page's refusals about four.
     let first: Vec<String> = vec!["a shading this reader could not draw".to_owned()];
