@@ -1,0 +1,235 @@
+{
+  "shard": "xref_dictionary_cells_current",
+  "baseline": "b901326c current audit worktree; read-only source/code/assertion review; parent has executed/promoted related xref regressions as noted",
+  "scope": "Table15 trailer; classic §7.5.4 subsection/free semantics; Table16 ObjStm; Tables17–19 xref stream/hybrid. Cell-level evidence, not full clause certification.",
+  "features": [
+    {
+      "id": "trailer.Size",
+      "source_location": "Table 15, physical pp.73–74 / printed pp.58–59; #149 and #522 on physical73",
+      "strength": "Required; Size counts highest object number plus one; entries with object number > Size shall be ignored/missing. #149 rewrites sentence; #522 NOTE says Size does not decrease in updates.",
+      "ledger": "§7.5.5 implemented aggregate with explicit /Size departure (ADR2346)",
+      "implementation": "xref::read_xref_stream uses Size for default Index/highest-stated bookkeeping; current classic/xref sections may retain explicit entries above Size by chosen departure.",
+      "assertions": [
+        "cross_references::an_absent_index_covers_object_zero_to_size",
+        "cross_references::a_previous_section_that_does_not_read_leaves_the_numbers_below_size_to_their_own_headers",
+        "cross_references::an_explicit_current_entry_past_size_is_retained_by_the_chosen_departure",
+        "cross_references::a_member_of_an_older_object_stream_beyond_size_is_not_entered"
+      ],
+      "verdict": "partial: default/range and departure have separate positive controls. The >Size retention is not conformance; older-object recovery bound remains separately tested.",
+      "residuals": [
+        "Do not treat latest product choice as satisfying Table15 shall-ignore semantics."
+      ]
+    },
+    {
+      "id": "trailer.Prev",
+      "source_location": "Table 15, physical p.73 / printed p.58; Table17 continuation, physical p.82 / printed p.67",
+      "strength": "Optional in Table15 only when multiple sections; direct integer offset. Table17 Prev required when cross-reference streams are already present; in hybrid files not meaningful.",
+      "ledger": "§7.5.5, §7.5.8.2, §7.5.8.4 implemented; current record T90 covers stream-to-stream chain.",
+      "implementation": "read_from_startxref follows direct Prev newest-first; stream and classic sections share chain walker; hybrid stream is consumed before Prev.",
+      "assertions": [
+        "prev_xref_stream_spec_audit::valid_incremental_xref_stream_prev_can_name_a_prior_xref_stream",
+        "prev_xref_stream_spec_audit::the_single_stream_revision_is_a_positive_control",
+        "cross_references::an_update_chains_onto_an_update",
+        "cross_references::a_hybrid_reference_file_finds_through_xrefstm_what_a_previous_section_marks_free"
+      ],
+      "verdict": "covered for ordinary stream Prev and hybrid precedence, subject to recovery policy for malformed offsets.",
+      "residuals": [
+        "Malformed/indirect Prev is not a valid producer case and acceptance/refusal belongs to recovery policy."
+      ]
+    },
+    {
+      "id": "trailer.Root.Encrypt.Info.ID",
+      "source_location": "Table 15, physical pp.73–74 / printed pp.58–59; Issue #106 physically p74 strikes the Info-row directness phrase.",
+      "strength": "Root required indirect; Encrypt required if encrypted; Info optional, and #106 strikes “shall be an indirect reference” so either direct or indirect dictionary is permitted; ID is required in PDF2 or encrypted, otherwise optional, with two strings of at least 16 bytes. The array and both strings must be direct and unencrypted when Encrypt is present.",
+      "ledger": "§7.5.5 plus §7.6/14.4 consumers",
+      "implementation": "Root is resolved by Document::catalog; Information::read and archive Info consumers use Document::get_key and therefore accept either direct values or references; trailer merge carries prior keys.",
+      "assertions": [
+        "pdf-model::direct_info_spec_audit::table15_info_accepts_direct_and_indirect_dictionaries (PASS; exact xref + chain-cut guard)",
+        "viewer-host::metadata_sources_spec_audit::properties_keep_conflicting_info_and_packet_titles_separate (existing indirect control)",
+        "cross_references::a_cross_reference_streams_own_dictionary_is_the_trailer",
+        "cross_references::a_rebuild_takes_its_trailer_from_the_cross_reference_stream",
+        "encryption suite exact-xref/password fixtures"
+      ],
+      "verdict": "direct and indirect /Info public metadata routes both pass; the EC3 #106 directness relaxation is now covered.",
+      "residuals": [
+        "No claim that parser validates every Table15 producer condition or PDF-version conditional."
+      ]
+    },
+    {
+      "id": "classic.xref-subsections-and-entry-shape",
+      "source_location": "§7.5.4, physical pp.71–73 / printed pp.56–58; no numbered classic-entry table",
+      "strength": "Subsections have first object/count, entries correspond in order; object zero initial free entry; fixed-width records in normative producer format. #109 annotates one-space separators in example/table-style text.",
+      "ledger": "§7.5.4 implemented; aggregate includes documented tolerant token parsing and subsection realignment recovery.",
+      "implementation": "read_classic_table tokenizes rather than fixed-stride parses; each entry maps by subsection position; `realigned` checks a small set of object headers.",
+      "assertions": [
+        "cross_references::a_subsection_displaced_by_one_is_realigned_by_the_objects_own_headers",
+        "file_structure_audit::a_whole_file_writer_emits_a_complete_classic_table",
+        "incremental_object_zero_spec_audit::incremental_object_zero_subsection_is_read_without_recovery"
+      ],
+      "verdict": "valid writer and reader semantics have targeted assertions; tolerant acceptance of nonstandard fixed-width variants is an implementation policy, not evidence producer conditions disappeared.",
+      "residuals": [
+        "Reader need not validate the entire free-list chain to resolve objects; invalid widths/keywords are recovery cases."
+      ]
+    },
+    {
+      "id": "classic.free-entry-fields-generation",
+      "source_location": "§7.5.4, physical pp.71–73 / printed pp.56–58; #147 affects subsection start permission on physical71",
+      "strength": "A free entry states next free object and generation for next reuse; first object in original table is free with generation 65535. Free-list linked topology is writer data; reader resolution uses the free marker.",
+      "ledger": "§7.5.4 plus §7.5.6; free entry as explicit deletion ADR0100/0803",
+      "implementation": "read_classic_table consumes but discards free-entry first/generation fields, retaining `None` by object number; writers emit free-list data and generation updates.",
+      "assertions": [
+        "spec_xref_type0_defaults::type_zero_entry_without_next_free_or_generation_fields_marks_object_deleted",
+        "incremental_object_zero_spec_audit::incremental_object_zero_subsection_is_read_without_recovery",
+        "cross_references::an_incremental_update_that_deletes_an_object_is_not_undone_by_the_older_section",
+        "incremental_update::a_freed_object_is_gone_to_the_reader_and_still_in_the_file"
+      ],
+      "verdict": "resolved object behavior is covered; generation is taken from the object header when loaded, and free-list traversal is not an object-lookup requirement.",
+      "residuals": [
+        "No full audit of serialized free-list cycle/ordering for every writer."
+      ]
+    },
+    {
+      "id": "trailer.startxref-EOF",
+      "source_location": "§7.5.5, physical pp.72–73 / printed pp.57–58; #101 on physical73",
+      "strength": "Final %%EOF and startxref points to beginning of last xref keyword; #101 adds previous xref-stream start to startxref description.",
+      "ledger": "§7.5.5 implemented, plus prefix/header recovery ADR0379",
+      "implementation": "find_startxref searches from EOF with backward fallback; read_from_startxref parses classic table or stream at the offset.",
+      "assertions": [
+        "cross_references::a_trailer_further_back_than_the_window_is_still_the_files_trailer",
+        "prev_xref_stream_spec_audit::valid_incremental_xref_stream_prev_can_name_a_prior_xref_stream",
+        "cross_references::a_hybrid_reference_file_finds_through_xrefstm_what_a_previous_section_marks_free"
+      ],
+      "verdict": "the valid current routes are exercised. Backward search tolerance is broader recovery policy.",
+      "residuals": [
+        "No exhaustive end-marker/whitespace matrix; malformed tail behavior is not a valid-file defect."
+      ]
+    },
+    {
+      "id": "object-stream.Type-N-First-Extends",
+      "source_location": "Table 16, physical p.77 / printed p.62; clauses continue physical pp.77–79 / printed pp.62–64; #114/#110/#439 physical77; #594 physical78",
+      "strength": "Type /ObjStm, N, First required; Extends optional and DAG collection relationship. #114 permits ObjStm dictionary entry values direct or indirect uncompressed. #439 excludes catalog in encrypted docs; #110 adds informative interoperability NOTE.",
+      "ledger": "§7.5.7 implemented; producer and reader paths identified",
+      "implementation": "expand_object_stream resolves N/First and stream Length; object_stream_pairs uses First plus N. Extends is not followed for object resolution because xref type-2 entries identify their containing stream directly.",
+      "assertions": [
+        "cross_references::an_object_stream_locates_its_objects_at_first_plus_their_own_offset",
+        "cross_references::object_stream_dictionary_values_may_reference_uncompressed_objects",
+        "cross_references::a_rebuild_enters_the_objects_an_object_stream_names",
+        "serialize.rs::an_object_stream_carries_what_the_clause_permits_and_nothing_it_forbids",
+        "serialize.rs::a_generated_object_stream_reads_back_through_this_trees_own_reader",
+        "spec_objxref_audit::generated_object_streams_state_their_members_and_form_an_extends_dag"
+      ],
+      "verdict": "high-value keys and EC3 #114 positive are covered; Extends is collection organization, not a lookup dependency in this consumer.",
+      "residuals": [
+        "No independent reader consumer test for traversing an /Extends DAG; writer assertion checks generated collection links. Object lookup uses type-2 xref member locations and does not depend on /Extends traversal.",
+        "No reader rejection is inferred from writer-only invalid forms."
+      ]
+    },
+    {
+      "id": "object-stream.member-order-boundaries-generation",
+      "source_location": "§7.5.7, physical pp.76–79 / printed pp.61–64; Note6 physical77 / printed62; Note7 physical78 / printed63.",
+      "strength": "N number/relative-offset pairs; offsets increasing; member object-number ordering unrestricted; First identifies first value; each object ends before next offset or stream end; objects values omit obj/endobj; compressed object generation zero; stream itself has xref entry. #594 changes might→may; #110 NOTE; #439 exclusion.",
+      "ledger": "§7.5.7 implemented",
+      "implementation": "object_stream_pairs takes N pairs; expansion bounds members to next sorted offset/end; type-2 resolves by index; rebuild discovers stream headers and members.",
+      "assertions": [
+        "cross_references::object_stream_member_order_need_not_match_object_number_order",
+        "cross_references::an_object_stream_locates_its_objects_at_first_plus_their_own_offset",
+        "cross_references::object_stream_dictionary_values_may_reference_uncompressed_objects",
+        "cross_references::a_rebuild_enters_the_objects_an_object_stream_names",
+        "2038-T72 indirect uncompressed dictionary values PASS",
+        "spec_objxref_audit::object_stream_header_order_and_offsets_locate_adjacent_values"
+      ],
+      "verdict": "ordering, First authority, lengths and EC3 direct/indirect value route have focused assertions. Writer constraints and malformed truncation are separately classified.",
+      "residuals": [
+        "No exhaustive matrix of all prohibited member classes, encrypted catalog, or every damaged decode."
+      ]
+    },
+    {
+      "id": "xref-stream.dictionary-directness",
+      "source_location": "§7.5.8.2, physical pp.81–82 / printed pp.66–67; #246 and #403 on physical81; #720 strikes the remaining indirect-entry exception wording on physical81.",
+      "strength": "Table17 values direct; Index/W array members direct; stream itself unencrypted/no Crypt. After #246 all Table5 common-stream entry values direct, nested array members and dictionary values direct; F prohibited. Entries not in Table5/17 may be indirect; trailer Root remains indirect as Table15 says.",
+      "ledger": "§7.5.8.2 implemented",
+      "implementation": "read_xref_stream and decode_direct read raw dict entries without resolving refs, fitting the directness rule required before object table exists.",
+      "assertions": [
+        "cross_references::a_cross_reference_streams_own_dictionary_is_the_trailer",
+        "cross_references::an_absent_index_covers_object_zero_to_size",
+        "spec_objxref_audit::generated_cross_reference_stream_has_direct_table17_values_and_no_trailer_keyword"
+      ],
+      "verdict": "implementation matches required direct-value read path; tests reviewed do not comprehensively discriminate every directness class. Invalid indirect producer values do not by themselves require a reader error.",
+      "residuals": [
+        "No focused valid xref-stream test for each Table5 direct filter/DecodeParms array/map subvalue; these are invalid when indirect, so no mandatory reject claim."
+      ]
+    },
+    {
+      "id": "xref-stream.Type-Size-Index-Prev-W",
+      "source_location": "Table17, physical pp.81–82 / printed pp.66–67; #246/#720 on physical81.",
+      "strength": "Type /XRef, Size, W required; Index optional sorted non-overlapping ranges default [0 Size]; Prev required if older xref streams already in file, not meaningful in hybrid; W required three integers in PDF1.5, second width nonzero; zero width omits field and takes default if specified, first zero defaults type1.",
+      "ledger": "§7.5.8.2 implemented",
+      "implementation": "read_xref_stream reads W and Index directly; absent Index maps to [0,Size]; RecordLayout handles absent fields; section traversal follows Prev. Parser accepts some invalid shapes tolerantly.",
+      "assertions": [
+        "cross_references::an_absent_index_covers_object_zero_to_size",
+        "cross_references::a_zero_width_type_field_defaults_a_valid_incremental_entry_to_type_one",
+        "cross_references::a_type_1_entry_with_no_offset_field_locates_nothing",
+        "prev_xref_stream_spec_audit::valid_incremental_xref_stream_prev_can_name_a_prior_xref_stream",
+        "spec_objxref_audit::generated_cross_reference_stream_has_direct_table17_values_and_no_trailer_keyword"
+      ],
+      "verdict": "defaults and valid stream Prev now have exact tests; #500 means absent type1 offset has no default. Some shape constraints are producer-side and parser tolerance is not a conformance claim.",
+      "residuals": [
+        "No complete malformed /Index sorting/overlap and invalid zero-second-W behavior matrix; these are producer restrictions, not a reader-mandated rejection verdict."
+      ]
+    },
+    {
+      "id": "xref-stream.Table18-types-and-generation",
+      "source_location": "Table18, physical pp.82–83 / printed pp.67–68; #500 physical83 / printed68 strikes type1 offset default. #638 physical79 corrects Example4 prose to identify field 1 as type and field 2 as stream number; it does not change a Table18 cell.",
+      "strength": "Type0 free (next-free, generation default0); type1 in-use byte offset and generation default0; type2 compressed stream number and index, stream generation implicitly0; big-endian, widths from W. Unknown types shall mean null. #500 removes type1 offset default 0.",
+      "ledger": "§7.5.8.3 implemented; ADR1004 for no type1 offset default",
+      "implementation": "entry_location uses defaults [1,0,0], consumes fields by width; unknown/type0 explicit deletion; type1 absent offset refused; type2 absent index default is retained as recorded policy based on corpus evidence, not explicit normative default.",
+      "assertions": [
+        "cross_references::an_entry_type_the_standard_does_not_define_is_the_null_object",
+        "cross_references::a_type_1_entry_with_no_offset_field_locates_nothing",
+        "cross_references::a_field_wider_than_a_u64_clamps_rather_than_wrapping_round_to_a_plausible_offset",
+        "cross_references::object_stream_member_order_need_not_match_object_number_order",
+        "spec_objxref_audit::hybrid_xref_stream_entry_precedes_an_older_free_entry",
+        "spec_objxref_audit::object_stream_header_order_and_offsets_locate_adjacent_values",
+        "drafts/type0_valid_width_free_list.rs (nonzero W [1 4 2], valid linked free list, prior in-use control; unrun)",
+        "incremental_object_zero_spec_audit::incremental_object_zero_subsection_is_read_without_recovery (valid classic linked-deletion control)"
+      ],
+      "verdict": "Core entry semantics have focused assertions. The spec_xref_type0_defaults test is a useful parser-tolerance regression but its /W [1 0 0] is explicitly producer-invalid because Table17 forbids zero width for field 2; it is not valid-input conformance evidence. A separate valid nonzero-width type-0 deletion fixture is drafted.",
+      "residuals": [
+        "No direct new issue identified in type2 generation because compressed objects are generation zero by source and type-2 representation; object identity consumers have separate tests."
+      ]
+    },
+    {
+      "id": "hybrid.Table19.XRefStm-precedence",
+      "source_location": "Table19 is only on physical p.83 / printed p.68; compatibility prose/example continue onto p.84 / printed p.69. #146 on p.83 clarifies XRefStm offset origin.",
+      "strength": "Optional direct integer offset to cross-reference stream; lookup goes current standard section, then XRefStm, then Prev; stream entry wins over older free entry.",
+      "ledger": "§7.5.8.4 implemented",
+      "implementation": "read_from_startxref appends XRefStm section before following Prev, then stable sort/dedup retains first/newest.",
+      "assertions": [
+        "cross_references::a_hybrid_reference_file_finds_through_xrefstm_what_a_previous_section_marks_free (valid self-entry fixture)",
+        "2038-T09 all cross_references PASS wave4"
+      ],
+      "verdict": "corrected self-entry and precedence controls pass; prior fixture defect is resolved.",
+      "residuals": [
+        "The legacy-viewer compatibility description is producer/consumer context; this review only checked modern reader lookup order."
+      ]
+    },
+    {
+      "id": "xref-stream.self-entry-and-startxref",
+      "source_location": "§7.5.8.3, physical pp.82–83 / printed pp.67–68; EC3 example on physical83–84 / printed68–69",
+      "strength": "Xref stream is indirect; self-entry must appear either in a stream (normally itself) or in classic table for hybrid file.",
+      "ledger": "§7.5.8.1–.3 implemented",
+      "implementation": "read_section parses stream at startxref; xref entry location and serializer output support self-entry; hybrid uses classic self-entry.",
+      "assertions": [
+        "cross_references::a_cross_reference_streams_own_dictionary_is_the_trailer",
+        "cross_references::a_rebuild_takes_its_trailer_from_the_cross_reference_stream",
+        "cross_references::a_hybrid_reference_file_finds_through_xrefstm_what_a_previous_section_marks_free",
+        "prev_xref_stream_spec_audit::valid_incremental_xref_stream_prev_can_name_a_prior_xref_stream"
+      ],
+      "verdict": "self-entry is asserted in corrected stream and hybrid fixtures; stream dictionary also supplies trailer keys.",
+      "residuals": [
+        "No standalone negative reader rejection for missing self-entry (producer shall); no requirement to enforce producer validity by rejection was identified."
+      ]
+    }
+  ],
+  "parent_current_execution": "Direct Info target/indirect control PASS. New well-formed hybrid deletion control and existing malformed-width tolerance test PASS. Full39 cross_references plus2 Prev tests PASS after fixture repairs. Parent review supersedes pre-repair classic-deletion wording and scratch draft status."
+}

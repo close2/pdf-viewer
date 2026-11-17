@@ -1499,6 +1499,76 @@
       ],
       "artifact": "shards/viewer_preferences_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "15",
+      "keys": [
+        "Size",
+        "Prev",
+        "Root",
+        "Encrypt",
+        "Info",
+        "ID"
+      ],
+      "ledger_rows": [
+        "7.5.5"
+      ],
+      "artifact": "shards/xref_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "16",
+      "keys": [
+        "Type",
+        "N",
+        "First",
+        "Extends"
+      ],
+      "ledger_rows": [
+        "7.5.7"
+      ],
+      "artifact": "shards/xref_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "17",
+      "keys": [
+        "Type",
+        "Size",
+        "Index",
+        "Prev",
+        "W"
+      ],
+      "ledger_rows": [
+        "7.5.8.2"
+      ],
+      "artifact": "shards/xref_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "18",
+      "keys": [
+        "type0",
+        "type1",
+        "type2",
+        "unknown-type"
+      ],
+      "ledger_rows": [
+        "7.5.8.3"
+      ],
+      "artifact": "shards/xref_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "19",
+      "keys": [
+        "XRefStm"
+      ],
+      "ledger_rows": [
+        "7.5.8.4"
+      ],
+      "artifact": "shards/xref_dictionary_cells_current/features.json",
+      "status": "partial"
     }
   ]
 }

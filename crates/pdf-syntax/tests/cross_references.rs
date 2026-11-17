@@ -32,7 +32,8 @@ const SPARE: &str = "4 0 obj\n(the original)\nendobj\n";
 
 /// Assembles a body from `%PDF-` onwards, returning it and the offset of each chunk.
 fn body(chunks: &[&str]) -> (String, Vec<usize>) {
-    let mut out = String::from("%PDF-1.7\n");
+    // Several callers append binary cross-reference records after this shared body.
+    let mut out = String::from("%PDF-1.7\n%\u{80}\u{81}\u{82}\u{83}\n");
     let mut offsets = Vec::new();
     for chunk in chunks {
         offsets.push(out.len());
@@ -359,7 +360,9 @@ fn an_incremental_update_that_deletes_an_object_is_not_undone_by_the_older_secti
     let deleted = build(&|out, previous| {
         let second_at = out.len();
         out.push_str("xref\n");
-        subsection(out, 4, &[(0, 'f')]);
+        // Link the deleted object into the free list and increment its next-use generation.
+        subsection(out, 0, &[(4, 'f')]);
+        out.push_str("4 1\n0000000000 00001 f \n");
         let _ = write!(
             out,
             "trailer\n<< /Size 5 /Root 1 0 R /Prev {previous} >>\nstartxref\n{second_at}\n%%EOF\n"
@@ -2050,7 +2053,7 @@ fn object_stream_dictionary_values_may_reference_uncompressed_objects() {
     );
     let data = format!("{header}{pages} {page} {info}");
 
-    let mut bytes = b"%PDF-2.0\n".to_vec();
+    let mut bytes = b"%PDF-2.0\n%\xE2\xE3\xCF\xD3\n".to_vec();
     let catalog_at = bytes.len();
     bytes.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 3 0 R >>\nendobj\n");
     let stream_at = bytes.len();

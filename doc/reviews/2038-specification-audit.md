@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (105)
+## Current checkpoint (106)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **106 failing test identities**: 105 behavior assertions/probes
@@ -425,6 +425,12 @@ font resources and the original assertions. All140 variable-text/rich-text tests
 model Clippy pass. Viewer preference and article cells add four partial matrices,
 for94 total; the existing OpenAction ordering failure remains open. No new failing
 identity or production change is introduced.
+
+Checkpoint106 adds passing direct-Info and valid hybrid-deletion controls. A prior
+zero-width fixture is now explicitly classified as malformed-input tolerance. Binary
+headers, deletion generations/free links and a15-byte PDF2 identifier are corrected;
+all41 affected xref/Prev tests pass, as does syntax/model Clippy. The99 table
+matrices remain partial; no production behavior or failure count changes.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

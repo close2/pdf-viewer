@@ -49,7 +49,7 @@ fn append_xref_stream(
     }
     let prev = previous.map_or_else(String::new, |offset| format!("/Prev {offset} "));
     let changing_id = if previous.is_some() {
-        "FFEEDDCCBBAA99887766554433221101"
+        "FFEEDDCCBBAA9988776655443322110001"
     } else {
         "00112233445566778899AABBCCDDEEFF"
     };

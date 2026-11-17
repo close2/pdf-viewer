@@ -771,7 +771,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/file_structure_current/features.json",
-      "shards/errata_weak_dispositions_batch3_current/features.json"
+      "shards/errata_weak_dispositions_batch3_current/features.json",
+      "shards/xref_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "file_structure_audit"
@@ -805,7 +806,8 @@
       "shards/errata_weak_dispositions_batch2_current/features.json",
       "shards/ignored_fixture_gates_current/features.json",
       "shards/fixture_and_tj_oracles_current/features.json",
-      "shards/adr0812_descriptor_boundary_current/features.json"
+      "shards/adr0812_descriptor_boundary_current/features.json",
+      "shards/xref_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "file_structure_audit"
@@ -825,7 +827,8 @@
       "shards/errata_weak_dispositions_batch1_current/features.json",
       "shards/errata_weak_dispositions_batch2_current/features.json",
       "shards/errata_weak_dispositions_batch5_current/features.json",
-      "shards/adr0812_descriptor_boundary_current/features.json"
+      "shards/adr0812_descriptor_boundary_current/features.json",
+      "shards/xref_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "file_structure_audit"
@@ -847,7 +850,8 @@
       "shards/errata_numeric_syntax_batch_current/features.json",
       "shards/errata_weak_dispositions_batch2_current/features.json",
       "shards/binary_transport_consumers_current/features.json",
-      "shards/adr1190_confined_operations_current/features.json"
+      "shards/adr1190_confined_operations_current/features.json",
+      "shards/xref_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "file_structure_audit"
@@ -870,7 +874,8 @@
       "shards/errata_numeric_syntax_batch_current/features.json",
       "shards/errata_reference_editorial_current/features.json",
       "shards/errata_weak_dispositions_batch1_current/features.json",
-      "shards/structured_errata_security_current/features.json"
+      "shards/structured_errata_security_current/features.json",
+      "shards/xref_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "object_xref_streams"
@@ -921,7 +926,8 @@
       "shards/xref_streams/features.json",
       "shards/errata_early_behavior_current/features.json",
       "shards/indirect_filter_parameters_current/features.json",
-      "shards/errata_weak_dispositions_batch4_current/features.json"
+      "shards/errata_weak_dispositions_batch4_current/features.json",
+      "shards/xref_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "object_xref_streams"
@@ -937,7 +943,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/xref_streams/features.json",
-      "shards/errata_early_behavior_current/features.json"
+      "shards/errata_early_behavior_current/features.json",
+      "shards/xref_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "object_xref_streams"
@@ -953,7 +960,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/xref_streams/features.json",
-      "shards/errata_early_behavior_current/features.json"
+      "shards/errata_early_behavior_current/features.json",
+      "shards/xref_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "object_xref_streams"
@@ -10360,7 +10368,8 @@
     "current_artifacts": [
       "prior-assertion-reviews.json",
       "shards/metadata_current/features.json",
-      "shards/errata_weak_dispositions_batch4_current/features.json"
+      "shards/errata_weak_dispositions_batch4_current/features.json",
+      "shards/xref_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "metadata_audit"

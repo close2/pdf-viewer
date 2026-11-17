@@ -3349,5 +3349,33 @@
     "evidence": "Retained Page Annots and AcroForm DR; Fields empty for standalone annotations including seed Link, unchanged for Widgets. Existing substantive assertions retained.",
     "execution": "140 selected tests PASS; model all-target Clippy PASS.",
     "qualification": "Existing test identities and font/corpus availability limitations remain; no production fix or whole-feature certification."
+  },
+  {
+    "id": "2038-T144",
+    "kind": "coverage-gap",
+    "clauses": [
+      "7.5.5",
+      "14.3.3"
+    ],
+    "summary": "Direct trailer Info permitted by EC3 #106 reaches public metadata reader.",
+    "evidence": "Exact-xref PDF2 target and indirect control check literal title/author, required IDs, no recovery/cut.",
+    "execution": "New test PASS; final model Clippy PASS.",
+    "qualification": "Deprecated metadata is still read; native properties UI not certified."
+  },
+  {
+    "id": "2038-T145",
+    "kind": "fixture-validity-and-coverage",
+    "clauses": [
+      "7.5.2",
+      "7.5.4",
+      "7.5.5",
+      "7.5.8.2",
+      "7.5.8.3",
+      "7.5.8.4"
+    ],
+    "summary": "Separate malformed zero-width tolerance from valid hybrid deletion; repair binary markers, free-list/generation and PDF2 ID fixtures.",
+    "evidence": "New W[1 4 2] hybrid deletion with coherent free-list and old-value control. Existing W[1 0 0] remains explicitly malformed tolerance. Shared binary headers and classic deletion repaired; Prev changing ID now16 bytes.",
+    "execution": "41 affected existing xref/Prev tests and2 type0 tests PASS; syntax all-target Clippy PASS.",
+    "qualification": "No production behavior change; passing malformed-input regression is not valid-input conformance evidence. Existing intentional recovery inputs remain."
   }
 ]
