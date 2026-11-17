@@ -11,16 +11,16 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (86)
+## Current checkpoint (87)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
-failure manifest contains **88 failing test identities**: 87 behavior assertions/probes
-and one stale ignored-gate expectation. These are grouped findings, not 88 independent defects. B08 and B42 remain unresolved interpretation/policy
+failure manifest contains **89 failing test identities**: 88 behavior assertions/probes
+and one stale ignored-gate expectation. These are grouped findings, not 89 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
 The refreshed broad run, wave76, covered eleven crates: **7,237 tests ran, 7,159 passed,
 and exactly the 78 recorded in-scope assertions failed; 58 were skipped**.
 Exact binary/test identities matched the manifest at that checkpoint, with no extra or missing failures.
-Wave76 predates B58–B61; the current default broad-scope manifest has81 failures.
+Wave76 predates B58–B62; the current default broad-scope manifest has82 failures.
 Passing status includes successful early returns; two are reproduced under D45.
 Five GPU failures and one engine-only Matrix2D availability failure under the adopted
 A193 reference scope are recorded separately, as is D51’s ignored stale test expectation. The new outline-panel raster test also
@@ -305,6 +305,11 @@ control through public save. Exact script and trigger, plus a no-action control,
 verify dispatch (T116). Catalog ledger prose still calls AA unread (D60). Image
 statuses are reconciled to existing B11/B14 failures. Viewer-core Clippy passes;
 manifest88 is unchanged. These matrices remain partial evidence for their cells.
+
+Checkpoint87 confirms ancestor-only field AA is wrongly dispatched for a terminal
+keystroke (B62); local and absent controls pass. Valid NeedAppearances save/reopen
+controls and direct/indirect page actions pass (T117/T118). The Page dictionary
+now has a 33-key partial matrix. Model/core Clippy passes; manifest89.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

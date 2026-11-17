@@ -1,0 +1,35 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "question": "Which Page attributes inherit?",
+      "evidence": "Table 31 marks only Resources, MediaBox, CropBox and Rotate as inheritable. §7.7.3.4 says nearest ancestor, value inherited as-is without merging; required inherited entries must be present on page/tree, optional ones default if none appears.",
+      "verdict": "Retain the page model's four-entry inheritance boundary. Non-inheritable values such as UserUnit and AA are not inherited. Linearized-file explicitness is a separate producer condition, not an ordinary reader rejection rule."
+    },
+    {
+      "question": "Do optional/page-writer requirements establish a reader rejection outcome?",
+      "evidence": "Table31 marks e.g. Contents optional, B optional/recommended, Group optional, and conditional LastModified/StructParents/DPart. Several rules constrain producers, while absence/default language defines behavior. The implementation has local diagnostics and recovery for malformed values.",
+      "verdict": "Do not upgrade a local recovery diagnostic to an ISO-mandated rejection without an explicit reader rule. Keep absence/default behavior separate from invalid producer input."
+    },
+    {
+      "question": "Does Table31 /AA require an indirect-shape reader failure or direct-only representation?",
+      "evidence": "Table31 specifies a dictionary and Table 31 explicitly says page AA is non-inheritable; §7.3.10 supplies direct/indirect object equivalence. Current `for_page` resolves `/AA`, and current public trigger tests use direct dictionary/action forms.",
+      "verdict": "No. The draft is a valid positive-equivalence assertion, not a defect report. A test placing `/AA` on a `/Pages` node would be invalid as an inherited page attribute, so no such test is proposed."
+    },
+    {
+      "question": "Does EC3 change Table31 behavior beyond the rows tested?",
+      "evidence": "#81 adds a Resources note clarifying the required dictionary even where Contents is absent; #320 corrects B article bead ordering; #106 and #619 change ID's preferred indirection/deprecation wording. Page resources, articles, and deprecated web/prepress shards record these rules.",
+      "verdict": "No new Table31 runtime defect found in these edits. #81 is a producer-validity clarification; #320 source conflict resolution is captured in outlines_threads_current; #106/#619 concern legacy ID metadata."
+    },
+    {
+      "question": "Does current page-boundary evidence supersede old page_resources residual?",
+      "evidence": "Current page_boundaries_current adds page_geometry::inherited_crop_box_reaches_the_rendered_page_and_a_leaf_can_override_it with exact-xref, non-recovery, distinct black/white margins.",
+      "verdict": "Yes. Do not repeat the earlier claim that inherited CropBox lacks public rendering evidence. The earlier page_resources finding remains historical and its residual is closed by the newer test."
+    },
+    {
+      "question": "Are page group, transparency and output-intent entries broadly certified by this matrix?",
+      "evidence": "B39 and later transparency/colour shards add independent pixel/number assertions, but selected groups/components/consumers only.",
+      "verdict": "No. Cite those concrete routes and retain their explicit partial scope; do not promote this Table31 matrix into an aggregate renderer certification."
+    }
+  ]
+}

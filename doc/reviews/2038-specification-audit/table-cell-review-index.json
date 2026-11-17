@@ -149,6 +149,49 @@
       ],
       "artifact": "shards/image_dictionary_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "31",
+      "ledger_rows": [
+        "7.7.3.3"
+      ],
+      "keys": [
+        "Type",
+        "Parent",
+        "LastModified",
+        "Resources",
+        "MediaBox",
+        "CropBox",
+        "BleedBox",
+        "TrimBox",
+        "ArtBox",
+        "BoxColorInfo",
+        "Contents",
+        "Rotate",
+        "Group",
+        "Thumb",
+        "B",
+        "Dur",
+        "Trans",
+        "Annots",
+        "AA",
+        "Metadata",
+        "PieceInfo",
+        "StructParents",
+        "ID",
+        "PZ",
+        "SeparationInfo",
+        "Tabs",
+        "TemplateInstantiated",
+        "PresSteps",
+        "UserUnit",
+        "VP",
+        "AF",
+        "OutputIntents",
+        "DPart"
+      ],
+      "artifact": "shards/page_dictionary_cells_current/features.json",
+      "status": "partial"
     }
   ]
 }

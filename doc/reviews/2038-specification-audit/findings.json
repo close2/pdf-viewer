@@ -2840,5 +2840,42 @@
     "summary": "Catalog row still describes AA as unread/excluded although current document-trigger code and tests consume it.",
     "evidence": "ledger7.7.2 narrative vs script_sites::document_entry and public lifecycle tests for save/close/print; new indirect save controlPASS.",
     "disposition": "Record stale narrative for correction; ledger status/text unchanged in this tests/evidence audit."
+  },
+  {
+    "id": "2038-B62",
+    "kind": "behavior-gap",
+    "clauses": [
+      "12.7.4.1",
+      "12.6.3"
+    ],
+    "summary": "A terminal field dispatches a keystroke action inherited from an enclosing field although AA is not inheritable.",
+    "evidence": "Ancestor-only K emits marker1 instead of no callback; terminal-local/overriding marker2 and no-AA controlsPASS.",
+    "cause": "Inherited::actions_over merges all parent actions; aform::site passes them to keystroke dispatch.",
+    "execution": "field_aa_noninheritance_spec_audit ancestor-onlyFAIL;2controltestsPASS,form-page-wave87b.log.",
+    "qualification": "Separate widget, K dispatch to recording runner only. ADR2448 per-trigger merge must distinguish own terminal field from enclosing fields."
+  },
+  {
+    "id": "2038-T117",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "12.7.3"
+    ],
+    "summary": "Valid NeedAppearances source states survive public edit/save with output value and normal appearance-stream assertions.",
+    "evidence": "Untouched visible missingAP startsflagtrue and retains requiredflag if stillabsent; allAPfalse controlstaysclear. Edited V changed and untouched V kept.",
+    "execution": "2PASS,appearance-flags-wave87c.log;model/coreClippyPASS.",
+    "limits": "No malformed-input defect or universal false-flag mandate claimed."
+  },
+  {
+    "id": "2038-T118",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "7.3.10",
+      "7.7.3.3",
+      "12.6.3"
+    ],
+    "summary": "Public page-open action returns the exact URI through direct and indirect AA/O objects.",
+    "evidence": "Exactxref,noRecovery,Opened event,oneURI acrossOpen+Presented.",
+    "execution": "1PASS,form-page-wave87b.log;model/coreClippyPASS.",
+    "limits": "No host delivery or exact page trigger timing claim."
   }
 ]

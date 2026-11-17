@@ -533,6 +533,12 @@
       "test": "html_export_uses_mapping_name_while_field_selection_uses_field_identity",
       "finding": "2038-B61",
       "log": "tm-html-wave85b.log"
+    },
+    {
+      "binary": "pdf-model::field_aa_noninheritance_spec_audit",
+      "test": "a_nonterminal_field_aa_is_not_inherited_by_its_terminal_descendant",
+      "finding": "2038-B62",
+      "log": "form-page-wave87b.log"
     }
   ]
 }

@@ -1,0 +1,10 @@
+{
+  "verdict": "B62 field AA inheritance confirmed; two valid NeedAppearances output controls PASS.",
+  "source": "Parent read physical545–546/printed530–531 inheritance designation and AA cell. AA is not marked inheritable. Widget-to-own-terminal association remains necessary; field-to-enclosing-field inheritance is distinct.",
+  "finding": "Ancestor-only K dispatches var marker = 1; instead of no script. Local-only and local-over-parent dispatch marker2; no-AA dispatches none. Public ViewState.set_field with recording runner; exactxref validPDF1.7 NeedAppearances/DA/DR.",
+  "cause": "Inherited::of merges actions_over for every parent; aform/site.rs::of_widget supplies this to keystroke dispatch. ADR2448 per-trigger merge rationale needs qualification across different fields; unlimited actually-inheritable attributes remain justified.",
+  "positive": "NeedAppearances missing-AP source starts true; all-AP startsfalse. Public edit/save/reopen asserts edited V changed, untouched V kept, normal APstream for editedwidget; missingAPrequiresflagtrue, allAPcontrolstaysclear. Initial values match APtext. Strengthened87c2PASS.",
+  "rejected": "Initial false-flag/missingAP fixture was invalid underTable224 and rejected before execution; no global-census defect is claimed. Initial compile errors and fixture lint fixed before accepted runs.",
+  "execution": "form-page-wave87b:6run5PASS1FAIL; appearance-flags-wave87c strengthened2PASS; model/coreall-targetsClippy quality-wave87bPASS.",
+  "limits": "K dispatch only with separate widget and recording runner, not full JS evaluation or all triggers. All-AP false is a current writer behavior control, not a universal normative false mandate. Original reviewer artifacts retain pre-execution provenance; this review supersedes pending status."
+}

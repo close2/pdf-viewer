@@ -1548,7 +1548,8 @@
       "shards/errata_early_residual_current/features.json",
       "shards/structured_errata_security_current/features.json",
       "shards/file_only_consumer_assertions_batch3_current/features.json",
-      "shards/file_only_document_assertions_current/features.json"
+      "shards/file_only_document_assertions_current/features.json",
+      "shards/page_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "catalog_pages_audit"
@@ -1564,7 +1565,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/page_resources_current/features.json",
-      "shards/page_boundaries_current/features.json"
+      "shards/page_boundaries_current/features.json",
+      "shards/page_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "catalog_pages_audit"
@@ -7459,7 +7461,9 @@
       "prior-assertion-reviews.json",
       "shards/viewer_preferences_layout_current/features.json",
       "shards/errata_interactive_batch_current/features.json",
-      "shards/catalog_table29_cells_current/features.json"
+      "shards/catalog_table29_cells_current/features.json",
+      "shards/page_dictionary_cells_current/features.json",
+      "shards/form_dictionary_residual_consumers_current/features.json"
     ],
     "prior_artifacts": [
       "action_triggers_audit",
@@ -7789,7 +7793,8 @@
       "shards/xfa_attachment_assertions_current/features.json",
       "shards/adr1257_1270_archive_claims_current/features.json",
       "shards/adr1190_confined_operations_current/features.json",
-      "shards/feature_table_cell_granularity_current/features.json"
+      "shards/feature_table_cell_granularity_current/features.json",
+      "shards/form_dictionary_residual_consumers_current/features.json"
     ],
     "prior_artifacts": [
       "interactive_form_structure_audit"
@@ -7823,7 +7828,8 @@
     "current_artifacts": [
       "shards/forms_current/features.json",
       "shards/errata_interactive_batch_current/features.json",
-      "shards/feature_table_cell_granularity_current/features.json"
+      "shards/feature_table_cell_granularity_current/features.json",
+      "shards/form_dictionary_residual_consumers_current/features.json"
     ],
     "prior_artifacts": [
       "interactive_form_structure_audit"

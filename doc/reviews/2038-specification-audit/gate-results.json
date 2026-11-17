@@ -2310,6 +2310,36 @@
       "log": "quality-wave86b.log",
       "exit": 0,
       "scope": "viewer-core all-targetsClippy"
+    },
+    {
+      "log": "form-page-wave87.log",
+      "exit": 101,
+      "scope": "Initial fixture API compile errors, corrected"
+    },
+    {
+      "log": "form-page-wave87b.log",
+      "run": 6,
+      "passed": 5,
+      "failed": 1,
+      "exit": 100
+    },
+    {
+      "log": "quality-wave87.log",
+      "exit": 101,
+      "scope": "Fixture needless_borrow corrected"
+    },
+    {
+      "log": "appearance-flags-wave87c.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Strengthened value/normal APstream assertions"
+    },
+    {
+      "log": "quality-wave87b.log",
+      "exit": 0,
+      "scope": "model/core all-targetsClippy"
     }
   ],
   "prior_expected_failures": {

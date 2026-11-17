@@ -1,0 +1,42 @@
+{
+  "baseline": "b901326c",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "scope": "Focused review of Table 224 /NeedAppearances and Table 226 field /AA in the form dictionary save/event consumers. Primary PDF + EC3 text, current implementation, selected tests and ADRs checked. No tests compiled or run by this agent.",
+  "source": [
+    {"clause": "12.7.3 Table 224 /NeedAppearances", "location": "EC3 physical 544 / printed 529", "effective_rule": "Optional, default false. It asks a reader to construct widget appearances. A PDF writer shall include true if it has not provided appearances for all visible widget annotations present in the document. The adjacent NOTE says appearances are required in PDF 2.0 and later."},
+    {"clause": "12.7.4.1 Table 226 /AA", "location": "EC3 physical 546 / printed 531, continuing 547 / printed 532", "effective_rule": "Optional field additional-actions dictionary defining field behavior in response to trigger events. The general field-hierarchy paragraph says inheritable attributes are designated in Tables 226/227; Table 226 marks FT, Ff, V, DV as inheritable but does not mark AA. EC3 #313/#618 establish annotation/trigger cross-references; they do not label AA inheritable."}
+  ],
+  "features": [
+    {
+      "feature": "NeedAppearances writer residue",
+      "ledger": {"row": "12.7.3", "status": "implemented"},
+      "implementation": ["crates/pdf-model/src/view/writing.rs::ViewState::save", "crates/pdf-model/src/view/writing.rs::Update::owe_appearances", "crates/pdf-model/src/view/writing.rs::Update::write_appearance"],
+      "observed_behavior": "Save tracks widgets whose appearance could not be provided in Update::owed. If the list is nonempty, owe_appearances writes true into the existing direct or indirect AcroForm. It does not inspect every untouched widget. The public API returns named unconstructed fields.",
+      "assertions": [
+        "crates/pdf-model/tests/script_properties.rs::a_style_with_no_on_state_is_owed_and_flagged_in_a_direct_form (direct form, named residue, true flag, fields/resources retained)",
+        "crates/pdf-model/tests/script_properties.rs::a_style_is_the_check_box_caption_and_its_states_are_written (successful construction; flag is not true)",
+        "crates/pdf-model/tests/saving.rs::a_value_that_cannot_be_laid_out_sets_the_flag_and_names_its_field (valid corpus source, failed modified appearance, output flag true)",
+        "crates/pdf-model/tests/saving.rs::nothing_is_owed_to_the_next_reader_when_every_stream_was_written (corpus-dependent; successful changed appearance does not set true)"
+      ],
+      "coverage": "Valid changed-widget cases witness both residue and successful construction. A census of untouched visible widgets is not established. An input with missing AP and false NeedAppearances already violates Table 224's writer rule; no failure is inferred from reader tolerance or from repairing that malformed producer output.",
+      "draft": "drafts/need_appearances_all_visible_widgets_spec_audit.rs provides a valid paired save/reopen probe: the source with an untouched visible widget lacking AP begins with true, while the all-AP control begins false; edited and untouched field values match their supplied appearances. It checks preservation/output state for the document-wide condition. Pending parent review/execution, no result claimed."
+    },
+    {
+      "feature": "Field additional-actions locality",
+      "ledger": {"row": "12.7.4.1", "status": "implemented"},
+      "implementation": ["crates/pdf-model/src/inheritance.rs::actions_over", "crates/pdf-model/src/inheritance.rs::Inherited::action", "crates/pdf-model/src/aform/site.rs::of_widget", "crates/pdf-model/src/view/scripts/keystroke.rs::ViewState::keystroke_verdict", "crates/pdf-model/src/view/scripts/events.rs::ViewState::run_field_script"],
+      "observed_behavior": "Field `/AA` is merged into an action map at each Parent level. A widget event looks up the trigger on the widget first and then through every parent. `set_field` dispatches a Table 199 /K field event through this lookup when a ScriptRunner is supplied. Table 226's AA is not explicitly marked inheritable, unlike FT/Ff/V/DV.",
+      "assertions": [
+        "Existing §12.6.3/§12.6.4 action and trigger tests exercise their own routes; this bounded scan did not identify a test separating a terminal field's own /AA from a nonterminal ancestor-only /AA on a field event.",
+        "crates/pdf-model/src/aform/site.rs module documentation itself states the implementation's lookup walks widget then Parent chain."
+      ],
+      "coverage": "A narrow source/code assertion gap is plausible: the implementation's ancestor walk may treat non-inheritable AA as inherited. The draft distinguishes ancestor-only `/K`, terminal-local `/K`, and absent AA using the public set_field consumer, a supplied recording runner, valid field/widget relationships and exact xref. This is a test candidate, not an executed failure; a reader's field-event mapping must be confirmed against the effective clause before calling it a defect.",
+      "draft": "drafts/field_aa_noninheritance_spec_audit.rs"
+    }
+  ],
+  "limits": [
+    "No Cargo commands or tests were run.",
+    "PDF 1.7 omission of AP is not permission to set NeedAppearances false when AP is missing: Table 224 itself requires a writer to include true in that condition. The no-AP draft therefore begins with true.",
+    "This is not a complete Table 224/226 review, does not establish all script engines/effects, and does not turn producer rules into blanket reader rejection requirements."
+  ]
+}
