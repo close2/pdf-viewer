@@ -2522,6 +2522,56 @@
       ],
       "artifact": "shards/collection_presentation_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "128",
+      "keys": [
+        "Type",
+        "HalftoneType",
+        "HalftoneName",
+        "Frequency",
+        "Angle",
+        "SpotFunction",
+        "AccurateScreens",
+        "TransferFunction"
+      ],
+      "ledger_rows": [
+        "10.6.5.2"
+      ],
+      "artifact": "shards/halftone_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "129",
+      "keys": [
+        "Type",
+        "HalftoneType",
+        "HalftoneName",
+        "Width",
+        "Height",
+        "TransferFunction"
+      ],
+      "ledger_rows": [
+        "10.6.5.3"
+      ],
+      "artifact": "shards/halftone_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "130",
+      "keys": [
+        "Type",
+        "HalftoneType",
+        "HalftoneName",
+        "Xsquare",
+        "Ysquare",
+        "TransferFunction"
+      ],
+      "ledger_rows": [
+        "10.6.5.4"
+      ],
+      "artifact": "shards/halftone_dictionary_cells_current/features.json",
+      "status": "partial"
     }
   ],
   "reconciliation_110": "Two Table227 reviews previously counted twice; merged into one matrix retaining both artifact links. Table87 now includes four continuation keys and corrected source span. Counts are selected unique table matrices, not certified features."

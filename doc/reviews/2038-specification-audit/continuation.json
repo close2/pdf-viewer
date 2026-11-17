@@ -18,12 +18,12 @@
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
-      "halftone_dictionary_cells_current",
       "structure_content_item_cells_current",
       "pattern_dictionary_cells_current",
       "collection_folder_cells_current"
     ],
     "recorded_shards": [
+      "halftone_dictionary_cells_current",
       "collection_presentation_cells_current",
       "structure_root_element_cells_current",
       "font_stream_dictionary_cells_current",
@@ -329,7 +329,7 @@
     "All 883 rows remain partially reviewed. Current work checks uncited EC3 annotation candidates against primary pages, effective wording, code and actual assertions.",
     "All69 file-only pointers have partial selected-assertion review; this does not certify entire files or features.",
     "Literal issue citation candidates are discovery metadata only, not counts of missing features. Selected batches remain under parent source review.",
-    "157 unique table matrices and all 883 ledger rows remain partial. Broad123 predates two passing tests and B76. Halftone, structure content-item, pattern and folder reviews continue.",
+    "160 unique table matrices and all 883 ledger rows remain partial. Broad123 predates two passing tests and B76. Structure content-item, pattern and folder reviews continue; threshold/transfer archive authorization is a bounded follow-up.",
     "Stop new dispatch near 81%; preserve 15% weekly allowance at 85%."
   ],
   "budget": {
@@ -337,7 +337,7 @@
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 78,
-    "last_read_utc": "2026-11-17T20:26:28.556353+00:00"
+    "last_weekly_used_percent": 79,
+    "last_read_utc": "2026-11-17T20:32:59.461258+00:00"
   }
 }

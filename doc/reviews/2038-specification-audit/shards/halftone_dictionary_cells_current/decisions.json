@@ -1,0 +1,29 @@
+{
+  "scope": "Reconsider device-screen decisions only for Tables 128–130 and the neighboring TransferFunction route. This is not a screen implementation certification.",
+  "decisions": [
+    {
+      "adr": "ADR 1535",
+      "topic": "§10.6 screen generation inapplicable for this continuous-tone output route",
+      "review": "Retain, with scope stated narrowly. §10.1 makes the halftoning step conditional on raster-device support. §10.6.1 says continuous-tone devices need not halftone and must transmit transfer-corrected components directly. Current screen and print routes produce 8-bit RGB rasters and hand physical printer screening downstream. §10.6.5.1 separately lets a processor ignore some or all file halftones. Neither permission removes the Table 128–130 TransferFunction carrier, which is separately active under §10.5 and has public-raster evidence. Reopen if this application starts generating low-bit-depth device pixels or driving a halftoning printer directly."
+    },
+    {
+      "adr": "ADR 0505 / ADR 0204",
+      "topic": "Type-dependent halftone TransferFunction versus screen data",
+      "review": "Retain the distinction. The public tests show Type 1 dictionary and Type 6 stream TransferFunction overriding /TR; Type 5 uses component-keyed entries. Screen parameters and threshold payload are not consumed. #311 strikes the Type 5 contrast/fallback paragraph in the body; conclusions about supported DeviceRGB primary-component transfer routing are grounded in Table 52, Type 5's stated purpose, and direct tests rather than the struck paragraph. This review does not extend that conclusion to CMYK-native screening or nonprimary screen behavior."
+    },
+    {
+      "adr": "ADR 1965 / ADR 2034",
+      "topic": "HalftoneName, screen defaults and archival loss wording",
+      "review": "No change proposed. These archive decisions distinguish named/device screen loss from screen rendering. They do not create an obligation for pdf-model to consume frequency, spot-function, or threshold cells, and are not runtime reader evidence."
+    },
+    {
+      "topic": "Source locator and EC3 correction",
+      "review": "Correct the inherited table map before further use: Table 128 is physical389 / printed374; Table129 is physical390–391 / printed375–376; Table130 is physical393 / printed378. The prior halftones_separations_current features file's claim that #310 at physical391 is on Table130 is wrong. Physical391 #310 marks the Type6 Table129 TransferFunction note; physical395 #310 marks Table132. #12 is also at physical395; #311 at physical396 strikes the Type5 paragraph."
+    }
+  ],
+  "assertion_gaps": {
+    "type10_transfer": "No Type10-specific TransferFunction test. Current generic stream path is exercised with a Type6 stream and the shared code does not branch on type except Type5. This is a coverage qualifier, not an observed failure; no separate test is justified absent a Type10-only code route.",
+    "screen_cells": "Frequency/Angle/SpotFunction/AccurateScreens and threshold-array contents are unparsed/unapplied. Given this reader's continuous-tone raster and §10.6.5.1 permission to ignore screens, these are deliberately unsupported behavior rather than failed required reader behavior."
+  },
+  "no_test_draft": "No new draft: existing Type6 public stream test plus Type1 and Type5 transfer tests cover the only current consumer path. A Type10 clone would repeat the generic stream path; a screen pixel oracle would test an optional downstream device feature outside this product route."
+}

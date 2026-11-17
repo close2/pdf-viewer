@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (124)
+## Current checkpoint (125)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **113 failing test identities**: 112 behavior assertions/probes
@@ -527,6 +527,10 @@ its value instead of defaulting missing directions to ascending. Explicit date/r
 controls and a valid public structure Type-omission test pass. Core/host Clippy
 passes. The manifest is 113 identities, with 106 in the default scope; broad123
 predates these two passing tests and one failure. There are 157 partial matrices.
+
+Checkpoint 125 adds selected halftone dictionary cells, with the surrounding
+HalftoneName exception and transfer-versus-screening boundary explicit. It corrects
+an inherited errata table locator. No new behavior failure; 160 matrices remain partial.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 
