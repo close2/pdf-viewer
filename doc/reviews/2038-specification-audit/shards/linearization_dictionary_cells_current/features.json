@@ -1,0 +1,216 @@
+{
+  "scope": "Cell/condition audit of Annex F's linearization parameter dictionary and hint stream tables against effective EC3, current `optimize --linearize` writer and ordinary-reader fallback. This is not certification of every Annex F placement clause, every bit width, all damaged inputs, or range-request performance.",
+  "baseline": "b901326c",
+  "source": {
+    "primary": "ISO_32000-2_sponsored_EC3.pdf; Annex F begins physical p.894 / printed p.879 and continues through physical p.915 / printed p.900. F.1 Table F.1 is physical pp.899–900 / printed pp.884–885; F.2 Table F.2 is physical p.902 / printed p.887. Table F.3 begins physical p.907 / printed p.892; remaining hint tables span physical pp.907–915 / printed pp.892–900. Physical pages verified via page text and printed footers in the local EC3 extraction.",
+    "primary_rules": "F.1 makes linearization optional; non-supporting readers can still process linearized files less efficiently. F.3.3 requires a direct-value parameter dictionary as the first body object, wholly within first 1024 bytes. F.3.6 requires a primary hint stream; overflow stream is optional; offsets/lengths and direct dictionary entries govern its placement. F.4 tables encode optional acceleration; ordinary xref processing remains the correctness path.",
+    "annex_f_errata": [
+      {
+        "issue": 331,
+        "physical_page": 899,
+        "target": "§F.3.2 Header Part 1, strikeout over version 1.1 paired with caret 1.2",
+        "effective_rule": "Writer may apply linearization only to a PDF version 1.2 or later. This is a producer eligibility floor; it does not require a reader to reject an older malformed linearized organization."
+      },
+      {
+        "issue": 153,
+        "physical_page": 899,
+        "target": "Table F.1 /Linearized cell",
+        "effective_rule": "Defines integer/fractional version significance and states current format version is 1.0; producer-side version marker."
+      }
+    ],
+    "annotation_check": "Actual primary PDF annotation dictionaries and rectangles were checked on physical page 899. #331 has one StrikeOut and one Caret with Contents '1.2'; #153 Caret Contents describes integer/fractional version significance and current 1.0. The old Annex F shard's blanket claim 'no Annex F-specific EC3 issue altering rules' is stale. #403 is a Text note adjacent to the parameter-dictionary requirement: direct objects are required, so Metadata streams and Associated Files cannot be included in the linearization parameter dictionary."
+  },
+  "parameter_dictionary_table_f1": [
+    {
+      "entry": "Linearized",
+      "source": "Required number; version identification for linearized format. EC3 #153 says current version 1.0. EC3 #403 NOTE: because entries must be direct objects, Metadata streams and Associated Files cannot be included in this parameter dictionary.",
+      "writer_code": "linearize.rs emits `/Linearized 1` (numeric 1.0).",
+      "assertions": "Current `every_value_of_the_parameter_dictionary_is_where_the_file_says` finds the parameter dictionary via first bytes and requires State::Linearized, but it does not independently assert the literal format marker equals 1.0.",
+      "assessment": "Concrete writer assertion gap; draft adds raw parsed literal numeric check. No current code defect."
+    },
+    {
+      "entry": "L",
+      "source": "Required integer; exact whole-file byte length. If mismatch, treat as ordinary PDF; incremental update may invalidate linearization.",
+      "writer_code": "fixed-point layout writes computed exact length.",
+      "assertions": "`every_value_of_the_parameter_dictionary_is_where_the_file_says`; `an_incremental_update_leaves_a_file_that_opens_and_is_no_longer_linearised`; `a_linearised_file_reopened_draws_every_page_as_its_source_does`.",
+      "assessment": "Strong sampled writer/read fallback evidence."
+    },
+    {
+      "entry": "H",
+      "source": "Required 2- or 4-integer array. Primary offset begins at stream object, length includes stream object overhead; if stream Length indirect, its following indirect Length object is also included. Optional overflow pair when overflow stream exists.",
+      "writer_code": "Primary stream direct Length and calculated stream-object extent; no overflow stream emitted.",
+      "assertions": "F1 test checks offset resolves to the hint object and byte range ends after endobj. Support decoder reads tables from primary stream; output uses two-element H.",
+      "assessment": "Primary writer path strongly asserted. Four-element H/overflow and indirect Length special case are unimplemented optional/conditional paths; no defect inferred."
+    },
+    {
+      "entry": "O",
+      "source": "Required integer: object number of first page object.",
+      "writer_code": "layout chooses first page from page order/OpenAction.",
+      "assertions": "F1 test compares O to selected page object; feature fixtures include default and /OpenAction to page 2; table fault helper checks it.",
+      "assessment": "Supported for tested default and selected nonzero first page."
+    },
+    {
+      "entry": "E",
+      "source": "Required integer: absolute byte offset of end of first-page section.",
+      "writer_code": "fixed-point layout computes first-page end.",
+      "assertions": "Support `faults` compares first page section start + F.3 page length to E; first-page and shared-group tests check not crossing E.",
+      "assessment": "Meaningful raw/xref-based assertion, though consumer does not use E for page correctness."
+    },
+    {
+      "entry": "N",
+      "source": "Required integer: number of pages.",
+      "writer_code": "derived from page-tree walk.",
+      "assertions": "F1 test checks expected 3; support faults compares to `Pages` count; ordinary xref/page render test reads all pages.",
+      "assessment": "Supported in constructed writer cases."
+    },
+    {
+      "entry": "T",
+      "source": "Required integer. Standard/hybrid main table form: offset of whitespace before entry 0; exclusive xref-stream form: offset of main xref stream object.",
+      "writer_code": "emits shape-specific offset; first-page /Prev links main section.",
+      "assertions": "F1 test directly inspects whitespace+free entry or XRef stream object, /Prev, main trailer no Prev, first section /Index/Size and startxref.",
+      "assessment": "Strong raw-byte and stream assertions for both output modes; hybrid input/output not separately covered by this test matrix."
+    },
+    {
+      "entry": "P",
+      "source": "Optional integer first page number, default 0.",
+      "writer_code": "omitted for page 0; written for nonzero first page.",
+      "assertions": "F1 test compares parsed P for default and OpenAction page 2; `state` defaults missing P to 0.",
+      "assessment": "Default and nonzero routes tested, but raw omission itself is not separately asserted."
+    }
+  ],
+  "hint_stream_table_f2": [
+    {
+      "key": "S",
+      "condition": "Required always: shared-object hint table.",
+      "writer": "Always emitted.",
+      "assertions": "`every_statement_the_annex_lets_a_reader_check_holds_and_a_planted_fault_is_named` requires S and verifies encoded groups against actual xref locations.",
+      "status": "Required path tested."
+    },
+    {
+      "key": "T",
+      "condition": "Required only if thumbnail images exist.",
+      "writer": "Emitted for page thumbnails.",
+      "assertions": "`every_table_table_f_2_requires_of_the_document_is_stated` builds page-0/page-2 thumbnails and checks T table positions/thumbnail shared objects; faults checks condition.",
+      "status": "Present condition tested; absence case not asserted."
+    },
+    {
+      "key": "O",
+      "condition": "Required only if a document outline exists.",
+      "writer": "Emitted for outline category.",
+      "assertions": "Feature fixture has outline with open/closed items; outline ordering/generic positions checked; faults condition-checks catalog outline.",
+      "status": "Present condition tested; absence case not asserted."
+    },
+    {
+      "key": "A",
+      "condition": "Required only if article threads exist.",
+      "writer": "Emitted for Threads with thread entries.",
+      "assertions": "Feature fixtures include two threads crossing page one and checks Part4/Part6; `faults` checks nonempty Threads condition.",
+      "status": "Present condition tested; absence case not asserted."
+    },
+    {
+      "key": "E",
+      "condition": "Required only if named destinations exist.",
+      "writer": "Emitted for catalog Dests or Names/Dests.",
+      "assertions": "Feature fixture has indirect Dests; generic item locations checked; faults checks either catalog route.",
+      "status": "Present condition tested; direct Dests route follows different source representation and is not separately isolated here."
+    },
+    {
+      "key": "V",
+      "condition": "Required only if interactive form dictionary exists.",
+      "writer": "Emitted for AcroForm group.",
+      "assertions": "Feature fixture has AcroForm/field/widget; category span positions and optional extended fields are checked.",
+      "status": "Present condition tested; empty-field form not isolated."
+    },
+    {
+      "key": "I",
+      "condition": "Required only if document information dictionary exists.",
+      "writer": "Emitted for trailer Info group.",
+      "assertions": "All current `linearize.rs` fixture builder calls pass Info object 30; faults checks I when trailer Info present.",
+      "status": "Present condition tested, but absence condition is not represented in this fixture family."
+    },
+    {
+      "key": "C",
+      "condition": "Required only if logical structure hierarchy exists; PDF 1.3.",
+      "writer": "Emitted for StructTreeRoot group.",
+      "assertions": "Feature fixture has StructTreeRoot and StructElem; extended table path checked.",
+      "status": "Present condition tested; no logical-structure absence control."
+    },
+    {
+      "key": "L",
+      "condition": "Table F.2 says '(PDF 1.3) Page label hint table'; unlike neighboring conditional rows, it has no explicit 'Required only if page labels exist' phrase. F.4.5 says hints should be provided for document-wide categories and includes page labels.",
+      "writer": "Emits L when it has a nonempty page-label object group; skips it if PageLabels is direct or absent.",
+      "assertions": "Current fixtures always have catalog /PageLabels 31 0 R; every-table test confirms L appears when indirect label objects exist. No no-label/direct-label fixture.",
+      "status": "Source interpretation limit, not defect: table marks S required and other conditions explicitly, but L requiredness without labels is unstated; do not assert omission as required or prohibited without stronger authority."
+    },
+    {
+      "key": "R",
+      "condition": "Required only if Renditions name tree exists; PDF 1.5.",
+      "writer": "Emitted for catalog Names/Renditions.",
+      "assertions": "Feature fixture has Renditions name tree; generic/extended fields checked.",
+      "status": "Present condition tested; absence not isolated."
+    },
+    {
+      "key": "B",
+      "condition": "Required only if embedded file streams exist; PDF 1.5.",
+      "writer": "Emitted for embedded stream groups.",
+      "assertions": "Feature fixture has EmbeddedFiles tree/stream; table decoder verifies group and xref placement.",
+      "status": "Present, nonempty condition tested; zero-member group with only shared references not tested."
+    }
+  ],
+  "other_effective_hint_tables": [
+    {
+      "table": "F.3 Page offset hint table header section; F.4 per-page entries",
+      "locator": "physical pp.907–908 / printed pp.892–893",
+      "coverage": "support decoder reads field widths/order, page sections/object ranges/content locations, shared IDs/numerators; `every_page_offset_hint_names_the_page_s_own_objects_where_they_are`, planted first-page-location byte fault, and run-alignment tests. Producer test fixture exercises 3 pages, nonzero first page and shared objects.",
+      "limit": "Support parser shares production `state`/Parameters but independently decodes hint bits and consults xref offsets. It is not an independent PDF implementation."
+    },
+    {
+      "table": "F.5 shared-object header; F.6 group entries",
+      "locator": "physical pp.910–911 / printed pp.895–896",
+      "coverage": "shared objects/hint groups compared to xref; `every_shared_object_group_is_where_the_table_says` and feature-wide fault scan.",
+      "limit": "Item-run alignment/field-width rule follows ratified ADR1328 interpretation; grouping every multilevel structure into one hint entry is permitted, not mandatory."
+    },
+    {
+      "table": "F.7 thumbnail header; F.8 per-page entries",
+      "locator": "physical pp.911–913 / printed pp.896–898",
+      "coverage": "page 0/page 2 thumbnails and shared color-space object; table entry offsets/order and missing-page gaps decoded.",
+      "limit": "One-page-only shared-object special case, MD5 cache signatures and every maximum-width field are not exercised."
+    },
+    {
+      "table": "F.9 generic hint table",
+      "locator": "physical p.913 / printed p.898",
+      "coverage": "outline, threads, named destinations, info and page labels groups; test support verifies first object/location/count/length.",
+      "limit": "Some feature categories in the all-table fixture; only selected groups have independently literal grouping oracles."
+    },
+    {
+      "table": "F.10 extended generic hint table",
+      "locator": "physical pp.913–914 / printed pp.898–899",
+      "coverage": "form, logical structure and renditions groups; extended header/shared identifiers in feature fixture.",
+      "limit": "No nonempty shared-ID list case found in fixture; support parser explicitly does not decode identifiers because writer states none."
+    },
+    {
+      "table": "F.11 embedded file hint header; F.12 per-embedded-file group entries",
+      "locator": "physical pp.914–915 / printed pp.899–900",
+      "coverage": "Feature fixture and `every_table...` assert embedded file group object number and xref location.",
+      "limit": "Nonzero embedded file group tested; zero ordinary objects with shared references not exercised."
+    }
+  ],
+  "current_assertion_quality": {
+    "strong_points": [
+      "Tests inspect raw output bytes and xref locations, not only successful parse or round-trip equivalence.",
+      "The support helper independently decodes Table F.3/F.4 and other hint bitfields, derives actual offsets from the file's cross-reference chain, checks entire object ranges, and includes one planted page-offset fault sensitivity control.",
+      "F1 assertions distinguish classic xref tables from exclusive xref streams and check raw /T offsets, /Prev and startxref behavior.",
+      "Current tests cover EC3 #331's 1.2 producer floor: 1.0/1.1 may refuse or be raised; 1.2 is positive control."
+    ],
+    "limits": [
+      "`support::linearized::Read` obtains the parameter values and linearized classification from production `state()`, so Table F.1 parsing is not fully independent even though offsets/table bits are checked against raw bytes/xref.",
+      "The one fault injection mutates the first-page location only; it is not a mutation test for every F.1/F.2/F.3/F.4 field.",
+      "qpdf is independent evidence but the test returns early if qpdf is unavailable and qpdf is not normative oracle.",
+      "No HTTP range-request client consumes the hints. Reader correctness is ordinary cross-reference parsing; Annex F hint tables are optional acceleration and this project expressly declines the Annex F fast-reader recommendation."
+    ]
+  },
+  "unresolved_questions": [
+    "Table F.2 /L omission: the source has no explicit requiredness conditional for labels, while F.4.5 says hints should be provided if needed and lists page labels. The writer emits /L for a nonempty page-label object group and omits it for a direct/absent group; current fixtures only cover indirect labels. This is not classified as a defect or drafted as a requirement test.",
+    "Annex F table fields not seen in active fixtures (e.g. overflow stream H pair, optional signature data, nonempty extended shared-ID list, zero-member embedded group) remain unverified; most are optional optimization details and no reader consumer is claimed."
+  ]
+}

@@ -192,6 +192,93 @@
       ],
       "artifact": "shards/page_dictionary_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "120",
+      "ledger_rows": [
+        "9.8.1"
+      ],
+      "keys": [
+        "Type",
+        "FontName",
+        "FontFamily",
+        "FontStretch",
+        "FontWeight",
+        "ItalicAngle",
+        "StemV",
+        "Flags",
+        "FontBBox",
+        "Ascent",
+        "Descent",
+        "Leading",
+        "CapHeight",
+        "XHeight",
+        "StemH",
+        "AvgWidth",
+        "MaxWidth",
+        "MissingWidth",
+        "FontFile",
+        "FontFile2",
+        "FontFile3",
+        "CharSet"
+      ],
+      "artifact": "shards/font_descriptor_cells_current/features.json",
+      "status": "partial",
+      "layout": "Grouped entry review; individual conditions remain qualified."
+    },
+    {
+      "table": "122",
+      "ledger_rows": [
+        "9.8.3.1"
+      ],
+      "keys": [
+        "Style",
+        "Lang",
+        "FD",
+        "CIDSet"
+      ],
+      "artifact": "shards/font_descriptor_cells_current/features.json",
+      "status": "partial",
+      "layout": "Grouped entry review; individual conditions remain qualified."
+    },
+    {
+      "table": "F.1",
+      "ledger_rows": [
+        "F.3.3"
+      ],
+      "keys": [
+        "Linearized",
+        "L",
+        "H",
+        "O",
+        "E",
+        "N",
+        "T",
+        "P"
+      ],
+      "artifact": "shards/linearization_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "F.2",
+      "ledger_rows": [
+        "F.3.6"
+      ],
+      "keys": [
+        "S",
+        "T",
+        "O",
+        "A",
+        "E",
+        "V",
+        "I",
+        "C",
+        "L",
+        "R",
+        "B"
+      ],
+      "artifact": "shards/linearization_dictionary_cells_current/features.json",
+      "status": "partial"
     }
   ]
 }

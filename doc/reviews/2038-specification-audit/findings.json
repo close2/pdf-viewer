@@ -2877,5 +2877,16 @@
     "evidence": "Exactxref,noRecovery,Opened event,oneURI acrossOpen+Presented.",
     "execution": "1PASS,form-page-wave87b.log;model/coreClippyPASS.",
     "limits": "No host delivery or exact page trigger timing claim."
+  },
+  {
+    "id": "2038-T119",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "F.3.3"
+    ],
+    "summary": "Linearized writer parameter test checks the exact current format version1.0 rather than only accepted classification.",
+    "evidence": "Actual first-object dictionary inspected across12fixtures: sixshapes×classic/objectstreammodes; integer1 and real1.0equivalent; noRecoveryguard.",
+    "execution": "ExistingtestPASS linearization-wave88.log;transformClippyPASS.",
+    "limits": "This strengthens an existingidentity, not a new test. No completeAnnexF certification."
   }
 ]

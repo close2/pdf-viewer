@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (87)
+## Current checkpoint (88)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **89 failing test identities**: 88 behavior assertions/probes
@@ -310,6 +310,12 @@ Checkpoint87 confirms ancestor-only field AA is wrongly dispatched for a termina
 keystroke (B62); local and absent controls pass. Valid NeedAppearances save/reopen
 controls and direct/indirect page actions pass (T117/T118). The Page dictionary
 now has a 33-key partial matrix. Model/core Clippy passes; manifest89.
+
+Checkpoint88 adds font-descriptor and linearization dictionary matrices. Four
+selected font tests pass with output confirming their host guards did not skip.
+The existing writer parameter test now checks format version1.0 across12shapes
+(T119), and transform Clippy passes. Earlier AnnexF errata prose is superseded;
+source notes337/403 are included. No new failure; manifest89 remains.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

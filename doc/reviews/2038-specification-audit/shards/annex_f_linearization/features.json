@@ -171,5 +171,6 @@
       "verdict": "PARTIAL for changed behavior; no Annex F defect found.",
       "residuals": "Valid Annex F objects must gen 0, so a nonzero-generation linearization-parameter dictionary is invalid producer input and cannot serve as a mandatory-reader error test. `state()` is a detector, not full Annex F validator. Existing tests for valid writer behavior have gen 0."
     }
-  ]
+  ],
+  "parent_correction_checkpoint88": "Original reviewer repeated no-AnnexF-errata sentence below is superseded: primaryphysical899 has331headerfloor1.2,153formatversion1.0,403direct-object Metadata/AFnote. See linearization_dictionary_cells_current parent-review; old record retained only as provenance."
 }

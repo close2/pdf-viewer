@@ -2340,6 +2340,29 @@
       "log": "quality-wave87b.log",
       "exit": 0,
       "scope": "model/core all-targetsClippy"
+    },
+    {
+      "log": "font-descriptor-wave88.log",
+      "run": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 398,
+      "exit": 0,
+      "scope": "Selectedexisting tests, successoutput shows nohostearlyreturn; other398filtered/ignored"
+    },
+    {
+      "log": "linearization-wave88.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 18,
+      "exit": 0,
+      "scope": "Existingparameter teststrengthened across12fixture shapes"
+    },
+    {
+      "log": "quality-wave88.log",
+      "exit": 0,
+      "scope": "transformalltargetsClippy"
     }
   ],
   "prior_expected_failures": {

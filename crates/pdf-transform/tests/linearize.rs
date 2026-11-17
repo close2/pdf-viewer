@@ -452,6 +452,21 @@ fn every_value_of_the_parameter_dictionary_is_where_the_file_says() {
             .expect("a line");
         let first_object = header_end + second_line + 1;
         let parameters_number = object_at(bytes, first_object as u64).expect("part 2");
+        assert!(!read.document.was_recovered(), "{name}: exact writer xref");
+        let parameters_object = read
+            .document
+            .get(read.document.defined_id(parameters_number));
+        let parameters_dictionary = parameters_object.as_dict().expect("parameter dictionary");
+        // EC3 #153 gives the current format version as 1.0. Read the actual dictionary,
+        // independently of State::Linearized accepting it; integer 1 and real 1.0 agree.
+        assert_eq!(
+            parameters_dictionary
+                .get("Linearized")
+                .and_then(Object::as_number)
+                .map(f64::to_bits),
+            Some(1.0_f64.to_bits()),
+            "{name}: current linearization format version"
+        );
         let end = bytes[first_object..]
             .windows(6)
             .position(|w| w == b"endobj")

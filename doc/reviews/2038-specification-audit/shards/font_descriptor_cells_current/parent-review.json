@@ -1,0 +1,8 @@
+{
+  "verdict": "22 common descriptor keys and4CIDFontkeys mapped in groups; no new runtime finding. D10 remains qualified ledger omission.",
+  "source": "Parent read physical358–360,362–364 and actualrootannotations11/178/190/152/474/337/453/5. Added337scope note omitted in reviewer initial matrix; it was already covered in errata_font_text_batch_current.",
+  "corrections": "Rejected initial descriptor-wave80b execution citation: that tests OS file descriptors, unrelated to PDFfontdescriptors. Reviewer removed unrelated77present gate count. Exact relevant wave53PASS lines verified; their environment earlyreturns qualified.",
+  "assertions": "Parent read missingwidth321/default0 parser tests; condensed lookup tests hostfacewidth after machine guard; FD test compares overriddenLatinoutline and unchangedkanji against own noFD control, using productionCID-to-character search (not independentCIDmappingproof).",
+  "execution": "font-descriptor-wave88.log:4PASS with successoutput, no skipped: messages. Both missingwidthtests, condensed-face test, and FDclass test reached assertion bodies on this machine.",
+  "limits": "No public integration test added or full descriptor/font-format certification. Other reviewer named bodies not all independently reread by parent; old wave53 is provenance. ADR1441 ranking retained as documented policy, not uniqueISOchoice."
+}
