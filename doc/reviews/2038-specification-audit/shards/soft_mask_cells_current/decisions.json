@@ -1,0 +1,30 @@
+{
+  "status": "bounded source and assertion review; no draft proposed",
+  "decisions": [
+    {
+      "adr": "ADR 0027 — Soft masks in the graphics state, and where a mask is evaluated",
+      "review": "Retain for this scope.",
+      "basis": "The ADR is principally about storing group commands and evaluating the mask at backend resolution. The direct PDF pixel fixtures use literal source-derived values for Alpha/Luminosity and transfer behavior; this prevents the architecture choice from standing in as proof of the Table 142 entries. The /None reset has a direct state-consumer assertion.",
+      "limit": "The ADR's deliberate /AIS departure and general backend parity are outside this shard; no whole-transparency conformance conclusion is drawn."
+    },
+    {
+      "adr": "ADR 1764 — A luminosity group's default backdrop is the initial colour of the family its /CS states",
+      "review": "Retain with the source-qualified result.",
+      "basis": "Table 142 says absent /BC uses the stated colour space's initial value representing black. The implementation preserves the group's stated /CS separately from its interpreted stand-in and uses the family initial color. The ADR includes a discriminating CMYK-output-intent test: absent /BC and explicit /BC [0 0 0 1] agree, while the old no-ink profile-zero behavior differs by 230 gray levels.",
+      "limit": "This validates the specific device-family/output-intent ambiguity. It does not establish every CIE or ICC profile's initial color or every /BC component count."
+    },
+    {
+      "adr": "ADR 1755 — A device family starts at its own initial colour, whatever stands in for it",
+      "review": "Retain as the shared color-space premise behind ADR 1764.",
+      "basis": "ADR 1764 explicitly adopts the §14.11.5 distinction that an output intent describes the device and does not replace a /DeviceCMYK group color space. Table 142's absent-/BC result is consequently the family's initial black, not the profile's all-zero paper value.",
+      "limit": "This is not a new claim about group /CS selection or about output-intent policy outside the addressed /BC default."
+    },
+    {
+      "adr": "ADR 2552 — A mask group's luminosity takes the device branch in every space as the owner chose",
+      "review": "Do not use as evidence that Table 142 is fully covered; preserve only for the explicitly recorded §11.5.3 implementation choice.",
+      "basis": "Table 142 defines /BC component count from the group's stated /CS, while the selected device-luminosity branch is a distinct §11.5.3 decision. Existing selected profile and four-component tests exercise that consequence; this shard neither ratifies nor broadens the departure.",
+      "limit": "The question here is dictionary inputs/defaults, not a renewed adjudication of the CIE luminosity branch."
+    }
+  ],
+  "errata": "Primary PDF physical pp. 432–434 (printed pp. 417–419) was checked directly. Review found only Link annotations on these pages and no editorial EC3 annotation changing §11.6.4.3 or Table 142. This conclusion is based on annotation objects, not processed-text absence."
+}

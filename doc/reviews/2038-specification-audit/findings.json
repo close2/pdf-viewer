@@ -2938,5 +2938,39 @@
     "cause": "Shared Opt ancestor cache applies button-field inheritable handling to choice-field data.",
     "execution": "choice_opt_stays_with_the_dictionary_that_states_it FAIL, choice-locality-wave91b.log; model all-target ClippyPASS.",
     "qualification": "The absent-choice rule is SHOULD, not SHALL. This records recommended behavior and a locality concern, not an unconditional mandatory ISO violation."
+  },
+  {
+    "id": "2038-T121",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "12.7.4.1",
+      "12.7.6.2"
+    ],
+    "summary": "Required-empty diagnostic, serialized body and all host policy levels now have combined assertions; actual core report precedes Submit.",
+    "evidence": "Two passing no-network tests; name-only versus omitted FDF, owed field name, Send/Warn/Ask/Refuse, Open+Presented event order.",
+    "qualification": "Deliberately unmet Required export condition; characterizes accepted reporting policy, not fully conforming export or a mandatory network-block rule.",
+    "execution": "required-policy-wave92c 2PASS; host ClippyPASS."
+  },
+  {
+    "id": "2038-T122",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "11.6.4.3",
+      "11.6.5.1",
+      "8.4"
+    ],
+    "summary": "Soft-mask removal test now observes actual state restoration after Q.",
+    "evidence": "Old comment promised restoration but no paint followedQ. Added independent black/black/white samples across inner unmasked stripe and later masked full-page paint.",
+    "execution": "soft_masks::none_removes_the_mask PASS, softmask-restore-wave92; modelClippyPASS."
+  },
+  {
+    "id": "2038-T123",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "8.11.4.4"
+    ],
+    "summary": "Optional-content recommendation AND assertion rejects order-dependent last-writer-wins.",
+    "evidence": "16 same-event combinations across category/application order with literal RGBA. Original assertion passes last-writer-wins mutant; stronger assertion fails; original production restored and stronger assertion passes.",
+    "execution": "oc-and-mutation-wave92 and oc-and-restored-wave92; modelClippyPASS."
   }
 ]

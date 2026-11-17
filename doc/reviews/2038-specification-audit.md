@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (91)
+## Current checkpoint (92)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **93 failing test identities**: 92 behavior assertions/probes
@@ -334,6 +334,13 @@ Ancestor Opt also changes absent choices (B65), qualified by the table’s SHOUL
 The three assertions have passing local/default controls before their failures.
 Model Clippy passes; the manifest has93 identities. These tests inspect the public
 choice-control model, without claiming actual UI pixels or appearance regeneration.
+
+Checkpoint92 adds two passing Required-field report/body/host-policy tests (T121),
+including report-before-submit through the real viewer event path. This characterizes
+a deliberately unmet Required condition; it is not a claim of conforming export.
+The soft-mask test now observes restoration after Q (T122). Optional-content AND
+is checked across16 cases; an old-test-evading mutation is caught (T123), and source
+is restored. Nine more table matrices are partially mapped; model/host Clippy pass.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

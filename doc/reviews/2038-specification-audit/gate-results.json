@@ -2426,6 +2426,69 @@
       "log": "quality-wave91b.log",
       "exit": 0,
       "scope": "model all targets"
+    },
+    {
+      "log": "required-policy-wave92.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "required-policy-wave92b.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "exit": 100,
+      "scope": "Rejected draft omitted Presented; not a product failure"
+    },
+    {
+      "log": "required-policy-wave92c.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave92.log",
+      "exit": 101,
+      "scope": "Test-only let-and-return lint, corrected"
+    },
+    {
+      "log": "quality-wave92b.log",
+      "exit": 0,
+      "scope": "host all targets"
+    },
+    {
+      "log": "softmask-restore-wave92.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "oc-and-wave92.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "oc-and-mutation-wave92.log",
+      "exit": 0,
+      "scope": "OldPASS/newFAIL on last-writer-wins mutant; exact source restored"
+    },
+    {
+      "log": "oc-and-restored-wave92.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave92c.log",
+      "exit": 0,
+      "scope": "model and host all targets final"
     }
   ],
   "prior_expected_failures": {

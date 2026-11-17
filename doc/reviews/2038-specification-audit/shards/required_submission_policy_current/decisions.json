@@ -1,0 +1,21 @@
+{
+  "reviews": [
+    {
+      "decision": "Root ADR 1198 \u2014 Required is checked at export and named in Submission::owed; no processor refusal is specified",
+      "verdict": "Reaffirm the bounded policy, with an explicit coverage gap at the host decision seam.",
+      "reason": "Table 227's condition is checked when the submit-form action is composed. Table 240 separately makes an explicit choice: IncludeNoValueFields set requires a name-only entry despite missing V; clear omits that field. \u00a712.7.6.2 requires submission on invocation and supplies no instruction to cancel for a missing Required value. ADR 1198 correctly stops at a report and does not claim that the ISO itself mandates the host's behavior."
+    },
+    {
+      "decision": "Root ADR 1062 \u2014 composition in pdf-model; transmission decision at viewer-host",
+      "verdict": "Reaffirm composition/policy separation; add an end-to-end no-network assertion for an owed Required field.",
+      "reason": "Core carries owed sentences into Event::Reported before Event::Submit. viewer-host::may_submit is the owner-controlled policy decision. Existing host tests cover levels separately, but do not establish that a nonempty Required diagnostic remains visible while Send/Ask/Refuse choices continue to work."
+    },
+    {
+      "decision": "No blanket hard-block requirement",
+      "verdict": "Do not treat absence of a host block as an unmet ISO requirement.",
+      "reason": "The Required sentence concerns field state at export; the clause gives no cancel/refuse algorithm, and Table 240 explicitly defines name-only submission for a valueless field when bit 2 is set. Refusal/ask behavior is an owner policy choice."
+    }
+  ],
+  "source_status": "Inspected /home/cl/projects/pdf-viewer/doc/ISO_32000-2_sponsored_EC3.pdf through pikepdf for annotations and read the defining Table/paragraph text from the local EC3 primary-layout extraction. Table 227 is physical 547 / printed 532; Table 240 physical 568 / printed 553; \u00a712.7.6.2 paragraph physical 569 / printed 554. The fixture is structurally valid but deliberately has a Required field without V, so it is not a claim of fully conforming field content.",
+  "execution": "Draft only; no Cargo/test execution by this shard. Parent may integrate or adapt."
+}

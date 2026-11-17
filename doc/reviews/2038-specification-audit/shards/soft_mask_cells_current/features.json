@@ -1,0 +1,57 @@
+{
+  "baseline": "b901326c",
+  "scope": "ISO 32000-2:2020 EC3 §11.6.5.1 / Table 142 soft-mask dictionary cells, plus §11.6.4.3 graphics-state SMask None/reset semantics. This is a cell/assertion audit, not certification of all transparency behavior or image soft-mask dictionaries.",
+  "primary_source": {
+    "file": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "clause": "§11.6.5.1 prose is on physical p. 433 / printed p. 418; Table 142 itself begins on physical p. 434 / printed p. 419. The immediately preceding §11.6.4.3 None rule is physical p. 432 / printed p. 417.",
+    "annotation_review": "Inspected primary PDF page annotation objects on physical pp. 432–434 with pikepdf. These pages have navigation Link annotations only; no editorial StrikeOut, Caret, Text, or other EC3 review annotations affect the assigned rules. The PDF footer on physical p. 434 reads printed 419."
+  },
+  "table_cells": [
+    {
+      "key": "Type",
+      "source_rule": "Optional; when present it shall be /Mask.",
+      "implementation": "soft_mask::read does not depend on /Type; it reads /G, /S, /TR, and the group /CS.",
+      "assertions": ["crates/pdf-model/tests/image_masks.rs::a_stencil_under_the_graphics_states_soft_mask_is_drawn_through_both (valid public GS soft-mask dictionary omits /Type and yields literal masked/unmasked cells)", "crates/pdf-model/tests/soft_masks.rs (most focused fixtures include /Type /Mask)"],
+      "assessment": "Optional omission has a valid public consumer witness; existing rendering output makes acceptance observable. No separate test drafted."
+    },
+    {
+      "key": "S",
+      "source_rule": "Required; /Alpha uses group alpha and disregards color; /Luminosity converts computed group color to one luminosity value.",
+      "implementation": "soft_mask::read selects SoftMaskKind::Alpha or luminosity(...); the latter obtains the group's own /CS and derives its compositing route.",
+      "assertions": ["soft_masks.rs::an_alpha_mask_reads_the_groups_alpha_and_ignores_its_colour", "soft_masks.rs::a_luminosity_mask_takes_the_groups_grey_and_the_backdrops_outside_it", "transparency_foundations_current parent-review: empty Alpha and alpha-transfer tests passed"],
+      "assessment": "Independent expected pixels discriminate the two modes; the Alpha case uses same-color regions with different alpha, while luminosity uses different gray values."
+    },
+    {
+      "key": "G",
+      "source_rule": "Required stream, a transparency-group XObject. For /S /Luminosity, its group attributes shall include /CS defining the compositing space.",
+      "implementation": "soft_mask::read requires a stream /G, reads /Group /CS, and passes the group to content/transparency/soft_mask.rs for execution.",
+      "assertions": ["soft_masks.rs exact-xref fixtures exercise a Form transparency group through gs and rendered pixels", "soft_mask_dictionary_audit.rs::a_luminosity_soft_mask_respects_a_knockout_group_against_normal_control", "transparency_groups.rs::a_group_declared_inside_a_soft_mask_leaves_the_pages_blending_space_alone"],
+      "assessment": "Public consumer coverage proves group execution and color-space behavior in selected routes, not every possible group attribute combination."
+    },
+    {
+      "key": "BC",
+      "source_rule": "Optional color backdrop, consulted only for /Luminosity. It has n numbers for the group's /CS component count; absent means that color space's initial value representing black.",
+      "implementation": "soft_mask::backdrop_values resolves numeric components and uses the stated /CS family's initial color when absent or when the supplied array does not resolve to the space's component count. Luminosity setup supplies the backdrop to compositing and outside-BBox values.",
+      "assertions": ["soft_masks.rs::an_alpha_mask_reads_the_groups_alpha_and_ignores_its_colour (/BC [1] control is irrelevant to Alpha)", "soft_masks.rs::a_luminosity_mask_takes_the_groups_grey_and_the_backdrops_outside_it", "soft_masks.rs::an_absent_backdrop_in_a_cmyk_group_masks_everything_away", "soft_masks.rs::a_cmyk_mask_group_takes_its_luminosity_from_the_clauses_own_formula", "transparency_groups.rs selected calibrated/profile/device-component backdrop tests"],
+      "assessment": "Covers explicit and absent backdrops, one- and four-component spaces, and the Alpha-only irrelevance. Component-count fallback on malformed arrays is recovery behavior, not a valid-input conformance claim."
+    },
+    {
+      "key": "TR",
+      "source_rule": "Optional one-input/one-output function; input and output are in [0,1], out-of-range output is clamped to nearest endpoint. /Identity may stand for the identity function; default is Identity.",
+      "implementation": "soft_mask::transfer resolves missing/null and /Identity to no table; otherwise evaluates and samples 256 inputs, clamps outputs, and rejects an evaluation fault rather than silently treating it as identity.",
+      "assertions": ["soft_masks.rs::a_transfer_function_maps_every_mask_value_including_the_one_outside_the_box", "soft_masks.rs::an_alpha_mask_transfer_function_is_applied_to_group_alpha_in_the_pdf_path", "soft_mask_transfer_limits_audit.rs::explicit_identity_matches_omitted_transfer_for_alpha_and_luminosity", "soft_mask_transfer_limits_audit.rs::transfer_outputs_below_zero_and_above_one_use_nearest_unit_value"],
+      "assessment": "Independent literal pixels cover default vs explicit Identity, Alpha and Luminosity transfer, outside-BBox input, and both clamp boundaries. These do not exhaust every function type or numerical sampling precision."
+    }
+  ],
+  "state_reset": {
+    "source_rule": "§11.6.4.3 physical p. 432 / printed p. 417: graphics-state /SMask /None means no mask, removes an existing mask, and therefore supplies implicit 1.0 everywhere; q/Q restores graphics state per §8.4.",
+    "implementation": "soft_mask::entry_with_output_intent maps /None to SoftMaskEntry::None; content/ext_gstate.rs installs the returned state; graphics-state save/restore owns q/Q behavior.",
+    "assertions": ["crates/pdf-model/tests/soft_masks.rs::none_removes_the_mask"],
+    "assertion_detail": "Two exact-xref PDF fixtures compare a zero-valued mask with a second ExtGState applying /SMask /None before the mark; literal pixels distinguish masked from solid output. The q/Q operators bracket the state in the fixture, but the current assertions do not paint after Q and therefore do not test restoration.",
+    "scope_limit": "Does not certify image-dictionary /SMask precedence; image masks are a distinct §11.6.5.2 feature reviewed elsewhere."
+  },
+  "reviewed_code": ["crates/pdf-model/src/soft_mask.rs", "crates/pdf-model/src/content/transparency/soft_mask.rs", "crates/pdf-model/src/content/ext_gstate.rs"],
+  "reviewed_tests": ["crates/pdf-model/tests/soft_masks.rs", "crates/pdf-model/tests/soft_mask_transfer_limits_audit.rs", "crates/pdf-model/tests/soft_mask_dictionary_audit.rs", "crates/pdf-model/tests/image_masks.rs", "crates/pdf-model/tests/transparency_groups.rs", "crates/pdf-model/tests/soft_mask_derivation_audit.rs"],
+  "overall": "Selected Table 142 cells have substantial public pixel-level witnesses with independent literal expectations and controls. No high-value uncovered valid-input branch was identified in the assigned subset; no test draft is proposed.",
+  "residuals": ["No exhaustive Type 2/3/4 function matrix or exact error-policy certification.", "Malformed /BC component-count behavior is not promoted as a normative requirement.", "No GPU backend execution was performed in this shard; parent/other audits own backend parity.", "Not a complete §11.5, §11.6, image-soft-mask, or transparency-group certification."]
+}

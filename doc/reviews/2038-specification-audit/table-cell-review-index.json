@@ -319,6 +319,155 @@
       ],
       "artifact": "shards/choice_locality_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "93",
+      "keys": [
+        "Type",
+        "Subtype",
+        "FormType",
+        "BBox",
+        "Matrix",
+        "Resources",
+        "Group",
+        "Ref",
+        "Metadata",
+        "PieceInfo",
+        "LastModified",
+        "StructParent",
+        "StructParents",
+        "OPI",
+        "OC",
+        "Name",
+        "AF",
+        "Measure",
+        "PtData"
+      ],
+      "ledger_rows": [
+        "8.10.2"
+      ],
+      "artifact": "shards/form_xobject_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "94",
+      "keys": [
+        "Type",
+        "S"
+      ],
+      "ledger_rows": [
+        "8.10.3"
+      ],
+      "artifact": "shards/form_xobject_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "142",
+      "keys": [
+        "Type",
+        "S",
+        "G",
+        "BC",
+        "TR"
+      ],
+      "ledger_rows": [
+        "11.6.5.1"
+      ],
+      "artifact": "shards/soft_mask_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "96",
+      "keys": [
+        "Type",
+        "Name",
+        "Intent",
+        "Usage"
+      ],
+      "ledger_rows": [
+        "8.11.2.1"
+      ],
+      "artifact": "shards/optional_content_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "97",
+      "keys": [
+        "Type",
+        "OCGs",
+        "P",
+        "VE"
+      ],
+      "ledger_rows": [
+        "8.11.2.2"
+      ],
+      "artifact": "shards/optional_content_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "98",
+      "keys": [
+        "OCGs",
+        "D",
+        "Configs"
+      ],
+      "ledger_rows": [
+        "8.11.4.2"
+      ],
+      "artifact": "shards/optional_content_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "99",
+      "keys": [
+        "Name",
+        "Creator",
+        "BaseState",
+        "ON",
+        "OFF",
+        "Intent",
+        "AS",
+        "Order",
+        "ListMode",
+        "RBGroups",
+        "Locked"
+      ],
+      "ledger_rows": [
+        "8.11.4.3"
+      ],
+      "artifact": "shards/optional_content_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "100",
+      "keys": [
+        "CreatorInfo",
+        "Language",
+        "Export",
+        "Zoom",
+        "Print",
+        "View",
+        "User",
+        "PageElement"
+      ],
+      "ledger_rows": [
+        "8.11.4.4"
+      ],
+      "artifact": "shards/optional_content_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "101",
+      "keys": [
+        "Event",
+        "OCGs",
+        "Category"
+      ],
+      "ledger_rows": [
+        "8.11.4.4"
+      ],
+      "artifact": "shards/optional_content_cells_current/features.json",
+      "status": "partial"
     }
   ]
 }

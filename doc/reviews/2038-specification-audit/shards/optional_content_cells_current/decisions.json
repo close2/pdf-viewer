@@ -1,0 +1,40 @@
+{
+  "baseline":"b901326c",
+  "decisions":[
+    {
+      "id":"visible-pages-existing-finding",
+      "decision":"Do not add a new finding for ListMode VisiblePages. The public viewer query uses only shown_page, while current OneColumn arrangement displays multiple pages; the independent multi-page fixture and controls already confirmed 2038-B51.",
+      "source":"Table 99, physical 301 / printed 286: VisiblePages shows groups referenced by one or more visible pages.",
+      "current_assertion":"viewer-core/tests/optional_content_visible_pages_spec_audit.rs::visible_pages_includes_every_page_in_the_current_arrangement; `all_pages_keeps_both_groups_and_their_collection_label` is a passing control.",
+      "classification":"Existing confirmed product behavior defect; no duplicate drafted or promoted."
+    },
+    {
+      "id":"rbgroup-empty-inner-array",
+      "decision":"Treat #225 as producer validity. The reader drops empty inner groups, which add no members; source gives no prescribed repair/rejection behavior.",
+      "source":"Table 99, physical 301 / printed 286, EC3 #225.",
+      "current_assertion":"view.rs radio collection tests verify behavior for valid nonempty arrays; no claim of malformed array conformance.",
+      "classification":"No reader bug inferred from accepting malformed empty inner array."
+    },
+    {
+      "id":"config-requirements-vs-reader-recovery",
+      "decision":"Separate required entries and default-configuration producer restrictions from required reader behavior. D drives initial state; absent OCProperties has explicit ignore semantics. No rejection test is warranted merely because malformed D/OCGs/usage fields violate a Table 98-101 row.",
+      "source":"Tables 98-101 and §8.11.4.2-.5.",
+      "current_assertion":"optional_content_config_audit.rs contrasts D with Configs; optional_content.rs checks missing OCProperties is ignored.",
+      "classification":"Source-constrained; no unassigned reader algorithm found."
+    },
+    {
+      "id":"language-and-same-event-use",
+      "decision":"Retain current list-wide Language matching decision and repeated same-event AND semantics. Do not revive old pending test notes.",
+      "source":"Table 100 Language and Table 101 same-event/multiple-application prose; #567 clarifies language selection does not alter content language.",
+      "current_assertion":"optional_content.rs::language_matching_turns_on_all_exact_or_all_preferred_partials_as_a_set is parent-confirmed PASS (T66).",
+      "classification":"Current positive execution evidence."
+    },
+    {
+      "id":"locked-scope",
+      "decision":"A lock limits interactive user-interface state changes, not all state mutation. Action/AS changes may still alter a locked group.",
+      "source":"Table 99 Locked cell, explicit final sentence.",
+      "current_assertion":"view.rs::a_locked_group_refuses_a_panel_and_not_an_action; headless.rs::a_locked_group_reaches_a_host_and_its_switch_is_refused.",
+      "classification":"Directly sourced policy and current consumer assertion."
+    }
+  ]
+}

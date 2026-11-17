@@ -590,22 +590,51 @@ fn a_print_event_does_not_apply_to_a_screen() {
 /// > have a state of ON .
 #[test]
 fn every_category_of_every_dictionary_has_to_agree() {
-    let both = "/OCProperties << /OCGs [5 0 R] /D << /AS [\
-        << /Event /View /Category [/View] /OCGs [5 0 R] >> \
-        << /Event /View /Category [/Export] /OCGs [5 0 R] >>] >> >>";
-    let raster = render(pdf(
-        both,
-        "/Properties << /oc 5 0 R >>",
-        MARKED_SQUARE,
-        "",
-        "5 0 obj\n<< /Type /OCG /Name (Layer) /Usage << /View << /ViewState /ON >> \
-         /Export << /ExportState /OFF >> >> >>\nendobj\n",
-    ));
-
-    assert!(
-        !drew(&raster),
-        "the second dictionary's OFF has to survive the first's ON"
-    );
+    // Each location and ordering must implement AND. A last-writer-wins implementation
+    // could pass an ON-then-OFF case, so exercise OFF-then-ON and the all-ON control too.
+    let applications = [
+        "<< /Event /View /Category [/View] /OCGs [5 0 R] >> << /Event /View /Category [/Export] /OCGs [5 0 R] >>",
+        "<< /Event /View /Category [/Export] /OCGs [5 0 R] >> << /Event /View /Category [/View] /OCGs [5 0 R] >>",
+        "<< /Event /View /Category [/View /Export] /OCGs [5 0 R] >>",
+        "<< /Event /View /Category [/Export /View] /OCGs [5 0 R] >>",
+    ];
+    for application in applications {
+        for (view, export, expected_alpha) in [
+            ("ON", "ON", 255),
+            ("OFF", "ON", 0),
+            ("ON", "OFF", 0),
+            ("OFF", "OFF", 0),
+        ] {
+            let properties =
+                format!("/OCProperties << /OCGs [5 0 R] /D << /AS [{application}] >> >>");
+            let group = format!(
+                "5 0 obj\n<< /Type /OCG /Name (Layer) /Usage << /View << /ViewState /{view} >> /Export << /ExportState /{export} >> >> >>\nendobj\n"
+            );
+            let bytes = pdf(
+                &properties,
+                "/Properties << /oc 5 0 R >>",
+                MARKED_SQUARE,
+                "",
+                &group,
+            );
+            assert!(
+                !Document::open(bytes.clone())
+                    .expect("exact-xref fixture")
+                    .was_recovered()
+            );
+            let raster = render(bytes);
+            assert_eq!(
+                pixel(&raster, 50, 50),
+                [0, 0, 0, expected_alpha],
+                "AND for View={view}, Export={export}, applications={application}"
+            );
+            assert_eq!(
+                pixel(&raster, 5, 5),
+                [0, 0, 0, 0],
+                "outside the marked square"
+            );
+        }
+    }
 }
 
 /// A category about *this machine* leaves the state alone and says so.

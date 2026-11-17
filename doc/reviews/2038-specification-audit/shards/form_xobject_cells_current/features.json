@@ -1,0 +1,98 @@
+{
+  "baseline": "b901326c",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "source": {
+    "edition": "ISO 32000-2:2020 plus Errata Collection 3",
+    "table": "Table 93, physical pp. 287-289 / printed pp. 272-274; §8.10.1 physical p. 286 / printed p. 271; Table 94 physical pp. 289-290 / printed pp. 274-275",
+    "annotations": [
+      {"id": "#292", "location": "physical p. 287 / printed p. 272", "effect": "Changes Resources from ‘Optional but strongly recommended’ to ‘Sometimes required’; changes the PDF 1.1-and-earlier resources text into informative NOTE 1; independence is strongly recommended before PDF 2.0 and required from PDF 2.0."},
+      {"id": "#291", "location": "physical p. 287 / printed p. 272", "effect": "Adds NOTE 2 cross-reference to Annex F for additional resource requirements in linearized files."},
+      {"id": "#463", "location": "physical p. 288 / printed p. 273", "effect": "Adds that at most one of StructParent and StructParents may be present and distinguishes a form as a whole content item versus a container of marked-content content items."}
+    ],
+    "annotation_method": "Read the primary PDF page annotations and their overlays, then checked printed footers. Physical p. 285 Issue #19 is in preceding Table 87 and not a Table 93 annotation; no Table 93 semantic change was inferred from it. Sticky-note statuses on p. 287 were review workflow only."
+  },
+  "ledger": [
+    {"clause": "8.10", "status": "implemented", "scope": "Aggregate over children 8.10.1-.4; no independent prose obligation."},
+    {"clause": "8.10.1", "status": "implemented", "scope": "Form invocation sequence, inherited invocation graphics state, transform and clip."},
+    {"clause": "8.10.2", "status": "implemented", "scope": "Table 93 entries; current note states non-rendering entries and resources policy."},
+    {"clause": "8.10.3", "status": "implemented", "scope": "Table 94 group dictionary and defined Transparency subtype."}
+  ],
+  "features": [
+    {
+      "clause": "8.10.1; Table 93",
+      "feature": "Form invocation and BBox/Matrix",
+      "source_rule": "Do saves graphics state, concatenates Matrix with CTM, clips to BBox, paints the form stream and restores state. Table 93 makes BBox required and says it clips the form and determines caching size; Matrix is optional, default identity.",
+      "code": ["crates/pdf-model/src/content/xobject.rs::Interpreter::draw_xobject", "crates/pdf-model/src/content/xobject.rs::Interpreter::matrix"],
+      "assertions": [
+        "crates/pdf-model/tests/form_xobjects_audit.rs::a_form_restores_the_callers_graphics_state_after_painting (blue form and red caller samples)",
+        "::a_forms_matrix_maps_form_space_before_its_content_is_painted (translated red mark and original-location white control)",
+        "::repeated_form_paints_repeat_the_form_marks_at_each_invocation (two translated invocations and outside control)",
+        "::form_matrix_is_concatenated_before_the_callers_scaled_ctm (distinguishes transform order at x=50 from x=30)",
+        "::a_form_inherits_the_colour_present_at_each_invocation (two invocation colors)",
+        "crates/pdf-model/tests/transparency_groups.rs::a_forms_bounding_box_clips_what_it_draws"
+      ],
+      "verdict": "The core public raster path has independent visible controls for save/restore, transform, transform order and clipping. This is bounded evidence, not exhaustive affine-transform coverage. The fixture generator computes exact lengths and xref offsets; form_xobjects_audit::render checks !Document::was_recovered and complete interpretation."
+    },
+    {
+      "clause": "8.10.2; Table 93; EC3 #292 and #291; §7.8.3",
+      "feature": "Resources ownership, omission and version conditions",
+      "source_rule": "Issue #292 changes the version-sensitive cell. PDF 1.1 and earlier have the informative historical note: named form resources are in each page Resources dictionary. After PDF 1.1, Resources can be omitted for a non-independent form; independence is recommended before PDF 2.0 and required from PDF 2.0. A PDF 2.0 form therefore requires its own Resources. Issue #291 points linearized files to Annex F. The amended §7.8.3 NOTE 3 describes legacy resource inheritance from the page when an older form omitted Resources. Do not read the former PDF 1.1 rule as a mandatory modern reader algorithm.",
+      "code": ["crates/pdf-model/src/content/xobject.rs::Interpreter::draw_xobject", "crates/pdf-model/src/content/xobject.rs::form_resources"],
+      "assertions": [
+        "crates/pdf-model/tests/missing_resources.rs::a_form_that_states_no_resources_uses_the_pages (legacy compatibility behavior; the test fixture is PDF 1.7, where omitted Resources alone is not prohibited, but it does not prove the spec requires this fallback for all modern files)",
+        "::a_form_with_its_own_resources_does_not_reach_past_them (an explicit form dictionary missing a name does not fall through to page resources)",
+        "::a_form_nested_in_a_form_inherits_the_pages_resources_and_not_its_invokers (distinguishes page from invoking form resource dictionaries)",
+        "::a_type3_font_shown_inside_a_form_reads_the_pages_resources_and_not_the_forms (distinct Type 3 resource rule)",
+        "crates/pdf-model/tests/content_resources_audit.rs and page_resources_current cover dictionary ownership beyond forms"
+      ],
+      "verdict": "Current fallback is an intentional compatibility policy (ADR 0255/1059), with the correct page-not-invoker lookup verified by the nested-disagreement witness. The old PDF 1.1 wording is informative after #292; do not call its exact fallback a universal current normative duty. The PDF 1.7 missing-entry test is not a valid probe for the PDF 2.0 independence requirement, and no defect is inferred from the version mismatch. A PDF 2.0 missing-Resources rejection test is not warranted because producer constraints do not alone mandate reader rejection. #291 remains an Annex F cross-reference, not a general form-resource rule."
+    },
+    {
+      "clause": "8.10.2; Table 93",
+      "feature": "All Table 93 cells inventoried and assigned",
+      "cells": [
+        {"key":"Type","effective_meaning":"Optional; if present XObject. Producer dictionary type."},
+        {"key":"Subtype","effective_meaning":"Required Form for this table."},
+        {"key":"FormType","effective_meaning":"Optional, default 1; only defined value 1."},
+        {"key":"BBox","effective_meaning":"Required; clips contents and determines cache size; tested under 8.10.1."},
+        {"key":"Matrix","effective_meaning":"Optional identity transform from form to user space; tested under 8.10.1."},
+        {"key":"Resources","effective_meaning":"Version-sensitive ownership/independence and compatibility omission handling; see preceding feature."},
+        {"key":"Group","effective_meaning":"Optional transparency group dictionary. When a reference XObject imports a page, its Group attributes are required to be applied to the imported page as a transparency group; ordinary group behavior is owned by Table 94/§11.6.6."},
+        {"key":"Metadata","effective_meaning":"Optional metadata stream; XMP reader can parse a form carrier but no form-specific end-user consumer was found."},
+        {"key":"PieceInfo","effective_meaning":"Optional application-maintained piece information; no form rendering consumer."},
+        {"key":"LastModified","effective_meaning":"Required if PieceInfo is present; optional otherwise; date metadata for deciding which piece-info application data matches current content."},
+        {"key":"StructParent","effective_meaning":"Required if form XObject is a structural content item; object-level structure key. #463 makes it mutually exclusive with StructParents. Structure tree OBJR owner path is separately exercised."},
+        {"key":"StructParents","effective_meaning":"Required if form XObject contains marked-content sequences that are structural content items; ParentTree array key for marked content in the form stream. #463 makes it mutually exclusive with StructParent."},
+        {"key":"Ref","effective_meaning":"Optional reference-XObject dictionary data; when present it distinguishes reference XObjects, whose behavior is owned by §8.10.4 and reference_xobjects_current."},
+        {"key":"OPI","effective_meaning":"Optional legacy Open Prepress Interface data; deprecated in PDF 2.0 and no in-scope prepress consumer."},
+        {"key":"OC","effective_meaning":"Optional-content visibility for entire XObject; optional_content::a_form_xobject_carrying_oc_is_skipped_when_its_group_is_off and nested visibility tests."},
+        {"key":"Name","effective_meaning":"Internal form name; required only in PDF 1.0, optional later, deprecated PDF 2.0. Resource key performs lookup; no rendering requirement on this metadata."},
+        {"key":"AF","effective_meaning":"PDF 2.0 associated-file array; general association parser and associated_file_examples::example_3s_equation_is_associated_with_its_form; association does not imply a required viewer panel."},
+        {"key":"Measure","effective_meaning":"Optional geospatial measure for form; current measurement consumers read page viewports/annotations; no form measurement consumer was demonstrated."},
+        {"key":"PtData","effective_meaning":"Optional geospatial point data, in the same conditional geospatial use; no form-specific consumer demonstrated."}
+      ],
+      "additional_source_rule": "EC3 #463: StructParent and StructParents are conditionally required according to whether the form as a whole or its marked sequences are content items; they are mutually exclusive. A form is either wholly a structure content item or a container for marked-content content items. Do not infer that an invalid producer combination requires a specific reader rejection policy.",
+      "assertions_and_limits": "Structure tests parse and resolve form StructParent/StructParents relations, while B29 in current global findings concerns propagation of selected Form StructElem accessibility attributes and is a separate already-recorded consumer issue. Do not count that existing finding as a new Table 93 defect. AF and XMP tests confirm model-level carriers, not mandatory UI. The imported proxy Group behavior is separately asserted by reference_xobjects.rs::a_proxys_group_holds_the_imported_page_as_one_element and ::a_proxys_group_is_read_in_the_document_the_proxy_is_in. No new failing behavior was identified among metadata/geospatial/prepress keys."
+    },
+    {
+      "clause": "8.10.3; Table 94; §11.6.6",
+      "feature": "Group dictionary cell conditions",
+      "source_rule": "Form Group is optional. In Table 94, Type if present is Group; S is required; Transparency is the only defined subtype. Group compositing behavior is §11.6.6, not a generic grouping rule for unknown subtypes.",
+      "assertions": ["crates/pdf-model/tests/transparency_groups.rs::a_form_becomes_a_group_only_for_the_transparency_subtype", "crates/pdf-model/tests/transparency_groups.rs::a_forms_bounding_box_clips_what_it_draws"],
+      "verdict": "Exact unknown/missing/Transparency controls and group behavior have a current owner shard; no duplicate test drafted."
+    }
+  ],
+  "selected_decisions": [
+    {"adr":"0255", "conclusion":"Keep recovery on missing resource names and do not fall through when a form explicitly has Resources; this is distinct from a Resources entry omitted altogether."},
+    {"adr":"1059", "conclusion":"When compatibility fallback applies, source the omitted form Resources from the page, not the invoking stream. Current test fixture distinguishes these scopes; ADR remains aligned with current code."},
+    {"adr":"1055", "conclusion":"Archive survey cannot distinguish nested form resource dictionaries; exact synthetic PDF is the right witness. Do not treat corpus counts as proof of no behavior."},
+    {"adr":"1101", "conclusion":"Reference XObject host-supplied target behavior belongs to §8.10.4 and is covered by its own owner shard, not re-reviewed here."}
+  ],
+  "test_drafts": [],
+  "residuals": [
+    "No claim of whole §8.10 or every Table 93 semantic consumer conformance.",
+    "No PDF 2.0 missing-Resources negative fixture proposed; such input would violate producer independence, and the reviewed source does not by itself establish a mandatory reader refusal.",
+    "Annex F-specific linearized resource ordering is only cross-referenced here; defer to the dedicated Annex F shard.",
+    "Form Measure/PtData and metadata are represented/parsed at a model level, but this pass found no consumer-level obligation for screen rendering."
+  ]
+}

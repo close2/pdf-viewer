@@ -273,8 +273,9 @@ fn an_alpha_mask_reads_the_groups_alpha_and_ignores_its_colour() {
 ///
 /// §11.6.4.3: "The name None may be specified in place of a soft-mask dictionary, denoting
 /// the absence of a soft mask. It shall also mean that any existing mask shall be removed
-/// from the current graphics state." The fixture sets the mask, paints, sets `/None`, paints
-/// again over the same place — and the second rectangle must be solid.
+/// from the current graphics state." Paired fixtures compare a masked rectangle with one
+/// painted after `/None`. A nested save/restore fixture then distinguishes the unmasked
+/// inner mark from the masked paint after `Q`.
 #[test]
 fn none_removes_the_mask() {
     // Written out with its own cross-reference table, so that the second `/ExtGState` has an
@@ -328,6 +329,27 @@ fn none_removes_the_mask() {
         "with the mask removed the black rectangle is solid",
     );
     near(level(&raster, 30, 20), 0, "everywhere, not only in the box");
+
+    // /None is local to q/Q: the inner mark survives where the mask would hide it,
+    // while the full-page paint after Q is again masked on the right half.
+    let restored = opened(with_off(
+        "/GS gs q /Off gs 0 g 25 0 5 40 re f Q 0 g 0 0 40 40 re f",
+    ));
+    near(
+        level(&restored, 5, 20),
+        0,
+        "restored mask permits the left half",
+    );
+    near(
+        level(&restored, 27, 20),
+        0,
+        "None permits the inner mark outside the mask",
+    );
+    near(
+        level(&restored, 35, 20),
+        255,
+        "Q restores the mask for the later full-page paint",
+    );
 }
 
 /// A mask is fixed where the `gs` established it, not where the object is painted.
