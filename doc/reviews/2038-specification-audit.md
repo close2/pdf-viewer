@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (97)
+## Current checkpoint (98)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **105 failing test identities**: 104 behavior assertions/probes
@@ -373,6 +373,13 @@ zero-radius centres correctly paint nothing. Positive geometry controls and all 
 paired Vulkan assertions pass. Encoding CMap inheritance/override and independent
 omitted crypt-filter defaults also pass. Final three-crate Clippy passes. The105-entry
 manifest now includes98 default-scope failures; broad95 predates these additions.
+
+Checkpoint98 corrects a Type3 test that claimed to omit a glyph but retained its
+dictionary entry; the strengthened missing-key and two-glyph control pass. Unicode
+attachment-stream preference and signed tiling steps pass. Existing tiling spacing
+assertions now reject empty comparisons; all35 tiling tests pass. Model Clippy passes.
+D62 qualifies ADR0914: a singular matrix still defines a transformation, so refusal
+is a project policy rather than a consequence of the claimed mathematical premise.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

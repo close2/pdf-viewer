@@ -1,0 +1,42 @@
+{
+  "baseline": "b901326c",
+  "scope": "Bounded source-to-consumer review of ISO 32000-2:2020 §7.11.3 Table 43 and §7.11.4.1 Tables 44–45: F/UF/EF/RF/Desc/AFRelationship and embedded stream parameters Size/CreationDate/ModDate/CheckSum. This is not a whole-clause certification and does not re-audit the existing indirect-value, filtered-checksum, XFA, or associated-file tests.",
+  "source_and_errata": [
+    {
+      "locator": "Table 43 begins physical p.149 / printed p.134 and continues through physical p.152 / printed p.137. Table 44 is physical p.153 / printed p.138. Table 45 begins physical p.153 / printed p.138 and continues to physical p.154 / printed p.139.",
+      "effective_points": [
+        "Table 43 F is the byte-string file specification. UF is the Unicode text-string alternative; when present, a PDF reader shall use UF instead of F. If EF has entries for these names, the streams are the corresponding embedded files.",
+        "EF is required if RF is present; EF values are embedded-file streams for corresponding F/UF entries. Presence of EF requires a Type entry and an indirect FileSpec. RF is optional, but each RF key must also appear in EF and its value is a related-files array. These are producer-side structural conditions; this review does not infer a reader rejection mandate.",
+        "Desc is optional descriptive text and shall be used for FileSpecs referenced by the EmbeddedFiles name tree. AFRelationship is optional, defaults to Unspecified, and names the semantic relation. NOTE 3 says it supplies no processing instructions.",
+        "Table 44: EmbeddedFile Type is optional (if present, EmbeddedFile); Subtype is optional except where required for an associated file; Params is optional except where required for an associated file. A stream is included through EF (or RF relation) and embedded content need not be directly processed by every processor.",
+        "Table 45: Size is optional and states the uncompressed embedded-file byte count; CreationDate is optional; ModDate is optional generally but required when the file is associated; CheckSum is an optional 16-byte MD5 of the uncompressed embedded-file bytes. The table note says it is a checksum, not a security mechanism. These requirements constrain producers; no blanket invalid-file rejection is inferred."
+      ],
+      "effective_errata": [
+        "EC3 #155, attached to Table 44 Subtype at physical p.153 / printed p.138, narrows the producer MIME subtype form to the RFC 2046 section 2 top-level type and description separated by slash and without MIME parameters. It is not a reader filter obligation.",
+        "EC3 #481 at physical p.153 / printed p.138 replaces the earlier inclusion text: embedded streams are included only through FileSpecs with EF; name-tree embedding is optional unless another provision requires it. #156 adds associated-file and RichMedia routes. Neither changes Table 43 UF preference or Table 45 digest semantics.",
+        "EC3 #382 at physical p.154 / printed p.139 changes the CheckSum type to byte string; this preserves the 16-byte MD5 rule.",
+        "EC3 #598 at physical p.154 / printed p.139 adds NOTE 2 that CreationDate and ModDate are intended to reflect host filesystem dates when embedded, if supported by that filesystem. It does not require a reader to synthesize missing dates or access the host filesystem."
+      ],
+      "annotation_check": "Direct pikepdf inspection of the primary PDF's annotation dictionaries confirms #155, #156, #481, #382, and #598 at the physical pages above. #481 has a replacement annotation and the source text at the replacement location was read; it makes the old name-tree-only insertion rule obsolete. No annotation is being treated as effective solely because its ID is mentioned in the ledger."
+    },
+    {
+      "feature": "Current implementation and assertion map",
+      "ledger": "§7.11.3 and §7.11.4.1 are implemented. The current `indirect_file_parameters_spec_audit.rs` exercises direct/indirect nested values through public `attachment::attachments`, including F/UF strings, AFRelationship, EF/Params dictionaries, Type/Subtype, Size/dates/CheckSum, and literal decoded bytes. `attachment::attachments` tests are complemented by `file_specifications_audit.rs`, `associated_file_examples_audit.rs`, `embedded_files_spec_audit.rs`, and `attachments_filed.rs`.",
+      "code": "`crates/pdf-model/src/file_spec.rs::FileSpec::from_dictionary/display_name` reads the FileSpec and prefers UF for displayed name. `crates/pdf-model/src/attachment.rs::read` resolves EF; it selects the EF key in UF, F, DOS, Mac, Unix order, then reads stream Subtype and Params Size/dates/CheckSum. `Attachment::checksum_matches` checks decoded/uncompressed bytes; the extraction consumer's check was added under ADR 0145. `attachment::related` reads RF pairs but has no general extraction consumer.",
+      "test_coverage": [
+        "T88 / indirect_file_parameters_spec_audit.rs passes the nested direct/indirect representation check and independently asserts literal payload, metadata, and digest through the attachment-listing consumer. Its indirect EF target uses F only, so it does not test competing F and UF entries.",
+        "The filtered-stream checksum control is already passing (2038-T62, combined-wave43c.log): 19 literal decoded bytes differ from the 27 Flate bytes, and the expected MD5 matches the decoded bytes only. Do not duplicate this case.",
+        "Existing file-specification tests establish UF-first display name and separate raw F bytes, not that the selected EF payload matches the UF entry when the EF dictionary has different F and UF streams.",
+        "Existing attachment writer, XFA attachment, and associated-file tests cover their own routes and fields; they do not establish a new requirement to process AFRelationship as an instruction or to extract RF files."
+      ],
+      "candidate_gap": "A narrow public-consumer assertion appears absent: a valid FileSpec supplies both F and UF and has distinct corresponding EF/F and EF/UF streams; the reader shall select the UF representation when present, yielding the UF name and its matching literal payload. A F-only control should prove fallback still selects the F payload. The current implementation's UF-first key ordering appears correct by inspection; this is a gap, not an observed implementation failure.",
+      "draft": "drafts/uf_embedded_stream_selection.rs"
+    }
+  ],
+  "limits": [
+    "No assertion here requires host file access, URL fetch, or cache behavior. Table 43 /V true prohibits caching, but the current viewer does not fetch external files; that branch has no applicable cache consumer in this scope.",
+    "The Table43 RF/EF indirection and RF pairing have existing tests. This review does not require an attachment panel to expose all related files: the current reader parses RF arrays, while ADR 0145 states there is no current extraction request/consumer for them.",
+    "Table45's conditional ModDate and EC3 #598 filesystem-date note are producer/host constraints. Existing tests carry date strings; this shard does not treat absent dates or inaccessible filesystem dates as grounds to reject a PDF.",
+    "The candidate test is not executed here. It checks only public model listing, chosen attachment name, and chosen decoded bytes; it does not certify UI rendering, native attachment handling, output writing, or all platform filename behavior."
+  ]
+}

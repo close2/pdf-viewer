@@ -1,0 +1,25 @@
+{
+  "reviews": [
+    {
+      "adr": "0104",
+      "decision": "Agree with the separation between parsing a FileSpec and opening/fetching its external target. That rationale does not excuse using the wrong embedded stream when both UF and F have corresponding EF entries; Table 43 explicitly makes UF the reader-preferred form. The current attachment reader's UF-first stream selection is consistent by code inspection, but its regression coverage is incomplete at this conflicting-entry boundary.",
+      "evidence": "doc/adr/0104-a-file-specification-is-read-whole-and-opened-never.md; file_spec.rs::display_name; attachment.rs::read. The proposed draft asserts only public attachment listing and literal selected bytes, with no host I/O.",
+      "scope": "Does not reopen the established raw F byte-storage contract for path components or the URL-specific question under §7.11.5."
+    },
+    {
+      "adr": "0076",
+      "decision": "Agree that EmbeddedFiles can be listed without eagerly processing or writing every payload, and that payload access remains explicit. Listing nevertheless needs to retain the EF stream corresponding to the reader-preferred UF name when both are provided. The draft exercises only metadata and decoded bytes from an already embedded stream, not extraction.",
+      "evidence": "doc/adr/0076-the-files-inside-the-file.md; current attachment::attachments/read consumer. Existing name-tree and indirect-reference tests do not use two distinct EF values for one FileSpec."
+    },
+    {
+      "adr": "0145",
+      "decision": "Agree that a stated CheckSum is checked only after uncompressed bytes are available, and mismatch is reported rather than treated as a security failure. This shard relies on the already executed filtered-stream checksum regression (2038-T62) and proposes no duplicate digest test.",
+      "evidence": "doc/adr/0145-taking-a-file-out-of-a-document.md; current 2038-T62 evidence in doc/reviews/2038-specification-audit/findings.json."
+    },
+    {
+      "adr": "0077",
+      "decision": "Agree that AFRelationship communicates semantic association without prescribing a processing action. Keep source required-value conventions and producer obligations distinct from a reader's retained relationship value; current attachment tests exercise named relationships. No additional test warranted here.",
+      "evidence": "doc/adr/0077-one-array-in-seven-places.md; §7.11.3 Table 43 NOTE 3 and associated-file test families."
+    }
+  ]
+}

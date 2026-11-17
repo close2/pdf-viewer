@@ -1294,6 +1294,10 @@ fn site_offsets(interpretation: &pdf_model::content::Interpretation) -> Vec<f32>
     collect_offsets(interpretation.display_list.commands(), &mut offsets);
     offsets.sort_by(|a, b| a.partial_cmp(b).expect("finite offsets"));
     offsets.dedup_by(|a, b| (*a - *b).abs() < 1e-3);
+    assert!(
+        offsets.len() >= 2,
+        "the patterned page must supply distinct columns before spacing is compared: {offsets:?}"
+    );
     offsets
 }
 

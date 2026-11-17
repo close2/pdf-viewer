@@ -1,0 +1,116 @@
+{
+  "baseline": "b901326c",
+  "scope": "Bounded source-cell and assertion review of ISO 32000-2 §8.7.3.1 Table 74 and directly relevant §8.7.2 / §8.6.8 behavior. This is not whole-clause certification.",
+  "source": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf, Table 74 header and rows: physical p.236 / printed p.221; YStep continuation and following coordinate/processor prose: physical p.237 / printed p.222. Both footer numbers were read from pdftotext layout. Table 74 page annotations include EC3 #294 at p.236; it adds “stream” to the Type 1 pattern dictionary caption (object-form clarification), not a table-cell behavior change. Physical p.235 / printed p.220 contains EC3 #428 “implementation dependent” on the order for filling the area; this qualifies ordering and does not change the tiling dictionary entries.",
+    "cells": [
+      {
+        "key": "Type",
+        "condition": "Optional; if present, name /Pattern.",
+        "implementation": "tiling stream is selected by /PatternType in pattern handling; Type is not needed for paint.",
+        "assertions": "Not a distinct reader behavior; Type is an optional descriptive producer entry. No rejection required if absent."
+      },
+      {
+        "key": "PatternType",
+        "condition": "Required integer 1 for a tiling pattern.",
+        "implementation": "pattern dispatch selects stream-backed Type 1 path.",
+        "assertions": "Existing Type 1 tests use valid PatternType 1. Invalid/missing producer values are not treated as a mandatory reader-rejection obligation."
+      },
+      {
+        "key": "PaintType",
+        "condition": "Required integer: 1 colored or 2 uncolored. Colored streams set own colors; uncolored stream carries stencil marks and supplies paint-time tint. In an uncolored cell, color operators are ignored without error; image masks remain permitted.",
+        "implementation": "crates/pdf-model/src/content/pattern/tiling.rs parses 1/2 tint behavior; cell.rs installs parent initial state / tint and suppresses colored operations.",
+        "assertions": "tiling.rs::an_uncoloured_pattern_takes_its_colour_from_the_operator; ::an_uncoloured_patterns_colour_is_read_in_its_underlying_space (Separation-red vs DeviceGray-white oracle); ::an_uncoloured_cell_that_sets_a_colour_is_ignored; ::a_coloured_cell_starts_from_the_streams_initial_colours_rather_than_the_fills. Image-mask exception has image-mask owners."
+      },
+      {
+        "key": "TilingType",
+        "condition": "Required integer 1/2/3. Type 1 consistent device-pixel spacing and distortion <=1 px; Type 2 no cell distortion and spacing may vary <=1 px; Type 3 same spacing as 1 with extra distortion permitted.",
+        "implementation": "pdf-render::TilingType and snap_lattice; pdf-model::lattice selects snap only for type 1/3 under stated magnification.",
+        "assertions": "tiling.rs::a_constant_spacing_lattice_steps_by_a_whole_number_of_device_pixels; ::a_no_distortion_lattice_steps_by_exactly_what_the_file_states; ::faster_tiling_is_given_constant_spacings_lattice; ::the_placed_step_is_never_more_than_a_device_pixel_from_the_stated_one; ::constant_spacing_makes_the_tiled_pixels_repeat_and_no_distortion_does_not. These distinguish the documented policies. Type 3 extra distortion is permission, not an obligation."
+      },
+      {
+        "key": "BBox",
+        "condition": "Required four-number rectangle in pattern coordinates; boundaries shall clip every cell. NOTE 1: zero width/height still paints one pixel.",
+        "implementation": "tiling.rs stores normalized nondegenerate BBox; cell.rs applies clip.",
+        "assertions": "tiling.rs::a_cell_is_clipped_to_its_bounding_box; promoted degenerate_tiling_bbox_clip_spec_audit::a_zero_height_pattern_bbox_clips_distant_cell_marks_but_scan_converts_its_boundary. The latter is B20, already an executed failure and is deliberately not duplicated here."
+      },
+      {
+        "key": "XStep and YStep",
+        "condition": "Required numbers; desired spacing in pattern coordinates. NOTE 2 allows spacing to differ from cell dimensions. Each may be positive or negative but not zero.",
+        "implementation": "tiling.rs resolves values; pattern/lattice.rs::non_zero normalizes a signed value to magnitude; displacement and finite reach enumerate integer sites.",
+        "assertions": "Positive step values with both gaps and overlaps are exercised; no named assertion explicitly uses a negative XStep or YStep. Sign reversal of one step permutes integer site indices and therefore names the same infinite lattice, preserving the key cell at index zero."
+      },
+      {
+        "key": "Resources",
+        "condition": "Required dictionary containing every named resource used by the pattern content stream.",
+        "implementation": "tiling.rs loads own dictionary; missing Resources currently becomes empty dictionary.",
+        "assertions": "missing_resources.rs and archive/resource_fallbacks tests exercise absent-resource policy. Core preservation path assigns empty dictionary and repairs used names into pattern-specific resources; prior ADR 1059/2820 and core findings own this recovery behavior. Required producer shape is not itself a demand to reject malformed input."
+      },
+      {
+        "key": "Matrix",
+        "condition": "Optional six-number pattern matrix, identity default; maps pattern space to parent content-stream default space; translation sets phase.",
+        "implementation": "tiling.rs::matrix_of composes with Interpreter.base; lattice snap adjusts only the linear part when permitted.",
+        "assertions": "tiling.rs::the_pattern_matrix_moves_the_tiling and page/form/nested-parent tests distinguish anchoring/phase; general pattern parent space audited in pattern_forms_current."
+      }
+    ],
+    "additional_prose": [
+      {
+        "feature": "Pattern cell coordinate system and key-cell origin/phase",
+        "source": "§8.7.3.1 physical p.237 / printed p.222 says BBox/steps/content are in pattern coordinate system; key cell origin coincides with pattern-space origin; translation components of Matrix set phase.",
+        "assertions": "the_pattern_matrix_moves_the_tiling; each_site_is_the_cells_marks_displaced_by_the_lattice; a_cell_far_from_the_patterns_origin_still_tiles_onto_the_path."
+      },
+      {
+        "feature": "Cell processor steps",
+        "source": "§8.7.3.1 physical p.237 / printed p.222: save graphics state, install parent-stream beginning state with pattern matrix-adjusted CTM, paint cell stream, restore. Pattern content shall not set device-dependent graphics-state parameters.",
+        "assertions": "a_coloured_cell_starts_from_the_streams_initial_colours_rather_than_the_fills; a_cells_operators_are_read_once_and_not_once_per_site; transparency initial-state tests. The device-dependent setting prohibition constrains producers, not an automatic reader rejection."
+      },
+      {
+        "feature": "Tiling fill ordering",
+        "source": "EC3 #428 on physical p.235 / printed p.220 makes order for filling the area implementation-dependent.",
+        "assertions": "Raster output assertions do not depend on site-order; order is not treated as a normative exact sequence."
+      }
+    ]
+  },
+  "ledger": {
+    "rows": [
+      "§8.7.3 implemented",
+      "§8.7.3.1 implemented",
+      "§8.7.3.2 implemented",
+      "§8.7.3.3 implemented"
+    ],
+    "file": "doc/conformance/ledger.toml",
+    "owners": "§8.7.3 and §8.7.3.1 entries cite tiling.rs, cell/lattice/repeat, and named test assertions. Existing row note’s architecture/paint path claims should not be mistaken as evidence for every Table 74 cell."
+  },
+  "adr_review": [
+    {
+      "adr": "0056",
+      "status": "reconsidered / already tracked as B20",
+      "scope": "Degenerate BBox dropping is confirmed separately. No duplicate defect/test."
+    },
+    {
+      "adr": "1080",
+      "status": "retained for sampled policy",
+      "scope": "Source’s MAY wording does not require a specific snap. Tests distinguish 1/2/3 and bound measured distortion; no reader defect found."
+    },
+    {
+      "adr": "1059 and 2820",
+      "status": "retained as malformed-input/resource repair policy",
+      "scope": "Table 74 Resources is a writer requirement; resource-preservation tests/ADR cover repaired/missing resources. This pass does not infer mandatory rejection."
+    },
+    {
+      "adr": "0057, 1320",
+      "status": "retained for sampled parent coordinates and starting state",
+      "scope": "Actual tests use discriminating pixel values; not whole ADR certification."
+    }
+  ],
+  "finding": "One narrow valid-input assertion gap: no current named test directly covers negative-but-nonzero XStep/YStep. Implementation normalizes sign to magnitude and uses symmetric integer site ranges, which is mathematically equivalent for the infinite lattice. Draft compares full pixels for positive and all three sign variants under TilingType 2, with literal painted/gap controls and exact xref/no-recovery. No current runtime failure is claimed.",
+  "residuals": [
+    "Table 74 BBox degeneracy is known B20 and is not re-opened.",
+    "No new runtime defects identified in this table-cell review.",
+    "Negative step public test draft not executed; no claim of failure.",
+    "Detailed Type 3, transparency, archive, color operators, nested patterns, and every backend are not re-certified."
+  ],
+  "drafts": [
+    "drafts/tiling_signed_steps.rs"
+  ]
+}

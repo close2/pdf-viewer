@@ -351,10 +351,24 @@ fn an_uncoloured_glyph_that_fills_and_strokes_uses_both_inherited_colours() {
 /// entry for every code in the range whether or not a description exists.
 #[test]
 fn a_code_with_no_glyph_description_paints_nothing_and_still_advances() {
+    let control = Fixture {
+        content: "BT /FT3 10 Tf 0 0 Td (ba) Tj ET",
+        ..Fixture::default()
+    }
+    .interpret();
+    assert!(
+        control.is_complete(),
+        "the two-glyph control interprets fully"
+    );
+    let control_origins = fill_origins(&control);
+    assert_eq!(control_origins.len(), 2, "both original CharProcs paint");
+    assert!(control_origins[0].0.abs() < 1e-3);
+    assert!((control_origins[1].0 - 10.0).abs() < 1e-3);
+
     let interpretation = Fixture {
         // `/triangle` is dropped from `/CharProcs`, so code 98 names a glyph that is absent.
         content: "BT /FT3 10 Tf 0 0 Td (ba) Tj ET",
-        triangle: "1000 0 d0",
+        char_procs: "<< /square 8 0 R >>",
         ..Fixture::default()
     }
     .interpret();

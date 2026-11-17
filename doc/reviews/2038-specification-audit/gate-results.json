@@ -2667,6 +2667,53 @@
       "log": "quality-wave97c.log",
       "exit": 0,
       "scope": "model/syntax/render-raster alltargets"
+    },
+    {
+      "log": "type3-missing-key-wave98.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 16,
+      "exit": 0,
+      "scope": "Strengthened absentCharProcskey assertion."
+    },
+    {
+      "log": "file-pattern-wave98.log",
+      "exit": 64,
+      "scope": "Wrapper command missing separator; no tests executed."
+    },
+    {
+      "log": "file-pattern-wave98b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "UFstream and signedsteps."
+    },
+    {
+      "log": "tiling-assertions-wave98.log",
+      "run": 35,
+      "passed": 35,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Existing suite with nonvacuous spacing helper."
+    },
+    {
+      "log": "quality-wave98.log",
+      "exit": 101,
+      "scope": "Newtest docmarkdown fixed."
+    },
+    {
+      "log": "quality-wave98b.log",
+      "exit": 0,
+      "scope": "Before sharedhelperstrengthening."
+    },
+    {
+      "log": "quality-wave98c.log",
+      "exit": 0,
+      "scope": "Finalmodelalltargets."
     }
   ],
   "prior_expected_failures": {

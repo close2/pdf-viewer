@@ -1,0 +1,8 @@
+{
+  "verdict": "T131 missing-CharProcs-key assertion corrected and PASS; D62 ADR0914 rationale qualified.",
+  "source": "Parent read actualTable110 physical332–333, invocation334, Table111335 and8.3.4NOTE3 physical171. Primary annotations confirm #106 removes descriptor indirection; #111 operator note and implementation-dependent recursion; #128 optional directly-required resources and designated-dictionary lookup; #43 operand labels, #44 example code positions. No inference of whole operator certification.",
+  "assertions": "Prior test name/comment claimed missing glyph but left triangle key with width-only program. Parent now omits key, while a two-glyph control paints at x0 and10; omission leaves only square at10. Existing ToUnicode, stream-resource collision, d1 alpha/color and state-restoration assertions were read, not just run.",
+  "decisions": "ADR1059 page fallback is by dictionary absence, never invoking nested stream or missing name; archive2746 is distinct producer assignment. ADR2847 profile width validation is not a general-reader rejection duty. ADR0216 line-box decision cannot support Type3FontBBox policy.",
+  "singular_matrix": "D62: a singular affine transformation still maps glyph space into text space, even if its image is a line or point. Source8.3.4NOTE3 names precisely such transformations and warns of unpredictable painting; mapping wording does not establish mandatory refusal. Preserve no-guessed-scale and resource-local diagnostic policy; no changed pixel expectation or runtime failure asserted.",
+  "execution": "type3-missing-key-wave98:1PASS16filtered; finalmodelClippyPASS."
+}

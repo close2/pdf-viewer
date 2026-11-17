@@ -1,0 +1,128 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected Type 3 font dictionary cells and glyph-program execution in ISO 32000-2:2020(E) §9.6.4, Tables 110–111. This maps the current reader path and assertion evidence; it does not certify all Type 3 operators, fonts, or malformed-input policy.",
+  "source_locations": {
+    "table_110": "Primary EC3 PDF physical pp.332–333 / printed pp.317–318. The table begins on physical 332 and continues on 333.",
+    "glyph_execution": "Primary EC3 PDF physical p.334 / printed p.319.",
+    "table_111": "Primary EC3 PDF physical p.335 / printed p.320.",
+    "verification": "Rechecked page footers and text in scratchpad/r2038/spec-audit/ec3-parent-layout.txt, split on form feeds; used the headings/table itself, not cross-reference search hits."
+  },
+  "features": [
+    {
+      "cells": [
+        "Type",
+        "Subtype",
+        "Name"
+      ],
+      "source_rule": "Table 110 requires Type /Font and Subtype /Type3. Name is required only for PDF 1.0 and optional thereafter.",
+      "current_path": "pdf-model Type3Font::read is reached from the selected Type3 font route; it does not require the optional Name cell.",
+      "assertions": [
+        "crates/pdf-model/tests/type3.rs::each_shown_code_runs_its_glyph_description",
+        "crates/pdf-model/tests/type3.rs fixture uses /Type /Font and /Subtype /Type3"
+      ],
+      "assessment": "The valid fixture uses the required identifying entries. Optional/legacy Name is not a reader refusal requirement. No gap identified in this slice."
+    },
+    {
+      "cells": [
+        "FontBBox",
+        "FontMatrix"
+      ],
+      "source_rule": "FontBBox is required in glyph coordinates and must enclose all marks when nonzero; a four-zero box permits no size assumptions. Behavior for marks outside a nonzero declared box is implementation-dependent. FontMatrix is required and maps glyph space to text space; a common 1000-unit scale is a note, not a default.",
+      "current_path": "pdf-model/src/type3.rs reads and inverts FontMatrix; the text interpreter composes it with text space before invoking CharProc operators. Ordinary painting follows the glyph program; FontBBox is not treated as a mandatory clipping rectangle.",
+      "assertions": [
+        "crates/pdf-model/tests/type3.rs::a_width_advances_through_the_font_matrix",
+        "crates/pdf-model/tests/type3_spec_audit.rs::a_rotated_font_matrix_keeps_the_type3_advance_horizontal",
+        "crates/pdf-model/tests/type3.rs::a_font_matrix_with_no_inverse_refuses_the_font_rather_than_collapsing_its_glyphs",
+        "crates/pdf-model/tests/type3.rs stroke and inline-image cases with corrected FontBBox/d1 bounds"
+      ],
+      "assessment": "Numeric advance, rotated horizontal advance, and shape rendering have independent model/public assertions. Earlier fixture review corrected declared boxes to contain the actual stroke/image marks. The standard does not require clipping marks to FontBBox or d1 bounds. Missing/malformed box handling remains reader policy, not a demonstrated ISO behavior defect."
+    },
+    {
+      "cells": [
+        "CharProcs",
+        "Encoding",
+        "FirstChar",
+        "LastChar",
+        "Widths"
+      ],
+      "source_rule": "These are required. Encoding is a dictionary whose Differences defines the complete Type 3 encoding. CharProcs maps glyph names to streams, each starting with d0 or d1. Widths has LastChar−FirstChar+1 glyph-space values indexed by FirstChar; an out-of-range code has width zero, and FontMatrix transforms widths into text space. A Type 3 encoding has no default glyph name; a missing CharProcs key paints no glyph.",
+      "current_path": "pdf-model/src/type3.rs parses Encoding/Differences, CharProcs, FirstChar, LastChar, Widths, and FontMatrix; Type3Font::advance indexes Widths and applies FontMatrix.a. The text-show route resolves the byte to a Name and invokes the matching stream or paints none. Archive-side PDF/A checks separately compare procedure d0/d1 width to Widths; that profile rule is not used here as a mandate to reject malformed general PDF input.",
+      "assertions": [
+        "crates/pdf-model/tests/type3.rs::each_shown_code_runs_its_glyph_description",
+        "crates/pdf-model/tests/type3.rs::a_width_advances_through_the_font_matrix",
+        "crates/pdf-model/tests/type3_residual_audit.rs::an_encoding_omission_does_not_select_notdef_or_another_charproc",
+        "crates/pdf-model/tests/type3_spec_audit.rs rotated matrix case"
+      ],
+      "assessment": "Conforming mapping, no-default behavior, and text advance are covered at the public interpretation/display-list level. The test `crates/pdf-model/tests/type3.rs::a_code_with_no_glyph_description_paints_nothing_and_still_advances` now includes a two-glyph positive control and then omits `/triangle` from CharProcs; parent reports the test PASS. Direct-name Encoding tests are tolerance evidence only because Table 110 requires a dictionary.",
+      "residuals": "No exhaustive malformed dictionary-shape rejection policy or all Differences array forms audited. No general reader rejection requirement is inferred for producer-invalid entry shapes."
+    },
+    {
+      "cells": [
+        "Resources"
+      ],
+      "source_rule": "Effective #128: Resources is optional (PDF1.2), holding named resources directly required by glyph description streams. Glyph invocation step d refers to designated resources under7.8.3. Lookup selects a dictionary by its presence; an absent name is not a license to search all outer dictionaries.",
+      "current_path": "Nested content interpretation uses glyph-stream, font, then page/inherited-page lookup; per-font page resources are also handled by archive paths.",
+      "assertions": [
+        "crates/pdf-model/tests/type3.rs::a_glyph_description_finds_the_resources_its_own_stream_names",
+        "crates/pdf-model/tests/type3_residual_audit.rs resource collision test",
+        "crates/pdf-model/tests/font_cache_identity_audit.rs page/form same-name font separation"
+      ],
+      "assessment": "The current valid nested path and EC3 precedence have collision-distinguishing assertions. The prior Type 3 image restrictions shard separately checks nested d1 image behavior. No separate test is drafted for a duplicate lookup behavior."
+    },
+    {
+      "cells": [
+        "ToUnicode",
+        "FontDescriptor"
+      ],
+      "source_rule": "ToUnicode is optional. FontDescriptor is required for Tagged PDF documents; EC3 #106 strikes the Table 110 words making a stated FontDescriptor indirect, so this entry is not required to be an indirect reference by the effective table.",
+      "current_path": "ToUnicode and tagged-structure descriptor consumers are separate from the glyph dictionary execution path.",
+      "assertions": [
+        "crates/pdf-model/tests/type3_residual_audit.rs::type3_to_unicode_controls_the_pdf_text_readback",
+        "tagged-font descriptor checks are outside this bounded Type 3 rendering slice"
+      ],
+      "assessment": "Optional ToUnicode has a focused extraction assertion. Tagged-PDF FontDescriptor presence and its permitted direct/indirect representation are outside this bounded glyph rendering slice; no test here claims the removed indirect-reference restriction."
+    },
+    {
+      "features": [
+        "Glyph invocation steps a–d",
+        "FontMatrix × text-space CTM",
+        "absolute glyph-space origin",
+        "inherited graphics state and restore"
+      ],
+      "source_rule": "For a shown code, obtain a name from Encoding, find CharProcs, and paint nothing when absent; save and restore graphics state around glyph invocation. Run under FontMatrix concatenated with text space at show time; glyph coordinates are absolute with origin (0,0). Other graphics-state values are inherited, and glyphs should initialize state parameters they rely on. EC3 #111 also says recursion behavior is implementation-dependent.",
+      "current_path": "content/text/type3.rs invokes the nested content interpreter with glyph transform and state; shape-only d1 state is restored after invocation.",
+      "assertions": [
+        "crates/pdf-model/tests/type3_shape_state_restoration.rs::d1_shape_only_state_is_restored_before_page_extgstate",
+        "crates/pdf-model/tests/type3.rs and type3_spec_audit.rs d0/d1 inherited-color controls",
+        "crates/pdf-model/tests/type3.rs::a_code_with_no_glyph_description_paints_nothing_and_still_advances now has an actual absent-key case and two-glyph positive control (parent reports PASS)"
+      ],
+      "assessment": "Selected paths have public assertions for placement, absent CharProcs behavior, d0/d1 color behavior, and post-d1 page graphics-state restoration. This does not certify every graphics operator allowed by EC3 #111."
+    },
+    {
+      "features": [
+        "d0",
+        "d1"
+      ],
+      "source_rule": "Table 111: d0 takes wx, wy; wy is 0 and wx agrees with Widths; it is the color-and-shape route. d1 adds a glyph bbox; it is shape-only. Color-related operations in d1 are ignored and processing continues; a d1 glyph shall not include an image, though an image mask is acceptable. The first operator must be d0 or d1 before path construction/painting.",
+      "current_path": "The content interpreter records Type 3 d0/d1 mode. General ISO rendering honors the d1 suppression path; archive profile validation has a separate procedure-width conformance check.",
+      "assertions": [
+        "crates/pdf-model/tests/type3.rs::a_d1_description_takes_its_colour_from_the_page_and_a_d0_one_does_not",
+        "crates/pdf-model/tests/type3.rs stroke/fill color controls",
+        "crates/pdf-model/tests/type3_residual_audit.rs::d1_ignores_color_related_extgstate_changes_and_continues",
+        "crates/pdf-model/tests/type3_image_restrictions_spec_audit.rs direct/invoked image and image-mask controls",
+        "crates/pdf-model/tests/type3_shape_state_restoration.rs"
+      ],
+      "assessment": "Source-derived independent colors/alpha and paint-presence controls cover sampled branches. Prior shape-state and image shards already own the d1 restoration/image questions; this task adds no duplicate regression. The width-agreement sentence is a producer constraint, while general-reader handling of disagreement is not an explicit refusal mandate.",
+      "errata": "EC3 #43 corrects Table 111 operand labels; #44 amends the example Encoding content. #111 changes the glyph-description reference wording, adds an operator-category note subject to clause restrictions, and states recursion behavior is implementation-dependent. #128 amends resource lookup."
+    }
+  ],
+  "residuals": [
+    "No exhaustive test of every Table 110 key, tagged-PDF descriptor condition, optional ToUnicode behavior, or malformed Type 3 dictionary shape.",
+    "No whole operator-category certification under EC3 #111; the existing selected d1 color and image branches are narrower.",
+    "FontBBox/d1 out-of-bounds behavior is implementation-dependent. No exact clipping or pixel ownership requirement is inferred.",
+    "No general-PDF reader rejection requirement is inferred from producer-side completeness or width-consistency language.",
+    "Whether non-invertibility must be rejected is not established here: the source describes a transformation/mapping but does not expressly require an inverse. ADR 0914 remains a project policy/interpretation rather than a confirmed ISO requirement."
+  ],
+  "drafts": [],
+  "checkpoint98": "Parent actually removed triangle from CharProcs, kept its unreferenced stream, added original two-glyph control. Strengthened existing test PASS (T131); preceding pending statements describe pre-correction inspection."
+}

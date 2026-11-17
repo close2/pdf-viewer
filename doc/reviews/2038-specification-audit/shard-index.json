@@ -3,6 +3,38 @@
   "numbering": "Logical content items use published ledger owners14.7.5.1.1/.2/.3/.4 for effective EC3 .2/.3/.4/.5; navigator owner12.3.6 maps effective12.3.5.3. JBIG2 external Annex D is not ISO PDF Annex D.",
   "shards": [
     {
+      "shard": "tiling_pattern_cells_current",
+      "artifact": "shards/tiling_pattern_cells_current/features.json",
+      "ledger_owners": [
+        "8.7.2",
+        "8.7.3.1",
+        "8.7.3.2",
+        "8.7.3.3",
+        "8.6.8"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "file_specification_cells_current",
+      "artifact": "shards/file_specification_cells_current/features.json",
+      "ledger_owners": [
+        "7.11.3",
+        "7.11.4.1",
+        "7.11.4.2"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "type3_dictionary_cells_current",
+      "artifact": "shards/type3_dictionary_cells_current/features.json",
+      "ledger_owners": [
+        "9.2.4",
+        "9.6.4",
+        "8.3.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
       "shard": "crypt_filter_cells_current",
       "artifact": "shards/crypt_filter_cells_current/features.json",
       "ledger_owners": [

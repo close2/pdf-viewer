@@ -3147,5 +3147,52 @@
     "evidence": "Both-absent, both-explicit and each-absent/other-AESV2 fixtures return literal content/title without recovery.",
     "execution": "font-crypt-controls-wave97 1PASS; final three-crate ClippyPASS.",
     "qualification": "Uses existing clause-derived R4 builder; routing test, not a new independent crypto vector."
+  },
+  {
+    "id": "2038-T131",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "9.6.4"
+    ],
+    "summary": "Type3 missing-glyph test now actually removes the CharProcs entry and checks advance against a two-glyph control.",
+    "evidence": "Old width-only program retained triangle key despite test claim. New fixture omits triangle; control has two fills at0/10, target one fill at10.",
+    "execution": "1PASS; modelClippyPASS.",
+    "qualification": "Existing test identity strengthened; no implementation defect."
+  },
+  {
+    "id": "2038-T132",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "7.11.3",
+      "7.11.4.1"
+    ],
+    "summary": "Attachment selection follows the Unicode filename to its corresponding EF stream when F/UF payloads differ.",
+    "evidence": "Literal distinct names/bytes, UTF16BEUF, F-only fallback, exactxrefPDF1.7 noRecovery.",
+    "execution": "1PASS; modelClippyPASS.",
+    "qualification": "Public model listing and decoding; no host extraction or external file access."
+  },
+  {
+    "id": "2038-T133",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "8.7.3.1"
+    ],
+    "summary": "Negative tiling steps preserve the expected lattice; spacing assertions now reject empty comparisons.",
+    "evidence": "Positive red/gap controls then three sign variants; shared site_offsets helper requires two distinct columns before windows/zip.",
+    "execution": "New signed-step test1PASS; existingtiling35PASS; modelClippyPASS.",
+    "qualification": "Integer-aligned Type2 current-backend equality; no universal exact-pixel rule or allbackend certification."
+  },
+  {
+    "id": "2038-D62",
+    "kind": "decision-qualification",
+    "clauses": [
+      "8.3.4",
+      "9.2.4",
+      "9.6.4"
+    ],
+    "summary": "ADR0914 wrongly equates a singular FontMatrix with no transformation and overstates the normative basis for font refusal.",
+    "evidence": "ADR says no inverse defines no transformation/mapping; source8.3.4NOTE3 expressly describes noninvertible transformations, including mapping allcoordinates toonepoint, and warns of unpredictable painting.",
+    "decision": "Retain resource-local diagnosis and no guessed replacement scale as explicit project policy. Withdraw mathematical claim and mandatory-refusal deduction from mapping wording.",
+    "qualification": "Rationale finding only; no proposed pixel oracle, historicalADR rewrite or new runtimefailure."
   }
 ]

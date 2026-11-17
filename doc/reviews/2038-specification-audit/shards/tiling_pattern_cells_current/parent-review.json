@@ -1,0 +1,9 @@
+{
+  "verdict": "T133 negative nonzero steps PASS, plus existing spacing assertions strengthened against empty comparisons;35tilingtestsPASS.",
+  "source": "Parent read actualTable74 physical236–237, including Type1 consistent-spacing obligation, Type2 permissible up-to-one-pixel spacing variation, signed nonzero steps, BBox clipping and key-cell origin. Primary #294 caption-only and #428 implementation-dependent filling order checked.",
+  "fixture": "ExactxrefPDF1.7, complete interpretation, nonoriginBBox, opaque red cell with gaps, Type2integersteps15/17; positive red/transparent pixel controls precede allthree sign-variant whole-raster comparisons.",
+  "qualification": "Sign reversal permutes integer lattice sites. Opaque nonoverlapping marks avoid fill-order ambiguity. Byte equality is a current-backend regression control; source does not require every Type2 implementation to choose identical raster adjustments.",
+  "assertion_review": "Parent read clipping, phase, uncolored color suppression, initial-state, snap and pixel-period assertion bodies. site_offsets users with windows(2)/zip previously allowed empty comparisons. Shared helper now requires at least two distinct columns before spacing comparison; source-pixel control and 35-test suite PASS.",
+  "decisions": "ADR1080 ordinary snap and Type3 choosing no extra distortion are reasonable. Its categorical fallback-to-Type2 justification when snapping is declined is NOT certified by this review: Type1 SHALL consistency and MAY adjustment are distinct. Independent follow-up queued. B20 zeroBBox remains separate known failure; no duplicate.",
+  "execution": "file-pattern-wave98b:1signedtestPASS; tiling-assertions-wave98:35PASS; finalmodelClippyPASS."
+}

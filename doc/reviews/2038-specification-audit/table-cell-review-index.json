@@ -761,6 +761,103 @@
       ],
       "artifact": "shards/crypt_filter_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "110",
+      "keys": [
+        "Type",
+        "Subtype",
+        "Name",
+        "FontBBox",
+        "FontMatrix",
+        "CharProcs",
+        "Encoding",
+        "FirstChar",
+        "LastChar",
+        "Widths",
+        "Resources",
+        "ToUnicode",
+        "FontDescriptor"
+      ],
+      "ledger_rows": [
+        "9.6.4"
+      ],
+      "artifact": "shards/type3_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "111",
+      "keys": [
+        "d0",
+        "d1"
+      ],
+      "ledger_rows": [
+        "9.6.4"
+      ],
+      "artifact": "shards/type3_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "43",
+      "keys": [
+        "F",
+        "UF",
+        "EF",
+        "RF",
+        "Desc",
+        "AFRelationship"
+      ],
+      "ledger_rows": [
+        "7.11.3"
+      ],
+      "artifact": "shards/file_specification_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "44",
+      "keys": [
+        "Type",
+        "Subtype",
+        "Params"
+      ],
+      "ledger_rows": [
+        "7.11.4.1"
+      ],
+      "artifact": "shards/file_specification_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "45",
+      "keys": [
+        "Size",
+        "CreationDate",
+        "ModDate",
+        "CheckSum"
+      ],
+      "ledger_rows": [
+        "7.11.4.1"
+      ],
+      "artifact": "shards/file_specification_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "74",
+      "keys": [
+        "Type",
+        "PatternType",
+        "PaintType",
+        "TilingType",
+        "BBox",
+        "XStep",
+        "YStep",
+        "Resources",
+        "Matrix"
+      ],
+      "ledger_rows": [
+        "8.7.3.1"
+      ],
+      "artifact": "shards/tiling_pattern_cells_current/features.json",
+      "status": "partial"
     }
   ]
 }

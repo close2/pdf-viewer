@@ -1,0 +1,35 @@
+{
+  "scope_note": "Selected decision review for Type 3 table and glyph execution only; no blanket ADR certification.",
+  "decisions": [
+    {
+      "adr": "1059, 2746",
+      "topic": "Type 3 glyph resource lookup and archive resource assignment",
+      "review": "Current interpreter order follows EC3 #128: glyph stream resources, font Resources, then page resources. ADR 2746's archive writer assignment is a distinct producer transform choice that unions/assigns resources to preserve glyph lookups across target pages; its tests compare rendered outputs. It does not change the reader fallback rule.",
+      "disposition": "Retain both, with reader lookup and archive writer behavior described separately. Existing collision tests are sufficiently discriminating for this selected resource path."
+    },
+    {
+      "adr": "0914",
+      "topic": "Singular Type 3 FontMatrix",
+      "review": "The current implementation refuses non-invertible FontMatrix values as a project policy and tests that outcome. The source calls FontMatrix a transformation/mapping and does not say invertibility is required; a singular affine transformation is still mathematically a transformation. ADR 0914’s inference that no inverse means no mapping is not established by that premise. This review does not turn the explicit policy into an ISO-mandated refusal.",
+      "disposition": "D62: retain diagnostic/refusal as an explicit project policy; reject the mathematical and normative claim that no inverse means no transformation. Source8.3.4NOTE3 expressly discusses noninvertible transformations."
+    },
+    {
+      "adr": "2847",
+      "topic": "Type 3 procedure width versus font Widths",
+      "review": "The actual ISO Table 111 says d0/d1 wx shall be consistent with Widths. ADR 2847 concerns PDF/A-4's downstream profile check and photography, not a general PDF reader requirement to rewrite or reject the font. General reader advance is based on Widths as §9.2.4 indicates.",
+      "disposition": "Keep profile validation and general reading separate; existing valid test fixtures use matching widths. No malformed disagreement rejection draft."
+    },
+    {
+      "adr": "111, 128 (EC3 issues)",
+      "topic": "Effective glyph object/operator wording and resource lookup",
+      "review": "The marked #111 amendment changes the glyph-description reference wording, adds an operator-category note subject to clause restrictions, and states recursion behavior is implementation-dependent; Table 111 d1 restrictions still apply. #43 corrects Table 111 operand labels, #44 amends the example Encoding, #106 removes the FontDescriptor indirect-reference restriction in Table 110, and #128 amends resource lookup. These corrections are reflected in the sampled implementation/test paths but do not prove every operator or descriptor representation.",
+      "disposition": "No broad certification; preserve the operator-coverage and Tagged PDF descriptor residuals."
+    },
+    {
+      "adr": "EC3 #106",
+      "topic": "Type 3 FontDescriptor reference representation",
+      "review": "The effective Table 110 retains the FontDescriptor condition for Tagged PDF but the correction removes the requirement that it be an indirect reference. The rendering reader does not consume this descriptor as part of ordinary Type 3 glyph execution; this selected audit does not certify Tagged PDF structure processing.",
+      "disposition": "Correct the earlier scratch wording; do not infer a direct-descriptor reader gap from these glyph tests."
+    }
+  ]
+}
