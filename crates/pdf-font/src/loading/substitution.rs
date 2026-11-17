@@ -75,10 +75,16 @@ impl LoadedFont {
 
     /// Whether §9.6.5.2's substitution applies to `code`.
     ///
-    /// Two conditions, and the second is a documented departure.
+    /// One condition, a documented departure, because every code of a name-keyed program names a
+    /// glyph.
     ///
-    /// **The clause's own**: the encoding "maps to a character name" — so a code no encoding
-    /// names is not this sentence's subject and still reaches nothing.
+    /// **The clause's own**: the encoding "maps to a character name" the program lacks. A code
+    /// whose slot no encoding assigned names `.notdef` (ADR 2956). The Adobe Type 1 Font Format, a
+    /// normative reference, has a special encoding's assignments "performed as shown in the
+    /// example in section 2.3", whose array is filled with `0 1 255 {1 index exch /.notdef put }
+    /// for` before them, and its `BuildChar` takes a name from that array for every code. So such
+    /// a code draws `.notdef` too, through the same step: there it is the slot's own name rather
+    /// than a substitute, and §9.6.5.2 leaves what it looks like to the designer.
     ///
     /// **And not for a space.** A subset font routinely omits `space` because it has no marks,
     /// and a designer's `.notdef` is routinely a box: `PDF-Declarations.pdf`'s bare CFF fonts
@@ -94,18 +100,14 @@ impl LoadedFont {
     /// verdicts, the corpus's report list and the text gate are all unmoved. So this is a clause
     /// implemented for the documents that will arrive rather than for the ones already here.
     pub(super) fn substitutes_notdef(&self, code: Code) -> bool {
-        let Some(names) = self.glyph_names.as_ref() else {
+        if self.glyph_names.is_none() {
             return false;
-        };
-        let encoded = usize::try_from(code.value())
-            .ok()
-            .and_then(|code| names.get(code))
-            .is_some_and(|name| !name.is_empty());
+        }
         let mut meaning = String::new();
         let whitespace = self.text(code, &mut meaning)
             && !meaning.is_empty()
             && meaning.chars().all(char::is_whitespace);
-        encoded && !whitespace
+        !whitespace
     }
 
     /// One code's whole answer from a substituted composite font: what it means, which glyph of

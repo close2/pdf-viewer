@@ -109,7 +109,7 @@ pub(crate) const PERMITTED_ENCODING_NAMES: [&[u8]; 4] = [
 /// carries none. Six of the expert set's codes mean exactly what they mean in `WinAnsiEncoding`
 /// — space, comma, hyphen, period, colon, semicolon — so a fallback would have got a document's
 /// punctuation right and every letter wrong, which is why it was never taken.
-fn base_encoding(
+pub(crate) fn base_encoding(
     document: &Document,
     dict: &Dictionary,
     name: &str,

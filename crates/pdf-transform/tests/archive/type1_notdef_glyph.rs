@@ -6,7 +6,7 @@
 //! to reference `.notdef`, and section 6.2.11.4.1 (part 4's 6.2.10.4.1) requires the program to
 //! define every glyph shown. The page shows `A`, code 1, which `/Differences` names `uni4E00` and
 //! the program has no glyph for and so draws as its `.notdef` (§9.6.5.2), code 10, which
-//! `WinAnsiEncoding` names nothing for and which reaches `.notdef` — a triangle here — and `B`. The program is built in
+//! `/Differences` names `.notdef` and which reaches it — a triangle here — and `B`. The program is built in
 //! Adobe Type 1 Font Format section 2.4's shape and encrypted by section 7's rules.
 
 use pdf_font::{Code, LoadedFont};
@@ -110,7 +110,7 @@ fn a_page_showing_codes_without_glyphs() -> Vec<u8> {
             format!(
                 "<< /Type /Font /Subtype /Type1 /BaseFont /Fixture /FirstChar 1 /LastChar 66 \
                  /Widths [{widths}] /FontDescriptor 7 0 R /Encoding << /Type /Encoding \
-                 /BaseEncoding /WinAnsiEncoding /Differences [1 /uni4E00] >> >>"
+                 /BaseEncoding /WinAnsiEncoding /Differences [1 /uni4E00 10 /.notdef] >> >>"
             ),
             "<< /Type /FontDescriptor /FontName /Fixture /Flags 34 /FontBBox [0 0 700 700] \
              /ItalicAngle 0 /Ascent 700 /Descent 0 /CapHeight 700 /StemV 80 /FontFile 8 0 R >>"

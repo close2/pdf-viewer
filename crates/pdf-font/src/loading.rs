@@ -40,6 +40,8 @@ pub use substitution::UnreachedCode;
 /// Each glyph asked for: its outline, `None` for one with nothing to draw, or the evaluator's
 /// refusal of its program ([`LoadedFont::outline_refusal`]).
 type OutlineCache = BTreeMap<Placed, Result<Option<Arc<Path>>, OutlineRefused>>;
+#[cfg(test)]
+mod empty_slot_tests;
 mod findings;
 mod glyphs;
 mod opening;

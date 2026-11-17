@@ -45,9 +45,10 @@ impl LoadedFont {
     /// > If an encoding maps to a character name that does not exist in the Type 1 font program,
     /// > the .notdef glyph shall be substituted.
     ///
-    /// The condition is exactly what it says: the *encoding named a glyph* and the program does
-    /// not have it. A code the encoding says nothing about is not this sentence's subject and
-    /// still reaches nothing.
+    /// The condition is what it says: the *encoding named a glyph* and the program does not have
+    /// it. A code whose slot no encoding assigned is drawn by the same step, because in a
+    /// name-keyed program that slot names `.notdef` (ADR 2956); `substitutes_notdef` has both
+    /// readings and the one departure from them.
     ///
     /// It is applied at the drawing step and deliberately not written into the code table,
     /// because the table is what [`Self::glyph_index`] answers with and three of this project's

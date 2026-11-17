@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 
 use pdf_syntax::{Dictionary, Document};
 
-use crate::glyph_names::{GlyphNames, encoding_names};
+use crate::glyph_names::{GlyphNames, base_encoding, encoding_names};
 use crate::loading::{CodeTable, FontError};
 
 /// A name-keyed program's own statements about its glyphs and its codes.
@@ -118,6 +118,12 @@ pub(crate) fn simple_code_table(
     // No fall-back to StandardEncoding: an unnamed code belongs to the program's own
     // encoding, which is what Table 112 makes the base here.
     let mut names = encoding_names(document, dict, name, None, false)?;
+    // A named encoding, as `/Encoding` or as `/BaseEncoding`, is the whole base, and §9.6.5.2's
+    // `/Encoding` "shall override a Type 1 font's mapping from character codes to character
+    // names": a slot it leaves empty names `.notdef` like any encoding vector's (ADR 2956),
+    // never the program's own name for that code. Only a dictionary naming no base layers its
+    // `/Differences` over the program's encoding.
+    let program_is_base = base_encoding(document, dict, name)?.is_none();
 
     let mut table: CodeTable = [None; 256];
     for (code, slot) in table.iter_mut().enumerate() {
@@ -125,8 +131,10 @@ pub(crate) fn simple_code_table(
             // The encoding named a glyph. If the font does not have it, the code has no
             // glyph, and that is final — see the note above this function.
             Some(glyph_name) => *slot = by_name.get(glyph_name).copied(),
-            // The encoding said nothing, so the font's own encoding applies.
-            None => *slot = builtin.get(code).copied().flatten(),
+            // The encoding said nothing, so the font's own encoding applies where it is the base.
+            None if program_is_base => *slot = builtin.get(code).copied().flatten(),
+            // An empty slot of a named encoding names `.notdef`, which the drawing step draws.
+            None => {}
         }
     }
 
@@ -138,7 +146,7 @@ pub(crate) fn simple_code_table(
         if let Some(builtin_name) = builtin_names
             .get(code)
             .and_then(Option::as_deref)
-            .filter(|_| slot.is_empty())
+            .filter(|_| program_is_base && slot.is_empty())
         {
             *slot = Cow::Owned(builtin_name.to_owned());
         }
@@ -200,9 +208,10 @@ mod cff_encoding_tests {
         let mut builtin = Box::new([None; 256]);
         builtin[65] = Some(ALPHA);
         builtin[66] = Some(BETA);
+        builtin[1] = Some(BETA);
         let builtin_names = Box::new(std::array::from_fn(|code| match code {
             65 => Some("alpha".into()),
-            66 => Some("beta".into()),
+            66 | 1 => Some("beta".into()),
             _ => None,
         }));
         NameKeyed {
@@ -254,6 +263,29 @@ mod cff_encoding_tests {
 
         assert_eq!(table[65], Some(LATIN_A));
         assert_eq!(table[66], None);
+    }
+
+    /// A slot a named encoding leaves empty names `.notdef`, never the program's own name for it.
+    ///
+    /// ISO 32000-2 §9.6.5.2: "An Encoding entry in the PDF font dictionary, if present, shall
+    /// override a Type 1 font's mapping from character codes to character names." A named
+    /// encoding is that whole mapping, and an encoding's empty slot names `.notdef` (ADR 2956), so
+    /// code 1 — empty in `WinAnsiEncoding`, `beta` in the fixture's own — reaches no glyph in the
+    /// table and is drawn as `.notdef`. A dictionary naming no base layers over the program's
+    /// encoding and keeps `beta` there, which is the control.
+    #[test]
+    fn an_empty_slot_of_a_named_encoding_is_not_the_programs_own() {
+        for entries in [
+            "/Encoding /WinAnsiEncoding",
+            "/Encoding << /BaseEncoding /WinAnsiEncoding /Differences [66 /A] >>",
+        ] {
+            let (table, names) = resolve(entries);
+            assert_eq!(table[1], None, "{entries}");
+            assert!(names[1].is_empty(), "{entries}");
+        }
+        let (table, names) = resolve("/Encoding << /Differences [66 /A] >>");
+        assert_eq!(table[1], Some(BETA));
+        assert_eq!(names[1], Cow::Borrowed("beta"));
     }
 
     /// An `/Encoding` name Table 109 does not permit leaves the font its own encoding.

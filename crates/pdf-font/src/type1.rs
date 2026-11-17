@@ -84,11 +84,19 @@ pub struct Program {
     /// `GlyphId::NOTDEF`** and fills in the entries the array names, so `Encoding::map` answers
     /// `Some(0)` for a code the array never mentions — indistinguishable, through that API, from
     /// a code the array deliberately points at `.notdef`. `Encoding::glyph_name` resolves the
-    /// same slot and so cannot tell them apart either. The CFF reader beside this one produces a
-    /// genuine `None`, so the two producers of [`NameKeyed`] disagreed about what *unencoded*
-    /// means, and everything downstream read the difference: an unassigned code selected glyph 0
-    /// and drew the designer's `.notdef` — commonly a filled box — where the program says
-    /// nothing should be drawn at all.
+    /// same slot and so cannot tell them apart either. The CFF reader beside this one produces
+    /// `None` for an unencoded code, and the two producers of [`NameKeyed`] are kept to one
+    /// shape: a code the program assigns reaches its glyph in the code table, and a code it
+    /// leaves to the fill reaches none there.
+    ///
+    /// The fill is still the code's name. The Adobe Type 1 Font Format builds a custom array as
+    /// `0 1 255 {1 index exch /.notdef put } for` before the assignments, so such a code draws
+    /// `.notdef` (ADR 2956) — but at the drawing step, `LoadedFont::outline`, and not in the
+    /// table, because the table is what the instruments read: the count of codes a page showed
+    /// that reached no glyph of their own (ADR 0152), the refusal of a font none of whose codes
+    /// reaches a glyph, and the whitespace departure that keeps a box off a code meaning a space.
+    /// A resolved map with the fill in it would tell all three that the program had assigned
+    /// every code.
     ///
     /// The distinction is not recoverable from the resolved map, so it is taken from the place
     /// the program states it: the `/Encoding` array in the **cleartext** header, before `eexec`.
@@ -96,13 +104,10 @@ pub struct Program {
     /// name and the glyph stay `read-fonts`' answer.
     ///
     /// **A code the array assigns to a name the program does not contain stays assigned**, and
-    /// that is ISO 32000-2 §9.6.5.2's own instruction rather than a convenience:
+    /// draws `.notdef` by ISO 32000-2 §9.6.5.2's own instruction:
     ///
     /// > If an encoding maps to a character name that does not exist in the Type 1 font program,
     /// > the .notdef glyph shall be substituted.
-    ///
-    /// So `.notdef` is the right answer for that code, and the wrong answer for one the array
-    /// never mentioned.
     assigned: Box<[bool; 256]>,
 }
 

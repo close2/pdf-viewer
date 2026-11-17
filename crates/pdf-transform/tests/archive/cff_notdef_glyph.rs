@@ -5,8 +5,10 @@
 //! ISO 19005-2 section 6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid a text-showing operator
 //! to reference `.notdef`, and section 6.2.11.4.1 (part 4's 6.2.10.4.1) requires the program to
 //! define every glyph shown. The page shows `A`, code 1, which `/Differences` names `uni4E00` and
-//! the program has no glyph for, code 10, which `WinAnsiEncoding` names nothing for and the
-//! program therefore draws as `.notdef`, and `B`.
+//! the program has no glyph for, code 10, which `/Differences` names `.notdef` and the program
+//! therefore draws as `.notdef`, and `B`. Naming it outright is what puts the code on glyph 0 in
+//! the code table: a slot `WinAnsiEncoding` leaves empty names `.notdef` too, and is drawn so,
+//! but at the outline step (`doc/adr/2956`).
 
 use pdf_font::{Code, LoadedFont};
 use pdf_syntax::object::ObjectId;
@@ -41,7 +43,7 @@ fn a_page_showing_codes_without_glyphs() -> Vec<u8> {
             format!(
                 "<< /Type /Font /Subtype /Type1 /BaseFont /ChromSerifOTF /FirstChar 1 \
                  /LastChar 66 /Widths [{widths}] /FontDescriptor 7 0 R /Encoding << /Type \
-                 /Encoding /BaseEncoding /WinAnsiEncoding /Differences [1 /uni4E00] >> >>"
+                 /Encoding /BaseEncoding /WinAnsiEncoding /Differences [1 /uni4E00 10 /.notdef] >> >>"
             ),
             "<< /Type /FontDescriptor /FontName /ChromSerifOTF /Flags 34 /FontBBox [-200 -300 \
              1200 900] /ItalicAngle 0 /Ascent 900 /Descent -250 /CapHeight 700 /StemV 80 \
