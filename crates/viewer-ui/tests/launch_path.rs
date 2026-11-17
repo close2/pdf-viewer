@@ -1386,6 +1386,12 @@ fn phase_page_turn() {
 /// It prints its page count all the same, and the parent checks it, because a count is a number
 /// whatever the process did: a run that failed to open the document would otherwise report a
 /// smaller figure and read as a win (trap 16).
+///
+/// **No viewport, because the program's open has none.** A window's size reaches the viewer at
+/// its first `Resize`, after the open and after page one is interpreted; a viewer built with a
+/// size would interpret page one inside `Command::Open` and count a sequence no host runs. Table
+/// 197's `/PV`, raised at that `Resize`, is therefore in the first-page clocks and not here (ADR
+/// 2926).
 fn phase_count_open() {
     let path = document_of_the_child();
     let (viewer, pages) = open_document(&path, None);

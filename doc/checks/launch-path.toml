@@ -513,8 +513,10 @@ read_calls = 23 .. 27
 # What this program's own object executes (ADR 2666): 1744.4 thousand in four children of HEAD on
 # 2026-11-16, this file's rule — the observed range widened by one per cent, rounded outwards. It was
 # 1827.2: the counted child's viewer has no viewport, and Table 197's `/PV` is now raised when a page
-# becomes visible in one rather than with `/PO`, so 96.6 thousand of `raise` left the count and stay
-# in a window's open (ADR 2916).
+# becomes visible in one rather than with `/PO`, so 96.6 thousand of `raise` left the count (ADR 2916).
+# They left the program's open too: a window's open has no viewport either, and `/PV` is raised at
+# its first `Resize`, inside the first-page clocks. A counted child given a viewport interprets page
+# one in the open, 66839.3 thousand here, so the child keeps none (ADR 2926).
 open_kinstructions = 1726 .. 1762
 why = "the launch path's expensive case, and the one the other three rows cannot see: this page names a font it does not embed, so drawing it walks the machine's font directories (ADR 0870) — 23 files opened under share/fonts and 47 more directory listings than a document whose fonts are its own, and the row whose page one costs the most to interpret, 20 ms of the device's 23. `CLAUDE.md` principle 2's first bullet says `[n]o system font enumeration` flat, and this row is where that sentence meets the clock"
 
@@ -575,6 +577,7 @@ read_kib = 40 .. 44
 read_calls = 29 .. 33
 # What this program's own object executes (ADR 2666): 396.5 thousand in four children of HEAD on
 # 2026-11-16, this file's rule — the observed range widened by one per cent, rounded outwards. It was
-# 429.7 to 431.0, and moved for the reason the font-walk row gives: 42.9 thousand of `raise` (ADR 2916).
+# 429.7 to 431.0, and moved for the reason the font-walk row gives: 42.9 thousand of `raise` (ADR 2916),
+# raised now at the window's first `Resize` rather than in its open (ADR 2926).
 open_kinstructions = 392 .. 401
 why = "a document whose open sequence runs a script, so the launch gate times the third confined process where a window starts it: after page one's frame, at the open sequence's first trigger (RFC 0008 section 6.6). Every other row hands its viewer the same runner and starts no worker before its frame either"
