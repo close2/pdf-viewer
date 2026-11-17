@@ -8,6 +8,23 @@ use render_cpu::CpuRasterizer;
 use viewer_core::{Answer, Command, Query};
 
 impl Session {
+    /// How large one page of the print operation is, in default user space units, before it is
+    /// drawn — `viewer_core::Query::PrintSize`.
+    ///
+    /// §12.2, Table 147's `/PickTrayByPDFSize` states "whether the PDF page size shall be used to
+    /// select the input paper tray", so a caller honouring it chooses each sheet from this and
+    /// states it with `quorra_print_placed` before drawing the page onto it (ADR 2919).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no print operation is running or the document has no such page.
+    pub fn print_size(&self, page: usize) -> Result<(f32, f32), Status> {
+        match self.viewer.query(Query::PrintSize(page)) {
+            Answer::PrintSize(size) => Ok((size.width, size.height)),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
     /// One page of the print operation `Session::print` began, rasterised on the processor.
     ///
     /// **The rasteriser is here for [`super::rasterise`]'s reason**: `viewer_core::Query::PrintPage`

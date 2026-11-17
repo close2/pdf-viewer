@@ -1442,10 +1442,21 @@ static int enforced_viewer(const char *path, uint32_t level, const char *name, i
            granted, held ? 1 : 0, scaling, quorra_status_message(wrong));
     quorra_events_free(events);
     events = NULL;
+    /* §12.2's /PickTrayByPDFSize chooses each sheet from the page's own size, which a caller asks
+     * before drawing the page (ADR 2919): the fixture's one page is 200 by 100, there is no
+     * second, and once the operation has finished no page has a printed size. */
+    float width = 0.0f;
+    float height = 0.0f;
+    int sized = check("quorra_print_size", quorra_print_size(viewer, 0, &width, &height));
+    int32_t past = quorra_print_size(viewer, 1, &width, NULL);
     int finished = check("quorra_print_finish", quorra_print_finish(viewer, &events));
+    int32_t after = quorra_print_size(viewer, 0, NULL, NULL);
+    printf("viewer enforced %s: page 1 prints at %.0f by %.0f; page 2: %s; after the job: %s\n",
+           name, width, height, quorra_status_message(past), quorra_status_message(after));
     quorra_events_free(events);
     quorra_viewer_free(viewer);
-    return granted == 1 && finished && wrong == QUORRA_OUT_OF_RANGE;
+    return granted == 1 && finished && wrong == QUORRA_OUT_OF_RANGE && sized
+        && past == QUORRA_NO_ANSWER && after == QUORRA_NO_ANSWER;
 }
 
 /* Every level, through both surfaces, run alone as `--enforced <file.pdf>`: the test reads the

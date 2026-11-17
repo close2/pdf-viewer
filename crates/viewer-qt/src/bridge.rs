@@ -663,6 +663,24 @@ pub mod ffi {
         page_ranges: Vec<i32>,
         /// `/PrintScaling` is `None`: the dialogue opens on the page at its own size.
         no_scaling: bool,
+        /// `/PickTrayByPDFSize` is `true`: the dialogue's tray box opens checked (ADR 2919).
+        tray_by_page_size: bool,
+        /// That box's words, `viewer_host::printing::TRAY_BY_PAGE_SIZE`, which every window shows.
+        tray_label: String,
+    }
+
+    /// The paper one page goes on where the dialogue's tray box is checked — §12.2, Table 147's
+    /// `/PickTrayByPDFSize`, as `viewer_host::printing::paper_for_page` chooses it (ADR 2919).
+    #[derive(Debug, Clone, Copy)]
+    struct QtPagePaper {
+        /// Whether there is such a page in a running job; nothing else is meant where not.
+        known: bool,
+        /// The paper's shorter side, in points.
+        short_side: f32,
+        /// Its longer side.
+        long_side: f32,
+        /// Whether the page is wider than tall, so that the paper is turned.
+        landscape: bool,
     }
 
     /// Where one page of a sheet is painted, in §8.3.2.3's points from the paper's lower-left
@@ -905,6 +923,11 @@ pub mod ffi {
             scaling: u8,
             per_sheet: u8,
         );
+        /// One page's own paper, where the tray box is checked: zero-based, `dpi` the printer's.
+        ///
+        /// Asked before the page is drawn, and it states that page's sheet to the core where it
+        /// changed, so the page that follows is drawn against it (ADR 2919).
+        fn print_page_paper(self: &mut Host, page: usize, dpi: f32) -> QtPagePaper;
         /// Where each page of one sheet is painted, for the arrangement `print_paper` was given.
         fn print_cells(
             self: &Host,

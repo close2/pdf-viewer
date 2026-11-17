@@ -76,6 +76,10 @@ mod query_kind {
     // Whether a glyph is under a point: the second half of choosing a cursor, beside `LINK_AT`.
     // It crosses because the worker holds the interpretation the glyphs' boxes are in (ADR 2856).
     pub(in crate::protocol) const TEXT_AT: u8 = 39;
+    // How large one page of a print operation is, before it is drawn: §12.2's
+    // `/PickTrayByPDFSize` chooses the sheet from it. It crosses because the worker holds the page
+    // dictionaries; the window process holds the printer (ADR 2919).
+    pub(in crate::protocol) const PRINT_SIZE: u8 = 40;
 }
 
 /// Encodes one question.
@@ -200,6 +204,9 @@ pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
         Query::PrintPage(index) => {
             writer.u8(k::PRINT_PAGE).usize(index);
         }
+        Query::PrintSize(index) => {
+            writer.u8(k::PRINT_SIZE).usize(index);
+        }
         Query::Properties => {
             writer.u8(k::PROPERTIES);
         }
@@ -295,6 +302,7 @@ pub(crate) enum PlainQuery {
     Articles,
     Thumbnail(usize),
     PrintPage(usize),
+    PrintSize(usize),
     Properties,
     Opening,
     Preferences,
@@ -342,6 +350,7 @@ impl OwnedQuery {
                 PlainQuery::Articles => Query::Articles,
                 PlainQuery::Thumbnail(index) => Query::Thumbnail(index),
                 PlainQuery::PrintPage(index) => Query::PrintPage(index),
+                PlainQuery::PrintSize(index) => Query::PrintSize(index),
                 PlainQuery::Properties => Query::Properties,
                 PlainQuery::Opening => Query::Opening,
                 PlainQuery::Preferences => Query::Preferences,
@@ -414,6 +423,7 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<OwnedQuery, ProtocolError> {
         k::ARTICLES => OwnedQuery::Plain(PlainQuery::Articles),
         k::THUMBNAIL => OwnedQuery::Plain(PlainQuery::Thumbnail(reader.usize("a page index")?)),
         k::PRINT_PAGE => OwnedQuery::Plain(PlainQuery::PrintPage(reader.usize("a page index")?)),
+        k::PRINT_SIZE => OwnedQuery::Plain(PlainQuery::PrintSize(reader.usize("a page index")?)),
         k::PROPERTIES => OwnedQuery::Plain(PlainQuery::Properties),
         k::OPENING => OwnedQuery::Plain(PlainQuery::Opening),
         k::PREFERENCES => OwnedQuery::Plain(PlainQuery::Preferences),

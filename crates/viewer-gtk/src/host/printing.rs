@@ -67,7 +67,7 @@ impl Host {
         };
         // §12.2's `/Enforce` where the reader's level obeys it: said before the dialogue, and
         // then held in it — its scale control locked and the job built on the document's
-        // scaling, by [`hold_the_scaling`] (ADRs 2840, 2908).
+        // scaling, by [`the_paper_tab`] (ADRs 2840, 2908).
         let held = defaults.held_scaling(scaling_held);
         if let Some(note) = defaults.held_note(scaling_held) {
             self.say(note);
@@ -88,14 +88,23 @@ impl Host {
             // and the only scaling left is the one this host applies to its own raster.
             operation.set_unit(gtk4::Unit::Points);
             operation.set_embed_page_setup(true);
-            if let Some(scaling) = held {
-                let said = me.clone();
-                hold_the_scaling(
-                    &operation,
-                    scaling,
-                    Rc::new(move |note: &str| with(&said, |host| host.say(note))),
-                );
-            }
+            let said = me.clone();
+            let by_page_size = the_paper_tab(
+                &operation,
+                held,
+                defaults.tray_by_page_size(),
+                Rc::new(move |note: &str| with(&said, |host| host.say(note))),
+            );
+            let sized = me.clone();
+            let last_sheet = Rc::new(std::cell::Cell::new(None));
+            operation.connect_request_page_setup(move |_, context, page, setup| {
+                if !by_page_size.get() {
+                    return;
+                }
+                with(&sized, |host| {
+                    host.choose_the_paper_by_page(context, page, setup, fidelity, &last_sheet);
+                });
+            });
             let begin = me.clone();
             operation.connect_begin_print(move |operation, context| {
                 // Table 22 bit 12's other half, and the one a resolution cannot answer: a job
@@ -138,6 +147,50 @@ impl Host {
                 }
             });
         });
+    }
+
+    /// §12.2, Table 147's `/PickTrayByPDFSize`, for one page: its paper is the page's own size.
+    ///
+    /// The entry is "whether the PDF page size shall be used to select the input paper tray", and
+    /// a print system picks a tray by the paper a sheet asks for — so `request-page-setup`, which
+    /// GTK emits before each page is drawn, sets this page's paper to the size
+    /// `viewer_core::Query::PrintSize` answers, turned where the page is wider than tall
+    /// ([`viewer_host::printing::paper_for_page`]). The page then lands on it at its own size.
+    ///
+    /// **The sheet reaches the core before the page is drawn, where it changed**: §12.5.6.22 places
+    /// a `FixedPrint` watermark against "the dimensions of the target media", and each page's media
+    /// is now its own. A run of pages of one size states it once (ADR 2919).
+    fn choose_the_paper_by_page(
+        &mut self,
+        context: &gtk4::PrintContext,
+        page: i32,
+        setup: &gtk4::PageSetup,
+        fidelity: viewer_core::Fidelity,
+        last_sheet: &std::cell::Cell<Option<(f32, f32)>>,
+    ) {
+        let Ok(index) = usize::try_from(page) else {
+            return;
+        };
+        let Answer::PrintSize(size) = self.state.viewer.query(Query::PrintSize(index)) else {
+            return;
+        };
+        let paper = viewer_host::printing::paper_for_page(size.width, size.height);
+        set_the_paper(setup, paper);
+        let (width, height) = paper.as_placed();
+        if last_sheet.replace(Some((width, height))) != Some((width, height)) {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "a printer's resolution in dots per inch: hundreds, which an f32 \
+                          resolves exactly"
+            )]
+            let dpi = context.dpi_x() as f32;
+            self.dispatch(Command::Print(Printing::Paper(viewer_core::Sheet {
+                media: Some([0.0, 0.0, width, height]),
+                scale: viewer_host::printing::scale_at(fidelity, Some(dpi)),
+                // The page on paper of its own size: §12.5.6.22's "usual case".
+                page_scale: 1.0,
+            })));
+        }
     }
 
     /// Draws one page of the job into the print context.
@@ -201,17 +254,17 @@ impl Host {
 /// printed", "\[t]he number of copies that shall be printed when the print dialog is opened for
 /// this PDF file". A person changes any of them in the dialogue this seeds; Table 148's
 /// `/Enforce` is a restriction at the reader's level, and where that level holds it
-/// [`hold_the_scaling`] keeps the scale this function set.
+/// [`the_paper_tab`] keeps the scale this function set.
 ///
 /// **`/PrintPageRange` is one-based and `GtkPageRange` is not**, which is the whole reason
 /// `viewer_host::PrintDefaults` keeps the clause's own numbering: the conversion is here, at the
 /// one place the two vocabularies meet, rather than in a value that would then be
 /// indistinguishable from the other kind.
 ///
-/// **`/PickTrayByPDFSize` is deliberately not carried**: Table 147 states it as a *check box in
-/// the print dialogue*, and `GtkPrintSettings` has no such setting — `set_default_source` names a
-/// tray rather than asking for one to be chosen by page size, so writing the entry into it would
-/// be this host answering a different question (trap 17's shape, answered the other way).
+/// **`/PickTrayByPDFSize` is not a setting here**: Table 147 states it as a *check box in the print
+/// dialogue*, and `GtkPrintSettings` has no such setting — `set_default_source` names a tray rather
+/// than asking for one to be chosen by page size. The box is on [`the_paper_tab`], and checked it
+/// gives each page paper of its own size (ADR 2919).
 fn print_settings(defaults: &viewer_host::PrintDefaults) -> gtk4::PrintSettings {
     use pdf_model::viewer_preferences::{Duplex, PrintScaling};
 
@@ -265,55 +318,131 @@ fn percentage(scaling: pdf_model::viewer_preferences::PrintScaling) -> f64 {
     }
 }
 
-/// §12.2's `/Enforce`, held in GTK's own print dialogue (ADR 2908).
+/// The operation's own tab of GTK's print dialogue: §12.2, Table 147's tray box, and `/Enforce`'s
+/// hold where the reader's level obeys it. GTK gives an operation one custom tab, so both are on it.
 ///
-/// Table 147's `/Enforce` names preferences "that shall be enforced by PDF processors and that
-/// shall not be overridden by subsequent selections in the application user interface", and the
-/// reader's level for `OverridePreference` has said to obey it. Two halves, each through GTK's
-/// public print API, and the second does not depend on the first:
+/// **The tray box** is `/PickTrayByPDFSize`'s: "\[i]f PickTrayByPDFSize is true, the check box in
+/// the print dialogue associated with input paper tray shall be checked". GTK's own dialogue has no
+/// such box — `GtkPrintSettings` names a tray rather than asking for one by size — so the tab
+/// carries it, opening on `tray_by_page_size` and read back at `custom-widget-apply` into the cell
+/// this returns, which `request-page-setup` asks before each page (ADR 2919).
+///
+/// **The hold**, where `held` is the document's enforced scaling (ADR 2908). Table 147's
+/// `/Enforce` names preferences "that shall be enforced by PDF processors and that shall not be
+/// overridden by subsequent selections in the application user interface", and the reader's level
+/// for `OverridePreference` has said to obey it. Two halves, each through GTK's public print API,
+/// and the second does not depend on the first:
 ///
 /// - **The control is locked.** `GtkPrintOperation` builds its `GtkPrintUnixDialog` with
 ///   `GTK_PRINT_CAPABILITY_SCALE` among the capabilities it handles itself, and the dialogue makes
 ///   its scale control sensitive only where that capability is offered by the application or by
-///   the printer. The custom tab this adds carries the held sentence, and from it the dialogue it
-///   was placed in is reached and that one capability withdrawn, at a priority above the
-///   dialogue's first frame. A printer whose own backend states the capability would leave the
-///   control live; no backend GTK ships does (ADR 2908).
+///   the printer. The tab carries the held sentence, and from it the dialogue it was placed in is
+///   reached and that one capability withdrawn, at a priority above the dialogue's first frame. A
+///   printer whose own backend states the capability would leave the control live; no backend GTK
+///   ships does (ADR 2908).
 /// - **The job keeps the scale.** `custom-widget-apply` runs when the reader accepts the dialogue,
 ///   after its settings are the operation's and before GTK builds the job whose scale it applies to
 ///   every page, so the scale is set back to the document's there — said when it had moved.
 ///
 /// Every other control of the dialogue stays the reader's: `/Enforce` names `/PrintScaling` alone.
-fn hold_the_scaling(
+#[expect(
+    clippy::doc_markdown,
+    reason = "verbatim quotation: Table 147 spells PickTrayByPDFSize without backticks"
+)]
+fn the_paper_tab(
     operation: &gtk4::PrintOperation,
-    scaling: pdf_model::viewer_preferences::PrintScaling,
+    held: Option<pdf_model::viewer_preferences::PrintScaling>,
+    tray_by_page_size: bool,
     say: Rc<dyn Fn(&str)>,
-) {
-    operation.set_custom_tab_label(Some("Scaling held"));
+) -> Rc<std::cell::Cell<bool>> {
+    let by_page_size = Rc::new(std::cell::Cell::new(false));
+    operation.set_custom_tab_label(Some(if held.is_some() {
+        "Paper and scaling"
+    } else {
+        "Paper"
+    }));
     let unlocked = Rc::clone(&say);
+    // **The handler keeps the tab it answers with.** The signal's return is `transfer none` and
+    // gtk-rs hands GTK a borrowed pointer, so a tab nothing on this side still holds is finalised
+    // before the dialogue takes it, and GTK finds no tab at all.
+    let kept: std::cell::RefCell<Option<gtk4::Box>> = std::cell::RefCell::new(None);
     operation.connect_create_custom_widget(move |_| {
-        let tab = gtk4::Label::new(Some(HELD_TAB));
-        tab.set_wrap(true);
-        let placed = tab.clone();
-        let unlocked = Rc::clone(&unlocked);
-        // The tab is placed in the dialogue as soon as this handler returns, so the next turn of
-        // the loop finds it there; `HIGH` runs that turn ahead of the dialogue's first frame.
-        glib::idle_add_local_full(glib::Priority::HIGH, move || {
-            if !lock_the_scale(&placed) {
-                unlocked(UNLOCKED);
-            }
-            glib::ControlFlow::Break
-        });
+        let tab = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
+        kept.replace(Some(tab.clone()));
+        let tray = gtk4::CheckButton::with_label(viewer_host::printing::TRAY_BY_PAGE_SIZE);
+        tray.set_active(tray_by_page_size);
+        tab.append(&tray);
+        if held.is_some() {
+            let note = gtk4::Label::new(Some(HELD_TAB));
+            note.set_wrap(true);
+            tab.append(&note);
+            let placed = tab.clone();
+            let unlocked = Rc::clone(&unlocked);
+            // The tab is placed in the dialogue as soon as this handler returns, so the next turn
+            // of the loop finds it there; `HIGH` runs that turn ahead of the dialogue's first frame.
+            glib::idle_add_local_full(glib::Priority::HIGH, move || {
+                if !lock_the_scale(&placed) {
+                    unlocked(UNLOCKED);
+                }
+                glib::ControlFlow::Break
+            });
+        }
         Some(tab.upcast())
     });
-    operation.connect_custom_widget_apply(move |operation, _| {
-        if let Some(settings) = operation.print_settings()
+    let chosen = Rc::clone(&by_page_size);
+    operation.connect_custom_widget_apply(move |operation, tab| {
+        chosen.set(the_tray_box(tab).is_some_and(|tray| tray.is_active()));
+        if let Some(scaling) = held
+            && let Some(settings) = operation.print_settings()
             && keep_the_scale(&settings, scaling)
         {
             say(SET_BACK);
         }
     });
+    by_page_size
 }
+
+/// The tray box on [`the_paper_tab`]'s tab: its first child.
+fn the_tray_box(tab: &gtk4::Widget) -> Option<gtk4::CheckButton> {
+    tab.first_child().and_downcast::<gtk4::CheckButton>()
+}
+
+/// Sets a page setup's paper to one page's own, as [`viewer_host::printing::paper_for_page`]
+/// chose it.
+///
+/// **A paper GTK knows by name where the page is one**, within [`NAMED_PAPER_TOLERANCE`]: a print
+/// system finds the tray holding A4 from the name `iso_a4`, and a page stated as 595.276 by 841.89
+/// points is A4 to every person who drew it. Elsewhere the paper is a custom size of the page's own
+/// dimensions, which a print system that cannot feed it says so for — the clause's own "no effect
+/// on operating systems that do not provide the ability to pick the input tray by size".
+fn set_the_paper(setup: &gtk4::PageSetup, paper: viewer_host::printing::PagePaper) {
+    let (short, long) = (f64::from(paper.short), f64::from(paper.long));
+    let named = gtk4::PaperSize::paper_sizes(false)
+        .into_iter()
+        .find(|named| {
+            let (width, height) = (
+                named.width(gtk4::Unit::Points),
+                named.height(gtk4::Unit::Points),
+            );
+            (width - short).abs() <= NAMED_PAPER_TOLERANCE
+                && (height - long).abs() <= NAMED_PAPER_TOLERANCE
+        });
+    let size = named.unwrap_or_else(|| {
+        gtk4::PaperSize::new_custom("page", "This page's size", short, long, gtk4::Unit::Points)
+    });
+    setup.set_paper_size(&size);
+    setup.set_orientation(if paper.landscape {
+        gtk4::PageOrientation::Landscape
+    } else {
+        gtk4::PageOrientation::Portrait
+    });
+}
+
+/// How far, in points, a page may be from a named paper and still be printed on it — one
+/// millimetre, a documented choice: no clause states a tolerance, and the standard sizes GTK names
+/// are rounded to the millimetre (ISO 216's A4 is 210 by 297 mm), so a page stated to finer than
+/// that is the same paper (ADR 2919).
+const NAMED_PAPER_TOLERANCE: f64 = 72.0 / 25.4;
 
 /// What the dialogue's own tab says where the scaling is held.
 const HELD_TAB: &str = "This document enforces its print scaling (ISO 32000-2 §12.2, Table 147's \
@@ -530,7 +659,7 @@ mod tests {
     use gtk4::prelude::*;
     use pdf_model::viewer_preferences::PrintScaling;
 
-    use super::{SET_BACK, hold_the_scaling, print_settings};
+    use super::{SET_BACK, print_settings, set_the_paper, the_paper_tab, the_tray_box};
 
     /// The capabilities `GtkPrintOperation` gives the dialogue it builds, in `get_print_dialog`
     /// of GTK's `gtkprintoperation-unix.c`: the ones it applies to the job itself.
@@ -545,19 +674,25 @@ mod tests {
             | gtk4::PrintCapabilities::NUMBER_UP_LAYOUT
     }
 
-    /// An operation, with the hold attached where `held`, and what it said.
-    fn operation(held: bool) -> (gtk4::PrintOperation, Rc<RefCell<Vec<String>>>) {
+    /// What an operation's tab said, one sentence apiece.
+    type Said = Rc<RefCell<Vec<String>>>;
+
+    /// An operation with its tab — the hold attached where `held`, the tray box opening on `tray` —
+    /// what it said, and the cell the tray box is read back into.
+    fn operation(
+        held: bool,
+        tray: bool,
+    ) -> (gtk4::PrintOperation, Said, Rc<std::cell::Cell<bool>>) {
         let operation = gtk4::PrintOperation::new();
         let said = Rc::new(RefCell::new(Vec::new()));
-        if held {
-            let heard = Rc::clone(&said);
-            hold_the_scaling(
-                &operation,
-                PrintScaling::NoScaling,
-                Rc::new(move |note: &str| heard.borrow_mut().push(note.to_owned())),
-            );
-        }
-        (operation, said)
+        let heard = Rc::clone(&said);
+        let by_page_size = the_paper_tab(
+            &operation,
+            held.then_some(PrintScaling::NoScaling),
+            tray,
+            Rc::new(move |note: &str| heard.borrow_mut().push(note.to_owned())),
+        );
+        (operation, said, by_page_size)
     }
 
     /// The dialogue as `get_print_dialog` builds it — its capabilities, then the operation's
@@ -602,15 +737,16 @@ mod tests {
     /// own tab says why.
     #[gtk4::test]
     fn a_held_scaling_locks_the_dialogues_scale_and_nothing_else() {
-        let (operation, said) = operation(true);
+        let (operation, said, _) = operation(true, false);
         let (dialog, tab) = the_dialogue(&operation);
         assert_eq!(
             dialog.manual_capabilities(),
             the_operations_capabilities().difference(gtk4::PrintCapabilities::SCALE)
         );
         let tab = tab
+            .and_then(|tab| tab.last_child())
             .and_downcast::<gtk4::Label>()
-            .expect("the held tab is a label");
+            .expect("the held sentence is the tab's last line");
         assert!(
             tab.text().contains("Table 147's /Enforce"),
             "{}",
@@ -627,7 +763,7 @@ mod tests {
     /// GTK's 100 — and the reader is told the choice was set back.
     #[gtk4::test]
     fn a_held_scaling_is_what_the_job_is_built_on() {
-        let (operation, said) = operation(true);
+        let (operation, said, _) = operation(true, false);
         let (_dialog, tab) = the_dialogue(&operation);
         assert_eq!(accepted(&operation, tab.as_ref()), 100.0);
         assert_eq!(said.borrow().as_slice(), [SET_BACK]);
@@ -638,11 +774,68 @@ mod tests {
     /// GTK's own, the scale stays live, and the reader's 150 % is the job's.
     #[gtk4::test]
     fn an_unheld_scaling_is_the_readers() {
-        let (operation, said) = operation(false);
+        let (operation, said, _) = operation(false, false);
         let (dialog, tab) = the_dialogue(&operation);
-        assert!(tab.is_none());
+        let tab = tab.expect("the tray box's tab is always there");
+        assert!(
+            tab.last_child().and_downcast::<gtk4::Label>().is_none(),
+            "nothing held, so no held sentence"
+        );
         assert_eq!(dialog.manual_capabilities(), the_operations_capabilities());
-        assert_eq!(accepted(&operation, None), 150.0);
+        assert_eq!(accepted(&operation, Some(&tab)), 150.0);
         assert!(said.borrow().is_empty());
+    }
+
+    /// §12.2, Table 147's `/PickTrayByPDFSize`: "\[i]f PickTrayByPDFSize is true, the check box in
+    /// the print dialogue associated with input paper tray shall be checked" — and "\[t]his setting
+    /// influences only the preset values", so the box is the reader's: what is accepted is what
+    /// the job does, each way (ADR 2919).
+    #[gtk4::test]
+    #[expect(
+        clippy::doc_markdown,
+        reason = "verbatim quotation: Table 147 spells PickTrayByPDFSize without backticks"
+    )]
+    fn the_tray_box_opens_as_the_document_asks_and_prints_as_the_reader_leaves_it() {
+        for (stated, flipped) in [(true, false), (true, true), (false, false), (false, true)] {
+            let (operation, _, by_page_size) = operation(false, stated);
+            let (_dialog, tab) = the_dialogue(&operation);
+            let tab = tab.expect("the tray box's tab");
+            let tray = the_tray_box(&tab).expect("the tray box is the tab's first line");
+            assert_eq!(
+                tray.is_active(),
+                stated,
+                "the box opens on the document's value"
+            );
+            assert_eq!(
+                tray.label().as_deref(),
+                Some(viewer_host::printing::TRAY_BY_PAGE_SIZE)
+            );
+            if flipped {
+                tray.set_active(!stated);
+            }
+            accepted(&operation, Some(&tab));
+            assert_eq!(by_page_size.get(), stated != flipped, "the box as accepted");
+        }
+    }
+
+    /// The box checked, a page's paper is its own size: a landscape A4 page is A4 turned — the
+    /// paper a print system finds the tray for — and a page no paper is named for is a custom size
+    /// of its own dimensions.
+    #[gtk4::test]
+    fn a_page_is_printed_on_paper_of_its_own_size() {
+        let setup = gtk4::PageSetup::new();
+        set_the_paper(
+            &setup,
+            viewer_host::printing::paper_for_page(841.89, 595.276),
+        );
+        assert_eq!(setup.paper_size().name().as_str(), "iso_a4");
+        assert_eq!(setup.orientation(), gtk4::PageOrientation::Landscape);
+        set_the_paper(&setup, viewer_host::printing::paper_for_page(300.0, 200.0));
+        let paper = setup.paper_size();
+        assert!(paper.is_custom(), "{}", paper.name());
+        // GTK keeps a custom paper in millimetres, so the points come back to within a rounding.
+        assert!((paper.width(gtk4::Unit::Points) - 200.0).abs() < 1e-6);
+        assert!((paper.height(gtk4::Unit::Points) - 300.0).abs() < 1e-6);
+        assert_eq!(setup.orientation(), gtk4::PageOrientation::Landscape);
     }
 }

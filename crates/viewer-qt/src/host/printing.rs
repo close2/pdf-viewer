@@ -5,7 +5,7 @@ use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{Answer, Command, Printing, Query};
 
-use crate::bridge::ffi::{QtPrintCell, QtPrintJob};
+use crate::bridge::ffi::{QtPagePaper, QtPrintCell, QtPrintJob};
 
 use super::Host;
 
@@ -21,6 +21,9 @@ pub(super) struct PrintJob {
     defaults: viewer_host::PrintDefaults,
     /// Whether §12.2's `/Enforce` holds the dialogue's scaling to the document's (ADR 2840).
     scaling_held: bool,
+    /// The last sheet a page chose by its size and the core was told of, so that a run of pages
+    /// of one size states it once (ADR 2919).
+    paper_by_page: Option<(f32, f32)>,
 }
 
 /// One printed page, rasterised and waiting for the C++ side to paint it.
@@ -68,6 +71,7 @@ impl Host {
             fidelity,
             defaults,
             scaling_held,
+            paper_by_page: None,
         });
         self.update.print_dialogue = true;
         self.say(&format!(
@@ -116,6 +120,8 @@ impl Host {
                 .collect(),
             no_scaling: job.defaults.scaling
                 == pdf_model::viewer_preferences::PrintScaling::NoScaling,
+            tray_by_page_size: job.defaults.tray_by_page_size(),
+            tray_label: viewer_host::printing::TRAY_BY_PAGE_SIZE.to_owned(),
         }
     }
 
@@ -143,6 +149,50 @@ impl Host {
             viewer_host::printing::scale_at(job.fidelity, Some(dpi)),
         );
         self.dispatch(Command::Print(Printing::Paper(sheet)));
+    }
+
+    /// §12.2, Table 147's `/PickTrayByPDFSize`, for one page: the paper it goes on is its own size.
+    ///
+    /// The entry is "whether the PDF page size shall be used to select the input paper tray", and
+    /// a print system picks a tray by the paper a sheet asks for — so where the dialogue's box is
+    /// checked the C++ side asks this before each page, sets the printer's page layout to the
+    /// answer, and paints the page over the whole sheet at its own size. `page` is zero-based.
+    ///
+    /// **The sheet reaches the core before the page is drawn, where it changed**: §12.5.6.22 places
+    /// a `FixedPrint` watermark against "the dimensions of the target media", and each page's media
+    /// is now its own, the page on it at matrix B's identity (ADR 2919).
+    ///
+    /// `known` is false where no job is running or the document has no such page.
+    pub(crate) fn print_page_paper(&mut self, page: usize, dpi: f32) -> QtPagePaper {
+        let unknown = QtPagePaper {
+            known: false,
+            short_side: 0.0,
+            long_side: 0.0,
+            landscape: false,
+        };
+        let Answer::PrintSize(size) = self.state.viewer.query(Query::PrintSize(page)) else {
+            return unknown;
+        };
+        let Some(job) = self.print.as_mut() else {
+            return unknown;
+        };
+        let paper = viewer_host::printing::paper_for_page(size.width, size.height);
+        let (width, height) = paper.as_placed();
+        let sheet = viewer_core::Sheet {
+            media: Some([0.0, 0.0, width, height]),
+            scale: viewer_host::printing::scale_at(job.fidelity, Some(dpi)),
+            // The page on paper of its own size: §12.5.6.22's "usual case".
+            page_scale: 1.0,
+        };
+        if job.paper_by_page.replace((width, height)) != Some((width, height)) {
+            self.dispatch(Command::Print(Printing::Paper(sheet)));
+        }
+        QtPagePaper {
+            known: true,
+            short_side: paper.short,
+            long_side: paper.long,
+            landscape: paper.landscape,
+        }
     }
 
     /// Where each page of one sheet is painted, for the arrangement `print_paper` was given.
@@ -257,6 +307,8 @@ fn empty_print_job() -> QtPrintJob {
         copies: 0,
         duplex: -1,
         page_ranges: Vec::new(),
+        tray_by_page_size: false,
+        tray_label: viewer_host::printing::TRAY_BY_PAGE_SIZE.to_owned(),
         no_scaling: false,
     }
 }

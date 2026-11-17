@@ -502,13 +502,86 @@ impl Defaults {
     pub fn held_scaling(&self, held: bool) -> Option<PrintScaling> {
         (held && self.scaling_enforced).then_some(self.scaling)
     }
+
+    /// Whether the dialogue's [`TRAY_BY_PAGE_SIZE`] box opens checked.
+    ///
+    /// §12.2, Table 147's `/PickTrayByPDFSize`:
+    ///
+    /// > This setting influences only the preset values used to populate the print dialogue
+    /// > presented by an interactive PDF processor. If PickTrayByPDFSize is true, the check box in
+    /// > the print dialogue associated with input paper tray shall be checked.
+    ///
+    /// Checked where the document states `true`. Unchecked where it states `false`, and where it
+    /// states nothing, whose "\[d]efault value: implementation dependent" is this program's
+    /// choice: the paper a person picked in the dialogue stays the paper of every page unless the
+    /// document asked otherwise (ADR 2919). Either way the box is the person's to change.
+    #[must_use]
+    pub fn tray_by_page_size(&self) -> bool {
+        self.pick_tray_by_page_size == Some(true)
+    }
+}
+
+/// The label of the print dialogue's box that §12.2's `/PickTrayByPDFSize` presets.
+///
+/// Table 147 names the box by what it does — "whether the PDF page size shall be used to select
+/// the input paper tray" — and every window that prints shows these words, so that the three say
+/// one thing (ADR 2919).
+pub const TRAY_BY_PAGE_SIZE: &str = "Choose the paper source by each page's size";
+
+/// The paper one page is printed on where the dialogue's [`TRAY_BY_PAGE_SIZE`] box is checked.
+///
+/// §12.2, Table 147's `/PickTrayByPDFSize` is "whether the PDF page size shall be used to select
+/// the input paper tray". **A print system chooses a tray by the size of the paper a sheet asks
+/// for**, so the sheet asks for the page's own size: a page `width` by `height` default user space
+/// units — `viewer_core::Query::PrintSize`, `/Rotate` already applied — goes onto paper of its
+/// shorter side by its longer, turned to landscape where the page is wider than it is tall. Both
+/// toolkits name a paper by its portrait size and an orientation, which is why the answer has that
+/// shape; the tray holding that paper is then the print system's to find, and the clause's last
+/// sentence is what it says where it cannot: "This setting has no effect on operating systems that
+/// do not provide the ability to pick the input tray by size."
+///
+/// The page lands on its own paper at its own size, so §12.5.6.22's matrix B is the identity —
+/// the clause's "usual case where the PDF page size equals the media size" — whatever scaling the
+/// dialogue offered.
+#[must_use]
+pub fn paper_for_page(width: f32, height: f32) -> PagePaper {
+    PagePaper {
+        short: width.min(height),
+        long: width.max(height),
+        landscape: width > height,
+    }
+}
+
+/// One page's own paper, as [`paper_for_page`] chooses it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PagePaper {
+    /// The paper's shorter side, in points.
+    pub short: f32,
+    /// Its longer side, in points.
+    pub long: f32,
+    /// Whether the page is wider than it is tall, so that the paper is turned.
+    pub landscape: bool,
+}
+
+impl PagePaper {
+    /// The sheet as §12.5.6.22 measures it: the media rectangle as the page sees it, landscape
+    /// already turned, the page at its own corner and size.
+    #[must_use]
+    pub fn as_placed(self) -> (f32, f32) {
+        if self.landscape {
+            (self.long, self.short)
+        } else {
+            (self.short, self.long)
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        DEFAULT_DPI, Defaults, MAX_DPI, MIN_DPI, POINTS_PER_INCH, PagesPerSheet, Scaling, cell,
-        destination_refused, placed, scale, scale_at, sheet, unknown_sheet,
+        DEFAULT_DPI, Defaults, MAX_DPI, MIN_DPI, POINTS_PER_INCH, PagesPerSheet, Scaling,
+        TRAY_BY_PAGE_SIZE, cell, destination_refused, paper_for_page, placed, scale, scale_at,
+        sheet, unknown_sheet,
     };
     use pdf_model::viewer_preferences::{Duplex, PrintScaling, ViewerPreferences};
     use viewer_core::Fidelity;
@@ -733,5 +806,52 @@ mod tests {
                 stated.page_range
             );
         }
+    }
+
+    /// §12.2, Table 147's `/PickTrayByPDFSize`: "\[i]f PickTrayByPDFSize is true, the check box
+    /// in the print dialogue associated with input paper tray shall be checked" — and a `false` or
+    /// a silence leaves it unchecked, the second being the "implementation dependent" default
+    /// this program chose (ADR 2919).
+    #[test]
+    #[expect(
+        clippy::doc_markdown,
+        reason = "verbatim quotation: Table 147 spells PickTrayByPDFSize without backticks"
+    )]
+    fn the_tray_box_opens_checked_only_where_the_document_asks() {
+        for (stated, checked) in [(Some(true), true), (Some(false), false), (None, false)] {
+            let defaults = Defaults::of(&ViewerPreferences {
+                pick_tray_by_pdf_size: stated,
+                ..ViewerPreferences::default()
+            });
+            assert_eq!(defaults.tray_by_page_size(), checked, "{stated:?}");
+        }
+        assert!(TRAY_BY_PAGE_SIZE.contains("page's size"));
+    }
+
+    /// A page chooses paper of its own size, turned where it is wider than tall, so that the page
+    /// lands on it at its own size — §12.5.6.22's "usual case".
+    #[test]
+    fn a_page_chooses_paper_of_its_own_size() {
+        let upright = paper_for_page(595.0, 842.0);
+        assert_eq!(
+            (upright.short, upright.long, upright.landscape),
+            (595.0, 842.0, false)
+        );
+        assert_eq!(upright.as_placed(), (595.0, 842.0));
+        let turned = paper_for_page(842.0, 595.0);
+        assert_eq!(
+            (turned.short, turned.long, turned.landscape),
+            (595.0, 842.0, true)
+        );
+        assert_eq!(
+            turned.as_placed(),
+            (842.0, 595.0),
+            "the media as the page sees it"
+        );
+        let square = paper_for_page(400.0, 400.0);
+        assert!(
+            !square.landscape,
+            "a square page is not wider than it is tall"
+        );
     }
 }

@@ -1098,6 +1098,12 @@ int32_t quorra_event_printing_scaling(const quorra_events *events, size_t index,
 /* The end of that operation — §8.11.4.5's "then all groups shall revert to their prior states".
  * Sent whether the job finished or the person cancelled; harmless where none is running. */
 int32_t quorra_print_finish(quorra_viewer *viewer, quorra_events **events);
+/* How large one page of that operation is in user space units, before it is drawn: §12.2's
+ * /PrintArea boundary after /Rotate and /UserUnit, from the page dictionary alone. Table 147's
+ * /PickTrayByPDFSize chooses the sheet from it — state that sheet with quorra_print_placed before
+ * quorra_print_page draws the page onto it (ADR 2919). QUORRA_NO_ANSWER where no print operation is
+ * running or the document has no such page. */
+int32_t quorra_print_size(const quorra_viewer *viewer, size_t page, float *width, float *height);
 /* Draws one page of that operation with the processor rasteriser and says how large it is.
  * QUORRA_FORMAT_RGBA8, as every raster here is. QUORRA_NO_ANSWER where no print operation is
  * running or the document has no such page; QUORRA_RENDER_REFUSED where the page's marks will not

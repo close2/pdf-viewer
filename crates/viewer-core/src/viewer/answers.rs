@@ -110,6 +110,16 @@ impl Viewer {
                 .printing
                 .and_then(|sheet| print_page(open, index, sheet))
                 .map_or(Answer::None, |page| Answer::PrintPage(Box::new(page))),
+            // The page dictionary's own extent, read through `Open::page`, which under
+            // `Purpose::Print` has put the page onto `/PrintArea`'s boundary: the page
+            // `print_page` would interpret, and no interpretation. Not `Open::page_size`, whose
+            // answer for a page on the screen is the list drawn there, which may predate the grant.
+            Query::PrintSize(index) => open
+                .printing
+                .and_then(|_| open.page(index))
+                .map_or(Answer::None, |page| {
+                    Answer::PrintSize(pdf_model::content::displayed_size(&page))
+                }),
             Query::LinkAt(at) => Answer::Link(
                 self.user_space(open, at)
                     .and_then(|(page, (x, y))| interact::link_at(open, page, x, y))

@@ -1465,3 +1465,29 @@ fn whether_text_is_under_a_point_crosses_both_ways() {
         assert_eq!(read, over, "the flag changed on the way through");
     }
 }
+
+/// §12.2's `/PickTrayByPDFSize` chooses a sheet from a page's size, and the worker is the side that
+/// knows it: the size crosses whole, and a size no sheet could have is refused rather than handed
+/// to a print system (ADR 2919).
+#[test]
+fn a_printed_pages_size_crosses_and_an_impossible_one_does_not() {
+    let size = Size::new(595.0, 842.0);
+    let Reply::PrintSize(read) = round_trip(&Answer::PrintSize(size)) else {
+        panic!("a printed page's size comes back as one");
+    };
+    assert_eq!(
+        read, size,
+        "a printed page's size changed on the way through"
+    );
+    for impossible in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+        let encoded = encode_answer(
+            &Answer::PrintSize(Size::new(impossible, 842.0)),
+            &Marks::default(),
+        )
+        .expect("the encoder carries what it is handed");
+        assert!(
+            decode_answer(&encoded).is_err(),
+            "a width of {impossible} is not a sheet's, so the window refuses it"
+        );
+    }
+}

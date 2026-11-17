@@ -73,6 +73,8 @@ pub(super) mod answer_kind {
     pub(in crate::protocol) const TEXT: u8 = 38;
     // `query_kind::TEXT_AT`'s answer: a flag (ADR 2856).
     pub(in crate::protocol) const OVER_TEXT: u8 = 39;
+    // `query_kind::PRINT_SIZE`'s answer: a page's width and height in user space units (ADR 2919).
+    pub(in crate::protocol) const PRINT_SIZE: u8 = 40;
 }
 
 /// Encodes one answer.
@@ -417,6 +419,9 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
             }
             writer.bytes(&bytes).strings(&page.reports);
         }
+        Answer::PrintSize(size) => {
+            writer.u8(k::PRINT_SIZE).f32(size.width).f32(size.height);
+        }
         Answer::Measured { traced, located } => {
             writer.u8(k::MEASURED);
             encode_traced(&mut writer, traced);
@@ -620,6 +625,19 @@ pub(crate) fn decode_answer_reusing(
         },
         k::ARTICLES => Reply::Articles(panels::decode_articles(&mut reader)?),
         k::THUMBNAIL => Reply::Thumbnail(panels::decode_thumbnail(&mut reader)?),
+        k::PRINT_SIZE => {
+            let width = reader.f32("a printed page's width")?;
+            let height = reader.f32("a printed page's height")?;
+            // The worker is the untrusted side, so a size it states is a claim: a sheet is chosen
+            // from it, and a sheet has a finite, positive extent.
+            if !(width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0) {
+                return Err(ProtocolError::Unbuildable {
+                    what: "a printed page's size",
+                    why: "an extent that is not a finite positive number of units",
+                });
+            }
+            Reply::PrintSize(Size::new(width, height))
+        }
         k::PRINT_PAGE => {
             let page = reader.usize("a print page's index")?;
             let target = match reader.u8("whether a print page has a target")? {

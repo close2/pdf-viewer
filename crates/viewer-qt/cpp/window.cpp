@@ -2347,6 +2347,13 @@ void MainWindow::runThePrintDialogue()
     perSheet->addItem(QStringLiteral("4"), 4);
     form->addRow(QStringLiteral("Scaling"), scaling);
     form->addRow(QStringLiteral("Pages per sheet"), perSheet);
+    // ISO 32000-2 §12.2, Table 147's /PickTrayByPDFSize: "If PickTrayByPDFSize is true, the check
+    // box in the print dialogue associated with input paper tray shall be checked". Qt's dialogue
+    // has no such box, so this tab carries it; checked, each page goes onto paper of its own size,
+    // which is what a print system picks a tray by (ADR 2919). The words are viewer_host's.
+    auto* trayByPageSize = new QCheckBox(text(job.tray_label), options);
+    trayByPageSize->setChecked(job.tray_by_page_size);
+    form->addRow(trayByPageSize);
     options->setWindowTitle(QStringLiteral("Page"));
     dialog.setOptionTabs({options});
 
@@ -2366,11 +2373,15 @@ void MainWindow::runThePrintDialogue()
         return;
     }
 
+    const bool byPageSize = trayByPageSize->isChecked();
     const QRectF paper = printer.pageLayout().fullRect(QPageLayout::Point);
     const float paperWidth = static_cast<float>(paper.width());
     const float paperHeight = static_cast<float>(paper.height());
-    const auto mode = static_cast<std::uint8_t>(scaling->currentData().toInt());
-    const auto upCount = static_cast<std::uint8_t>(perSheet->currentData().toInt());
+    // Each page on paper of its own size is one page to a sheet at that page's own size, whatever
+    // the two combos said: there is nothing to shrink it onto and no larger sheet to share.
+    const auto mode = static_cast<std::uint8_t>(byPageSize ? 0 : scaling->currentData().toInt());
+    const auto upCount =
+        static_cast<std::uint8_t>(byPageSize ? 1 : perSheet->currentData().toInt());
     const auto resolution = static_cast<float>(printer.resolution());
     // The sheet ISO 32000-2 §12.5.6.22 places a watermark against, composed on the Rust side from
     // these same numbers so that the cells below and the media cannot disagree (ADR 1204).
@@ -2390,6 +2401,36 @@ void MainWindow::runThePrintDialogue()
     const int last = chosen.isEmpty() ? pages : qBound(1, chosen.lastPage(), pages);
     const auto chosenPage = [&chosen](int page) { return chosen.isEmpty() || chosen.contains(page); };
 
+    // ISO 32000-2 §12.2's /PickTrayByPDFSize, checked: the printer's page layout becomes this
+    // page's own paper before the page is drawn — a size Qt names where it is one within its fuzzy
+    // match, so that the print system finds the tray holding it — and the sheet is stated to the
+    // core first, so the page is drawn against its own media (ADR 2919). Returns where the page
+    // is painted, in points from the sheet's top-left corner.
+    const auto paperFor = [&](int page) -> QRectF {
+        const QtPagePaper own =
+            host_->print_page_paper(static_cast<std::size_t>(page - 1),
+                                    static_cast<float>(printer.resolution()));
+        if (!own.known) {
+            return QRectF();
+        }
+        const QPageSize size(QSizeF(own.short_side, own.long_side), QPageSize::Point, QString(),
+                             QPageSize::FuzzyMatch);
+        printer.setPageLayout(QPageLayout(size,
+                                          own.landscape ? QPageLayout::Landscape
+                                                        : QPageLayout::Portrait,
+                                          QMarginsF()));
+        return printer.pageLayout().fullRect(QPageLayout::Point);
+    };
+    QRectF ownPaper;
+    if (byPageSize) {
+        for (int page = first; page <= last; ++page) {
+            if (chosenPage(page)) {
+                ownPaper = paperFor(page);
+                break;
+            }
+        }
+    }
+
     QPainter painter;
     if (!painter.begin(&printer)) {
         host_->print_finish();
@@ -2406,6 +2447,9 @@ void MainWindow::runThePrintDialogue()
     for (int page = first; page <= last; ++page) {
         if (!chosenPage(page)) {
             continue;
+        }
+        if (byPageSize && begun) {
+            ownPaper = paperFor(page);
         }
         if (onSheet == 0 && begun) {
             printer.newPage();
@@ -2425,10 +2469,12 @@ void MainWindow::runThePrintDialogue()
                                       static_cast<int>(height), static_cast<int>(stride),
                                       QImage::Format_RGBA8888);
                 const QtPrintCell& cell = cells[onSheet];
-                const QRectF into(static_cast<qreal>(cell.x) * perPoint,
-                                  static_cast<qreal>(paperHeight - cell.y - cell.height) * perPoint,
-                                  static_cast<qreal>(cell.width) * perPoint,
-                                  static_cast<qreal>(cell.height) * perPoint);
+                const QRectF into = byPageSize
+                    ? QRectF(0.0, 0.0, ownPaper.width() * perPoint, ownPaper.height() * perPoint)
+                    : QRectF(static_cast<qreal>(cell.x) * perPoint,
+                             static_cast<qreal>(paperHeight - cell.y - cell.height) * perPoint,
+                             static_cast<qreal>(cell.width) * perPoint,
+                             static_cast<qreal>(cell.height) * perPoint);
                 painter.drawImage(into, borrowed);
             }
         }

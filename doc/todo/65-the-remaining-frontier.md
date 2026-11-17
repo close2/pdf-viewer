@@ -40,7 +40,8 @@ an exclusion, a deprecation, or a case the standard leaves undefined.
 interface is in scope to build; the same surface covers printing and a collection's alternate
 presentations. **What builds a row here:** the host work of `doc/todo/30`–`38` and RFC 0004's
 print path. A new host reopens the entries it has not yet connected, even when the shared core
-already reads them.
+already reads them. Every window with a print dialogue presets Table 147's five dialogue entries, the
+tray box among them (ADR 2919), and the WinUI window's print dialogue is `doc/todo/30`'s N4.
 
 - **Beside this bucket and not in it** — §13.2.4.2 is `implemented`: its clip is judged by §13.2.2,
   Table 286's /TF asked at the reader's restriction level for `Operation::HandOverMedia`, and the data

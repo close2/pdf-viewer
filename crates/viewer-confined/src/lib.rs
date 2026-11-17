@@ -699,6 +699,10 @@ pub enum Reply {
     Fields(Vec<viewer_core::FormField>),
     /// §14.7's structure for the page being shown, in §14.8.2.5's logical order, parent-first.
     Accessibility(Vec<Structured>),
+    /// One page of a print operation's extent in user space units, from the page dictionary —
+    /// what [`viewer_core::Query::PrintSize`] answers, so that a sheet can be chosen by it before
+    /// the page is drawn (ADR 2919).
+    PrintSize(pdf_render::Size),
     /// One page of a print operation, interpreted for paper in the confined process.
     ///
     /// **The marks rather than the pixels, and that is the confinement's own arrangement read

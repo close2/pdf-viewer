@@ -219,3 +219,44 @@ fn the_print_pair_decides_the_page_rendered_for_paper() {
         assert_eq!(target.height, expected, "the fixture's boxes are square");
     }
 }
+
+/// §12.2, Table 147's `/PickTrayByPDFSize`: "whether the PDF page size shall be used to select the
+/// input paper tray". A host choosing a sheet by the page's size has to know that size before the
+/// page goes onto the sheet, so `Query::PrintSize` answers it from the page dictionary — and it is
+/// the size the printed page's own display list then has, `/PrintArea`'s boundary included.
+#[test]
+fn a_pages_print_size_is_known_before_it_is_drawn_and_is_what_it_is_drawn_at() {
+    for (stating, expected) in [(true, 400.0_f32), (false, 360.0_f32)] {
+        let (mut viewer, _) = opened(stating);
+        assert!(
+            matches!(viewer.query(Query::PrintSize(0)), Answer::None),
+            "no print operation is running, so no page has a printed size yet"
+        );
+        let _ = viewer
+            .handle(Command::Print(Printing::Start(Sheet {
+                media: Some([0.0, 0.0, 400.0, 400.0]),
+                scale: 1.0,
+                page_scale: 1.0,
+            })))
+            .count();
+        let Answer::PrintSize(size) = viewer.query(Query::PrintSize(0)) else {
+            panic!("a print operation is running, so page one has a printed size");
+        };
+        assert_eq!(
+            (size.width, size.height),
+            (expected, expected),
+            "the print boundary /PrintArea names, or the crop box where it names none"
+        );
+        let Answer::PrintPage(printed) = viewer.query(Query::PrintPage(0)) else {
+            panic!("a print operation is running, so page one is answered");
+        };
+        assert_eq!(
+            printed.list.page_size, size,
+            "the size asked first is the size the page is drawn at"
+        );
+        assert!(
+            matches!(viewer.query(Query::PrintSize(1)), Answer::None),
+            "the fixture has one page"
+        );
+    }
+}

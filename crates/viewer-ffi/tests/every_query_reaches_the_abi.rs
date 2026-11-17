@@ -142,6 +142,7 @@ fn entry_points(query: &Query<'_>) -> &'static [&'static str] {
         // seven symbols answering one question would be six chances for a caller to be handed a
         // string from a different reading of the same path.
         Query::Measure(_) => &["quorra_measure"],
+        Query::PrintSize(_) => &["quorra_print_size"],
         Query::Readback => &[
             "quorra_readback_pages",
             "quorra_readback_page",
@@ -176,6 +177,7 @@ fn every_query() -> Vec<Query<'static>> {
         Query::Thumbnail(0),
         Query::AttachmentPreview("<3>report.pdf"),
         Query::PrintPage(0),
+        Query::PrintSize(0),
         Query::LinkAt(at),
         Query::TextAt(at),
         Query::FieldAt(at),

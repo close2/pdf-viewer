@@ -401,6 +401,7 @@ fn every_query_is_carried() {
         Query::Thumbnail(7),
         Query::AttachmentPreview("<3>report.pdf"),
         Query::PrintPage(7),
+        Query::PrintSize(7),
         Query::Measure(&[[3.0, 4.0], [11.0, 12.0], [1.0, 2.0]]),
         Query::Properties,
         Query::Opening,
@@ -412,7 +413,7 @@ fn every_query_is_carried() {
         Query::View,
         Query::Text,
     ];
-    assert_eq!(carried.len(), 39, "every question `viewer-core` states");
+    assert_eq!(carried.len(), 40, "every question `viewer-core` states");
     for query in carried {
         let encoded = encode_query(query).unwrap();
         let read = decode_query(&encoded).unwrap();

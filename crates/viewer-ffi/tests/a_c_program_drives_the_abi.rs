@@ -599,6 +599,10 @@ fn the_enforced_scaling_is_held_where_the_level_obeys(program: &Path, enforced: 
         let viewer =
             format!("viewer enforced {level}: 1 grant(s), held {held}, scaling {scaling};");
         assert!(said.contains(&viewer), "missing {viewer:?} in:\n{said}");
+        // §12.2's `/PickTrayByPDFSize` chooses each sheet by the page's size, asked before the
+        // page is drawn (ADR 2919): the fixture's `/MediaBox [0 0 200 100]`, whatever the level.
+        let sized = format!("viewer enforced {level}: page 1 prints at 200 by 100; page 2: ");
+        assert!(said.contains(&sized), "missing {sized:?} in:\n{said}");
     }
 }
 

@@ -243,6 +243,45 @@ pub unsafe extern "C" fn quorra_frame_copy(
     }
 }
 
+/// How large one page of the print operation `quorra_print` began is, before it is drawn.
+///
+/// Default user space units — the extent of §14.11.2's boundary §12.2's `/PrintArea` names, after
+/// §7.7.3.3's `/Rotate` and `/UserUnit` — read from the page dictionary without interpreting the
+/// page. **Asked first because §12.2, Table 147's `/PickTrayByPDFSize` chooses the sheet from it**:
+/// "whether the PDF page size shall be used to select the input paper tray", and the sheet is what
+/// §12.5.6.22 places a fixed print watermark against, so a caller honouring the entry states the
+/// page's own sheet with `quorra_print_placed` before `quorra_print_page` draws onto it (ADR 2919).
+///
+/// `*width` and `*height` are filled where they are not null. `QUORRA_NO_ANSWER` where no print
+/// operation is running or the document has no such page.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_print_size(
+    viewer: *const Session,
+    page: usize,
+    width: *mut f32,
+    height: *mut f32,
+) -> c_int {
+    let Some(viewer) = viewer.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match viewer.print_size(page) {
+        Ok((page_width, page_height)) => {
+            if let Some(width) = width.as_mut() {
+                *width = page_width;
+            }
+            if let Some(height) = height.as_mut() {
+                *height = page_height;
+            }
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
 /// Draws one page of the print operation `quorra_print` began, and says how large it is.
 ///
 /// **The first half of C's two-call idiom, and the drawing is on this side of it**: the answer to

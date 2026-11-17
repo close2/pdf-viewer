@@ -1,6 +1,6 @@
 # 76 — The trigger gates, audited and lifted
 
-Status: **open** — the audit is done, rows 1, 4, 5 and 8 are built (ADRs 2799, 2805, 2836, 2884) and row
+Status: **open** — the audit is done, rows 1, 4, 5, 6 and 8 are built (ADRs 2799, 2805, 2836, 2919, 2884) and row
 10's measurement is taken (`doc/todo/78`, `doc/questions/Q840`); the rest of section 2 is the order. ADR 2800 is the decision this file carries out.
 Priority: the owner's, 2026-11-06, `doc/questions/A800` item 2: "build now and revisit all 'wait for
 a trigger' gates".
@@ -35,7 +35,7 @@ a test's timing are not work held back and are not here.
 | 3 | ADR 2529 (status deferred to Q713) | §12.8.3.4.4's policy enforcement | §12.8.3.4.4 | another lane's — `doc/questions/A713` placed the documents |
 | 4 | ADR 1736 section 1 | `app.goBack`/`goForward`, held in `surface::REFUSED` until a window keeps a history of views | JavaScript `app` members | **built** (ADR 2805) |
 | 5 | `doc/todo/63` "what is left" | one `Query` for a page's text on the confined pipe | `viewer-core` vocabulary | **built** (ADRs 2836, 2844): `Query::Text`, the pages on the screen, a reading at every restriction level, and the C ABI's `quorra_page_text` |
-| 6 | `doc/todo/65` section 1's host rows | per-host reads of print and collection entries | rows needing a host | effort only |
+| 6 | `doc/todo/65` section 1's host rows | per-host reads of print and collection entries | rows needing a host | **built** (ADR 2919): section 1 names no row of its own and §12.3.5's collection is presented in all four windows; the one print entry no dialogue presented, Table 147's `/PickTrayByPDFSize`, is a box on `quorra-gtk`'s and `quorra-qt`'s dialogues that, checked, puts each page on paper of its own size (`Query::PrintSize`, `quorra_print_size`). The WinUI window's half waits for its print dialogue, `doc/todo/30`'s N4, which ADR 2919 says what it owes |
 | 7 | ADR 2137 | the records the WinUI window declines in the library's terms | WinUI host | effort only |
 | 8 | ADR 0705 | the dot-pattern splits | §10.7.4 | **built** (ADR 2884): a scene keeps the marks §8.5.3.2's splits stated and another view asks their two answers again; the shader mirror of `point_mark` is declined there, because the oracle's answer for a dot inside a path depends on its neighbours |
 | 9 | RFC 0009 (CMYK spool through BToA) | a print spool that converts through the intent's `BToA` | §14.11.5 on paper | effort only, after the spool path it names |

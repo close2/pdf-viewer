@@ -161,6 +161,22 @@ pub enum Query<'a> {
     ///
     /// Nothing is cached: a print job asks for each page once. ADR 1180.
     PrintPage(usize),
+    /// How large one page of the print operation is, without interpreting it.
+    ///
+    /// The extent [`Query::PrintPage`]'s display list will have — §14.11.2's print boundary that
+    /// §12.2's `/PrintArea` names, after §7.7.3.3's `/Rotate` and `/UserUnit` — in default user
+    /// space units, answered from the page dictionary alone.
+    ///
+    /// **Asked before the page is drawn, which is why it is not read off the drawn page**: §12.2,
+    /// Table 147's `/PickTrayByPDFSize` states "whether the PDF page size shall be used to select
+    /// the input paper tray", so a host honouring it chooses each sheet from the page's size
+    /// before the page goes onto it — and the sheet is what §12.5.6.22 places a `FixedPrint`
+    /// watermark against, so drawing the page first and choosing its paper afterwards would draw
+    /// it against the wrong media (ADR 2919).
+    ///
+    /// [`Answer::None`] where no print operation is running, for [`Query::PrintPage`]'s reason,
+    /// and for a page that is not there.
+    PrintSize(usize),
     /// Whether activating at this viewport point would follow a §12.5.6.5 link.
     ///
     /// What a host needs to choose a cursor, which it does on every pointer move — so this is a
@@ -652,6 +668,8 @@ pub enum Answer<'a> {
     /// Boxed because it is the largest thing in this enumeration by a long way and every other
     /// answer would otherwise carry its size.
     PrintPage(Box<PrintPage>),
+    /// One page of a print operation's extent in default user space units — [`Query::PrintSize`].
+    PrintSize(pdf_render::Size),
     /// Whether a link is under the point asked about.
     Link(bool),
     /// Whether a glyph of the page's text is under the point asked about — [`Query::TextAt`].
