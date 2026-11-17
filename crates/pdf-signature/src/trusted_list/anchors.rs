@@ -19,10 +19,12 @@
 //!
 //! # Which supplied file a reference is
 //!
-//! This program fetches nothing (`CLAUDE.md` principle 3), so a reference is resolved among the
-//! files a host supplied, by the names ADR 2842 gives them: the file named the reference's last
-//! path segment, or, where the list of trusted lists points at the reference, the list of that
-//! pointer's territory — the way TS 119 615 clause 4.2 is run over the same files. A list
+//! This crate opens no socket (`CLAUDE.md` principle 3), so a reference is resolved among the
+//! files a host supplied, by the names ADR 2842 gives them: the file a host stored from the
+//! reference's location — [`super::refresh::refresh_with`] fetches a reference the clauses of TS
+//! 119 615 do not obtain, and keeps it only once clause 4.2's checks pass on it (ADR 2932) — or the
+//! file named its last path segment, or, where the list of trusted lists points at the reference,
+//! the list of that pointer's territory — the way TS 119 615 clause 4.2 is run over the same files. A list
 //! [`super::Lists::read`] refused is not reliable, so no anchor is taken from it; a pointed-to list
 //! the host did not supply is counted, because its certificates might have been an anchor and a
 //! condition one of them could meet is never called broken for want of it (ADR 2874).
@@ -149,6 +151,7 @@ impl<'l> Supplied<'l> {
         for wanted in [stored.as_str(), name] {
             if let Some((_, list)) = reading
                 .named()
+                .chain(reading.referenced())
                 .chain(reading.authenticated_lotl())
                 .find(|(file, _)| *file == wanted)
             {
@@ -168,6 +171,7 @@ impl<'l> Supplied<'l> {
             .find(|pointer| pointer.location == reference)
             .and_then(|pointer| pointer.territory.as_deref());
         let nothing_read = reading.lists.is_empty()
+            && reading.referenced().next().is_none()
             && reading.authenticated_lotl().is_none()
             && reading.refused.is_empty();
         match pointed {

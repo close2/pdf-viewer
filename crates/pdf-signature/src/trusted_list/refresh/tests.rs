@@ -61,6 +61,16 @@ fn host(held: Vec<(String, Vec<u8>)>) -> Lists {
 
 /// A transport serving `served`, recording every location it was asked for.
 fn run(lists: &Lists, served: &[(&str, String)]) -> (Result<Refresh, RefreshRefusal>, Vec<String>) {
+    run_with(lists, &[], served)
+}
+
+/// [`run`], given a signature policy's trusted-list `references` besides.
+fn run_with(
+    lists: &Lists,
+    references: &[&str],
+    served: &[(&str, String)],
+) -> (Result<Refresh, RefreshRefusal>, Vec<String>) {
+    let references: Vec<String> = references.iter().map(|uri| (*uri).to_owned()).collect();
     let mut asked = Vec::new();
     let mut obtain = |uri: &str| {
         asked.push(uri.to_owned());
@@ -70,7 +80,12 @@ fn run(lists: &Lists, served: &[(&str, String)]) -> (Result<Refresh, RefreshRefu
             .map(|(_, text)| text.clone().into_bytes())
             .ok_or_else(|| format!("{uri} answered 404"))
     };
-    let refreshed = refresh(lists, Instant::from_unix_seconds(NOW), &mut obtain);
+    let refreshed = refresh_with(
+        lists,
+        Instant::from_unix_seconds(NOW),
+        &references,
+        &mut obtain,
+    );
     (refreshed, asked)
 }
 
@@ -355,5 +370,108 @@ fn a_stored_lotl_is_read_before_one_named_by_its_last_segment() {
             .authenticated_lotl()
             .map(|(name, _)| name.to_owned()),
         Some(stored_name(OJEU_LOTL_LOC_AT_PUBLICATION))
+    );
+}
+
+/// Where a policy's `TAsInTrustedList` references Austria's list.
+const AT_MIRROR: &str = "https://mirror.example/at/tsl.xml";
+
+/// The LOTL, both Member States' lists at their pointers' locations, and `mirror` at
+/// [`AT_MIRROR`].
+fn served_with_mirror(mirror: String) -> Vec<(&'static str, String)> {
+    vec![
+        (OJEU_LOTL_LOC_AT_PUBLICATION, lotl(LOTL_KEY)),
+        (AT_TSL, member("AT", MEMBER_KEY)),
+        (BE_TSL, member("BE", MEMBER_KEY)),
+        (AT_MIRROR, mirror),
+    ]
+}
+
+/// TS 119 172-2 clause 4.22.2.1 b) step 1 reads the referenced list, so a policy's reference the
+/// clauses of TS 119 615 do not obtain is fetched last, once, and kept where clause 4.2's checks of
+/// its signer pass (ADR 2932). A reading of what was stored holds it for the reference alone —
+/// PRO-4.2.4-03 and -04 obtain Austria's list from its pointer, so the two Member States' lists
+/// searched stay two — and the reference determines its anchors from it.
+#[test]
+fn a_policys_reference_outside_the_tree_is_fetched_last_and_kept_once_authenticated() {
+    let lists = host(Vec::new());
+    let (refreshed, asked) = run_with(
+        &lists,
+        &[AT_MIRROR, AT_TSL, AT_MIRROR],
+        &served_with_mirror(member("AT", MEMBER_KEY)),
+    );
+    let refreshed = refreshed.expect("a refresh");
+    assert_eq!(
+        asked,
+        [OJEU_LOTL_LOC_AT_PUBLICATION, AT_TSL, BE_TSL, AT_MIRROR]
+    );
+    assert_eq!(fate_of(&refreshed, AT_MIRROR), &Fate::Kept);
+    assert!(stored(&refreshed, &stored_name(AT_MIRROR)).is_some());
+    let mut files = vec![(CERTIFICATES.to_owned(), LOTL_KEY.certificate())];
+    files.extend(refreshed.store);
+    let reading = Lists::of(files, "stored".to_owned()).read(Instant::from_unix_seconds(NOW));
+    assert_eq!(reading.lists.len(), 2, "{reading:?}");
+    let referenced: Vec<&str> = reading.referenced().map(|(name, _)| name).collect();
+    assert_eq!(referenced, [stored_name(AT_MIRROR)]);
+    let supplied = super::super::anchors::Supplied {
+        reading: &reading,
+        now: Instant::from_unix_seconds(NOW),
+    };
+    let determined = supplied
+        .anchors(&super::super::anchors::ListReference {
+            reference: AT_MIRROR.to_owned(),
+            service_types: None,
+            statuses: None,
+        })
+        .expect("the reference resolves to the list stored from it");
+    assert!(!determined.certificates.is_empty());
+}
+
+/// Nothing a reference names is kept unless it is believed as every list is: a Member State's
+/// list whose signer the LOTL's pointer does not name (PRO-4.2.4-07), and a list of trusted lists
+/// from anywhere but `OJEU-LOTL-Loc`, which clause 4.1 alone authenticates; and a reference that is
+/// not `http` or `https` is not asked for.
+#[test]
+fn a_reference_is_not_kept_unless_authenticated_and_only_http_is_asked_for() {
+    let elsewhere = "https://other.example/eu-lotl.xml";
+    let local = "file:///etc/tsl.xml";
+    let lists = host(Vec::new());
+    let mut served = served_with_mirror(member("AT", LOTL_KEY));
+    served.push((elsewhere, lotl(LOTL_KEY)));
+    let (refreshed, asked) = run_with(&lists, &[AT_MIRROR, elsewhere, local], &served);
+    let refreshed = refreshed.expect("a refresh");
+    let Fate::NotAuthenticated(outcome) = fate_of(&refreshed, AT_MIRROR) else {
+        panic!(
+            "the mirror refused, not {:?}",
+            fate_of(&refreshed, AT_MIRROR)
+        );
+    };
+    assert_eq!(
+        outcome.sub_status,
+        ["EUTLSO_SIGNER_CERT_NOT_AUTHENTICATED_BY_LOTL"]
+    );
+    assert_eq!(fate_of(&refreshed, elsewhere), &Fate::NoProcedure);
+    assert_eq!(fate_of(&refreshed, local), &Fate::NotHttp);
+    assert!(!asked.iter().any(|uri| uri == local));
+    for uri in [AT_MIRROR, elsewhere] {
+        assert!(stored(&refreshed, &stored_name(uri)).is_none(), "{uri}");
+    }
+}
+
+/// A file a refresh kept from a reference stays while a refresh is given the reference, and goes
+/// with the other files the LOTL no longer leads to once none is.
+#[test]
+fn a_file_kept_for_a_reference_stays_while_the_reference_is_given() {
+    let lists = host(vec![(
+        stored_name(AT_MIRROR),
+        member("AT", MEMBER_KEY).into_bytes(),
+    )]);
+    let served = served_with_mirror(member("AT", MEMBER_KEY));
+    let (given, _) = run_with(&lists, &[AT_MIRROR], &served);
+    assert!(given.expect("a refresh").remove.is_empty());
+    let (not_given, _) = run(&lists, &served);
+    assert_eq!(
+        not_given.expect("a refresh").remove,
+        [stored_name(AT_MIRROR)]
     );
 }

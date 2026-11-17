@@ -625,7 +625,8 @@ impl Lists {
     /// TS 119 615 clauses 4.1 and 4.2 run where the host supplied the list of trusted lists or a
     /// parameter of GPR-4.0-02's ([`authentication`]), at `at`; a list they do not authenticate is
     /// refused with [`TrustedListError::NotAuthenticated`], and the lists of territory `EU` (the
-    /// list of trusted lists and its pivots) are clause 4.1's inputs and not searched. Where the
+    /// list of trusted lists and its pivots) are clause 4.1's inputs and not searched; a list a
+    /// host stored from a location the LOTL does not point at is [`Reading::referenced`]. Where the
     /// host supplied neither, every list that reads is returned as
     /// [`Authentication::VouchedForByTheHost`].
     #[must_use]
@@ -676,7 +677,17 @@ impl Lists {
                             if !outcome.sub_status.is_empty() {
                                 reading.warnings.push((name.clone(), outcome));
                             }
-                            reading.push(name, list);
+                            // PRO-4.2.4-03 and -04 obtain a Member State's list from its
+                            // pointer's location alone, so a copy a host stored from another —
+                            // a policy's reference (ADR 2932) — is not clause 4.2's output and
+                            // is not searched; it answers the reference.
+                            if authentication::is_stored(name)
+                                && !authentication::is_pointed_at(&authenticated.list, name)
+                            {
+                                reading.referenced.push((name.clone(), list));
+                            } else {
+                                reading.push(name, list);
+                            }
                         }
                         Err(outcome) => reading
                             .refused
@@ -716,6 +727,11 @@ pub struct Reading {
     /// 4.1's input and not searched for a signer's issuer, but the list a policy may reference
     /// (ETSI TS 119 172-2 clause 4.22.2.1 b)).
     authenticated_lotl: Option<(String, TrustedList)>,
+    /// The Member States' lists a host stored from a location the authenticated list of trusted
+    /// lists does not point at, with the host's name for each: authenticated by clause 4.2's
+    /// checks of their signer, and held only for the policy reference that named the location
+    /// (ADR 2932), since clause 4.2 obtains a list from its pointer's location alone.
+    referenced: Vec<(String, TrustedList)>,
 }
 
 impl Reading {
@@ -728,6 +744,14 @@ impl Reading {
     /// Each list that read and was authenticated, with the host's name for it.
     pub fn named(&self) -> impl Iterator<Item = (&str, &TrustedList)> {
         self.names.iter().map(String::as_str).zip(&self.lists)
+    }
+
+    /// Each list held only for a policy's reference to the location it was stored from, with the
+    /// host's name for it: authenticated, and never searched for a signer's issuer (ADR 2932).
+    pub fn referenced(&self) -> impl Iterator<Item = (&str, &TrustedList)> {
+        self.referenced
+            .iter()
+            .map(|(name, list)| (name.as_str(), list))
     }
 
     /// The list of trusted lists clause 4.1 authenticated, with the host's name for it.

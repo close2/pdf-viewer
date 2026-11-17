@@ -17,6 +17,10 @@
 //!   pointer locates — fetched only after clause 4.1 passed over what was fetched, because
 //!   PRO-4.2.4-02 stops clause 4.2 where the LOTL is not authenticated.
 //!
+//! - TS 119 172-2 clause 4.22.2.1 b): each list a signature policy's `TAsInTrustedList`
+//!   references where it is none of the above ([`refresh_with`]), last and only after clause 4.1
+//!   passed (ADR 2932).
+//!
 //! # Nothing fetched is kept before it is authenticated
 //!
 //! Clause 4.1 runs over the host's files with the fetched ones in front of them; where it fails,
@@ -38,7 +42,8 @@
 //! LOTL against a set the clause replaced — and the reason is said.
 
 use super::authentication::{
-    self, Configuration, OJEU_LOC, OJEU_LOTL_CERTS_SET, OJEU_LOTL_LOC, Outcome, stored_name,
+    self, Configuration, OJEU_LOC, OJEU_LOTL_CERTS_SET, OJEU_LOTL_LOC, Outcome, is_stored,
+    stored_name,
 };
 use super::{Lists, TrustedList, XML_MIME_TYPE};
 use crate::x509::Instant;
@@ -76,6 +81,13 @@ pub enum Fate {
     NameTooLong,
     /// Not asked for: [`MAX_FETCHES`] locations had been.
     PastTheBound,
+    /// Not asked for: a policy's reference whose scheme is not `http` or `https`, the two a
+    /// host's transport carries (ADR 1728).
+    NotHttp,
+    /// Fetched for a policy's reference, and a list of trusted lists: clause 4.1 authenticates
+    /// one only as obtained from `OJEU-LOTL-Loc`, so no clause authenticates this one and nothing
+    /// is kept.
+    NoProcedure,
 }
 
 impl std::fmt::Display for Fate {
@@ -96,6 +108,13 @@ impl std::fmt::Display for Fate {
                 formatter,
                 "not fetched: {MAX_FETCHES} locations had been asked for already"
             ),
+            Self::NotHttp => formatter.write_str(
+                "not fetched: a signature policy names it, and its scheme is not http or https",
+            ),
+            Self::NoProcedure => formatter.write_str(
+                "fetched and not kept: it is a list of trusted lists, which ETSI TS 119 615 \
+                 clause 4.1 authenticates only as obtained from OJEU-LOTL-Loc",
+            ),
         }
     }
 }
@@ -106,7 +125,8 @@ pub struct Location {
     /// The URI.
     pub uri: String,
     /// The scheme territory the pointer names, for a Member State's list; `EU` for the LOTL and
-    /// the files clause 4.1 obtains.
+    /// the files clause 4.1 obtains; for a policy's reference, the territory the fetched list
+    /// states, empty where none was read.
     pub territory: String,
     /// What became of it.
     pub fate: Fate,
@@ -162,12 +182,6 @@ fn overlaid(lists: &Lists, inputs: &[(String, Vec<u8>)]) -> Lists {
         }
     }
     Lists::of(files, lists.source().to_owned())
-}
-
-/// Whether a host's file is one a host stored from a location: a [`stored_name`] of an `http` or
-/// `https` URI, which no name a person gives a file by hand begins with.
-fn is_stored(name: &str) -> bool {
-    name.starts_with("https%3A%2F%2F") || name.starts_with("http%3A%2F%2F")
 }
 
 /// The locations clause 4.1 obtains from the LOTL beyond the LOTL itself: the pivots of
@@ -232,6 +246,33 @@ pub fn refresh(
     at: Instant,
     obtain: &mut Obtain<'_>,
 ) -> Result<Refresh, RefreshRefusal> {
+    refresh_with(lists, at, &[], obtain)
+}
+
+/// [`refresh`], and then each list in `references` that the clauses did not already obtain: the
+/// `TLReference` (TS 119 172-3's `uri`) of a signature policy's `TAsInTrustedList`, whose trust
+/// anchors TS 119 172-2 clause 4.22.2.1 b) step 1 determines from the certificates of the list
+/// referenced — which this program can only read once it is obtained from the location the policy
+/// gives (ADR 2932).
+///
+/// A reference is a document's word, so the host asks the person with its locations named before
+/// it hands them here, at the level it asks for every fetch a signature makes (ADR 1728); a
+/// reference that is not `http` or `https` is not asked for at all. Each is fetched only after
+/// clause 4.1 passed, and kept only where it is believed as every list is (ADR 2842): a Member
+/// State's list where clause 4.2's checks of its signer pass under the authenticated LOTL's
+/// pointer for its territory, never a list of trusted lists, which clause 4.1 authenticates only
+/// from `OJEU-LOTL-Loc`. A file kept from a reference is spared the removal of files the LOTL no
+/// longer leads to for as long as a refresh is given the reference.
+///
+/// # Errors
+///
+/// As [`refresh`].
+pub fn refresh_with(
+    lists: &Lists,
+    at: Instant,
+    references: &[String],
+    obtain: &mut Obtain<'_>,
+) -> Result<Refresh, RefreshRefusal> {
     let configuration = Configuration::of(lists);
     if configuration.certificates.is_empty() {
         return Err(RefreshRefusal::NoOfficialJournalCertificates);
@@ -262,6 +303,14 @@ pub fn refresh(
         .map(|(uri, octets)| (stored_name(uri), octets.clone()))
         .collect();
     member_states(&authenticated, at, &mut fetcher, &mut locations, &mut store);
+    referenced(
+        &authenticated,
+        at,
+        references,
+        &mut fetcher,
+        &mut locations,
+        &mut store,
+    );
     let planned: Vec<String> = locations
         .iter()
         .map(|location| stored_name(&location.uri))
@@ -367,6 +416,53 @@ fn member_states(
         locations.push(Location {
             uri,
             territory: pointer.territory.clone().unwrap_or_default(),
+            fate,
+        });
+    }
+}
+
+/// TS 119 172-2 clause 4.22.2.1 b)'s references the clauses did not obtain, each once: fetched,
+/// and kept only where clause 4.2's checks pass on it by its territory.
+fn referenced(
+    authenticated: &authentication::AuthenticatedLotl,
+    at: Instant,
+    references: &[String],
+    fetcher: &mut Fetcher<'_, '_>,
+    locations: &mut Vec<Location>,
+    store: &mut Vec<(String, Vec<u8>)>,
+) {
+    for uri in references {
+        if locations.iter().any(|location| location.uri == *uri) {
+            continue;
+        }
+        let mut territory = String::new();
+        let fate = if uri.starts_with("https://") || uri.starts_with("http://") {
+            match fetcher.fetch(uri) {
+                Err(fate) => fate,
+                Ok(octets) => match TrustedList::read(&octets) {
+                    Err(error) => Fate::Unreadable(error.to_string()),
+                    Ok(list) if list.territory == "EU" => {
+                        territory = list.territory;
+                        Fate::NoProcedure
+                    }
+                    Ok(mut list) => {
+                        territory.clone_from(&list.territory);
+                        match authentication::member_state(&mut list, &octets, authenticated, at) {
+                            Ok(_) => {
+                                store.push((stored_name(uri), octets));
+                                Fate::Kept
+                            }
+                            Err(outcome) => Fate::NotAuthenticated(outcome),
+                        }
+                    }
+                },
+            }
+        } else {
+            Fate::NotHttp
+        };
+        locations.push(Location {
+            uri: uri.clone(),
+            territory,
             fate,
         });
     }

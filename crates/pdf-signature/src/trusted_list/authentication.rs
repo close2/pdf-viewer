@@ -201,6 +201,21 @@ pub(super) fn is_obtained_from(name: &str, uri: &str) -> bool {
     name == stored_name(uri) || name == file_name(uri)
 }
 
+/// Whether a host's file is one a host stored from a location: a [`stored_name`] of an `http` or
+/// `https` URI, which no name a person gives a file by hand begins with.
+pub(super) fn is_stored(name: &str) -> bool {
+    name.starts_with("https%3A%2F%2F") || name.starts_with("http%3A%2F%2F")
+}
+
+/// Whether the file a host stored as `name` was obtained from a location one of `lotl`'s
+/// pointers names: PRO-4.2.4-03 and -04's `EUTL-Loc`, the only location clause 4.2 obtains a
+/// Member State's list from.
+pub(super) fn is_pointed_at(lotl: &TrustedList, name: &str) -> bool {
+    lotl.pointers
+        .iter()
+        .any(|pointer| stored_name(&pointer.location) == name)
+}
+
 /// The last path segment of a URI: the name a copy saved from it carries.
 pub(super) fn file_name(uri: &str) -> &str {
     let path = uri.split(['?', '#']).next().unwrap_or(uri);
