@@ -1900,6 +1900,18 @@
       "failed": 0,
       "exit": 0,
       "scope": "X11 actual-window transition sequence, not Cargo tests; default-mode hardware provenance not retained"
+    },
+    {
+      "log": "bpc-warichu-wave73c.log",
+      "tests": 3,
+      "passed": 2,
+      "failed": 1,
+      "scope": "BPC state plus Warichu split controls; new B56 failure"
+    },
+    {
+      "log": "quality-model-transform-wave73b.log",
+      "exit": 0,
+      "scope": "model/transform all-targets Clippy"
     }
   ],
   "prior_expected_failures": {

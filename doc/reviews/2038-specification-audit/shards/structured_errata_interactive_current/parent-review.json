@@ -1,0 +1,5 @@
+{
+  "source": "EC3 primary c7d4ec236794558d48205394d499a9791575b5f5794e39377382e633846a6f80; physical page numbers are one-based.",
+  "review": "Parent mapped StrikeOut5349 quadrilaterals to physical513 text: entire missing-AP Screen sentence deleted by #42. Both ledger12.5.1 and12.5.6.18 retain it. Current annotation/appearance comments and ADR2818 section7 already qualify ADR0901; D49 is stale ledger evidence, not a new code or current ADR policy defect. #176 permits application/fdf and deprecated application/vnd.fdf. #685 deletes only scope qualifier; Required survives. #386 is Push-buttons and deleting V/DV prohibition does not itself make their presence invalid.",
+  "execution": "No new execution; current named assertions and parent prior runs cited with their limits."
+}

@@ -1,0 +1,40 @@
+{
+  "baseline": "b901326c",
+  "selected_prior_decisions": [
+    {
+      "source": "public_key_encryption_current / ADR 2802",
+      "review": "Supported: Table 27 raw CMS recipient bytes are kept as bytes and consumed by key derivation; the actual s5 and stream-own-recipient fixtures exercise plaintext recovery. EC3 #16 is correctly described as a Table 27 representation repair and must not be conflated with Table 23's array shape.",
+      "limit": "No complete Table 27 malformed-shape matrix was reviewed."
+    },
+    {
+      "source": "public_key_encryption_current / ADR 2810",
+      "review": "Consistent with the reviewed distinction between a document-level recipient array and the stream-local Table 27 CMS string. Keep the known gap that a V5 stream-own-recipient witness was not found; #16 does not close that gap.",
+      "limit": "This review does not establish all crypt-filter authorization timing cases."
+    },
+    {
+      "source": "standard_security_algorithms_current / ADR 0253",
+      "review": "The #24 interpretation is correct when scoped to ECB: the Perms block uses AES-256 ECB with no IV. The separate key-wrap helper uses AES-CBC with a zero IV as specified; do not apply this erratum to CBC.",
+      "limit": "Only the source/code paths and named unit assertions were sampled; no independent crypto library rerun occurred."
+    },
+    {
+      "source": "signatures_current / signature SubFilter scope",
+      "review": "The reviewed code recognizes legacy signature SubFilter forms, and the signature audit correctly separates PDF 2 processor behavior from producer/version claims. #219's corrected PDF version labels do not license rejecting those values in a later-version reader.",
+      "limit": "I did not find or run an explicit integration matrix pairing each corrected legacy SubFilter with every stated PDF version."
+    },
+    {
+      "source": "errata_early_residual_current / #114 draft",
+      "review": "The integrated valid-input test cross_references::object_stream_dictionary_values_may_reference_uncompressed_objects parent-ran PASS with the direct-value control. It checks only indirect-uncompressed /N, /First, and /Length; do not infer all ObjStm dictionary cases from it or turn it into a rejection rule for malformed values.",
+      "limit": "No other ObjStm dictionary entry representation was reviewed here."
+    },
+    {
+      "source": "dual default-filter follow-up / draft candidate B57",
+      "review": "Table 20 permits distinct StmF and StrF names; Table 27 requires recipient arrays for filters named by either default; Table 25 associates a key with each crypt-filter name. ADR 2802's current location rule (StrF only if StmF is Identity) is narrower than those source statements. The test draft adds a distinct-key positive and a shared-default positive control and independently checks CMS/AES fixture plaintext with OpenSSL. Parent execution/review is still required before promoting a finding.",
+      "limit": "The b901326c reader was inspected statically, not run on these generated fixtures by this shard. qpdf exits at unsupported Adobe.PubSec and is not counted as a syntax validator."
+    }
+  ],
+  "interpretation_boundaries": [
+    "An effective EC3 correction may add a producer validity rule without creating a mandatory reader rejection rule.",
+    "A clause/table version label corrected by errata is not itself an instruction to gate reader processing on the document's declared PDF version.",
+    "A citation to a test file or broad feature row is not treated as proof of the precise erratum case unless the assertion body exercises that case."
+  ]
+}

@@ -2373,5 +2373,39 @@
     "summary": "Different predictor and image bit depths now have a valid multi-filter image fixture with independent exact pixel oracles.",
     "execution": "One testPASS with filtered/raw controls; model/core ClippyPASS.",
     "limits": "Predictor8 describes intermediate ASCIIHex text; final image1 describes packed grayscale samples. No malformed producer-rejection rule inferred."
+  },
+  {
+    "id": "2038-B56",
+    "kind": "behavior-gap",
+    "clauses": [
+      "L",
+      "14.8.4.7.3",
+      "14.7.5.4"
+    ],
+    "summary": "Successful page split drops contentless Warichu WP boundary elements, changing required WP/WT/WP into WT.",
+    "execution": "Empty-boundary regression FAIL; with-text control PASS. Source/output exact xref and complete content interpretation asserted.",
+    "limits": "Valid-source premise: Table355 K optional and Table369 WP text typical. No empty array or page-spanning WT. Assertion expects successful preservation; future explicit refusal requires its own contract."
+  },
+  {
+    "id": "2038-D49",
+    "kind": "stale-ledger-source",
+    "clauses": [
+      "12.5.1",
+      "12.5.6.18"
+    ],
+    "summary": "Ledger retains missing-AP Screen prohibition fully deleted by EC3 #42.",
+    "evidence": "StrikeOut5349 physical513/printed498. Current code and ADR2818 section7 already qualify historical ADR0901.",
+    "disposition": "Correct source rationale; deletion alone imposes no replacement fallback behavior. Separate from D35 RichMedia and D40 rendition scope."
+  },
+  {
+    "id": "2038-T95",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "8.4.5",
+      "8.6.5.9"
+    ],
+    "summary": "Omitted UseBlackPtComp in a later gs now has an explicit state-preservation assertion.",
+    "execution": "OFF then LW-only gs matches OFF control, distinct from ON black endpoint; PASS. Model/transform Clippy PASS.",
+    "limits": "Synthetic supported ICC state route; not complete ICC profile conformance."
   }
 ]

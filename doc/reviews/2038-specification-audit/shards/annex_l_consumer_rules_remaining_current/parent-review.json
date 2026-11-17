@@ -1,0 +1,5 @@
+{
+  "source": "EC3 primary c7d4ec236794558d48205394d499a9791575b5f5794e39377382e633846a6f80; physical page numbers are one-based.",
+  "review": "Retain narrow synthetic Document wrapper, namespace and archive PDF1.7 findings. Withdraw inference that no new edges means no missing writer test: pruning can violate sequence/cardinality. B56 is a concrete valid-input counterexample under the documented absent-K premise. No generic malformed-tree reader rejection duty inferred.",
+  "execution": "See annex_l_split_cardinality_current and warichu_split_spec_audit; one FAIL, one positive control PASS. Full matrix remains unaudited."
+}

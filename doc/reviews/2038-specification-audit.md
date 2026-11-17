@@ -11,11 +11,11 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (72)
+## Current checkpoint (73)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
-failure manifest contains **80 assertions**, grouped into behavior findings rather
-than 80 independent defects. B08 and B42 remain unresolved interpretation/policy
+failure manifest contains **81 assertions**, grouped into behavior findings rather
+than 81 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
 The refreshed broad run, wave64, covered eleven crates: **7,218 tests ran, 7,142 passed,
 and exactly the 76 recorded in-scope assertions failed; 58 were skipped**.
@@ -180,6 +180,14 @@ The69 broad file references are reconciled: all have named siblings, and three
 sampled rows contain five of those references. Silent-skip follow-up preserves
 existing findings and their limits. No new runtime failure is added. Broad64 now
 predates11 new broad-scope passing tests; native checks are recorded separately.
+
+Checkpoint73 adds a split-preservation failure: Warichu's required WP/WT/WP
+sequence becomes WT when the boundary elements omit optional K. The text-bearing
+boundary control passes; the source-validity premise and successful-split contract
+are explicit. An omitted black-point-compensation gs control also passes. Model and
+transform Clippy pass. The manifest now holds81 assertions; broad64 predates this
+failure and13 subsequent passing tests. The Screen ledger still quotes a sentence
+deleted by #42, although current code and ADR2818 already qualify that old rule.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

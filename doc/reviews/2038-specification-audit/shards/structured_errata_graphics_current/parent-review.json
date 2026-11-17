@@ -1,0 +1,5 @@
+{
+  "source": "EC3 primary c7d4ec236794558d48205394d499a9791575b5f5794e39377382e633846a6f80; physical page numbers are one-based.",
+  "review": "Parent inspected five primary overlays and actual tests. #309 invalid NChannel/None fixture was already qualified. #371 retains ignore permission; equal rasters alone are bounded. #551 resource-name case has independent literal control. #640 changes spelling, retaining one-minus-gray.",
+  "execution": "T95 omitted UseBlackPtComp gs test PASS. Explicit OFF then LW-only gs equals OFF control and differs from ON black endpoint. Synthetic ICC header is not a complete profile conformance certificate; this tests supported state behavior. Model/transform Clippy PASS."
+}

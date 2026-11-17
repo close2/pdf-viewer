@@ -1,0 +1,16 @@
+{
+  "reviews": [
+    {
+      "decision": "NChannel simulation",
+      "assessment": "Reaffirm previous special-colour parent disposition and owner-controlled simulation. Invalid NChannel/None control remains robustness evidence, not a mandatory producer case."
+    },
+    {
+      "decision": "Ignore flatness",
+      "assessment": "Source expressly permits this; retained. Curve fidelity relies on independent scan conversion tests, not solely identical outputs across ignored values."
+    },
+    {
+      "decision": "Classic colour conversion",
+      "assessment": "10.4.2.1 conditional branch remains. Gray variable spelling does not alter arithmetic; independent literal tests support used conversions."
+    }
+  ]
+}

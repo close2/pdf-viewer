@@ -1,0 +1,66 @@
+{
+  "selected_reviews": [
+    {
+      "issue": "#42 + #94",
+      "related_current_review": "annotation_remaining_current; rendition_preconditions_current",
+      "decision": "Do not repeat the prior Screen/Projection behavioral review. Correct the effective-source citation in the §12.5.6.18 ledger note: the quoted absent-AP sentence is struck by #42 at physical 513/printed 498. Its removal does not by itself mandate a fallback appearance or render/print behavior when the producer omits AP. The rendition precondition sentence on the same page (Screen /P valid-page and page-Annots membership) is untouched. On Projection, #42 removes the zero-rectangle AP prohibition and #94 adds the runtime-context/AP-not-required rationale; no 3D runtime behavior follows from these corrections.",
+      "source_check": "Primary PDF annotation objects: #42 p513 obj 5349; #42 p520 obj 13474; #94 p520 obj 13478. All are PDF Association completed notes/replies. The target words were independently mapped from StrikeOut quads and viewed on the rendered source page.",
+      "test_review": "Existing screen stored-AP and rendition precondition evidence is in the dedicated annotation/rendition shards. No valid producer witness or mandatory behavior for absent Screen AP was established by the removed text, so no synthetic failing test is warranted."
+    },
+    {
+      "issue": "#386",
+      "related_current_review": "interactive_framing_current; forms_buttons_choices_current; ledger §12.7.5.2.2",
+      "decision": "Correct the prior aggregate wording that #386 concerns check-boxes: the actual overlay is on §12.7.5.2.2 Push-buttons and removes the sentence forbidding /V and /DV. This is deletion of a producer restriction with no replacement. Preserve the surviving no-permanent-value definition; it does not make push-buttons value fields. The current ledger's Push-buttons row attributes the issue to the right subtype and has no obsolete reject rule.",
+      "source_check": "Physical 551 / printed 536, StrikeOut object 5705 over the Push-buttons text; completion reply object 5706.",
+      "test_review": "The current no-permanent-value and appearance tests are appropriate for normal button semantics. They do not test an invalid producer putting /V or /DV on a push-button, but no reader-refusal requirement is supplied by the correction, so absence of such a test is not a conformance defect."
+    },
+    {
+      "issue": "#33",
+      "related_current_review": "field_mdp_identity_current; qualified_failure_second_review_current; B42",
+      "decision": "Use the already qualified disposition: fully qualified FieldMDP field names are source-derived; cross-revision identity after /T mutation is unresolved and not a confirmed ISO failure. Do not duplicate the prior no-authenticated-signature fixture review.",
+      "source_check": "Two Carets in Table 259 /Fields on physical 592 / printed 577.",
+      "test_review": "Existing exact-xref structural comparison case is not authenticated; current signature/finding artifacts already state its limit."
+    },
+    {
+      "issue": "#131 and #55",
+      "related_current_review": "forms_remaining_current; signatures_transforms B18; signature_framing_current",
+      "decision": "Retain the separate scopes. #131 adds a narrow DSS/DTS-only carve-out to the FieldMDP /P comparison; it is not DocMDP's rule. #55 says approval signatures follow certification signatures in the producer sequence, but the insertion alone does not establish a reader rejection or report mandate. No duplicate signature finding or fixture is warranted here.",
+      "source_check": "#131 Caret on physical 560 / printed 545; #55 Caret on physical 583 / printed 568.",
+      "test_review": "The signed transform shard owns the public DocMDP/DTS comparison. Signature framing explicitly treats #55 as a producer order condition."
+    },
+    {
+      "issue": "#121",
+      "related_current_review": "signature_framing_current; signature parser",
+      "decision": "The correction removes only 'inheritable'; Filter remains required. `pdf-signature::read` obtains Filter directly from the signature dictionary and does not walk field parents. This matches the effective locator. Do not extend the producer requirement into an unsupported malformed-signature rejection claim.",
+      "source_check": "Table 255 on physical 584 / printed 569, StrikeOut object 13994 over 'inheritable'.",
+      "test_review": "Existing signature fixtures state Filter directly. No dedicated field-parent Filter fixture was found or needed to demonstrate current code does not inherit."
+    },
+    {
+      "issue": "#176 and #685",
+      "related_current_review": "FDF consumers and import tests",
+      "decision": "#176 permits both application/fdf and application/vnd.fdf producer spellings, and identifies application/vnd.fdf as deprecated. Both are already exercised through FDF import. #685 deletes only the scope qualifier 'for annotations in FDF files)' from the Page row; Required survives, and the table title already scopes the row to FDF annotation dictionaries. Do not infer broader Page use or removal of the Required status.",
+      "source_check": "#176 caret and IANA note on physical 572 / printed 557. #685 strike on physical 582 / printed 567.",
+      "test_review": "viewer-host submit response tests iterate both literal FDF_TYPES entries. The FDF annotation import model already tests Page ordinal routing."
+    },
+    {
+      "issue": "#54 and #477",
+      "related_current_review": "collections; interactive framing",
+      "decision": "#54 removes a stray zero from 'attribute' in §12.7.9 and adds no semantics. #477 renumbers/demotes published §12.3.6 to effective §12.3.5.3; collection review already handles that locator and the separate host Schema-cell gap. Do not create a second behavior claim from these references.",
+      "source_check": "#54 StrikeOut on physical 582 / printed 567. #477 StrikeOut/Caret pair on physical 471 / printed 456, with Caret replacement heading and an editor note that all of the old clause moved.",
+      "test_review": "Typographical change has no behavior test. Existing navigator selection and collection-host tests are reviewed in the dedicated collections shard."
+    }
+  ],
+  "new_findings": [
+    {
+      "id": "source-ledger mismatch on Screen missing-AP rule",
+      "current_ledger_location": "doc/conformance/ledger.toml, §12.5.6.18 nested in §12.5.1 note",
+      "evidence": "Current ledger calls 'If AP is not present, the screen annotation shall not have a default visual appearance and shall not be printed' an effective reader-facing requirement and says drawing nothing satisfies it. EC3 #42 physically strikes that entire sentence at p513/printed 498.",
+      "disposition": "stale source claim; should be corrected or qualified when parent reconciles the parent annotation row. This audit does not infer a different mandatory fallback/print behavior from the deletion."
+    },
+    {
+      "id": "misattributed subtype for #386 in interactive framing scratch",
+      "evidence": "interactive_framing_current calls #386 a check-box V/DV correction, but the primary StrikeOut is on §12.7.5.2.2 Push-buttons and removes its /V,/DV prohibition.",
+      "disposition": "correct wording in any durable promotion; no new behavior issue."
+    }
+  ]
+}

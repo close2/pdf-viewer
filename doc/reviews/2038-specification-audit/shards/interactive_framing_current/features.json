@@ -43,8 +43,8 @@
       },
       {
         "issue": "#386",
-        "clause": "12.7.5.2.3 checkboxes",
-        "effect": "Removes the sentence prohibiting V/DV for check boxes; parent leaf shard owns updated behavior."
+        "clause": "12.7.5.2.2 Push-buttons",
+        "effect": "Removes the sentence prohibiting V/DV for push-buttons; parent leaf shard owns updated behavior."
       },
       {
         "issue": "#187",
@@ -158,7 +158,7 @@
       "title": "Field types; General; Button fields General",
       "source_feature": "The field-type overview distinguishes button, text, choice and signature controls. Button overview describes push, checkbox and radio behavior, and requires the processor to follow relevant button flags. These are actual behavioral summaries, not empty headings.",
       "ledger": "Field-type and button rows are implemented; each control subtype has its own row.",
-      "code_assertions": "`forms_buttons_choices_current` has public headless tests for radio selection/exclusive state, NoToggleToOff, RadiosInUnison, checkbox state and push-button behavior; text/choice and signature fields are separate sibling owners. EC3 #386 changes checkbox V/DV producer wording; the active shard records current handling.",
+      "code_assertions": "`forms_buttons_choices_current` has public headless tests for radio selection/exclusive state, NoToggleToOff, RadiosInUnison, checkbox state and push-button behavior; text/choice and signature fields are separate sibling owners. EC3 #386 deletes the push-button V/DV prohibition; the active shard records current handling.",
       "verdict": "Overview-level button semantics have differentiated user-visible control tests. Do not infer full field-form support from static parsing or the broad implemented aggregate.",
       "residuals": [
         "Rich text layout and signed-field seed values have separate limitations/departures; no all-control matrix repeated here."

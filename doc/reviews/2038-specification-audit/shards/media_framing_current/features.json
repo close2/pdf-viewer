@@ -16,9 +16,9 @@
   {
     "clause": "12.5.6.18",
     "source_location": "physical512\u2013513/printed497\u2013498;Table190",
-    "source_requirement": "A Screen without AP has no default appearance or printing. A rendition requires P to reference a valid page and that page to list the annotation.",
+    "source_requirement": "EC3 #42 deletes the old missing-AP Screen appearance/printing prohibition; current fallback is reader policy (ADR2818 section7). A rendition requires P to reference a valid page and that page to list the annotation.",
     "assertion_review": "The existing no-appearance test covers model appearance. The public missing-Annots control checks no Media event and the corresponding diagnostic. Primary page513/498 explicitly states both preconditions.",
-    "limits": "D40: the ledger still calls rendition actions out of scope and the P duty vacated, although current12.6.4.14 is implemented. Precondition/script follow-up is separate; D35 owns the earlier appearance-comment issue."
+    "limits": "D40: the ledger still calls rendition actions out of scope and the P duty vacated, although current12.6.4.14 is implemented. Precondition/script follow-up is separate; D49 records the stale Screen ledger quote; D35 concerns a separate RichMedia comment."
   },
   {
     "clause": "12.6.4.9",

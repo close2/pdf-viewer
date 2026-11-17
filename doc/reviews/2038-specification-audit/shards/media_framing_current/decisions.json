@@ -13,6 +13,6 @@
   },
   {
     "adr": "0901/0897/1105",
-    "decision": "Screenappearance duty and missingAPbehavior remain separate from renditionPprecondition. Ledger Pvacatedrationale is obsolete. Existing D35 owns appearancecomment qualification."
+    "decision": "Screenappearance duty and missingAPbehavior remain separate from renditionPprecondition. Ledger Pvacatedrationale is obsolete. D49 owns the stale Screen ledger quote; current comments are already qualified by ADR2818 section7."
   }
 ]

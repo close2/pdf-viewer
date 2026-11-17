@@ -3,6 +3,79 @@
   "numbering": "Logical content items use published ledger owners14.7.5.1.1/.2/.3/.4 for effective EC3 .2/.3/.4/.5; navigator owner12.3.6 maps effective12.3.5.3. JBIG2 external Annex D is not ISO PDF Annex D.",
   "shards": [
     {
+      "shard": "structured_errata_graphics_current",
+      "artifact": "shards/structured_errata_graphics_current/features.json",
+      "ledger_owners": [
+        "8.6.6.5",
+        "8.4.5",
+        "8.6.5.9",
+        "8.4.1",
+        "10.7.2",
+        "8.6.8",
+        "10.4.2.2",
+        "10.4.2.3"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "structured_errata_security_current",
+      "artifact": "shards/structured_errata_security_current/features.json",
+      "ledger_owners": [
+        "7.6.5.2",
+        "7.6.5.3",
+        "7.6.4.3.3",
+        "7.5.7",
+        "7.7.3.3",
+        "7.7.2",
+        "12.8.1"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "structured_errata_interactive_current",
+      "artifact": "shards/structured_errata_interactive_current/features.json",
+      "ledger_owners": [
+        "12.5.1",
+        "12.5.6.18",
+        "12.5.6.6",
+        "12.5.6.24",
+        "12.3.5",
+        "12.7.5.2.2",
+        "12.7.5.5",
+        "12.7.6.2",
+        "12.7.8.3.3",
+        "12.8.1",
+        "12.8.2.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annex_l_split_cardinality_current",
+      "artifact": "shards/annex_l_split_cardinality_current/features.json",
+      "ledger_owners": [
+        "L",
+        "14.8.4.7.3",
+        "14.7.2",
+        "14.7.5.2",
+        "14.7.5.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
+      "shard": "annex_l_consumer_rules_remaining_current",
+      "artifact": "shards/annex_l_consumer_rules_remaining_current/features.json",
+      "ledger_owners": [
+        "L",
+        "14.8.4.2",
+        "14.8.6.1",
+        "14.8.6.2",
+        "14.7.2",
+        "14.7.3",
+        "14.7.5.4"
+      ],
+      "limit": "Partial scope only; see feature-level verdicts, controls, residuals and parent findings. Execution is separately recorded in gate-results.json."
+    },
+    {
       "shard": "silent_fixture_skip_remaining_current",
       "artifact": "shards/silent_fixture_skip_remaining_current/features.json",
       "ledger_owners": [

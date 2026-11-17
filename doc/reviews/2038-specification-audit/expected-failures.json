@@ -483,6 +483,12 @@
       "test": "linearizing_pdf_1_1_refuses_or_raises_the_header_to_the_ec3_floor",
       "finding": "2038-B55",
       "log": "linearization-floor-wave63b.log"
+    },
+    {
+      "binary": "pdf-transform::warichu_split_spec_audit",
+      "test": "each_page_split_keeps_empty_warichu_boundary_elements",
+      "finding": "2038-B56",
+      "log": "bpc-warichu-wave73c.log"
     }
   ]
 }
