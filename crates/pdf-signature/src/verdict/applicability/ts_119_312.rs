@@ -31,13 +31,15 @@
 //!
 //! Clause 9's time periods are asked after it: clause 9.2's imprint hash of every time-stamp
 //! token taken as a time ([`Assessment::imprints`]), and clause 9.3's signer's key against its
-//! certificate's validity ([`Assessment::signer_key`]). Clause 9.5's other keys — a CA's, a
-//! revocation issuer's, a time-stamping unit's — are not asked, because the report is not handed
-//! the certificates of the path that validated (ADR 2927).
+//! certificate's validity ([`Assessment::signer_key`]), and clause 9.5's other keys — the
+//! authorities' on the path that validated, an OCSP responder's, a time-stamping unit's — against
+//! their own certificates' validity and against the keys they certify ([`Assessment::other_keys`],
+//! [`Assessment::certifications`], ADR 2928).
 
 use crate::cms::Digest;
 use crate::eddsa;
 use crate::signature::Family;
+use crate::trust::KeyParameters;
 use crate::x509::{self, Instant};
 
 /// The document the tables are from, as the report names it.
@@ -781,6 +783,110 @@ pub enum Issue {
     },
     /// The signer's certificate's validity did not read, so clause 9.3 could not be asked.
     ValidityNotRead,
+    /// Clause 9.5's *should*: a row of another key is legacy, and its phase-out falls inside the
+    /// period the key should resist over.
+    OtherKeyOutlived {
+        /// Whose key.
+        key: KeyRole,
+        /// The table whose row it is: 2, 3, 6 or 7.
+        rule: Rule,
+        /// The row's name for the component.
+        entry: &'static str,
+        /// Its class.
+        class: Class,
+        /// The end of the period: the latest `notAfter` of the key's certificate and of the
+        /// certificates relying on it.
+        until: Instant,
+    },
+    /// Clause 9.5: a component of another key that no row of the table lists, so the document
+    /// does not admit it and its period could not be asked.
+    OtherKeyNotListed {
+        /// Whose key.
+        key: KeyRole,
+        /// The table.
+        rule: Rule,
+    },
+    /// Clause 9.5: the validity of another key's certificate did not read, so its period could
+    /// not be asked.
+    OtherKeyValidityNotRead {
+        /// Whose key.
+        key: KeyRole,
+    },
+    /// Clause 9.5's *shall*: a certifying key's parameter is smaller than the corresponding
+    /// parameter of the key it certifies.
+    WeakerThanCertified {
+        /// The certifying key.
+        certifier: KeyRole,
+        /// The certified key.
+        certified: KeyRole,
+        /// Which parameter.
+        parameter: Parameter,
+        /// The certifying key's, in bits.
+        certifier_bits: usize,
+        /// The certified key's, in bits.
+        certified_bits: usize,
+    },
+    /// Clause 9.5: the two keys are of families whose parameters do not correspond, and the
+    /// document gives no measure across them, so "at least as strong" was not compared
+    /// (ADR 2928).
+    NotCompared {
+        /// The certifying key.
+        certifier: KeyRole,
+        /// The certified key.
+        certified: KeyRole,
+    },
+}
+
+/// Whose key clause 9.3 or 9.5 asks about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyRole {
+    /// The signer's, clause 9.3's subject, here only as a key another certifies.
+    Signer,
+    /// A certification authority's on the path that validated, by its position — the signer's
+    /// certificate being 0, its issuer 1 — and the issuer of the CRLs on the certificates it
+    /// issued, a CRL's issuer being the certificate's issuer here (`crate::revocation`).
+    CertificationAuthority {
+        /// Its position on the path.
+        position: usize,
+    },
+    /// The delegated responder an OCSP response about the signer's certificate names.
+    OcspResponder,
+    /// The time-stamping unit that signed a token taken as a time.
+    TimeStampingUnit,
+}
+
+/// A key's parameter clause 9.5 compares with the corresponding parameter of a certified key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Parameter {
+    /// An RSA modulus's length (Table 6).
+    Modulus,
+    /// A DSA key's `p` (Table 7).
+    Prime,
+    /// A DSA key's `q` (Table 7).
+    Subgroup,
+    /// An elliptic curve's key size (clause 6.2.2.3), for ECDSA, and `EdDSA`'s fixed one.
+    CurveKeySize,
+}
+
+/// One key clause 9.5 asks to resist, and the end of the period it asks over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OtherKey {
+    /// Whose key.
+    pub role: KeyRole,
+    /// The key.
+    pub key: KeyParameters,
+    /// The latest `notAfter` of its certificate and of the certificates relying on it; `None`
+    /// where its own certificate's validity did not read.
+    pub until: Option<Instant>,
+}
+
+/// One key certifying another, which clause 9.5 asks to be at least as strong.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Certification {
+    /// The certifying key.
+    pub certifier: (KeyRole, KeyParameters),
+    /// The key its certificate certifies.
+    pub certified: (KeyRole, KeyParameters),
 }
 
 /// What [`Assessment::of`] reads: the suite, and the two instants a phase-out is compared with.
@@ -991,6 +1097,179 @@ impl Assessment {
             })
             .collect();
         self.issues.extend(outlived);
+    }
+
+    /// Clause 9.5: "All other keys (TSU keys, CA keys, CRL issuer keys, OCSP responder keys)
+    /// should resist during the validity period of the associated certificate and the
+    /// certificates that rely on its validity."
+    ///
+    /// Asked as clause 9.3 is asked of the signer's key (ADR 2927): each of the key's rows —
+    /// Table 2's algorithm, Table 3's curve, Table 6's or Table 7's sizes — whose phase-out has
+    /// passed by [`OtherKey::until`] is [`Issue::OtherKeyOutlived`]; a component no row lists is
+    /// [`Issue::OtherKeyNotListed`], the document not admitting it; a certificate whose validity
+    /// did not read is [`Issue::OtherKeyValidityNotRead`]. The clause's *should* is a
+    /// recommendation, and h) asks for potential issues, so each is said as one.
+    pub fn other_keys(&mut self, keys: &[OtherKey]) {
+        for other in keys {
+            let Some(until) = other.until else {
+                self.issues
+                    .push(Issue::OtherKeyValidityNotRead { key: other.role });
+                continue;
+            };
+            for component in key_rows(other.key) {
+                let Some((entry, class)) = component.listed else {
+                    self.issues.push(Issue::OtherKeyNotListed {
+                        key: other.role,
+                        rule: component.rule,
+                    });
+                    continue;
+                };
+                if class.phased_out_from().is_some_and(|from| until >= from) {
+                    self.issues.push(Issue::OtherKeyOutlived {
+                        key: other.role,
+                        rule: component.rule,
+                        entry,
+                        class,
+                        until,
+                    });
+                }
+            }
+        }
+    }
+
+    /// Clause 9.5: "Their security parameters shall then be chosen at least as strong as the
+    /// corresponding parameters of the certified keys."
+    ///
+    /// Corresponding parameters exist within one family: an RSA modulus against an RSA modulus,
+    /// a DSA key's `p` and `q` against another's, an elliptic curve's key size against another
+    /// curve's under the same scheme. A certifier smaller in any is
+    /// [`Issue::WeakerThanCertified`]. Across families the document gives no per-key measure —
+    /// clause 3.1's security levels bound a class from below (a legacy mechanism at least 100
+    /// bits, a recommended one at least 125) and order no two keys — so the pair is
+    /// [`Issue::NotCompared`] rather than guessed (ADR 2928).
+    pub fn certifications(&mut self, pairs: &[Certification]) {
+        for pair in pairs {
+            let (issuer, issuer_key) = pair.certifier;
+            let (subject, subject_key) = pair.certified;
+            let Some(parameters) = corresponding(issuer_key, subject_key) else {
+                self.issues.push(Issue::NotCompared {
+                    certifier: issuer,
+                    certified: subject,
+                });
+                continue;
+            };
+            for (parameter, certifier_bits, certified_bits) in parameters {
+                if certifier_bits < certified_bits {
+                    self.issues.push(Issue::WeakerThanCertified {
+                        certifier: issuer,
+                        certified: subject,
+                        parameter,
+                        certifier_bits,
+                        certified_bits,
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// Table 2's row for a scheme.
+fn algorithm_row(scheme: Scheme) -> Option<(&'static str, Class)> {
+    SIGNATURE_ALGORITHMS
+        .iter()
+        .find(|row| row.schemes.contains(&scheme))
+        .map(|row| (row.name, row.class))
+}
+
+/// The key's rows: Table 2's algorithm, and Table 3's curve or Table 6's or Table 7's sizes —
+/// the components clause 9.3 asks of the signer's key (ADR 2927), read from the key alone. An
+/// RSA key whose padding was not seen has no Table 2 row to ask.
+fn key_rows(key: KeyParameters) -> Vec<Component> {
+    let row = |rule, listed| Component { rule, listed };
+    match key {
+        KeyParameters::Rsa { modulus_bits, pss } => pss
+            .map(|pss| {
+                row(
+                    Rule::SignatureAlgorithms,
+                    algorithm_row(if pss {
+                        Scheme::RsaPss
+                    } else {
+                        Scheme::RsaPkcs1v15
+                    }),
+                )
+            })
+            .into_iter()
+            .chain([row(
+                Rule::RsaKeySizes,
+                RSA_KEY_SIZES
+                    .iter()
+                    .find(|size| size.admits(modulus_bits, None))
+                    .map(|size| (key_size_entry(size), size.class)),
+            )])
+            .collect(),
+        KeyParameters::Dsa { p_bits, q_bits } => vec![
+            row(Rule::SignatureAlgorithms, algorithm_row(Scheme::Dsa)),
+            row(
+                Rule::DsaKeySizes,
+                DSA_KEY_SIZES
+                    .iter()
+                    .find(|size| size.admits(p_bits, Some(q_bits)))
+                    .map(|size| (key_size_entry(size), size.class)),
+            ),
+        ],
+        KeyParameters::Ecdsa(curve) => vec![
+            row(Rule::SignatureAlgorithms, algorithm_row(Scheme::Ecdsa)),
+            row(
+                Rule::Curves,
+                CURVES
+                    .iter()
+                    .find(|listed| listed.name == curve.name())
+                    .map(|listed| (listed.name, listed.class)),
+            ),
+        ],
+        KeyParameters::EdDsa(curve) => vec![row(
+            Rule::SignatureAlgorithms,
+            algorithm_row(Scheme::of(Family::EdDsa(curve))),
+        )],
+        _ => vec![row(Rule::SignatureAlgorithms, None)],
+    }
+}
+
+/// The corresponding parameters of two keys, certifier's first, or `None` where their families'
+/// parameters do not correspond.
+fn corresponding(
+    issuer: KeyParameters,
+    subject: KeyParameters,
+) -> Option<Vec<(Parameter, usize, usize)>> {
+    match (issuer, subject) {
+        (
+            KeyParameters::Rsa {
+                modulus_bits: a, ..
+            },
+            KeyParameters::Rsa {
+                modulus_bits: b, ..
+            },
+        ) => Some(vec![(Parameter::Modulus, a, b)]),
+        (
+            KeyParameters::Dsa {
+                p_bits: p,
+                q_bits: q,
+            },
+            KeyParameters::Dsa {
+                p_bits: certified_p,
+                q_bits: certified_q,
+            },
+        ) => Some(vec![
+            (Parameter::Prime, p, certified_p),
+            (Parameter::Subgroup, q, certified_q),
+        ]),
+        (KeyParameters::Ecdsa(a), KeyParameters::Ecdsa(b)) => {
+            Some(vec![(Parameter::CurveKeySize, a.bits(), b.bits())])
+        }
+        (KeyParameters::EdDsa(a), KeyParameters::EdDsa(b)) => {
+            Some(vec![(Parameter::CurveKeySize, a.bits(), b.bits())])
+        }
+        _ => None,
     }
 }
 

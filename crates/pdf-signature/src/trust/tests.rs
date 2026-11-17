@@ -14,7 +14,9 @@
 //! that change must produce. A sweep that only ever saw green would be a sentence about the test
 //! rather than about the algorithm.
 
-use super::{Material, PathRefusal, Revocation, Trust, TrustAnchor, TrustAnchors, validate};
+use super::{
+    CertifiedKey, Material, PathRefusal, Revocation, Trust, TrustAnchor, TrustAnchors, validate,
+};
 use crate::x509::{Certificate, Instant, parse};
 
 /// 2026-06-01T00:00:00Z, inside every fixture certificate's validity period.
@@ -354,11 +356,18 @@ fn a_chain_to_a_supplied_anchor_validates() {
     );
     let (root, mid, leaf) = (certificate(&root), certificate(&mid), certificate(&leaf));
     let anchors = TrustAnchors::of(&[root]);
+    // The keys are carried target first, the intermediate's padding read from the signer's
+    // certificate, which the intermediate's key signed (ADR 2928).
+    let keys = vec![
+        CertifiedKey::of(&leaf, None),
+        CertifiedKey::of(&mid, Some(leaf.signature_algorithm)),
+    ];
     assert_eq!(
         validate(&leaf, &[mid], &anchors, &Material::none(), WITHIN),
         Trust::Anchored {
             length: 2,
             revocation: Revocation::NotChecked,
+            keys,
         },
         "the signer and its one intermediate are RFC 5280 section 6.1's certificates 1 and 2"
     );
@@ -548,12 +557,15 @@ fn a_certificate_expired_at_the_clock_validates_at_an_instant_a_token_proved() {
     let proven = unproven.proven_at(WITHIN, Proof::ADocumentTimestamp);
     assert!(proven.is_proven());
     assert_eq!(proven.at(), WITHIN);
-    assert_eq!(
-        path(proven),
-        Trust::Anchored {
-            length: 2,
-            revocation: Revocation::NotChecked,
-        },
+    assert!(
+        matches!(
+            path(proven),
+            Trust::Anchored {
+                length: 2,
+                revocation: Revocation::NotChecked,
+                ..
+            }
+        ),
         "a token that proved the signature existed while the certificate was current anchors it"
     );
 
@@ -694,7 +706,7 @@ fn the_same_certificate_cannot_be_walked_twice() {
     // make the search do eight times the work; the answer and the count of what was examined are
     // both unchanged by the repetition.
     let repeated: Vec<Certificate<'_>> = std::iter::repeat_n(certificate(&mid), 8).collect();
-    assert_eq!(
+    assert!(matches!(
         validate(
             &certificate(&leaf),
             &repeated,
@@ -705,8 +717,9 @@ fn the_same_certificate_cannot_be_walked_twice() {
         Trust::Anchored {
             length: 2,
             revocation: Revocation::NotChecked,
-        },
-    );
+            ..
+        }
+    ));
 }
 
 #[test]

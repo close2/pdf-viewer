@@ -5027,12 +5027,15 @@ mod tests {
             .expect("the fixture certificate states a validity period")
             .not_before;
         let anchors = crate::trust::TrustAnchors::of(std::slice::from_ref(&anchor));
-        assert_eq!(
-            signature.trust(&anchors, &crate::revocation::Material::none(), at),
-            crate::trust::Trust::Anchored {
-                length: 1,
-                revocation: crate::revocation::Revocation::NotChecked,
-            },
+        assert!(
+            matches!(
+                signature.trust(&anchors, &crate::revocation::Material::none(), at),
+                crate::trust::Trust::Anchored {
+                    length: 1,
+                    revocation: crate::revocation::Revocation::NotChecked,
+                    ..
+                }
+            ),
             "the chain the clause puts in /Cert is the pool the path is built from"
         );
         // And the calibration: a root that issued nothing here reaches nothing, so the assertion

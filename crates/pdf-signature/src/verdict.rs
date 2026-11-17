@@ -50,7 +50,7 @@
 
 use crate::revocation::{Revocation, Undetermined};
 use crate::signature::{Authenticity, Integrity};
-use crate::trust::{PathRefusal, Trust};
+use crate::trust::{CertifiedKey, PathRefusal, Trust};
 use crate::x509::Instant;
 
 /// A certification path that reached an anchor a host supplied.
@@ -63,6 +63,7 @@ use crate::x509::Instant;
 pub struct Anchored {
     length: usize,
     revocation: Revocation,
+    keys: Vec<CertifiedKey>,
     standing: Standing,
 }
 
@@ -127,9 +128,14 @@ impl Anchored {
     #[must_use]
     pub fn of(trust: &Trust) -> Option<Self> {
         match trust {
-            Trust::Anchored { length, revocation } => Some(Self {
+            Trust::Anchored {
+                length,
+                revocation,
+                keys,
+            } => Some(Self {
                 length: *length,
                 revocation: revocation.clone(),
+                keys: keys.clone(),
                 standing: Standing::Local,
             }),
             _ => None,
@@ -162,6 +168,13 @@ impl Anchored {
     #[must_use]
     pub const fn revocation(&self) -> &Revocation {
         &self.revocation
+    }
+
+    /// The key and validity of each certificate on the path, target first and the anchor
+    /// excluded.
+    #[must_use]
+    pub fn keys(&self) -> &[CertifiedKey] {
+        &self.keys
     }
 }
 
@@ -401,6 +414,7 @@ pub enum Reservation {
 pub struct Valid {
     path_length: usize,
     revocation: Revocation,
+    keys: Vec<CertifiedKey>,
     when: BestSignatureTime,
     timestamps: Timestamps,
     standing: Standing,
@@ -411,6 +425,14 @@ impl Valid {
     #[must_use]
     pub const fn path_length(&self) -> usize {
         self.path_length
+    }
+
+    /// The key and validity of each certificate on that path, target first and the anchor
+    /// excluded: what ETSI TS 119 312 clause 9.5 asks of the authorities' keys
+    /// ([`applicability::Asked::path`]).
+    #[must_use]
+    pub fn keys(&self) -> &[CertifiedKey] {
+        &self.keys
     }
 
     /// What §12.8.4's material said about that path — a [`Revocation::Good`] this program computed,
@@ -580,6 +602,7 @@ impl Verdict {
         Self::Valid(Valid {
             path_length: anchored.path_length(),
             revocation: anchored.revocation().clone(),
+            keys: anchored.keys().to_vec(),
             when,
             timestamps,
             standing: anchored.standing().clone(),

@@ -2545,6 +2545,7 @@ fn verdicts(
                             now: asked.now,
                             signatures: asked.signatures,
                             lists: asked.lists,
+                            path: valid.keys(),
                         },
                     ));
             }
@@ -2963,10 +2964,25 @@ fn applicability_sentences(report: &pdf_signature::verdict::applicability::Repor
 
 /// REQ-4.5-01 h)'s potential security issues, against ETSI TS 119 312, each naming the table or
 /// clause it failed — which the item asks to be indicated clearly.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one exhaustive match, one sentence per issue, so that an issue added to TS 119 312's \
+              assessment cannot reach the reader unworded"
+)]
 fn security_sentence(
     assessment: &pdf_signature::verdict::applicability::ts_119_312::Assessment,
 ) -> String {
-    use pdf_signature::verdict::applicability::ts_119_312::{Class, Issue, Moment, Rule, SOURCE};
+    use pdf_signature::verdict::applicability::ts_119_312::{
+        Class, Issue, KeyRole, Moment, Parameter, Rule, SOURCE,
+    };
+    let whose = |role: KeyRole| match role {
+        KeyRole::Signer => "signer".to_owned(),
+        KeyRole::CertificationAuthority { position } => {
+            format!("certification authority at position {position} of the path")
+        }
+        KeyRole::OcspResponder => "OCSP responder".to_owned(),
+        KeyRole::TimeStampingUnit => "time-stamping unit".to_owned(),
+    };
     let what = |rule: Rule| match rule {
         Rule::HashFunctions => "digest",
         Rule::SignatureAlgorithms => "signature algorithm",
@@ -3054,6 +3070,62 @@ fn security_sentence(
             Issue::ValidityNotRead => format!(
                 "{} was not asked, because the signer's certificate's validity did not read",
                 Rule::SignerKeyLifetime.citation()
+            ),
+            Issue::OtherKeyOutlived {
+                key,
+                rule,
+                entry,
+                class,
+                until,
+            } => format!(
+                "clause 9.5 asks the key of the {} to resist until {} seconds after the epoch, the \
+                 latest notAfter of its certificate and of those relying on it, and {} lists its \
+                 {} {entry} as legacy, {}, which is before it",
+                whose(key),
+                until.unix_seconds(),
+                rule.citation(),
+                what(rule),
+                phase_out(class)
+            ),
+            Issue::OtherKeyNotListed { key, rule } => format!(
+                "{} lists no row for the {} of the {}, so the document does not admit it and clause \
+                 9.5 could not ask how long it resists",
+                rule.citation(),
+                what(rule),
+                whose(key)
+            ),
+            Issue::OtherKeyValidityNotRead { key } => format!(
+                "clause 9.5 was not asked of the key of the {}, because its certificate's validity did \
+                 not read",
+                whose(key)
+            ),
+            Issue::WeakerThanCertified {
+                certifier,
+                certified,
+                parameter,
+                certifier_bits,
+                certified_bits,
+            } => format!(
+                "clause 9.5 requires the key of the {} to be at least as strong as the key of \
+                 the {} it certifies, and its {} is {certifier_bits} bits against {certified_bits}",
+                whose(certifier),
+                whose(certified),
+                match parameter {
+                    Parameter::Modulus => "modulus",
+                    Parameter::Prime => "prime p",
+                    Parameter::Subgroup => "subgroup order q",
+                    Parameter::CurveKeySize => "curve's key size",
+                }
+            ),
+            Issue::NotCompared {
+                certifier,
+                certified,
+            } => format!(
+                "clause 9.5 requires the key of the {} to be at least as strong as the key of \
+                 the {} it certifies, and the two are of families the document gives no common measure \
+                 for, so they were not compared",
+                whose(certifier),
+                whose(certified)
             ),
         })
         .collect();
@@ -5520,6 +5592,32 @@ mod tests {
         );
     }
 
+    /// Clause 9.5's two kinds of issue, for the test below: an authority's key outlived over its
+    /// period, and a pair of families not compared.
+    fn with_clause_9_5(
+        assessment: &mut pdf_signature::verdict::applicability::ts_119_312::Assessment,
+    ) {
+        use pdf_signature::verdict::applicability::ts_119_312;
+        use pdf_signature::x509::Instant;
+        let ca = ts_119_312::KeyRole::CertificationAuthority { position: 1 };
+        let rsa = pdf_signature::trust::KeyParameters::Rsa {
+            modulus_bits: 2_048,
+            pss: Some(true),
+        };
+        assessment.other_keys(&[ts_119_312::OtherKey {
+            role: ca,
+            key: rsa,
+            until: Some(Instant::from_unix_seconds(1_798_761_600)),
+        }]);
+        assessment.certifications(&[ts_119_312::Certification {
+            certifier: (
+                ca,
+                pdf_signature::trust::KeyParameters::Ecdsa(pdf_signature::ecdsa::Curve::P256),
+            ),
+            certified: (ts_119_312::KeyRole::Signer, rsa),
+        }]);
+    }
+
     /// A report holding one of each item, for the test below.
     fn applicability_report() -> pdf_signature::verdict::applicability::Report {
         use pdf_signature::cms::Digest;
@@ -5608,6 +5706,7 @@ mod tests {
                     now: Instant::from_unix_seconds(1_798_761_600),
                 });
                 assessment.signer_key(Some(Instant::from_unix_seconds(1_798_761_600)));
+                with_clause_9_5(&mut assessment);
                 assessment
             }),
         }
@@ -5619,7 +5718,8 @@ mod tests {
     /// qualification said as not determined), f)'s attributes by set with a commitment named, and
     /// h)'s suite with its potential security issues against ETSI TS 119 312 — a legacy algorithm
     /// and suite, a legacy modulus size, a phase-out passed by validation, and clause 9.3's key
-    /// outlived by its certificate. REQ-4.2-03 e)'s
+    /// outlived by its certificate, and clause 9.5's authority's key outlived over its period and
+    /// not compared across families with the signer's. REQ-4.2-03 e)'s
     /// warning names the suite and says INDETERMINATE, never invalid.
     #[test]
     fn the_applicability_report_says_each_item_of_req_4_5_01() {
@@ -5654,6 +5754,13 @@ mod tests {
              notAfter, 1798761600 seconds after the epoch, and Table 6, clause 8.4 lists its \
              modulus's size at least 1 900 and below 3 000 bits as legacy, phased out no later \
              than 31 December 2026, which is before it",
+            "clause 9.5 asks the key of the certification authority at position 1 of the path \
+             to resist until 1798761600 seconds after the epoch, the latest notAfter of its \
+             certificate and of those relying on it, and Table 6, clause 8.4 lists its modulus's \
+             size at least 1 900 and below 3 000 bits as legacy",
+            "clause 9.5 requires the key of the certification authority at position 1 of the \
+             path to be at least as strong as the key of the signer it certifies, and the two are of families the \
+             document gives no common measure for, so they were not compared",
         ] {
             assert!(said.contains(named), "{named} in {said}");
         }

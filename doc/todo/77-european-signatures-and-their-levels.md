@@ -81,8 +81,12 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
   TS 119 312 V2.1.1's Tables 1, 2, 3, 4, 6 and 7 and clause 7.3, transcribed cell by cell — a
   component no row lists, a legacy one, a phase-out passed by the best signature time or by the
   validation, each naming its table (A856, ADR 2896) — with clause 9.2's imprint hash of every token
-  taken as a time (ADR 2905) and clause 9.3's signer's key, whose legacy rows of Tables 2, 3, 6 and
-  7 are asked to outlast its certificate's `notAfter` (ADR 2927).
+  taken as a time (ADR 2905), clause 9.3's signer's key, whose legacy rows of Tables 2, 3, 6 and
+  7 are asked to outlast its certificate's `notAfter` (ADR 2927), and clause 9.5's other keys —
+  each authority's on the validated path (`trust::Trust::Anchored::keys`, `verdict::Valid::keys`),
+  a delegated OCSP responder's, each token's time-stamping unit's — asked the same over their own
+  certificate's validity and the certificates relying on it, each certifying key compared with the
+  key it certifies within a family and said as not compared across families (ADR 2928).
   `viewer_core::notes` says one sentence per item beside a listed signature's level, and e)'s
   warning wherever lists were given. `verdict::level`'s join is pinned end to end by a listed
   signer whose issuer's CRL was issued after the best signature time (`TOTAL-PASSED`), with the
@@ -135,11 +139,11 @@ its PDF). DSS (`esig/dss`, LGPL-2.1) is evidence about a reading only, and its c
 
 ## 2. What is left, in order
 
-3. **TS 119 172-4 REQ-4.5-01 h)**'s remainder (ADRs 2896, 2905, 2927): TS 119 312 clause 9.5's
-   other keys — the CAs' on the path, the CRL issuers', the OCSP responders', the time-stamping
-   units' — are not asked, because the report is handed none of their certificates (`verdict::Valid`
-   keeps the path's length only); building it carries those certificates in and chooses what "at
-   least as strong" compares across families (ADR 2927 item 5). No national rules are held.
+3. **TS 119 172-4 REQ-4.5-01 h)**'s remainder (ADRs 2896, 2905, 2927, 2928): no national rules
+   are held. Of TS 119 312 clause 9.5, the keys of a token's own path (its unit's issuer) and of an
+   OCSP response about a certificate other than the signer's are not carried, and clause 9.4's
+   rule, which the clause extends to these keys, is not asked: it runs to whenever the signature
+   needs verifying, an instant the report is not given.
 4. **The fetch's remainder.** GPR-4.0-03's *should* — go on past a failed `https` validation with
    a warning — is not taken: the client has no unvalidated mode, and a failed connection is said as
    the location not fetched (re-read 2026-11-16, ADR 2886). A list a policy's `TAsInTrustedList`

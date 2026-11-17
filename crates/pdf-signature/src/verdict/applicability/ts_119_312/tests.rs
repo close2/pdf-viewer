@@ -684,3 +684,145 @@ fn a_signer_s_key_is_asked_to_outlast_its_certificate() {
     assert_eq!(outlived(pss(3_072), None), [Issue::ValidityNotRead]);
     assert_eq!(Rule::SignerKeyLifetime.citation(), "clause 9.3");
 }
+
+/// Clause 9.5's *should*: another key resists over the period it is asked about, read as clause
+/// 9.3 reads the signer's key (ADR 2928). A 2048-bit PSS authority whose period ends on the last
+/// second of 2026 raises nothing and one a second later raises Table 6's row; a 3072-bit PKCS #1
+/// v1.5 responder into 2035 raises Table 2's bare `L`; a P-256 unit stays recommended; an RSA key
+/// whose padding was never seen asks only Table 6; an unclassified key is in no row of Table 2;
+/// an unread validity is said.
+#[test]
+fn every_other_key_is_asked_to_resist_over_its_period() {
+    let year_2035 = Instant::from_unix_seconds(2_051_222_400);
+    let last_second_of_2026 = Instant::from_unix_seconds(JANUARY_2027.unix_seconds() - 1);
+    let ca = KeyRole::CertificationAuthority { position: 1 };
+    let rsa = |modulus_bits, pss| KeyParameters::Rsa { modulus_bits, pss };
+    let asked = |role, key, until| {
+        let mut assessment = assess(Digest::Sha256, Family::Ecdsa(EcCurve::P256), 256, None);
+        let before = assessment.issues.len();
+        assessment.other_keys(&[OtherKey { role, key, until }]);
+        assessment.issues.split_off(before)
+    };
+
+    assert_eq!(
+        asked(ca, rsa(2_048, Some(true)), Some(last_second_of_2026)),
+        []
+    );
+    assert_eq!(
+        asked(ca, rsa(2_048, Some(true)), Some(JANUARY_2027)),
+        [Issue::OtherKeyOutlived {
+            key: ca,
+            rule: Rule::RsaKeySizes,
+            entry: "at least 1 900 and below 3 000 bits",
+            class: Class::legacy_until(2026),
+            until: JANUARY_2027,
+        }]
+    );
+    assert_eq!(
+        asked(
+            KeyRole::OcspResponder,
+            rsa(3_072, Some(false)),
+            Some(year_2035)
+        ),
+        [Issue::OtherKeyOutlived {
+            key: KeyRole::OcspResponder,
+            rule: Rule::SignatureAlgorithms,
+            entry: "RSA-PKCS#1v1_5",
+            class: Class::LEGACY,
+            until: year_2035,
+        }]
+    );
+    assert_eq!(
+        asked(
+            KeyRole::TimeStampingUnit,
+            KeyParameters::Ecdsa(EcCurve::P256),
+            Some(year_2035)
+        ),
+        []
+    );
+    assert_eq!(asked(ca, rsa(3_072, None), Some(year_2035)), []);
+    assert_eq!(
+        asked(ca, KeyParameters::Unclassified, Some(year_2035)),
+        [Issue::OtherKeyNotListed {
+            key: ca,
+            rule: Rule::SignatureAlgorithms,
+        }]
+    );
+    assert_eq!(
+        asked(ca, rsa(3_072, Some(true)), None),
+        [Issue::OtherKeyValidityNotRead { key: ca }]
+    );
+}
+
+/// Clause 9.5's *shall*: a certifying key at least as strong as the key it certifies, compared
+/// parameter by corresponding parameter within a family, and not compared across families
+/// (ADR 2928): clause 3.1's levels bound a class from below and order no two keys.
+#[test]
+fn a_certifying_key_is_compared_with_the_key_it_certifies_only_within_its_family() {
+    let ca = KeyRole::CertificationAuthority { position: 1 };
+    let pairs = |certifier, certified| {
+        let mut assessment = assess(Digest::Sha256, Family::Ecdsa(EcCurve::P256), 256, None);
+        let before = assessment.issues.len();
+        assessment.certifications(&[Certification {
+            certifier: (ca, certifier),
+            certified: (KeyRole::Signer, certified),
+        }]);
+        assessment.issues.split_off(before)
+    };
+    let rsa = |modulus_bits| KeyParameters::Rsa {
+        modulus_bits,
+        pss: None,
+    };
+
+    assert_eq!(pairs(rsa(3_072), rsa(3_072)), []);
+    assert_eq!(pairs(rsa(4_096), rsa(3_072)), []);
+    assert_eq!(
+        pairs(rsa(2_048), rsa(3_072)),
+        [Issue::WeakerThanCertified {
+            certifier: ca,
+            certified: KeyRole::Signer,
+            parameter: Parameter::Modulus,
+            certifier_bits: 2_048,
+            certified_bits: 3_072,
+        }]
+    );
+    assert_eq!(
+        pairs(
+            KeyParameters::Dsa {
+                p_bits: 3_072,
+                q_bits: 224,
+            },
+            KeyParameters::Dsa {
+                p_bits: 2_048,
+                q_bits: 256,
+            }
+        ),
+        [Issue::WeakerThanCertified {
+            certifier: ca,
+            certified: KeyRole::Signer,
+            parameter: Parameter::Subgroup,
+            certifier_bits: 224,
+            certified_bits: 256,
+        }]
+    );
+    assert_eq!(
+        pairs(
+            KeyParameters::Ecdsa(EcCurve::P256),
+            KeyParameters::Ecdsa(EcCurve::BrainpoolP384r1)
+        ),
+        [Issue::WeakerThanCertified {
+            certifier: ca,
+            certified: KeyRole::Signer,
+            parameter: Parameter::CurveKeySize,
+            certifier_bits: 256,
+            certified_bits: 384,
+        }]
+    );
+    assert_eq!(
+        pairs(rsa(4_096), KeyParameters::Ecdsa(EcCurve::P256)),
+        [Issue::NotCompared {
+            certifier: ca,
+            certified: KeyRole::Signer,
+        }]
+    );
+}

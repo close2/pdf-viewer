@@ -127,7 +127,7 @@ pub(crate) mod fixtures {
         6d7d04";
 
     /// A leaf this CA issued with serial `2B`, and never revoked.
-    pub(super) const GOOD_LEAF: &str = "\
+    pub(crate) const GOOD_LEAF: &str = "\
         308202fc308201e4a00302010202012b300d06092a864886f70d01010b050030\
         243122302006035504030c1971756f727261207265766f636174696f6e207465\
         7374204341301e170d3236303130313030303030305a170d3336303130313030\
@@ -271,7 +271,7 @@ pub(crate) mod fixtures {
     /// search would report "this program does not verify 1.2.840.113549.1.1.11" about an algorithm
     /// it verifies, which is what two real documents in the crawl were told before this was
     /// written down.
-    pub(super) const OCSP_GOOD_BY_DELEGATE: &str = "\
+    pub(crate) const OCSP_GOOD_BY_DELEGATE: &str = "\
         308205f20a0100a08205eb308205e706092b0601050507300101048205d83082\
         05d430819ba1223020311e301c06035504030c1571756f727261206f63737020\
         726573706f6e646572180f32303236303931343230323135305a30643062303a\
@@ -642,7 +642,7 @@ fn a_validated_path_carries_what_the_documents_material_said_about_it() {
     let crl = hex(fixtures::CRL);
     let material = Material::read(&[&crl], &[]);
 
-    assert_eq!(
+    assert!(matches!(
         validate(&good, &[], &anchors, &material, AT),
         Trust::Anchored {
             length: 1,
@@ -650,8 +650,9 @@ fn a_validated_path_carries_what_the_documents_material_said_about_it() {
                 from: Evidence::CertificateRevocationList,
                 covered: 1,
             },
+            ..
         }
-    );
+    ));
     let answer = validate(&revoked, &[], &anchors, &material, AT);
     let Trust::Anchored {
         revocation: Revocation::Revoked { reason, .. },
@@ -664,11 +665,12 @@ fn a_validated_path_carries_what_the_documents_material_said_about_it() {
 
     // And with nothing supplied, the same path says nothing about revocation rather than something
     // reassuring — which is the one rule ADR 1067 exists to fix.
-    assert_eq!(
+    assert!(matches!(
         validate(&good, &[], &anchors, &Material::none(), AT),
         Trust::Anchored {
             length: 1,
             revocation: Revocation::NotChecked,
+            ..
         }
-    );
+    ));
 }

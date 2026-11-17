@@ -571,6 +571,9 @@ pub enum Trust {
         /// What §12.8.4's material in this document said about revocation, over every
         /// certificate on the path — [`Revocation::NotChecked`] where the caller supplied none.
         revocation: Revocation,
+        /// Each certificate's key and validity, target first and the anchor excluded, so
+        /// `length` of them: what ETSI TS 119 312 clause 9.5 asks of the authorities' keys.
+        keys: Vec<CertifiedKey>,
     },
     /// No path from the signer's certificate to any supplied anchor could be built.
     ///
@@ -589,6 +592,98 @@ pub enum Trust {
         /// How many certificates the search looked at.
         examined: usize,
     },
+}
+
+/// One certificate's key and validity, owned, as ETSI TS 119 312's key tables classify a key.
+///
+/// What a path, an OCSP responder or a time-stamping unit hands on to the report of ETSI TS
+/// 119 172-4 REQ-4.5-01 h), where TS 119 312 clause 9.5 asks each key to resist over its
+/// certificate's validity and to be at least as strong as the keys it certifies (ADR 2928). A
+/// certificate borrows the file's bytes and a [`Trust`] does not, so the two facts the clause asks
+/// about are carried rather than the certificate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CertifiedKey {
+    /// The key.
+    pub key: KeyParameters,
+    /// The certificate's validity, where it read.
+    pub validity: Option<x509::Validity>,
+}
+
+/// A public key's parameters, as TS 119 312 Tables 2, 3, 6 and 7 name them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum KeyParameters {
+    /// An RSA key, by its modulus's bits (Table 6).
+    Rsa {
+        /// The modulus's length in bits.
+        modulus_bits: usize,
+        /// Whether the key signs under RSASSA-PSS, which is Table 2's row: always for an
+        /// `id-RSASSA-PSS` key (RFC 4055 section 1.2), otherwise as the signature the key was
+        /// seen to make, and `None` where none was seen.
+        pss: Option<bool>,
+    },
+    /// A DSA key, by its primes' bits (Table 7).
+    Dsa {
+        /// `p`'s length in bits.
+        p_bits: usize,
+        /// `q`'s length in bits.
+        q_bits: usize,
+    },
+    /// An ECDSA key, by its curve (Table 3).
+    Ecdsa(crate::ecdsa::Curve),
+    /// An `EdDSA` key, by its curve (Table 2's one row).
+    EdDsa(crate::eddsa::Curve),
+    /// A key on a curve or under an algorithm this reader does not classify.
+    Unclassified,
+}
+
+impl CertifiedKey {
+    /// The key and validity of `certificate`, where `signed_with` is the signature algorithm
+    /// identifier of a signature the key was seen to make. It decides an `rsaEncryption` key's
+    /// padding: `id-RSASSA-PSS` names RSASSA-PSS (RFC 4055 section 3.1), and every other RSA
+    /// identifier PKCS #1 v1.5.
+    #[must_use]
+    pub fn of(certificate: &Certificate<'_>, signed_with: Option<&[u8]>) -> Self {
+        let key = match certificate.public_key {
+            PublicKey::Rsa(key) => KeyParameters::Rsa {
+                modulus_bits: key.bits(),
+                pss: signed_with.map(|algorithm| algorithm == crate::pss::ID_RSASSA_PSS),
+            },
+            PublicKey::RsaPss { key, .. } => KeyParameters::Rsa {
+                modulus_bits: key.bits(),
+                pss: Some(true),
+            },
+            PublicKey::Dsa(key) => KeyParameters::Dsa {
+                p_bits: key.bits(),
+                q_bits: key.subgroup_bits(),
+            },
+            PublicKey::Ec(key) => KeyParameters::Ecdsa(key.curve),
+            PublicKey::EdDsa(key) => KeyParameters::EdDsa(key.curve),
+            PublicKey::EcCurveNotVerifiable { .. } | PublicKey::Unverifiable { .. } => {
+                KeyParameters::Unclassified
+            }
+        };
+        Self {
+            key,
+            validity: certificate.validity,
+        }
+    }
+
+    /// The keys of a path that validated, target first and the anchor excluded, each key's
+    /// padding read from the certificate below it, which that key signed.
+    #[must_use]
+    pub fn of_path(path: &[&Certificate<'_>]) -> Vec<Self> {
+        path.iter()
+            .enumerate()
+            .map(|(position, certificate)| {
+                let signed = position
+                    .checked_sub(1)
+                    .and_then(|below| path.get(below))
+                    .map(|below| below.signature_algorithm);
+                Self::of(certificate, signed)
+            })
+            .collect()
+    }
 }
 
 /// RFC 5280 section 6.1's path validation, over the certificates a file carries.
@@ -709,6 +804,7 @@ pub fn validate_constrained<'p, 'c: 'p>(
             trust: Trust::Anchored {
                 length: validated.len(),
                 revocation: search.revocation,
+                keys: CertifiedKey::of_path(&validated),
             },
             path: validated,
             policies: search.policies,

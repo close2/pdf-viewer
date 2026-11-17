@@ -292,6 +292,7 @@ fn the_report_over_a_signature_holds_each_item_in_the_clauses_order() {
         now: AT,
         signatures: &[],
         lists: &[],
+        path: &[],
     });
     assert_eq!(report.scope, Scope::EuQualifiedUsingTrustedLists);
     assert_eq!(
@@ -357,6 +358,95 @@ fn the_report_over_a_signature_holds_each_item_in_the_clauses_order() {
                 entry: "at least 1 900 and below 3 000 bits",
                 class: Class::legacy_until(2026),
                 not_after,
+            },
+        ]
+    );
+}
+
+/// TS 119 312 clause 9.5 over the path handed in, the signer's first (ADR 2928). The authority
+/// at position 1 has a 3072-bit PKCS #1 v1.5 key on a certificate valid to 2030, and the signer's
+/// certificate relying on it is valid to 2036-09-11: Table 2's bare `L` ends with 2034, inside the
+/// period that runs to the later `notAfter`, and Table 6's row is recommended; its modulus is not
+/// smaller than the signer's 2048 bits. The authority at position 2 has a P-256 key, whose rows are
+/// recommended, and an RSA key under an elliptic-curve key is a pair the document gives no measure
+/// across.
+#[test]
+fn the_authorities_keys_are_asked_by_clause_9_5_in_the_report() {
+    use super::ts_119_312::KeyRole;
+    use crate::trust::{CertifiedKey, KeyParameters};
+    let (document, signature) = opened(fixtures::signed());
+    let authenticity = signature.authenticity(document.bytes());
+    let anchors = TrustAnchors::of(&[]);
+    let validity = |not_after| {
+        Some(x509::Validity {
+            not_before: Instant::from_unix_seconds(1_767_225_600),
+            not_after: Instant::from_unix_seconds(not_after),
+        })
+    };
+    let signer_not_after = Instant::from_unix_seconds(2_104_788_759);
+    let path = [
+        CertifiedKey {
+            key: KeyParameters::Rsa {
+                modulus_bits: 2_048,
+                pss: None,
+            },
+            validity: validity(signer_not_after.unix_seconds()),
+        },
+        CertifiedKey {
+            key: KeyParameters::Rsa {
+                modulus_bits: 3_072,
+                pss: Some(false),
+            },
+            // 2030-01-01T00:00:00Z.
+            validity: validity(1_893_456_000),
+        },
+        CertifiedKey {
+            key: KeyParameters::Ecdsa(crate::ecdsa::Curve::P256),
+            // 2040-01-01T00:00:00Z.
+            validity: validity(2_208_988_800),
+        },
+    ];
+    let report = Report::of(&Asked {
+        signature: &signature,
+        authenticity: &authenticity,
+        when: BestSignatureTime::now(AT),
+        chain: &Chain::default(),
+        index: 0,
+        material: &Material::none(),
+        anchors: &anchors,
+        now: AT,
+        signatures: &[],
+        lists: &[],
+        path: &path,
+    });
+    let security = report.security.expect("a suite was reached");
+    let clause_9_5: Vec<&Issue> = security
+        .issues
+        .iter()
+        .filter(|issue| {
+            matches!(
+                issue,
+                Issue::OtherKeyOutlived { .. }
+                    | Issue::OtherKeyNotListed { .. }
+                    | Issue::OtherKeyValidityNotRead { .. }
+                    | Issue::WeakerThanCertified { .. }
+                    | Issue::NotCompared { .. }
+            )
+        })
+        .collect();
+    assert_eq!(
+        clause_9_5,
+        [
+            &Issue::OtherKeyOutlived {
+                key: KeyRole::CertificationAuthority { position: 1 },
+                rule: Rule::SignatureAlgorithms,
+                entry: "RSA-PKCS#1v1_5",
+                class: Class::LEGACY,
+                until: signer_not_after,
+            },
+            &Issue::NotCompared {
+                certifier: KeyRole::CertificationAuthority { position: 2 },
+                certified: KeyRole::CertificationAuthority { position: 1 },
             },
         ]
     );
@@ -505,6 +595,7 @@ fn every_tokens_imprint_hash_is_asked_of_table_1_in_the_report() {
         now: AT,
         signatures: &found,
         lists: &[],
+        path: &[],
     });
     assert_eq!(
         report
@@ -534,4 +625,119 @@ fn every_tokens_imprint_hash_is_asked_of_table_1_in_the_report() {
         Some(Rule::TimeStampImprints),
         "the token's component follows the suite's"
     );
+}
+
+/// TS 119 312 clause 9.5's time-stamping unit: the key of the certificate a token's `SignerInfo`
+/// names among the ones the token carries, with that certificate's validity. The fixture token's
+/// unit, which `openssl ts` signed with PKCS #1 v1.5, has a 2048-bit key on a certificate valid
+/// from 2026-01-01 to 2036-01-01: Table 2's bare `L` ends with 2034 and Table 6's `L[2026]` with
+/// 2026, both inside that period. A token carrying no certificate gives no key, rather than
+/// another certificate's.
+#[test]
+fn a_tokens_unit_is_the_certificate_its_signer_info_names() {
+    use super::ts_119_312::{Assessment, KeyRole, OtherKey};
+    use crate::trust::{CertifiedKey, KeyParameters};
+    let token = hex(timestamp::tests::fixtures::TOKEN);
+    let cms = cms::signed_data(&token).expect("the token reads");
+    let not_after = Instant::from_unix_seconds(2_082_758_400);
+    let carried = unit(&cms).expect("the unit's key is carried");
+    assert_eq!(
+        carried,
+        CertifiedKey {
+            key: KeyParameters::Rsa {
+                modulus_bits: 2_048,
+                pss: Some(false),
+            },
+            validity: Some(x509::Validity {
+                not_before: Instant::from_unix_seconds(1_767_225_600),
+                not_after,
+            }),
+        }
+    );
+    let mut assessment = Assessment {
+        components: Vec::new(),
+        issues: Vec::new(),
+    };
+    assessment.other_keys(&[OtherKey {
+        role: KeyRole::TimeStampingUnit,
+        key: carried.key,
+        until: Some(not_after),
+    }]);
+    assert_eq!(
+        assessment.issues,
+        [
+            Issue::OtherKeyOutlived {
+                key: KeyRole::TimeStampingUnit,
+                rule: Rule::SignatureAlgorithms,
+                entry: "RSA-PKCS#1v1_5",
+                class: Class::LEGACY,
+                until: not_after,
+            },
+            Issue::OtherKeyOutlived {
+                key: KeyRole::TimeStampingUnit,
+                rule: Rule::RsaKeySizes,
+                entry: "at least 1 900 and below 3 000 bits",
+                class: Class::legacy_until(2026),
+                until: not_after,
+            },
+        ]
+    );
+    let mut bare = cms.clone();
+    bare.certificates.clear();
+    assert_eq!(unit(&bare), None);
+}
+
+/// TS 119 312 clause 9.5's OCSP responder: the delegate a response about the signer's
+/// certificate names and carries (RFC 6960 section 4.2.2.2 criterion 3), certified by the
+/// signer's issuer. The fixture's responder has a 3072-bit key under a CA whose key is 2048 bits,
+/// so the CA's modulus is smaller than the key it certifies — clause 9.5's *shall*. A response
+/// about another certificate names no responder for this one.
+#[test]
+fn a_delegated_responder_is_asked_and_compared_with_its_issuer() {
+    use super::ts_119_312::{Assessment, KeyRole, Parameter};
+    use crate::trust::{CertifiedKey, KeyParameters};
+    let ca = hex(revocation_fixtures::CA);
+    let leaf = hex(revocation_fixtures::GOOD_LEAF);
+    let (ca, leaf) = (
+        x509::parse(&ca).expect("the CA parses"),
+        x509::parse(&leaf).expect("the leaf parses"),
+    );
+    let response = hex(revocation_fixtures::OCSP_GOOD_BY_DELEGATE);
+    let material = Material::read(&[], &[&response]);
+    let responders = ocsp_responders(&leaf, &material);
+    let [responder] = responders.as_slice() else {
+        panic!("one delegate: {responders:?}");
+    };
+    assert_eq!(
+        responder.key,
+        KeyParameters::Rsa {
+            modulus_bits: 3_072,
+            pss: Some(false),
+        }
+    );
+    assert!(responder.validity.is_some());
+    let path = [
+        CertifiedKey::of(&leaf, None),
+        CertifiedKey::of(&ca, Some(leaf.signature_algorithm)),
+    ];
+    let (_, pairs) = other_keys(&path, &responders, &[]);
+    let mut assessment = Assessment {
+        components: Vec::new(),
+        issues: Vec::new(),
+    };
+    assessment.certifications(&pairs);
+    let ca_role = KeyRole::CertificationAuthority { position: 1 };
+    assert_eq!(
+        assessment.issues,
+        [Issue::WeakerThanCertified {
+            certifier: ca_role,
+            certified: KeyRole::OcspResponder,
+            parameter: Parameter::Modulus,
+            certifier_bits: 2_048,
+            certified_bits: 3_072,
+        }]
+    );
+    let other = hex(PSEUDONYMOUS);
+    let other = x509::parse(&other).expect("it parses");
+    assert_eq!(ocsp_responders(&other, &material), []);
 }

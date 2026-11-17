@@ -1158,7 +1158,7 @@ fn bit_string_octets<'a>(bits: &Value<'a>) -> Option<&'a [u8]> {
 /// signer's certificate." `anyExtendedKeyUsage` is accepted with it, on RFC 5280 section 4.2.1.12's
 /// own terms — the identifier exists so that "a CA … \[may] indicate that the certificate may be
 /// used for all key purposes".
-fn asserts_ocsp_signing(encoded: &[u8]) -> bool {
+pub(crate) fn asserts_ocsp_signing(encoded: &[u8]) -> bool {
     x509::indicates_purpose(encoded, OCSP_SIGNING)
 }
 

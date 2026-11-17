@@ -80,6 +80,11 @@ fn a_signature_whose_path_reaches_a_supplied_anchor_is_valid() {
         panic!("the fixture's signature should be valid, not {verdict:?}");
     };
     assert_eq!(valid.path_length(), 1, "the signer, with the root above it");
+    assert_eq!(
+        valid.keys().len(),
+        1,
+        "the signer's key is carried, the anchor's is not (ADR 2928)"
+    );
     assert_eq!(*valid.revocation(), Revocation::NotChecked);
     assert_eq!(valid.at(), AT);
     assert_eq!(valid.timestamps(), Timestamps::None);
@@ -578,6 +583,7 @@ fn a_proof_in_hand_is_not_a_verdict() {
             from: crate::revocation::Evidence::CertificateRevocationList,
             position: 1,
         },
+        keys: Vec::new(),
     })
     .expect("an anchored trust is a proof");
     assert_eq!(
@@ -599,6 +605,7 @@ fn a_proof_in_hand_is_not_a_verdict() {
             why: Undetermined::NoMaterial,
             position: 0,
         },
+        keys: Vec::new(),
     })
     .expect("an anchored trust is a proof");
     assert_eq!(
@@ -652,6 +659,7 @@ fn a_revocation_after_a_proven_instant_does_not_reach_the_signature() {
                 from: crate::revocation::Evidence::CertificateRevocationList,
                 position: 1,
             },
+            keys: Vec::new(),
         })
         .expect("an anchored trust is a proof")
     };
@@ -748,6 +756,7 @@ fn only_an_anchored_trust_is_a_proof() {
         Anchored::of(&Trust::Anchored {
             length: 1,
             revocation: Revocation::NotChecked,
+            keys: Vec::new(),
         })
         .is_some()
     );
