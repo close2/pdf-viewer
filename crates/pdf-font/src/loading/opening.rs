@@ -141,6 +141,7 @@ impl LoadedFont {
             substituted: requested,
             published: requested.or_else(|| published_metrics(document, dict, descriptor)),
             within_the_fourteen: within_the_fourteen(document, dict),
+            states_descriptor: descriptor.is_some(),
             names: names.as_ref(),
             data: &data,
             program,
@@ -149,7 +150,8 @@ impl LoadedFont {
             mapping: &mapping,
             units_per_em,
         };
-        let (widths, stretch, supplied_widths) = simple_advances(document, dict, metrics);
+        let (widths, stretch, supplied_widths, notdef_advanced) =
+            simple_advances(document, dict, metrics);
         let default_width = missing_width(document, descriptor);
 
         Ok(Self {
@@ -175,6 +177,7 @@ impl LoadedFont {
             symbolic_flags_conflict: both_symbol_flags(document, descriptor),
             supplied_widths,
             reader_chosen,
+            notdef_advanced,
             // §9.8.3.3's `/FD` is Table 122's, an entry of a `CIDFont`'s descriptor, and §9.8.3
             // says so: a simple font's descriptor has no glyph classes to override anything for.
             class_of: Decision::default(),
@@ -372,18 +375,14 @@ impl LoadedFont {
             }
         };
 
-        let default_width = document
-            .get_key(&descendant, "DW")
-            .as_number()
-            .map_or(DEFAULT_CID_WIDTH, narrow);
+        let default_width = composite_default_width(document, &descendant);
 
         Ok(Self {
             data,
             program,
             font_dicts,
-            // §9.9's Table 124 gives a CIDFont `/FontFile2` and `/FontFile3` and never
-            // `/FontFile` — but a descriptor writing one is read rather than refused; see
-            // the `mapping` above for the clause's own analogy that decides how.
+            // §9.9's Table 124 gives a CIDFont `/FontFile2` and `/FontFile3`, never `/FontFile`;
+            // a descriptor writing one is read, by the analogy the `mapping` above takes.
             type1,
             mapping,
             substituted,
@@ -403,6 +402,7 @@ impl LoadedFont {
             // `/Widths` is a simple font's entry; a composite font's `/DW` defaults (Table 115).
             supplied_widths: None,
             reader_chosen: CodeSet::default(),
+            notdef_advanced: CodeSet::default(),
             widths: composite_widths(document, &descendant),
             default_width,
             extent: vertical_extent(document, descriptor),
@@ -473,6 +473,15 @@ fn published_metrics(
 ) -> Option<substitute::Request> {
     let asked = !within_the_fourteen(document, dict) || document.get_key(dict, "Widths").is_null();
     asked.then(|| substitute::Request::derive(document, dict, descriptor))
+}
+
+/// A `CIDFont`'s `/DW`, the width of every CID `/W` does not name, or Table 115's default where it
+/// states none.
+fn composite_default_width(document: &Document, descendant: &Dictionary) -> f32 {
+    document
+        .get_key(descendant, "DW")
+        .as_number()
+        .map_or(DEFAULT_CID_WIDTH, narrow)
 }
 
 /// Whether `dict` is one of §9.6.2.2's fourteen: a `Type1` font under one of their names

@@ -1443,6 +1443,7 @@ fn embed_pass(
                 (&pack_entries, &pack_gains),
                 row,
                 &program,
+                &|code| font.advance(code),
             )?;
             let subset = if emptied {
                 None

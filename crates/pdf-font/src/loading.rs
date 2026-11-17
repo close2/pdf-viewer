@@ -786,6 +786,10 @@ pub struct LoadedFont {
     /// built: what comes out is 256 glyph indices with no record of which rule supplied each.
     /// [`Self::glyph_needed_a_reader_chosen_mapping`] is what asks.
     reader_chosen: CodeSet,
+    /// The codes of one of the fourteen stated by name alone that name a glyph neither the
+    /// published metrics nor the drawn program hold, which are advanced by that program's
+    /// `.notdef` (ISO 32000-2 §9.6.5.2, `metrics::notdef_advanced`, ADR 2942).
+    notdef_advanced: CodeSet,
     /// §9.6.5.2's substitute: the glyph this program itself calls `.notdef`.
     ///
     /// > If an encoding maps to a character name that does not exist in the Type 1 font program,
@@ -1067,6 +1071,7 @@ impl LoadedFont {
             symbolic_flags_conflict: false,
             supplied_widths: stated.supplied_widths,
             reader_chosen: CodeSet::default(),
+            notdef_advanced: CodeSet::default(),
             outlines: Mutex::new(BTreeMap::new()),
             codes_by_character: OnceLock::new(),
             agl_by_code: OnceLock::new(),

@@ -348,7 +348,9 @@ pub(super) fn pack_restated(
 /// read back through this reader over the file's own descriptor, with `entries` and `gains` — a
 /// restatement's, or nothing — written in, every code the page shows selects the glyph the pack
 /// face's own code table gives it -- the same program on both sides, so the same glyph is the same
-/// outline -- and every one of the 256 advances is the source's, with no stretch.
+/// outline -- and every one of the 256 advances is `laid_out`'s, with no stretch: the source's,
+/// except where [`from_pack`] states the pack face's own advance for a glyph the window drew as
+/// `.notdef` (`doc/adr/2942`).
 ///
 /// The window did not draw this face, so nothing here compares outlines with the window; what
 /// changes is the shapes, which the loss `machine-face` names. The font as read back is returned,
@@ -360,10 +362,11 @@ pub(super) fn pack_face_proved(
     (entries, gains): (&Dictionary, &Dictionary),
     row: Table124,
     program: &[u8],
+    laid_out: &dyn Fn(Code) -> f32,
 ) -> Result<LoadedFont, Because> {
     let descriptor = held_descriptor(document, used, gains)?;
     let converted = loaded_as_written(document, used, entries, &descriptor, row, program)?;
-    same_metrics(source, &converted)?;
+    same_advances(laid_out, &converted)?;
     for text in used.shown.keys() {
         for code in source.decode(text) {
             let expected = u8::try_from(code.value()).ok().and_then(glyph);
@@ -387,7 +390,7 @@ pub(super) fn pack_face_proved(
 /// permits modification. The proof is the whole face's, carried across: every shown code reaches,
 /// in the subset, the copy of the glyph it reached in the whole face — the index the subsetter
 /// gives it and the same outline, command for command — and every one of the 256 advances is still
-/// the source's.
+/// the whole face's, which [`pack_face_proved`] held to the advances the font is laid out by.
 ///
 /// # Errors
 ///
@@ -422,7 +425,7 @@ pub(super) fn pack_face_subset(
     gains.insert(Name::new(&b"FontName"[..]), name);
     let descriptor = held_descriptor(document, used, &gains)?;
     let cut = loaded_as_written(document, used, &entries, &descriptor, row, &subset.program)?;
-    same_metrics(source, &cut)?;
+    same_metrics(whole, &cut)?;
     for code in codes {
         let reached = whole.glyph_index(code);
         let copied = reached.and_then(|glyph| subset.glyphs.get(&glyph).copied());
@@ -730,7 +733,13 @@ fn restated_entries(
 /// fourteen in the sentence quoted above and which §9.6.2.1 leaves nobody else: the numbers stated
 /// are the ones the viewer already draws with, so no glyph moves (`doc/adr/2535`).
 pub(in crate::archive) fn state_laid_out_widths(entries: &mut Dictionary, source: &LoadedFont) {
-    let (first, last, widths) = laid_out_widths(source);
+    state_widths(entries, &|code| source.advance(code));
+}
+
+/// Writes `/FirstChar`, `/LastChar` and `/Widths` into `entries` from the advance `laid_out`
+/// answers for each code, in text-space units.
+fn state_widths(entries: &mut Dictionary, laid_out: &dyn Fn(Code) -> f32) {
+    let (first, last, widths) = laid_out_widths(laid_out);
     entries.insert(Name::new(&b"FirstChar"[..]), Object::Integer(first.into()));
     entries.insert(Name::new(&b"LastChar"[..]), Object::Integer(last.into()));
     entries.insert(Name::new(&b"Widths"[..]), Object::Array(widths));
@@ -1306,8 +1315,8 @@ fn restated_encoding(
 /// The range is every code whose advance is not the descriptor's `/MissingWidth` default of 0, so
 /// a code outside it is laid out at 0 in the output exactly as in the source. A whole number of
 /// glyph-space units is written as an integer, which is what the standard's own metrics are.
-fn laid_out_widths(source: &LoadedFont) -> (u8, u8, Vec<Object>) {
-    let advance = |code: u8| source.advance(Code::single_byte(code)) * 1000.0;
+fn laid_out_widths(laid_out: &dyn Fn(Code) -> f32) -> (u8, u8, Vec<Object>) {
+    let advance = |code: u8| laid_out(Code::single_byte(code)) * 1000.0;
     let first = (0..=u8::MAX)
         .find(|code| advance(*code) != 0.0)
         .unwrap_or(0);
@@ -1487,6 +1496,12 @@ fn same_glyph(held_to: &HeldTo<'_>, converted: &LoadedFont, code: Code) -> bool 
 
 /// Holds every code's advance to the selected source, and the converted font to no stretch.
 fn same_metrics(source: &LoadedFont, converted: &LoadedFont) -> Result<(), Because> {
+    same_advances(&|code| source.advance(code), converted)
+}
+
+/// [`same_metrics`] held to the advances `laid_out` answers for each code rather than to a loaded
+/// font's.
+fn same_advances(laid_out: &dyn Fn(Code) -> f32, converted: &LoadedFont) -> Result<(), Because> {
     if converted.is_substituted() {
         return Err(Because::NotBuiltYet(NOT_PROVED));
     }
@@ -1494,7 +1509,7 @@ fn same_metrics(source: &LoadedFont, converted: &LoadedFont) -> Result<(), Becau
         return Err(Because::NotBuiltYet(FITTED_DIFFERENTLY));
     }
     for code in (0..=u8::MAX).map(Code::single_byte) {
-        if converted.advance(code).to_bits() != source.advance(code).to_bits() {
+        if converted.advance(code).to_bits() != laid_out(code).to_bits() {
             return Err(Because::NotBuiltYet(ADVANCES_DIFFER));
         }
     }

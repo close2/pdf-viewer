@@ -318,3 +318,71 @@ fn a_standard_font_stated_by_name_alone_takes_the_packs_face_and_a_descriptor_of
         "{substituted:?}"
     );
 }
+
+/// `Times-Roman` stated by name alone, its code 65 naming a-ogonek, which the standard's metrics
+/// carry, and 66 naming `beta`, which they do not and the Foxit serif face does not hold either.
+fn a_standard_font_by_name_alone_showing_a_beta() -> Vec<u8> {
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (ABA) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman /Encoding << /Type /Encoding \
+             /BaseEncoding /WinAnsiEncoding /Differences [65 /aogonek /beta] >> >>"
+                .to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// ADR 2942: the window advances the `beta` by its face's `.notdef`, which ISO 32000-2 §9.6.5.2
+/// substitutes for a name the face does not hold; the converted file draws the pack face's own
+/// `beta`, and states that glyph's own advance for it, because §9.2.4 makes the width the painted
+/// glyph's. The a-ogonek the metrics name keeps the published width the window laid it out at.
+#[test]
+#[ignore = "needs the Latin-Greek-Cyrillic pack, a download that is not part of a checkout: \
+            QUORRA_LGC_PACK=<dir> names it (doc/lgc-pack.md)"]
+fn a_name_the_standard_font_lacks_is_stated_at_the_pack_glyphs_own_advance() {
+    let directory = std::env::var_os("QUORRA_LGC_PACK")
+        .expect("QUORRA_LGC_PACK names the directory the pack was unpacked into");
+    let pack = LgcPack::new(Arc::new(Directory(Some(directory.into()))));
+    let fixture = a_standard_font_by_name_alone_showing_a_beta();
+    let (_, output) = convert_with_plan(&fixture, &plan_with(Some(pack)));
+    let held = Document::open_with_limits(output.expect("it converts"), Limits::DEFAULT)
+        .expect("it opens");
+    let font = font_resource(&held);
+    let source = Document::open_with_limits(fixture, Limits::DEFAULT).expect("it opens");
+    let before = pdf_font::LoadedFont::load(&source, &font_resource(&source), "F1")
+        .expect("the source loads");
+    let after = pdf_font::LoadedFont::load(&held, &font, "F1").expect("it loads");
+    let (aogonek, beta) = (
+        pdf_font::Code::single_byte(65),
+        pdf_font::Code::single_byte(66),
+    );
+    assert!(before.advanced_by_notdef(beta));
+    assert!((before.advance(beta) - 0.25).abs() < 1e-6, "Times' .notdef");
+    assert_eq!(
+        after.advance(aogonek).to_bits(),
+        before.advance(aogonek).to_bits()
+    );
+    let own = after
+        .program_advance(beta)
+        .expect("the embedded program states the beta's advance");
+    assert!(
+        after
+            .glyph_index(beta)
+            .is_some_and(|glyph| glyph != pdf_font::NOTDEF_GLYPH),
+        "the pack face's own beta is drawn"
+    );
+    assert!(own > 0.25, "{own}");
+    assert!(
+        (after.advance(beta) - own).abs() < 1e-6,
+        "{} against {own}",
+        after.advance(beta)
+    );
+}

@@ -11,6 +11,12 @@
 //! (`doc/adr/2939`). What differs is that the descriptor is written here, measured off the pack
 //! face as [`Measured`] measures a shipped one, and the widths Table 109 then requires are stated.
 //!
+//! A code the window advanced by its face's `.notdef`, because neither the published metrics nor
+//! the shipped face name its glyph (`LoadedFont::advanced_by_notdef`), is drawn here by the pack
+//! face's own glyph of that name, and the width stated for it is that glyph's own advance: the
+//! rule the window applies — the width is the painted glyph's (ISO 32000-2 §9.2.4), the glyph
+//! §9.6.5.2 selects by name — applied to the face this file draws (`doc/adr/2942`).
+//!
 //! Only the standard's layout is taken: a font outside the fourteen that states no descriptor is
 //! laid out by this viewer's choice (ADR 2898), whose name the shipped face supplies, and it keeps
 //! [`super::describe`]'s route.
@@ -18,9 +24,9 @@
 use std::collections::BTreeMap;
 
 use pdf_archive::survey::SelectedFont;
-use pdf_font::LoadedFont;
 use pdf_font::standard::SuppliedFace;
 use pdf_font::substitute::Format;
+use pdf_font::{Code, LoadedFont};
 use pdf_syntax::Document;
 use pdf_syntax::object::{Name, Object};
 
@@ -34,7 +40,7 @@ use super::super::{
 };
 use super::{
     Described, Layout, Measured, PROGRAM_NOT_MEASURED, Restated, layout_of, pack_face_proved,
-    pack_face_subset, restated_encoding, restated_entries,
+    pack_face_subset, restated_encoding, restated_entries, state_widths,
 };
 
 /// Embeds the pack's face for `used`, a standard font stated by name alone, with a descriptor of
@@ -62,7 +68,15 @@ pub(in crate::archive::fonts) fn described_from_pack(
     let source = LoadedFont::load(document, &used.dict, &used.name)
         .map_err(|_| Because::NotBuiltYet(super::super::FONT_NOT_READ))?;
     let face = Face::Pack(pack.clone(), wanted);
-    let FaceWidths { widths, route, .. } = face_widths(&source, &face, used, &[])?;
+    let FaceWidths {
+        mut widths, route, ..
+    } = face_widths(&source, &face, used, &[])?;
+    let own = own_advances(&source, used, pack, &mut widths);
+    let laid_out = |code: Code| {
+        own.get(&code.value())
+            .copied()
+            .unwrap_or_else(|| source.advance(code))
+    };
     let restated = pdf_font::restate::with_widths(&pack.program, Format::BareCff, &widths)
         .map_err(|_| Because::NotBuiltYet(super::super::FACE_NOT_RESTATABLE))?;
     proves(&restated, Format::BareCff, &widths, &BTreeMap::new())?;
@@ -95,6 +109,7 @@ pub(in crate::archive::fonts) fn described_from_pack(
         encoding,
         &source,
     );
+    state_widths(&mut entries, &laid_out);
     let whole = pack_face_proved(
         document,
         used,
@@ -102,6 +117,7 @@ pub(in crate::archive::fonts) fn described_from_pack(
         (&entries, &descriptor),
         row,
         &restated,
+        &laid_out,
     )?;
     let program = match pack_face_subset(
         document,
@@ -146,6 +162,42 @@ pub(in crate::archive::fonts) fn described_from_pack(
         font: selected(used),
     });
     Ok(true)
+}
+
+/// The pack face's own advance, in text-space units, for each shown code the window advanced by its
+/// face's `.notdef` and the pack face draws a glyph of its own for, set into `widths` against that
+/// glyph so that the face is restated to it (`doc/adr/2942`).
+///
+/// §9.6.5.2 selects a glyph by the name the encoding gives the code: the shipped face holds none of
+/// that name and showed `.notdef`, at `.notdef`'s width; the pack face holds one, and §9.2.4's
+/// width is "the distance the current text position shall move … when the glyph is painted", so
+/// the glyph this file paints moves the text position by its own width.
+fn own_advances(
+    source: &LoadedFont,
+    used: &SelectedFont,
+    pack: &SuppliedFace,
+    widths: &mut BTreeMap<u16, f32>,
+) -> BTreeMap<u32, f32> {
+    let mut own = BTreeMap::new();
+    for code in used.shown.keys().flat_map(|text| source.decode(text)) {
+        if !source.advanced_by_notdef(code) {
+            continue;
+        }
+        let Some(glyph) = u8::try_from(code.value())
+            .ok()
+            .and_then(|byte| pack.glyph(byte))
+            .filter(|glyph| *glyph != pdf_font::NOTDEF_GLYPH)
+        else {
+            continue;
+        };
+        let Some(advance) = pdf_font::restate::advance(&pack.program, Format::BareCff, glyph)
+        else {
+            continue;
+        };
+        widths.insert(glyph, advance);
+        own.insert(code.value(), advance);
+    }
+    own
 }
 
 /// The program's stream, carrying the pack's licence in its `/Metadata` (`doc/adr/2934`), written
