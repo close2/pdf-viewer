@@ -241,10 +241,18 @@ pub(super) const REMEDIES: &[Remedy] = &[
         ),
     },
     // ISO 19005-2 section 6.2.11.4.1's last requirement for the same codes, in the embedded
-    // program's half `pdf_archive` asks it of, by the same glyph (`doc/adr/2543`).
+    // program's half `pdf_archive` asks it of, by the same glyph (`doc/adr/2543`). A Type 3 font
+    // takes the first answer: a shown code it describes no glyph for is given a procedure painting
+    // nothing at its width, which is what ISO 32000-2 §9.6.4 b) paints for it already
+    // (`super::super::type3_glyphs`, `doc/adr/2918`); a font with a program is fenced off there,
+    // so the glyph given answers it as before.
     Remedy {
         requirement: "fonts/embedded-programs-define-every-glyph-shown",
-        answer: Answer::Stated(None, Rewrite::NotdefGlyphGiven, NOTDEF_GLYPH_REINTERPRETS),
+        answer: Answer::OrStated(
+            &Answer::Mechanical(Rewrite::Type3GlyphDescribed),
+            Rewrite::NotdefGlyphGiven,
+            NOTDEF_GLYPH_REINTERPRETS,
+        ),
     },
     // The same subclause's last paragraph: every code reaches its glyph by §9.6.5.4's own route.
     // Stated rather than mechanical, because the glyph is this reader's choice made the file's

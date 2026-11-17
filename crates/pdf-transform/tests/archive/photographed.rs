@@ -1381,13 +1381,16 @@ fn a_type3_font_whose_procedure_contradicts_its_width_is_photographed_with_the_p
     // ISO 19005-4 section 6.2.10.5: "the operands of the d0 and d1 operators of each CharProc
     // shall be consistent with the glyph's width"; here d0 says 500 and /Widths 1000. The fault
     // is reported at the font, which no page holds, so the pages are the ones whose resources
-    // reach it, and under a profile that grants the photograph and not `type3-width-as-drawn` —
-    // `state-every-loss` — they are photographed as the window draws them, the font leaving the
-    // output with their resources (ADR 2847). The two shipped profiles grant the width instead
-    // and keep the text (ADR 2907, `type3_width_as_drawn.rs`).
+    // reach it, and under a plan that grants the photograph and not `type3-width-as-drawn` —
+    // `state-every-loss`'s authorisations with that one loss withdrawn, as a caller may — they are
+    // photographed as the window draws them, the font leaving the output with their resources
+    // (ADR 2847). Every shipped profile that grants the photograph grants the width instead and
+    // keeps the text (ADRs 2907 and 2917, `type3_width_as_drawn.rs`).
     let source = a_type3_glyph_whose_procedure_contradicts_its_width();
     let target = Target::Four(pdf_archive::Flavour::Plain);
-    let (report, output) = convert_with_plan(&source, &printing("state-every-loss", target));
+    let mut plan = printing("state-every-loss", target);
+    plan.authorised.type3_width_as_drawn = false;
+    let (report, output) = convert_with_plan(&source, &plan);
     assert!(
         conversion(&report).settled.is_empty(),
         "the first pass answers it, not ADR 2534's second"

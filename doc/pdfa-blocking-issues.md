@@ -405,7 +405,9 @@ page is photographed under `as-if-printed`, drawn with §10.5's function applied
 `state-every-loss` states the `ActualText` removal on its appended page (ADR 2892). A Type 3 glyph
 procedure's `d0`/`d1` width is written as its font's `/Widths` under the loss `type3-width-as-drawn` in
 both shipped profiles, a procedure reached at two widths copied, a code of one font given a suffixed
-name for its copy (A865, ADR 2907); `state-every-loss` keeps the photograph. The bound
+name for its copy (A865, ADR 2907); `state-every-loss` writes it too and lists each width on its
+appended page (ADR 2917). A Type 3 code its font describes no glyph for is given a procedure painting
+nothing at its width (ADR 2918). The bound
 names a content stream never uses could still be renamed outright; part 4 has none of part 2's limits
 (R06b).
 A photographed page is one the window drew whole, its own bytes' faults apart (ADR 2516 decision

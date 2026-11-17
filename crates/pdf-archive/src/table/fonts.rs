@@ -2237,6 +2237,10 @@ fn embedded_programs_define_every_glyph_shown(exam: &Examination<'_>, findings: 
         if !used.rendered || !used.shown_complete {
             continue;
         }
+        if subtype(document, &used.dict).as_deref() == Some("Type3") {
+            type3_glyphs_shown_are_described(document, used, findings);
+            continue;
+        }
         let Some(font) = font_with_its_own_program(document, used) else {
             continue;
         };
@@ -2260,6 +2264,61 @@ fn embedded_programs_define_every_glyph_shown(exam: &Examination<'_>, findings: 
                     ),
                 );
             }
+        }
+    }
+}
+
+/// [`embedded_programs_define_every_glyph_shown`] for one Type 3 font, whose glyph descriptions
+/// are its `/CharProcs` streams rather than a program (ISO 19005-2 section 6.2.11.4.1, ISO
+/// 19005-4 section 6.2.10.4.1).
+///
+/// ISO 32000-2 §9.6.4 states the two steps a code takes to its description, and a code fails at
+/// either: Table 110 has the encoding's `/Differences` array "specify the complete character
+/// encoding", so a code it names no glyph for has none; and step b) looks the name up in `/CharProcs`, and paints no glyph for a name
+/// that is not a key there. Either way the file renders a glyph
+/// the font does not define, which is what the embedding clause forbids. A key whose value is not
+/// a stream is the second case, because step b) asks for "a stream object containing a glyph
+/// description" and §7.3.10 reads a reference to an object the file does not hold as `null`.
+///
+/// A font whose `/CharProcs` is not a dictionary is passed over: what it defines is unknown, and
+/// the base standard's own fault is not this clause's. A code its encoding names `.notdef` is
+/// asked like any other, since the description is looked up by name either way;
+/// [`type3_notdef_shown`] reports it besides under its own clause.
+fn type3_glyphs_shown_are_described(
+    document: &Document,
+    used: &SelectedFont,
+    findings: &mut Findings,
+) {
+    let procedures = document.get_key(&used.dict, "CharProcs");
+    let Some(procedures) = procedures.as_dict() else {
+        return;
+    };
+    let names: BTreeMap<i64, String> = type3_encoding(document, &used.dict).into_iter().collect();
+    let mut reported = BTreeSet::new();
+    for text in used.shown.keys() {
+        // A Type 3 font is a simple font, so each byte a string shows is one code (§9.6.4).
+        for &byte in text {
+            let code = i64::from(byte);
+            let fault = match names.get(&code) {
+                None => "whose encoding names no glyph for it".to_owned(),
+                Some(name) => match procedures.get(name.as_str()).map(|at| document.resolve(at)) {
+                    Some(Object::Stream(_)) => continue,
+                    _ => format!(
+                        "whose encoding names the glyph /{name}, which its CharProcs does not \
+                         describe"
+                    ),
+                },
+            };
+            if !reported.insert(code) {
+                continue;
+            }
+            findings.record(
+                font_place(used).named(used.name.clone()),
+                format!(
+                    "the Type 3 font {} is rendered with code {code}, {fault}",
+                    used.name
+                ),
+            );
         }
     }
 }
@@ -4499,6 +4558,38 @@ mod tests {
             no_notdef_glyph_shown,
         );
         assert_eq!(found.len(), 1, "code 98 alone: {found:?}");
+    }
+
+    #[test]
+    fn a_type3_code_its_font_describes_no_glyph_for_is_a_glyph_the_font_does_not_define() {
+        use super::embedded_programs_define_every_glyph_shown;
+        // ISO 19005-2 section 6.2.11.4.1 and ISO 19005-4 section 6.2.10.4.1 require an embedded
+        // font to define every glyph referenced for rendering; a Type 3 font's definitions are
+        // its `/CharProcs` streams, reached by the encoding's names (ISO 32000-2 §9.6.4). The page
+        // shows codes 97 and 98.
+        assert!(
+            findings(
+                &type3_page("[1000 1000]", 1000),
+                embedded_programs_define_every_glyph_shown
+            )
+            .is_empty(),
+            "the control: both codes are named and described"
+        );
+        // Code 98 named by no `/Differences` entry: Table 110's array is the complete encoding.
+        let found = findings(
+            &type3_page_naming("[1000 1000]", 1000, "/square"),
+            embedded_programs_define_every_glyph_shown,
+        );
+        assert_eq!(found.len(), 1, "code 98 alone: {found:?}");
+        assert!(found[0].contains("code 98"), "{found:?}");
+        assert!(found[0].contains("names no glyph"), "{found:?}");
+        // Code 98 named `/circle`, which `/CharProcs` holds no key for: step b) paints nothing.
+        let found = findings(
+            &type3_page_naming("[1000 1000]", 1000, "/square /circle"),
+            embedded_programs_define_every_glyph_shown,
+        );
+        assert_eq!(found.len(), 1, "code 98 alone: {found:?}");
+        assert!(found[0].contains("/circle"), "{found:?}");
     }
 
     /// A one-page document showing the CIDs `shown` in an `Identity-H` font over a

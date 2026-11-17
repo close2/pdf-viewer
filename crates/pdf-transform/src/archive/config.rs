@@ -92,7 +92,7 @@ use super::toml::{self, Value};
 mod steps;
 
 pub(in crate::archive) use steps::{
-    STATED_FONTS, STATED_GRAPHICS, STATED_RUNS, statement_hands_on,
+    STATED_FONTS, STATED_GRAPHICS, STATED_RUNS, STATED_TYPE3_WIDTHS, statement_hands_on,
 };
 pub use steps::{Skipped, Statement};
 
@@ -2254,8 +2254,9 @@ fn check_what_moves_nothing(row: &Row) -> Result<(), ConfigError> {
     // rows, whose removal takes
     // one entry from each object it names (`doc/adr/2562`), at the font row, whose losses are
     // reported one photographed page or one embedded face at a time (`doc/adr/2600`), and at the
-    // operator row, whose runs are reported one at a time (`doc/adr/2638`), and refused by name at
-    // every other.
+    // operator row, whose runs are reported one at a time (`doc/adr/2638`), and at the Type 3 width
+    // row, whose widths are reported one glyph procedure at a time (`doc/adr/2917`), and refused by
+    // name at every other.
     if row.states_the_loss
         && !DERIVABLE.contains(&row.site.as_str())
         && !keeps_per_object(row)

@@ -6,6 +6,7 @@
 //! with the corresponding width in the font's Widths array". §9.2.4 makes `/Widths` what advances
 //! the text position, so the operand written is the number the page is already laid out by.
 
+use super::statement::{holds_fact, stated};
 use super::*;
 use pdf_model::{Pages, interpret};
 use pdf_syntax::object::Object;
@@ -213,4 +214,94 @@ fn a_text_layer_reads_the_renamed_code_as_it_did() {
     };
     assert!(text(&source).contains('A'), "{:?}", text(&source));
     assert_eq!(text(&output), text(&source));
+}
+
+/// The object number of the font page one's resources name `name`.
+fn font_on_page_one(bytes: &[u8], name: &str) -> u32 {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = Pages::new(&document).get(0).expect("a page");
+    let resources = document.get_key(&page.dict, "Resources");
+    let fonts = document.get_key(resources.as_dict().expect("resources"), "Font");
+    match fonts.as_dict().and_then(|fonts| fonts.get(name)) {
+        Some(Object::Reference(font)) => font.number,
+        other => panic!("/{name} is a font object: {other:?}"),
+    }
+}
+
+/// A plan converting to part 4 under a shipped profile, its statement steps included.
+fn under(profile: &str) -> ArchivePlan {
+    let text = named(profile).expect("a shipped profile").text;
+    let config = pdf_transform::archive::Configuration::read(text, PART_FOUR).expect("it reads");
+    ArchivePlan {
+        authorised: config.authorisations(PART_FOUR),
+        ..plan_from(text, PART_FOUR)
+    }
+}
+
+#[test]
+fn state_every_loss_writes_each_width_and_states_it_on_its_appended_page() {
+    // `state-every-loss` takes every loss it states (its profile's first line), and this one is
+    // stated in facts read from the file: the font, the glyph, the procedure the producer wrote,
+    // the operand it held and the width written (ADR 2917, CLAUDE.md's first near-side
+    // construction). So the width is written as under the other two profiles, the page keeps its
+    // text, and the appended page lists the width.
+    let source = two_fonts_over_one_procedure("1000", "500", "65 /A");
+    let (report, output) = convert_with_plan(&source, &under("state-every-loss"));
+    let Decision::Authorised { losses, .. } = decision(&report, TYPE3_WIDTHS) else {
+        panic!("{:?}", decision(&report, TYPE3_WIDTHS));
+    };
+    assert!(
+        losses.iter().eq([Loss::Type3WidthAsDrawn]),
+        "{}",
+        losses.words()
+    );
+    let output = written(&report, output);
+    assert_eq!(holds(&output, PART_FOUR).verdict(), Verdict::Conforms);
+    let conversion = conversion(&report);
+    assert!(conversion.photographed.is_empty());
+    // The statement page's own objects are numbered among the source's, so `/F1` is found by
+    // its resource name rather than by its number in the source.
+    assert_eq!(
+        d0_of(&output, font_on_page_one(&output, "F1")),
+        "1000",
+        "/F1's copy"
+    );
+    let statement = conversion.statement.as_ref().expect("a statement page");
+    assert!(
+        statement.sites.contains(&TYPE3_WIDTHS),
+        "{:?}",
+        statement.sites
+    );
+    let page = stated(&output, statement);
+    // Each fact read from the source here, not from the conversion's record.
+    let procedure = {
+        let held = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("it opens");
+        let procedures = held.get(ObjectId::new(8, 0));
+        let Some(Object::Reference(procedure)) = procedures
+            .as_dict()
+            .and_then(|procedures| procedures.get("A"))
+            .cloned()
+        else {
+            panic!("/A names a procedure");
+        };
+        procedure
+    };
+    for fact in [
+        format!("Requirement: {TYPE3_WIDTHS} (ISO 19005-4 section 6.2.10.5)"),
+        "Loss: type3-width-as-drawn".to_owned(),
+        "Font: dictionary 6 0".to_owned(),
+        "Glyph: /A".to_owned(),
+        format!(
+            "Procedure: stream {} {}",
+            procedure.number, procedure.generation
+        ),
+        format!("Width as the producer wrote it: {} d0", d0_of(&source, 6)),
+        "Width written: 1000".to_owned(),
+    ] {
+        assert!(holds_fact(&page, &fact), "{fact}:\n{page}");
+    }
+    assert!(
+        !holds_fact(&page, "Font: dictionary 7 0"),
+        "/F2 keeps the producer's procedure and loses nothing:\n{page}"
+    );
 }

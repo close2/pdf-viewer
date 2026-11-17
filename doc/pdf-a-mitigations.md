@@ -1671,12 +1671,21 @@ ISO 19005-2 6.2.11.3.1, ISO 19005-4 6.2.10.3.1 · all six · **built where this 
 #### `fonts/embedded-programs-define-every-glyph-shown`
 #### `fonts/no-notdef-glyph-shown`
 ISO 19005-2 6.2.11.4.1 and 6.2.11.8, ISO 19005-4 6.2.10.4.1 and 6.2.10.9 · all six · `the-fence`;
-**a Type 3 font's half built** as `Mechanical` (ADR 1942)
+**a Type 3 font's half built** as `Mechanical` (ADRs 1942 and 2918)
 
 - **A Type 3 font is not a program.** ISO 32000-2 §9.6.4 keys its glyph procedures by name, so a
   code its encoding names `.notdef` draws the producer's own procedure of that name; the procedure
   is renamed in `/Differences` and `/CharProcs` alike and draws the same marks. The validator
-  reports the case since ADR 1942; everything below is about a font that carries a program.
+  reports the case since ADR 1942.
+- **A Type 3 code with no description** — one its encoding names no glyph for, or whose name
+  `/CharProcs` holds no stream for — is reported under section 6.2.11.4.1 / 6.2.10.4.1 since ADR
+  2918, and given a procedure `w 0 d0` at the font's `/Widths` entry (`Rewrite::Type3GlyphDescribed`):
+  §9.6.4 b) paints nothing for such a code already, so no mark moves and nothing is lost. A named
+  code keeps its name; an unnamed one is given `empty` (`empty.1`, … per width) in `/Differences`, a
+  name the Adobe Glyph List gives no character. Refused by name: a direct font, an unreadable
+  encoding, `/CharProcs` or `/Widths`, a code with no width, a name two codes share at two widths,
+  and a font the rename or the width restatement also writes. Everything below is about a font that
+  carries a program.
 
 - **Mitigation, built for a simple TrueType program** (ADR 2543, `Rewrite::NotdefGlyphGiven`): the
   file carries the program, so the mapping is the producer's; the content stream stays as it is and
@@ -1832,8 +1841,11 @@ ISO 19005-4 6.2.10.5 · PDF/A-4, 4f, 4e · **built in session 2045**, `discard` 
   ADR 0816's fence for this one operand on the owner's word, `doc/questions/A865`).
 - **By target** — part 2 states no such rule (confirmed **A**).
 - **From a configuration** — `[site."fonts/type3-glyph-procedures-state-their-width"]` with
-  `remedy = "discard"`, which `as-shown` and `as-if-printed` carry; `state-every-loss` keeps ADR 2847's
-  photograph, and `refuse-any-loss` stops.
+  `remedy = "discard"`, which `as-shown` and `as-if-printed` carry; `state-every-loss` answers
+  `try = ["append-statement", "discard"]` and lists each width written on its appended page — font,
+  glyph, procedure, the producer's operand and the width written (ADR 2917) — and `refuse-any-loss`
+  stops. ADR 2847's photograph is left to a caller's plan that grants `page-as-image` and not this
+  loss.
 - **Departure** — **B**, and safe, as before: a departed file lays out exactly as it does today.
 
 #### `fonts/non-symbolic-truetype-uses-a-standard-encoding`

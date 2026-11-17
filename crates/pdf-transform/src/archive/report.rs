@@ -526,6 +526,8 @@ pub struct Listed {
     pub font_records: usize,
     /// Runs the font step drew as shapes.
     pub run_records: usize,
+    /// Type 3 glyph procedure widths written as their fonts' `/Widths` state them (`doc/adr/2917`).
+    pub type3_width_records: usize,
     /// A recovered structure and the pages the file does not hold.
     pub recovery_records: usize,
 }
@@ -540,6 +542,7 @@ impl Listed {
             .saturating_add(self.halftone_entries)
             .saturating_add(self.font_records)
             .saturating_add(self.run_records)
+            .saturating_add(self.type3_width_records)
             .saturating_add(self.recovery_records)
     }
 
@@ -555,12 +558,15 @@ impl Listed {
             halftone_entries: self.halftone_entries.saturating_add(other.halftone_entries),
             font_records: self.font_records.saturating_add(other.font_records),
             run_records: self.run_records.saturating_add(other.run_records),
+            type3_width_records: self
+                .type3_width_records
+                .saturating_add(other.type3_width_records),
             recovery_records: self.recovery_records.saturating_add(other.recovery_records),
         }
     }
 
     /// Each kind with a count, as the words the report prints and its count.
-    fn kinds(&self) -> [(&'static str, usize); 7] {
+    fn kinds(&self) -> [(&'static str, usize); 8] {
         [
             ("removed object(s)", self.removed_objects),
             ("omitted character(s)", self.omitted_characters),
@@ -571,6 +577,7 @@ impl Listed {
             ),
             ("font record(s)", self.font_records),
             ("run record(s)", self.run_records),
+            ("Type 3 width record(s)", self.type3_width_records),
             ("recovery record(s)", self.recovery_records),
         ]
     }

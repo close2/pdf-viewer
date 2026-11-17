@@ -17069,3 +17069,7 @@ mod associated_files_date_audit;
 mod action_promotion_audit;
 #[path = "archive/type3_width_as_drawn.rs"]
 mod type3_width_as_drawn;
+// ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1: a Type 3 code with no glyph
+// description given a procedure painting nothing (ADR 2918).
+#[path = "archive/type3_glyphs.rs"]
+mod type3_glyphs;

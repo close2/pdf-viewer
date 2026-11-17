@@ -189,6 +189,7 @@ mod to_unicode;
 mod toml;
 mod transcode;
 mod transfer;
+mod type3_glyphs;
 mod type3_widths;
 mod undecodable;
 

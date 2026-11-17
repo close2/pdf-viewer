@@ -68,6 +68,7 @@ pub(super) fn the_preserved_pages(
     recovery: super::super::recovered::Stated<'_>,
     substitutes: Option<&Substitutes>,
     runs: &[super::super::WrittenRun],
+    type3_widths: &[super::super::RestatedType3Width],
     rebuilt: Option<&super::super::parent_tree::Rebuilt>,
     information: &[super::RemovedInformation],
     spare: &mut Spare,
@@ -285,6 +286,7 @@ pub(super) fn the_preserved_pages(
         information_stated,
         fonts.as_ref(),
         runs,
+        type3_widths,
         recovery,
     )?;
     if packets.is_empty()
@@ -481,6 +483,7 @@ pub(super) fn the_preserved_pages(
         .or_else(|| graphics.first().map(|entry| entry.site))
         .or_else(|| fonts.as_ref().map(|_| super::super::config::STATED_FONTS))
         .or_else(|| (!runs.is_empty()).then_some(super::super::config::STATED_RUNS))
+        .or_else(|| (!type3_widths.is_empty()).then_some(super::super::config::STATED_TYPE3_WIDTHS))
         .or_else(|| recovery.structure.map(|_| RECOVERED_SITE))
         .or_else(|| recovery.not_held.map(|_| NOT_HELD_SITE));
     if let (Some(site), Some(text)) = (statement_site, statement_text.as_ref()) {
@@ -551,6 +554,7 @@ pub(super) fn the_preserved_pages(
                 information_stated,
                 fonts.as_ref(),
                 runs,
+                type3_widths,
                 recovery,
             )?;
             if let (Some(site), Some(text)) = (statement_site, restated.as_ref()) {
@@ -609,6 +613,9 @@ pub(super) fn the_preserved_pages(
         if !runs.is_empty() {
             sites.push(super::super::config::STATED_RUNS);
         }
+        if !type3_widths.is_empty() {
+            sites.push(super::super::config::STATED_TYPE3_WIDTHS);
+        }
         if recovery.structure.is_some() {
             sites.push(RECOVERED_SITE);
         }
@@ -628,6 +635,7 @@ pub(super) fn the_preserved_pages(
             halftone_entries: graphics.len(),
             font_records: fonts.as_ref().map_or(0, statement::FontsStated::listed),
             run_records: runs.len(),
+            type3_width_records: type3_widths.len(),
             recovery_records: recovery.entries(),
         };
         let page = the_statement_page(&mut composed, sites, listed)?;
@@ -791,9 +799,10 @@ fn link_the_annotations(
 /// The statement's text over the files an embedded-file row removed, the entries the halftone
 /// rows took, the packets a packet row removed (`doc/adr/2678`), the document information entries
 /// an information row removed (`doc/adr/2681`), the pages photographed and faces embedded with a loss under the font row
-/// (`doc/adr/2600`), the runs the operator row wrote as numbers (`doc/adr/2638`), the rebuilt
-/// structure (`doc/adr/2669`) and the pages the source states and the file does not hold, or
-/// `None` where none of the eight lists anything. The structure and the pages not held are
+/// (`doc/adr/2600`), the runs the operator row wrote as numbers (`doc/adr/2638`), the Type 3
+/// widths written as their fonts state them (`doc/adr/2917`), the rebuilt structure
+/// (`doc/adr/2669`) and the pages the source states and the file does not hold, or `None` where
+/// none of the nine lists anything. The structure and the pages not held are
 /// the last entries.
 #[expect(
     clippy::too_many_arguments,
@@ -816,6 +825,7 @@ fn statement_of(
     )>,
     fonts: Option<&statement::FontsStated<'_>>,
     runs: &[super::super::WrittenRun],
+    type3_widths: &[super::super::RestatedType3Width],
     recovery: super::super::recovered::Stated<'_>,
 ) -> Result<Option<String>, Because> {
     let files = files.filter(|(removed, _)| !removed.is_empty());
@@ -826,6 +836,7 @@ fn statement_of(
         && graphics.is_empty()
         && fonts.is_none()
         && runs.is_empty()
+        && type3_widths.is_empty()
         && recovery.is_empty()
     {
         return Ok(None);
@@ -863,6 +874,11 @@ fn statement_of(
     if !runs.is_empty() {
         statement::runs_entry(&mut text, target, before, runs).map_err(Because::NotBuiltYet)?;
         before = before.saturating_add(runs.len());
+    }
+    if !type3_widths.is_empty() {
+        statement::type3_widths_entry(&mut text, target, before, type3_widths)
+            .map_err(Because::NotBuiltYet)?;
+        before = before.saturating_add(type3_widths.len());
     }
     if let Some(structure) = recovery.structure {
         statement::recovered_entry(&mut text, before, structure).map_err(Because::NotBuiltYet)?;
@@ -947,6 +963,34 @@ pub(super) fn stated_runs<'a>(
 ) -> &'a [super::super::WrittenRun] {
     match drawn {
         Some(drawn) if runs_may_be_stated(plan, failed) => &drawn.runs,
+        _ => &[],
+    }
+}
+
+/// Whether the Type 3 width row's statement page may be composed: its row names
+/// `append-statement`, the row failed and the profile authorised `type3-width-as-drawn`, so the
+/// widths are written (`doc/adr/2917`).
+pub(super) fn type3_widths_may_be_stated(
+    plan: &ArchivePlan,
+    failed: &BTreeSet<&'static str>,
+) -> bool {
+    plan.preservations.iter().any(|preservation| {
+        preservation.site == super::super::config::STATED_TYPE3_WIDTHS
+            && preservation.statement.is_some()
+    }) && failed.contains(super::super::config::STATED_TYPE3_WIDTHS)
+        && plan.authorised.grants(Loss::Type3WidthAsDrawn)
+}
+
+/// The widths the Type 3 width row's statement lists, where [`type3_widths_may_be_stated`] and
+/// they were written: each is the report's own record, so the page lists exactly what the report
+/// names.
+pub(super) fn stated_type3_widths<'a>(
+    plan: &ArchivePlan,
+    failed: &BTreeSet<&'static str>,
+    restated: Option<&'a super::super::type3_widths::Restated>,
+) -> &'a [super::super::RestatedType3Width] {
+    match restated {
+        Some(restated) if type3_widths_may_be_stated(plan, failed) => &restated.widths,
         _ => &[],
     }
 }

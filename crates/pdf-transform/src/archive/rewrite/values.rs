@@ -549,14 +549,38 @@ impl Rewriter<'_> {
             count(applied, Rewrite::NotdefGlyphGiven);
             changed = true;
         }
-        if self.wants(Rewrite::Type3NotdefRenamed)
-            && let Some((encoding, procedures)) =
-                self.type3_notdef.and_then(|renames| renames.at.get(&id))
-        {
-            out.insert(Name::new(&b"Encoding"[..]), encoding.clone());
-            out.insert(Name::new(&b"CharProcs"[..]), procedures.clone());
-            count(applied, Rewrite::Type3NotdefRenamed);
-            changed = true;
+        changed | self.rename_type3_glyphs(id, out, applied)
+    }
+
+    /// A Type 3 font's `/Encoding` and `/CharProcs` as one of the two rewrites that name its glyphs
+    /// afresh states them: the `.notdef` rename (ADR 1942) or the procedures given to codes it did
+    /// not describe (`super::super::type3_glyphs`, ADR 2918). `Prepared::obstacle` refuses the
+    /// second for a font the first writes, so at most one applies; `true` where `out` changed.
+    fn rename_type3_glyphs(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let renamed = [
+            (
+                Rewrite::Type3NotdefRenamed,
+                self.type3_notdef.and_then(|renames| renames.at.get(&id)),
+            ),
+            (
+                Rewrite::Type3GlyphDescribed,
+                self.type3_glyphs
+                    .and_then(|described| described.at.get(&id)),
+            ),
+        ];
+        let mut changed = false;
+        for (rewrite, given) in renamed {
+            if let Some((encoding, procedures)) = given.filter(|_| self.wants(rewrite)) {
+                out.insert(Name::new(&b"Encoding"[..]), encoding.clone());
+                out.insert(Name::new(&b"CharProcs"[..]), procedures.clone());
+                count(applied, rewrite);
+                changed = true;
+            }
         }
         changed
     }

@@ -59,7 +59,8 @@ use annotations_and_attachments::{
 pub(super) use appended_pages::{MOST_ATTACHMENTS_AS_PAGES, attached_bytes};
 use appended_pages::{
     fonts_may_be_stated, names_discarded, names_removed, packets_may_be_preserved,
-    runs_may_be_stated, stated_runs, the_preserved_pages,
+    runs_may_be_stated, stated_runs, stated_type3_widths, the_preserved_pages,
+    type3_widths_may_be_stated,
 };
 pub(super) use colour_and_graphics::{
     ASSUMED_INKS, CMYK, DefaultCmyk, Intent, ReplacedDestination, SRGB, SuppliedDestination,
@@ -411,6 +412,10 @@ pub(super) struct Prepared {
     /// The Type 3 glyph procedures written with their fonts' widths, or why they are not (ISO
     /// 19005-4 section 6.2.10.5, `doc/adr/2907`).
     pub(super) type3_widths: Result<super::type3_widths::Restated, Because>,
+    /// The Type 3 fonts given a glyph procedure for each code they show and describe no glyph
+    /// for, or why they are not (ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1,
+    /// `doc/adr/2918`).
+    pub(super) type3_glyphs: Result<super::type3_glyphs::Described, Because>,
     /// The content streams whose hexadecimal strings gain the final digit, or why none can.
     ///
     /// ISO 19005-2 section 6.1.6 and ISO 19005-4 section 6.1.5, inside a content stream: the
@@ -647,6 +652,12 @@ impl Prepared {
         }
         // And for one the operator row may compose over the runs it writes (`doc/adr/2638`).
         if runs_may_be_stated(plan, &failed) {
+            derived_pages_need_an_intent = true;
+            failed.insert(DEVICE_GRAY_ROW);
+        }
+        // And for one the Type 3 width row may compose over the widths it writes
+        // (`doc/adr/2917`).
+        if type3_widths_may_be_stated(plan, &failed) {
             derived_pages_need_an_intent = true;
             failed.insert(DEVICE_GRAY_ROW);
         }
@@ -914,6 +925,12 @@ impl Prepared {
             } else {
                 restated.unwritten()
             })
+        });
+        // The procedures a Type 3 font's undescribed codes are given: no stream is edited, so no
+        // stream repair is in its way, and a font another Type 3 rewrite also writes is
+        // [`Prepared::obstacle`]'s to refuse (`super::type3_glyphs`).
+        let type3_glyphs = asked(wanted(Rewrite::Type3GlyphDescribed), || {
+            super::type3_glyphs::describe(document, input, survey.as_ref(), &mut spare)
         });
         // **The replacement comes before every editor**, because a stream it replaces has no
         // producer bytes left for one to write into: ISO 19005-2 section 6.6.2.1's packet is
@@ -1219,6 +1236,7 @@ impl Prepared {
             provenance.stated,
             substitutes.as_ref().ok(),
             stated_runs(plan, &failed, as_drawn.as_ref().ok()),
+            stated_type3_widths(plan, &failed, type3_widths.as_ref().ok()),
             parent_tree.as_ref().ok(),
             &stated_information,
             &mut spare,
@@ -1771,6 +1789,7 @@ impl Prepared {
             boundaries,
             actual_texts,
             type3_widths,
+            type3_glyphs,
             actions,
             forbidden_annotations,
             hidden_annotations,
@@ -1920,6 +1939,24 @@ impl Prepared {
                 Ok(_) => Some(Because::NotBuiltYet(self.owed.notdef_not_given)),
             },
             Rewrite::Type3NotdefRenamed => self.owed.type3_notdef.as_ref().err().copied(),
+            Rewrite::Type3GlyphDescribed => match &self.type3_glyphs {
+                Err(because) => Some(*because),
+                Ok(described) => described
+                    .fonts()
+                    .any(|font| {
+                        self.owed
+                            .type3_notdef
+                            .as_ref()
+                            .is_ok_and(|renames| renames.at.contains_key(font))
+                            || self
+                                .type3_widths
+                                .as_ref()
+                                .is_ok_and(|restated| restated.char_procs.contains_key(font))
+                    })
+                    .then_some(Because::NotBuiltYet(
+                        super::type3_glyphs::ALSO_ANOTHER_REWRITE,
+                    )),
+            },
             Rewrite::SharedDestinationProfile => self.owed.shared_profile.as_ref().err().copied(),
             Rewrite::SpotColorantEntry => self.owed.colorants.as_ref().err().copied(),
             Rewrite::Jpeg2000ColourSpecifications => {
@@ -1993,17 +2030,24 @@ impl Prepared {
         }
     }
 
-    /// The copies of Type 3 glyph procedures reached at a second width (`super::type3_widths`).
-    fn type3_copies(&self) -> impl Iterator<Item = (ObjectId, Object)> + '_ {
+    /// The Type 3 glyph procedures this conversion adds: the copies of procedures reached at a
+    /// second width (`super::type3_widths`) and the procedures painting nothing given to codes
+    /// their fonts did not describe (`super::type3_glyphs`).
+    fn type3_procedures(&self) -> impl Iterator<Item = (ObjectId, Object)> + '_ {
         self.type3_widths
             .iter()
             .flat_map(|restated| restated.written.iter())
+            .chain(
+                self.type3_glyphs
+                    .iter()
+                    .flat_map(|described| described.written.iter()),
+            )
             .map(|(id, object)| (*id, object.clone()))
     }
 
     /// The objects the conversion adds, in the source's numbering, for `super::rewrite::enter` to find.
     pub(super) fn added(&self) -> BTreeMap<ObjectId, Object> {
-        let mut out: BTreeMap<ObjectId, Object> = self.type3_copies().collect();
+        let mut out: BTreeMap<ObjectId, Object> = self.type3_procedures().collect();
         if let Ok(intent) = &self.intent
             && let Some(object) = &intent.written
         {
@@ -2424,8 +2468,9 @@ struct TrueTypeRoutes {
 ///
 /// Every one of them needs `pdf_archive::survey::Survey`, which walks each page's content
 /// streams — so the walk is made once where any of them is wanted and not at all where none is.
-const SURVEYED: [Rewrite; 13] = [
+const SURVEYED: [Rewrite; 14] = [
     Rewrite::Type3WidthRestated,
+    Rewrite::Type3GlyphDescribed,
     Rewrite::PageResources,
     Rewrite::EmptyResourceDefined,
     Rewrite::MarkedLanguagesRestated,

@@ -472,7 +472,7 @@ fn with_width(
 
 /// A width in ISO 32000-2 §7.3.3's spelling: `f64`'s `Display` writes the shortest digits that
 /// read back as the same value and never an exponent, which §7.3.3 does not admit.
-fn spelled(width: f64) -> String {
+pub(super) fn spelled(width: f64) -> String {
     format!("{width}")
 }
 

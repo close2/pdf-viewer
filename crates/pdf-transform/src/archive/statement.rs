@@ -534,6 +534,71 @@ pub(super) fn runs_entry(
     Ok(())
 }
 
+/// The one line the `type3-width-as-drawn` loss is described by on the page.
+const TYPE3_WIDTH_LOSS: &str = "the glyph procedure's d0 or d1 stated a horizontal width other \
+     than the one its font's Widths array gives the glyph, which ISO 32000-2 Table 111 asks it to be \
+     consistent with, and the font's width, the one ISO 32000-2 9.2.4 lays the page out by, is \
+     written in its place; the width the procedure stated is gone from it";
+
+/// Appends one entry per width the Type 3 width row wrote into a glyph procedure, the loss
+/// [`super::Loss::Type3WidthAsDrawn`], to a statement's `text`, the first numbered `index` from
+/// zero, or the bound it would pass (`doc/adr/2917`).
+///
+/// Every fact is the rewrite's own record ([`super::RestatedType3Width`]): the font whose
+/// `/Widths` states the width, the glyph name, the procedure the producer wrote and the copy where
+/// one was made, the operator, the operand as the producer's bytes spell it and the width written
+/// in ISO 32000-2 §7.3.3's spelling — the same words `xmpMM:History` and the report name it by,
+/// a byte outside printable ASCII written `\xHH` as the operator row's page writes one.
+pub(super) fn type3_widths_entry(
+    out: &mut String,
+    target: Target,
+    index: usize,
+    widths: &[super::RestatedType3Width],
+) -> Result<(), &'static str> {
+    let site = super::config::STATED_TYPE3_WIDTHS;
+    let requirement = table::requirements().find(|requirement| requirement.id == site);
+    let citation = requirement
+        .and_then(|requirement| requirement.clauses.citation(target))
+        .unwrap_or_default();
+    let asks = requirement.map_or("", |requirement| requirement.asks);
+    for (offset, written) in widths.iter().enumerate() {
+        if out.len() > MOST_STATEMENT_BYTES {
+            return Err(STATEMENT_TOO_LONG);
+        }
+        let font = written.font.map_or_else(
+            || "a font dictionary written directly in a resource dictionary".to_owned(),
+            |font| format!("dictionary {} {}", font.number, font.generation),
+        );
+        let copy = if written.written_at == written.procedure {
+            String::new()
+        } else {
+            format!(
+                "\n   Copy written for this font: stream {} {}",
+                written.written_at.number, written.written_at.generation
+            )
+        };
+        // Writing into a `String` cannot fail, so the `write!` result is discarded deliberately.
+        let _ = write!(
+            out,
+            "\n{}. Requirement: {site} ({citation})\n   Asks: {asks}\n   Loss: type3-width-as-drawn, \
+             {TYPE3_WIDTH_LOSS}\n   Font: {font}\n   Glyph: /{}\n   Procedure: stream {} {}{copy}\n   \
+             Width as the producer wrote it: {} {}\n   Width written: {} (the font's Widths, \
+             ISO 32000-2 9.6.4)\n",
+            index.saturating_add(offset).saturating_add(1),
+            super::as_drawn::spelled(written.glyph.as_bytes()),
+            written.procedure.number,
+            written.procedure.generation,
+            super::as_drawn::spelled(written.was.as_bytes()),
+            written.operator,
+            super::type3_widths::spelled(written.width),
+        );
+    }
+    if out.len() > MOST_STATEMENT_BYTES {
+        return Err(STATEMENT_TOO_LONG);
+    }
+    Ok(())
+}
+
 /// What a row whose statement is its first step says was tried: nothing.
 static NOTHING_TRIED: Statement = Statement {
     before: None,
