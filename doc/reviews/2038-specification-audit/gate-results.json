@@ -2714,6 +2714,15 @@
       "log": "quality-wave98c.log",
       "exit": 0,
       "scope": "Finalmodelalltargets."
+    },
+    {
+      "log": "eleven-crate-wave99.log",
+      "run": 7283,
+      "passed": 7185,
+      "failed": 98,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Exactbinary/test match, noextra/missing. Covers through98,includingstrengthenedassertions. FiveGPU,oneengine,oneignoredstalegateoutside. PASS includes acknowledgedfixtureearlyreturns."
     }
   ],
   "prior_expected_failures": {

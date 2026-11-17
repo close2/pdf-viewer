@@ -11,16 +11,16 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (98)
+## Current checkpoint (99)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **105 failing test identities**: 104 behavior assertions/probes
 and one stale ignored-gate expectation. These are grouped findings, not 105 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
-The refreshed broad run, wave95, covered eleven crates: **7,272 tests ran, 7,179 passed,
-and exactly the 93 recorded in-scope assertions failed; 58 were skipped**.
+The refreshed broad run, wave99, covered eleven crates: **7,283 tests ran, 7,185 passed,
+and exactly the 98 recorded in-scope assertions failed; 58 were skipped**.
 Exact binary/test identities matched the manifest at that checkpoint, with no extra or missing failures.
-Wave95 includes all default-scope additions and strengthened assertions through checkpoint94.
+Wave99 includes all default-scope additions and strengthened assertions through checkpoint98.
 Passing status includes successful early returns; two are reproduced under D45.
 Five GPU failures and one engine-only Matrix2D availability failure under the adopted
 A193 reference scope are recorded separately, as is D51’s ignored stale test expectation. The new outline-panel raster test also
@@ -380,6 +380,11 @@ attachment-stream preference and signed tiling steps pass. Existing tiling spaci
 assertions now reject empty comparisons; all35 tiling tests pass. Model Clippy passes.
 D62 qualifies ADR0914: a singular matrix still defines a transformation, so refusal
 is a project policy rather than a consequence of the claimed mathematical premise.
+
+Checkpoint99 refreshes the eleven-crate run:7,283 tests,7,185passes, exactly98
+expected failures and58skips. No extra or missing failure identities. The105-entry
+manifest includes seven separately scoped GPU/engine/ignored identities. This run
+verifies execution of the new tests and strengthened assertions through98.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

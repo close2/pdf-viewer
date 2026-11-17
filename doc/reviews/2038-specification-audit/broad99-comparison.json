@@ -1,0 +1,8 @@
+{
+  "log": "eleven-crate-wave99.log",
+  "observed_failure_count": 98,
+  "expected_failure_count": 98,
+  "extra": [],
+  "missing": [],
+  "scope": "Eleven default-feature crates through98; fiveGPU, oneengine and D51ignoredgate outside."
+}
