@@ -2972,5 +2972,28 @@
     "summary": "Optional-content recommendation AND assertion rejects order-dependent last-writer-wins.",
     "evidence": "16 same-event combinations across category/application order with literal RGBA. Original assertion passes last-writer-wins mutant; stronger assertion fails; original production restored and stronger assertion passes.",
     "execution": "oc-and-mutation-wave92 and oc-and-restored-wave92; modelClippyPASS."
+  },
+  {
+    "id": "2038-T124",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "12.5.5"
+    ],
+    "summary": "Missing rollover appearance defaults to normal despite a differing explicit down appearance.",
+    "evidence": "Existing missing-D fallback assertion gains missing-R Over red / Down blue controls.",
+    "execution": "appearance-fallback-wave93 1PASS; model all-target ClippyPASS.",
+    "qualification": "Unknown-subtype forced N under pointer states remains separate active review."
+  },
+  {
+    "id": "2038-T125",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "12.4.2",
+      "7.9.7"
+    ],
+    "summary": "Absent page-label style yields only prefix, including defined empty labels when prefix is absent or empty.",
+    "evidence": "Exactxref four-page PDF; explicit decimal style positive control then two absent-style variants through public PageLabels.",
+    "execution": "page-label-missing-style-wave93 1PASS; model all-target ClippyPASS.",
+    "qualification": "No resolution of contradictory alphabetic errata, generic tree ordering or native UI claim."
   }
 ]

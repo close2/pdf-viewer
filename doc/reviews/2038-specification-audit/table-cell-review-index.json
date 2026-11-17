@@ -468,6 +468,71 @@
       ],
       "artifact": "shards/optional_content_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "166",
+      "keys": [
+        "AP",
+        "AS"
+      ],
+      "ledger_rows": [
+        "12.5.2"
+      ],
+      "artifact": "shards/annotation_appearance_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "170",
+      "keys": [
+        "N",
+        "R",
+        "D"
+      ],
+      "ledger_rows": [
+        "12.5.5"
+      ],
+      "artifact": "shards/annotation_appearance_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "36",
+      "keys": [
+        "Kids",
+        "Names",
+        "Limits"
+      ],
+      "ledger_rows": [
+        "7.9.6"
+      ],
+      "artifact": "shards/trees_labels_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "37",
+      "keys": [
+        "Kids",
+        "Nums",
+        "Limits"
+      ],
+      "ledger_rows": [
+        "7.9.7"
+      ],
+      "artifact": "shards/trees_labels_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "161",
+      "keys": [
+        "Type",
+        "S",
+        "P",
+        "St"
+      ],
+      "ledger_rows": [
+        "12.4.2"
+      ],
+      "artifact": "shards/trees_labels_cells_current/features.json",
+      "status": "partial"
     }
   ]
 }

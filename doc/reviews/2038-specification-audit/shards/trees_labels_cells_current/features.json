@@ -1,0 +1,93 @@
+{
+  "baseline": "b901326c",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "scope": "Cell-level review of name/number-tree source duties as used by named destinations and page labels; bounded to current source and consumer assertions.",
+  "primary_source": {
+    "effective": "ISO 32000-2:2020 plus Errata Collection 3 annotations in the held primary PDF",
+    "locators": [
+      {"source":"§7.9.6, Table 36 and following ordering/partition paragraphs", "physical":"134-136", "printed":"119-121"},
+      {"source":"§7.9.7, Table 37", "physical":"137-138", "printed":"122-123"},
+      {"source":"§12.4.2, Table 161", "physical":"473-474", "printed":"458-459"}
+    ],
+    "errata": [
+      {"id":"#214", "physical":"135", "printed":"120", "effect":"Strikes lexical terminology in §7.9.6 sorting prose and Table 36 Names row. The remaining operative rules specify common-prefix shorter-first order, consistent key encoding and byte-by-byte equality; no new order is introduced."},
+      {"id":"#307", "physical":"135 and 137", "printed":"120 and 122", "effect":"Adds 'Keys shall not be the null object' to Table 36 Names and Table 37 Nums. Writer constraint; does not specify mandatory reader rejection/recovery."},
+      {"id":"#73", "physical":"473", "printed":"458", "effect":"Adds 'and indices' to clarify that visible labels and fixed zero-based indices may differ."},
+      {"id":"#432", "physical":"474", "printed":"459", "effect":"Accepted strike/caret changes the alphabetic range example from ZZ/zz to AZ/az, implying odometer progression."},
+      {"id":"#593", "physical":"474", "printed":"459", "effect":"Accepted insertion adds AAA–ZZZ and AAAA–ZZZZ for each next 26, implying repeated letters. Conflicts with #432; both are retained in effective-source record, not silently reconciled."}
+    ]
+  },
+  "ledger": [
+    {"clause":"7.9.6", "title":"Name trees", "status":"implemented", "relevant_claims":"Root/leaf/intermediate shape; byte string keys; exact equality/order; Limits-assisted lookup; pair enumeration; producer value/reference conventions."},
+    {"clause":"7.9.7", "title":"Number trees", "status":"implemented", "relevant_claims":"Integer keys and ascending numeric order; Nums pairs; parallel node/Limits structure."},
+    {"clause":"12.4.2", "title":"Page labels", "status":"implemented", "relevant_claims":"Number-tree ranges, range boundary behavior, Table 161 S/P/St and label output; #432/#593 conflict disclosed in note and ADR0601."}
+  ],
+  "features": [
+    {
+      "id":"name-tree-node-and-entry-cells",
+      "clause":"7.9.6",
+      "title":"Root, intermediate, leaf; Kids, Names, Limits",
+      "source_cells":"Table 36 physical 135-136 / printed 120-121. Root has exactly one of Kids/Names; a Names root is sole node. Nonroot intermediate has Kids+Limits; nonroot leaf Names+Limits. Kids are immediate-child indirect refs. Names is alternating string-key/value pairs. Limits are exact low/high descendant or leaf key bounds and forbidden on root.",
+      "current_code":"crates/pdf-syntax/src/tree.rs::lookup/descend/admit, name_pairs, collect; public Destination::named resolves /Dests through this tree.",
+      "current_assertions":[
+        "crates/pdf-model/tests/deep_name_tree_spec_audit.rs::named_destination_lookup_descends_valid_indirect_nodes_and_uses_exact_byte_keys",
+        "crates/pdf-syntax/src/tree.rs::a_key_is_found_through_intermediate_nodes (mechanics only; direct child dictionaries are not a valid producer fixture)",
+        "crates/pdf-syntax/src/tree.rs::a_null_key_yields_nothing_and_leaves_its_neighbours_paired (malformed-input tolerance, not a conformance rejection test)"
+      ],
+      "verdict":"The valid public test now covers a root->intermediate->leaf exact-xref structure with indirect Kids, exact Limits and both branches. The generic test's direct Kids do not establish source-validity, but no longer stand alone.",
+      "residuals":"No requirement to reject direct Kids or malformed nodes inferred from producer-form cells. False Limits may hide a key because lookup treats present bounds as a branch gate; any recovery policy is separate from these producer duties."
+    },
+    {
+      "id":"name-tree-byte-order-and-values",
+      "clause":"7.9.6",
+      "title":"String-key ordering, equality, value types and null-key erratum",
+      "source_cells":"§7.9.6 opening bullets and prose after Table 36, physical 134-135 / printed 119-120; #214/#307 physical 135 / printed 120. Strings, not Name objects, are keys. Keys shall be byte-equal under a consistent encoding; common-prefix shorter key precedes longer. Values may be any object; stream values shall be indirect, complex dictionary/array/string values should be indirect, simple values should be direct.",
+      "current_code":"TreeKey::Name compares string bytes; tree lookup does not interpret names as text. Name-tree writers and destination lookup use byte identity.",
+      "current_assertions":[
+        "crates/pdf-model/tests/deep_name_tree_spec_audit.rs::named_destination_lookup_descends_valid_indirect_nodes_and_uses_exact_byte_keys (A/a different pages, branch keys and missing B)",
+        "crates/pdf-model/tests/trees_rectangles_audit.rs::name_tree_lookup_uses_exact_bytes_and_distinguishes_prefixes (flat exact bytes; storage sequence is sorted)",
+        "crates/pdf-syntax/src/tree.rs::a_null_key_yields_nothing_and_leaves_its_neighbours_paired"
+      ],
+      "verdict":"Valid deep public lookup now asserts byte case distinction and exact Limits. #214 leaves explicit comparator rules after removing the word lexical. #307's null-key rule is directed to producers; tolerant pair-preservation is implementation behavior, not reader conformance duty.",
+      "residuals":"No exhaustive reader test for every allowed value type or writer-indirectness preference. No reader rejection rule follows from SHOULD directness preferences."
+    },
+    {
+      "id":"number-tree-node-and-entry-cells",
+      "clause":"7.9.7",
+      "title":"Kids, Nums, Limits and integer ordering",
+      "source_cells":"Table 37 physical 137-138 / printed 122-123. Kids are indirect refs to immediate children; Nums is integer/value pairs in root or leaves; intermediate and leaf Limits are two integer extrema; integer keys are ascending numerically. #307 additionally prohibits null keys at the producer.",
+      "current_code":"crates/pdf-syntax/src/tree.rs::TreeKey::Number, lookup, number_pairs and collect; PageLabels consumes number_pairs. Archive preservation and ParentTree consumers also use number trees.",
+      "current_assertions":[
+        "crates/pdf-model/tests/deep_number_tree_spec_audit.rs::page_labels_enumerate_numeric_ranges_from_valid_indirect_leaves",
+        "crates/pdf-syntax/src/tree.rs::a_number_trees_pairs_come_back_in_order (numeric mechanics; check fixture shape before treating as source-conforming)",
+        "crates/pdf-syntax/src/tree.rs::a_null_key_yields_nothing_and_leaves_its_neighbours_paired"
+      ],
+      "verdict":"A valid public PageLabels consumer test now covers indirect multilevel number-tree enumeration with exact [0,2] and [10,10] Limits and literal boundary outputs. PageLabels sorts collected ranges itself, so this is not independent evidence for generic number-tree traversal ordering. Existing tree and archive assertions cover numeric pair ordering/writer paths.",
+      "residuals":"Do not call the PageLabels test a generic numeric comparator oracle. Generic malformed ordering and null keys remain producer-invalid cases with no mandated reader recovery."
+    },
+    {
+      "id":"page-label-range-and-table-cells",
+      "clause":"12.4.2",
+      "title":"Page index, number-tree range, and Table 161 Type/S/P/St",
+      "source_cells":"§12.4.2 and Table 161 physical 473-474 / printed 458-459; #73 physical 473 / printed 458; #432/#593 physical 474 / printed 459. Keys are page-index starts, tree includes index 0, ranges do not overlap, and labels increment sequentially within each range. Type optional but PageLabel if present; S optional with no default (no numeric portion when absent); P optional text prefix; St optional integer >=1, default 1.",
+      "current_code":"crates/pdf-model/src/page_label.rs::PageLabels::read/label, Style::read, roman, letters, prefix. Consumers include navigation and accessibility. Transform split/merge/update/archive paths preserve or rebuild ranges.",
+      "current_assertions":[
+        "crates/pdf-model/tests/page_labels.rs::the_clauses_own_example_produces_the_labels_it_states",
+        "crates/pdf-model/tests/page_labels.rs::a_prefix_on_the_default_start_labels_the_ranges_boundary_a_one",
+        "crates/pdf-model/tests/page_labels.rs::every_document_stating_labels_labels_its_first_page",
+        "crates/pdf-model/tests/deep_number_tree_spec_audit.rs::page_labels_enumerate_numeric_ranges_from_valid_indirect_leaves",
+        "crates/pdf-model/src/page_label.rs::roman_numerals_are_subtractive; letters_repeat_rather_than_carrying; only_the_five_named_styles_are_styles"
+      ],
+      "verdict":"Examples, sequential range boundary/default St, corpus first-page behavior and deep indirect tree enumeration are asserted. The current unit tests exercise absent S style parsing indirectly but no public-consumer test pins absent S and P's explicit no-numeric/empty-label behavior; a small valid fixture draft is provided.",
+      "residuals":"The alphabetic continuation is genuinely ambiguous: accepted #432 says odometer; accepted #593 and base 'next 26' count support repeated letters. Implementation preserves repeat and ledger records disagreement. This is a source/errata conflict, not a newly observed runtime defect."
+    }
+  ],
+  "selected_adrs": [
+    {"id":"ADR0439", "reason":"Bytes-vs-Name distinction for tree key identity; current exact-byte public assertions are the relevant check."},
+    {"id":"ADR0053", "reason":"Tree traversal shape and bounded mechanics; current valid indirect deep consumer fixtures supersede older direct-child test concern."},
+    {"id":"ADR0601", "reason":"Page-label letters decision; remains explicitly qualified by conflicting accepted #432 and #593."},
+    {"id":"ADR1025", "reason":"Page-label range maintenance for appended pages; relevant writer path but not a new reader failure."}
+  ],
+  "drafts":["drafts/page_label_missing_style_spec_audit.rs"],
+  "remaining_work":"This is a bounded source-cell and assertion review, not certification of all name/number-tree consumers, tree writer shapes, or page-label display UI. No additional test is proposed for generic number lookup: valid deep name/number consumers are already covered, and PageLabels sorting limits the interpretation of its test as described."
+}

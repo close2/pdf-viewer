@@ -1,0 +1,8 @@
+{
+  "verdict": "T125: new public PageLabels assertion for absent S and absent/empty P PASS.",
+  "source": "Parent read primary135 actual Table36 (136 is example),137-138 Table37,474 Table161. #214 removes lexical wording, leaves byte/prefix rules; #307 forbids producer null keys; #73 index distinction. #432/#593 conflict remains qualified, not a new defect.",
+  "fixture": "Parent rejected draft Nums [0 8 2 9] before execution: integer values were not dictionary references. Corrected [0 8 0 R 2 9 0 R], four valid pages and indirect label dictionaries, exactxref/noRecovery.",
+  "assertions": "Explicit S/D control produces Contents1,Contents2,1,2. Absent S produces Contents,Contents,empty,empty, with second P empty and separately absent. Public PageLabels result, not native UI. Existing deep valid indirect name/number fixtures have prior execution evidence; PageLabels sorting does not prove generic numeric comparator ordering.",
+  "execution": "page-label-missing-style-wave93 1PASS; model all-target Clippy93PASS.",
+  "limits": "No all tree consumers/writers certification. Producer malformed-input conditions do not imply mandatory reader rejection. Alphabetic errata conflict already recorded and not duplicated."
+}

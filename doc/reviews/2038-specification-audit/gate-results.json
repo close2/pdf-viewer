@@ -2489,6 +2489,25 @@
       "log": "quality-wave92c.log",
       "exit": 0,
       "scope": "model and host all targets final"
+    },
+    {
+      "log": "page-label-missing-style-wave93.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "appearance-fallback-wave93.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0
+    },
+    {
+      "log": "quality-wave93.log",
+      "exit": 0,
+      "scope": "model all targets"
     }
   ],
   "prior_expected_failures": {

@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (92)
+## Current checkpoint (93)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **93 failing test identities**: 92 behavior assertions/probes
@@ -341,6 +341,12 @@ a deliberately unmet Required condition; it is not a claim of conforming export.
 The soft-mask test now observes restoration after Q (T122). Optional-content AND
 is checked across16 cases; an old-test-evading mutation is caught (T123), and source
 is restored. Nine more table matrices are partially mapped; model/host Clippy pass.
+
+Checkpoint93 adds the missing rollover fallback control (T124) and a public
+page-label test for absent style and empty prefix (T125); both pass. Five more
+table matrices are partially mapped. The unknown-annotation N-only fixture
+does not distinguish pointer-state selection, which remains under investigation.
+Model Clippy passes; the failure manifest remains93.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

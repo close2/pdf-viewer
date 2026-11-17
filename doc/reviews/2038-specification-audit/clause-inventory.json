@@ -1859,7 +1859,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/trees_strings_current/features.json",
-      "shards/tree_consumer_limits_current/features.json"
+      "shards/tree_consumer_limits_current/features.json",
+      "shards/trees_labels_cells_current/features.json"
     ],
     "prior_artifacts": [
       "trees_rectangles"
@@ -1875,7 +1876,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/trees_strings_current/features.json",
-      "shards/tree_consumer_limits_current/features.json"
+      "shards/tree_consumer_limits_current/features.json",
+      "shards/trees_labels_cells_current/features.json"
     ],
     "prior_artifacts": [
       "trees_rectangles"
@@ -6800,7 +6802,8 @@
       "shards/navigation/features.json",
       "shards/errata_interactive_batch_current/features.json",
       "shards/errata_weak_dispositions_batch5_current/features.json",
-      "shards/errata_conflict_and_choice_second_review_current/features.json"
+      "shards/errata_conflict_and_choice_second_review_current/features.json",
+      "shards/trees_labels_cells_current/features.json"
     ],
     "prior_artifacts": [
       "outlines_labels_audit"
@@ -6915,7 +6918,8 @@
       "shards/indirect_annotation_parameters_current/features.json",
       "shards/errata_interactive_batch_current/features.json",
       "shards/annotation_visibility_print_current/features.json",
-      "shards/behavior_fixture_second_review_current/features.json"
+      "shards/behavior_fixture_second_review_current/features.json",
+      "shards/annotation_appearance_cells_current/features.json"
     ],
     "prior_artifacts": [
       "annotation_appearance_audit",
@@ -6980,7 +6984,8 @@
       "shards/stored_ap_blend_residual_current/features.json",
       "shards/indirect_annotation_parameters_current/features.json",
       "shards/annotation_view_flags_current/features.json",
-      "shards/adr1235_named_page_appearance_current/features.json"
+      "shards/adr1235_named_page_appearance_current/features.json",
+      "shards/annotation_appearance_cells_current/features.json"
     ],
     "prior_artifacts": [
       "annotation_appearance_audit"

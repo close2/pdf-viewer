@@ -1,0 +1,32 @@
+Annotation appearance dictionary cells: bounded review
+
+Effective source and annotations
+
+Table 166 is physical pp. 482–485 / printed pp. 467–470. §12.5.5 starts on physical p. 489 / printed p. 474. Table 170 is physical p. 490 / printed p. 475; its state-selection and processor paragraphs continue on physical p. 491 / printed p. 476. I verified these page/footer pairs from the primary PDF, then inspected all page annotations on physical pp. 482–491. Important effective annotations are not all visible in extracted body text:
+
+- #1 on physical p. 482 replaces a cross-reference with §12.5.5 and Table 167 flag bits 1/2, supporting the reader behavior for unknown annotation types.
+- #22 on p. 483 states that the AP writer rule applies to PDF 2.0 (with listed exceptions) and AP remains optional for PDF 1.2–1.7. This is a producer condition, not a reader command to reject a missing AP.
+- #124 on p. 483 corrects the degenerate-Rect exception indices to zero-based. Effective comparisons are Rect[0] == Rect[2] AND Rect[1] == Rect[3]. That equality is the same two coordinate comparisons as the source's former one-based labels; the correction fixes index nomenclature, not which rectangles are degenerate.
+- #23/#34 on p. 485 amend the stored-appearance reader paragraph; #34's text annotation adds that absent AP visual appearance is implementation-dependent. #56 adds MK to the ignore list. Their disposition is already covered in `annotation_common_current`; no whole ignore-list assertion is claimed here.
+- #287 (Border/BS), #577 (CA wording), and #422 (italic `f` in the example on p. 491) were also inspected; they do not change the N/R/D or AS selection rule.
+
+Table 170's N/R/D cell and the state dictionary rule are clear. N is required; R and D are optional and default to N. Section 12.5.5 assigns N while idle and for print, R to pointer-over without a pressed button, and D while pressed/held in the active area. Each cell may be a stream or a state dictionary. Table 166 requires AS for any such state dictionary; §12.5.5 says AS determines the selected state. For a present AS that names no state, it requires reasonable behavior and explicitly offers displaying nothing. A processor lacking native support for a subtype shall draw its N appearance.
+
+Current assertions are discriminating rather than presence/smoke checks:
+
+- `annotation_appearance_audit.rs::rollover_and_down_state_subdictionaries_select_the_state_named_by_as` gives N/R/D state dictionaries multiple distinct colors and asserts each output pixel for On/Off under normal, rollover, and down views.
+- `annotation_appearance_audit.rs::explicit_rollover_is_selected_and_missing_down_defaults_to_normal` checks idle red N, hover green R, and missing D falling back to red N.
+- `annotation_appearance_audit.rs::printing_uses_normal_even_if_the_view_state_carries_a_pressed_pointer` asserts N while print purpose is active despite a down pointer.
+- `annotations.rs::the_pointer_chooses_between_an_annotations_appearances` independently asserts idle N, pressed D, and hover-with-no-R returning N using distinct pixels. `annotations.rs::an_appearance_state_is_selected_by_as` checks a defined state and unmatched AS (nothing, no report).
+- `annotations.rs::an_unknown_subtype_still_draws_its_normal_appearance` checks the required N route for a subtype with no native handler. The paired unknown subtype without AP asserts nothing/no report under Table 167's `if any` condition and §12.5.5's normal-appearance sentence.
+- The public `viewer-core` pointer path maps host `Command::Pointer` events into view states; `headless.rs::a_move_while_the_button_is_held_keeps_the_down_appearance` checks render invalidation on press and leaves/re-enters while held. That test uses corpus input and checks scheduling, whereas the model's exact fixtures assert the selected pixels. GTK/Qt translate native events into the same core command; no native-window raster automation was run.
+
+For button widgets, `/AS` selects the stored appearance when the file is loaded; Table 226's inherited `/V` does not become the AP dictionary selector. §12.7.5.2.3 expressly says if V and AS differ, use AS. After a user edit, the viewer's replacement form state can select the corresponding stream. `appearance_state_residual_current` traces these paths and parent execution evidence records the exact-xref raster test passing both inherited-V/explicit-AS mismatch directions. Mismatched V/AS tests the reader rule but is not described as a conforming producer example.
+
+Producer and absent-AP qualification
+
+Table 166's PDF 2.0 AP requirement governs writers when creating/updating annotations, except a zero-width-and-zero-height Rect and Popup/Projection/Link. EC3 #22 preserves optionality for earlier versions. Reader behavior is separate: #34 makes the absent AP's rendered visual implementation-dependent. Current subtype-specific construction in `appearance::construct` is a local behavior; it should not be described as a universal ISO obligation. ADR 0013's historic “never synthesised” blanket is no longer a complete description of current code; that does not itself establish a normative defect because the source leaves no-AP appearance implementation-dependent.
+
+ADR 0628's unknown-annotation interpretation, ADR 0235's stored-AS-versus-edited-widget-state split, ADR 0439's byte-exact state lookup, and ADR 2813's selected pointer/print behavior remain consistent with the source and tests when their conditions are kept narrow. ADR 2813 does not erase annotation-type-specific /H rules; those are audited separately.
+
+No new valid-input test draft is warranted: the current suite covers selected stream, state-dictionary, default, print, unknown subtype, unmatched state, and pointer-trigger cases with literal output witnesses, and parent execution evidence exists for the appearance-state residual. Remaining limits are all writer/export routes; malformed missing N/AS recovery; exhaustive annotation subtype and /H combinations; AP coordinate transformation/flags/transparency details; and native UI-level pixel tests. This shard makes no whole-clause annotation certification.
