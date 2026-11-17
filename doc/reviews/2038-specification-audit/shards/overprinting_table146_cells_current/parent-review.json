@@ -1,0 +1,8 @@
+{
+  "source": "Read Table146 physical447–448 and NOTE2. Actual page annotation scan found no operative annotations. The group row supplies all components and reverts compatible overprinting to Normal.",
+  "assertions": "New overprint_group_row_spec_audit uses an exact-xref PDF1.7, a retained four-component page group and an isolated DeviceCMYK Form. Inner painting disables OP; invocation enables OP/OPM1. Pixel equals ordinary source paint, differs from elementary OPM1 and untouched backdrop, and is opaque. This is a relative color-managed oracle, not a claim that ISO fixes RGB bytes for every CMYK profile.",
+  "review_correction": "The draft compared (pixel, overprints flag) tuples. Parent split the pixel comparisons from metadata assertions: inequality must now come from actual pixels, not merely the flag. Parent also added exact-xref guards and fixed compile/import and Clippy issues.",
+  "existing_evidence": "Selected spot_planes assertions inspect display-list tints or kept-channel flags. A process-only test has no spot channel; a CMYK mark over LogoGreen does not test a second Separation omitting that spot. Corrected row provenance keeps these distinctions and leaves unestablished cells open.",
+  "execution": "Both new tests PASS in matte-overprint-wave131b; strengthened pixel-only overprint assertion PASS in overprint-wave131c; model all-target Clippy PASS in quality-model-wave131b.",
+  "decisions": "Read selected ADR1157 row derivation,1169 four-tint query and1170 implicit groups. The explicit Form group witness supports the selected final-row construction. No all-separations or physical-press certification."
+}

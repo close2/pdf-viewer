@@ -2710,6 +2710,59 @@
       ],
       "artifact": "shards/trapnet_table403_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "143",
+      "keys": [
+        "Type",
+        "Subtype",
+        "Width",
+        "Height",
+        "ColorSpace",
+        "BitsPerComponent",
+        "Intent",
+        "ImageMask",
+        "Mask",
+        "SMask",
+        "Decode",
+        "Interpolate",
+        "Alternates",
+        "Name",
+        "StructParent",
+        "ID",
+        "OPI"
+      ],
+      "ledger_rows": [
+        "11.6.5.2"
+      ],
+      "artifact": "shards/soft_mask_image_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "144",
+      "keys": [
+        "Matte"
+      ],
+      "ledger_rows": [
+        "11.6.5.2"
+      ],
+      "artifact": "shards/soft_mask_image_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "146",
+      "keys": [
+        "source colour space",
+        "affected group component",
+        "OP false",
+        "OP true OPM0",
+        "OP true OPM1"
+      ],
+      "ledger_rows": [
+        "11.7.4.5"
+      ],
+      "artifact": "shards/overprinting_table146_cells_current/features.json",
+      "status": "partial"
     }
   ],
   "reconciliation_110": "Two Table227 reviews previously counted twice; merged into one matrix retaining both artifact links. Table87 now includes four continuation keys and corrected source span. Counts are selected unique table matrices, not certified features."

@@ -6462,7 +6462,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/images_current/features.json",
-      "shards/errata_numeric_syntax_batch_current/features.json"
+      "shards/errata_numeric_syntax_batch_current/features.json",
+      "shards/soft_mask_image_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -6600,7 +6601,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/overprint_transparency_current/features.json"
+      "shards/overprint_transparency_current/features.json",
+      "shards/overprinting_table146_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -6626,7 +6628,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/overprint_transparency_current/features.json"
+      "shards/overprint_transparency_current/features.json",
+      "shards/overprinting_table146_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."

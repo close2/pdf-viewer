@@ -1,0 +1,6 @@
+{
+  "source": "Read primary physical435–436, including Table143 continuation and Table144. Checked actual annotation objects; Issue619 labels ID and OPI deprecated. Producer restrictions are not automatic reader rejection duties.",
+  "assertions": "Read selected finer-grid, RGB, CMYK and Indexed pixel assertions. New matte_after_decode_spec_audit independently computes a decoded source of95.75/255, alpha64/255 and restored source0.75. Black-backdrop output is48; no-Matte preblend decoy is24. Both Decode arrays are non-default, dimensions match, and exact-xref/completeness guards pass.",
+  "execution": "New public test PASS in matte-overprint-wave131b; model all-target Clippy PASS in quality-model-wave131b.",
+  "decisions": "Read ADR1268 component-domain inversion,1324 reduced-grid mean approximation and0399 recursion-containment rationale. Retain these bounded decisions; the new test closes the selected Decode-order assertion gap, not every filter/depth/interpolation combination."
+}

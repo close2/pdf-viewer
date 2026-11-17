@@ -3269,6 +3269,29 @@
       "log": "quality-model-wave130.log",
       "exit": 0,
       "scope": "Model all-target Clippy with final strengthened stream tests"
+    },
+    {
+      "log": "matte-overprint-wave131b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "New public Matte Decode and explicit group overprint controls"
+    },
+    {
+      "log": "overprint-wave131c.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Strengthened pixel-only negative control; same test identity"
+    },
+    {
+      "log": "quality-model-wave131b.log",
+      "exit": 0,
+      "scope": "Model all-target Clippy after draft compile/lint repairs"
     }
   ],
   "prior_expected_failures": {

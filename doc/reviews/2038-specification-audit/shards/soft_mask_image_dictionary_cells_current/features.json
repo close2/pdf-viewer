@@ -1,0 +1,131 @@
+{
+  "baseline": "b901326c",
+  "scope": "Bounded cell audit of ISO 32000-2:2020 §11.6.5.2 Tables 143–144 (soft-mask image dictionary restrictions and Matte). This is not a general image or transparency certification.",
+  "source": {
+    "primary_pdf": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "table_143": "physical pp. 435–436 / printed pp. 420–421; caption and all rows inspected directly (final StructParent/ID/OPI rows continue on p. 436)",
+    "table_144": "physical p. 436 / printed p. 421; caption and Matte row inspected directly",
+    "prose": "§11.6.5.2 begins physical p. 434 / printed p. 419 and continues through p. 436. It states the preblend equation, that Filter and Decode transformations have already occurred, that the result shall match unblended image data, that inversion precedes color conversion, and that Indexed table colors (not indices) carry the matte.",
+    "annotations": "Direct annotation-object review: physical p. 435 has two navigation links to Tables 143 and 144 and no editorial annotations. Physical p. 436 includes two Caret annotations, Issue #619, reading 'Deprecated in PDF 2.0.' on Table 143's ID and OPI entries; they do not alter the Matte formula or cell conditions. Other annotations there are navigation links and unrelated text/popups."
+  },
+  "ledger": {
+    "row": "11.6.5.2",
+    "status": "implemented",
+    "claim": "Table 143/144 matte inversion, grid and color-space behavior are represented by image_masks.rs, matte_routes.rs, matte_reduced.rs and implementation in image/soft_mask.rs, unpack.rs, dispatch.rs and jpx.rs.",
+    "qualification": "The tests cover many independent branches; the specific public Decode-before-Matte ordering remains unpinned."
+  },
+  "cells": [
+    {
+      "entry": "Type",
+      "source": "If present, shall be /XObject.",
+      "kind": "producer restriction",
+      "consumer_evidence": "Soft-mask fixtures set /Type /XObject; no reader rejection duty inferred from this producer restriction."
+    },
+    {
+      "entry": "Subtype",
+      "source": "Required; shall be /Image.",
+      "kind": "producer restriction",
+      "consumer_evidence": "Public fixtures use Image. No separate malformed-subtype reader duty asserted here."
+    },
+    {
+      "entry": "Width and Height",
+      "source": "With Matte, equal the parent image's dimensions; without Matte, independent. In both cases each image maps to the unit square whether or not individual samples coincide.",
+      "kind": "valid-input semantics plus producer condition",
+      "consumer_evidence": "image_masks.rs::a_soft_mask_finer_than_its_image_keeps_its_own_resolution proves a no-Matte finer grid maps on the image unit square; same-grid Matte fixtures in a_matte_colour_is_undone_before_the_image_is_drawn, a_matte_is_undone_in_the_images_own_space_before_it_is_converted, and a_matte_on_an_indexed_image_is_undone_on_its_table_entry prove valid matched-grid paths. Matte grid mismatch behavior is recovery policy, not a mandate to reject."
+    },
+    {
+      "entry": "ColorSpace",
+      "source": "Required; shall be DeviceGray.",
+      "kind": "producer restriction",
+      "consumer_evidence": "Valid fixtures use DeviceGray. image_masks.rs::a_soft_mask_in_a_calibrated_grey_states_its_samples_and_is_reported covers a deliberate violation and preserves sample opacity; it is not evidence that rejection is required."
+    },
+    {
+      "entry": "BitsPerComponent",
+      "source": "Required.",
+      "kind": "producer restriction",
+      "consumer_evidence": "Soft-mask pixel fixtures state 8 bits; stencil is separately diagnosed. This bounded audit did not enumerate legal depth/channel combinations."
+    },
+    {
+      "entry": "Intent",
+      "source": "Ignored.",
+      "kind": "reader instruction",
+      "consumer_evidence": "Image decoder does not use a soft mask's Intent as color intent; no paired public image-mask Intent contrast identified."
+    },
+    {
+      "entry": "ImageMask",
+      "source": "Shall be false or absent.",
+      "kind": "producer restriction",
+      "consumer_evidence": "image_masks.rs::a_soft_mask_that_is_a_stencil_is_reported tests the forbidden form while confirming the base image still draws; source does not itself prescribe this refusal policy."
+    },
+    {
+      "entry": "Mask and SMask",
+      "source": "Shall be absent.",
+      "kind": "producer restriction",
+      "consumer_evidence": "hostile_budgets.rs::a_soft_mask_carrying_an_explicit_mask_is_refused_by_name checks recursion containment for /Mask-on-SMask. No separate valid reader obligation to reject illegal forms inferred."
+    },
+    {
+      "entry": "Decode",
+      "source": "Optional; default [0 1]. Inherited ordinary image Decode semantics apply to the mask samples.",
+      "kind": "valid-input semantics",
+      "consumer_evidence": "Existing soft-mask fixtures omit Decode and therefore use the default, but I found no focused public fixture whose soft-mask Decode is non-default. The draft checks non-default Decode on both the parent samples and mask alpha."
+    },
+    {
+      "entry": "Interpolate",
+      "source": "Optional.",
+      "kind": "producer option",
+      "consumer_evidence": "No distinct obligation identified in the bounded review."
+    },
+    {
+      "entry": "Alternates, Name, StructParent",
+      "source": "Ignored.",
+      "kind": "reader instruction",
+      "consumer_evidence": "No consumer gap identified; these entries do not participate in decoding the mask values."
+    },
+    {
+      "entry": "ID and OPI",
+      "source": "Ignored; the two Issue #619 Caret annotations mark these entries deprecated in PDF 2.0.",
+      "kind": "reader instructions / deprecated input",
+      "consumer_evidence": "No consumer gap identified; these entries do not participate in decoding the mask values."
+    },
+    {
+      "entry": "Matte",
+      "source": "Optional, PDF 1.4+. If present, parent image samples were pre-blended; the array has n valid components in the parent image's ColorSpace (Indexed uses its base space). If absent, samples are not pre-blended.",
+      "kind": "valid-input semantics and producer condition",
+      "consumer_evidence": "Independent public pixels cover RGB black matte, DeviceCMYK inversion-before-conversion, Indexed palette entries rather than indices, DCT-vs-raw sample routes, and reduced JPX grids. The missing direct assertion is the expressly stated Filter/Decode-before-inversion ordering for /Decode."
+    }
+  ],
+  "feature": {
+    "id": "image-soft-mask-matte-is-inverted-after-parent-and-mask-decode",
+    "primary_basis": "§11.6.5.2 prose physical pp. 434–436 / printed pp. 419–421; Table 143 Decode and conditional grid rows on physical p. 435 / printed p. 420; Table 144 Matte row on physical p. 436 / printed p. 421.",
+    "current_assertions": [
+      "crates/pdf-model/tests/image_masks.rs::a_matte_colour_is_undone_before_the_image_is_drawn",
+      "crates/pdf-model/tests/image_masks.rs::a_matte_is_undone_in_the_images_own_space_before_it_is_converted",
+      "crates/pdf-model/tests/image_masks.rs::a_matte_on_an_indexed_image_is_undone_on_its_table_entry",
+      "crates/pdf-model/tests/matte_routes.rs::a_matte_undone_through_the_dct_route_is_the_raw_route_s_bytes",
+      "crates/pdf-model/tests/matte_routes.rs::a_black_matte_undone_through_either_route_is_the_same_bytes",
+      "crates/pdf-model/tests/matte_reduced.rs::a_matte_is_undone_on_a_parent_decoded_at_a_reduced_level"
+    ],
+    "assertion_gap": "These distinguish color-space, codec, Indexed, and reduced-grid paths, but the public image fixtures do not state a non-default /Decode together with /Matte. The source explicitly says that Filter and Decode effects have already been applied to c′ before inversion.",
+    "verdict": "Narrow independent-oracle gap, not a suspected runtime defect and not a whole Table 143/144 gap. Source and current implementation comments support the order; the proposed regression would guard its observable public behavior."
+  },
+  "implementation": {
+    "paths": [
+      "crates/pdf-model/src/image/soft_mask.rs::matte_colour",
+      "crates/pdf-model/src/image/unpack.rs::sample_rgba",
+      "crates/pdf-model/src/image/space.rs::Decode",
+      "crates/pdf-model/src/image/dispatch.rs"
+    ],
+    "observation": "matte_colour reads component count and validates grid correspondence; sample_rgba first obtains decoded parent component values and then restores the matte. Soft-mask samples pass through their Decode when the opacity plane is unpacked. This matches the source order; no code defect was found.",
+    "selected_adrs": {
+      "1268": "The accepted matte/color-domain decision matches §11.6.5.2 and supplies the tested DCT-vs-raw and RGB/CMYK/Indexed routing. It does not itself provide an end-to-end non-default Decode pixel witness, which the draft adds.",
+      "1324": "The reduced-JPX mask-grid refinement has its own named public test and remains separate from the Decode-before-Matte gap.",
+      "0399": "The nested /Mask refusal is retained as bounded recursion containment; it does not turn all Table 143 producer restrictions into reader error duties."
+    }
+  },
+  "limits": [
+    "Table 143 entries mostly constrain producer dictionary formation; they are not automatically reader rejection requirements.",
+    "No assertion is made about every legal BitsPerComponent/filter/Interpolate combination or every ignored metadata entry.",
+    "No cargo or test execution was performed by this shard."
+  ],
+  "parent_execution": "Checkpoint131: public matte_after_decode_spec_audit PASS with literal24/48 controls. The original scratch draft gap is closed for this selected valid DeviceGray construction; other combinations remain partial."
+}

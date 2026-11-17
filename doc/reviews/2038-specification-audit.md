@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (130)
+## Current checkpoint (131)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **117 failing test identities**: 116 behavior assertions/probes
@@ -558,6 +558,12 @@ Checkpoint 130 adds four passing Type5 stream-pattern tests with independent
 color, BBox and caller-clip expectations. Model Clippy passes. The original clipping
 probes were strengthened because the mesh geometry could mask missing clips.
 Broad123 now predates eleven passing additions and five failures.
+
+Checkpoint 131 adds passing public tests for non-default Decode before Matte
+inversion and explicit group painting under OP/OPM1. The group negative control
+compares pixels separately from metadata. Three selected matrices bring the partial
+count to172. Model Clippy passes. New dispatch stops at81% weekly usage while
+peer-review corrections and broad reconciliation finish.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

@@ -3765,5 +3765,25 @@
     "summary": "Type2 pattern accepts a Type5 shading stream with literal raster colors and independent BBox/caller-clip controls.",
     "execution": "Four PASS; model Clippy PASS. Original non-discriminating outside-mesh probes replaced; interior oracle tightened to3-level tolerance.",
     "limits": "Selected stream-form combination, not all shading types/states."
+  },
+  {
+    "id": "2038-T170",
+    "kind": "assertion-quality",
+    "clauses": [
+      "11.6.5.2"
+    ],
+    "summary": "Public Matte inversion now has independent non-default parent/mask Decode controls.",
+    "execution": "Literal24 decoy and48 corrected/original pixels PASS; model Clippy PASS.",
+    "limits": "Selected valid DeviceGray case; not all codecs, grids or component spaces."
+  },
+  {
+    "id": "2038-T171",
+    "kind": "assertion-quality",
+    "clauses": [
+      "11.7.4.5"
+    ],
+    "summary": "Explicit transparency-group invocation under OP/OPM1 has a discriminating public pixel test.",
+    "execution": "Group equals ordinary source paint, differs in pixels from elementary OPM1 and untouched backdrop; alpha and four-component path guards PASS. Model Clippy PASS.",
+    "limits": "Relative color-managed CMYK oracle. Spot-plane command assertions are not promoted to raster or unrelated-row coverage."
   }
 ]
