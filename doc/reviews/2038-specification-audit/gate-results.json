@@ -2544,6 +2544,15 @@
       "log": "quality-wave94b.log",
       "exit": 0,
       "scope": "model/core alltargets"
+    },
+    {
+      "log": "eleven-crate-wave95.log",
+      "run": 7272,
+      "passed": 7179,
+      "failed": 93,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Exactbinary/test match, noextra/missing. Covers through94,includingstrengthenedassertions. FiveGPU,oneengine,oneignoredstalegateoutside. PASS includes acknowledgedfixtureearlyreturns."
     }
   ],
   "prior_expected_failures": {

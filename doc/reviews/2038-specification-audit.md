@@ -11,17 +11,16 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (94)
+## Current checkpoint (95)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **100 failing test identities**: 99 behavior assertions/probes
 and one stale ignored-gate expectation. These are grouped findings, not 100 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
-The refreshed broad run, wave90, covered eleven crates: **7,257 tests ran, 7,174 passed,
-and exactly the 83 recorded in-scope assertions failed; 58 were skipped**.
+The refreshed broad run, wave95, covered eleven crates: **7,272 tests ran, 7,179 passed,
+and exactly the 93 recorded in-scope assertions failed; 58 were skipped**.
 Exact binary/test identities matched the manifest at that checkpoint, with no extra or missing failures.
-Wave90 includes all default-scope additions through checkpoint89, including B58–B63.
-It predates ten new failing identities through checkpoint94; the current default-scope manifest has93.
+Wave95 includes all default-scope additions and strengthened assertions through checkpoint94.
 Passing status includes successful early returns; two are reproduced under D45.
 Five GPU failures and one engine-only Matrix2D availability failure under the adopted
 A193 reference scope are recorded separately, as is D51’s ignored stale test expectation. The new outline-panel raster test also
@@ -355,6 +354,11 @@ viewer pointer events despite the N fallback (B68). Nonempty/default/exclusion,
 stored-limit, and known-Square controls distinguish the failures. B67 is qualified
 by accepted product semantics; B68 uses a synthetic extension, not a published one.
 Model/core Clippy pass. No production changes were made.
+
+Checkpoint95 refreshes the eleven-crate run:7,272 tests,7,179passes, exactly93
+expected failures and58skips. No extra or missing failure identities. The100-entry
+manifest includes seven separately scoped GPU/engine/ignored identities. This run
+verifies execution of the new tests and strengthened assertions through94.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 
