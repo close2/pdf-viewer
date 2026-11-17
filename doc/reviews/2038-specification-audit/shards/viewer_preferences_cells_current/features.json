@@ -1,0 +1,159 @@
+{
+  "shard": "viewer_preferences_cells_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "baseline": "b901326c",
+  "method": "Read the effective primary EC3 PDF captions, table cells, printed footers and overlay annotations; cross-checked current parsers, public host consumers, assertion bodies, durable parent-review records, selected ADRs and current ledger rows. No tests executed.",
+  "scope_correction": "The exact source titles do not match a literal interpretation of the task's table numbers. Table 146 is 'Overprinting behaviour in the transparent imaging model' (§11.7), not a viewer-preferences table. Table 147 is 'Entries in a viewer preferences dictionary' (§12.2), and Table 148 is 'Names defined for an Enforce array'. PageLayout/PageMode are in catalog Table 29 (§7.7.2), not Tables 146–148. Tables 153 and 154 are 'Entries in a collection dictionary' and 'Entries in a collection schema dictionary'; article thread/bead definitions are Tables 162 and 163 in §12.4.3. Reviewed the actual related tables instead of assigning article or viewer rules to the wrong tables.",
+  "source_locations": [
+    {
+      "table": "29",
+      "title": "Entries in the catalog dictionary (PageLayout, PageMode, Threads, OpenAction)",
+      "physical_pages": "113 caption; selected rows114–115",
+      "printed_pages": "98 caption; selected rows99–100",
+      "checked": "Parent verified actual Table29 caption at113; selected entries at114–115, not a whole-table review."
+    },
+    {
+      "table": "147",
+      "title": "Entries in a viewer preferences dictionary",
+      "physical_pages": "452–455",
+      "printed_pages": "437–440",
+      "checked": "Caption and split rows/footer; Table 147 ends on p.455 / printed 440."
+    },
+    {
+      "table": "148",
+      "title": "Names defined for an Enforce array",
+      "physical_page": "456",
+      "printed_page": "441",
+      "checked": "Caption and sole PrintScaling row with footer."
+    },
+    {
+      "table": "162",
+      "title": "Entries in a thread dictionary",
+      "physical_page": "475",
+      "printed_page": "460",
+      "checked": "Caption and rows including optional I/Metadata and required indirect F."
+    },
+    {
+      "table": "163",
+      "title": "Entries in a bead dictionary",
+      "physical_pages": "475–476",
+      "printed_pages": "460–461",
+      "checked": "Caption plus continuation and final P/R rows; Table 163 continues to physical 476 / printed 461."
+    }
+  ],
+  "effective_errata": [
+    {
+      "id": "275",
+      "target": "Table 147 /NonFullScreenPageMode list, physical 453 / printed 438",
+      "effect": "Adds UseAttachments (PDF 2.0), so that value is supported in both catalog /PageMode (Table 29) and /NonFullScreenPageMode; FullScreen remains catalog-only.",
+      "current_test": "crates/pdf-model/src/viewer_preferences.rs::table_29s_display_entries_are_not_table_147"
+    }
+  ],
+  "features": [
+    {
+      "id": "catalog-open-layout-and-mode",
+      "clause": "7.7.2; Table 29",
+      "cells": [
+        {
+          "key": "PageLayout",
+          "source": "Optional. SinglePage, OneColumn, TwoColumnLeft/Right, TwoPageLeft/Right; default SinglePage. Catalog choice applies when opened.",
+          "implementation": "pdf-model/src/viewer_preferences.rs::Opening::in_catalog; viewer-core/src/viewer/layout.rs and host presentation consumers.",
+          "assertions": "table_29s_display_entries_are_not_table_147 checks TwoPageRight and unknown-name fallback; current viewer-core layout/headless and viewer-host presentation assertions exercise actual page arrangements and opening."
+        },
+        {
+          "key": "PageMode",
+          "source": "Optional. UseNone, UseOutlines, UseThumbs, FullScreen, UseOC, UseAttachments; default UseNone; applies when opened.",
+          "implementation": "Opening::in_catalog maps all six; viewer-host/src/presentation.rs maps page mode to panels/presentation; viewer-ui/chrome.rs supplies supported panels.",
+          "assertions": "table_29s_display_entries_are_not_table_147 includes UseAttachments and FullScreen; presentation tests cover opening, fullscreen exit and condition. ADR 0142/0143 records the chosen sidebar consumers; exact panel layout remains product UI."
+        },
+        {
+          "key": "OpenAction interaction",
+          "source": "Table 29: destination/action at open; absent OpenAction opens first page at default magnification.",
+          "implementation": "viewer-core open/interact route, covered by viewer_preferences_layout_current and navigation/action shards.",
+          "assertions": "Durable viewer_preferences_layout_current parent-review confirms catalog OpenAction route and event order testing; no re-execution claimed here."
+        }
+      ]
+    },
+    {
+      "id": "viewer-preference-presentation-cells",
+      "clause": "12.2; Table 147",
+      "cells": [
+        {
+          "keys": "HideToolbar, HideMenubar, HideWindowUI, FitWindow, CenterWindow, DisplayDocTitle",
+          "source": "Optional booleans, each defaults false. Hide/display and sizing/placement apply when document is active; DisplayDocTitle uses XMP dc:title when true (should wording).",
+          "implementation": "pdf-model/src/viewer_preferences.rs stores all six; viewer-core Query::Preferences and host/native window consumers carry stated values.",
+          "assertions": "ViewerPreferences::table_147s_entries_are_read checks each true value; default test checks false. Durable viewer_preferences_layout_current review distinguishes GTK/Qt HideMenubar and positioning departures and avoids claiming all native window effects are uniform."
+        },
+        {
+          "key": "NonFullScreenPageMode",
+          "source": "Optional; UseNone/UseOutlines/UseThumbs/UseOC/UseAttachments after EC3 #275; default UseNone. SHALL be ignored unless catalog PageMode is FullScreen.",
+          "implementation": "ViewerPreferences::in_catalog accepts only this entry's value set; host Presenting uses it as exit mode only when opening mode is FullScreen.",
+          "assertions": "Model test checks UseOC, FullScreen is rejected as an entry value, UseAttachments is accepted by #275. viewer-host presentation test `the_page_mode_to_come_back_to_is_read_only_where_the_catalog_asked_for_full_screen` exercises catalog condition/ignored case."
+        },
+        {
+          "key": "Direction",
+          "source": "Optional, L2R/R2L; default L2R. No direct effect on contents or page numbering; may inform relative page positioning side-by-side/n-up.",
+          "implementation": "Parsed and handed through Query::Preferences; explicit PageLayout side/odd-page position remains its own rule.",
+          "assertions": "Table 147 parser fixture checks R2L. No source requirement to reorder content or override explicit layout; current UI choice is a qualified optional/policy boundary."
+        },
+        {
+          "keys": "ViewArea, ViewClip, PrintArea, PrintClip",
+          "source": "Optional boundary names; defaults CropBox. First two select screen displayed/clipped region; latter two select print region/clipping. Deprecated in PDF 2.0 as producer entries, not a reader exemption.",
+          "implementation": "Page::display_box/clip_box for view entries, printing route for print entries.",
+          "assertions": "Parser fixture checks non-default boundary values; public geometry/print tests owned by page-boundary and print-scaling shards. ADR 0071 established pixel-affecting view support; not re-audited as a new defect here."
+        },
+        {
+          "keys": "PrintScaling, Duplex, PickTrayByPDFSize, PrintPageRange, NumCopies",
+          "source": "PrintScaling None/AppDefault; unknown => AppDefault; default AppDefault and still honored when print dialog suppressed. Duplex choices Simplex/short-edge/long-edge, default implementation-dependent. PickTrayByPDFSize default implementation-dependent and OS-dependent effect. PrintPageRange 1-based inclusive pairs, default implementation-dependent. NumCopies default implementation-dependent, typically 1.",
+          "implementation": "Parsed and projected to viewer-host print plan; host printer/dialog policy remains separate from PDF reader values.",
+          "assertions": "Model table test checks individual values; targeted print policy/native assertions are in print-scaling and host print shards. Do not impose Simplex/false/1 as ISO defaults."
+        },
+        {
+          "key": "Enforce",
+          "source": "Optional PDF 2.0 array; only names defined by Table 148 are permitted. Future additions constrained by non-DoS and non-overridable defaults.",
+          "implementation": "Only PrintScaling is represented; flag becomes enforced iff value is valid and not AppDefault.",
+          "assertions": "Model tests check valid NoScaling is enforceable and unrecognized /Shrink falls back to AppDefault and cannot be enforced; host policy tests and ADR 2840/parent review cover enforcement warning and UI capability limitations."
+        }
+      ]
+    },
+    {
+      "id": "article-thread-dictionary",
+      "clause": "12.4.3; Table 162",
+      "cells": [
+        {
+          "key": "Catalog Threads",
+          "source": "Optional array of thread dictionaries; catalog Table 29 says indirect reference. Navigation facility for following thread is permitted, not a mandate for a specific UI.",
+          "implementation": "pdf-model/src/article.rs::Articles; Query::Articles; viewer-core and panel consumers.",
+          "assertions": "Exact-xref model ring tests and producer-document tests cover indexed threads, decoded I/title and closure; public UI and core thread-action tests cover the optional navigation route."
+        },
+        {
+          "key": "Thread F / I / Metadata",
+          "source": "F required indirect first bead. I optional document-information-style dictionary. Metadata optional PDF 2.0 indirect stream.",
+          "implementation": "Parser follows F ring; I/metadata data exposed where available.",
+          "assertions": "Current tests exercise F and I/title; no claim that every metadata stream property is certified in this pass."
+        }
+      ]
+    },
+    {
+      "id": "article-bead-dictionary",
+      "clause": "12.4.3; Table 163",
+      "cells": [
+        {
+          "key": "T / N / V",
+          "source": "T is indirect thread reference, required on first bead and optionally on others (PDF-version wording retained); N and V are required indirect next/previous links closing the ring.",
+          "implementation": "Articles::read_thread starts at F and follows N, with repeat guard; V is not separately walked because it is the reverse-link consistency constraint.",
+          "assertions": "article.rs tests ring closure/wrap, mismatched page bead order and cycles; actual producer tests verify page links and public consumer tests activate a bead."
+        },
+        {
+          "key": "P / R",
+          "source": "P is required indirect page object; R is required rectangle in default user space locating bead on that page.",
+          "implementation": "Bead carries page and rectangle; viewer-core thread navigation applies R.",
+          "assertions": "headless `a_thread_action_shows_the_bead_and_not_merely_its_page` checks destination geometry, with public thread-action and panel consumers. Optional UI is not promoted to a SHALL."
+        }
+      ]
+    }
+  ],
+  "status_source": "Current test identities were checked directly in the audit worktree. For previously run suite status, used durable `doc/reviews/2038-specification-audit/shards/viewer_preferences_layout_current/parent-review.json` and `.../outlines_threads_current/parent-review.json`/findings, not old scratch draft state.",
+  "drafts": [],
+  "parent_qualification": "Four newly indexed matrices147/148/162/163; selected Table29 cells supplement its existing catalog matrix. Existing B22 OpenAction ordering failure remains unresolved and is not closed by this cell mapping."
+}

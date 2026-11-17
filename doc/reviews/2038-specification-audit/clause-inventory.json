@@ -1480,7 +1480,8 @@
       "shards/structured_errata_security_current/features.json",
       "shards/file_only_consumer_assertions_batch3_current/features.json",
       "shards/file_only_document_assertions_current/features.json",
-      "shards/catalog_table29_cells_current/features.json"
+      "shards/catalog_table29_cells_current/features.json",
+      "shards/viewer_preferences_cells_current/features.json"
     ],
     "prior_artifacts": [
       "catalog_pages_audit",
@@ -6614,7 +6615,8 @@
       "shards/print_scaling_policy_current/features.json",
       "shards/structured_errata_metadata_media_current/features.json",
       "shards/file_only_consumer_assertions_batch3_current/features.json",
-      "shards/file_only_native_shading_assertions_current/features.json"
+      "shards/file_only_native_shading_assertions_current/features.json",
+      "shards/viewer_preferences_cells_current/features.json"
     ],
     "prior_artifacts": [
       "viewer_preferences_audit"
@@ -6886,7 +6888,8 @@
     "current_artifacts": [
       "shards/outlines_threads_current/features.json",
       "shards/silent_fixture_skip_current/features.json",
-      "shards/silent_fixture_skip_remaining_current/features.json"
+      "shards/silent_fixture_skip_remaining_current/features.json",
+      "shards/viewer_preferences_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -7182,7 +7185,8 @@
       "shards/errata_interactive_batch_current/features.json",
       "shards/structured_errata_interactive_current/features.json",
       "shards/annotation_border_cells_current/features.json",
-      "shards/annotation_subtype_cells_current/features.json"
+      "shards/annotation_subtype_cells_current/features.json",
+      "shards/freetext_fixture_validity_current/features.json"
     ],
     "prior_artifacts": [
       "free_text_annotation_audit"
@@ -7980,7 +7984,8 @@
       "shards/forms_remaining_current/features.json",
       "shards/errata_interactive_batch_current/features.json",
       "shards/errata_font_annotation_reference_batch_current/features.json",
-      "shards/variable_text_cells_current/features.json"
+      "shards/variable_text_cells_current/features.json",
+      "shards/freetext_fixture_validity_current/features.json"
     ],
     "prior_artifacts": [
       "variable_text_da_tm_audit",

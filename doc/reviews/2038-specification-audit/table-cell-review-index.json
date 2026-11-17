@@ -1430,6 +1430,75 @@
       ],
       "artifact": "shards/colour_dictionary_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "147",
+      "keys": [
+        "HideToolbar",
+        "HideMenubar",
+        "HideWindowUI",
+        "FitWindow",
+        "CenterWindow",
+        "DisplayDocTitle",
+        "NonFullScreenPageMode",
+        "Direction",
+        "ViewArea",
+        "ViewClip",
+        "PrintArea",
+        "PrintClip",
+        "PrintScaling",
+        "Duplex",
+        "PickTrayByPDFSize",
+        "PrintPageRange",
+        "NumCopies",
+        "Enforce"
+      ],
+      "ledger_rows": [
+        "12.2"
+      ],
+      "artifact": "shards/viewer_preferences_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "148",
+      "keys": [
+        "PrintScaling"
+      ],
+      "ledger_rows": [
+        "12.2"
+      ],
+      "artifact": "shards/viewer_preferences_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "162",
+      "keys": [
+        "Type",
+        "F",
+        "I",
+        "Metadata"
+      ],
+      "ledger_rows": [
+        "12.4.3"
+      ],
+      "artifact": "shards/viewer_preferences_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "163",
+      "keys": [
+        "Type",
+        "T",
+        "N",
+        "V",
+        "P",
+        "R"
+      ],
+      "ledger_rows": [
+        "12.4.3"
+      ],
+      "artifact": "shards/viewer_preferences_cells_current/features.json",
+      "status": "partial"
     }
   ]
 }

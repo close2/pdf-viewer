@@ -1,0 +1,35 @@
+{
+  "baseline": "b901326c",
+  "scope": "Fixture-structure audit of FreeText in crates/pdf-model/tests/variable_text.rs and rich_text.rs; no production behavior review.",
+  "source": {
+    "primary": "Effective EC3 §12.5.6.6/Table 177, Table 166 and §12.7.4.3. Table177 defines a FreeText annotation and its variable/rich text inputs. Table166's AP requirement is a PDF 2.0 writer obligation for nondegenerate annotations; it does not convert a malformed widget classification into reader refusal duty.",
+    "fixture_distinction": "The tested dictionaries are /Subtype /FreeText and appear in Page /Annots. Putting object 5 in Catalog AcroForm /Fields simultaneously treats that same annotation dictionary as a terminal form field. These tests intend standalone annotations, not Widget annotations."
+  },
+  "fixture_inventory": {
+    "variable_text.rs": [
+      {"test_or_helper": "shown_glyphs; an_arabic_value_is_shaped_and_displayed_as_the_ucd_tables_state; a_wrapped_right_to_left_value_breaks_between_words", "use": "Constructed glyph stream from FreeText annotation", "current_fixture": "pdf_with -> /Fields [5 0 R]", "draft": "free_text_pdf -> /Fields [] while retaining AcroForm /DR"},
+      {"test_or_helper": "a_right_to_left_value_is_quadded_to_the_side_q_names", "use": "Quadding of FreeText contents", "current_fixture": "pdf_with -> /Fields [5 0 R]", "draft": "free_text_pdf"},
+      {"test_or_helper": "a_free_text_annotation_draws_its_contents; a_free_text_annotations_rich_text_draws_where_it_states_no_contents; a_free_text_annotations_contents_outranks_its_rich_text", "use": "Contents/RC construction and precedence", "current_fixture": "pdf_with -> /Fields [5 0 R]", "draft": "free_text_pdf"},
+      {"test_or_helper": "a_free_text_annotation_a_person_added_answers_the_carets_three_questions", "use": "Seed Link page before public add_free_text", "current_fixture": "pdf_with makes seed Link object5 an AcroForm field", "draft": "free_text_pdf with Fields[]; annotation remains Link until model adds FreeText"},
+      {"test_or_helper": "a_free_text_annotation_the_file_states_is_retyped_redrawn_and_written_back", "use": "Stored AP, set text, saved output and reopen", "current_fixture": "pdf_with_appearance -> /Fields [5 0 R]", "draft": "free_text_pdf_with_appearance -> Fields[]"},
+      {"test_or_helper": "table_167s_locked_flag_is_not_its_locked_contents_flag; clearing_a_free_text_annotation_does_not_uncover_its_rich_text", "use": "FreeText restriction routing and clear/save", "current_fixture": "pdf_with -> /Fields [5 0 R]", "draft": "free_text_pdf"},
+      {"test_or_helper": "callout_annotation", "use": "Callout geometry/intent/endpoint cases", "current_fixture": "Already uses pdf_with_field_list(..., fields = '') from the parent's corrected helper", "draft": "No new conversion; preserve as existing standalone control"},
+      {"test_or_helper": "bordered_annotation; a_free_texts_cloudy_border_is_scalloped_rather_than_refused", "use": "Border width/effect and FreeText text/border rendering", "current_fixture": "pdf_with -> /Fields [5 0 R]", "draft": "free_text_pdf"}
+    ],
+    "rich_text.rs": [
+      {"test_or_helper": "a_free_text_annotations_rich_text_is_drawn_formatted", "use": "Table177 RC/DS appearance generation", "current_fixture": "pdf -> /Fields [5 0 R]", "draft": "free_text_pdf -> Fields[] while preserving AcroForm /DR font resources"},
+      {"test_or_helper": "a_free_text_annotations_contents_wins_where_its_rich_text_disagrees", "use": "Contents over disagreeing RC", "current_fixture": "pdf -> /Fields [5 0 R]", "draft": "free_text_pdf"},
+      {"test_or_helper": "Other rich_text.rs fixtures", "use": "Widget rich-text field behavior, view edits, save and glyph layout", "current_fixture": "Widget dictionaries /Subtype /Widget are intentionally listed as fields", "draft": "Keep current widget builder and field list unchanged"}
+    ]
+  },
+  "draft_design": {
+    "principle": "Add explicitly named FreeText builder(s) that use Fields[] and keep the same AcroForm default-resource dictionary. Existing generic builders retain Fields[5 0 R] for Widget/field tests. Do not inspect arbitrary annotation strings to infer a role.",
+    "variable_text": "Adds free_text_pdf and free_text_pdf_with_appearance, implemented through the existing pdf_with_field_list(..., fields = ''). Converts only known FreeText callsites, including the `bordered_annotation` helper; leaves Widget cases untouched.",
+    "rich_text": "Adds a shared catalog helper with an explicit fields argument, keeps existing pdf_with_catalog behavior at '5 0 R', and adds free_text_pdf for the two standalone FreeText tests. AcroForm /DR fonts remain available to resolve /DA."
+  },
+  "limits": [
+    "Draft only; parent should compile/run the staged tests and inspect any form-context expectations.",
+    "No test or source changes are applied to tracked files by this audit.",
+    "Corpus PDF.js witness `freetext_no_appearance.pdf` is an external input and not rewritten; its own dictionary structure is not part of this helper patch."
+  ]
+}

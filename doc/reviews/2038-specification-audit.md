@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (104)
+## Current checkpoint (105)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **106 failing test identities**: 105 behavior assertions/probes
@@ -419,6 +419,12 @@ with their parent values, and the public query still returns the parent values. 
 consumer tests and core Clippy pass. Color and shape table reviews retain existing
 B25 and D12 findings; older draft status is corrected. Ninety table matrices remain
 partial reviews, with no new failure or test identity in this checkpoint.
+
+Checkpoint105 corrects remaining standalone FreeText fixture roles while retaining
+font resources and the original assertions. All140 variable-text/rich-text tests and
+model Clippy pass. Viewer preference and article cells add four partial matrices,
+for94 total; the existing OpenAction ordering failure remains open. No new failing
+identity or production change is introduced.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

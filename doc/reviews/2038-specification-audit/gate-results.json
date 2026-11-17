@@ -2878,6 +2878,20 @@
       "log": "quality-core-wave104.log",
       "exit": 0,
       "scope": "Viewer-core all-target Clippy."
+    },
+    {
+      "log": "standalone-freetext-wave105.log",
+      "run": 140,
+      "passed": 140,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Existing variable_text/rich_text tests after standalone annotation fixture correction."
+    },
+    {
+      "log": "quality-model-wave105.log",
+      "exit": 0,
+      "scope": "Model all-target Clippy."
     }
   ],
   "prior_expected_failures": {

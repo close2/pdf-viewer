@@ -1,0 +1,7 @@
+{
+  "decision": "Correct test fixture role at the builder boundary. A FreeText annotation in Page /Annots must not also be enumerated as a terminal form field in AcroForm /Fields. Keep the existing Widget builder for actual fields and add a named standalone-FreeText builder using an empty Fields array.",
+  "why_preserve_dr": "The tests resolve default appearance font resources through Catalog /AcroForm /DR. The draft keeps AcroForm and those default resources, changing only the role list to empty; it does not remove the resources needed by the appearance reader.",
+  "why_not_infer_role_from_text": "Current annotation is passed as raw PDF syntax text. Searching that string for `/Subtype /FreeText` would couple fixture validity to formatting, miss helper-generated strings, and silently change behavior. Explicit builder choice at call sites is reviewable.",
+  "overlap_and_status": "Callout fixtures already use the existing explicit `pdf_with_field_list(..., fields = '')` seam after parent's correction. This draft extends that structure to the remaining FreeText cases and does not alter Widget tests.",
+  "normative_limit": "This corrects whether tests exercise the intended standalone subtype. It does not establish that every no-AP test is a producer-conforming PDF 2.0 file; Table166's AP rule remains a separate writer requirement and reader policy remains independently evaluated."
+}

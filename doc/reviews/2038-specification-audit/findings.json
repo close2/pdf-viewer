@@ -3337,5 +3337,17 @@
     "evidence": "Contents, title, color and modification date each have distinct decoys. Exact-xref PDF1.7 and no recovery/cut; public query asserts literal parent values.",
     "execution": "Three popup consumer tests PASS; viewer-core Clippy PASS.",
     "qualification": "Previously C/M checked inheritance, not precedence. Native window drawing and all other metadata remain outside this test."
+  },
+  {
+    "id": "2038-T143",
+    "kind": "fixture-validity",
+    "clauses": [
+      "12.5.6.6",
+      "12.7.4.3"
+    ],
+    "summary": "Remaining FreeText fixtures use explicit standalone annotation builders instead of appearing as AcroForm fields.",
+    "evidence": "Retained Page Annots and AcroForm DR; Fields empty for standalone annotations including seed Link, unchanged for Widgets. Existing substantive assertions retained.",
+    "execution": "140 selected tests PASS; model all-target Clippy PASS.",
+    "qualification": "Existing test identities and font/corpus availability limitations remain; no production fix or whole-feature certification."
   }
 ]
