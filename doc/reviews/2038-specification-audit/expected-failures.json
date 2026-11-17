@@ -623,6 +623,18 @@
       "test": "live_readonly_override_is_described_and_blocks_user_editing",
       "finding": "2038-B69",
       "log": "live-flags-wave96.log"
+    },
+    {
+      "binary": "pdf-model::degenerate_shading_geometry_spec_audit",
+      "test": "coincident_axial_endpoints_paint_nothing_even_with_extend_and_direct_background",
+      "finding": "2038-B70",
+      "log": "shading-geometry-wave97b.log"
+    },
+    {
+      "binary": "pdf-model::degenerate_shading_geometry_spec_audit",
+      "test": "both_zero_radial_radii_paint_nothing_but_a_zero_radius_circle_is_a_point",
+      "finding": "2038-B71",
+      "log": "shading-geometry-wave97b.log"
     }
   ]
 }

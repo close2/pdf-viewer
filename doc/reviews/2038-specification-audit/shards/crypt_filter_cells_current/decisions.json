@@ -1,0 +1,46 @@
+{
+  "reviews": [
+    {
+      "adr": "0278 — the reading list is the blame order",
+      "verdict": "Reaffirm for the EFF semantic distinction; its previously unexercised EFF route is now represented by a discriminating assertion.",
+      "basis": "The current test removes the embedded stream's own Crypt specifier, observes that Table 20 EFF chooses a filter whose authorization fails, then removes EFF and verifies the same bytes pass through StmF=Identity. It exercises the no-own-Crypt route and the absent-EFF fallback; it no longer relies on an attachment corpus file whose explicit Crypt name would mask EFF. The test does not prove successful decryption under a distinct EFF cipher.",
+      "source": "doc/adr/0278-the-reading-list-is-the-blame-order.md; EC3 Table 20, printed pp.73–74"
+    },
+    {
+      "adr": "1040 — the event a failed authorization fails",
+      "verdict": "Reaffirm narrowly for DocOpen versus EFOpen and for the Table 25 rule that a StmF/StrF filter is treated as DocOpen.",
+      "basis": "The paired producer PDFs test EFOpen deferral versus absent AuthEvent default, while a same-length StmF mutation proves the default-filter override. This is authorization timing for named filters, not proof of all crypt-filter combinations or all malformed-input policies.",
+      "source": "doc/adr/1040-the-event-a-failed-authorization-fails.md; EC3 Table 25, printed p.91"
+    },
+    {
+      "adr": "2802 — the public-key handler opens with a certificate and its key",
+      "verdict": "Do not carry forward its one-default-list assumption where StmF and StrF differ; the committed B57 finding supersedes that narrow interpretation.",
+      "basis": "Table 20 independently selects stream and string defaults; Table 27 gives Recipients arrays when a crypt filter is named by either default. The current distinct-default test reaches an UnsupportedEncryption refusal, with a shared-default control that opens. This is already recorded as B57; no duplicate draft or finding is proposed.",
+      "source": "doc/adr/2802-the-public-key-handler-opens-with-a-certificate-and-its-key.md; EC3 Tables 20 and 27"
+    },
+    {
+      "adr": "2810 — a crypt filter with its own recipients decrypts under its own key",
+      "verdict": "Reaffirm only for the stream-local Table 27 path actually witnessed.",
+      "basis": "The current stream-own-recipient test asserts a literal recovered stream, and Issue #16's effective byte-string correction is directly applied. Do not generalize it to distinct public-key StmF/StrF defaults, where B57 is the known unresolved/failing case.",
+      "source": "doc/adr/2810-a-crypt-filter-with-its-own-recipients-decrypts-under-its-own-key.md; EC3 Table 27"
+    },
+    {
+      "adr": "0538 — the encryption family's counts and two carets nobody had read",
+      "verdict": "Reaffirm its errata-specific interpretation with the source overlay checked directly.",
+      "basis": "Issue #74 inserts 'or 5' into §7.6.6's crypt-filter applicability sentence; Issue #184 repairs Table 25 Length units. These do not alter the Table 20 Identity defaults or EFF fallback. Existing version-5 crypt-filter support is therefore in the effective source scope.",
+      "source": "doc/adr/0538-the-encryption-familys-counts-and-two-carets-nobody-had-read.md; EC3 Issues #74 and #184"
+    },
+    {
+      "adr": "0829 — the supplement read and a crypt-filter name that defines nothing",
+      "verdict": "Reaffirm the V=5 Standard-handler pairing rationale as an explicit source-backed decision; this shard does not reopen its malformed/undefined-name recovery choices.",
+      "basis": "Table 20's V=5 row selects Algorithm 1.A/AES-256; Table 25 names AESV3 as the 256-bit method. Relevant missing/unrecognized names are already treated in the security findings. The present review concerns defaults and public consumer routing, not invalid-name fallback policy.",
+      "source": "doc/adr/0829-the-supplement-read-and-a-crypt-filter-name-that-defines-nothing.md; EC3 Table 20 and Table 25"
+    }
+  ],
+  "new_candidate": {
+    "topic": "Absent /StmF and /StrF on a V=4 Standard-handler dictionary",
+    "review": "A focused assertion gap in the current sampled test set, not an implementation discrepancy.",
+    "draft": "drafts/absent_stmf_strf_identity.rs",
+    "rationale": "The implementation explicitly gives each absent default Identity, and the source specifies those defaults. Existing named-Identity and mixed Identity/AES controls do not exercise both dictionary entries absent. The insertion test compares literal stream and string plaintext against an explicit-Identity control with exact xref and no recovery. Parent execution is required before promotion."
+  }
+}

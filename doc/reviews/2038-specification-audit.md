@@ -11,11 +11,11 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (96)
+## Current checkpoint (97)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
-failure manifest contains **103 failing test identities**: 102 behavior assertions/probes
-and one stale ignored-gate expectation. These are grouped findings, not 103 independent defects. B08 and B42 remain unresolved interpretation/policy
+failure manifest contains **105 failing test identities**: 104 behavior assertions/probes
+and one stale ignored-gate expectation. These are grouped findings, not 105 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
 The refreshed broad run, wave95, covered eleven crates: **7,272 tests ran, 7,179 passed,
 and exactly the 93 recorded in-scope assertions failed; 58 were skipped**.
@@ -366,6 +366,13 @@ remain stale. Strengthened B67 assertions also expose stale MaxLen descriptions.
 Five new passing tests cover direct CID descriptors after EC3 #106 and narrow
 shading BBoxes on CPU and three actual Vulkan coverage modes. Model/render-raster
 Clippy passes. Broad95 predates these additions; current default-scope failures total96.
+
+Checkpoint97 finds two CPU shading gaps: a coincident axial axis paints the whole
+page (B70), and coincident zero-radius radial circles are refused (B71). Distinct
+zero-radius centres correctly paint nothing. Positive geometry controls and all six
+paired Vulkan assertions pass. Encoding CMap inheritance/override and independent
+omitted crypt-filter defaults also pass. Final three-crate Clippy passes. The105-entry
+manifest now includes98 default-scope failures; broad95 predates these additions.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

@@ -1,0 +1,39 @@
+{
+  "decisions": [
+    {
+      "topic": "Type 0 root dictionary cells (Table 119)",
+      "effective_rule": "Type/Font, Subtype/Type0, BaseFont, Encoding, and the one-element DescendantFonts array are required; ToUnicode is optional. BaseFont's name-joining rules are SHOULD conventions and the table says it is arbitrary in principle.",
+      "current_implementation_and_assertions": "The current ledger's §9.7.6/9.7.6.1 rows list Type0 loading, both Encoding forms, one descendant, and optional ToUnicode. composite_font_fixtures.rs uses exact embedded Type0 data for stream and named Encoding; current Type0 page tests have an actual CIDFont descendant. The current source is not read as requiring readers to reject every producer-invalid type/cardinality/convention.",
+      "errata": "Issue #324's StrikeOut/Caret on physical356/printed341 updates the Table119 ToUnicode cross-reference to §9.10. It changes the citation, not ToUnicode's type, optionality, or mapping rules.",
+      "verdict": "No uncovered mandatory Type0 cell behavior established. Known ToUnicode B27/B28 semantics remain in their owner shard; no duplicate draft.",
+      "related_adrs": ["ADR 0140 for named predefined CMap support", "ADR 2846 for archive writer BaseFont naming only; not a display-side requirement", "ADR 2870 for substitution behavior; this audit does not treat its policy as an ISO Type0 cell obligation"]
+    },
+    {
+      "topic": "CMap stream dictionary metadata and WMode (Table 118)",
+      "effective_rule": "Type/CMap and CMapName matching the embedded CMap file are required. CIDSystemInfo is required and its value matches the file's CMap metadata, except it need not match the identity CMaps. WMode is optional/default0; where stated its integer value is 0 or1 and matches CMap data. These equality/shape statements constrain producer output; a PDF processor's particular diagnostics for mismatched duplicate metadata are not spelled out here.",
+      "current_implementation_and_assertions": "composite.rs reads decoded CMap data, checks stream-dictionary WMode against data, and uses resulting mode to select vertical metrics. Valid fixtures use matching Type, CMapName, CIDSystemInfo and WMode. text_state_vertical_spec_audit.rs gives a source-consistent vertical mode in the file and dictionary and checks vertical coordinates/TJ through public page interpretation.",
+      "verdict": "No test gap for valid horizontal/default and vertical matching cases. ADR 0045 deliberately refuses mismatched WMode, which is a project policy for inconsistent producer statements, not a normative reader-defect finding.",
+      "related_adrs": ["ADR 0045: keeps WMode from the file, verifies dictionary/data agreement, and uses W2/DW2; retain as chosen refusal behavior, not a claim that ISO mandates that refusal."]
+    },
+    {
+      "topic": "Encoding CMap stream UseCMap versus ToUnicode UseCMap",
+      "effective_rule": "Table118 permits a predefined CMap name or a stream reference. A referencing CMap states only differences from its base. §9.7.5.4(a) says an in-file usecmap reference is also identified by the stream dictionary's UseCMap. This is the Encoding CMap path, distinct from EC3 Table125a /ToUnicode inheritance.",
+      "current_implementation_and_assertions": "cmap.rs::a_referencing_cmap_inherits_and_overrides checks inherited codespace and local mapping precedence but only at parser-unit level. composite.rs::read_cmap resolves a stream reference from the PDF dictionary. The promoted ToUnicode stream-UseCMap test validates a different parser path; it is not evidence for Encoding CMap object resolution. The inspected corpus has no Encoding CMap that builds on another.",
+      "verdict": "One defensible public-consumer coverage gap. Scratch draft uses a valid Type0/CIDFontType2 page, a stream-valued base, matching in-file `usecmap`, a child-local override and independent GID/font-program oracles. This is not a known behavior failure; no Cargo run was made.",
+      "related_adrs": ["ADR 0029: separate code-to-CID mapping from CID-to-GID mapping; the proposed fixture keeps those stages visible", "ADR 0298: specifically concerns ToUnicode inherited mappings and must not be counted as Encoding-CMap coverage", "ADR 1092: corrected array-form bfrange handling in Encoding CMaps; already implemented and not duplicated here"]
+    },
+    {
+      "topic": "Predefined CMaps and empty Table 117",
+      "effective_rule": "Table116 supplies names and descriptions; §9.7.5.2 explicitly requires support for Adobe-CNS1-7, Adobe-GB1-5, Adobe-Japan1-7, and Adobe-KR-9. Table117 is intentionally empty and sends version/collection data to normative references.",
+      "current_implementation_and_assertions": "ADR0140 carries all 239 published Adobe CMap files including usecmap dependencies; predefined.rs tests the required collections, codespace/mapping presence, vertical pairs, and bounds. The fixed Type0 `90ms-RKSJ-H` assertion checks one published name's literal mixed-length CID mapping. A separate optional-corpus test may skip on missing docs or host font, so it is not treated as the deterministic witness.",
+      "verdict": "Strong implementation/data and selected assertion evidence; no duplicate test draft. This is not a fresh independent census of every table name or a complete predefined CMap behavioral certification.",
+      "related_adrs": ["ADR 0140 is current and supported by named-data tests; no later selected ADR was found that withdraws this support obligation"]
+    }
+  ],
+  "source_corrections": [
+    "#518 is on physical p.344/printed p.329 in §9.7.3 and concerns CMap CIDSystemInfo array shape. It does not change the Table115 CIDFont-side required dictionary.",
+    "#278 on physical p.353/printed p.338 removes punctuation from §9.7.5.2; it has no mapping effect.",
+    "#324 on physical p.356/printed p.341 changes the Table119 ToUnicode cross-reference to §9.10; it does not edit ToUnicode behavior."
+  ],
+  "limits": "This is a selected ADR review and a bounded cell audit, not an exhaustive review of all §9.7 decisions or Adobe CMap content."
+}

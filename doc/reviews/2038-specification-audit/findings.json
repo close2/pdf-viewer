@@ -3074,5 +3074,78 @@
     "evidence": "Identical direct/indirect fixtures with fixed glyph37, outline, hmtx-consistent width and one glyph Fill; no recovery or fixture skip.",
     "execution": "direct-cid-descriptor-wave96b 1 PASS; model/render-raster Clippy PASS.",
     "qualification": "Tests the corrected Table115 cell, not every descriptor or substitute-font route."
+  },
+  {
+    "id": "2038-D61",
+    "kind": "decision-qualification",
+    "clauses": [
+      "8.7.4.5.3",
+      "8.7.4.5.4"
+    ],
+    "summary": "ADR2356 deliberately preserves native answers for degenerate gradients, but these answers violate explicit no-paint rules.",
+    "evidence": "ADR2356 lines31–35 retain zero-axis answer/refused radial geometry; B70/B71 public tests demonstrate full-page paint and UnsupportedPaint. ADR0171 non-cone/native equivalence needs the fully degenerate exception.",
+    "decision": "Retain ordinary ramp quantization and shared greatest-root solver rationale; reject native fallback for source-defined degenerate no-paint cases. Qualify ADR0171 a=0 reasoning when both center/radius deltas vanish.",
+    "qualification": "Review finding only; historical ADRs and production remain unchanged."
+  },
+  {
+    "id": "2038-B70",
+    "kind": "behavior-gap",
+    "clauses": [
+      "8.7.4.5.3"
+    ],
+    "summary": "CPU renderer paints the entire page for a coincident axial shading axis, which must paint nothing.",
+    "evidence": "Valid exact-xref direct sh with Extend true and ignored Background: nondegenerate red controlPASS; degenerate yields10000 nontransparent pixels instead0.",
+    "cause": "Sweep::of declines zero axis; tiny-skia gradient fallback paints a solid color.",
+    "execution": "CPU assertion FAIL; all three render-raster Vulkan coverage controls PASS; Clippy PASS.",
+    "qualification": "Source explicitly defines valid degenerate geometry; this is a CPU-backend failure, not the shared shading solver."
+  },
+  {
+    "id": "2038-B71",
+    "kind": "behavior-gap",
+    "clauses": [
+      "8.7.4.5.4"
+    ],
+    "summary": "CPU renderer refuses a radial shading with both radii zero and coincident centers instead of painting nothing.",
+    "evidence": "Zero-to-positive-radius red controlPASS; both-zero coincident returns UnsupportedPaint; distinct centers return zero pixels. Both observations collected before joint assertion.",
+    "cause": "Sweep/gradient fallback preserves tiny-skia refusal rather than source-defined no-paint case; distinct-center cone route reaches shared solver.",
+    "execution": "CPU assertion FAIL; all three render-raster Vulkan coverage controls PASS; Clippy PASS.",
+    "qualification": "Not a negative-radius/invalid-producer test. Passing private blend_parameter unit never reaches this CPU branch."
+  },
+  {
+    "id": "2038-T128",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "8.7.4.5.3",
+      "8.7.4.5.4"
+    ],
+    "summary": "Six real GPU controls correctly paint nothing for coincident axial endpoints and both-zero radial radii.",
+    "evidence": "Positive red geometry controls, whole-raster alpha count, both coincident/distinct radial centers; Cpu/Gpu/Compute coverage on Radeon890M Vulkan.",
+    "execution": "Combined97b six GPU PASS alongside two CPU FAIL.",
+    "qualification": "Coverage::Cpu is a render-raster GPU backend lane; not a pass for render-cpu."
+  },
+  {
+    "id": "2038-T129",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "9.7.5.3",
+      "9.7.5.4",
+      "9.7.6.2"
+    ],
+    "summary": "Encoding CMap stream UseCMap inherits base and preserves local override through a real Type0 font page.",
+    "evidence": "Exact-xref embedded font, two literal GIDs/outlines, complete page with two glyph fills; metadata and in-file reference agree.",
+    "execution": "font-crypt-controls-wave97 1PASS; final three-crate ClippyPASS.",
+    "qualification": "Separate Encoding path from existing ToUnicode inheritance; no entire CMap syntax certification."
+  },
+  {
+    "id": "2038-T130",
+    "kind": "assertion-strengthening",
+    "clauses": [
+      "7.6.2",
+      "7.6.6"
+    ],
+    "summary": "Omitted stream and string crypt-filter selectors independently default to Identity.",
+    "evidence": "Both-absent, both-explicit and each-absent/other-AESV2 fixtures return literal content/title without recovery.",
+    "execution": "font-crypt-controls-wave97 1PASS; final three-crate ClippyPASS.",
+    "qualification": "Uses existing clause-derived R4 builder; routing test, not a new independent crypto vector."
   }
 ]

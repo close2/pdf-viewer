@@ -77,13 +77,14 @@
     ],
     "test_assertions": "Named public tests pin ordinary gradient endpoints/midpoint, perpendicular constancy, omitted default Domain/Extend, both asymmetric extension directions in `indirect_shading_values_spec_audit.rs`, nondefault Domain, BBox and direct/indirect array-member semantics. The coincident-endpoint no-paint clause is still a separate branch. `drafts/degenerate_type2_type3_geometry.rs` adds a public exact-xref no-paint case with a nondegenerate red-axis positive control; unrun.",
     "verdict": "Sampled Type 2 ordinary ramps, default values, both asymmetric extension directions, clipping, and common zero-area BBox behavior are supported. The coincident-axis branch has a targeted public draft but remains unrun.",
-    "residuals": "Public coincident-endpoint case in `drafts/degenerate_type2_type3_geometry.rs` is not yet run. Function-domain superset/output-range behavior is not re-certified in this bounded pass."
+    "residuals": "Public coincident-endpoint case in `drafts/degenerate_type2_type3_geometry.rs` is not yet run. Function-domain superset/output-range behavior is not re-certified in this bounded pass.",
+    "checkpoint97": "B70 CPU coincident axis paints10000 pixels, expected0; three GPU coverage controls PASS."
   },
   {
     "feature": "Type 3 radial dictionary cells and endpoint conditions (Table 80)",
     "clause": "§8.7.4.5.4 Table 80 and following radial-family rules",
-    "source_location": "Directly inspected primary `doc/ISO_32000-2_sponsored_EC3.pdf`: Table 80 begins on physical p.250 / printed p.235 and continues on physical p.251 / printed p.236 (both footers checked). Physical p.250 has 3 annotations, all `/Link` references to Figure 33 and Tables 80/77; p.251 has none. Table 80 says radii SHALL be nonnegative; one zero-radius circle is a point; both zero means nothing paints. Domain defaults [0,1], Function required, Extend defaults [false,false].",
-    "errata": "Direct primary check: Table 80 span has only an internal /Link annotation on p.250 and none on p.251; no EC3 correction mark alters its cells. No related issue was located in the effective errata index in this bounded pass.",
+    "source_location": "Actual Table80 is physical251/printed236 only. Physical250/printed235 holds Figure33 and a prose cross-reference to the table; it is not a table start. Parent reread both pages. Physical252 is following prose/figure.",
+    "errata": "No issue correction on actual Table80 page251; nearby250 has an internal Link, not a correction or table cell.",
     "ledger": "§8.7.4.5.4 and common shading entries §8.7.4.3.",
     "code": [
       "crates/pdf-colour/src/shading.rs::coords",
@@ -103,6 +104,7 @@
     "test_assertions": "Public tests cover ordinary radial ramps, default non-extension, nested/cone backgrounds and both asymmetric Extend directions with nondefault Domain. Private `a_family_of_zero_radius_circles_paints_nothing` checks the solver with both extensions true, but does not exercise the public paint consumer. The new draft `drafts/degenerate_type2_type3_geometry.rs` adds both-zero public transparency plus a zero-to-positive-radius blue pixel control; unrun.",
     "verdict": "Ordinary radial family, extension, root selection and private both-zero solver evidence are present. The both-zero public paint rule has a discriminating exact-xref draft but remains unrun.",
     "residuals": "Public both-zero and one-zero-radius geometry draft is unrun. It also pins direct-sh Background ignored behavior through the contrasting color control. Radial Domain, asymmetric extension and BBox are already covered by named current tests.",
-    "draft": "drafts/degenerate_type2_type3_geometry.rs"
+    "draft": "drafts/degenerate_type2_type3_geometry.rs",
+    "checkpoint97": "B71 CPU both-zero coincident centers return UnsupportedPaint; distinct centers return0painted. Three GPU coverage controls PASS for both cases."
   }
 ]

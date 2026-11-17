@@ -778,3 +778,63 @@ fn a_cf_entry_named_identity_is_ignored_even_if_its_cfm_is_unknown() {
     assert!(!ignored.was_recovered(), "exact-xref challenged fixture");
     assert_eq!(page_content(&ignored), CONTENT);
 }
+
+// Insertable companion test for crates/pdf-syntax/tests/encryption_fixtures.rs.
+// It uses that file's clause-derived exact-xref R4 builder and literal plaintext constants.
+// This covers only absent-default selection; it is not a crypto known-answer vector.
+
+/// Table 20 defaults each omitted entry to Identity, not to the other default entry.
+#[test]
+fn absent_stream_and_string_defaults_are_identity() {
+    let both_absent = older_document(REVISION_4, 4, "", (Method::Identity, Method::Identity));
+    let explicit_identity = older_document(
+        REVISION_4,
+        4,
+        "/StmF /Identity /StrF /Identity",
+        (Method::Identity, Method::Identity),
+    );
+    let stream_default_fixture = older_document(
+        REVISION_4,
+        4,
+        "/CF << /StdCF << /Type /CryptFilter /CFM /AESV2 /Length 16 \
+         /AuthEvent /DocOpen >> >> /StrF /StdCF",
+        (Method::Identity, Method::Aes128),
+    );
+    let unencrypted_title_fixture = older_document(
+        REVISION_4,
+        4,
+        "/CF << /StdCF << /Type /CryptFilter /CFM /AESV2 /Length 16 \
+         /AuthEvent /DocOpen >> >> /StmF /StdCF",
+        (Method::Aes128, Method::Identity),
+    );
+
+    let absent_document = open(&both_absent.bytes, USER).expect("omitted defaults use Identity");
+    let explicit_document = open(&explicit_identity.bytes, USER).expect("Identity control opens");
+    let stream_identity_doc = open(&stream_default_fixture.bytes, USER)
+        .expect("an omitted StmF defaults to Identity even when StrF is AESV2");
+    let clear_title_doc = open(&unencrypted_title_fixture.bytes, USER)
+        .expect("an omitted StrF defaults to Identity even when StmF is AESV2");
+    let observations = [
+        &absent_document,
+        &explicit_document,
+        &stream_identity_doc,
+        &clear_title_doc,
+    ]
+    .map(|document| {
+        (
+            !document.was_recovered(),
+            page_content(document),
+            title(document),
+        )
+    });
+    assert!(
+        both_absent
+            .bytes
+            .windows(CONTENT.len())
+            .any(|w| w == CONTENT)
+    );
+    assert_eq!(
+        observations,
+        std::array::from_fn(|_| (true, CONTENT.to_vec(), TITLE.to_vec()))
+    );
+}

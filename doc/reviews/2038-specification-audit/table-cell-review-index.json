@@ -667,6 +667,100 @@
       ],
       "artifact": "shards/shading_dictionary_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "119",
+      "keys": [
+        "Type",
+        "Subtype",
+        "BaseFont",
+        "Encoding",
+        "DescendantFonts",
+        "ToUnicode"
+      ],
+      "ledger_rows": [
+        "9.7.6.1"
+      ],
+      "artifact": "shards/type0_cmap_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "118",
+      "keys": [
+        "Type",
+        "CMapName",
+        "CIDSystemInfo",
+        "WMode",
+        "UseCMap"
+      ],
+      "ledger_rows": [
+        "9.7.5.3"
+      ],
+      "artifact": "shards/type0_cmap_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "20",
+      "keys": [
+        "V",
+        "CF",
+        "StmF",
+        "StrF",
+        "EFF"
+      ],
+      "ledger_rows": [
+        "7.6.2"
+      ],
+      "artifact": "shards/crypt_filter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "21",
+      "keys": [
+        "EncryptMetadata"
+      ],
+      "ledger_rows": [
+        "7.6.4.2"
+      ],
+      "artifact": "shards/crypt_filter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "25",
+      "keys": [
+        "Type",
+        "CFM",
+        "AuthEvent",
+        "Length"
+      ],
+      "ledger_rows": [
+        "7.6.6"
+      ],
+      "artifact": "shards/crypt_filter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "26",
+      "keys": [
+        "Identity"
+      ],
+      "ledger_rows": [
+        "7.6.6"
+      ],
+      "artifact": "shards/crypt_filter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "27",
+      "keys": [
+        "Recipients",
+        "EncryptMetadata"
+      ],
+      "ledger_rows": [
+        "7.6.6"
+      ],
+      "artifact": "shards/crypt_filter_cells_current/features.json",
+      "status": "partial"
     }
   ]
 }
