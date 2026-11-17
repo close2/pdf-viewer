@@ -11,16 +11,16 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (122)
+## Current checkpoint (123)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **112 failing test identities**: 111 behavior assertions/probes
 and one stale ignored-gate expectation. These are grouped findings, not 112 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
-The refreshed broad run, wave116, covered eleven crates: **7,305 tests ran, 7,205 passed,
-and exactly the 100 recorded in-scope assertions failed; 58 were skipped**.
+The refreshed broad run, wave123, covered eleven crates: **7,321 tests ran, 7,216 passed,
+and exactly the 105 recorded in-scope assertions failed; 58 were skipped**.
 Exact binary/test identities matched the manifest at that checkpoint, with no extra or missing failures.
-Wave116 includes all default-scope additions and strengthened assertions through checkpoint115.
+Wave123 includes all default-scope additions and strengthened assertions through checkpoint122.
 Passing status includes successful early returns; two are reproduced under D45.
 Five GPU failures and one engine-only Matrix2D availability failure under the adopted
 A193 reference scope are recorded separately, as is D51’s ignored stale test expectation. The new outline-panel raster test also
@@ -516,6 +516,11 @@ Model/core Clippy passes;148 table matrices remain partial.
 Checkpoint 122 adds a passing outline-specific IsMap control and selected common
 action/URI/Base table reviews. The test observes the public URI handoff and invokes
 no external handler. Model/core Clippy passes;151 table matrices remain partial.
+
+Checkpoint 123 reconciles the broad run against all 105 expected in-scope test
+identities, with no extra or missing failures. The font-stream review distinguishes
+the literal Length3 byte assertion from its public consumer test and corrects
+metadata/errata locators. There are 152 partially reviewed table matrices.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

@@ -3182,6 +3182,15 @@
       "skipped": 0,
       "exit": 0,
       "scope": "Outline IsMap exception versus shared-action click control"
+    },
+    {
+      "log": "broad123.log",
+      "run": 7321,
+      "passed": 7216,
+      "failed": 105,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Eleven default-feature crates through122; exact manifest match, comparison in broad123-comparison.json"
     }
   ],
   "prior_expected_failures": {

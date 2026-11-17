@@ -1,0 +1,29 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "topic": "Length3=0 is an actual processor obligation",
+      "source": "§9.9.1 Table125 physical368/printed353 says explicit Length3 0 means 512 zeros and cleartomark were not included and shall be added by the processor; NOTE2 physical369/printed354 describes the fixed portion.",
+      "current": "with_fixed_content appends only for resolved integer zero. A direct unit test asserts exact count/operator, and the public PaintType integration’s valid generated Type1 uses Length3=0 and successfully loads/draws a nonempty outline. Ledger 9.9.1 is implemented and cites both the direct tests.",
+      "verdict": "Implemented; no additional test warranted. Do not claim that missing or positive but inconsistent Length3 triggers any ISO-mandated reader response."
+    },
+    {
+      "topic": "Table125 lengths in damage handling",
+      "source": "Length1/2/3 describe decoded byte extents; §7.3.8 stream filters are applied before the lengths are meaningful.",
+      "current": "stated_extent is consulted for Truncated and CheckValue filter-damage handling, with the complete program parser otherwise reading bytes. Type1 uses sum; FontFile2 uses Length1; FontFile3 CFF has no such lengths under the following §9.9.1 text.",
+      "verdict": "Selected logic agrees with the effective text; no claim that producer fields require a reader to reject invalid data."
+    },
+    {
+      "topic": "Subtype and metadata placement",
+      "source": "Table125 requires a FontFile3 Subtype name. Separate §14.3.2 Table348 NOTE1 says embedded-font-file metadata should be attached to its stream.",
+      "current": "The byte signature selects parser route, tolerating erroneous Subtype. Xmp::read is generic; existing Form XObject test covers component metadata but font loading does not expose XMP.",
+      "verdict": "No valid-input gap or specific reader duty identified. Producer requirement and generic metadata placement are not font-decoding mandates."
+    },
+    {
+      "topic": "Old ADR status",
+      "source": "ADR0040 predates stated_extent; ADR0475 records Length1/2/3 use and then still calls Length3=0 execution pending.",
+      "current": "Current code has with_fixed_content; 9.9.1 ledger is implemented and names passing direct and public consumer assertions.",
+      "verdict": "Treat the “not executed/still not executed” passages as historical stale notes, not current ledger or runtime failure."
+    }
+  ]
+}

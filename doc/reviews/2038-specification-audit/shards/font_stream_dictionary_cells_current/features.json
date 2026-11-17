@@ -1,0 +1,105 @@
+{
+  "baseline": "b901326c",
+  "source": "ISO 32000-2:2020 plus effective EC3 primary PDF",
+  "scope": "Bounded review of §9.9.1 / Table 125 embedded-font stream dictionary entries and §14.3.2 metadata placement note; no full font-program-format certification.",
+  "source_verification": {
+    "method": "Inspected rendered primary pages and footer: Table 125 caption and Length1/Length2/Length3 are on physical 368 / printed 353; Subtype continues on physical 369 / printed 354. Checked annotation objects on both pages; no EC3 Issue annotation alters these cells. Extracted source layout corroborates rendered rows.",
+    "table_125": [
+      {
+        "cell": "Length1",
+        "rule": "Required by producer for Type 1 and TrueType programs. Count the Type 1 clear-text portion or the entire TrueType program in bytes after stream filters are decoded."
+      },
+      {
+        "cell": "Length2",
+        "rule": "Required by producer for Type 1 programs; decoded byte count of the encrypted portion."
+      },
+      {
+        "cell": "Length3",
+        "rule": "Required by producer for Type 1 programs; decoded byte count of the fixed-content portion. Explicit 0 means the 512 ASCII zeros and cleartomark are omitted and shall be added by the PDF processor."
+      },
+      {
+        "cell": "Subtype",
+        "rule": "Required when the stream is referenced by FontFile3; identifies Type1C, CIDFontType0C or OpenType."
+      }
+    ],
+    "surrounding_text": "The stream also has ordinary Table 5 entries such as Length and Filter. NOTE 2 on physical 369 says Type 1 fixed content comprises 512 ASCII zeros followed by cleartomark (possibly with more data), and that filters may encode the whole font program. The following §9.9.1 text says Length1/2/3 are not needed and shall not be present for CFF programs.",
+    "metadata": "Table 125 has no Metadata cell. Separate §14.3.2 Table 348 (physical 730 / printed 715) permits component metadata; NOTE 1 says metadata about embedded font files belongs on font-file streams rather than font dictionaries. This is generic object-level metadata, not a font-program decoding instruction."
+  },
+  "features": [
+    {
+      "feature": "Table 125 Length1/Length2/Length3 extent and zero Length3 reconstruction",
+      "source_location": "§9.9.1 Table 125 physical 368 / printed 353; Type 1 NOTE 2 and following CFF length paragraph physical 369 / printed 354.",
+      "errata": "No EC3 Issue amendment on physical pages 368–369 to Table 125 or its Type 1 NOTE 2. The separate appended Table 125a at physical 1022 is ToUnicode-only and unrelated.",
+      "producer_rule": "Length1 is required for Type 1/TrueType, Length2/Length3 for Type 1. Values describe decoded program sections. Missing or wrong required fields are producer-side defects; Table 125 does not prescribe general reader rejection for them.",
+      "reader_rule": "For an explicit Type 1 Length3 of 0, the processor shall append the omitted 512 zeros and cleartomark. The specified bytes/count are mandatory; layout/separators are not specified in Table 125.",
+      "implementation": "pdf-font/src/program.rs::stated_extent uses Length1 for FontFile2 and the Type 1 length sum for FontFile when classifying truncated-filter damage; on check-value damage it reports the extent but does not treat it as a repair. `with_fixed_content` appends only when the resolved Length3 value is integer zero. `embedded_program` passes that data to Type 1 parsing/loading.",
+      "assertions": [
+        {
+          "test": "pdf-font::program::font_file_signature::a_stated_length3_of_zero_restores_the_512_zeros_and_cleartomark",
+          "assertion": "Calls actual embedded_program route and checks original bytes unchanged, exactly 512 added ASCII zero bytes, and cleartomark follows. Independently literal expected bytes, but its tiny clear+cipher payload is a helper fixture, not a complete conforming font/PDF."
+        },
+        {
+          "test": "pdf-font::program::font_file_signature::any_other_length3_leaves_the_program_alone",
+          "assertion": "Checks a positive Length3 value and missing-length variants do not trigger append. The positive case states Length3=533 while its payload contains no trailer; that is malformed producer input, not a valid positive-length control. The missing Length3/Length1/Length2 variants are also not producer-valid Type 1 stream dictionaries."
+        },
+        {
+          "test": "pdf-model::font_paint_type_audit::embedded_painttype_2_is_ignored_for_type1_type1c_and_cidfonttype0c",
+          "assertion": "The valid generated Type 1 arm states Length1/Length2 and Length3=0, then public PDF interpretation calls LoadedFont::load and asserts one nonempty outline, half-em program advance, and PDF Tr fill/stroke controls. It reaches the actual reconstruction consumer, though the test’s primary oracle is PaintType/rendering mode, not a before/after trailer comparison."
+        },
+        {
+          "test": "pdf-model::type1::an_embedded_type1_program_puts_glyphs_on_the_page",
+          "assertion": "Corpus-dependent public Type 1 rendering, but may early-return if pdf.js fixture submodule is absent; not relied on as the only Length3 witness."
+        }
+      ],
+      "verdict": "No present implementation defect: explicit zero is reconstructed, code and byte-level test directly cover it, and a valid generated Type 1 reaches the public parser/outline consumer. Table 125 producer requirements do not convert malformed missing/wrong lengths into reader rejection duties.",
+      "residuals": "The helper test’s positive-Length3 input is invalid because stated and carried lengths disagree. This limits it as valid-input evidence, but does not undermine the independently source-literal Length3=0 test or public valid zero case. No additional test is drafted: current implementation and existing zero-byte assertion directly cover the obligation; an independent full-font positive Length3 pixel comparison would duplicate the targeted behavior without exposing a distinct gap."
+    },
+    {
+      "feature": "FontFile3 Subtype",
+      "source_location": "Table 125 Subtype row physical 369 / printed 354.",
+      "errata": "No directly relevant EC3 Issue annotation on the row.",
+      "producer_rule": "Required for FontFile3 and shall name Type1C, CIDFontType0C or OpenType.",
+      "reader_rule": "The table supplies producer format identification; no clause here mandates rejecting or reporting a malformed/mismatching Subtype.",
+      "implementation": "program.rs selects bare CFF versus sfnt by program bytes rather than consulting FontFile3 Subtype. This leaves valid conforming combinations on the intended route and tolerates contradictory producer metadata.",
+      "assertions": [
+        "program::font_file_signature tests distinguish bare CFF and sfnt signatures; embedded_font_format_cells_current already reviews Table 124 pairing and concrete program routes."
+      ],
+      "verdict": "No valid-input discrepancy found. Signature-based compatibility for malformed/mismatched Subtype is a reader policy, not failure to enforce a Table 125 reader command.",
+      "residuals": "This shard does not recertify every FontFile3 Subtype × font dictionary pairing; Table 124 pairing coverage remains in its separate shard."
+    },
+    {
+      "feature": "Object-level Metadata attached to an embedded font file stream",
+      "source_location": "§14.3.2 Table 348 and NOTE 1, physical 730 / printed 715. NOTE 1 specifically places embedded-font-file metadata on the font-file stream, rather than its font dictionary.",
+      "errata": "Issue #296 on actual physical 730 inserts the requirement that all XMP metadata be UTF-8. Its caret NM is 9652d706-b857-420d-8671-7627f95fc069. It does not change NOTE 1 placement. The draft incorrectly inspected physical 715 and associated unrelated #163.",
+      "producer_rule": "Metadata is optional component metadata under Table 348. When provided, it belongs on the actual font program stream.",
+      "reader_rule": "No font-program parsing or rendering behavior is stated for this metadata.",
+      "implementation": "Xmp::read accepts a supplied component dictionary and resolves its Metadata stream; an existing `xmp::a_metadata_stream_on_a_form_xobject_reads_back` tests the generic object-level route. No font-loader call consumes metadata, and no viewer panel exposes per-font object metadata.",
+      "assertions": [
+        "pdf-model::xmp::a_metadata_stream_on_a_form_xobject_reads_back: generic Table 348 stream/dictionary metadata route; no font-specific assertion."
+      ],
+      "verdict": "No font-specific gap established. The note governs placement; the generic metadata reader is reusable for an embedded font stream if a caller supplies that dictionary. No user-visible per-font metadata consumer is promised by the inspected API.",
+      "residuals": "No test places XMP directly on a FontFile stream; not treated as a defect because the existing generic object-level reader already consumes any provided component dictionary and font parsing has no obligation to surface XMP."
+    }
+  ],
+  "related_adrs": [
+    {
+      "adr": "ADR 0459",
+      "review": "Current valid source for using Table 125 extents on damaged-filter paths; distinguishes filter damage from a stated decoded extent."
+    },
+    {
+      "adr": "ADR 0475",
+      "review": "Correctly says Length1/2/3 now reach stated_extent, but its later sentence that the Length3 processor requirement is “still not executed” is stale: current with_fixed_content exists, ledger 9.9.1 is implemented, the direct test passes, and a public zero-Length3 consumer passes."
+    },
+    {
+      "adr": "ADR 0040",
+      "review": "Historical statement that Table 125 lengths were read by nobody predates ADR0459 and current code/tests; not a current ledger defect."
+    },
+    {
+      "adr": "ADR 1221",
+      "review": "Table 124 program/key selection work; mentions FontFile3 Subtype but does not create a Table125 reader-rejection duty."
+    }
+  ],
+  "ledger": "doc/conformance/ledger.toml §9.9 and §9.9.1 are currently implemented. §9.9.1 explicitly names both zero-Length3 tests and identifies processor reconstruction as executed. This corrects stale historical ADR text, not the current ledger.",
+  "execution": "No Cargo run by this reviewer. Existing execution evidence: scratchpad/r2038/spec-audit/broad116.log reports PASS for a_stated_length3_of_zero_restores_the_512_zeros_and_cleartomark, any_other_length3_leaves_the_program_alone and embedded_painttype_2_is_ignored_for_type1_type1c_and_cidfonttype0c. Source review only; no new draft.",
+  "parent_execution": "Broad123 includes the named font byte-transform and PaintType tests PASS. The byte-transform assertion proves the append; the public outline consumer alone would not discriminate a missing fixed trailer."
+}

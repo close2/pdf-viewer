@@ -3,10 +3,10 @@
   "baseline": "b901326c230faa5d2cb288016339b9d5c6288527",
   "previous_audit": "1983-specification-audit",
   "current_execution": {
-    "broad": "Wave116: 7,305 run,7,205 PASS,100 FAIL,58 skipped. Exact default-scope manifest match through115; no extra or missing failures.",
+    "broad": "Wave123: 7,321 run, 7,216 PASS, 105 FAIL, 58 skipped. Exact default-scope manifest match through122; no extra or missing failures.",
     "gtk": "Earlier20 tests PASS; checkpoint68 adds one GTK settings test PASS under Xvfb and one Qt bridge test PASS.",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "After broad116: eleven newPASS (Crypt,2navigation,4FDF,compatibility,2widget,URI), five newFAIL (2B74,3B75);18 strengthened DCT PASS. Relevant model/syntax/core ClippyPASS. Manifest112=105default+5GPU+1engine+1ignored.",
+    "later_targets": "After broad123: one new structure Type-omission test PASS, not yet promoted; no new failures. Manifest112=105default+5GPU+1engine+1ignored.",
     "quality": "Checkpoint52 syntax/model/script/core/UI all-targets with engine PASS;51signature and earlier scopes recorded.",
     "script_engine": "247PASS4ignored plus separate corpus2PASS249filtered. Corpus counters documented; semantic/error provenance follow-up active.",
     "rendition_and_font": "B49/B50:7new tests,5PASS2FAIL;73total expected failures,70in eleven-crate scope+3GPU. Model/core Clippy PASS.",
@@ -18,11 +18,13 @@
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
-      "font_stream_dictionary_cells_current",
       "structure_root_element_cells_current",
-      "collection_presentation_cells_current"
+      "collection_presentation_cells_current",
+      "halftone_dictionary_cells_current",
+      "structure_content_item_cells_current"
     ],
     "recorded_shards": [
+      "font_stream_dictionary_cells_current",
       "uri_action_cells_current",
       "compatibility_graphics_state_current",
       "widget_characteristics_cells_current",
@@ -325,7 +327,7 @@
     "All 883 rows remain partially reviewed. Current work checks uncited EC3 annotation candidates against primary pages, effective wording, code and actual assertions.",
     "All69 file-only pointers have partial selected-assertion review; this does not certify entire files or features.",
     "Literal issue citation candidates are discovery metadata only, not counts of missing features. Selected batches remain under parent source review.",
-    "151 unique table matrices and all883 ledger rows remain partial. Broad refresh owed for twelve additions after116 plus four new passes121–122. Font-stream, structure and collection reviews continue.",
+    "152 unique table matrices and all 883 ledger rows remain partial. Structure, collection and halftone selected reviews continue.",
     "Stop new dispatch near 81%; preserve 15% weekly allowance at 85%."
   ],
   "budget": {
@@ -333,7 +335,7 @@
     "stop_new_dispatch_at": 81,
     "ceiling": 85,
     "remaining_reserved": 15,
-    "last_weekly_used_percent": 77,
-    "last_read_utc": "2026-11-17T19:58:59.287133+00:00"
+    "last_weekly_used_percent": 78,
+    "last_read_utc": "2026-11-17T20:26:28.556353+00:00"
   }
 }

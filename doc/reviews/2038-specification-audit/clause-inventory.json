@@ -5245,7 +5245,8 @@
       "shards/cid_opentype_current/features.json",
       "shards/shared_oracle_assertions_current/features.json",
       "shards/fixed_font_substitution_assertions_current/features.json",
-      "shards/embedded_font_format_cells_current/features.json"
+      "shards/embedded_font_format_cells_current/features.json",
+      "shards/font_stream_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "cidfont_cmap_validation_audit",
@@ -10457,7 +10458,8 @@
       "shards/metadata_current/features.json",
       "shards/errata_reference_editorial_current/features.json",
       "shards/errata_media_annex_batch_current/features.json",
-      "shards/errata_weak_dispositions_batch3_current/features.json"
+      "shards/errata_weak_dispositions_batch3_current/features.json",
+      "shards/font_stream_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "metadata_audit"
