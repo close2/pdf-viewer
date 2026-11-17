@@ -1,0 +1,78 @@
+{
+  "baseline": "b901326c",
+  "scope": "Cell-level review of §12.3.2.2 destination arrays and Table 149, including null/zero operands, page target forms, model parsing, and observable geometry routes. Prior name-tree precedence, transformed rotation/crop coordinates, FitR/FitB centering, and cross-document action-view failures are reconciled as existing findings rather than reopened.",
+  "source": {
+    "locator": "ISO 32000-2:2020 §12.3.2.1–.2 and Table 149, printed pp.441–443 / primary PDF physical pp.456–458. The correct table number is 149 (Table 151 is unrelated).",
+    "effective_rules": [
+      "A destination specifies the page, the window location on that page, and magnification. Following a destination presents the view it specifies.",
+      "Ordinary destination arrays name a page by indirect page reference. For GoToR and GoToE arrays the first element is instead an integer page number in the target document, zero-based; the 2020 correction note in §12.3.2.2 explicitly includes embedded Go-To as well as remote Go-To.",
+      "All Table 149 coordinates are in default user space. For FitB, FitBH, and FitBV, the smallest rectangle enclosing page content is bounded by the CropBox as specified in §12.3.2.2.",
+      "/XYZ has left, top, and zoom; null retains each current component independently, and zoom zero has null semantics. /Fit takes no operands. /FitH takes top; /FitV takes left; /FitR takes left, bottom, right, top; /FitB takes no operands; /FitBH takes top; /FitBV takes left.",
+      "/FitH and /FitBH fit width; /FitV and /FitBV fit height. The /FitB family uses the content bounding box. /Fit and /FitR fit both dimensions. The separate existing B24 review covers centering in unused dimensions. EC3 Issue #536 inserts “interactive processors should” before “use the smaller ... , centring the rectangle ...” in the same FitR sentence. Grammatically this makes both smaller-factor choice and centering a SHOULD-level recommendation for interactive processors. It does not change the separate unamended FitB imperative."
+    ],
+    "errata": "Primary annotation checked at physical p.457 / printed p.442: Issue #536 Caret inserts 'interactive processors should' in the Table 149 FitR smaller-factor instruction. It is a recommendation, not a SHALL. No Table 149 erratum changing the eight form names or the XYZ null/zero semantics was found in physical pp.456–458. The embedded GoTo integer exception is recorded by the corrected §12.3.2.2 note.",
+    "cells": [
+      {
+        "cell": "page element",
+        "source_rule": "Indirect page reference for ordinary destinations; integer index in the target for GoToR/GoToE, starting at zero.",
+        "implementation": "pdf-model::Destination retains PageTarget and resolves ordinary references in the current document; RemoteGoTo/GoToE resolve integer page indexes against the target page list.",
+        "assertions": "pdf-model destination tests distinguish local page references from remote integer targets. cross_document_destination_view_spec_audit has exact-xref local, remote, and embedded fixtures selecting page index 2, plus direct-target and local controls.",
+        "status": "Page selection is independently asserted. The separate B23 finding is that GoToR/GoToE drop the destination View while replacing the document; this review does not duplicate that finding."
+      },
+      {
+        "cell": "/XYZ left, top, zoom",
+        "source_rule": "Each null left/top/zoom retains the current component; zoom 0 is equivalent to null.",
+        "implementation": "pdf-model::destination::View::read maps null and zoom 0 to None; viewer-core::Open::apply_view retains the unstated corner/zoom.",
+        "assertions": "destination.rs::a_null_parameter_is_not_a_zero separates null and zero coordinates from stated numeric zeros. viewer-core/tests/destinations_residual_audit.rs checks retained state after navigation and an explicit-view control; headless.rs checks stated XYZ scale and origin.",
+        "status": "Parser and public local-navigation assertions use literal values and controls; no new gap established."
+      },
+      {
+        "cell": "/Fit",
+        "source_rule": "Fit the whole page in both dimensions and center unused space.",
+        "implementation": "Open::apply_view computes the min width/height fit and places the whole page.",
+        "assertions": "headless.rs::an_open_action_states_where_to_look_at_the_page_and_how_large checks a 600×800 page in a 300×400 window at scale 0.5; an independent whole-page spare-height control is recorded in destinations_current_followup/parent-review.json.",
+        "status": "Covered for the source-derived whole-page fit case."
+      },
+      {
+        "cell": "/FitH top; /FitV left",
+        "source_rule": "Fit the page width or height, respectively; place the coordinate at the corresponding window edge, retaining it if null.",
+        "implementation": "Open::apply_view fits the selected page dimension and transforms stated user-space coordinates.",
+        "assertions": "headless.rs has independent FitH scale and top-coordinate values. destinations_residual_audit.rs compares FitV against its fitted crop height and computes the non-origin CropBox transform independently; null retention controls are in the same public integration family.",
+        "status": "Covered by literal public geometry and contrasting page-versus-content controls."
+      },
+      {
+        "cell": "/FitR left bottom right top",
+        "source_rule": "Fit the specified rectangle; the same Table 149 sentence says to use the smaller factor and center in unused space. EC3 #536 inserts SHOULD before that sentence, so this is recommended for interactive processors rather than an unqualified SHALL.",
+        "implementation": "View parser preserves four coordinates; Open::apply_view fits both dimensions and currently places a rectangle corner at the viewport corner.",
+        "assertions": "headless.rs has matched-aspect and literal centered-geometry assertions. Parent review of destinations_current_followup records the unused-dimension case failing against the recommended centering behavior and the matched-aspect control passing.",
+        "status": "Existing B24 records an implementation mismatch with the recommended FitR behavior, not a mandatory ISO “shall” violation. No new array-cell finding."
+      },
+      {
+        "cell": "/FitB",
+        "source_rule": "Fit the page-content bounding box, clipped to CropBox; center placement is covered by B24.",
+        "implementation": "Open::apply_view derives a content box and currently places its upper-left corner at the viewport corner.",
+        "assertions": "headless.rs uses a one-rectangle content fixture. Parent's B24 review adds vertical/horizontal unused-dimension assertions and matched-aspect controls; the center case fails.",
+        "status": "Existing B24 finding; bounded to centering in unused dimension."
+      },
+      {
+        "cell": "/FitBH top; /FitBV left",
+        "source_rule": "Fit content bounding-box width or height; stated top/left coordinates remain default-user-space placement operands.",
+        "implementation": "View::FitBH/FitBV retain the coordinate; apply_view maps it through the page transform and fits the selected content dimension.",
+        "assertions": "destinations_residual_audit.rs::fitbh_fits_the_content_width_and_places_top_in_default_user_space and ::fitbv_fits_the_content_height_and_transforms_left_from_user_space assert independent coordinate arithmetic and contrast each with FitH/FitV page-box controls.",
+        "status": "Public geometry assertions independently discriminate content bounds from page bounds; no new gap found."
+      }
+    ],
+    "selected_adrs": [
+      "ADR 0162: local destination view representation and geometry; retain supported page/zoom claims but do not repeat the previously reviewed FitR/FitB centering rationale.",
+      "ADR 2814: default-space coordinates and null retention; current local geometry tests support these narrow claims. Rotation/crop composition is already reviewed in navigation_geometry_residual_current.",
+      "ADR 1227 and ADR 0094: remote request boundary and embedded traversal are not reevaluated here; B23 already isolates view loss from page selection/traversal."
+    ]
+  },
+  "limits": [
+    "B24 must be described as a FitR SHOULD-level discrepancy for interactive processors under the grammatical scope of #536; its FitB cases remain governed by the unamended Table 149 imperative.",
+    "No new tests are proposed: all eight forms have model parsing coverage, all meaningful local geometry variants are exercised through public consumers, and prior shards already contain controls for CropBox coordinates and cross-document page selection.",
+    "The model test's all-eight assertion proves parsing only; geometry confidence comes from the separate public assertions listed above.",
+    "This review does not certify malformed operand recovery, every fit form under every page transform, external-target UI handoff, or visual/native host behavior.",
+    "B23 and B24 remain separately recorded issues; this feature-cell inventory neither fixes nor restates their full arguments."
+  ]
+}

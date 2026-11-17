@@ -11,11 +11,11 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (100)
+## Current checkpoint (101)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
-failure manifest contains **105 failing test identities**: 104 behavior assertions/probes
-and one stale ignored-gate expectation. These are grouped findings, not 105 independent defects. B08 and B42 remain unresolved interpretation/policy
+failure manifest contains **106 failing test identities**: 105 behavior assertions/probes
+and one stale ignored-gate expectation. These are grouped findings, not 106 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
 The refreshed broad run, wave99, covered eleven crates: **7,283 tests ran, 7,185 passed,
 and exactly the 98 recorded in-scope assertions failed; 58 were skipped**.
@@ -391,6 +391,14 @@ The first outline draft compared different rows and missed a deliberately cleare
 style: row-position differences hid the defect. The revised same-position oracle
 catches it; all temporary mutations are restored. D63 corrects an ADR source-table
 citation while retaining its clock design. Final model/UI Clippy passes.
+
+Checkpoint101 exposes Type1 tiling at10.400002 device-pixel spacing after a wide
+BBox causes the selected matrix snap to be declined (B72). Ordinary Type1 and
+Type2 controls pass. D64 reopens ADR1080’s unsupported exception to constant
+spacing. A fresh erratum reading also narrows B24: FitR centering belongs to the
+SHOULD recommendation in #536; FitB retains its unamended instruction. Earlier
+claims of independently mandatory FitR centering are withdrawn. Model/core Clippy
+passes. Manifest106 includes99 default-scope failures; broad99 predates B72.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

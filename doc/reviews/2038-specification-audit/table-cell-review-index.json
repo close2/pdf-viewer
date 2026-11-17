@@ -858,7 +858,8 @@
         "8.7.3.1"
       ],
       "artifact": "shards/tiling_pattern_cells_current/features.json",
-      "status": "partial"
+      "status": "partial",
+      "additional_review": "shards/tiling_type1_distortion_bound_current/parent-review.json"
     },
     {
       "table": "150",
@@ -935,6 +936,25 @@
         "11.6.6"
       ],
       "artifact": "shards/soft_mask_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "149",
+      "keys": [
+        "page",
+        "XYZ",
+        "Fit",
+        "FitH",
+        "FitV",
+        "FitR",
+        "FitB",
+        "FitBH",
+        "FitBV"
+      ],
+      "ledger_rows": [
+        "12.3.2.2"
+      ],
+      "artifact": "shards/destination_array_cells_current/features.json",
       "status": "partial"
     }
   ]

@@ -2757,6 +2757,20 @@
       "log": "quality-wave100b.log",
       "exit": 0,
       "scope": "Finalmodel/UIalltargets."
+    },
+    {
+      "log": "type1-spacing-wave101.log",
+      "run": 1,
+      "passed": 0,
+      "failed": 1,
+      "skipped": 35,
+      "exit": 100,
+      "scope": "WideBBoxType1placementfailureafterType2wide/Type1smallcontrols."
+    },
+    {
+      "log": "quality-wave101.log",
+      "exit": 0,
+      "scope": "model/corealltargets."
     }
   ],
   "prior_expected_failures": {

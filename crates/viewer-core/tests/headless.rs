@@ -6929,7 +6929,9 @@ fn an_open_action_states_where_to_look_at_the_page_and_how_large() {
     );
 
     // `/FitR`: a 200x100 rectangle in a 300x400 window fits at 1.5 — the width decides, because
-    // 400/100 would be 4. Table 149 centers the rectangle in the unused vertical space.
+    // 400/100 would be 4. EC3 #536 makes the FitR smaller-factor/centering sentence a
+    // SHOULD recommendation for interactive processors; this assertion checks that recommended
+    // result. The separate FitB row retains its unamended centering instruction.
     // The 150-pixel rectangle leaves 250 pixels: 125 above it, so origin y=-150+125=-25.
     let same_aspect = geometry_in("[3 0 R /FitR 100 600 300 700]", 300, 150);
     assert!((same_aspect.scale - 1.5).abs() < 1e-3);

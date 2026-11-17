@@ -180,7 +180,8 @@
       "binary": "viewer-core::headless",
       "test": "an_open_action_states_where_to_look_at_the_page_and_how_large",
       "finding": "2038-B24",
-      "log": "destination-centering-wave18.log"
+      "log": "destination-centering-wave18.log",
+      "qualification": "FitRrecommendedcenteringunderEC3#536SHOULD; notmandatoryISOviolation."
     },
     {
       "binary": "viewer-core::headless",
@@ -635,6 +636,12 @@
       "test": "both_zero_radial_radii_paint_nothing_but_a_zero_radius_circle_is_a_point",
       "finding": "2038-B71",
       "log": "shading-geometry-wave97b.log"
+    },
+    {
+      "binary": "pdf-model::tiling",
+      "test": "type_one_keeps_constant_pixel_spacing_when_matrix_distortion_would_exceed_one_pixel",
+      "finding": "2038-B72",
+      "log": "type1-spacing-wave101.log"
     }
   ]
 }

@@ -1,0 +1,32 @@
+{
+  "baseline": "b901326c",
+  "scope": "Independent review of ADR 1080's Table 74 Type 1 distortion-bound fallback; one valid geometry and one current caller path, not all tiling types/backends.",
+  "primary_source": {
+    "file": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "location": "§8.7.3.1 Table 74, physical p. 236 / printed p. 221; XStep/YStep continuation and prose, physical p. 237 / printed p. 222.",
+    "effective_wording": "Type 1: pattern cells SHALL be spaced consistently by a multiple of a device pixel. To achieve this, the processor MAY need to distort the cell slightly by making small adjustments to XStep, YStep, and the transformation matrix. The amount of distortion SHALL NOT exceed one device pixel. Table 74 calls XStep/YStep the desired spacing. The text states no exception that permits Type 1 to use nonintegral pixel spacing when a proposed matrix distortion exceeds one pixel.",
+    "relevant_errata": "EC3 #428 on physical p. 235 / printed p. 220 qualifies tile paint order as implementation-dependent; it does not alter Table 74's Type 1 spacing or distortion language. #294 changes the Table 74 stream-dictionary caption only.",
+    "interpretive_limit": "The specification does not mandate the adjustment algorithm or say explicitly whether the one-pixel 'distortion' is per-cell, per-site, or measured over an entire painted region. The alternative tested here changes XStep by 0.4 device pixels per lattice interval and leaves the matrix/cell undistorted. This is within the numerical cap for a single step, but whole-page accumulated displacement is not separately specified."
+  },
+  "adr_review": [
+    {
+      "adr": "1080",
+      "decision": "Potentially needs revision/qualification.",
+      "reason": "ADR1080 correctly recognizes that Type 1's spacing is a SHALL and the cell/matrix adjustment is bounded. Its fallback treats a snap whose full BBox-corner movement exceeds one pixel as if the source allowed code 2 treatment: it returns None and says the clause does not ask for consistent spacing. But the SHALL has no such exception. Table 74 also explicitly allows changing XStep/YStep, an approach the current implementation doesn't attempt when corner scaling fails.",
+      "counterexample": "BBox width 100, XStep 10.4, identity pattern matrix, 1 device pixel per user unit. The current linear-matrix snap changes x scale from 1 to 10/10.4 and moves the far BBox corner about 3.846 pixels, so snap_lattice declines it. Changing XStep to 10.0 instead gives constant 10-pixel spacing, changes the desired step by 0.4 pixels, and leaves cell geometry/matrix unchanged. This is a strong candidate within the listed adjustment methods and bound; the meaning of accumulated lattice drift remains a source ambiguity, so the conclusion is qualified rather than a certified formal reading.",
+      "prior_and_successor_evidence": "ADR1031's earlier status/report choice was expressly revised by ADR1080. ADR1765 later checked that the Type 1 entry is read and named the snapped behavior but does not analyze the >1-pixel fallback. Existing tiling_pattern_cells_current records the small-BBox path only. No later superseding ADR was found in the current `doc/adr` references."
+    }
+  ],
+  "implementation_trace": {
+    "caller": "crates/pdf-model/src/content/pattern/lattice.rs::Interpreter::lattice calls pdf_render::snap_lattice only for constant-spacing types with a stated magnification; a None result is map_or(stated, ...), preserving the original 10.4-pixel step.",
+    "bound": "crates/pdf-render/src/lattice.rs::snap_lattice rounds transformed step vectors, computes distortion from the full BBox extent, and returns None when distortion > MAX_DISTORTION=1.0. It has no fallback that adjusts XStep/YStep independently.",
+    "consumer_assertions": [
+      "crates/pdf-model/tests/tiling.rs::constant_spacing_makes_the_tiled_pixels_repeat_and_no_distortion_does_not uses a cell BBox equal to its 10.4-unit step; it confirms the small-cell snap, not the bound-declined case.",
+      "crates/pdf-model/tests/tiling.rs::the_placed_step_is_never_more_than_a_device_pixel_from_the_stated_one checks distance from the requested step, but not that Type 1's placed step is a whole number of device pixels.",
+      "crates/pdf-render/src/lattice.rs::a_cell_many_steps_across_is_left_alone_rather_than_distorted_past_the_bound explicitly tests `None` for a multi-step BBox; this locks in the fallback policy but is not an independent ISO conformance oracle."
+    ],
+    "status": "No execution of the proposed public counterexample. A source/policy concern is supported by current code; a test run is needed to confirm the public raster path visibly retains 10.4 spacing."
+  },
+  "draft": "drafts/type1_large_bbox_constant_spacing.rs",
+  "verdict": "Likely policy gap in the bound fallback. The current behavior can leave a Type 1 lattice at a nonintegral device-pixel step; source makes consistent spacing mandatory and permits step adjustment. Preserve interpretive qualification about what distortion measures over the whole lattice."
+}

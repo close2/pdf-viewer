@@ -3338,7 +3338,8 @@
       "shards/errata_graphics_security_batch_current/features.json",
       "shards/file_only_native_shading_assertions_current/features.json",
       "shards/behavior_fixture_second_review_current/features.json",
-      "shards/tiling_pattern_cells_current/features.json"
+      "shards/tiling_pattern_cells_current/features.json",
+      "shards/tiling_type1_distortion_bound_current/features.json"
     ],
     "prior_artifacts": [
       "pattern_resource_repair_audit",
@@ -6647,7 +6648,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/navigation/features.json",
-      "shards/destinations_current_followup/features.json"
+      "shards/destinations_current_followup/features.json",
+      "shards/destination_array_cells_current/features.json"
     ],
     "prior_artifacts": [
       "destinations_audit"
@@ -6667,7 +6669,8 @@
       "shards/destinations_current_followup/features.json",
       "shards/navigation_geometry_residual_current/features.json",
       "shards/errata_interactive_batch_current/features.json",
-      "shards/qualified_failure_second_review_current/features.json"
+      "shards/qualified_failure_second_review_current/features.json",
+      "shards/destination_array_cells_current/features.json"
     ],
     "prior_artifacts": [
       "destinations_audit",
@@ -7594,7 +7597,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/destinations_current_followup/features.json"
+      "shards/destinations_current_followup/features.json",
+      "shards/destination_array_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -7608,7 +7612,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/destinations_current_followup/features.json",
-      "shards/errata_interactive_batch_current/features.json"
+      "shards/errata_interactive_batch_current/features.json",
+      "shards/destination_array_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."

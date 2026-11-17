@@ -758,10 +758,10 @@
     "summary": "FitR and FitB align the fitted box with a window corner instead of centering it in the unused dimension; an existing test asserted the wrong behavior.",
     "source": "Table149 physical457/printed442 explicit centering language.",
     "code": "open/destinations.rs::apply_view corner-only placement.",
-    "decision": "ADR0162 geometry table and test inference contradict source; reopen centering only.",
-    "execution": "Corrected existing FitR and new vertical/horizontal FitB assertions FAIL. At300x400, box[100,600,300,700] requires scale1.5/origin(-150,-25), observed(-150,-150). Matched-aspect controls pass. Whole-page Fit centering control PASS.",
+    "decision": "Revisit ADR0162 centering narrowly: FitR departs from recommended behavior; FitB contradicts its unamended table instruction. Earlier claim that FitR centering remained separately mandatory is withdrawn.",
+    "execution": "Corrected existing FitR and new vertical/horizontal FitB assertions FAIL. At300x400, box[100,600,300,700] requires scale1.5/origin(-150,-25), observed(-150,-150). Matched-aspect controls pass. Whole-page Fit centering control PASS. The quoted FitR geometry is the recommended result; observed failure unchanged.",
     "limits": "No claim that all destination modes or all local coordinate transformations are wrong.",
-    "source_force": "EC3#536 makes smaller-factor selection SHOULD-level. The separate instruction to center unused viewport space remains; the finding concerns that centering."
+    "source_force": "Checkpoint101 correction after rereading primary#536caret4738: FitR smaller-factor selection AND participial centering share the amended SHOULD sentence. FitR is a recommended-behavior mismatch, not mandatory ISO violation. FitB retains its separate unamended imperative centering instruction."
   },
   {
     "id": "2038-B25",
@@ -3230,5 +3230,28 @@
     "evidence": "Parent read ADR0473 and primaryTable31physical121; Table164definestransitionD, Table160isnavigator.",
     "decision": "Retain sharedclock andincomingtransitiontiming rationale; record correctedsource locator.",
     "qualification": "Citation finding only; no runtimegap, historicalADR unchanged."
+  },
+  {
+    "id": "2038-B72",
+    "kind": "behavior-gap",
+    "clauses": [
+      "8.7.3.1"
+    ],
+    "summary": "Type1 tiling retains nonintegral device-pixel spacing when its matrix-snap distortion check rejects a wideBBox.",
+    "evidence": "ValidwideBBox100withXStep10.4 at1px/unit yieldsadjacentcolumns10.400002apart. Type2wideBBox10.4 andType1smallBBox10positivecontrolsPASS; displaylistcomplete, exactxref.",
+    "execution": "NewpublicplacementassertionFAIL; model/coreClippyPASS.",
+    "cause": "snap_lattice fullBBoxcornerboundreturnsNone; Interpreter preservesstatedmatrix/step.",
+    "qualification": "ExplicitType1spacingrule; implementationalgorithm/distortionmetricnotprescribed. Device-scaledplacementtest, notnewGPU/pixelcomparison. Type3notretested."
+  },
+  {
+    "id": "2038-D64",
+    "kind": "decision-qualification",
+    "clauses": [
+      "8.7.3.1"
+    ],
+    "summary": "ADR1080 treats a declined matrix snap as permission to ignore Type1 constant spacing, without a source exception.",
+    "evidence": "PrimaryTable74 makes consistency SHALL and adjustmentmethod MAY; currentwideBBoxfallback silentlyusesType2geometry. B72demonstrates publicplacement.",
+    "decision": "Retain ordinarysnap andboundedcellgeometry; reconsiderfallbackandcategoricalno-obligationrationale. SourceallowsXStep/YStepadjustments too; testdoesnotdictatereplacementalgorithm.",
+    "qualification": "Distortionmetricoverentirelatticeisnotfullydefined. No historicalADRorproductionchange."
   }
 ]
