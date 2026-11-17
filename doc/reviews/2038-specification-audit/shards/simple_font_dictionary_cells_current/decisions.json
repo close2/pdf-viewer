@@ -1,0 +1,30 @@
+{
+  "decisions": [
+    {
+      "topic": "Table 109 FontDescriptor direct versus indirect object",
+      "primary_basis": "EC3 #106 strikeout on Table 109 physical p329 removes the former indirect-reference constraint. The effective Table 109 cell does not require indirect form.",
+      "current_decision": "Treat either direct dictionary or indirect reference as valid input. The simple-font public metrics regression explicitly covers both forms.",
+      "support": "crates/pdf-font/tests/simple_metrics_indirect_spec_audit.rs::widths_descriptor_and_member_references_keep_the_literal_metrics",
+      "residual": "This is a narrowly tested simple TrueType path; no need for another test based solely on the same directness question."
+    },
+    {
+      "topic": "Table 109 width consistency and historical fallback prose",
+      "primary_basis": "Table 109 specifies widths against the actual font program. EC3 #47/#48 strike/demote the old compatibility sentence associated with absent glyph-width definitions. Current reader logic and ledger must be interpreted from effective table cells and active text, not superseded compatibility wording.",
+      "current_decision": "Do not treat producer inconsistency as a mandatory reader rejection. Existing paired-font tests are appropriate evidence for valid metrics, while mismatch behavior remains a separate implementation policy.",
+      "support": "crates/pdf-font/src/metrics.rs; crates/pdf-model/tests/oracle.rs; doc/errata-read.md §9.6.2.2 entry",
+      "residual": "No malformed/inconsistent metrics rejection is claimed as an ISO obligation."
+    },
+    {
+      "topic": "Complete Table 113 table-data guard",
+      "primary_basis": "All 16 mapping rows are explicit normative table data. Existing count/replacement assertions plus representative examples can miss an isolated transcription error.",
+      "current_decision": "Add an exact literal expected-map unit test, with a negative currency reverse-lookup control. This is a narrow regression guard, not evidence of a current runtime failure.",
+      "support": "Draft drafts/table113_complete_literal_map.rs; primary table directly transcribed and cross-checked against current MAC_OS_ROMAN_ADDITIONS.",
+      "residual": "The unit assertion does not establish glyph program selection or raster output."
+    },
+    {
+      "topic": "Ledger and ADR scope",
+      "current_decision": "Use the current ledger and current directness/mapping tests as authority for implementation claims. Relevant prior ADRs around encoding tables and font routing are historical rationale only; no ADR can override the effective #106/#47/#48 source edits.",
+      "residual": "No whole-ADR certification performed."
+    }
+  ]
+}

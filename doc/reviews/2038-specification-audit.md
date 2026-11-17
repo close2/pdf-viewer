@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (112)
+## Current checkpoint (113)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **107 failing test identities**: 106 behavior assertions/probes
@@ -464,6 +464,11 @@ interactive measurement query. The matched page-viewport control returns the lit
 expected position; the image case returns no answer. Core Clippy passes. This is a
 supported measurement-feature gap, with no separate PtData display obligation inferred.
 Broad111 predates these two new tests. The manifest now has 107 identities.
+
+Checkpoint 113 adds passing literal Table 113 mapping and valid CCITT EOFB image
+controls. The fax fixture distinguishes black and white source rows, including a
+shorter Rows parameter. Font/model Clippy passes. Eight selected table matrices bring
+the unique partial count to 118; the failure manifest remains 107.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

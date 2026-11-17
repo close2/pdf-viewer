@@ -1,0 +1,11 @@
+# Simple-font dictionary cells (bounded review)
+
+I verified primary table headers, all continuations, footer page labels, and the relevant EC3 annotations in the held PDF. Table 109 is physical 328–329 (printed 313–314), Table 112 is physical 338 (printed 323), and Table 113 is physical 342 (printed 327). Table 108 is physical 327 (printed 312). These are the table locations, not preceding prose cross-references.
+
+The potential FontDescriptor directness issue is already covered: `crates/pdf-font/tests/simple_metrics_indirect_spec_audit.rs::widths_descriptor_and_member_references_keep_the_literal_metrics` builds a PDF 2.0 exact-xref simple TrueType font and checks literal advances while varying direct/indirect FontDescriptor and nested metric references. That matches EC3 #106, which removes the old indirect-reference restriction from Table 109. I found no new runtime defect there.
+
+Table 113's current tests cover the 15+1 cardinality/replacement rule and representative mappings, but not all 16 literal rows. I drafted a focused unit test at `drafts/table113_complete_literal_map.rs` that checks each source-derived (code, glyph-name) pair and confirms `currency` no longer resolves. It strengthens a data transcription guard; it does not assert a user-visible defect.
+
+Table 112's routes are already reviewed by the sibling `simple_font_encodings_current` and `simple_font_encoding_residual_current` shards. In particular, I do not mark that area all-green: the current sibling record includes a failing MacExpert-base route with an independent Difference positive control. I have not duplicated or reinterpreted that finding here.
+
+No malformed producer shape is converted into a reader-error requirement. This pass does not certify all font mapping, program parsing, metrics or raster behavior.

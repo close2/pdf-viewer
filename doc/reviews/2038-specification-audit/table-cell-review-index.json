@@ -1791,6 +1791,133 @@
       "supplemental_artifacts": [
         "shards/image_alternatives_inline_current/features.json"
       ]
+    },
+    {
+      "table": "108",
+      "keys": [
+        "Type1",
+        "MMType1",
+        "Type3",
+        "TrueType"
+      ],
+      "ledger_rows": [
+        "9.6.1"
+      ],
+      "artifact": "shards/simple_font_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "109",
+      "keys": [
+        "Type",
+        "Subtype",
+        "BaseFont",
+        "FirstChar",
+        "LastChar",
+        "Widths",
+        "FontDescriptor",
+        "Encoding",
+        "ToUnicode"
+      ],
+      "ledger_rows": [
+        "9.6.2.1"
+      ],
+      "artifact": "shards/simple_font_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "112",
+      "keys": [
+        "Type",
+        "BaseEncoding",
+        "Differences"
+      ],
+      "ledger_rows": [
+        "9.6.5.1"
+      ],
+      "artifact": "shards/simple_font_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "113",
+      "keys": [
+        "notequal",
+        "infinity",
+        "lessequal",
+        "greaterequal",
+        "partialdiff",
+        "summation",
+        "product",
+        "pi",
+        "integral",
+        "Omega",
+        "radical",
+        "approxequal",
+        "Delta",
+        "lozenge",
+        "Euro",
+        "apple"
+      ],
+      "ledger_rows": [
+        "9.6.5.4"
+      ],
+      "artifact": "shards/simple_font_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "8",
+      "keys": [
+        "Predictor",
+        "Colors",
+        "BitsPerComponent",
+        "Columns",
+        "EarlyChange"
+      ],
+      "ledger_rows": [
+        "7.4.4.3"
+      ],
+      "artifact": "shards/filter_parameter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "10",
+      "keys": [
+        "Predictor values 1, 2, 10–15"
+      ],
+      "ledger_rows": [
+        "7.4.4.4"
+      ],
+      "artifact": "shards/filter_parameter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "11",
+      "keys": [
+        "K",
+        "EndOfLine",
+        "EncodedByteAlign",
+        "Columns",
+        "Rows",
+        "EndOfBlock",
+        "BlackIs1",
+        "DamagedRowsBeforeError"
+      ],
+      "ledger_rows": [
+        "7.4.6"
+      ],
+      "artifact": "shards/filter_parameter_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "12",
+      "keys": [
+        "JBIG2Globals"
+      ],
+      "ledger_rows": [
+        "7.4.7"
+      ],
+      "artifact": "shards/filter_parameter_cells_current/features.json",
+      "status": "partial"
     }
   ],
   "reconciliation_110": "Two Table227 reviews previously counted twice; merged into one matrix retaining both artifact links. Table87 now includes four continuation keys and corrected source span. Counts are selected unique table matrices, not certified features."

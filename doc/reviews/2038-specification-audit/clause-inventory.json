@@ -612,7 +612,8 @@
     "current_artifacts": [
       "shards/predictors_current/features.json",
       "shards/indirect_filter_parameters_current/features.json",
-      "shards/errata_weak_dispositions_batch4_current/features.json"
+      "shards/errata_weak_dispositions_batch4_current/features.json",
+      "shards/filter_parameter_cells_current/features.json"
     ],
     "prior_artifacts": [
       "flate_lzw_predictors"
@@ -629,7 +630,8 @@
     "current_artifacts": [
       "shards/predictors_current/features.json",
       "shards/indirect_filter_parameters_current/features.json",
-      "shards/lang_hex_and_predictor_bpc_current/features.json"
+      "shards/lang_hex_and_predictor_bpc_current/features.json",
+      "shards/filter_parameter_cells_current/features.json"
     ],
     "prior_artifacts": [
       "flate_lzw_predictors"
@@ -660,7 +662,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/fax_jbig2/features.json",
-      "shards/file_only_consumer_assertions_remaining_current/features.json"
+      "shards/file_only_consumer_assertions_remaining_current/features.json",
+      "shards/filter_parameter_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -676,7 +679,8 @@
       "shards/fax_jbig2/features.json",
       "shards/security_file_only_assertions_current/features.json",
       "shards/t88_fixture_execution_current/features.json",
-      "shards/fixed_document_expectations_current/features.json"
+      "shards/fixed_document_expectations_current/features.json",
+      "shards/filter_parameter_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -4629,7 +4633,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/text_colour_optional_framing_current/features.json"
+      "shards/text_colour_optional_framing_current/features.json",
+      "shards/simple_font_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -4661,7 +4666,8 @@
       "shards/errata_disposition_crosswalk_current/features.json",
       "shards/silent_fixture_skip_remaining_current/features.json",
       "shards/fixed_document_expectations_current/features.json",
-      "shards/fixed_font_substitution_assertions_current/features.json"
+      "shards/fixed_font_substitution_assertions_current/features.json",
+      "shards/simple_font_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "simple_font_widths_audit"
@@ -4677,7 +4683,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/font_substitution_current/features.json",
-      "shards/errata_font_text_batch_current/features.json"
+      "shards/errata_font_text_batch_current/features.json",
+      "shards/simple_font_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "simple_font_widths_audit"
@@ -4759,7 +4766,8 @@
     "current_artifacts": [
       "shards/annex_d_encoding/features.json",
       "shards/simple_font_encodings_current/features.json",
-      "shards/indirect_differences_current/features.json"
+      "shards/indirect_differences_current/features.json",
+      "shards/simple_font_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -4812,7 +4820,8 @@
       "shards/simple_font_encodings_current/features.json",
       "shards/simple_font_encoding_residual_current/features.json",
       "shards/indirect_differences_current/features.json",
-      "shards/shared_oracle_assertions_current/features.json"
+      "shards/shared_oracle_assertions_current/features.json",
+      "shards/simple_font_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "reviewed_assertions": [

@@ -3036,6 +3036,20 @@
       "log": "quality-core-wave112.log",
       "exit": 0,
       "scope": "Viewer-core all-target Clippy."
+    },
+    {
+      "log": "font-fax-wave113b.log",
+      "run": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "New full Table113 helper mapping and valid EOFB public-reader tests."
+    },
+    {
+      "log": "quality-font-model-wave113b.log",
+      "exit": 0,
+      "scope": "Final font/model all-target Clippy after doc formatting repair."
     }
   ],
   "prior_expected_failures": {

@@ -1,0 +1,186 @@
+{
+  "baseline": "b901326c",
+  "scope": "Selected filter-parameter cells: Table 8 and Table 10 predictor parameters, Table 11 CCITTFaxDecode parameters, and Table 12 JBIG2Globals. This is an assertion-quality review, not certification of the complete filter clauses or codecs.",
+  "source": {
+    "document": "doc/ISO_32000-2_sponsored_EC3.pdf",
+    "locators": [
+      {
+        "clause": "7.4.4.3, Table 8",
+        "physical_pages": [
+          55,
+          56
+        ],
+        "printed_pages": [
+          40,
+          41
+        ]
+      },
+      {
+        "clause": "7.4.4.4, Table 10",
+        "physical_page": 57,
+        "printed_page": 42
+      },
+      {
+        "clause": "7.4.6, Table 11",
+        "physical_page": 59,
+        "printed_page": 44
+      },
+      {
+        "clause": "7.4.7, Table 12",
+        "physical_page": 61,
+        "printed_page": 46
+      }
+    ],
+    "errata": "Checked the primary EC3 PDF and annotation context. No substantive erratum was identified for these parameter-cell rules. This does not imply surrounding clauses or referenced codec standards were exhaustively audited."
+  },
+  "cells": [
+    {
+      "table": 8,
+      "physical_pages": [
+        55,
+        56
+      ],
+      "keys": [
+        "Predictor",
+        "Colors",
+        "BitsPerComponent",
+        "Columns",
+        "EarlyChange"
+      ],
+      "source_rules": [
+        "Predictor defaults to 1 (no prediction); values greater than 1 select prediction.",
+        "Colors, BitsPerComponent, and Columns are prediction parameters with defaults 1, 8, and 1. Table 8 lists the supported bit depths and version condition for 16-bit samples.",
+        "EarlyChange applies to LZW: 0 delays width growth until the table is full, 1 increases one code earlier; default is 1."
+      ],
+      "implementation": [
+        "crates/pdf-syntax/src/filter.rs::apply_predictor",
+        "crates/pdf-syntax/src/filter.rs::early_change",
+        "LZW and Flate filter dispatch"
+      ],
+      "assertions": [
+        {
+          "test": "crates/pdf-syntax/tests/flate_lzw_spec_audit.rs::table8_defaults_and_png_row_tags_reach_both_decoders",
+          "oracle": "Literal decoded bytes for omitted Predictor/default predictor and two-color PNG None/Sub/Up rows; Flate and LZW entry points both exercised."
+        },
+        {
+          "test": "crates/pdf-syntax/tests/lzw_full_table_audit.rs::full_lzw_table_clear_resets_width_and_dictionary_for_both_earlychange_values",
+          "oracle": "Independent packed code stream and literal expected bytes cross all code widths and full-table clear/reset for EarlyChange 0, 1, and omitted default 1."
+        },
+        {
+          "test": "crates/pdf-syntax/tests/filters.rs predictor tests",
+          "oracle": "Hand-authored exact sample bytes cover TIFF Predictor 2, sub-byte and 16-bit handling, and PNG functions; individual tests must be read for the specific branch claimed."
+        }
+      ],
+      "coverage_assessment": "Good selected decoder evidence for defaults, representative PNG/TIFF reconstruction, and LZW width transitions. Not a full cartesian matrix of Colors/BPC/Columns or every legal versioned image use.",
+      "residuals": [
+        "Indirect numeric values in DecodeParms are separately audited as B54; the two recorded indirect Predictor/Columns cases fail while direct controls pass. Do not report them as untested or duplicate the tests.",
+        "Table 8 predictor-specific version restrictions are not all demonstrated by the decoder tests; conformance of PDF producer inputs and parser's version policy are distinct questions."
+      ]
+    },
+    {
+      "table": 10,
+      "physical_page": 57,
+      "keys": [
+        "Predictor values 1, 2, 10–15"
+      ],
+      "source_rules": [
+        "1 is no prediction (default); 2 is TIFF Predictor 2; 10 selects PNG prediction with None row filter; 11–15 select the named PNG row algorithms. For Predictor >=10 the encoded row tag identifies the row algorithm, so a value such as 10 does not require all rows to use None."
+      ],
+      "implementation": [
+        "crates/pdf-syntax/src/filter.rs::apply_predictor",
+        "tiff_predictor",
+        "png_predictor"
+      ],
+      "assertions": [
+        "flate_lzw_spec_audit::table8_defaults_and_png_row_tags_reach_both_decoders has literal mixed None/Sub/Up rows under Predictor 10 for both codecs",
+        "filters.rs contains per-algorithm predictor tests with explicit expected reconstructed bytes"
+      ],
+      "coverage_assessment": "The mixed row-tag fixture directly witnesses the rule that PNG tags select individual row functions. Review is selective and does not certify every row filter against all channel widths and sample depths.",
+      "residuals": [
+        "No new draft was warranted after the existing exact-byte assertions were inspected; no shared production evaluator is used as the expected-byte oracle."
+      ]
+    },
+    {
+      "table": 11,
+      "physical_page": 59,
+      "keys": [
+        "K",
+        "EndOfLine",
+        "EncodedByteAlign",
+        "Columns",
+        "Rows",
+        "EndOfBlock",
+        "BlackIs1",
+        "DamagedRowsBeforeError"
+      ],
+      "source_rules": [
+        "K sign selects Group 4, Group 3 1D, or Group 3 mixed mode; positive magnitudes are not distinct modes. Default 0.",
+        "EOL is accepted; EndOfLine=true specifies that EOL is present in the encoded input. EncodedByteAlign=true skips fill to the next byte boundary before each encoded line. Defaults false.",
+        "Columns gives encoded pixel width (default 1728); for unencoded width not divisible by eight, width is padded to the next byte boundary.",
+        "Rows=0/absent means no predetermined line count (default 0). With EndOfBlock=false, decode stops after Rows or input exhaustion. With EndOfBlock=true (default), the appropriate RTC/EOFB terminates decoding and takes precedence over Rows.",
+        "BlackIs1 reverses the PDF default sample polarity; default false.",
+        "DamagedRowsBeforeError defaults 0 and applies only when EndOfLine=true and K>=0; eligible damaged rows are replaced by previous clean row or white when no previous clean row is available."
+      ],
+      "implementation": [
+        "crates/pdf-model/src/image/ccitt.rs::ccitt_bilevel and ccitt_rows",
+        "crates/pdf-sandbox/src/decode.rs::ccitt",
+        "crates/pdf-ccitt/src/lib.rs decoder"
+      ],
+      "assertions": [
+        {
+          "test": "crates/pdf-ccitt/tests/coding.rs::the_decode_ends_on_the_pattern_the_rows_or_the_data",
+          "oracle": "Direct decoder line count on streams with valid Group 3/Group 4 delimiters; not a public image assertion."
+        },
+        {
+          "test": "crates/pdf-model/tests/ccitt.rs::black_is_1_gives_the_exact_complement",
+          "oracle": "Same valid encoded bytes yield exact complementary output bitmaps under opposite BlackIs1 values."
+        },
+        {
+          "test": "crates/pdf-model/tests/ccitt_bound.rs::end_of_block_false_stops_at_rows_and_blanks_the_rest_out_loud",
+          "oracle": "Public reader exercise for EndOfBlock=false row bound and shortfall report; blanking remainder is project rendering policy, not specified output by Table 11."
+        },
+        {
+          "test": "crates/pdf-model/tests/ccitt_bound.rs::damaged_rows_is_inert_where_end_of_line_is_false and adjacent concealment tests",
+          "oracle": "Controls test applicability and previous-row/white replacement using hand-encoded line data."
+        }
+      ],
+      "coverage_assessment": "New valid EOFB public-reader test PASS. Parent strengthened two equal black rows into distinct black upper and white lower rows, with Rows1/Rows2 controls and literal opaque pixels.",
+      "residuals": [
+        "The existing `end_of_block_true_ignores_a_short_rows_and_draws_the_whole_image` fixture has no Group 3 RTC; it is not a valid EOB positive control. It should not substantiate delimiter handling.",
+        "The relationship between image Height and filter termination for mismatched malformed or short data is not resolved by this valid fixture. No reader rejection duty is inferred from EndOfLine's producer-side presence condition.",
+        "No reviewed assertion compares distinct positive K values on the same valid mixed-mode bytes; this narrow equivalence is residual, not a claimed defect."
+      ]
+    },
+    {
+      "table": 12,
+      "physical_page": 61,
+      "keys": [
+        "JBIG2Globals"
+      ],
+      "source_rules": [
+        "Optional value is a stream of JBIG2 global/page-0 segments; such segments are kept in this separate stream even when only one image refers to them, and the stream may be shared."
+      ],
+      "implementation": [
+        "crates/pdf-model/src/image/jbig2.rs::jbig2_bilevel resolves JBIG2Globals, decodes its filters, and passes it beside the image data",
+        "crates/pdf-sandbox/src/decode.rs::jbig2"
+      ],
+      "assertions": [
+        "pdf-sandbox/tests/confinement.rs::the_specifications_own_example_decodes directly tests ISO example split streams at worker boundary",
+        "pdf-model/tests/jbig2_filter_chain_audit.rs::iso_jbig2_example_reaches_the_image_reader_with_globals_and_filter_chain tests the PDF image/filter route"
+      ],
+      "coverage_assessment": "A PDF-reader integration exists for the worked example and a worker-level ISO sample offers structural sample controls. The worker test is not a substitute for consumer assertions; no new test was drafted here.",
+      "residuals": [
+        "No reviewed public test reuses one globals stream across two image XObjects.",
+        "The published example does not supply a complete target bitmap, so structural pixel checks are not described as an exact sample oracle.",
+        "Table 12's wrong-type behavior does not specify a mandatory reader rejection in the text reviewed; no failure is inferred."
+      ]
+    }
+  ],
+  "execution": {
+    "performed_by_this_agent": false,
+    "cargo": false,
+    "scratch_draft_status": "ccitt_eob_rows_public_reader.rs is unrun; parent owns execution",
+    "assertion_review": "Source/assertion review only, against current audit worktree; no current failure inferred from historical logs."
+  },
+  "parent_execution": "font-fax-wave113b: fax test PASS after distinct-row strengthening. Font/model all-target Clippy PASS."
+}

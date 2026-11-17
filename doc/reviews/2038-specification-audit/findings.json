@@ -3475,5 +3475,26 @@
     "test": "viewer-core::image_xobject_measurement_spec_audit::a_valid_image_measure_reaches_the_interactive_measurement_query",
     "execution": "image-measure-wave112b.log: target FAIL, matched viewport control PASS. Viewer-core all-target Clippy PASS.",
     "qualification": "Supported measurement feature gap, not a universal obligation to provide measuring UI or a pixel defect. Interpolated numeric oracle follows adopted affine choice ADR1593. No PtData display obligation inferred."
+  },
+  {
+    "id": "2038-T151",
+    "kind": "assertion-quality",
+    "clauses": [
+      "9.6.5.4"
+    ],
+    "summary": "Every Table113 Mac OS Roman supplemental glyph name is checked against its literal code.",
+    "execution": "New exported-helper test PASS for all16 rows and currency absence; font/model Clippy PASS.",
+    "qualification": "Data transcription guard only, not glyph selection or raster correctness."
+  },
+  {
+    "id": "2038-T152",
+    "kind": "assertion-quality",
+    "clauses": [
+      "7.4.6",
+      "8.9.5.1"
+    ],
+    "summary": "A valid Group4 EOFB stream proves EndOfBlock overrides shorter Rows through image rendering.",
+    "execution": "Distinct black/white source rows with Rows1/Rows2 controls PASS; model Clippy PASS.",
+    "qualification": "Existing missing-RTC fixture is tolerance evidence. New fixture covers one valid stream; no general malformed-input or codec certification."
   }
 ]
