@@ -6811,7 +6811,8 @@
       "shards/qualified_failure_second_review_current/features.json",
       "shards/errata_disposition_crosswalk_current/features.json",
       "shards/errata_weak_dispositions_batch2_current/features.json",
-      "shards/deep_tree_unicode_current/features.json"
+      "shards/deep_tree_unicode_current/features.json",
+      "shards/destination_action_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [
       "destinations_audit"
@@ -7719,7 +7720,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/destinations_current_followup/features.json",
-      "shards/destination_array_cells_current/features.json"
+      "shards/destination_array_cells_current/features.json",
+      "shards/destination_action_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -7734,7 +7736,8 @@
     "current_artifacts": [
       "shards/destinations_current_followup/features.json",
       "shards/errata_interactive_batch_current/features.json",
-      "shards/destination_array_cells_current/features.json"
+      "shards/destination_array_cells_current/features.json",
+      "shards/destination_action_dictionary_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."

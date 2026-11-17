@@ -3122,6 +3122,20 @@
       "log": "quality-model-syntax-core-wave119b.log",
       "exit": 0,
       "scope": "Model/syntax/core all-target Clippy, including pending navigation/FDF tests."
+    },
+    {
+      "log": "destinations-wave118b.log",
+      "run": 4,
+      "passed": 2,
+      "failed": 2,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "Remote target and attachment controls; two B74 parent-return failures."
+    },
+    {
+      "log": "quality-core-wave118b.log",
+      "exit": 0,
+      "scope": "Core all-target Clippy including both B74 witnesses."
     }
   ],
   "prior_expected_failures": {

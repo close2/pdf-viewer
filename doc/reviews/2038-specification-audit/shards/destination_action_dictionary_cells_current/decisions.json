@@ -1,0 +1,29 @@
+{
+  "decisions": [
+    {
+      "topic": "Table203 target selection and /SD precedence",
+      "decision": "Retain existing exact public controls for zero-based array D, remote target document scope, structure destination precedence and host handoff. Existing B23 independently records loss of view after target opening; no duplicate.",
+      "evidence": "remote_go_to.rs::a_supplied_file_is_opened_at_the_page_the_action_names; ::a_structure_destination_is_resolved_in_the_remote_document; cross_document_destination_view_spec_audit (latest wave111 failure).",
+      "residual": "No current public action test executes either named /D form after the remote document arrives. `destination.rs` covers syntax locally, but not the remote destination ownership boundary. Scratch `remote_goto_named_destinations_candidate.rs` covers Name via Catalog/Dests, byte string via Names/Dests, and an explicit-array positive control; same-key collision semantics remain B08 and are intentionally excluded."
+    },
+    {
+      "topic": "Table204 target root and embedded path",
+      "decision": "Preserve the existing request/supply boundary and tests. Do not treat processor preference /NewWindow as mandatory universal policy, or mandate reader rejection for producer-invalid D types prohibited by #258. Distinguish a new root the host must provide from a parent already known through this viewer's root→embedded-child transition.",
+      "evidence": "embedded_go_to.rs public path/host tests and pdf-model/tests/actions.rs::a_root_that_arrives_resumes_the_path_where_it_stopped; EC3 #258 primary NOTE at p529.",
+      "residual": "The public viewer does not carry an ancestor relation when an embedded document replaces its parent; a child-source `/R /P` action cannot resolve its parent. The existing root refusal is valid for an independently opened root. The scratch test explicitly establishes parentage by first opening the child from that root, so it tests a known same-root path rather than guessing ancestry. Parent is repairing fixture-version requirements and complete-chain guards; execution is pending."
+    },
+    {
+      "topic": "Table205 alternate child route via file attachment annotation",
+      "decision": "Model-level exact parser assertions cover P/A integer and named forms, but no viewer-level activation/resolution assertion was found. Draft a public integer P/A path test to see whether real attachment consumer resolves the file and opens the named page.",
+      "evidence": "pdf-model/src/action.rs::a_child_may_be_named_by_the_annotation_it_is_attached_to only asserts TargetStep values; embedded_go_to public tests only exercise EmbeddedFiles N route.",
+      "residual": "The integer P/A route has no public Viewer assertion; only model parser tests currently check resulting TargetStep fields. Scratch `attachment_annotation_child_route_candidate.rs` exercises the actual public annotation/FS/EF open path and checks target page 1; the existing N route is separate positive consumer coverage."
+    },
+    {
+      "topic": "Current ADR decisions",
+      "decision": "Retain ADR1227 for remote root files and ADR0076's no automatic writing/extraction. ADR0094 is correct that an independently opened root has no known parent, but its claimed GoToE performance model does not support a later child-origin `/R /P`: the action walker only knows prior descents in that action, while viewer replacement drops the actual container. Known parent ascent through already-open embedded bytes is a current capability gap, subject to parent confirmation of promoted-test fixture and duty scope. ADR1263/1264 window preference is unrelated.",
+      "evidence": "`EmbeddedGoTo::target_in` accepts only a Document and walk's fresh descended vector yields NoParent before any child step; viewer-core/src/interact.rs::jump_into constructs Open::around(opened); viewer-core/src/viewer/outcomes.rs replaces the current entry under its same DocumentId. No ancestry field exists in Open. Table 205 defines `/R /P` as target parent of current doc; §12.6.4.4 says source may be embedded and each intermediate target is current. ADR0094 lines 46–50 explicitly justifies only the user-opened-root case, then says child-start sibling example is performable without showing how that state is retained.",
+      "residual": "The draft follows a child reached from a root by GoToE and asks that same viewer to resolve /R /P back to its actual parent. A child opened independently is still a root and should continue to return NoParent. This does not involve /F, opening a new host-supplied root, external file access, writing attachment bytes, or a permission escalation. The producer/source semantics are clear enough to test this supported same-root path; final product classification should remain bounded and not broaden into support for unknown ancestry."
+    }
+  ],
+  "test_drafts": "drafts/remote_goto_named_destinations_candidate.rs covers Table203 explicit array control, target Catalog/Dests Name, and target Names/Dests byte string through live GoToR handoff; drafts/attachment_annotation_child_route_candidate.rs covers Table205 /P 0 /A 1 through FileAttachment FS/EF and Viewer; drafts/embedded_parent_relative_goto_candidate.rs covers child-source /R /P after root→child control. Fixtures use exact xref/no recovery and required page resources; the parent-relative fixture's version-dependent FileSpec/annotation obligations and complete-chain guard are being repaired by the parent before execution. Its hex IDs are each 16 bytes. Keep PDF1.7 if that avoids unrelated PDF2 FileAttachment AP/Desc obligations, or complete those obligations if staying on PDF2. None was run by reviewer."
+}

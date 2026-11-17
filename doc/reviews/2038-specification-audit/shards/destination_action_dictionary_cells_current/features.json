@@ -1,0 +1,90 @@
+{
+  "scope": "Bounded review of Tables 203, 204, and 205 in effective ISO 32000-2:2020 + EC3. Table 203 remote Go-To; Table 204 embedded Go-To; Table 205 embedded target path. This does not certify all actions, destination forms, host choices, or malformed-input behavior.",
+  "source": {
+    "primary": "doc/ISO_32000-2_sponsored_EC3.pdf; corroborated by scratchpad/r2038/spec-audit/ec3-parent-layout.txt",
+    "table_locations": [
+      {
+        "table": "203 — Additional entries specific to a remote go-to action",
+        "physical_pages": "527–528",
+        "printed_pages": "512–513",
+        "checked": "table header/rows and continuation, footer"
+      },
+      {
+        "table": "204 — Additional entries specific to an embedded go-to action",
+        "physical_pages": "528–529",
+        "printed_pages": "513–514",
+        "checked": "table header/rows and continuation, footer"
+      },
+      {
+        "table": "205 — Entries specific to a target dictionary",
+        "physical_page": "529",
+        "printed_page": "514",
+        "checked": "actual table header and all rows; not inferred from prior prose cross-reference"
+      }
+    ],
+    "annotations": [
+      {
+        "issue": 140,
+        "physical_page": 526,
+        "printed_page": 511,
+        "effect": "Adds explicit or named to Table 202 local Go-To /D on preceding physical page 526. Relevant context, not an amendment to Table 203/204."
+      },
+      {
+        "issue": 258,
+        "physical_page": 529,
+        "printed_page": 514,
+        "effect": "NOTE: named destinations normally represented by Name objects are not provided for in this particular GoToE /D use. The table's general Name type is narrowed for producer-valid GoToE forms; permissive parsing of a Name is not itself a defect."
+      },
+      {
+        "issues_checked": "Table 203 pages 527–528 and Table 204/205 pages 528–529 annotations enumerated directly from primary PDF; #140 on preceding physical page 526 applies to Table 202 only. No other applicable table-cell change identified."
+      }
+    ],
+    "relevant_prose": [
+      "§12.6.4.4 defines source, target, current document and recursive nested /T navigation; each intermediate target becomes current. Its NOTE says an infinite cycle is an error and interactive PDF processors need to attempt detection and refuse execution if found.",
+      "§12.3.2.2 says explicit GoToR/GoToE page operands use zero-based integer indexes in the target; corrected text includes embedded Go-To.",
+      "EC3 Issue #256 generalizes §12.6.4.8 /Base to all relative URIs in a PDF, supporting Table 204 /F URL interpretation; this is already exercised in actions.rs."
+    ]
+  },
+  "features": [
+    {
+      "id": "table203_remote_target_destination_and_window",
+      "clause": "12.6.4.3, Table 203",
+      "obligations": "S required /GoToR; F required target file spec; D required (Name, byte string, or explicit array); explicit array uses target document zero-based page integer; optional PDF2 SD array identifies target structure element and should precede D; NewWindow is optional and absent policy is left to processor preference.",
+      "ledger": "doc/conformance/ledger.toml §12.6.4.3, status implemented",
+      "code": "pdf-model/src/action.rs::remote_go_to, RemoteGoTo::page_in; viewer-core/src/interact.rs::{open_remote,resume_remote,place_remote}; host broker paths listed in ledger",
+      "assertions": "remote_go_to.rs::the_file_an_action_names_is_asked_of_the_host; ::a_supplied_file_is_opened_at_the_page_the_action_names; ::a_structure_destination_is_resolved_in_the_remote_document; ::a_new_window_opens_the_destination_beside_the_document_it_was_reached_from; plus host mapping and confined-window tests. Array page index is distinguished by a four-page target. SD conflicts with D and resolves only in target page 2. Cross-document destination geometry test fails for zoom/coordinates (B23).",
+      "verdict": "Table file request, zero-based target page, SD precedence and host window path have discriminating assertions. Existing remote and embedded view tests still fail: target page is selected but /XYZ scale and position are dropped after Supply; this is existing B23, not a new finding.",
+      "residuals": "Remote named destinations were absent from the existing action integration tests, although destination.rs tests exercise each destination syntax locally and the live remote array/SD controls pass. A scratch exact-xref candidate now drives Table203 Name and byte-string /D values through the public remote Supply path with distinct target NameTree/Dests tables, a remote target page index 2, and an explicit-array control. It does not create a same-key collision and cannot resolve B08; parent should decide whether the additional target-context proof is worth integration."
+    },
+    {
+      "id": "table204_embedded_target_destination_root_and_window",
+      "clause": "12.6.4.4, Table 204",
+      "obligations": "S required /GoToE; F optional root relative to source root; D required destination in target; NewWindow optional with should-level semantics; T optional when F exists and otherwise required. A missing T with present F means the supplied root itself is the target.",
+      "ledger": "doc/conformance/ledger.toml §12.6.4.4, status implemented",
+      "code": "pdf-model/src/action.rs::{embedded_go_to,target_root,EmbeddedGoTo::target_in,target_from_root,walk}; viewer-core/src/interact.rs::{open_embedded,resume_root,jump_into}",
+      "assertions": "embedded_go_to.rs::a_root_document_the_action_names_is_asked_of_the_host; ::a_supplied_root_resumes_the_walk_and_shows_the_destination; ::an_embedded_document_opens_beside_the_one_holding_it; pdf-model/tests/actions.rs::a_root_that_arrives_resumes_the_path_where_it_stopped and ::a_root_named_by_url_is_resolved_against_the_documents_base. The existing end-to-end geometry check is B23 and fails for destination view propagation.",
+      "verdict": "Name-tree child, remote root supply, nested named-child path, no-T root target and window preference have distinct controls. B23 remains a separate current view-loss gap. No filesystem/network behavior beyond the existing host request boundary is demanded here.",
+      "residuals": "No public end-to-end assertion for the Table205 annotation-attachment child selector (/P plus /A) was found; only the model action unit test verifies both integer and named forms. Draft adds a no-F same-root path using an exact-xref root/child fixture. The parser's fixed nesting bound is a resource limit, not an unbounded-support finding."
+    },
+    {
+      "id": "table205_relative_embedded_file_path_steps",
+      "clause": "12.6.4.4, Table 205 and immediately preceding path/cycle prose",
+      "obligations": "R required and P/C. N required only for C child in EmbeddedFiles name tree and absent otherwise. P and A required only for C child attached to a file attachment annotation and absent otherwise; P is zero-based page integer or named destination; A is zero-based annotation index or annotation NM text. T optionally nests next step; absent T means current document is final target. Cyclic target dictionaries are an error and processor should attempt to detect/refuse.",
+      "ledger": "included in §12.6.4.4",
+      "code": "pdf-model/src/action.rs::embedded_go_to/child_step/EmbeddedGoTo::walk; attachment.rs lookup; viewer-core::interact::jump_into",
+      "assertions": "pdf-model action unit tests ::the_clauses_three_example_relationships_read_as_paths and ::a_child_may_be_named_by_the_annotation_it_is_attached_to distinguish paths and all integer/string P/A representations. embedded_go_to.rs public traversal tests exercise N-child and root traversal, but not parent-relative navigation from an already-open embedded source nor P/A attachment route.",
+      "verdict": "N route and nested child target are supported. The current GoToE path state is built from the action's /T chain and `walk` can pop only a child descended during that same action; viewer `jump_into` creates `Open::around(opened)` without retaining its container. Consequently, a subsequent valid GoToE from a child this viewer reached from a parent with `/T << /R /P >>` has no parent context and is declined. Source permits an embedded source and defines /P relative to its actual parent. This is a bounded implementation support gap for known same-root ancestry; independently opening an arbitrary PDF still gives no basis to invent a parent.",
+      "residuals": "The integer P/A route has no public viewer assertion; only the model action unit test currently checks parsed values. The second draft follows the real annotation/FS/EF route and asserts target page 1. Existing `embedded_go_to.rs` named-child route is the N-path positive implementation control. The separate parent-ascent candidate tests a child source with /R /P after actual root→child navigation; parent is correcting version-dependent fixture obligations and complete-chain guards. Cycle refusal is not asserted; MAX_TARGET_DEPTH bounds parse cost but exact cycle refusal needs careful hierarchy fixtures."
+    }
+  ],
+  "reconciliations": {
+    "2038-B08": "Unresolved precedence when the same-byte string destination key exists in both legacy Dests dictionary and Names tree; this shard does not resolve same-key collision policy. Remote named D lookup may call the same resolver but no claim on that ambiguity is made.",
+    "2038-B23": "Still current: exact-xref remote and embedded explicit /XYZ target-view assertions fail after target Supply; both select page 2 but observe default scale 0.5/origin (50,0) rather than literal expected scale2/origin(-80,-200). Latest observed run is eleven-crate-wave111. Local GoTo control passes. No duplicate B23 created.",
+    "2038-B24": "Local FitR/FitB centering behavior only. FitR qualified as SHOULD by #536; FitB separate. Not remote/embedded action view evidence.",
+    "2038-B32": "Page-label search bound, unrelated to action target traversal; no overlap."
+  },
+  "selected_adrs": "ADR 1227 governs a different-root /F host request boundary; it does not bar parent ascent through the already-open root's embedded bytes. ADR 0076 governs listing/extraction and does not bar reading an embedded stream for GoToE. ADR 0094 correctly refuses /R /P from a user-opened root, but its sibling-path implementation only remembers documents descended in one action and never supplies ancestry for a child opened on the prior action; the child-origin example is therefore not exercised by the viewer. ADRs 1263/1264 govern window preferences. B23 does not challenge file resolution policy.",
+  "bounded_review": "Three tables read cell-by-cell with source table headers/continuations and primary annotations. Table 202 and destination-array centering are context only. No blanket signature of all GoTo, GoToR/GoToE destination combinations, host policy, cycles, or malformed input.",
+  "parent_execution": "T158 remote Name/byte-string/array target context PASS; T159 integerP/A attachment target PASS. B74 two parent-return shapes FAIL with NoParent: after previous child navigation, and one nested C/P action ending at its starting root. Exact PDF1.7 fixtures and core all-target Clippy PASS.",
+  "parent_correction": "Table203527–528, not526–527. Pending/draft statements below are historical worker observations superseded by parent execution. All original16-byte ID literals were already correct; parent briefly questioned their length, counted them, and withdrew that concern."
+}

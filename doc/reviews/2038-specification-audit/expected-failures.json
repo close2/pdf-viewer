@@ -648,6 +648,18 @@
       "test": "a_valid_image_measure_reaches_the_interactive_measurement_query",
       "finding": "2038-B73",
       "log": "image-measure-wave112b.log"
+    },
+    {
+      "binary": "viewer-core::embedded_parent_relative_spec_audit",
+      "test": "a_gotoe_from_a_child_can_name_its_parent_as_the_target",
+      "finding": "2038-B74",
+      "log": "destinations-wave118b.log"
+    },
+    {
+      "binary": "viewer-core::embedded_parent_relative_spec_audit",
+      "test": "a_gotoe_walk_can_end_back_at_its_starting_parent",
+      "finding": "2038-B74",
+      "log": "destinations-wave118b.log"
     }
   ]
 }

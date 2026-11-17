@@ -3564,5 +3564,35 @@
     "summary": "An explicit Crypt stream with omitted Name or DecodeParms overrides AES StmF with Identity.",
     "execution": "One new test PASS, three variants with literal plaintext/title. Syntax all-target Clippy PASS.",
     "qualification": "Default selection, not a separate cryptographic known-answer test."
+  },
+  {
+    "id": "2038-B74",
+    "kind": "behavior-gap",
+    "clauses": [
+      "12.6.4.4"
+    ],
+    "summary": "GoToE refuses a known parent target after opening its child and when one C/P walk returns to its starting root.",
+    "source": "Table205 R=P and terminal-current-document semantics; §12.6.4.4 source may be embedded; ADR0094 adopted hierarchy traversal.",
+    "execution": "Two public Viewer tests FAIL with NoParent; named-child entry, remote named destinations and attachment-child controls PASS.",
+    "limits": "Known same-root relationships only; does not demand an invented parent for an independently opened PDF or extra host filesystem access."
+  },
+  {
+    "id": "2038-T158",
+    "kind": "assertion-quality",
+    "clauses": [
+      "12.6.4.3",
+      "12.3.2.4"
+    ],
+    "summary": "Remote array, Name and byte-string destinations select the independently identified target page after Supply.",
+    "execution": "One new test PASS with three representations; no same-key collision."
+  },
+  {
+    "id": "2038-T159",
+    "kind": "assertion-quality",
+    "clauses": [
+      "12.6.4.4"
+    ],
+    "summary": "Embedded target integer P/A traverses the actual page annotation, Filespec and embedded stream to its target page.",
+    "execution": "One new public Viewer test PASS; exact unrecovered PDF1.7 fixtures."
   }
 ]
