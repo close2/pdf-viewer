@@ -1,0 +1,31 @@
+{
+  "reviews": [
+    {
+      "adr": "0934",
+      "decision": "Retain the FixedPrint rectangle substitution, media origin, and H/V handling; retain page-/Rotate behavior only as a qualified interpretation.",
+      "evidence": "The source confines the transformed rectangle to appearance steps 2 and 3. Literal tests cover Matrix transformation, media origin, and known-sheet placement. A Matrix that rotates the annotation rectangle is not a test of page /Rotate cancellation.",
+      "residual": "The existing interpretation declines to cancel page /Rotate, while the algorithm's B sentence mentions a scaled and rotated page. The source/other-annotation/NoRotate rationale remains an interpretation; existing tests do not empirically settle it. Prior review recommends a non-square watermark on a /Rotate page with and without NoRotate and independent extents, but this shard does not draft a test without a resolved oracle."
+    },
+    {
+      "adr": "1057",
+      "decision": "The old n-up deferral is superseded by later print support. The watermark-specific n-up requirement is now exercised; the separate tiling case remains unselected.",
+      "evidence": "The current public print query test checks literal mark bounds for two-up and four-up cells, and passed in baseline-nextest.log and broad123.log. This directly contradicts the older ADR text saying n-up is not offered. ADR 1204 supplies the later cell/scale interpretation."
+    },
+    {
+      "adr": "1179",
+      "decision": "Retain Print-purpose and target-media distinction; qualify its historical 'own size and orientation' premise because later code supports scaled n-up composition.",
+      "evidence": "The current n-up path passes a per-cell target and scale, and a public watermark consumer verifies it. Do not generalize ADR 1179's older no-n-up premise to present code."
+    },
+    {
+      "adr": "1180",
+      "decision": "Retain the public command/core print-query boundary. Do not claim native printer or spool-path verification.",
+      "evidence": "The public query/raster assertions cover the core/host geometry; ADR 1180 records GTK printing was compiled/reviewed but not driven."
+    },
+    {
+      "adr": "1204",
+      "decision": "Retain the selected n-up cell interpretation and qualify host-grid conventions as implementation choices, not ISO rules.",
+      "evidence": "The primary source requires same stated mark size and placement relative to one page portion once n-up is selected; it does not prescribe the two-/four-up grid algorithm. The current public test verifies chosen grid coordinates as implementation behavior."
+    }
+  ],
+  "no_new_test": "Defaults, ordinary placement, known-paper behavior, and public 2-up/4-up placement already have current discriminating assertions. Page /Rotate has an identified but unresolved interpretation and no independent expected geometry is asserted here. Tiling lacks an enabled processor selection."
+}

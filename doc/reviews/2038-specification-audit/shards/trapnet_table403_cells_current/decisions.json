@@ -1,0 +1,26 @@
+{
+  "reviews": [
+    {
+      "source_basis": "The paragraph before Table 403 explicitly binds its Version-array validation rule to 'any PDF writer that generates a new trap network'. LastModified/Version/AnnotStates are described as mechanisms for tracking trap changes, and FontFauxing as substituted-font provenance. No actual reader action over these fields is prescribed as clearly as the writer check.",
+      "current_ledger": "doc/conformance/ledger.toml marks 14.11.6.2 implemented and describes all Table 403 entries as writer-side; the aggregate 14.11.6 is also implemented. This matches the local exclusion of trap construction, subject to the passive regeneration sentence below.",
+      "proposition": "Table 403 tracking values are not currently consumed by the renderer; the §14.11.6.2 row's observable reader support is drawing a supplied TrapNet appearance.",
+      "decision": "No new Table 403 reader test is justified without resolving the passive sentence's actor and defining an observable report or regeneration contract. Existing positive View/Print appearance tests cover the compatibility path; metadata parsing is not silently certified."
+    },
+    {
+      "adr": "1035",
+      "decision": "Retain its warning that status is a claim about residue and preserve the actor ambiguity rather than upgrading Table 403 fields into reader duties by implication.",
+      "evidence": "The source's explicit writer verification and the passive 'shall be regenerated' are distinct grammatical steps. The table alone does not name a reader consumer. Current ledger makes a policy decision against trap generation; no renderer assertion should pretend to regenerate traps."
+    },
+    {
+      "adr": "1535",
+      "decision": "Treat PDF 2.0 deprecation as a scoped compatibility boundary, not as evidence that the stored-appearance reader path is absent or that Table 403 must be interpreted.",
+      "evidence": "The current reader explicitly supports TrapNet stored AP as a legacy annotation. The tested scope does not include the prepress Table 404 appearance metadata or trap construction."
+    },
+    {
+      "adr": "0906 / 0205",
+      "decision": "Do not repeat the former 'screen is not a printer' rationale: §14.11.6.2's flags require Print and ReadOnly with all other flags clear, and a conforming annotation therefore reaches the supported View path. Keep this separate from Table 403 tracking.",
+      "evidence": "The current test uses a conforming F=68 stored-appearance fixture and checks View and Print."
+    }
+  ],
+  "residual": "There is a genuine textual boundary question about who performs the passive stale-network regeneration in §14.11.6.2. This bounded review neither resolves it nor alleges a current reader defect; a later owner decision should state whether the authoring exclusion encompasses regeneration or whether some reader-facing stale status is owed."
+}

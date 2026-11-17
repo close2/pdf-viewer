@@ -7557,7 +7557,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/annotation_remaining_current/features.json"
+      "shards/annotation_remaining_current/features.json",
+      "shards/watermark_fixed_print_cells_current/features.json"
     ],
     "prior_artifacts": [
       "watermark_audit",
@@ -12250,7 +12251,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/annotation_remaining_current/features.json"
+      "shards/annotation_remaining_current/features.json",
+      "shards/trapnet_table403_cells_current/features.json"
     ],
     "prior_artifacts": [
       "screen_annotation_audit"

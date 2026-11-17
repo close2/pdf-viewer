@@ -11,7 +11,7 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (128)
+## Current checkpoint (129)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **117 failing test identities**: 116 behavior assertions/probes
@@ -548,6 +548,11 @@ entry, exit, and unchanged visibility during a current-page change. All three fa
 while initial open/visible controls pass. ADR2814’s retained script delay needs
 reconsideration; the ledger’s one-page premise is stale. Core Clippy passes.
 Manifest117 includes110 default-scope identities;166 matrices remain partial.
+
+Checkpoint 129 adds selected watermark and TrapNet cells, bringing the partial
+matrix count to169. Existing public n-up evidence corrects an earlier stale residual.
+D68 preserves both values in four duplicate-key review objects and verifies durable
+JSON without duplicate keys. No new behavior failure or runtime test.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

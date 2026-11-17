@@ -1,19 +1,19 @@
 [
   {
-    "decision": "Treat indirect integers and names in /Differences as allowed under §7.3.10 unless a specific rule says otherwise; no such direct-only rule was found.",
     "source_basis": "§7.3.10's last paragraph says any object value may be direct or indirect and semantics are equivalent except where documented otherwise. Table 112 defines /Differences as an array of integer codes and names but does not require direct members. The start-code/name progression syntax is based on the resolved member types.",
     "current_code": "`apply_differences` calls `document.resolve(item)` before matching each member as integer or name.",
     "current_assertions": "Direct Differences mappings are asserted in current unit tests and exact-xref embedded-font tests; no indirect member assertion was found.",
+    "proposition": "Treat indirect integers and names in /Differences as allowed under §7.3.10 unless a specific rule says otherwise; no such direct-only rule was found.",
     "decision": "Record an assertion gap only. Do not report a code failure until a valid exact-xref public consumer test contradicts the expected mapping."
   },
   {
-    "decision": "Use an embedded TrueType font in the draft, while keeping Table 112's SHOULD qualifier visible.",
     "source_basis": "Table 112 says /Differences should not be used with TrueType. §9.6.5.4 separately includes the Differences mapping route and the clause gives notes 5/6 as situations where it is needed. The SHOULD is guidance, not a prohibition that makes a reader fixture invalid.",
+    "proposition": "Use an embedded TrueType font in the draft, while keeping Table 112's SHOULD qualifier visible.",
     "decision": "The draft is supplementary evidence for the general object-reference rule and public mapping path. It does not claim producers should routinely write this form or that this fixture proves the Type 1-specific consumer route."
   },
   {
-    "decision": "Pin both the resolved start-code integer and the subsequent glyph-name references with a discriminating consumer result.",
     "source_basis": "Table 112 says each integer starts a run; each following name maps that and subsequent code positions until another integer. Liberation Sans mapping/metrics were independently recorded in the sibling font audit: quoteright GID 527, A GID 36; the original WinAnsi code meanings are different.",
+    "proposition": "Pin both the resolved start-code integer and the subsequent glyph-name references with a discriminating consumer result.",
     "decision": "Direct control and indirect target must both select [527, 36], with PDF advances [0.222, 0.667]. A default-base or unresolved-reference path produces a different GID, so direct-vs-indirect equivalence is observable."
   }
 ]

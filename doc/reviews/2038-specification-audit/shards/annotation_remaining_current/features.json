@@ -1,6 +1,14 @@
 {
   "baseline": "b901326c",
-  "scope": ["12.5.1 context", "12.5.6.4", "12.5.6.14", "12.5.6.20", "12.5.6.21", "12.5.6.22", "12.5.6.24"],
+  "scope": [
+    "12.5.1 context",
+    "12.5.6.4",
+    "12.5.6.14",
+    "12.5.6.20",
+    "12.5.6.21",
+    "12.5.6.22",
+    "12.5.6.24"
+  ],
   "source": "doc/ISO_32000-2_sponsored_EC3.pdf (primary EC3 PDF; physical and printed page numbers listed per feature)",
   "features": [
     {
@@ -82,7 +90,7 @@
         "crates/viewer-core/tests/printing.rs tests NoView+Print and fixed-print output; prior print_intent and watermark_nup_consumer audits cover media/print consumers"
       ],
       "errata": "No relevant EC3 change located for this clause in doc/errata-read.md.",
-      "boundary": "The specific tiled/n-up producer and printer cases need their own source-derived geometry; existing media transform tests are not a blanket certification of all printer cell layouts."
+      "boundary": "Public two-up/four-up watermark placement is now confirmed by watermark_nup_consumer_audit and broad123. No tiling selection/native printer certification; page Rotate interpretation remains qualified."
     },
     {
       "clause": "12.5.6.24",

@@ -3742,5 +3742,17 @@
     "execution": "Three public recording-runner tests FAIL: no PV on neighbor entry, no PI on neighbor exit, and spurious PI/PV on current-page change while both pages remain visible. Initial PO/PV control passes in each. Core Clippy PASS.",
     "cause": "visibility_of raises event set changes, but raise marks page scripts handed over without invoking the runner; run_page_scripts pairs PV/PI with PO/PC.",
     "limits": "Runner callback timing within enabled scope, not engine interpretation or disabled-policy behavior. Independent of field inheritance B62. Ledger one-page premise stale; production and ledger unchanged."
+  },
+  {
+    "id": "2038-D68",
+    "kind": "documentation-gap",
+    "clauses": [
+      "9.6.5.1",
+      "12.5.6.22",
+      "14.11.6.2"
+    ],
+    "summary": "Review artifact integrity: preserve duplicate JSON decision values and correct stale n-up coverage claims.",
+    "execution": "Strict duplicate-key scan found three objects in indirect_differences_current decisions and one new TrapNet draft. Both proposition and verdict now survive decoding. All durable JSON checked with duplicate rejection. Existing n-up public test already PASS in broad123.",
+    "limits": "Audit evidence correction; no new production behavior defect or historical ADR edit."
   }
 ]

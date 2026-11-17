@@ -18,11 +18,13 @@
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
-      "watermark_fixed_print_cells_current",
-      "trapnet_table403_cells_current",
-      "shading_pattern_type5_stream_current"
+      "shading_pattern_type5_stream_current",
+      "soft_mask_image_cells_current",
+      "overprint_table146_cells_current"
     ],
     "recorded_shards": [
+      "trapnet_table403_cells_current",
+      "watermark_fixed_print_cells_current",
       "annotation_page_event_cells_current",
       "halftone_transfer_archive_loss_current",
       "collection_folder_cells_current",
@@ -334,7 +336,7 @@
     "All 883 rows remain partially reviewed. Current work checks uncited EC3 annotation candidates against primary pages, effective wording, code and actual assertions.",
     "All69 file-only pointers have partial selected-assertion review; this does not certify entire files or features.",
     "Literal issue citation candidates are discovery metadata only, not counts of missing features. Selected batches remain under parent source review.",
-    "166 unique table matrices and all883 rows remain partial. Finish watermark/trap source matrices and stream-pattern follow-up, then reconcile a fresh broad run.",
+    "169 unique table matrices and all883 rows remain partial. Finish stream-pattern follow-up and two bounded cell reviews; reconcile fresh broad results. Page Rotate and stale TrapNet actor remain qualified residuals.",
     "Stop new dispatch near 81%; preserve 15% weekly allowance at 85%."
   ],
   "budget": {
