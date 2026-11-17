@@ -11,7 +11,7 @@ The report and machine-readable continuation are in
 `doc/reviews/2038-specification-audit.md` and its evidence directory.
 
 **Evidence so far.** All72 previous failing assertions pass. Current tests expose
-90 failing test identities (one stale ignored gate), grouped and qualified where interpretation is
+93 failing test identities (one stale ignored gate), grouped and qualified where interpretation is
 contested. Passing controls and rejected preliminary hypotheses are recorded too.
 The shard index links partial reviews to all883 ledger rows, each still partial. Feature residuals remain
 inside reviewed rows. No entire clause is certified merely because referenced tests pass.
@@ -30,11 +30,11 @@ composites overlapping same-object geometry twice. Literal measurement, join/fil
 WritingMode and new-file ID controls pass. The stroke failure also reaches PDF and three GPU lanes; CMYK-image OP passes.
 Embedded-font, Type3 image and corrected FDF controls pass. Next scopes cover
 remaining errata and consumer assertions; native print, xref and four transition-window checks pass.
-UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage67%;ceiling85%.
+UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage68%;ceiling85%.
 
 TSA keyCompromise time selection fails with genuine signed material; FieldMDP
 rename coverage is an unresolved policy probe. Independent colour/annotation tests pass.
 Alpha, filtered-checksum and cross-Contents controls pass; archive path cap fails. Model/transform Clippy pass.
 Revocation findings survive second review; older indexes omit four grouped errata IDs.
 All69file pointers partially reviewed; independent crypto/color/protection controls pass.
-Malformed XFA, near-similarity thick strokes and TM export naming and field-AA/DS inheritance fail; save/font controls pass.
+Malformed XFA, near-similarity thick strokes and TM export naming and field-AA/DS/TI/I inheritance fail; save/font controls pass.

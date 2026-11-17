@@ -545,6 +545,24 @@
       "test": "nonterminal_default_style_does_not_leak_into_a_terminal_variable_text_field",
       "finding": "2038-B63",
       "log": "rich-text-wave89.log"
+    },
+    {
+      "binary": "pdf-model::choice_locality_spec_audit",
+      "test": "top_index_is_taken_from_terminal_through_widget_but_not_from_nonterminal_ancestor",
+      "finding": "2038-B64",
+      "log": "choice-locality-wave91b.log"
+    },
+    {
+      "binary": "pdf-model::choice_locality_spec_audit",
+      "test": "selected_index_is_unchanged_by_nonterminal_ancestor_i_and_terminal_i_remains_local",
+      "finding": "2038-B64",
+      "log": "choice-locality-wave91b.log"
+    },
+    {
+      "binary": "pdf-model::choice_locality_spec_audit",
+      "test": "choice_opt_stays_with_the_dictionary_that_states_it",
+      "finding": "2038-B65",
+      "log": "choice-locality-wave91b.log"
     }
   ]
 }

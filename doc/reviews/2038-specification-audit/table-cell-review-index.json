@@ -306,6 +306,19 @@
       ],
       "artifact": "shards/variable_text_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "234",
+      "ledger_rows": [
+        "12.7.5.4"
+      ],
+      "keys": [
+        "Opt",
+        "TI",
+        "I"
+      ],
+      "artifact": "shards/choice_locality_current/features.json",
+      "status": "partial"
     }
   ]
 }

@@ -1,0 +1,42 @@
+{
+  "scope": "Choice-field locality for Table 234 /Opt, /TI and /I across a widget-to-terminal-field link versus terminal-field-to-nonterminal-ancestor links. No other inheritance entries or choice-field requirements are certified.",
+  "baseline": "b901326c",
+  "source": {
+    "primary": "ISO_32000-2_sponsored_EC3.pdf; §12.7.4.1 physical pp.545–546 / printed pp.530–531; Table 226 physical pp.545–546 / printed pp.530–531; §12.7.5.4 and Table 234: /Opt and /TI are on physical p.557 / printed p.542; /I continues on physical p.558 / printed p.543.",
+    "field_inheritance_rule": "§12.7.4.1 says inheritable attributes shall be designated as such in Tables 226 and 227. Table 226 marks /FT, /Ff, /V and /DV inheritable. Table 234 marks /Opt optional but does not mark /Opt, /TI or /I inheritable; in contrast, Table 230 explicitly marks the button-field /Opt inheritable. The Table 234 note says if /Opt is absent no choices should be presented (a recommendation, not a shall); /TI and /I appear only in the choice-field-specific table.",
+    "table_234": "On printed p.542, /TI is optional, applies to scrollable list boxes, and defaults to 0. The /I row continues on printed p.543, describing sorted zero-based selected-option indices and conditions for its use. EC3 issue #468 on physical p.558 / printed p.543 strikes the obsolete MultiSelect-only/value-array limits and replaces them with: use /I when distinct option names share an export value. The effective table also retains the rule that /V wins when /I identifies different items.",
+    "interpretation": "Widget-to-own-terminal lookup is necessary for separate widget annotations: the widget's /Parent is the terminal field whose Table 234 entries describe that control. Table 234 entries (/Opt, /TI, /I) should not then be inherited further from a nonterminal ancestor, because §12.7.4.1 limits inheritance to table-designated entries. The implementation currently uses a cached aggregate of ancestor entries, exposed with the widget as two dictionaries and does not retain the terminal/nonterminal boundary for these three keys.",
+    "locator_method": "Primary PDF footer/page text and local ec3-parent-layout.txt were used; physical page = PDF page index + 1. #468's StrikeOut and Caret Contents were checked directly in the primary PDF annotation dictionaries."
+  },
+  "code_path": {
+    "inheritance": "crates/pdf-model/src/inheritance.rs:42 (`READ_UP_THE_CHAIN`) and 236–240 (`Inherited::of`) include Opt, TI and I in the complete ancestor merge; `chain()` at 299–302 returns widget plus that aggregate. The merge does not preserve the nearest terminal/nonterminal boundary.",
+    "choice_consumer": "crates/pdf-model/src/form.rs:653–661 reads ChoiceControl.top from inherited_number(TI); selected() at 722–785 reads the first /I array from field.chain(). The public form::fields API returns ChoiceControl { options, selected, top } to viewer-core/UI. Viewer UI crates/viewer-ui/src/bin/quorra/typing/choices.rs:94–128 uses the returned top to draw a list box.",
+    "appearance_consumer": "crates/pdf-model/src/appearance.rs:4050–4070::list_box_options reads /TI through inherited_number to choose the first rendered option, then applies selected indices. Thus control/query and page variable-text paths both can expose the same ancestor value."
+  },
+  "existing_assertions": [
+    {
+      "test": "pdf-model::tests::variable_text::the_top_index_says_which_option_the_list_starts_at",
+      "evidence": "Checks default TI=0, merged widget/field TI=1 and an out-of-range value. All fixture data is in the widget's merged field dictionary; there is no nonterminal ancestor contrast."
+    },
+    {
+      "test": "pdf-model::tests::text_choice_fields_spec_audit::choice_value_wins_when_the_stated_index_disagrees",
+      "evidence": "Checks /V winning over /I for a merged widget/field fixture; it has no parent chain."
+    },
+    {
+      "test": "pdf-model::tests::duplicate_choice_labels_spec_audit",
+      "evidence": "Checks #468 duplicate-label selections and serialization in its current exact-xref fixture; no nonterminal ancestor-locality contrast."
+    },
+    {
+      "test": "pdf-model::tests::field_aa_noninheritance_spec_audit and rich_text_default_style_noninheritance_spec_audit",
+      "evidence": "Existing analogous hierarchy tests distinguish widget-to-terminal from nonterminal-to-terminal for noninheritable /AA and /DS, but do not cover /TI or /I."
+    },
+    {
+      "test": "pdf-model::tests::choice_locality_spec_audit::choice_opt_stays_with_the_dictionary_that_states_it (scratch draft)",
+      "evidence": "No current test found for an absent terminal choice /Opt with a nonterminal ancestor /Opt; existing options and ordering tests use merged fields. The drafted assertion is qualified by Table 234’s SHOULD (“no choices should be presented”), not a mandatory conformance rule."
+    }
+  ],
+  "assessment": {
+    "verdict": "Strong implementation/test candidate for /TI: Table 234 gives an explicit default 0, and the current full-chain lookup lets a nonterminal /TI override that default. For /I, the code reads from the entire chain, but choices meeting #468's mandatory /I condition should state it on the terminal choice field; no behavior defect is promoted from invalid missing-terminal-I data. For choice /Opt, the current parser also obtains an ancestor value, although Table 234 says absence SHOULD lead to no presented choices and is not an unconditional SHALL; test this as recommended behavior, not a hard conformance defect.",
+    "limits": "Parent execution is recorded in parent-review.json. The nonterminal controls keep their own /Opt and /V consistent; /I when present describes the parent's own selection. The terminal /Opt/V pair is independently coherent. Ancestor /Opt behavior is explicitly labeled only as Table 234's SHOULD recommendation. This audit does not establish malformed-input rejection requirements or certify all field-tree validity constraints. Appearance regeneration is not claimed; the consumer assertion is the reader's ChoiceControl model used by the UI and appearance path."
+  }
+}

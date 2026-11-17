@@ -2912,5 +2912,31 @@
     "summary": "Separate-widget text rendering distinguishes local/inherited/document-default quadding.",
     "evidence": "TerminalQ0beatsancestor2/form1;ancestor2beatsform0;form1centresnearwidgetmidpoint;absentQequalsleft. Literaledge/centreandwidthcontrols.",
     "execution": "quadding_field_tree_precedence_spec_auditPASS,quadding-wave89b.log;modelClippyPASS."
+  },
+  {
+    "id": "2038-B64",
+    "kind": "behavior-gap",
+    "clauses": [
+      "12.7.4.1",
+      "12.7.5.4"
+    ],
+    "summary": "A nonterminal ancestor changes a terminal choice field top index and selected index although TI/I are not inheritable.",
+    "evidence": "Two public form::fields failures: ancestor TI1 replaces default0; ancestor I1 changes the same terminal selection from[0] to[1]. Differing local/ancestor controls pass before failures.",
+    "cause": "TI/I are merged across all ancestors into the cached inherited map; the separate widget-to-terminal boundary is lost.",
+    "execution": "choice_locality_spec_audit: two failures, choice-locality-wave91b.log; model all-target ClippyPASS.",
+    "qualification": "I invariant compares equal terminal data; no fixed fallback-index rule or missing-mandatory-I input. No native UI, pixels or save asserted."
+  },
+  {
+    "id": "2038-B65",
+    "kind": "qualified-behavior-gap",
+    "clauses": [
+      "12.7.4.1",
+      "12.7.5.4"
+    ],
+    "summary": "Absent terminal choice Opt obtains the ancestor choices despite Table234 recommending no choices.",
+    "evidence": "Ancestor-only options produce Parent first/Parent second instead of baseline[]; local option override control passes.",
+    "cause": "Shared Opt ancestor cache applies button-field inheritable handling to choice-field data.",
+    "execution": "choice_opt_stays_with_the_dictionary_that_states_it FAIL, choice-locality-wave91b.log; model all-target ClippyPASS.",
+    "qualification": "The absent-choice rule is SHOULD, not SHALL. This records recommended behavior and a locality concern, not an unconditional mandatory ISO violation."
   }
 ]

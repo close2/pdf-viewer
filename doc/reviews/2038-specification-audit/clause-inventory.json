@@ -7837,7 +7837,8 @@
       "shards/errata_interactive_batch_current/features.json",
       "shards/feature_table_cell_granularity_current/features.json",
       "shards/form_dictionary_residual_consumers_current/features.json",
-      "shards/variable_text_cells_current/features.json"
+      "shards/variable_text_cells_current/features.json",
+      "shards/choice_locality_current/features.json"
     ],
     "prior_artifacts": [
       "interactive_form_structure_audit"
@@ -8028,7 +8029,8 @@
       "prior-assertion-reviews.json",
       "shards/forms_buttons_choices_current/features.json",
       "shards/errata_weak_dispositions_batch5_current/features.json",
-      "shards/errata_conflict_and_choice_second_review_current/features.json"
+      "shards/errata_conflict_and_choice_second_review_current/features.json",
+      "shards/choice_locality_current/features.json"
     ],
     "prior_artifacts": [
       "choice_commit_host_audit",
