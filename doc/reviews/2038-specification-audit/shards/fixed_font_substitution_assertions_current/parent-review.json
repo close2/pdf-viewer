@@ -1,0 +1,6 @@
+{
+  "source": "Parent read physical326,358,368 and current substitute_for_unreadable/load_font. Only malformed-program error invokes substitution; readable-but-unmapped exclusion remains.",
+  "assertions": "Parent read exact-xref paired fixture: same pixels/text, visible marks, two glyphcommands, literal34.012secondorigin, retained error/substitute report and incomplete state. Added mandatoryLength1 so unrelated stream dictionary omission cannot explain result.",
+  "execution": "Paired font control has required Length1 added only to its intentionally unreadable FontFile2 stream; PASS in font-control-wave76.log. ModelClippyPASS. No production behavior or fixed-document expected band changed.",
+  "disposition": "Retain ADR2870/A837 as policy. D51oldcorpus expectation remains unchanged and failing; no ISO-mandated malformed-font fallback inferred."
+}

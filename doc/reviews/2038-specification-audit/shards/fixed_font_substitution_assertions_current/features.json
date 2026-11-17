@@ -1,0 +1,66 @@
+{
+  "review_scope": "Reconsider ADR 2870 against the ignored fixed-document gate and present public font-consumer assertions; no whole-clause certification.",
+  "baseline": "b901326c",
+  "gate": {
+    "test": "pdf-model::fixed_documents::every_document_a_round_fixed_is_still_fixed",
+    "observed_log": "scratchpad/r2038/spec-audit/fixed-documents-wave75b.log",
+    "result": "77 present, 0 absent; only two stale expectations, both for corpus-cache/tika-issue-tracker/batch5/PDFIUM/PDFIUM-407-0.pdf page 1",
+    "observed_behavior": "14.633 ink against old band 7.791..8.791; expected Text { operations: 197 } report was absent. The actual report lists three FontFile2 programs refused for Adler-32 disagreement, and marks each as drawn from a substitute; incomplete status remains via reports.",
+    "assessment": "These expectations describe pre-ADR2870 no-ink / refusal behavior. The current visible-substitute behavior is the accepted A837 policy. The gate failure is stale evidence/ratchet data for this accepted behavior change, not by itself a production defect or a reason to disable substitution. Parent owns updating the diagnostics."
+  },
+  "effective_source": [
+    {
+      "clause": "ISO 32000-2:2020 §9.5",
+      "locator": "Primaryphysical326/printed311",
+      "effect": "A font dictionary carries information that can be used to provide a substitute when the font program is not available; embedded font programs are optional. This permits a substitute and does not prescribe one for a supplied but malformed program.",
+      "primary_locator": "Effective EC3 primary physical 326 / printed 311; processed text line 7627-7630."
+    },
+    {
+      "clause": "ISO 32000-2:2020 §9.8.1",
+      "locator": "Primaryphysical358/printed343",
+      "effect": "Descriptor metrics provide information enabling a processor to synthesize or select a similar font when the program is unavailable. No mandatory malformed-program fallback algorithm appears in this checked passage.",
+      "primary_locator": "Effective EC3 primary physical 358 / printed 343; processed text line 8342-8348."
+    },
+    {
+      "clause": "ISO 32000-2:2020 §9.9.1 / Table 125",
+      "locator": "§9.9.1 Table125physical368/printed353",
+      "effect": "Defines recognized embedded program organizations and stream entries including Length1/2/3. These producer format/extent requirements establish why bad bytes may be refused; they do not require a particular reader recovery when parsing fails.",
+      "primary_locator": "§9.9.1 header confirmed; Table 125 is effective EC3 primary physical 368 / printed 353; processed text line 8529-8566."
+    }
+  ],
+  "implementation": {
+    "path": "crates/pdf-font/src/loading.rs::LoadedFont::substitute_for_unreadable / without_program",
+    "behavior": "Only FontError::Malformed for a program stream already supplied and read reaches this recovery. It drops the three program keys from a copied descriptor and follows the absent-program substitute route. It excludes NO_CODE_REACHES_A_GLYPH, a readable program whose encoding reaches no glyph. The caller retains and reports the originating refusal; the public interpretation remains incomplete.",
+    "consumer": "crates/pdf-model/src/content/font.rs::load_font"
+  },
+  "assertions": [
+    {
+      "test": "crates/pdf-model/tests/unreadable_program_fallback_control_audit.rs::unreadable_program_falls_back_like_absent_program_and_keeps_its_report",
+      "quality": "Strong exact-xref public control: same host, font dictionary and page text, with FontFile2 absent in one PDF and unreadable bytes in the other; asserts no recovery, identical raster/text/origins, two visible glyphs, independent second origin 10 + 667/1000 * 36 = 34.012, refusal retained and incomplete status. This closes the earlier durable T11 coverage gap.",
+      "fixture_note": "The paired audit test uses a TrueType FontFile2 stream of malformed bytes. Table 125 requires Length1 for TrueType font programs. Parent is adding the exact decoded byte length in this font stream dictionary; generic page content streams remain unchanged."
+    },
+    {
+      "tests": [
+        "crates/pdf-model/tests/unreadable_program_substitute.rs::a_simple_font_whose_program_is_unreadable_draws_its_text_from_a_substitute",
+        "::the_unreadable_program_is_still_reported",
+        "::a_composite_font_whose_program_is_unreadable_draws_through_its_to_unicode",
+        "::a_composite_font_with_no_route_to_a_substitute_still_draws_nothing",
+        "::the_forbidden_identity_combination_is_unchanged",
+        "::the_witnesses_draw_their_text"
+      ],
+      "quality": "Additional selected simple/composite outcomes, reporting, no-route and forbidden-Identity controls, plus corpus witnesses. Existing source comments note these handcrafted fixtures do not all use exact xrefs; the new paired audit test is the independent exact-xref behavior control. Composite substitute coverage is conditional on machine-addressable substitute availability."
+    },
+    {
+      "test": "crates/pdf-model/tests/fixed_documents.rs::every_document_a_round_fixed_is_still_fixed",
+      "quality": "Broad present-file consumer sweep with per-document pixels/report expectations; only the two PDFIUM-407 expectations above conflict with the newly accepted recovery policy. Not a normative conformance oracle for malformed producer files."
+    }
+  ],
+  "verdict": "ADR 2870 remains a current, owner-ratified recovery policy under A837, not a reader obligation imposed by §§9.5/9.8.1. The actual code preserves the malformed-program refusal while visibly substituting and correctly excludes readable-but-unmapped program behavior. The parent-reported fixed-documents failure is a stale ratchet limited to PDFIUM-407-0.pdf and should be reconciled in the gate expectations; no new behavior test is needed because the exact-xref paired-control assertion already exists and has passed in parent review.",
+  "residuals": [
+    "No claim that a malformed embedded font must be substituted under ISO; exact recovery remains product policy.",
+    "D51 requires a reviewed replacement for the obsolete expectations; do not simply copy observed ink14.633 into a new golden band. Three refusal reports should remain observable under accepted policy.",
+    "This review does not certify every malformed font format or every composite substitute route.",
+    "Fixture framing follow-up: ensure the unreadable TrueType FontFile2 stream dictionary includes required /Length1 equal to the malformed byte-string length. Parent is applying this valid surrounding-stream metadata correction; the malformed program bytes remain the intended cause."
+  ],
+  "parent_execution": "Paired font control has required Length1 added only to its intentionally unreadable FontFile2 stream; PASS in font-control-wave76.log. ModelClippyPASS. No production behavior or fixed-document expected band changed."
+}

@@ -1,0 +1,8 @@
+{
+  "log": "eleven-crate-wave76.log",
+  "observed_failure_count": 78,
+  "expected_failure_count": 78,
+  "extra": [],
+  "missing": [],
+  "scope": "Eleven crates, default features, ignored gate D51 excluded. ThreeGPU and oneengine outside."
+}

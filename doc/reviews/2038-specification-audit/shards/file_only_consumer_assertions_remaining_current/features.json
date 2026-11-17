@@ -1,0 +1,68 @@
+{
+  "shard": "file_only_consumer_assertions_remaining_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "selection_note": "Five additional non-calculator inventory rows; selected file paths are supplemental pointers, not independent conformance evidence. All conclusions below concern the cited file-only reference and its named sibling tests only.",
+  "source": "ISO 32000-2:2020 plus Errata Collection 3, primary PDF doc/ISO_32000-2_sponsored_EC3.pdf; physical pages checked against printed footer and annotations inspected directly with pikepdf. On physical p.65, #29 strikes 'except for' and inserts 'excluding' in the JPX-baseline exception sentence (same meaning); #371 on physical p.397 changes §10.7.2 flatness wording, not the sampled §10.7.3 smoothness test. #134 on physical p.437 is in Table 145's CS cell, not its /K knockout row; §11.4.6's defining paragraph is physical p.424 and has no issue annotation. No identified overlay changes the sampled direct assertions.",
+  "features": [
+    {
+      "clause": "7.4.6",
+      "title": "CCITTFaxDecode filter",
+      "source_location": "physical p.58 / printed p.43, Table 11 and preceding bit-stream/EOD paragraphs",
+      "file_only_reference": "crates/pdf-model/tests/corpus.rs",
+      "effective_rule_sampled": "Table 11 specifies the filter parameters and the main text specifies bit/byte-boundary handling, EOD alignment, and no error correction except the DamagedRowsBeforeError case. The source delegates the fax coding algorithm to T.4/T.6 rather than defining it here.",
+      "actual_assertions": "Named sibling tests include ccitt.rs::black_is_1_gives_the_exact_complement, ccitt_bound.rs cases for Columns, Rows/EndOfBlock, and damaged-row policy, and pdf-ccitt coding tests against T.4 figures. The BlackIs1 test asserts equal output lengths and zero non-complement bytes; bound tests use explicit expected pixels/errors rather than corpus counts.",
+      "fixture_and_skip_status": "The shared corpus walker returns early if doc/pdf.js/test/pdfs is absent. In this audit worktree doc/pdf.js is a symlink to /home/cl/projects/pdf-viewer/doc/pdf.js; the helper's exact immediate-child, lowercase-.pdf filter returns 974 files (the directory also has 459 .link files and 2 extensionless entries). corpus.rs::the_corpus_opens_interprets_and_rasterises is explicitly ignored and is a robustness ratchet, not the direct CCITT oracle. Corpus-dependent scanned-image tests also return early when their fixture is absent.",
+      "decision": "Retain corpus.rs as supplemental robustness evidence only. Direct controls make the relevant Table 11 assertions non-vacuous when their corpus-backed scan fixture is present; the independently coded parameter tests do not rely on corpus population. No new semantic gap was found in this file-reference review.",
+      "related_adrs": ["0392", "0794", "1349"],
+      "residuals": ["The source does not define T.4/T.6 coding results; those decoder fixtures are not treated as PDF-spec oracles.", "No test was run in this pass."]
+    },
+    {
+      "clause": "7.4.8",
+      "title": "DCTDecode filter",
+      "source_location": "physical p.63 / printed p.48, Table 13 and surrounding ColorTransform text",
+      "file_only_reference": "crates/pdf-model/tests/corpus.rs",
+      "effective_rule_sampled": "Table 13 gives ColorTransform precedence/default behavior and limits its operations by component count; the clause concerns the DCT stream and parameters, while image mask behavior is specified separately in §8.9.6.4.",
+      "actual_assertions": "colour_transform.rs constructs small JPEG frames with known DC-only component samples. Tests assert literal transformed RGB values, component-count defaults, APP14 precedence, parameter placement, and an untransformed control; dct_components.rs separately checks three- and four-component interpretation. The corpus test's broad ratchet is not the only evidence.",
+      "fixture_and_skip_status": "The referenced corpus.rs broad walk is explicitly ignored. Its helper resolves through this worktree's doc/pdf.js symlink and counts 974 immediate lowercase-.pdf files. `fixed_documents.rs` is corpus-driven supplemental input; the direct JPEG assertions construct their streams and do not depend on that corpus.",
+      "decision": "The file-only pointer is broad regression evidence, not proof of Table 13. The named color_transform assertions use literal expected values and discriminating marker/entry controls, so the sampled behavior is not a comparison of two equivalent code paths alone. No additional test is warranted for this reference.",
+      "related_adrs": ["0203", "0832", "1177", "1183", "2468"],
+      "residuals": ["No claim about every JPEG decoder/profile or unrelated image-mask behavior.", "No test was run in this pass."]
+    },
+    {
+      "clause": "7.4.9",
+      "title": "JPXDecode filter",
+      "source_location": "physical p.65 / printed p.50, JPXDecode semantics and enumerated-colour-space text; #29 replaces 'except for' with 'excluding'",
+      "file_only_reference": "crates/pdf-model/tests/corpus.rs",
+      "effective_rule_sampled": "JPXDecode carries JPEG 2000 codestreams; the PDF clause defines parameter interaction, including optional /ColorSpace override and the conditional /Decode rule. The #29 overlay makes the effective phrase 'limited to the JPX baseline set of features, excluding enumerated colour space 19 (CIEJab)'. Codestream syntax/sample decoding itself is delegated to ISO/IEC 15444.",
+      "actual_assertions": "jpx_decode_array.rs and jpx_enumerated_spaces.rs provide self-contained PDF/image controls for /Decode, channel-count fallback, and enumerated spaces with literal color expectations. jpeg2000.rs::every_corpus_codestream_decodes_to_the_reference_softwares_samples separately compares extracted codestream samples against OpenJPEG's published reference decoder.",
+      "fixture_and_skip_status": "The corpus comparison returns early when the pdf.js submodule is absent or opj_decompress is unavailable; the helper resolves via this worktree's doc/pdf.js symlink and finds 974 immediate lowercase-.pdf files, and opj_decompress is installed. Readability/open failures or non-JPX files are skipped by design in that decoder-comparison census; PDF parameter rules are covered by the constructed named tests instead.",
+      "decision": "Treat the OpenJPEG file reference as delegated-codestream evidence, not a PDF color-space oracle. Its explicit skip conditions and filtering do not invalidate the self-contained parameter/consumer assertions. No missing assertion follows from this file reference.",
+      "related_adrs": ["0014", "2863", "2292", "2293"],
+      "residuals": ["The external decoder comparison was not executed in this audit.", "No claim of full ISO/IEC 15444 conformance."]
+    },
+    {
+      "clause": "10.7",
+      "title": "Scan conversion details (specifically §10.7.3 smoothness tolerance)",
+      "source_location": "physical p.398 / printed p.383, §10.7.3; #371 on preceding physical p.397 changes §10.7.2 only",
+      "file_only_reference": "crates/render-gpu/tests/headless_gpu.rs",
+      "effective_rule_sampled": "§10.7.3 allows an output device internal limit while defining Smoothness as a maximum error tolerance; it does not require a device to produce a coarser approximation than its own capability.",
+      "actual_assertions": "The named sibling test `pdf-render::shading::a_smoothness_tolerance_only_ever_asks_for_more_samples` asserts default and coarser inputs retain the device resolution, a finer 0.002 request yields 500 samples, an extremely fine request clamps to MAX_RESOLUTION, and out-of-domain values fall back. The headless GPU suite's raster comparisons supplement backend behavior; they do not provide the literal tolerance oracle.",
+      "fixture_and_skip_status": "The GPU helper panics instead of silently skipping when no adapter is present. Some other GPU tests return under debug assertions or when the hardware/software comparison would compare the same adapter, but those early returns are in different tests and do not gate the named smoothness unit assertion.",
+      "decision": "The file-level GPU pointer is secondary. The actual named assertion is deterministic and direct. Do not infer that all §10.7 scan-conversion details are covered by this one row or by backend agreement.",
+      "related_adrs": ["0025", "0028", "0269", "0848"],
+      "residuals": ["No additional smoothness regression is warranted from this file-reference review.", "No test was run in this pass."]
+    },
+    {
+      "clause": "11.4.6",
+      "title": "Knockout groups",
+      "source_location": "physical p.424 / printed p.409, §11.4.6 knockout compositing rule; Table 145's separate #134 Caret is in the CS cell on physical p.437 / printed p.422, not in the /K knockout row",
+      "file_only_reference": "crates/test-scenes/src/lib.rs",
+      "effective_rule_sampled": "Within a knockout group, elements composite against the group's initial backdrop; later elements replace the corresponding contribution of earlier elements according to shape/opacity. The source is a rendering rule for supported compositing, not a requirement that every backend use the same internal construction.",
+      "actual_assertions": "test-scenes builds fixtures but contains no assertion. Named siblings include transparency_groups.rs tests for topmost-object pixels, inherited backdrop, alpha-is-shape, and interaction with group blend modes, plus render-cpu group_constructions and render-gpu CPU/GPU comparisons. The direct model tests assert pixels/alpha and contrast knockout with non-knockout controls; GPU parity is supplemental only.",
+      "fixture_and_skip_status": "The scene-builder file is not itself a test and its presence must not be counted as an assertion. The named model and CPU tests directly consume generated lists and assert literal outcomes; GPU tests require an adapter and fail with a diagnostic when none is available rather than quietly passing.",
+      "decision": "Retain test-scenes as a fixture dependency, not independent proof. Existing direct pixel/model assertions make the sampled knockout behavior observable; no new test is needed for this file pointer. This does not recertify all transparency-group or backend behavior.",
+      "related_adrs": ["0234", "0291", "1205", "1305", "1306"],
+      "residuals": ["No test was run in this pass.", "Cross-backend agreement alone would not establish the ISO formula; the model-level literal controls are the stronger evidence."]
+    }
+  ]
+}

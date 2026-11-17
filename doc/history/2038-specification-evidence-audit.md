@@ -20,8 +20,8 @@ Date and colour mutations were restored; independent tests catch them. Independe
 regeneration matches embedded hashes. Selected ADR conclusions are retained,
 qualified, or reconsidered with primary-source reasoning.
 
-**Gates.** Wave64, eleven packages:7,218run,7,142pass, exactly76expected
-failures by binary/test identity,58skipped. Three GPU and one engine-only failure are outside that scope.
+**Gates.** Wave76, eleven packages:7,237run,7,159pass, exactly78expected
+failures by binary/test identity,58skipped. Three GPU, one engine-only and one ignored stale expectation are outside that scope.
 Wave49 adds247passing engine-enabled script/worker tests; both crate Clippy checks pass.
 
 **Latest findings.** Incomplete transparency surveys can yield false Met archive
@@ -31,10 +31,10 @@ composites overlapping same-object geometry twice. Literal measurement, join/fil
 WritingMode and new-file ID controls pass. The stroke failure also reaches PDF and three GPU lanes; CMYK-image OP passes.
 Embedded-font, Type3 image and corrected FDF controls pass. Next scopes cover
 remaining errata and consumer assertions; native print, xref and four transition-window checks pass.
-UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage62%;ceiling85%.
+UR annotation-save policy fails its signed control; withdrawal is a SHOULD. Latest weekly usage63%;ceiling85%.
 
 TSA keyCompromise time selection fails with genuine signed material; FieldMDP
 rename coverage is an unresolved policy probe. Independent colour/annotation tests pass.
 Alpha, filtered-checksum and cross-Contents controls pass; archive path cap fails. Model/transform Clippy pass.
 Revocation findings survive second review; older indexes omit four grouped errata IDs.
-Type5 topology/function pixels and real T88data pass; ignored font baseline is stale (D51).
+Four ignored consumer gates pass; generation-zero and ratio-only TJ oracle gaps under review.

@@ -65,7 +65,17 @@ fn fixture(unreadable: bool) -> Vec<u8> {
         descriptor,
     ];
     if unreadable {
-        objects.push(stream(b"not a TrueType font"));
+        // Table125 requires Length1 for TrueType. Only the program bytes are malformed.
+        let program = b"not a TrueType font";
+        let mut encoded = format!(
+            "<< /Length {} /Length1 {} >>\nstream\n",
+            program.len(),
+            program.len()
+        )
+        .into_bytes();
+        encoded.extend_from_slice(program);
+        encoded.extend_from_slice(b"\nendstream");
+        objects.push(encoded);
     }
     assemble(&objects)
 }

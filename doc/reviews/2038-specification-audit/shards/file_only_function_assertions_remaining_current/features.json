@@ -1,0 +1,283 @@
+{
+  "review_scope": "Complete assertion-level map of the function-family file-only pointers in doc/reviews/2038-specification-audit/shards/file_only_reference_assertions_current/inventory.json for the listed clauses. Existing calculator oracle, function parser/fault, sampled interpolation, mesh-function, and errata reviews are referenced only where they cover the same selected assertion. No whole-clause certification.",
+  "baseline": "b901326c",
+  "inventory": "doc/reviews/2038-specification-audit/shards/file_only_reference_assertions_current/inventory.json",
+  "entries": [
+    {
+      "clause": "7.10",
+      "title": "Functions aggregate",
+      "ledger": "doc/conformance/ledger.toml:987",
+      "pointers": [
+        {
+          "path": "crates/pdf-model/tests/shadings.rs",
+          "actual_assertions": [
+            "an_axial_shading_runs_from_its_first_colour_to_its_second",
+            "a_radial_shading_grades_between_its_two_circles",
+            "a_function_based_shadings_domain_is_a_parallelogram_and_marks_nothing_outside_it",
+            "a_function_based_shadings_discontinuity_lands_at_the_device_pixel",
+            "a_mesh_with_a_function_interpolates_the_parameter",
+            "a_type_4_program_paints_the_same_page_with_and_without_its_comments",
+            "the_owners_pi_file_paints_the_digits_its_program_computes",
+            "the_owners_bbp_series_evaluates_to_pi_to_three_places"
+          ],
+          "assertion_meaning": "Public CPU pixel/readback consumers: Type 2 exponential ramps in axial/radial shadings; Type 4 output and geometry through function-based shading; nonlinear Type 2 function after interpolated mesh parameter; Type 4 parser/comment behavior and tracked calculator witness. Assertions check literal colors/regions, bitwise equivalence of a commented/bare program, selected digit interior/background pixels, or explicit 3.141 result.",
+          "limits": "The file exercises these function consumers; it is not a corpus for all function types. In particular its radial ShadingType 3 is not a Type 3 function, and its mesh FunctionType 2 is not a Type 0 sampled function. Shading fixtures use a manually generated xref table and explicit stream lengths, but render() does not assert was_recovered=false."
+        },
+        {
+          "path": "raster/crates/raster-function-conformance/src/case.rs",
+          "actual_assertions": [
+            "raster-function-conformance::corpus::every_expectation_agrees_with_the_reference_evaluator",
+            "::the_corpus_covers_every_table_42_operator",
+            "::the_corpus_covers_every_refusal_ground",
+            "::the_corpus_covers_the_rules_that_belong_to_no_operator",
+            "::case_names_are_unique",
+            "::every_case_cites_a_source"
+          ],
+          "assertion_meaning": "case.rs is the typed corpus model and source citation/tolerance representation, not a test by itself. Its consumer asserts every stored case has a unique/source-cited record, every Table 42 operator and explicit refusal ground is represented, and the no-operator Domain/Range/output-count rules have cases. The separate reference evaluator is checked against case-authored literal expected values.",
+          "limits": "Coverage of this test data set is not exhaustive conformance to PLRM3, all arbitrary input/output dimensions, or every function consumer."
+        }
+      ],
+      "verdict": "The pointers are meaningful evidence of actual function-bearing consumers and corpus mechanics, but owner status is broader than either file alone."
+    },
+    {
+      "clause": "7.10.1",
+      "title": "General; Domain and Range clipping",
+      "ledger": "doc/conformance/ledger.toml:995",
+      "pointers": [
+        {
+          "path": "crates/pdf-model/tests/shadings.rs",
+          "actual_assertions": [
+            "a_function_based_shadings_domain_is_a_parallelogram_and_marks_nothing_outside_it",
+            "a_function_based_shadings_discontinuity_lands_at_the_device_pixel",
+            "a_function_based_shadings_grid_is_the_same_however_it_is_divided",
+            "a_function_based_shading_maps_its_domain_through_its_matrix"
+          ],
+          "assertion_meaning": "Type 4 function consumers through Type 1 shading: transformed-domain painted/unpainted pixels, literal red/blue values around a discontinuity, and deterministic whole-grid versus partitioned-grid output. The literal color pixels discriminate function and domain results; grid equality alone is a determinism test.",
+          "limits": "The domain-shading tests establish selected two-input consumers, not general m-dimensional clipping. Separate supplemental clipping corpus is more direct for Domain/Range."
+        },
+        {
+          "path": "raster/crates/raster-function-conformance/src/corpus/clipping.rs",
+          "actual_assertions": [
+            "raster-function-conformance::corpus::every_expectation_agrees_with_the_reference_evaluator",
+            "::the_corpus_covers_the_rules_that_belong_to_no_operator"
+          ],
+          "assertion_meaning": "Literal, source-cited cases distinguish upper/lower Domain clip, in-domain pass-through, clipping only the second input, lower/upper Range clip, and independent component bounds; explicit output-count cases share this corpus file.",
+          "limits": "The GPU Type 1 shading harness skips DomainClip cases because it never evaluates points outside its domain; the reference-corpus assertion still evaluates and checks those cases. This is explicit harness scope, not silently counted GPU coverage."
+        },
+        {
+          "path": "raster/crates/raster-function-conformance/src/reference.rs",
+          "actual_assertions": [
+            "raster-function-conformance::corpus::every_expectation_agrees_with_the_reference_evaluator"
+          ],
+          "assertion_meaning": "The separate reference evaluator applies the input clamp before instructions and output clamp after them; corpus test compares to literal expectations.",
+          "limits": "Reference adapter explicitly supports up to two inputs for the tested Type 1 shading specialization; do not read this pointer as generic all-m production coverage. Prior `calculator_oracle_assertions_current` reviewed this exact specialization and its scope."
+        }
+      ],
+      "verdict": "Strong supplemental literal oracle for selected clipping cases, supplemented by public shading tests; no new test gap found in this mapping."
+    },
+    {
+      "clause": "7.10.2",
+      "title": "Type 0 sampled functions",
+      "ledger": "doc/conformance/ledger.toml:1003",
+      "pointers": [
+        {
+          "path": "crates/pdf-model/tests/shadings.rs",
+          "actual_assertions": [
+            "a_mesh_with_a_function_interpolates_the_parameter"
+          ],
+          "assertion_meaning": "This is a Type 4 mesh using a Type 2 nonlinear function; at t=.505 it distinguishes evaluating t² after t interpolation (about 65 red) from interpolating corner colors (about 129).",
+          "limits": "Despite the inventory's clause-level pointer, this is not a Type 0 sampled-function fixture; it is evidence for a different function-bearing shading route."
+        },
+        {
+          "path": "crates/pdf-model/tests/sampled_function_extent.rs",
+          "actual_assertions": [
+            "a_sampled_function_whose_stream_holds_its_array_is_built",
+            "a_sampled_function_whose_stream_is_short_is_refused_rather_than_filled_with_zeroes",
+            "a_page_whose_shading_needs_that_function_reports_it"
+          ],
+          "assertion_meaning": "Four independent literal sample bytes are read at all four encoded sample positions. A three-of-four-byte paired stream is refused with required/available byte counts instead of invented zero samples, and a public shading page records that it could not make the mark.",
+          "fixture_validity": "The test writes exact object offsets/xref, exact sample stream Length, and same dictionary in the full/short pair; it does not explicitly assert was_recovered=false.",
+          "limits": "This is a strong sample extent and consumer test, not all Table 39 interpolation, dimensions, bit widths or Order semantics. Those are covered separately by sampled_functions_spec_audit/current unit assertions."
+        }
+      ],
+      "verdict": "No additional Type 0 extent test needed. Existing separately reviewed Type 0 suite exposes B10, the valid small-nonzero-domain interpolation failure; the file-only pointer does not cure or conceal that separate current finding."
+    },
+    {
+      "clause": "7.10.3",
+      "title": "Type 2 exponential interpolation",
+      "ledger": "doc/conformance/ledger.toml:1011",
+      "pointers": [
+        {
+          "path": "crates/pdf-model/tests/shadings.rs",
+          "actual_assertions": [
+            "an_axial_shading_runs_from_its_first_colour_to_its_second",
+            "a_radial_shading_grades_between_its_two_circles",
+            "a_shading_that_does_not_extend_paints_nothing_beyond_its_ends",
+            "a_mesh_with_a_function_interpolates_the_parameter"
+          ],
+          "assertion_meaning": "The public axial test checks red/blue endpoints and midpoint, radial test checks inner/rim/outside and symmetric points, and mesh test checks post-interpolation nonlinear function semantics. These are literal pixel controls, though the axial/radial midpoint bands allow raster tolerance.",
+          "limits": "These are Type 2 functions embedded in shading consumers; not all exponent/domain/vector cardinality combinations."
+        }
+      ],
+      "verdict": "Meaningful representative consumer assertions. Unit `an_exponential_function_interpolates_between_its_endpoints` additionally checks N=1 and vector outputs at x=0, .5, 1 and clipped out-of-domain inputs; prior function/clipping reviews cover its limits."
+    },
+    {
+      "clause": "7.10.4",
+      "title": "Type 3 stitching functions",
+      "ledger": "doc/conformance/ledger.toml:1019",
+      "pointers": [
+        {
+          "path": "crates/pdf-model/tests/shadings.rs",
+          "actual_assertions": [],
+          "assertion_meaning": "Search of this file found no FunctionType 3 dictionary: ShadingType 3 is radial shading and must not be mistaken for a Type 3 function.",
+          "limits": "Inventory pointer is generic function-shading evidence, not Type 3 stitching-function evidence."
+        },
+        {
+          "path": "crates/pdf-model/tests/hostile_functions.rs",
+          "actual_assertions": [
+            "a_stitching_function_that_names_itself_is_refused_rather_than_followed",
+            "two_stitching_functions_that_name_each_other_are_refused",
+            "a_chain_of_stitching_functions_within_the_bound_is_built",
+            "a_stitching_function_of_255_subfunctions_is_built_and_its_encode_is_read",
+            "more_subfunctions_than_the_budget_is_refused_by_count"
+          ],
+          "assertion_meaning": "Direct `Function::parse` calls: cycles terminate with named depth refusal; an eight-deep acyclic chain evaluates to .25; a 255-subfunction function succeeds with reversed Encode and x=0→1; a 5000-subfunction function refuses with its observed count.",
+          "fixture_validity": "The fixtures manually write offsets/xref and legal function objects for positive chains. The two self/mutual reference graphs are hostile recursion guards. The 5000 stop is the project's local resource budget, not a standard maximum k. No explicit was_recovered check.",
+          "limits": "The 255 case proves a realistic k beyond small dimensionality assumptions; it does not prove every `/Bounds`, `/Encode`, boundary equality or nested-function shape. Separate `a_nested_stitching_functions_steps_map_to_the_outer_domain` checks nested mapping. B09 signed-zero endpoint is a separate known failure."
+        }
+      ],
+      "verdict": "Positive and safety controls are discriminating; state 5000 limit as resource policy, not ISO upper bound. No new gap isolated by these file pointers."
+    },
+    {
+      "clause": "7.10.5",
+      "title": "Type 4 calculator functions aggregate",
+      "ledger": "doc/conformance/ledger.toml:1027",
+      "pointers": [
+        {
+          "path": "crates/pdf-model/tests/shadings.rs",
+          "actual_assertions": [
+            "a_function_based_shadings_domain_is_a_parallelogram_and_marks_nothing_outside_it",
+            "a_function_based_shadings_discontinuity_lands_at_the_device_pixel",
+            "a_type_4_program_paints_the_same_page_with_and_without_its_comments",
+            "the_owners_pi_file_paints_the_digits_its_program_computes",
+            "the_owners_bbp_series_evaluates_to_pi_to_three_places"
+          ],
+          "assertion_meaning": "Public page pipeline: actual range-valued function outputs create alpha/color; discontinuity pixel centers assert exact red/blue; comments leave pixel bytes unchanged; tracked BBP file paints source-described glyph-like rectangles; direct Function::parse of the same hand-authored arithmetic returns 3.141.",
+          "fixture_validity": "Generated PDF helpers give exact xref offsets; stream Length is explicitly set for function program streams. The corpus BBP test uses a minimal document without xref and tests the function parser directly, not whole-PDF robustness.",
+          "limits": "Grid division equality is about determinism, not mathematical correctness alone. Source-derived pixel controls and case/ref evaluator are stronger for expected outputs."
+        },
+        {
+          "path": "raster/crates/raster-function-conformance/src/reference.rs",
+          "actual_assertions": [
+            "raster-function-conformance::corpus::every_expectation_agrees_with_the_reference_evaluator"
+          ],
+          "assertion_meaning": "The separate evaluator supplies a second implementation for selected PostScript operator expectations authored as literal values/errors with PLRM citations. It does not by itself certify production or all PLRM semantics.",
+          "limits": "Exact operator semantics are delegated by §7.10.5.2 to PLRM3. The prior calculator-oracle audit explicitly treats those citations and local choices separately."
+        }
+      ],
+      "verdict": "Useful public-pipeline and supplemental evaluator assertions; not exhaustive Type 4 interpreter proof."
+    },
+    {
+      "clause": "7.10.5.2",
+      "title": "Operators and operands",
+      "ledger": "doc/conformance/ledger.toml:1043",
+      "pointers": [
+        {
+          "path": "crates/pdf-model/tests/shadings.rs",
+          "actual_assertions": [
+            "a_type_4_program_paints_the_same_page_with_and_without_its_comments",
+            "the_owners_pi_file_paints_the_digits_its_program_computes",
+            "the_owners_bbp_series_evaluates_to_pi_to_three_places",
+            "a_function_based_shadings_discontinuity_lands_at_the_device_pixel"
+          ],
+          "assertion_meaning": "Consumer tests distinguish comment tokenization, actual conditional/calculator paint, and a literal BBP result. They do not independently cover every operator's stack/type/numeric rules.",
+          "limits": "The file-only owner pointer does not independently prove Table 42. Unit operator assertions and the separately reviewed PLRM3-backed raster corpus carry that narrower evidence."
+        }
+      ],
+      "verdict": "Public calculator consumer behavior is asserted with visible outcomes; no additional operator-level test proposed from this pointer map."
+    },
+    {
+      "clause": "7.10.5.3",
+      "title": "Type 4 dictionary, inputs, outputs and errors",
+      "ledger": "doc/conformance/ledger.toml:1051",
+      "pointers": [
+        {
+          "path": "crates/pdf-model/tests/shadings.rs",
+          "actual_assertions": [
+            "a_function_based_shadings_domain_is_a_parallelogram_and_marks_nothing_outside_it",
+            "a_function_based_shadings_discontinuity_lands_at_the_device_pixel",
+            "a_function_based_shadings_grid_is_the_same_however_it_is_divided",
+            "a_mesh_with_a_function_interpolates_the_parameter",
+            "a_type_4_program_paints_the_same_page_with_and_without_its_comments"
+          ],
+          "assertion_meaning": "Valid Type 4 dictionaries state their input Domain and output Range cardinality; visible colors/alpha and the function-grid partition test show representative use. These are valid-output consumers rather than direct runtime-error controls.",
+          "limits": "Input-dependent count/type/stack errors and fault reporting are reviewed in `security_file_only_assertions_current`; do not count these shading tests as equivalent error tests."
+        },
+        {
+          "path": "crates/pdf-model/tests/function_faults.rs",
+          "actual_assertions": [
+            "a_tint_transform_that_errs_for_the_tint_painted_is_said",
+            "an_images_tint_transform_that_errs_for_some_levels_is_said",
+            "a_transfer_function_that_errs_for_some_levels_is_said",
+            "a_black_generation_that_errs_for_the_level_given_is_said",
+            "a_mesh_shadings_function_that_errs_across_its_parameter_is_said",
+            "a_type_1_shading_that_errs_where_it_is_drawn_is_said_after_drawing"
+          ],
+          "assertion_meaning": "Already reviewed in the current function-fault shard; representative valid control versus dynamic output-count/non-number/stack-overflow fault consumers, including post-draw Type 1 grid fault.",
+          "limits": "Do not duplicate that fault-path review here. Low-bit image conversion may report a fault at an unused palette level by acknowledged policy; GPU fault reporting remains separate residual."
+        },
+        {
+          "path": "raster/crates/raster-function-conformance/src/case.rs",
+          "actual_assertions": [
+            "raster-function-conformance::corpus::every_expectation_agrees_with_the_reference_evaluator",
+            "::the_corpus_covers_the_rules_that_belong_to_no_operator",
+            "::every_case_cites_a_source"
+          ],
+          "assertion_meaning": "Corpus data distinguishes expected outputs, named operator errors, undefined cases, and refusal grounds; corpus gate checks literal expectations and explicit rule coverage.",
+          "limits": "Data model itself is not a runtime assertion; test consumer is the `tests/corpus.rs` gate."
+        },
+        {
+          "path": "raster/crates/raster-function-conformance/src/reference/stack.rs",
+          "actual_assertions": [
+            "raster-function-conformance::corpus::every_expectation_agrees_with_the_reference_evaluator",
+            "::the_corpus_covers_every_refusal_ground"
+          ],
+          "assertion_meaning": "Separate reference stack caps at 100 and reports stack overflow/underflow states used by cases. The 101-entry refusal case is allowable because the standard requires capacity for at least 100 and does not require more.",
+          "limits": "Empty-pop zero is an implementation recovery choice, not a source-derived valid program value; prior calculator oracle review traced §7.10.5.2's normative PLRM3 delegation and the unresolved malformed-stack case."
+        },
+        {
+          "path": "raster/crates/raster-function-conformance/src/corpus/clipping.rs",
+          "actual_assertions": [
+            "raster-function-conformance::corpus::every_expectation_agrees_with_the_reference_evaluator",
+            "::the_corpus_covers_the_rules_that_belong_to_no_operator"
+          ],
+          "assertion_meaning": "Contains two explicit output-count error cases in addition to clipping cases; both have source-derived input/output counts and are checked against the independent evaluator.",
+          "limits": "No new fault-route claims; production post-interpretation integration is in the reviewed separate function_faults shard."
+        },
+        {
+          "path": "raster/crates/raster-function-conformance/src/corpus/refusal.rs",
+          "actual_assertions": [
+            "raster-function-conformance::corpus::every_expectation_agrees_with_the_reference_evaluator",
+            "::the_corpus_covers_every_refusal_ground"
+          ],
+          "assertion_meaning": "Explicit refusal grounds and program seeds; stack-depth item pushes 101 against local reference limit 100. Also includes nonstandard bounded-execution/static-analysis grounds that are implementation constraints, not ISO-mandated refusals.",
+          "limits": "Keep resource and backend lowering refusals separate from §7.10.5.3's mandatory overflow/error semantics."
+        }
+      ],
+      "verdict": "The pointer set separates source-derived errors, explicit local stack/resource limits, public consumer faults, and reference oracle policy. No new test gap isolated; known underflow recovery remains separately qualified."
+    }
+  ],
+  "known_current_findings_not_duplicated": [
+    {
+      "id": "2038-B09",
+      "summary": "Signed-zero equivalent Domain/Bounds values are not treated as the same degenerate Type 3 endpoint.",
+      "relevance": "Specific Type 3 endpoint test failure is already in global current findings/gate artifacts."
+    },
+    {
+      "id": "2038-B10",
+      "summary": "Sampled interpolation collapses a small but nonzero domain span to its low endpoint.",
+      "relevance": "Specific Type 0/General interpolation failure is already in global current findings/gate artifacts."
+    }
+  ],
+  "test_drafts": []
+}

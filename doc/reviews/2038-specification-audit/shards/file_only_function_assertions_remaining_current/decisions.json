@@ -1,0 +1,26 @@
+{
+  "review_scope": "Assertion-level mapping only for function-family file-only ledger references in the named inventory. Prior primary-source/oracle/fault reviews are cited as provenance; this does not re-audit every operator or function dictionary field.",
+  "decisions": [
+    {
+      "decision": "A ledger file pointer is evidence only for its named assertions and consumer route; do not infer that shadings.rs tests sampled or stitching functions merely from the path.",
+      "basis": "shadings.rs uses Type 2/Type 4 functions in shading consumers. Its ShadingType 3 examples are radial shading, not FunctionType 3; its nonlinear mesh sample uses FunctionType 2.",
+      "status": "qualified pointer mapping"
+    },
+    {
+      "decision": "Keep the 5000 stitching-function cap and 100-entry reference/device limits characterized as reader/resource choices; the normative minimum stack capacity is 100 and there is no normative Type 3 k maximum found in the reviewed source.",
+      "evidence": ["hostile_functions.rs::a_stitching_function_of_255_subfunctions_is_built_and_its_encode_is_read", "::more_subfunctions_than_the_budget_is_refused_by_count", "raster-function-conformance/src/corpus/refusal.rs::refusal/operand-stack-deeper-than-one-hundred"],
+      "status": "no reader defect inferred"
+    },
+    {
+      "decision": "Treat sampled extent and raster-conformance corpus as useful source-derived tests but retain fixture limits: explicit xref construction is present, while the helpers do not explicitly assert Document::was_recovered; the two-input reference specialization and GPU skips are documented limits.",
+      "evidence": ["sampled_function_extent.rs", "raster-function-conformance/tests/corpus.rs", "calculator_oracle_assertions_current/findings.txt"],
+      "status": "coverage bounded"
+    },
+    {
+      "decision": "Do not restate B09/B10 as new findings; they already exist in current global findings and the mapped tests identify their relevant boundaries.",
+      "evidence": ["doc/reviews/2038-specification-audit/findings.json:2038-B09", "doc/reviews/2038-specification-audit/findings.json:2038-B10"],
+      "status": "not duplicated"
+    }
+  ],
+  "test_drafts": []
+}

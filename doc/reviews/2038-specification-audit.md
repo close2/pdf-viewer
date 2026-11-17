@@ -11,18 +11,18 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (75)
+## Current checkpoint (76)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **83 failing test identities**: 82 behavior assertions/probes
 and one stale ignored-gate expectation. These are grouped findings, not 83 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
-The refreshed broad run, wave64, covered eleven crates: **7,218 tests ran, 7,142 passed,
-and exactly the 76 recorded in-scope assertions failed; 58 were skipped**.
+The refreshed broad run, wave76, covered eleven crates: **7,237 tests ran, 7,159 passed,
+and exactly the 78 recorded in-scope assertions failed; 58 were skipped**.
 Exact binary/test identities match the manifest, with no extra or missing failures.
 Passing status includes successful early returns; two are reproduced under D45.
 Three GPU failures and one engine-only Matrix2D availability failure under the adopted
-A193 reference scope are recorded separately. The new outline-panel raster test also
+A193 reference scope are recorded separately, as is D51’s ignored stale test expectation. The new outline-panel raster test also
 passes separately; an existing LZW test was strengthened.
 A separate engine-enabled run adds **247 passing script/worker tests**, including
 two new string/stream execution controls; four ignored tests are separate.
@@ -208,6 +208,17 @@ expectation without changing its baseline. Model Clippy passes. Broad64 predates
 17new passing tests and two failures; the ignored stale gate is outside its scope.
 AnnexE private-name and writer claims remain bounded; Table49's amended required
 URL conflicts with surviving optional prose, and custom structure types are expressly allowed.
+
+Checkpoint76 refreshes the eleven-crate run with an exact match to all78expected
+in-scope failures. Four selected ignored corpus tests pass with fixtures present:
+three archive witnesses,963opened disk/memory documents, three composite-font
+witnesses at three targets over every two-byte code, and the accessibility census.
+The transport count includes generation-zero lookups; nonzero-generation objects
+can compare null on both sides. A stronger oracle is being drafted. A ratio-only
+TJ-spacing assertion has a separate blind spot under review. The font fallback
+control now includes required Length1 and passes; model Clippy passes. An exact
+pointer index records34of69file-only references as partially assertion-reviewed,
+with35remaining. These counts do not certify entire files or clause implementations.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

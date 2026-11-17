@@ -1,0 +1,25 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "topic": "An ignored test is a defect signal",
+      "decision": "No. Ignore status records execution cost or data availability. Treat it as an evidence gap only where a completed claim appears to rely on it, and as test robustness risk where missing inputs can produce a successful partial run.",
+      "evidence": "Inspected bodies and ledger test lists; several related deterministic tests exist. No current product behavior failure was established."
+    },
+    {
+      "topic": "Archive named witness missing-file behavior",
+      "decision": "The test header expressly names-and-skips absent witnesses, so that behavior is documented policy rather than an automatic defect. Optional-root hardening can be narrower: skip only the absent repository root for each witness (doc/corpora/pdfbox, doc/corpora/format-corpus, doc/pdf.js), and report a missing/unreadable declared witness under a present root with its path. Parent wave-76 run passed all 3 present witnesses; negative-control proposal remains unexecuted.",
+      "recommended_change": "If adopting the optional-root/partial-root distinction, use per-witness repository roots so independently optional corpora remain independent. Preserve #[ignore]. This improves evidence integrity, not PDF behavior.",
+      "test_command": "cargo test -p pdf-archive --test witnesses each_witness_fails_the_row_its_gap_belonged_to -- --ignored --nocapture"
+    },
+    {
+      "topic": "Broad syntax/transform/accessibility corpus runs",
+      "decision": "These supplemental runs were executed by the parent in wave 76: syntax 963 opened documents / 112562 object comparisons / 11 identical refusals; transform 3 fixtures x 3 targets x 65536 codes; accessibility 1020 documents with tracked-974 ratchet. Results add broad evidence, but are not proof that every input opens or an exhaustive corpus survey.",
+      "commands": "Executed by parent; see scratchpad/r2038/spec-audit/ignored-consumers-wave76.log."
+    },
+    {
+      "topic": "viewer-accessibility ignored fixtures",
+      "decision": "No such ignored corpus gate was found in that crate's test directory; its tree tests are deterministic. The related ignored source-data census is in viewer-core and should not be mislabeled as an adapter test."
+    }
+  ]
+}

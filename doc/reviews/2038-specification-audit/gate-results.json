@@ -1976,6 +1976,37 @@
       "log": "quality-model-wave75d.log",
       "exit": 0,
       "scope": "model all-targets Clippy; earlier75c failed only unfulfilled lint expectation in newtest, removed"
+    },
+    {
+      "log": "eleven-crate-wave76.log",
+      "run": 7237,
+      "passed": 7159,
+      "failed": 78,
+      "skipped": 58,
+      "exit": 100,
+      "scope": "Exactmanifest identity match; noextra/missing.3GPU+1engine+1ignoredstalegateoutside."
+    },
+    {
+      "log": "ignored-consumers-wave76.log",
+      "run": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 2601,
+      "exit": 0,
+      "scope": "4explicitignoredtests executed;filteredothers notbehaviorcoverage. See source/oracle/counter limitations in shard."
+    },
+    {
+      "log": "font-control-wave76.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "scope": "Existing pairedfontcontrol after addingrequiredLength1. Broad76precededthisfixturecorrection."
+    },
+    {
+      "log": "quality-model-wave76.log",
+      "exit": 0,
+      "scope": "Modelall-targetsClippy afterLength1 fixture correction."
     }
   ],
   "prior_expected_failures": {
