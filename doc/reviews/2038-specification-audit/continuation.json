@@ -6,7 +6,7 @@
     "broad": "Wave123: 7,321 run, 7,216 PASS, 105 FAIL, 58 skipped. Exact default-scope manifest match through122; no extra or missing failures.",
     "gtk": "Earlier20 tests PASS; checkpoint68 adds one GTK settings test PASS under Xvfb and one Qt bridge test PASS.",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "After broad123: one new structure Type-omission test PASS, not yet promoted; no new failures. Manifest112=105default+5GPU+1engine+1ignored.",
+    "later_targets": "After broad123: two new PASS (structure Type omission, collection date controls), one new FAIL (B76 short A array). Core/host Clippy PASS. Manifest113=106default+5GPU+1engine+1ignored.",
     "quality": "Checkpoint52 syntax/model/script/core/UI all-targets with engine PASS;51signature and earlier scopes recorded.",
     "script_engine": "247PASS4ignored plus separate corpus2PASS249filtered. Corpus counters documented; semantic/error provenance follow-up active.",
     "rendition_and_font": "B49/B50:7new tests,5PASS2FAIL;73total expected failures,70in eleven-crate scope+3GPU. Model/core Clippy PASS.",
@@ -18,12 +18,14 @@
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
-      "structure_root_element_cells_current",
-      "collection_presentation_cells_current",
       "halftone_dictionary_cells_current",
-      "structure_content_item_cells_current"
+      "structure_content_item_cells_current",
+      "pattern_dictionary_cells_current",
+      "collection_folder_cells_current"
     ],
     "recorded_shards": [
+      "collection_presentation_cells_current",
+      "structure_root_element_cells_current",
       "font_stream_dictionary_cells_current",
       "uri_action_cells_current",
       "compatibility_graphics_state_current",
@@ -327,7 +329,7 @@
     "All 883 rows remain partially reviewed. Current work checks uncited EC3 annotation candidates against primary pages, effective wording, code and actual assertions.",
     "All69 file-only pointers have partial selected-assertion review; this does not certify entire files or features.",
     "Literal issue citation candidates are discovery metadata only, not counts of missing features. Selected batches remain under parent source review.",
-    "152 unique table matrices and all 883 ledger rows remain partial. Structure, collection and halftone selected reviews continue.",
+    "157 unique table matrices and all 883 ledger rows remain partial. Broad123 predates two passing tests and B76. Halftone, structure content-item, pattern and folder reviews continue.",
     "Stop new dispatch near 81%; preserve 15% weekly allowance at 85%."
   ],
   "budget": {

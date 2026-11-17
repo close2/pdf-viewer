@@ -3191,6 +3191,24 @@
       "skipped": 58,
       "exit": 100,
       "scope": "Eleven default-feature crates through122; exact manifest match, comparison in broad123-comparison.json"
+    },
+    {
+      "log": "structure-type-wave123.log",
+      "run": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Public structure Type omission with typed control"
+    },
+    {
+      "log": "collection-date-wave124b.log",
+      "run": 2,
+      "passed": 1,
+      "failed": 1,
+      "skipped": 0,
+      "exit": 100,
+      "scope": "Public date sorting and short direction array"
     }
   ],
   "prior_expected_failures": {

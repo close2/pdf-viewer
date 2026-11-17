@@ -1,0 +1,131 @@
+{
+  "shard": "collection_presentation_cells_current",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "baseline": "b901326c",
+  "method": "Reconciled scratchpad and durable collection review first; read effective EC3 source at table captions and footers; inspected relevant code and assertion bodies. No tests run in this shard.",
+  "source_locations": [
+    {
+      "clause": "12.3.5.1 Table 153 Split row (default orientation context)",
+      "physical_page": 465,
+      "printed_page": 450,
+      "details": "If Split is absent, preferred orientation follows View: D/no value horizontal, T vertical; no splitter for H/C. The available-area collection splitter itself is introduced as a may in §12.3.5.1."
+    },
+    {
+      "clause": "12.3.5.1 Table 156, collection sort dictionary",
+      "physical_page": 467,
+      "printed_page": 452,
+      "details": "Caption, Type, S and A rows all appear on this page. The preceding sort-type rules and NOTE 3 lexical implementation dependency are on physical 467/printed452."
+    },
+    {
+      "clause": "12.3.5.1 Table 157, collection colors dictionary",
+      "physical_pages": "467-468",
+      "printed_pages": "452-453",
+      "details": "Type, Background, CardBackground, CardBorder begin on physical467/printed452; PrimaryText and SecondaryText continue on physical468/printed453. All values are optional arrays of three DeviceRGB numbers in [0,1]."
+    },
+    {
+      "clause": "12.3.5.1 Table 158, collection split dictionary",
+      "physical_page": 468,
+      "printed_page": 453,
+      "details": "Caption, Type, Direction and Position are on this page. The prose immediately preceding says display may be divided into navigation and a preview of the initial/current selected collection document; user adjustment is permitted."
+    }
+  ],
+  "errata": {
+    "physical_pages_checked": [
+      467,
+      468
+    ],
+    "annotation_inventory": "Neither page has StrikeOut/Caret/Text errata annotations. The only markup objects are link annotations to Table 156 and Table 153. Relevant effective renumbering #477 for the later Collection navigators material is already addressed in the collections shard and is not a correction to Tables 156-158.",
+    "effective_scope": "No EC3 correction to the audited sort, colors, or split cells was found on these pages."
+  },
+  "features": [
+    {
+      "table": 156,
+      "title": "Entries in a collection sort dictionary",
+      "cells": [
+        {
+          "key": "Type",
+          "source": "Optional; if present shall be CollectionSort.",
+          "implementation": "Collection parser reads /Sort without using /Type as a performability guard.",
+          "assertions": "No reader rejection obligation is inferred from this producer-validity cell."
+        },
+        {
+          "key": "S",
+          "source": "Required name or array of names; each identifies a parent Schema field. Array entries break ties in sequence until unique or exhausted.",
+          "implementation": "collection::sorted_keys builds keyed comparator list in file order and applies successive fields.",
+          "assertions": "Model test a_second_field_breaks_a_tie_and_no_sort_states_no_order uses numeric primary and file-name secondary values with /A [true false]; it asserts the exact reversed secondary result. Host test a_collection_lists_its_files_in_the_order_table_153_states exercises visible row ordering for a single text key."
+        },
+        {
+          "key": "A",
+          "source": "Optional boolean applies ascending/descending; array entries correspond index-wise to /S. Extra array entries are ignored, missing entries are assumed true, default is true.",
+          "implementation": "Sort::ascending broadcasts a one-element boolean, otherwise reads the indexed bool and returns true when absent; extra booleans have no named field to affect.",
+          "assertions": "Existing tests cover /A absent and one-field /A false, plus exact two-field /A [true false]. They do not assert the specified short-array case where a later key defaults true. Proposed public consumer draft isolates it while also testing date ordering."
+        },
+        {
+          "key": "type comparisons",
+          "source": "§12.3.5.1 says numbers ascending by numeric magnitude and dates by chronological instant. Text is lexical ascending, with NOTE 3 calling lexical order an implementation dependency.",
+          "implementation": "sortable/compare dispatch by Schema FieldKind; number uses numeric comparison, date parses PDF dates and compares instants, text compares decoded strings.",
+          "assertions": "Public host rows prove lexical filename order; model tests prove numeric ascending/descending. Existing email example parses a Date schema and sort direction but does not sort actual date values. No date-order consumer assertion found. Proposed exact-xref PDF1.7 draft compares offset-bearing dates with literal UTC chronology, tied under the numeric primary key."
+        },
+        {
+          "key": "order outside stated keys",
+          "source": "The table guarantees successive sort keys through unique order or exhaustion; it specifies no extra tie-break after key exhaustion.",
+          "implementation": "The repository chooses original EmbeddedFiles tree order for remaining ties; missing values are placed after present values in both directions.",
+          "assertions": "These are documented owner decisions in ADR 1168, not ISO-required semantics; existing numeric test demonstrates its missing-value choice. No new defect asserted."
+        }
+      ],
+      "parent_verdict": "Confirmed B76: /A [false] incorrectly broadcasts false to the second key. /A [false true] orders dates correctly. Sort parsing collapses scalar false and one-element array into the same Vec<bool>; ascending() broadcasts singleton values."
+    },
+    {
+      "table": 157,
+      "title": "Entries in a collection colors dictionary",
+      "cells": [
+        {
+          "keys": [
+            "Type",
+            "Background",
+            "CardBackground",
+            "CardBorder",
+            "PrimaryText",
+            "SecondaryText"
+          ],
+          "source": "Every color entry is optional. Each specified color is a DeviceRGB triple in [0,1]. Table 153 calls /Colors a suggested set; its NOTE says it is recommended that a layout use the colors provided.",
+          "implementation": "pdf-model::collection::colours reads each known three-component array. Current shared host does not apply these values; panel::unused_furniture reports that the viewer uses its own colors. Native widgets keep platform styling.",
+          "assertions": "Model test a_navigator_names_layouts_in_the_order_the_file_prefers_them reads Background [1,1,1], and host test the_presentation_entries_this_window_does_not_draw_are_named_out_loud confirms a colors request is surfaced in a message. Neither asserts rendered RGB."
+        }
+      ],
+      "verdict": "Not a SHALL defect: color use is recommended and owner ADRs 1168/1252 choose platform colors. Describe it as a declined recommendation with a stated product rationale, not as a hard reader requirement or a claim that colors are applied."
+    },
+    {
+      "table": 158,
+      "title": "Entries in a collection split dictionary",
+      "cells": [
+        {
+          "key": "Type",
+          "source": "Optional; if present shall be CollectionSplit.",
+          "implementation": "Parsed only when a /Split dictionary exists; reader does not use /Type as a rejection gate.",
+          "assertions": "Producer rule, no mandatory reader rejection claim."
+        },
+        {
+          "key": "Direction",
+          "source": "Optional PDF2.0 H, V or N. N means no split and the entire window region shall be dedicated to file navigation.",
+          "implementation": "SplitDirection preserves H/V/N; only N affects window geometry via panel::whole_window. H/V is not used to create a preview pane because the product does not implement collection preview splitting.",
+          "assertions": "Host mapping test table_158s_n_gives_the_whole_window_to_the_file_navigation_view checks N true, no Split false, and hidden View H false. `unused_furniture` test checks H/V is named. GTK/Qt/UI consumer callsites were traced; this shard did not find host pixel assertions for this condition."
+        },
+        {
+          "key": "Position",
+          "source": "Optional 0..100 percentage; ignored when Direction=N.",
+          "implementation": "Model clamps an out-of-range value; current host does not apply it because it does not present the Collection's two-area preview split.",
+          "assertions": "Existing model example asserts an invalid Position 250 is clamped to 100. That is robustness behavior on a producer-invalid value, not a valid-input conformance witness. No rendered-position assertion found."
+        }
+      ],
+      "related_table_153": "When /Split is absent, preferred orientation is determined by /View: D or no value indicates horizontal, T indicates vertical; no splitter for H/C. This is distinct from a default /Direction value inside a present split dictionary, for which Table 158 states no explicit default. Current product does not present a collection-file preview splitter, so omission is a product capability choice; do not treat the dictionary fields alone as a mandatory request to add such UI."
+    }
+  ],
+  "draft": "drafts/collection_sort_date_and_short_direction.rs",
+  "scope_limits": [
+    "This is a Table 156-158 cell review, not complete §12.3.5 certification. It does not repeat the prior CI columns, folders, initial-document, or navigator-layout findings.",
+    "No whole-ADR certification is made. Table 157's recommendation is weighed separately from SHALL; Table 158's /N rule is distinguished from the optional preview splitter.",
+    "No test execution claim is made in this shard."
+  ],
+  "parent_execution": "B76: short A array FAIL; explicit mixed directions, explicit all descending and scalar false controls PASS. T164 records the independent date chronology controls. Parent execution supersedes scratch-only statements below."
+}

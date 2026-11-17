@@ -2431,6 +2431,97 @@
       ],
       "artifact": "shards/font_stream_dictionary_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "354",
+      "keys": [
+        "Type",
+        "K",
+        "IDTree",
+        "ParentTree",
+        "ParentTreeNextKey",
+        "RoleMap",
+        "ClassMap",
+        "Namespaces",
+        "PronunciationLexicon",
+        "AF"
+      ],
+      "ledger_rows": [
+        "14.7.2"
+      ],
+      "artifact": "shards/structure_root_element_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "355",
+      "keys": [
+        "Type",
+        "S",
+        "P",
+        "ID",
+        "Pg",
+        "K",
+        "A",
+        "C",
+        "R",
+        "T",
+        "Lang",
+        "Alt",
+        "E",
+        "ActualText",
+        "Ref",
+        "NS",
+        "PhoneticAlphabet",
+        "Phoneme",
+        "AF"
+      ],
+      "ledger_rows": [
+        "14.7.2"
+      ],
+      "artifact": "shards/structure_root_element_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "156",
+      "keys": [
+        "Type",
+        "S",
+        "A"
+      ],
+      "ledger_rows": [
+        "12.3.5.1"
+      ],
+      "artifact": "shards/collection_presentation_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "157",
+      "keys": [
+        "Type",
+        "Background",
+        "CardBackground",
+        "CardBorder",
+        "PrimaryText",
+        "SecondaryText"
+      ],
+      "ledger_rows": [
+        "12.3.5.1"
+      ],
+      "artifact": "shards/collection_presentation_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "158",
+      "keys": [
+        "Type",
+        "Direction",
+        "Position"
+      ],
+      "ledger_rows": [
+        "12.3.5.1"
+      ],
+      "artifact": "shards/collection_presentation_cells_current/features.json",
+      "status": "partial"
     }
   ],
   "reconciliation_110": "Two Table227 reviews previously counted twice; merged into one matrix retaining both artifact links. Table87 now includes four continuation keys and corrected source span. Counts are selected unique table matrices, not certified features."

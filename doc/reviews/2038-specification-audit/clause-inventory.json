@@ -6889,7 +6889,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/collections/features.json",
-      "shards/embedded_file_cells_current/features.json"
+      "shards/embedded_file_cells_current/features.json",
+      "shards/collection_presentation_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -10617,7 +10618,8 @@
       "shards/errata_media_annex_batch_current/features.json",
       "shards/annex_l_split_cardinality_current/features.json",
       "shards/annex_l_consumer_rules_remaining_current/features.json",
-      "shards/ignored_fixture_gates_current/features.json"
+      "shards/ignored_fixture_gates_current/features.json",
+      "shards/structure_root_element_cells_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."

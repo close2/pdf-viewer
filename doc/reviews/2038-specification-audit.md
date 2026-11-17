@@ -11,11 +11,11 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (123)
+## Current checkpoint (124)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
-failure manifest contains **112 failing test identities**: 111 behavior assertions/probes
-and one stale ignored-gate expectation. These are grouped findings, not 112 independent defects. B08 and B42 remain unresolved interpretation/policy
+failure manifest contains **113 failing test identities**: 112 behavior assertions/probes
+and one stale ignored-gate expectation. These are grouped findings, not 113 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
 The refreshed broad run, wave123, covered eleven crates: **7,321 tests ran, 7,216 passed,
 and exactly the 105 recorded in-scope assertions failed; 58 were skipped**.
@@ -521,6 +521,12 @@ Checkpoint 123 reconciles the broad run against all 105 expected in-scope test
 identities, with no extra or missing failures. The font-stream review distinguishes
 the literal Length3 byte assertion from its public consumer test and corrects
 metadata/errata locators. There are 152 partially reviewed table matrices.
+
+Checkpoint 124 records B76: a one-entry collection sort direction array broadcasts
+its value instead of defaulting missing directions to ascending. Explicit date/rank
+controls and a valid public structure Type-omission test pass. Core/host Clippy
+passes. The manifest is 113 identities, with 106 in the default scope; broad123
+predates these two passing tests and one failure. There are 157 partial matrices.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

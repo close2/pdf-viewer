@@ -1,0 +1,33 @@
+{
+  "status": "selected ADR review",
+  "decisions": [
+    {
+      "adr": "0134 / 0214 — structure tree reaches accessibility consumer",
+      "review": "Retain for the modeled hierarchy and roles, with current consumer defects kept distinct.",
+      "basis": "Structure tree feeds the public AccessibilityTree and AccessKit; logical_structure_framing_current records mixed-order defect B43. That finding is not re-audited here.",
+      "limit": "Does not certify every tagged-PDF feature or every element field."
+    },
+    {
+      "adr": "0257 — bounded structure traversal",
+      "review": "Retain the limit only with its explicit truncated/reporting contract.",
+      "basis": "The previous tree-consumer audit identified silent depth/fan-out bounds; this cell pass relies on parent findings and does not reclassify them.",
+      "limit": "No duplicate test or full traversal audit."
+    },
+    {
+      "adr": "0079 — attribute value precedence",
+      "review": "Retain for sampled owners/classes and element A/C precedence.",
+      "basis": "Distinct class/A values and revisions have assertions; EC3 #289 handling is owned by structure_attributes_remaining_current.",
+      "limit": "No exhaustive Table 376 owner certification."
+    },
+    {
+      "adr": "2014 / 2028 — namespace-sensitive transitive role mapping",
+      "review": "Retain for tested namespace paths; don't infer strict rejection of malformed files.",
+      "basis": "Root RoleMap, namespace RoleMapNS, transitive target and cycles have expected-value tests.",
+      "limit": "No exhaustive namespace-array membership mutation."
+    }
+  ],
+  "drafts": [
+    "drafts/type_absent_valid_tree.rs"
+  ],
+  "reconsideration": "No defect established. Draft closes a valid-input assertion gap for the explicit Table355 Type-omission rule."
+}

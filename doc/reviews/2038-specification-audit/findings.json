@@ -3648,5 +3648,35 @@
     ],
     "summary": "The same URI action ignores IsMap for an outline item and appends independently calculated coordinates for an annotation click.",
     "execution": "One new exact-xref public Viewer test PASS; observes Event::OpenUri only, no handler or network. Model/core Clippy PASS."
+  },
+  {
+    "id": "2038-B76",
+    "kind": "behavior-gap",
+    "clauses": [
+      "12.3.5.1"
+    ],
+    "summary": "A one-entry collection sort direction array is incorrectly broadcast to every sort key; omitted directions do not default to ascending.",
+    "source": "Table156 physical467/printed452 explicitly makes missing A-array entries true. Scalar false and array [false] have different semantics with multiple S fields.",
+    "execution": "Public collection row-order witness FAIL: b,a,c versus a,b,c; explicit directions and scalar controls PASS. Exact-xref unrecovered PDF1.7. Core/host Clippy PASS.",
+    "cause": "sort() discards scalar/array shape; Sort::ascending broadcasts a singleton Vec<bool>.",
+    "limits": "One defaulting defect, not a date-comparison defect; no production fix in this audit."
+  },
+  {
+    "id": "2038-T163",
+    "kind": "assertion-quality",
+    "clauses": [
+      "14.7.2"
+    ],
+    "summary": "A valid single K child dictionary without Type reaches public accessibility with literal paragraph role/text, alongside an explicit-Type control.",
+    "execution": "One new test PASS. Parent corrected draft root-versus-element targeting and false old-test coverage claims."
+  },
+  {
+    "id": "2038-T164",
+    "kind": "assertion-quality",
+    "clauses": [
+      "12.3.5.1"
+    ],
+    "summary": "Public collection ordering has independent chronological date and numeric rank controls, including scalar versus explicit per-key descending directions.",
+    "execution": "One new control test PASS; separate short-array witness FAIL under B76."
   }
 ]

@@ -678,6 +678,12 @@
       "test": "non_bom_utf8_option_label_is_decoded_for_control_and_save",
       "finding": "2038-B75",
       "log": "fdf-wave119b.log"
+    },
+    {
+      "binary": "viewer-host::collection_sort_date_spec_audit",
+      "test": "public_collection_rows_use_date_chronology_and_default_missing_direction_to_ascending",
+      "finding": "2038-B76",
+      "log": "collection-date-wave124b.log"
     }
   ]
 }

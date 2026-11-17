@@ -1,0 +1,8 @@
+{
+  "source": "Read Table156 physical467/printed452: short A arrays explicitly default missing entries to true; no equal-length producer constraint. Table157 continues467–468;158 at468. Corrected source metadata: Table153 Split continuation is465/450, and sort-type rules/NOTE3 are467/452. Colors recommendation is Table153 NOTE on464/449. No Issue amendments identified on467–468.",
+  "fixture": "Valid ASCII PDF1.7 with exact xref, no recovery/chain cut, one page, three sorted EmbeddedFiles names and matching CI/schema. Rank2 tie: a date2024-01-01 01:00+02 equals2023-12-31 23:00Z; b23:30Z is later although lexical raw ordering reverses. cRank1 independently tests descending primary key.",
+  "failure": "B76 public Query::Collection and Query::Attachments to collection_rows: short [false] gives b,a,c instead of literal a,b,c. Explicit [false true] yields a,b,c. Separate passing test checks [false false] and scalar false yield b,a,c, isolating array/scalar distinction. Production untouched.",
+  "cause": "collection.rs sort() maps scalar and single-element array to identical Vec<bool>; Sort::ascending singleton arm broadcasts to every field. The existing comment claims a short-array default that this representation loses.",
+  "decisions": "Read1168 model/host ordering boundary and missing/tie policy;1252 N whole-window rule and optional preview split rationale;1622 normative versus recommendation status. Keep compute-order-once boundary; its implementation is defective for this valid case. Read whole_window and unused_furniture implementations. Native geometry is not certified by utility assertions.",
+  "execution": "collection-date-wave124b2run1PASS1FAIL; structure-type-wave1231PASS; core/host all-target Clippy124PASS."
+}

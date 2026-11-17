@@ -1,0 +1,35 @@
+{
+  "shard": "collection_presentation_cells_current",
+  "selected_adr_reviews": [
+    {
+      "adr": "1168",
+      "topic": "Sort at the model/document seam and carry row order to hosts",
+      "review": "Reaffirmed. Table 153's order is a reader SHALL and model has the document's /CI plus file values needed to derive it; the host applies it to visible rows. Existing public row order is tested. Current tests do not independently assert actual date sorting or the Table 156 short-/A-array default, so the extra scratch draft targets those two cases; this is assertion-depth evidence, not an observed failure. Preserve ADR 1168's tie ordering and missing-value behavior as owner decisions beyond the literal sort fields."
+    },
+    {
+      "adr": "1252",
+      "topic": "Collection colors and split presentation departures; /Direction N behavior",
+      "review": "Reaffirmed narrowly. Table 158 /N carries an explicit SHALL for the window region and is decoded, mapped and called from GTK, Qt and viewer-ui paths; a toolkit-free host assertion checks its decision. H/V/Position describe an optional split between navigation and a preview; the current product leaves that preview split unsupported and reports the request. Table 157 color values are optional and recommended for layout use; the hosts keep platform colors and disclose the choice. This is a product departure from a recommendation, not an unqualified claim that there is no SHOULD-level guidance. Native pixel behavior was not independently tested in this pass."
+    },
+    {
+      "adr": "1622",
+      "topic": "Meaning of implemented versus departed",
+      "review": "Its rule is relevant: the project reserves departed for unimplemented SHALLs, while recommendations/permissions not taken can remain implemented with the choice stated. This supports distinguishing Table 157's recommendation from Table 158 /N's SHALL. It does not erase the recommendation or prove UI rendering."
+    }
+  ],
+  "interpretation_notes": [
+    "Table 157 color triple values are DeviceRGB, each component in 0..1; producer validity is not a reader-side malformed-input refusal obligation.",
+    "Table 158 /Direction N is not synonymous with H/V splitter support. The source allows a display split, and the two regions have specified roles. A viewer may omit that optional collection-preview arrangement, but if it implements N it must dedicate the whole window to navigation as the source states.",
+    "The Table 153 default orientation rule applies when /Split is absent. Do not invent a Table 158 /Direction default for a present dictionary with no Direction key.",
+    "No additional EC3 operation on Tables 156-158 was found; #477's navigator renumbering is handled in the existing collections shard."
+  ],
+  "test_proposal": {
+    "path": "drafts/collection_sort_date_and_short_direction.rs",
+    "purpose": "Public Query::Collection/Query::Attachments into viewer_host::collection_rows, with exact xref, strict parse/no recovery, and a one-page control. Numeric rank descending orders the primary key; tied items sort by PDF Date chronological instants through a short /A array whose missing second direction defaults true. Dates have explicit independent UTC expectations and raw lexical order is opposite.",
+    "status": "Scratch proposal only; not compiled or executed."
+  },
+  "remaining_questions": [
+    "Would a public/native UI assertion for /Direction N materially improve the existing utility-level proof? Actual GTK/Qt/UI callsites were traced, but no native pixel test for this exact condition was found in the bounded search.",
+    "The earlier collections finding records uncertainty about whether /D's initial embedded document must be visually shown or row-emphasized in this product; this pass does not resolve it."
+  ]
+}
