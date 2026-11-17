@@ -1,0 +1,25 @@
+{
+  "baseline": "b901326c",
+  "decisions": [
+    {
+      "decision": "No duplicate test draft for Table 381 short/excess column arrays.",
+      "source": "§14.8.5.4.7 and Table 381, physical 803–804 / printed 788–789; effective Table 377 replacement physical 1013–1014.",
+      "rationale": "The source semantics govern a column layout/reflow process. Current product renders the authored appearance and has no Table 381 consumer. Parser-only assertions would not demonstrate a supported product behavior. This follows the existing inapplicability boundary; no reader rejection obligation inferred."
+    },
+    {
+      "decision": "Keep ListNumbering as D17 pending consumer/API disposition.",
+      "source": "Table 382, physical 805 / printed 790, including the ordered/unordered sentence and separate optional-autonumber NOTE.",
+      "rationale": "The table distinguishes list kind from label regeneration. Current consumer cannot represent list orderedness separately from generic List. Preserve the unresolved representation question; do not strengthen the NOTE into a mandatory numbering requirement. ADR 0748 continuation work remains separate."
+    },
+    {
+      "decision": "Retain B53 as an adopted-algorithm/SHOULD gap with narrow boundaries.",
+      "source": "Table 384, physical 807–808 / printed 792–793, plus EC3 #200 insertion in §14.8.4.8.3 physical 783 / printed 768.",
+      "rationale": "The optional implicit-header algorithm is adopted, so the new nontermination SHOULD applies to that implementation. Public exact-xref witness distinguishes the bad early stop. It does not prove that all readers must implement implicit headers, nor settle all source ambiguities. ADR 0312's adopted loop must account for the correction or explicitly qualify its behavior."
+    },
+    {
+      "decision": "Exclude Table 383 and B01/B02 from this matrix rather than reclassifying them.",
+      "source": "Table 383 physical 806 / printed 791; B29 findings and language/marked-content B01/B02 records.",
+      "rationale": "PrintField has separate current public-consumer evidence (B29); B01/B02 concern language/ActualText paths, not the selected layout/list/table cells."
+    }
+  ]
+}

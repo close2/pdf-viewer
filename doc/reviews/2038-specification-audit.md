@@ -11,16 +11,16 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (115)
+## Current checkpoint (116)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
 failure manifest contains **107 failing test identities**: 106 behavior assertions/probes
 and one stale ignored-gate expectation. These are grouped findings, not 107 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
-The refreshed broad run, wave111, covered eleven crates: **7,298 tests ran, 7,199 passed,
-and exactly the 99 recorded in-scope assertions failed; 58 were skipped**.
+The refreshed broad run, wave116, covered eleven crates: **7,305 tests ran, 7,205 passed,
+and exactly the 100 recorded in-scope assertions failed; 58 were skipped**.
 Exact binary/test identities matched the manifest at that checkpoint, with no extra or missing failures.
-Wave111 includes all default-scope additions and strengthened assertions through checkpoint110.
+Wave116 includes all default-scope additions and strengthened assertions through checkpoint115.
 Passing status includes successful early returns; two are reproduced under D45.
 Five GPU failures and one engine-only Matrix2D availability failure under the adopted
 A193 reference scope are recorded separately, as is D51’s ignored stale test expectation. The new outline-panel raster test also
@@ -481,6 +481,12 @@ resource with an indirect ActualText value, with a literal inline control. Model
 Clippy passes. Three signature transform tables and their actual assertion bodies
 are reconciled; B18 remains observed and B42 remains interpretation-qualified.
 The unique partial table count is 129; the 107-entry failure manifest is unchanged.
+
+Checkpoint 116 refreshes the broad run with no extra or missing failure identities.
+Three structure-attribute matrices bring the unique partial count to 132; D17 and
+B53 keep their existing qualifications. Exact errata target checks confirm D66 and
+reject a proposed issue216 mismatch after its second-page replacement is included.
+The run completed in65 seconds with peak7.22 GiB.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

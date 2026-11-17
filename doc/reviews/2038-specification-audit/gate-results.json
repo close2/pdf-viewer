@@ -3087,6 +3087,18 @@
       "log": "quality-model-wave115b.log",
       "exit": 0,
       "scope": "Model all-target Clippy after unused lint expectation repair."
+    },
+    {
+      "log": "broad116.log",
+      "scope": "Eleven default-feature crates through115; exact binary/test identity reconciliation.",
+      "run": 7305,
+      "passed": 7205,
+      "failed": 100,
+      "skipped": 58,
+      "exit": 100,
+      "expected_failures": 100,
+      "unexpected_failures": 0,
+      "comparison": "broad116-comparison.json"
     }
   ],
   "prior_expected_failures": {

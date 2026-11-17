@@ -3,10 +3,10 @@
   "baseline": "b901326c230faa5d2cb288016339b9d5c6288527",
   "previous_audit": "1983-specification-audit",
   "current_execution": {
-    "broad": "Wave111: 7,298 run, 7,199 PASS, 99 FAIL, 58 skipped. Exact binary/test manifest match; no extra or missing failures. Includes additions and strengthening through110.",
+    "broad": "Wave116: 7,305 run,7,205 PASS,100 FAIL,58 skipped. Exact default-scope manifest match through115; no extra or missing failures.",
     "gtk": "Earlier20 tests PASS; checkpoint68 adds one GTK settings test PASS under Xvfb and one Qt bridge test PASS.",
     "prior_regressions": "72/72 pass by exact binary/test identities",
-    "later_targets": "Latest broad111 matches all 99 default-scope failures. Seven identities remain outside: five GPU, one engine, one ignored stale gate. PASS includes known fixture early returns; source/assertion reviews remain separately qualified.",
+    "later_targets": "Seven identities remain outside broad116: five GPU, one engine, one ignored stale gate. PASS includes known fixture early returns. DCT fixture strengthening is being reviewed after this broad run.",
     "quality": "Checkpoint52 syntax/model/script/core/UI all-targets with engine PASS;51signature and earlier scopes recorded.",
     "script_engine": "247PASS4ignored plus separate corpus2PASS249filtered. Corpus counters documented; semantic/error provenance follow-up active.",
     "rendition_and_font": "B49/B50:7new tests,5PASS2FAIL;73total expected failures,70in eleven-crate scope+3GPU. Model/core Clippy PASS.",
@@ -18,11 +18,14 @@
     "scope": "72 scoped source/assertion reviews,51 clause rows partially revisited",
     "new_shards_ready_for_parent_review": [],
     "active_shards": [
-      "errata_overlay_targets_current",
-      "structure_attribute_dictionary_cells_current",
-      "destination_action_dictionary_cells_current"
+      "destination_action_dictionary_cells_current",
+      "fdf_dictionary_cells_current",
+      "errata_overlay_targets_second_current",
+      "dct_crypt_parameter_cells_current"
     ],
     "recorded_shards": [
+      "errata_overlay_targets_current",
+      "structure_attribute_dictionary_cells_current",
       "signature_dictionary_cells_current",
       "marked_content_dictionary_cells_current",
       "matrix_source_locator_integrity_current",
@@ -314,7 +317,7 @@
     "All 883 rows remain partially reviewed. Current work checks uncited EC3 annotation candidates against primary pages, effective wording, code and actual assertions.",
     "All69 file-only pointers have partial selected-assertion review; this does not certify entire files or features.",
     "Literal issue citation candidates are discovery metadata only, not counts of missing features. Selected batches remain under parent source review.",
-    "Broad111 predates six new default PASS tests and B73 FAIL.129 unique table matrices and all883 ledger rows remain partial. Exact errata targets, structure attributes and remote/embedded actions remain under review.",
+    "Broad116 reconciles every default-scope failure through115.132 unique table matrices and all883 ledger rows remain partial. Current action/FDF/errata/DCT reviews continue.",
     "Stop new dispatch near 81%; preserve 15% weekly allowance at 85%."
   ],
   "budget": {
@@ -323,6 +326,6 @@
     "ceiling": 85,
     "remaining_reserved": 15,
     "last_weekly_used_percent": 76,
-    "last_read_utc": "2026-11-17T19:45:43.013833+00:00"
+    "last_read_utc": "2026-11-17T19:49:18.386102+00:00"
   }
 }

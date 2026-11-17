@@ -1,0 +1,242 @@
+{
+  "baseline": "b901326c",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "method": "Read primary EC3 annotation dictionaries with pikepdf (Subj, Subtype, NM, IRT/NM, QuadPoints, Rect, Contents), rendered pages, and page text/bounding boxes. Compared effective targets with current audit statements. Page references below give physical PDF page and printed footer.",
+  "coverage": {
+    "overlay_edits": 9,
+    "issues": [
+      10,
+      12,
+      216,
+      239,
+      292,
+      732
+    ],
+    "scope_limit": "Nine linked replacement pairs across six issues, plus selected #474 insertion. The additional unlinked #292 deletion is distinct. Not a complete issue/EC3 inventory."
+  },
+  "findings": [
+    {
+      "issue": 10,
+      "source_location": "EC3 physical 47 / printed 32; Table 5 /F row",
+      "annotation_evidence": {
+        "strike": {
+          "subtype": "StrikeOut",
+          "nm": "a6addf06-5122-45bf-99ec-371c53c1e58f",
+          "quad": [
+            303.519,
+            191.369,
+            332.532,
+            191.369,
+            303.519,
+            181.409,
+            332.532,
+            181.409
+          ]
+        },
+        "caret": {
+          "subtype": "Caret",
+          "nm": "21c02356-3ffd-4c29-bdec-9ef48bed0fcd",
+          "contents": "shall",
+          "strike_irt_nm": "21c02356-3ffd-4c29-bdec-9ef48bed0fcd"
+        },
+        "target": "The strike quad overlays the word 'should' in 'the Length entry should still specify the number of those bytes'; the caret supplies 'shall'."
+      },
+      "effective_change": "The Length-entry sentence now says it shall still specify the number of bytes. The separate preceding sentence that embedded stream bytes shall be ignored when /F is present is not crossed out and is not the target of this replacement.",
+      "current_audit_claims": [
+        {
+          "path": "doc/reviews/2038-specification-audit/shards/stream_dictionary_cells_current/findings.txt",
+          "claim": "Historical draft attributed #10 to the adjacent ignore-bytes sentence.",
+          "verdict": "Previously corrected/promoted as checkpoint114 finding D66. This sample verifies the primary target only; do not count it as a new current finding."
+        },
+        {
+          "path": "doc/reviews/2038-specification-audit/shards/stream_external_file_cells_current/findings.txt",
+          "claim": "Historical draft linked a reader-refusal test directly to #10.",
+          "verdict": "Checkpoint114 parent review explicitly corrected this. The current parent-reviewed artifact now treats the test as the distinct /F reader path, not evidence for the Length edit. No outstanding current mismatch is claimed."
+        }
+      ],
+      "verdict": "Primary geometry independently verifies the corrected D66 disposition from checkpoint114; no duplicate/open finding."
+    },
+    {
+      "issue": 216,
+      "source_location": "EC3 physical 49 / printed 34; §7.4.1 opening paragraph",
+      "annotation_evidence": {
+        "replacement_1": {
+          "strike": {
+            "subtype": "StrikeOut",
+            "nm": "bb34f75b-c067-4241-ac78ee3d6c94b73f",
+            "quad": [
+              138.740005,
+              262.747986,
+              153.964203,
+              262.747986,
+              138.740005,
+              249.809113,
+              153.964203,
+              249.809113
+            ]
+          },
+          "caret": {
+            "subtype": "Caret",
+            "nm": "3066d3a8-33e1-4ef1-b2b8aab95ff061c4",
+            "contents": "shall be",
+            "irt_nm": "3066d3a8-33e1-4ef1-b2b8aab95ff061c4"
+          },
+          "target": "On physical 49, replaces “are” in the sentence requiring the filter choices to be specified in the stream dictionary."
+        },
+        "replacement_2": {
+          "strike": {
+            "subtype": "StrikeOut",
+            "nm": "4dd6a1ad-ba07-4efe-9991d124e2375d94",
+            "quad": [
+              93.863998,
+              653.547974,
+              113.360596,
+              653.547974,
+              93.863998,
+              640.609131,
+              113.360596,
+              640.609131
+            ]
+          },
+          "caret": {
+            "subtype": "Caret",
+            "nm": "ad34ea39-d273-4c72-b5d897482e6d82bf",
+            "contents": "processors shall",
+            "irt_nm": "ad34ea39-d273-4c72-b5d897482e6d82bf"
+          },
+          "target": "On physical 50, the strike covers “files” in “PDF files support a standard set of filters”; replacement inserts “processors shall”, yielding the reader obligation that processors shall support the standard filter set."
+        }
+      },
+      "effective_change": "Issue #216 has two distinct source effects across physical 49–50: a producer-side requirement to specify filter choices in the stream dictionary, and a reader-side requirement for processors to support the standard filter set. The second target is relevant to Table 6 support tests.",
+      "current_audit_claims": [
+        {
+          "path": "doc/reviews/2038-specification-audit/shards/stream_dictionary_cells_current/findings.txt",
+          "claim": "#216 on physical pp. 49–50 changes §7.4.1 filter-language obligations and supports existing Table 6 support tests.",
+          "verdict": "CORRECT AT THIS SCOPE: the p49 edit targets dictionary specification; the p50 edit replaces “files” with “processors shall” in the standard-filter support sentence. The Table 6 test link is supported by p50. Do not reduce #216 to only the p49 edit."
+        }
+      ],
+      "verdict": "Previously alleged wrong-evidence link withdrawn. Full two-page issue overlay supports both writer- and reader-side changes and current filter-test attribution."
+    },
+    {
+      "issue": 732,
+      "source_location": "EC3 physical 157 / printed 142; Table 49 URL row",
+      "annotation_evidence": {
+        "strike": {
+          "subtype": "StrikeOut",
+          "nm": "0334222d-1b2a-430b-8abe1cd4f0e25e6d",
+          "quad": [
+            193.850006,
+            161.522003,
+            405.584167,
+            161.522003,
+            193.850006,
+            149.848877,
+            405.584167,
+            149.848877
+          ]
+        },
+        "caret": {
+          "subtype": "Caret",
+          "nm": "c518f13b-09cf-4efe-a16b932ac40822e7",
+          "contents": "Required",
+          "strike_irt_nm": "c518f13b-09cf-4efe-a16b932ac40822e7"
+        },
+        "target": "The strike covers the Table 49 URL-row parenthetical beginning '(Optional; PDF 2.0; shall be a direct object if present)'; the replacement label is Required."
+      },
+      "separate_annotation": "A distinct Caret on the same page says the URL assigned by a developer should be unique for each extension; it is not the Table 49 replacement target.",
+      "current_audit_claim": "compatibility_extensions_current correctly identifies URL as required by #732 and keeps unique-URL guidance separate.",
+      "verdict": "Target attribution verified. Preserve the source tension with §7.12.6's surviving 'optional URL' prose as a separate interpretive issue; the geometry does not resolve that tension."
+    },
+    {
+      "issue": 239,
+      "source_location": "EC3 physical 158 / printed 143; §7.12.5 ExtensionLevel",
+      "annotation_evidence": {
+        "replacement_1": {
+          "strike_nm": "0c9a553d-cbc5-467c-b9f9-79996f37872d",
+          "caret_nm": "d4f74374-5f64-41eb-960e-3645498db083",
+          "caret_contents": "should",
+          "target": "The strike quad overlays 'shall' in 'they shall be ordered over time'; replacement makes the clause 'they should be ordered over time'."
+        },
+        "replacement_2": {
+          "strike_nm": "4319d26c-feb4-4e5f-9fc5-133518d663c1",
+          "caret_nm": "2f3beb9e-7032-4e55-915d-1e816689f569",
+          "caret_contents": "should increase",
+          "target": "Two strike quads cover 'shall be a monotonically increasing sequence'; replacement produces 'numbers should increase over time'."
+        }
+      },
+      "current_audit_claims": [
+        {
+          "path": "doc/reviews/2038-specification-audit/shards/compatibility_extensions_current/findings.txt",
+          "claim": "#239 changes the monotonic ExtensionLevel-over-time wording to a recommendation.",
+          "verdict": "CORRECT BUT INCOMPLETE if read as a complete account: there are two replacement locations in the same §7.12.5 sentence, and both shall statements become should statements."
+        },
+        {
+          "path": "doc/reviews/2038-specification-audit/shards/annex_e_writer_names_current/findings.txt",
+          "claim": "#239 replaces shall with should in the ExtensionLevel increase-over-time sentence.",
+          "verdict": "CORRECT FOR THE SECOND TARGET; it omits the separate 'they shall be ordered' to 'they should be ordered' edit. No opposing substantive claim found."
+        }
+      ],
+      "verdict": "Both source replacements are real and aligned in effect. Existing narrow summaries are not false, but should not be treated as an exhaustive annotation inventory."
+    },
+    {
+      "issue": 292,
+      "source_location": "EC3 physical 287 / printed 272; §8.10.2 and Table 93 Resources cell",
+      "annotation_evidence": {
+        "replacement_1": {
+          "strike_nm": "619c33fd-1e43-4b82-8591-43210a9fc209",
+          "caret_nm": "598a3236-36f6-4bd9-9e97-d0fc1c6e0f76",
+          "caret_contents": "it is strongly recommended that form XObjects be independent of the content streams in which they appear; from PDF 2.0 this is required",
+          "target": "The linked multi-line strike covers the prior independent-resource text; replacement sets strong recommendation generally and requirement starting PDF 2.0."
+        },
+        "replacement_2": {
+          "strike_nm": "2e56b9d4-7422-4b84-861f-16142a48d1a1",
+          "caret_nm": "475279c7-d6a4-4d6c-b490-41bb63768a90",
+          "caret_contents": "Sometimes required",
+          "target": "The strike covers the Table 93 Resources-cell phrase 'Optional but strongly recommended'; replacement is 'Sometimes required'."
+        }
+      },
+      "current_audit_claim": "form_xobject_cells_current identifies both version-conditioned independence wording and Table 93 Resources cell change.",
+      "verdict": "Target mapping verified. Keep the PDF 1.2+/pre-2.0 recommendation and PDF 2.0 requirement distinct; no reader-side rejection follows solely from the producer constraint."
+    },
+    {
+      "issue": 12,
+      "source_location": "EC3 physical 395 / printed 380; Table 132 Type 5 halftone Default row",
+      "annotation_evidence": {
+        "strike": {
+          "subtype": "StrikeOut",
+          "nm": "02a2623e-e7fa-4671-bc50-539948c1dbac",
+          "quad": [
+            404.768,
+            216.449,
+            505.344,
+            216.449,
+            404.768,
+            206.489,
+            505.344,
+            206.489
+          ]
+        },
+        "caret": {
+          "subtype": "Caret",
+          "nm": "541d78f3-2fb6-4a45-a084-1f17a3eeb5a8",
+          "contents": "The halftone shall not be a Type 5 halftone.",
+          "strike_irt_nm": "541d78f3-2fb6-4a45-a084-1f17a3eeb5a8"
+        },
+        "target": "The overlay changes the Type 5 halftone Default row's struck 'The value shall not be 5' text to the sentence in Contents."
+      },
+      "current_audit_claim": "halftones_separations_current accurately treats #12 as a producer/table entry clarification, distinct from #311's deletion of the Type 5 contrast paragraph.",
+      "verdict": "Target and scope verified; do not conflate with #311."
+    }
+  ],
+  "additional_insertion_checked": {
+    "issue": 474,
+    "source_location": "EC3 physical 359 / printed 344; Table 120 FontWeight row",
+    "annotation": "A Caret (NM 68e86e6a-6eb7-43a2-8d4a94648edd0ff5; no StrikeOut/IRT) inserts 'be between 1 and 1000 inclusive, and should' in the FontWeight sentence. Rendered caret is adjacent to the FontWeight value wording, not Descent despite the low-y annotation rectangle coordinate.",
+    "effective_reading": "The permitted weight range is 1–1000 (SHALL); using the canonical hundred values 100–900 is SHOULD. This matches font_descriptor_cells_current. It is an insertion, not a replacement pair, and confirms why issue geometry must be checked against page orientation and actual body text."
+  },
+  "unreviewed": [
+    "Other errata issues and all unlisted Caret/StrikeOut groups",
+    "full semantics of #239 producer chronology",
+    "implementation behavior not implicated by the corrected source attributions"
+  ]
+}

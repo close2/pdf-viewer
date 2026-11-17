@@ -2083,6 +2083,48 @@
       ],
       "artifact": "shards/signature_dictionary_cells_current/features.json",
       "status": "partial"
+    },
+    {
+      "table": "381",
+      "keys": [
+        "ColumnCount",
+        "ColumnGap",
+        "ColumnWidths"
+      ],
+      "ledger_rows": [
+        "14.8.5.4.7"
+      ],
+      "artifact": "shards/structure_attribute_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "382",
+      "keys": [
+        "ListNumbering",
+        "ContinuedList",
+        "ContinuedFrom"
+      ],
+      "ledger_rows": [
+        "14.8.5.5"
+      ],
+      "artifact": "shards/structure_attribute_dictionary_cells_current/features.json",
+      "status": "partial"
+    },
+    {
+      "table": "384",
+      "keys": [
+        "RowSpan",
+        "ColSpan",
+        "Headers",
+        "Scope",
+        "Summary",
+        "Short"
+      ],
+      "ledger_rows": [
+        "14.8.5.7"
+      ],
+      "artifact": "shards/structure_attribute_dictionary_cells_current/features.json",
+      "status": "partial"
     }
   ],
   "reconciliation_110": "Two Table227 reviews previously counted twice; merged into one matrix retaining both artifact links. Table87 now includes four continuation keys and corrected source span. Counts are selected unique table matrices, not certified features."

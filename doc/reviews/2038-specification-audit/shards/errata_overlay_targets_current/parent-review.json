@@ -1,0 +1,14 @@
+{
+  "verdict": "No new source error established. D66 independently confirmed; proposed #216 mismatch rejected after checking the whole two-page issue.",
+  "method": "Parent independently extracted primary strike QuadPoints and linked caret text, intersected them with pdftotext word boxes using page height, and read surrounding physical49–50 text. Verified9 replacement pairs on47,49,50,157,158,287,395.",
+  "exact_pairs": [
+    "#10 should -> shall in Length sentence",
+    "#216 are -> shall be on49; files -> processors shall on50",
+    "#732 optional/direct parenthetical -> Required",
+    "#239 shall -> should and shall be a monotonically increasing sequence -> should increase",
+    "#292 independence paragraph replacement and Resources optional -> Sometimes required",
+    "#12 The value shall not be5 -> halftone shall not be Type5"
+  ],
+  "correction": "Reviewer initially omitted #216 second-page processor-support replacement. Existing stream filter assertion attribution remains supported. Historical #10 mismatch already corrected as D66 in114, not duplicated. Exact annotation NM identifiers normalized against primary to remove draft-added hyphens.",
+  "limits": "Selected target/evidence reconciliation. #239 narrow prior summaries remain valid but not exhaustive. #474 insertion is corroborative existing evidence. No new runtime behavior claim."
+}
