@@ -2251,3 +2251,114 @@ fn a_function_based_shading_intersects_its_matrix_domain_with_target_bbox() {
         "direct sh ignores the shading Background"
     );
 }
+
+// Source-derived multirow topology oracle for ISO 32000-2 §8.7.4.5.6 / Table 82.
+#[test]
+fn a_lattice_mesh_preserves_all_rows_columns_and_vertex_colours() {
+    type Vertex = ([f32; 2], [f32; 3]);
+    // Nine row-major vertices, each x y r g b. Column spacing varies by row;
+    // the middle row is not copied from either boundary row.
+    let data = "00 00 FF 00 00  80 00 00 FF 00  FF 00 00 00 FF \
+                1A 80 FF FF 00  80 80 FF 00 FF  E6 80 00 FF FF \
+                00 FF FF FF FF  80 FF 00 00 00  FF FF FF 80 00 >";
+    let mesh = format!(
+        "<< /ShadingType 5 /ColorSpace /DeviceRGB /VerticesPerRow 3 \
+         /BitsPerCoordinate 8 /BitsPerComponent 8 \
+         /Decode [0 100 0 100 0 1 0 1 0 1] \
+         /Filter /ASCIIHexDecode /Length {} >>\nstream\n{data}\nendstream",
+        data.len()
+    );
+    let bytes = pdf_with(&mesh, "/Sh0 sh");
+    let document = Document::open(bytes).expect("valid exact-xref PDF fixture");
+    assert!(!document.was_recovered(), "the fixture's xref is exact");
+    assert!(!document.cross_reference_chain_was_cut());
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    assert!(
+        interpretation.is_complete(),
+        "all nine complete vertices form a valid mesh: {:?}",
+        interpretation.unsupported
+    );
+    let shading = one_shading(&interpretation);
+    let ShadingKind::Mesh {
+        triangles, patches, ..
+    } = shading.kind.as_ref()
+    else {
+        panic!("a Type 5 shading is a mesh");
+    };
+    assert!(patches.is_none());
+    assert_eq!(triangles.len(), 8, "2 row-pairs × 2 cells × 2 triangles");
+
+    // The expected sequences are literal applications of the two Table 82 triplets:
+    // (Vi,j, Vi,j+1, Vi+1,j) and (Vi,j+1, Vi+1,j, Vi+1,j+1).
+    // Coordinates are decoded as raw * 100 / 255; colors are decoded as raw / 255.
+    let mid = 128.0_f32 * (100.0 / 255.0);
+    let low_mid = 26.0_f32 * (100.0 / 255.0);
+    let high_mid = 230.0_f32 * (100.0 / 255.0);
+    let c_mid = 128.0_f32 / 255.0;
+    let expected: [[Vertex; 3]; 8] = [
+        [
+            ([0.0, 0.0], [1.0, 0.0, 0.0]),
+            ([mid, 0.0], [0.0, 1.0, 0.0]),
+            ([low_mid, mid], [1.0, 1.0, 0.0]),
+        ],
+        [
+            ([mid, 0.0], [0.0, 1.0, 0.0]),
+            ([mid, mid], [1.0, 0.0, 1.0]),
+            ([low_mid, mid], [1.0, 1.0, 0.0]),
+        ],
+        [
+            ([mid, 0.0], [0.0, 1.0, 0.0]),
+            ([100.0, 0.0], [0.0, 0.0, 1.0]),
+            ([mid, mid], [1.0, 0.0, 1.0]),
+        ],
+        [
+            ([100.0, 0.0], [0.0, 0.0, 1.0]),
+            ([high_mid, mid], [0.0, 1.0, 1.0]),
+            ([mid, mid], [1.0, 0.0, 1.0]),
+        ],
+        [
+            ([low_mid, mid], [1.0, 1.0, 0.0]),
+            ([mid, mid], [1.0, 0.0, 1.0]),
+            ([0.0, 100.0], [1.0, 1.0, 1.0]),
+        ],
+        [
+            ([mid, mid], [1.0, 0.0, 1.0]),
+            ([mid, 100.0], [0.0, 0.0, 0.0]),
+            ([0.0, 100.0], [1.0, 1.0, 1.0]),
+        ],
+        [
+            ([mid, mid], [1.0, 0.0, 1.0]),
+            ([high_mid, mid], [0.0, 1.0, 1.0]),
+            ([mid, 100.0], [0.0, 0.0, 0.0]),
+        ],
+        [
+            ([high_mid, mid], [0.0, 1.0, 1.0]),
+            ([100.0, 100.0], [1.0, c_mid, 0.0]),
+            ([mid, 100.0], [0.0, 0.0, 0.0]),
+        ],
+    ];
+    // Triangle winding and output ordering do not change this mesh. Match literal
+    // coordinate/color pairs, not the implementation's chosen vertex permutation.
+    for expected_triangle in expected {
+        let matches = triangles
+            .iter()
+            .filter(|triangle| {
+                let pdf_render::Corners::Colours(colors) = triangle.corners else {
+                    return false;
+                };
+                expected_triangle.iter().all(|(xy, rgb)| {
+                    triangle.points.iter().zip(colors).any(|(point, color)| {
+                        (point.x - xy[0]).abs() < 1e-5
+                            && (point.y - xy[1]).abs() < 1e-5
+                            && (color.r - rgb[0]).abs() < 1e-6
+                            && (color.g - rgb[1]).abs() < 1e-6
+                            && (color.b - rgb[2]).abs() < 1e-6
+                            && (color.a - 1.0).abs() < f32::EPSILON
+                    })
+                })
+            })
+            .count();
+        assert_eq!(matches, 1, "one triangle for {expected_triangle:?}");
+    }
+}

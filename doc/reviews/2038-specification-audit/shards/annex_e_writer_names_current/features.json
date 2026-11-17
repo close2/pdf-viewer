@@ -1,0 +1,222 @@
+{
+  "baseline": "b901326c",
+  "scope": "Writer-side follow-up on Annex E private/second-class naming and §7.12 developer-extension declarations, focused on EC3 issues #229, #239, #340, and #732. This is not a new Annex E reader audit or proof that every writer output conforms.",
+  "primary_source": "doc/ISO_32000-2_sponsored_EC3.pdf, checked with pikepdf annotation objects and the held primary layout. Physical p.893 / printed p.878 contains #229 and #340; physical p.158 / printed p.143 contains #239; physical p.157 / printed p.142 contains #732. Relevant annotation rectangles and Caret contents are recorded per issue below; pikepdf read the annotation dictionaries directly.",
+  "errata_dispositions": [
+    {
+      "issue": 229,
+      "source_location": "Annex E.2, physical p.893 / printed p.878",
+      "annotation_effect": "A Caret inserts 'where otherwise stated in this specification.' into the second-class-name exception text. This narrows the exception wording; it does not add a runtime name validator. Effective §14.7.3 is an explicit specification-specific rule: PDF writers may use any names for structure types.",
+      "writer_route": "The archive remediation can write supplied custom structure-role names into /RoleMap. This is a source-defined structure-type route, not Annex E developer-private data, and §14.7.3 means those names need not use a second-class prefix.",
+      "assertions": [
+        "crates/pdf-transform/tests/archive.rs::a_producers_own_types_are_mapped_where_the_operators_table_names_them",
+        "crates/pdf-transform/tests/archive.rs::the_producers_own_role_map_entries_are_kept_and_only_the_unmapped_type_gains_one"
+      ],
+      "annotations": [
+        {
+          "subtype": "StrikeOut",
+          "rect": [
+            63.504002,
+            713.209106,
+            521.895874,
+            751.947998
+          ],
+          "reply": "Caret insertion",
+          "contents": ""
+        },
+        {
+          "subtype": "Caret",
+          "rect": [
+            317.064392,
+            711.561462,
+            327.124573,
+            719.758667
+          ],
+          "contents": "where otherwise stated in this specification."
+        }
+      ]
+    },
+    {
+      "issue": 239,
+      "source_location": "§7.12.5, physical p.158 / printed p.143",
+      "annotation_effect": "The Caret/StrikeOut replacement changes ExtensionLevel numbers from 'shall' to 'should' increase monotonically over time when a developer releases multiple extensions for a BaseVersion. This is recommended chronology, not a mandatory parser check.",
+      "writer_route": "No Catalog /Extensions writer currently emits developer ExtensionLevel entries.",
+      "assertions": [],
+      "annotations": [
+        {
+          "subtype": "StrikeOut",
+          "rect": [
+            68.7318,
+            467.449,
+            529.877,
+            494.629
+          ],
+          "contents": ""
+        },
+        {
+          "subtype": "Caret",
+          "rect": [
+            162.651,
+            467.532,
+            171.594,
+            474.818
+          ],
+          "contents": "should increase"
+        },
+        {
+          "subtype": "StrikeOut",
+          "rect": [
+            121.879,
+            482.209,
+            150.649,
+            494.629
+          ],
+          "contents": ""
+        },
+        {
+          "subtype": "Caret",
+          "rect": [
+            142.886,
+            482.292,
+            151.828,
+            489.578
+          ],
+          "contents": "should"
+        }
+      ]
+    },
+    {
+      "issue": 340,
+      "source_location": "Annex E.2 third-class names, physical p.893 / printed p.878",
+      "annotation_effect": "The actual StrikeOut/Caret pair replaces the prior statement that third-class names need not be registered with the replacement: XX is reserved for private data keys, and third-class names cannot be registered in the PDF Names list. The Caret Contents states the complete replacement; the struck text is not the effective rule.",
+      "writer_route": "No current generated private XX PDF key or PDF Names-list registration was found. Reader fixtures with /XX are input evidence only.",
+      "assertions": [],
+      "annotations": [
+        {
+          "subtype": "StrikeOut",
+          "rect": [
+            60.2118,
+            206.879,
+            526.581,
+            245.099
+          ],
+          "reply": "Caret replacement",
+          "contents": ""
+        },
+        {
+          "subtype": "Caret",
+          "rect": [
+            385.222,
+            206.962,
+            394.164,
+            214.248
+          ],
+          "contents": "XX, which has been reserved for this purpose. Any keys that are added by a developer for the purpose of adding private data to a PDF, shall begin with this prefix. Third-class names cannot be registered in the PDF Names list."
+        }
+      ]
+    },
+    {
+      "issue": 732,
+      "source_location": "Table 49 URL row, physical p.157 / printed p.142",
+      "annotation_effect": "The primary Caret/StrikeOut replaces Table 49 URL's Optional label with Required for an emitted developer extensions dictionary (StrikeOut Rect [193.850006,149.848877,405.584167,161.522003], Caret inserts Required at [401.046143,148.36235,410.122192,155.757645]); another Caret adds 'The URL assigned by the developer should be unique for each extension.' at [467.673157,136.602356,476.749207,143.99765]. The table entry is required while URL uniqueness is recommended. §7.12.6 still calls URL optional, so the effective source contains a table/subclause tension; this review does not resolve which text controls. Neither requires a reader to reject an input that omits it.",
+      "writer_route": "No Catalog /Extensions or Table 49 dictionary is synthesized by current production writers. `pdf-model::requirements::Extensions::read` retains a missing URL as None for reader tolerance. Table 49's effective required label conflicts with §7.12.6's surviving 'optional URL entry' phrase; this is recorded as a source-interpretation question, not an output failure.",
+      "assertions": [],
+      "annotations": [
+        {
+          "subtype": "StrikeOut",
+          "rect": [
+            193.850006,
+            149.848877,
+            405.584167,
+            161.522003
+          ],
+          "contents": "",
+          "reply": "Caret inserts Required"
+        },
+        {
+          "subtype": "Caret",
+          "rect": [
+            401.046143,
+            148.36235,
+            410.122192,
+            155.757645
+          ],
+          "contents": "Required"
+        },
+        {
+          "subtype": "Caret",
+          "rect": [
+            467.673157,
+            136.602356,
+            476.749207,
+            143.99765
+          ],
+          "contents": "The URL assigned by the developer should be unique for each extension."
+        }
+      ]
+    }
+  ],
+  "writer_inventory": [
+    {
+      "path": "crates/pdf-syntax/src/write.rs::write_name and object",
+      "behavior": "Serializes caller-provided Name bytes and generic objects; it does not select extension prefixes, construct an Extensions dictionary, or enforce Annex E name classes. This generic syntax writer is not a conformance validator."
+    },
+    {
+      "path": "crates/pdf-syntax/src/serialize.rs::serialize",
+      "behavior": "Serializes caller-provided Assembly objects. It may emit any supplied dictionary names but does not synthesize Annex E extension declarations or enforce class/registration rules."
+    },
+    {
+      "path": "crates/pdf-transform/src/update.rs and crates/pdf-syntax/src/write.rs::incremental_update_extending",
+      "behavior": "Update preserves existing catalog/object data and permits caller-supplied additions; its generic trailer carry-forward keeps extension-named prior entries. No automatic private PDF names or Catalog /Extensions entry are created. `an_incremental_update_repeats_a_second_class_trailer_entry` tests §7.5.6 preservation of a supplied /pdfa_NewFeature trailer entry, not Annex E name-class generation or Table 49."
+    },
+    {
+      "path": "crates/pdf-transform/src/split.rs::CARRIED/build_catalog and crates/pdf-transform/src/merge.rs catalog construction",
+      "behavior": "Rebuild Catalogs from explicit whitelists that omit /Extensions; they do not synthesize developer-extension declarations. They copy reachable page/object dictionaries generically, so an extension-specific entry already present on a retained object may survive even when the source Catalog declaration is not in the carried whitelist. The applicable Annex E producer/retention obligation for that transformation is not resolved by a direct clause requiring preservation; this is a product-policy/traceability residual, not a confirmed conformance failure."
+    },
+    {
+      "path": "crates/pdf-transform/src/archive/rewrite/catalogue.rs::rewrite_catalog",
+      "behavior": "Edits selected Catalog entries on the existing catalog dictionary; no Annex E key or Catalog /Extensions dictionary is synthesized. Existing /Extensions is generally retained unless another explicit rewrite changes its containing object."
+    },
+    {
+      "path": "crates/pdf-model/src/xmp.rs::container and crates/pdf-transform/src/archive/prepare/metadata.rs",
+      "behavior": "The archive writer can add XMP `pdfaExtension:schemas` and its XML namespace fields for described XMP properties. These are XML QNames/namespace schema records (ISO 19005/XMP), not PDF Name objects or Catalog /Extensions/Table 49 dictionaries. They are outside Annex E's #229/#239/#340/#732 rules."
+    },
+    {
+      "path": "crates/pdf-transform/src/archive/roles.rs::entries/extended and archive/rewrite/catalogue.rs::extend_the_role_map",
+      "behavior": "A configured archive repair may add `/Chapter /Sect` or analogous supplied custom structure-type to standard-role mappings. §14.7.3 physical p.742 / printed p.727 explicitly says PDF writers may use any names for structure types. This is the explicit specification exception anticipated by #229, not an Annex E private/second-class extension-name output."
+    }
+  ],
+  "existing_assertion_quality": [
+    {
+      "assertion": "crates/pdf-model/src/requirements.rs::extensions_are_read_under_their_registered_prefixes",
+      "covers": "Reader parsing of prefix-keyed Catalog Extensions and array-valued extension dictionaries, including an item with no URL.",
+      "does_not_cover": "Writer output, registered-prefix verification, #340 private-name registration prohibition, or #732-required URL generation. The missing URL is parsed as reader tolerance."
+    },
+    {
+      "assertion": "crates/pdf-model/src/requirements.rs::extensions_without_a_level_are_not_an_extension",
+      "covers": "One malformed/missing-required ExtensionLevel reader case.",
+      "does_not_cover": "Writer class rules or URL output."
+    },
+    {
+      "assertion": "crates/pdf-syntax/tests/file_structure_audit.rs::an_incremental_update_repeats_a_second_class_trailer_entry",
+      "covers": "The newest incremental trailer restates a supplied Annex E example second-class trailer entry as required by §7.5.6.",
+      "does_not_cover": "Selecting a legal name class for newly developed PDF extension data; Catalog /Extensions or Table 49 output."
+    },
+    {
+      "assertion": "crates/pdf-model/src/xmp.rs tests and crates/pdf-transform/tests/archive.rs XMP extension-schema assertions",
+      "covers": "XMP schema-description serialization for custom metadata properties.",
+      "does_not_cover": "PDF-level Name classes or the Catalog developer Extensions dictionary."
+    },
+    {
+      "assertion": "crates/pdf-transform/tests/archive.rs::a_producers_own_types_are_mapped_where_the_operators_table_names_them and ::the_producers_own_role_map_entries_are_kept_and_only_the_unmapped_type_gains_one",
+      "covers": "Archive output can add role-map entries for source-provided custom structure type names, preserve an existing mapping, and map only an unmapped type; output is validated against its PDF/A target.",
+      "does_not_cover": "A writer-selected developer extension name/prefix, PDF Catalog /Extensions, Table 49 BaseVersion/ExtensionLevel/URL, or private XX data. These assertions support §14.7.3's explicit any-name allowance, not Annex E class registration."
+    }
+  ],
+  "selected_adr_review": {
+    "adr": "doc/adr/1461-an-inapplicable-row-is-read-on-the-standards-own-condition-and-the-writers-are-this-programs.md",
+    "relevant_claim": "Annex E.2 stays writer-side because no writer emits a developer extension.",
+    "assessment": "Retain ADR 1461's writer-side classification for Annex E developer extensions/private data: no current writer synthesizes Catalog /Extensions, Table 49 entries, or private XX data. One configured archive role-map route emits supplied custom structure-type names, but §14.7.3 explicitly allows any names, the sort of specification-specific exception referenced by #229; its output assertions exist. Generic serializers can serialize caller-supplied names and update can preserve them without validating Annex E classes. Split/merge omit Catalog /Extensions while copying generic page objects; the extension-declaration/unknown-feature preservation consequence is a product-policy residual, not a confirmed Annex E violation. #340 registration and #732 URL output are not exercised. #732 also leaves a conflict: Table 49 now says required, but §7.12.6 still says optional."
+  },
+  "test_decision": "No new draft: existing archive tests cover the only identified route that emits custom PDF structure-type names, under §14.7.3's explicit allowance. No current writer constructs a PDF developer extension dictionary or private XX data; a generic serializer test would only show caller-supplied names are serialized, not Annex E conformance. Revisit if an output path starts emitting PDF-level extension data."
+}

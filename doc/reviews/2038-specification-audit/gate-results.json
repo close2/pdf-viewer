@@ -1933,6 +1933,49 @@
       "command": "shards/dual_public_key_default_filters/verify_fixture.py on both retained test PDFs",
       "exit": 0,
       "scope": "Independent extracted CMS/AES plaintext and exact xref checks"
+    },
+    {
+      "log": "lattice-images-wave75.log",
+      "tests": 3,
+      "passed": 3,
+      "scope": "NewT97 and two existing image Decode consistency controls with valid binary header"
+    },
+    {
+      "log": "type5-function-wave75.log",
+      "tests": 1,
+      "passed": 1,
+      "scope": "T98 nonlinear Function pixels"
+    },
+    {
+      "log": "calculator-oracle-wave74b.log",
+      "tests": 11,
+      "passed": 11,
+      "skipped": 0,
+      "scope": "8reference/corpus+3RadeonGPU;case counts/limitations in calculator shard"
+    },
+    {
+      "log": "jbig-fixture-evidence-wave75.log",
+      "tests": 3,
+      "passed": 3,
+      "scope": "JBIG97comparison+extended-template actual execution; T88was early-return and superseded below"
+    },
+    {
+      "log": "t88-data-wave75.log",
+      "tests": 1,
+      "passed": 1,
+      "scope": "Official verified data present;16cases actually executed with bounded expectations"
+    },
+    {
+      "log": "fixed-documents-wave75b.log",
+      "tests": 1,
+      "passed": 0,
+      "failed": 1,
+      "scope": "Explicit ignored gate:77present0absent;D51stale expectation on onefile"
+    },
+    {
+      "log": "quality-model-wave75d.log",
+      "exit": 0,
+      "scope": "model all-targets Clippy; earlier75c failed only unfulfilled lint expectation in newtest, removed"
     }
   ],
   "prior_expected_failures": {

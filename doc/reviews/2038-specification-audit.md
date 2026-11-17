@@ -11,11 +11,11 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (74)
+## Current checkpoint (75)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
-failure manifest contains **82 assertions**, grouped into behavior findings rather
-than 82 independent defects. B08 and B42 remain unresolved interpretation/policy
+failure manifest contains **83 failing test identities**: 82 behavior assertions/probes
+and one stale ignored-gate expectation. These are grouped findings, not 83 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
 The refreshed broad run, wave64, covered eleven crates: **7,218 tests ran, 7,142 passed,
 and exactly the 76 recorded in-scope assertions failed; 58 were skipped**.
@@ -196,6 +196,18 @@ inherited colors also pass literal expectations. Model/syntax Clippy passes.
 The manifest reaches82 assertions; broad64 predates two failures and15 new passes.
 Erratum #218 targets Table263 UR3, not Table264 Legal; current rights consumers
 exist, while malformed-cardinality recovery remains a policy boundary.
+
+Checkpoint75 adds passing Type5 multirow topology and nonlinear Function pixel
+oracles. Eleven calculator reference/device tests pass on the recorded Radeon890M.
+The T.88 reference test first returned without data; after restoring verified
+official data it executes all16 classified cases and passes. Eight require exact
+bitmaps, seven require nonmatches, and one only agreement between isolation modes.
+The explicitly run ignored fixed-document gate fails two checks on one of77present
+files: expectations predate accepted font substitution. D51 records that stale
+expectation without changing its baseline. Model Clippy passes. Broad64 predates
+17new passing tests and two failures; the ignored stale gate is outside its scope.
+AnnexE private-name and writer claims remain bounded; Table49's amended required
+URL conflicts with surviving optional prose, and custom structure types are expressly allowed.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

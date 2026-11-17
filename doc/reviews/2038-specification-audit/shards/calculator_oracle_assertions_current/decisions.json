@@ -1,0 +1,28 @@
+{
+  "decisions": [
+    {
+      "topic": "Are the corpus's expected values independent?",
+      "decision": "Yes for the reviewed cases: each Case carries a literal output/error and a source citation; the `every_expectation_agrees_with_the_reference_evaluator` test computes the evaluator separately and compares against those literals. GPU integration then compares device output to the reference, with the expected scope and numeric tolerance documented in that test. This is two distinct assertions, not a claim that the evaluator is an independent primary source.",
+      "basis": ["raster/crates/raster-function-conformance/src/case.rs", "raster/crates/raster-function-conformance/tests/corpus.rs::every_expectation_agrees_with_the_reference_evaluator", "raster/crates/raster-gpu/tests/function_conformance.rs::the_device_computes_what_the_corpus_evaluator_computes"]
+    },
+    {
+      "topic": "Does the Type 4 stack refusal assert a universal 100-entry cap?",
+      "decision": "No. ISO specifies a required minimum capacity of 100 and does not require a larger one. The reference chooses exactly 100 and may refuse its 101-push case. Treat the case as a valid implementation profile/control, never as a required reader refusal. Separate production test covers success at exactly 100.",
+      "basis": ["raster/crates/raster-function-conformance/src/reference/stack.rs::CAPACITY", "raster/crates/raster-function-conformance/src/corpus/refusal.rs::DEEPER_THAN_THE_CLAUSE_REQUIRES", "scratchpad/r2038/spec-audit/functions_current/findings.txt"]
+    },
+    {
+      "topic": "Does the 2-input shape certify all generic m-input functions?",
+      "decision": "No. The reference/corpus is shaped for the Type 1 shading and GPU adapter, whose input Domain is a four-number rectangle. It is a useful bounded oracle for these consumers, but not a generic m-input certificate; do not label the explicit limitation a production defect without a consumer-path gap.",
+      "basis": ["raster/crates/raster-function-conformance/src/reference.rs::push_clipped_inputs", "raster/crates/raster-function-conformance/src/case.rs::two_input_program", "crates/pdf-colour/src/function.rs::Function::eval_into"]
+    },
+    {
+      "topic": "How should empty-stack pop be characterized?",
+      "decision": "As delegated malformed-input semantics, not an ISO silence or a valid conformance result. §7.10.5.2 makes PLRM3 operator semantics normative, and the existing 1983-specification audit records PLRM3 stack-operator entries as requiring stackunderflow. ADR 0339's zero fallback is retained only as a qualified recovery policy; that decision record calls silent zero substitution a semantic gap, not a standards-derived choice. Current Function::eval still returns a value and the fault enum has no underflow member, though later watch/report machinery exists for other Type 4 errors. Do not assume ADR 0339’s older per-pixel rationale settles the current design; this shard did not remeasure affected inputs or cost.",
+      "basis": ["ISO 32000-2 §7.10.5.2", "doc/adr/0339-the-grid-a-function-is-read-at.md", "doc/adr/0412-the-deferral-that-was-read-as-a-silence.md", "doc/reviews/1983-specification-audit/decisions.json: decision_id empty-stack-underflow-uses-integer-zero"]
+    },
+    {
+      "topic": "New test draft",
+      "decision": "None. The inspected oracle cases have literal independent expectations and controls for both clipping directions, per-input/per-output bounds, wrong count/type, and the local stack profile. A larger harness-only test would duplicate existing cases; generic m-input work requires a distinct consumer-scope decision."
+    }
+  ]
+}

@@ -18,7 +18,7 @@ use render_cpu::CpuRasterizer;
 fn fixture(decode: &str) -> Vec<u8> {
     let image = [255, 0, 0];
     let content = "10 0 0 10 0 0 cm /Im Do";
-    let mut bytes = b"%PDF-1.7\n".to_vec();
+    let mut bytes = b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n".to_vec();
     let objects = [
         b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec(),
         b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_vec(),

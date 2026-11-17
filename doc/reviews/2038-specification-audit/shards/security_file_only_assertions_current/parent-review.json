@@ -1,0 +1,6 @@
+{
+  "selection": "7.3.7 damaged_page_dictionaries;7.4.7 fixed_documents;7.10.5.3 function_faults;8.9.5.1 image_masks/image_dimensions;12.8.1 verdict/tests. Six specific pointers, not all12 file references in those rows.",
+  "assertions": "Parent read guarded dictionary recovery, nonblank97-image identity, image Decode controls, runtime fault consumers, explicit weaker signature revocation acceptance. Recovery fixture intentionally malformed; not generic valid parser proof.",
+  "execution": "jbig-fixture-evidence-wave75.log: JBIG97comparisonPASS, extended-templatePASS, T88early-returnPASS. Actual T88run separatelyPASS. lattice-images-wave75.log: two existing consistency tests and newT97PASS. fixed-documents-wave75b.log: one ignored testFAIL,77present0absent, two stale checks on onefile.",
+  "limits": "Matches exactbitmap; Departs anynonmatch/refusal; Outside onlyisolation agreement. No wholecodec or signatureprofile certification."
+}

@@ -441,6 +441,9 @@ fn every_document_a_round_fixed_is_still_fixed() {
                         *high,
                     );
                 }
+                if !complaints.is_empty() {
+                    println!("{} actual reports: {:#?}", row.path, observed.reports);
+                }
                 for complaint in complaints {
                     failures.push(format!(
                         "{} p{}: {complaint}\n    {}",
@@ -469,7 +472,7 @@ fn every_document_a_round_fixed_is_still_fixed() {
     );
     assert!(
         failures.is_empty(),
-        "{} of {checked} documents no longer do what the round that fixed them recorded:\n{}",
+        "{} failed checks across {checked} documents:\n{}",
         failures.len(),
         failures.join("\n")
     );

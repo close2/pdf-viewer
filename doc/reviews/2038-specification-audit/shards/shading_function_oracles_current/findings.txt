@@ -1,0 +1,1 @@
+T98: Type5 scalar interpolation before nonlinear Function passes four independent interior pixel expectations, covering both cell triangles. Parent strengthened the draft to avoid the diagonal. No full mesh/Function matrix certification.

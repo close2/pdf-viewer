@@ -495,6 +495,14 @@
       "test": "separate_stmf_and_strf_defaults_use_their_own_recipient_keys",
       "finding": "2038-B57",
       "log": "crypto-wave74c.log"
+    },
+    {
+      "binary": "pdf-model::fixed_documents",
+      "test": "every_document_a_round_fixed_is_still_fixed",
+      "finding": "2038-D51",
+      "log": "fixed-documents-wave75b.log",
+      "requires": "explicit ignored gate",
+      "disposition": "stale-test-expectation"
     }
   ]
 }

@@ -1,0 +1,5 @@
+{
+  "source": "Parent read physical157/158 Table49 and §7.12.6, physical742 §14.7.3, physical893 AnnexE with agent-recorded primary Caret overlays #229/#239/#340/#732. Table49 amended Required vs surviving optional prose retained as tension.",
+  "assertions": "Parent read archive role-map tests: literal output /Chapter /Sect and /Sidebar /Note; existing /Chapter /Part retained and /Sect absent. One validates converted target as well. These support custom structure names permitted by §14.7.3, not a generic AnnexE producer certificate.",
+  "disposition": "No generated Catalog Extensions or private XX data identified. Generic object serialization and XMP schemas are distinct. Split/merge declaration preservation remains policy residual, no behavior defect inferred."
+}

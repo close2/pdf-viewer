@@ -1,0 +1,1 @@
+D51: ignored fixed-document gate executed over77present fixtures. One file has two stale checks after accepted font substitution. Test fails; useful diagnostics added. No production fix or expected-baseline edit.

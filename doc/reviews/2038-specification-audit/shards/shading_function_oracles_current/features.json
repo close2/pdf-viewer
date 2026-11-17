@@ -1,0 +1,50 @@
+{
+  "scope": "Mesh per-vertex Function interaction, specifically whether Type 5 lattice t values are interpolated before a nonlinear function. Type 4 and Type 6/7 are reviewed as existing controls; not a general function or mesh certification.",
+  "baseline": "b901326c",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "features": [
+    {
+      "clause": "ISO 32000-2:2020 §8.7.4.5.5/.6/.7/.8; Table 82 Function entry",
+      "source_location": "EC3 physical257–259 / printed242–244, Table82 Function and inherited Type4 interpolation rule; parent read primary.",
+      "effective_requirement": "Where /Function is present, vertices carry one decoded scalar t rather than n color components. The mesh interpolates t inside each triangle, then evaluates the function(s) to obtain color. A nonlinear function distinguishes this from evaluating at vertices and interpolating resulting colors.",
+      "ledger": "§8.7.4.5.5–.8 are implemented; Table 82 Function field maps to pdf-colour mesh parsing and pdf-render parameter-corner sampling. Prior shading_current is bounded to Type 4 nonlinear pixel proof and Type 6/7 nonlinear patch proof.",
+      "current_code": "pdf-colour/src/mesh.rs::read routes Type 4–7 through Corner<f32> when a Function is present. Type 5 then uses MeshReader::lattice to construct the row/column triangles; pdf-render draws Corners::Parameters through the sampled Ramp. This source path is plausible, but alone is not an assertion.",
+      "existing_assertions": [
+        {
+          "test": "crates/pdf-model/tests/shadings.rs::a_mesh_with_a_function_interpolates_the_parameter",
+          "result": "Current Type 4 regression uses t=0,1,0 and N=2, sampling t=0.505. It expects t²×255≈65 rather than interpolated corner colors≈129. This is a strong independent public pixel oracle for the Type 4 path."
+        },
+        {
+          "test": "crates/pdf-model/tests/shading_parameters_spec_audit.rs::type6_calls_function_with_interpolated_patch_parameter and type7_calls_function_with_interpolated_patch_parameter",
+          "result": "Both pass in scratchpad/r2038/spec-audit/round2-targets-wave10c.log and later full-wave logs. Each uses an independent t=0.5 then t²=0.25 oracle (red≈64 vs ≈128 from function-at-corners). They exercise patch routes, not Type 5 row construction."
+        },
+        {
+          "test": "crates/pdf-model/tests/shadings.rs::a_lattice_mesh_triangulates_between_its_rows",
+          "result": "Public raster control for Type 5 direct RGB, with a 2x2 row-pair fixture. It does not include /Function."
+        }
+      ],
+      "gap": "No Type 5 mesh fixture with /Function was found in the current test tree. Type 4, Type 6 and Type 7 evidence cannot exercise the Type 5 parser's row-major scalar records and lattice route together. A narrow Type 5 nonlinear-function test is worthwhile; it reuses the exact same independent arithmetic discriminator while exercising a distinct mesh kind.",
+      "draft": "Integrated crates/pdf-model/tests/type5_function_spec_audit.rs::type5_interpolates_vertex_parameter_before_nonlinear_function. Parent replaced single diagonal sample with four strict interior pixels across both triangles: red17,65,65,145 from t=xcenter/100 then t²; alpha255 and zero green/blue. Literal expected values discriminate color-first interpolation. Exact xref and complete interpretation asserted.",
+      "verdict": "T98 PASS in type5-function-wave75.log; model all-targets ClippyPASS after removing an unfulfilled expect_used lint expectation.",
+      "selected_adrs": [
+        {
+          "adr": "ADR 0292",
+          "decision": "The parameter interpolation ordering is source-mandated and independently tested on Type 4; this candidate checks the Type 5 application of that same requirement."
+        },
+        {
+          "adr": "ADR 1217",
+          "decision": "Device-pixel fineness applies to patch meshes, not Type 5's explicit triangles; it does not satisfy or weaken this scalar Function test."
+        },
+        {
+          "adr": "ADR 2546",
+          "decision": "Patch color-conversion lattices are distinct from Type 5 parametric Function triangles; no conflict."
+        }
+      ],
+      "residuals": [
+        "Executed bounded pixel proof only; no new production defect.",
+        "Does not test Type 5 Function arrays, boundary clamps, error reporting, other widths, or non-DeviceRGB colorspaces.",
+        "Does not assert Type 5 incomplete-row reader behavior."
+      ]
+    }
+  ]
+}

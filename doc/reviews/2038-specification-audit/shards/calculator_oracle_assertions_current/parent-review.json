@@ -1,0 +1,6 @@
+{
+  "source": "Parent read §7.10.1, §7.10.5.2/.3 at corrected locators and prior1983 underflow decision; external PLRM provenance inherited, not freshly verified.",
+  "assertions": "Literal corpus expectations separately checked against reference evaluator; device compared against evaluator. Two-input harness scope, at-least100 capacity distinction, four domain cases unobservable via shading, and no-underflow EvaluationFault retained as limits.",
+  "execution": "calculator-oracle-wave74b.log:11PASS; Radeon890M;91numeric comparisons,73bitwise,30no-value,4domain-unobservable.",
+  "references": "Only six selected supplemental pointers reviewed: (7.10.1,clipping.rs/reference.rs); (7.10.5.3,case.rs/reference/stack.rs/corpus/clipping.rs/corpus/refusal.rs). Not all file pointers in these rows."
+}

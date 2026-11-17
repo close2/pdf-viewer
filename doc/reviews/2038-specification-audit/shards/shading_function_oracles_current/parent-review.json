@@ -1,0 +1,9 @@
+{
+  "assertions": "Integrated crates/pdf-model/tests/type5_function_spec_audit.rs::type5_interpolates_vertex_parameter_before_nonlinear_function. Parent replaced single diagonal sample with four strict interior pixels across both triangles: red17,65,65,145 from t=xcenter/100 then t²; alpha255 and zero green/blue. Literal expected values discriminate color-first interpolation. Exact xref and complete interpretation asserted.",
+  "execution": "T98 PASS in type5-function-wave75.log; model all-targets ClippyPASS after removing an unfulfilled expect_used lint expectation.",
+  "limits": [
+    "Executed bounded pixel proof only; no new production defect.",
+    "Does not test Type 5 Function arrays, boundary clamps, error reporting, other widths, or non-DeviceRGB colorspaces.",
+    "Does not assert Type 5 incomplete-row reader behavior."
+  ]
+}

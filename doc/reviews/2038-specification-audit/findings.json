@@ -2440,5 +2440,36 @@
     "summary": "Type4 continuation flags now have literal topology and inherited-color assertions.",
     "execution": "One passing integration test checks three triangles from five separately padded records; model/syntax ClippyPASS.",
     "limits": "Interpreted mesh topology, supplemented by existing ordinary triangle pixels; not full bit-width/function or raster certification."
+  },
+  {
+    "id": "2038-D51",
+    "kind": "stale-test-expectation",
+    "clauses": [
+      "7.4.7",
+      "9.6.2.1"
+    ],
+    "summary": "Explicit ignored fixed-document gate retains pre-substitution font expectations for PDFIUM-407-0.pdf.",
+    "execution": "One testFAIL across77present fixtures: missing old Text report and changed inkband on onefile. Current refusal reports say substitute face. ADR2870/A837 accepts that later behavior.",
+    "disposition": "Review/update obsolete expectation using an independent oracle; not a confirmed production defect. Diagnostics improved, baseline unchanged."
+  },
+  {
+    "id": "2038-T97",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "8.7.4.5.6"
+    ],
+    "summary": "Type5 multirow topology now checked against eight literal triangles with independent vertex coordinates/colors.",
+    "execution": "PASS; model all-targets ClippyPASS.",
+    "limits": "Display-list topology; winding/outputorder deliberately unconstrained. Not every mesh width/color route."
+  },
+  {
+    "id": "2038-T98",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "8.7.4.5.6"
+    ],
+    "summary": "Type5 Function order now checked by four independently computed interior pixels.",
+    "execution": "PASS; model all-targets ClippyPASS.",
+    "limits": "Two triangles, scalar t and red=t\u00b2 only; not all Function arrays/clamps/error routes."
   }
 ]

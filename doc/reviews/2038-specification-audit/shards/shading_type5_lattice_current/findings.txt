@@ -1,0 +1,1 @@
+T97: 3x3 Type5 lattice gives eight independently specified triangles with literal coordinates/colors. PASS. Parent corrected a draft that overconstrained vertex winding/order; middle-row column spacing varies but the row is straight. Display-list geometry is distinct from the existing one-cell raster oracle.

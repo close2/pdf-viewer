@@ -1,0 +1,48 @@
+{
+  "scope": {
+    "baseline": "b901326c",
+    "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+    "files": [
+      "raster/crates/raster-function-conformance/src/reference.rs",
+      "raster/crates/raster-function-conformance/src/reference/stack.rs",
+      "raster/crates/raster-function-conformance/src/corpus/clipping.rs",
+      "raster/crates/raster-function-conformance/src/corpus/refusal.rs",
+      "raster/crates/raster-function-conformance/src/case.rs",
+      "raster/crates/raster-function-conformance/tests/corpus.rs",
+      "raster/crates/raster-gpu/tests/function_conformance.rs"
+    ],
+    "limits": "Review of the supplemental reference/corpus and named consumers, not all \u00a77.10 operator semantics, all function dictionary parsing, or general m/n-dimensional use. No tests were run."
+  },
+  "features": [
+    {
+      "clause": "7.10.1",
+      "title": "Generic function framing and Domain/Range clipping",
+      "source_location": "Primary ISO 32000-2:2020 printed p.123, \u00a77.10.1 (layout excerpt scratchpad/r2038/spec-audit/ec3-parent-layout.txt around 7974); Table 38 holds the detailed dictionary rows in the following pages.",
+      "effective_source": "The clause defines numerical, side-effect-free functions of general m input and n output values; values are numbers. Inputs shall be clipped to Domain before evaluation and outputs to Range afterwards. The worked examples give independent 6\u21921\u21923 and (-6,4)\u2192-14\u21920 facts. No located EC3 correction alters these clipping rules. The separately inventoried #30 is \u00a77.10.4 Type 2 Domain wording, not \u00a77.10.1.",
+      "ledger": "7.10.1 implemented; code routes include pdf-colour Function, GPU ramp/program and render program. Named supplemental tests are pdf-colour::an_exponential_function_interpolates_between_its_endpoints, pdf-model::shadings (aggregate), corpus::clipping, and reference::evaluate.",
+      "assertions": "corpus/clipping.rs stores literal expected values and source citations: both sides of the Domain, an in-domain identity control, clipping the second input independently, both Range directions, per-output distinct Range bounds, and count/type errors. tests/corpus.rs::every_expectation_agrees_with_the_reference_evaluator compares those literals to the independent reference evaluator. The GPU sibling compares admitted Type 1 shading outputs against that evaluator, while explicitly skipping four DomainClip cases because a Type 1 shading does not call its function outside Domain. Thus source-derived Domain cases test the reference but are not claimed as observable GPU assertions.",
+      "verdict": "Supplemental oracle evidence is meaningful and non-vacuous for the covered two-input cases: expectations are literal/source-derived, not calculated by the reference under test. No new failure found.",
+      "residuals": "reference.rs represents Domain as four numbers and rejects more than two inputs; this is an explicit adapter for two-variable Type 1 shading, not a complete generic m-input oracle. Case::two_input_program and the GPU harness establish that test scope. The production pdf-colour Function stores a variable-length Domain up to MAX_VALUES and Type 4 starts with every clipped input; multi-input generic behavior is outside this file-only oracle audit and should not be inferred covered by the shading corpus."
+    },
+    {
+      "clause": "7.10.5.2",
+      "title": "Table 42 operators and delegated semantics",
+      "source_location": "Primary physical146/printed131, section7.10.5.2; #269/#669 annotations on same page.",
+      "effective_source": "Table 42 names the supported operator set; a normative sentence delegates operator semantics and other PostScript syntax rules to PLRM Third Edition, while stating that a full PostScript-compatible interpreter is unnecessary. EC3 #269 changes the conditional Table 42 spelling If\u2192if and #669 fixes RIGHT CURLY BRACE hex 07hD\u21927Dh; both are printing corrections, not semantic changes. The errata inventory says they were filed one heading late under .3 because of physical placement.",
+      "ledger": "7.10.5.2 implemented; named sibling unit assertions include stack_operators_move_what_they_say, round_takes_a_tie_to_the_greater_integer, equality_is_exact_rather_than_approximate, the_four_operators_that_drop_a_fraction_disagree_only_on_a_tie, atan_answers_in_degrees_over_the_whole_circle, integer_division_truncates_toward_zero_and_its_remainder_follows_the_dividend, the_boolean_and_bitwise_operators_are_the_same_operator_on_zero_and_one, not_is_the_operator_its_operands_type_selects, integer_arithmetic_stays_integer_and_is_exact_where_a_float_is_not, and a_bit_shift_moves_left_for_a_positive_count_and_shifts_zeros_in_going_right. The broader current ledger list is at doc/conformance/ledger.toml around 1043.",
+      "assertions": "The independent corpus identifies each case and cites the exact PLRM/ISO basis, then checks literal expectations against a separate evaluator. `every_expectation_agrees_with_the_reference_evaluator` is therefore an oracle self-audit against explicit values, not a production evaluator test. The device integration separately compares the GPU to that oracle and uses a test-only accuracy bound justified from WGSL, not presented as an ISO precision guarantee. Current operator unit tests provide additional targeted assertions; exact Table 42 operator coverage is not equivalent to exhaustive PLRM conformance.",
+      "verdict": "No supplemental-reference assertion defect found in sampled arithmetic, stack, relational, conditional or clipping cases. Current ADR reasoning remains explicit: ADR 0369 corrects round/equality and audits Table 42; ADR 0412 supersedes the prior boolean-coercion departure for provable boolean operands to ordering operators. EC3 edits do not invalidate those semantic assertions.",
+      "residuals": "The delegated PLRM semantics are not re-certified here operator by operator. Some semantics remain implementation choices/limitations recorded in ADRs (for example bitshift width and the overloaded not representation); they must not be recast as ISO requirements or assumed covered just because the supplemental oracle has cases. The PLRM source provenance is not re-audited in this bounded task."
+    },
+    {
+      "clause": "7.10.5.3",
+      "title": "Type 4 initial stack, output shape and minimum stack capacity",
+      "source_location": "Section7.10.5.3 begins physical146/131; stack/input-output rules continue physical147/132.",
+      "effective_source": "Inputs constitute the initial operand stack; outputs are the remaining items. A count differing from Range or any non-number output is an error. An implementation shall provide room for at least 100 entries, is not required to provide more, and overflow is an error.",
+      "ledger": "7.10.5.3 implemented; current named supplemental tests include pdf-colour::a_tint_transform_shaped_program_evaluates, an_empty_operand_stack_reads_as_the_integer_zero (a documented recovery policy, not a standards-derived valid result), a_program_that_computes_no_real_number_still_answers_within_its_range, a_program_that_errs_on_every_run_is_refused, an_error_that_depends_on_the_input_is_recorded_as_a_fault, model function_faults/shadings, and the conformance case/stack/clipping/refusal modules. See current ledger around 1051.",
+      "assertions": "clipping.rs includes exact output count mismatch and boolean-as-output cases. `case.rs` separates values/errors/undefined/refusal. `reference/stack.rs` implements capacity 100 and its refusal corpus includes 101 pushes; that refusal is an allowed local capacity choice, not a normative requirement that every reader refuse 101. Separate current `calculator_functions_spec_audit` in functions_current pins the production minimum with an exact 100-entry success against 99 entries. Existing fault tests cover runtime input-dependent error reporting; this shard did not rerun them.",
+      "verdict": "The supplemental reference's 100-entry stack is an allowed implementation profile. Its empty-pop result is explicitly recorded as a recovery decision, but ISO \u00a77.10.5.2 normatively delegates operator semantics to PLRM3, whose stack-operator entries specify stackunderflow. The zero fallback is not standards-derived conformance behavior; the prior 1983 audit disposition calls it a qualified recovery policy/semantic gap. On this baseline, Function::eval still substitutes zero and EvaluationFault has no underflow member, though other fault-watch/report machinery now exists. This shard does not remeasure underflow population/cost or propose an API change. Count/type expectations are independently stated and source-grounded. No new failure found in valid-input oracle assertions.",
+      "residuals": "Reference stack CAPACITY=100 does not define the production pdf-colour evaluator's limit (that evaluator currently permits a larger stack). The 101-entry case only shows this reference/device instrument's refusal and is not a mandatory reader-error test. Empty-pop recovery is malformed-input behavior; `doc/reviews/1983-specification-audit/decisions.json`, decision_id `empty-stack-underflow-uses-integer-zero` records the PLRM3-delegated error and qualifies the zero fallback. Runtime fault report completeness and host/backend observation remain in sibling findings, not re-audited here."
+    }
+  ]
+}

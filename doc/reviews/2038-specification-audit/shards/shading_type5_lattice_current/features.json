@@ -1,0 +1,49 @@
+{
+  "scope": "Type 5 lattice multirow topology and decoded per-vertex DeviceRGB values only; no full Type 5/mesh certification.",
+  "baseline": "b901326c",
+  "worktree": "/home/cl/projects/pdf-viewer/.claude/worktrees/r2038-audit",
+  "feature": {
+    "clause": "ISO 32000-2:2020 §8.7.4.5.6, Table 82; inherited mesh record/Decode rules in §8.7.4.5.5",
+    "source_location": "EC3 physical257–259 / printed242–244, Table82 and subsequent row/triangle prose; parent read these pages.",
+    "normative_obligation": "Vertices are organized into sequential rows; with m rows and k vertices per row, each neighboring cell is exactly triangles (Vi,j, Vi,j+1, Vi+1,j) and (Vi,j+1, Vi+1,j, Vi+1,j+1). Vertices may be geometrically nonlinear by row. For direct DeviceRGB, each vertex records its three components; Decode maps raw values into coordinate and component ranges.",
+    "ledger": "§8.7.4.5.6 is implemented, with parent ledger mapping to §8.7.4.5.5 for shared mesh decoding; prior shading_current mapped Type 5 to Table 82 and pdf-colour/src/mesh.rs::MeshReader::lattice/read_vertex.",
+    "implementation": "pdf-colour/src/mesh.rs::MeshReader::lattice reads complete rows, combines each adjacent row pair, and emits the two triplets per column. `read_vertex` uses the shared point/component decoder. pdf-model passes resulting triangles to the display list; pdf-render::ShadingKind::Mesh carries them.",
+    "existing_assertions": [
+      {
+        "test": "crates/pdf-model/tests/shadings.rs::a_lattice_mesh_triangulates_between_its_rows",
+        "substance": "Exact-xref helper-generated, ASCIIHex Type 5 with VerticesPerRow=2 and exactly two rows. Public raster asserts all four literal RGB corners and alpha at the fourth corner, showing that both triangles fill the sole cell."
+      },
+      {
+        "test": "crates/pdf-model/tests/shadings.rs::a_truncated_mesh_is_reported",
+        "substance": "A truncated Type 4 stream is reported; it does not cover Type 5 partial-row behavior."
+      }
+    ],
+    "assertion_gap": "The sole Type 5 oracle has one row pair and one cell. It proves the two triangles for a cell and corner decoding, but cannot distinguish a parser that stops after the first row pair from one that consumes subsequent rows, nor verify the second cell and second row pair are in stream order. The source gives exact topology, so a 3x3 model-level fixture can discriminate this gap without prescribing edge antialiasing.",
+    "draft": "Integrated crates/pdf-model/tests/shadings.rs::a_lattice_mesh_preserves_all_rows_columns_and_vertex_colours. Nine vertices with independently decoded literal point/color pairs; eight expected triangles checked irrespective of vertex winding and output order. Middle row has varying column spacing, but is straight. Complete/no-recovery/no-chain-cut asserted.",
+    "verdict": "T97: PASS, lattice-images-wave75.log. Final model all-targets ClippyPASS.",
+    "selected_adrs": [
+      {
+        "adr": "ADR 0292",
+        "relevance": "Parameter-first function ordering is irrelevant to this candidate: it omits Function and uses direct DeviceRGB values."
+      },
+      {
+        "adr": "ADR 1217",
+        "relevance": "Patch meshes defer Type 6/7 silhouette tessellation; Type 5 vertices already state linear triangles, so this decision does not replace Type 5 topology."
+      },
+      {
+        "adr": "ADR 2546",
+        "relevance": "Nonlinear color-space patch lattices are outside this direct DeviceRGB fixture."
+      },
+      {
+        "adr": "ADR 0343",
+        "relevance": "Addresses sampled-function stream extent, not Type 5 mesh records. No conclusion about partial Type 5 row recovery is borrowed from it."
+      }
+    ],
+    "residuals": [
+      "Parent rejected initial draft winding/order overconstraint: spec triangle geometry does not require the display-list vertex ordering.",
+      "Type 5 incomplete-row behavior remains unclassified here. Producer framing rules do not automatically require a reader to reject; this topology test contains only complete valid rows.",
+      "The draft is a model/display-list geometry-color oracle, not a fixed raster edge-coverage requirement. Existing single-cell test supplies public raster coverage.",
+      "No other bit widths, color spaces, truncation or incomplete-row reader behavior established. Separate T98 tests Type5 Function."
+    ]
+  }
+}
