@@ -2469,6 +2469,73 @@ pub(crate) mod fixtures {
             signer(Digest::Sha256, None),
         )
     }
+
+    /// The same token, carrying the time-stamping unit's `certificate` and naming it in its
+    /// `SignerInfo` by `issuer` (the contents of its issuer `Name`) and `serial`, as RFC 5652
+    /// section 5.3's `IssuerAndSerialNumber` does. The signature value is no signature: what this
+    /// fixture carries is which certificate the token names, for ETSI TS 119 312 clause 9.5's
+    /// time-stamping unit, and not a verifiable token.
+    pub(crate) fn timestamp_token_naming(
+        digest: &[u8],
+        certificate: &[u8],
+        issuer: &[u8],
+        serial: &[u8],
+    ) -> Vec<u8> {
+        let info = tagged(
+            0x30,
+            &[
+                primitive(0x02, &[0x01]),       // version
+                primitive(0x06, &[0x2A, 0x03]), // policy
+                tagged(
+                    0x30,
+                    &[sha256_algorithm(), primitive(0x04, digest)], // messageImprint
+                ),
+                primitive(0x02, &[0x2A]),            // serialNumber
+                primitive(0x18, b"20260101000000Z"), // genTime
+            ],
+        );
+        // `SignerInfo`, positionally: version, sid, digestAlgorithm, signatureAlgorithm,
+        // signature.
+        let signer = tagged(
+            0x30,
+            &[
+                primitive(0x02, &[0x01]),
+                tagged(
+                    0x30,
+                    &[tagged(0x30, &[issuer.to_vec()]), primitive(0x02, serial)],
+                ),
+                sha256_algorithm(),
+                sha256_algorithm(),
+                primitive(0x04, &[0xDE, 0xAD]),
+            ],
+        );
+        let body = tagged(
+            0x30,
+            &[
+                primitive(0x02, &[0x03]),
+                tagged(0x31, &[sha256_algorithm()]),
+                tagged(
+                    0x30,
+                    &[
+                        primitive(0x06, ID_CT_TST_INFO),
+                        tagged(0xA0, &[primitive(0x04, &info)]),
+                    ],
+                ),
+                tagged(0xA0, &[certificate.to_vec()]),
+                tagged(0x31, &[signer]),
+            ],
+        );
+        tagged(
+            0x30,
+            &[
+                primitive(
+                    0x06,
+                    &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02],
+                ),
+                tagged(0xA0, &[body]),
+            ],
+        )
+    }
 }
 
 #[cfg(test)]

@@ -717,9 +717,34 @@ pub(crate) mod fixtures {
     /// The offsets are recorded as the bytes are laid down rather than patched afterwards, so the
     /// cross-reference tables are right by construction.
     pub(crate) fn two_timestamps(material_last: bool) -> Vec<u8> {
-        /// Hexadecimal characters reserved for each signature value.
-        const ROOM: usize = 1024;
-        let value = format!("<{}>", "0".repeat(ROOM));
+        laid_down(material_last, 1024, &crate::cms::fixtures::timestamp_token)
+    }
+
+    /// [`two_timestamps`] with the store covered, each token carrying the time-stamping unit of
+    /// [`TOKEN`] — its end-entity certificate, 2048-bit RSA, valid 2026-01-01 to 2036-01-01 — and
+    /// naming it in its `SignerInfo`, which is the certificate ETSI TS 119 312 clause 9.5 asks
+    /// about (ADR 2928 item 2).
+    pub(crate) fn two_timestamps_by_a_unit() -> Vec<u8> {
+        let token = super::hex(TOKEN);
+        let cms = crate::cms::signed_data(&token).expect("the token reads");
+        let certificate = crate::signature::signer_certificate(&cms)
+            .expect("the token carries the certificate it names")
+            .encoding();
+        let unit = crate::x509::parse(certificate).expect("the unit's certificate reads");
+        laid_down(false, 4096, &|digest| {
+            crate::cms::fixtures::timestamp_token_naming(
+                digest,
+                certificate,
+                unit.issuer,
+                unit.serial_number,
+            )
+        })
+    }
+
+    /// The two-revision layout, with `room` hexadecimal characters reserved for each signature
+    /// value and `mint` making each token from the digest of its byte range.
+    fn laid_down(material_last: bool, room: usize, mint: &dyn Fn(&[u8]) -> Vec<u8>) -> Vec<u8> {
+        let value = format!("<{}>", "0".repeat(room));
         let timestamp = format!(
             "<< /Type /DocTimeStamp /Filter /Adobe.PPKLite /SubFilter /ETSI.RFC3161 \
              /ByteRange [0000000000 0000000000 0000000000 0000000000] /Contents {value} >>"
@@ -772,7 +797,7 @@ pub(crate) mod fixtures {
         }
         let _ = store_at;
         for (which, end) in [first_revision, second_revision].into_iter().enumerate() {
-            fill(&mut file.bytes, which, end, ROOM);
+            fill(&mut file.bytes, which, end, room, mint);
         }
         file.bytes
     }
@@ -812,7 +837,13 @@ pub(crate) mod fixtures {
     }
 
     /// Writes the `which`th `/ByteRange` to end at `end`, and the token that commits to it.
-    fn fill(bytes: &mut Vec<u8>, which: usize, end: usize, room: usize) {
+    fn fill(
+        bytes: &mut Vec<u8>,
+        which: usize,
+        end: usize,
+        room: usize,
+        mint: &dyn Fn(&[u8]) -> Vec<u8>,
+    ) {
         let placeholder = b"[0000000000 0000000000 0000000000 0000000000]";
         // The first placeholder left, not the `which`th: each call consumes one, and the values
         // are written in the order the objects stand in the file.
@@ -835,7 +866,7 @@ pub(crate) mod fixtures {
             range.bytes(),
         );
         let digest = Digest::Sha256.compute(&[&bytes[..before], &bytes[after..end]]);
-        let token = crate::cms::fixtures::timestamp_token(&digest);
+        let token = mint(&digest);
         let hex = token.iter().fold(String::new(), |mut out, byte| {
             let _ = write!(out, "{byte:02x}");
             out

@@ -230,7 +230,8 @@ pub(crate) fn simple_widths(
 }
 
 /// Advances each code of one of the fourteen stated by name alone that names a glyph the drawn
-/// program does not hold by that program's `.notdef`, and returns those codes (ADR 2942).
+/// program does not hold, or names none, by that program's `.notdef`, and returns those codes
+/// (ADR 2942, ADR 2948).
 ///
 /// The text decides it, and nothing in it is a choice. §9.6.5.2 says which glyph such a code
 /// shows:
@@ -251,9 +252,18 @@ pub(crate) fn simple_widths(
 ///
 /// Every such code paints the one `.notdef`, so it advances by that glyph's width, never by the 0
 /// an absent entry defaults to. A dictionary that states a descriptor keeps its `/MissingWidth`,
-/// stated or 0 (ADR 2687). A code naming no glyph at all is not reached here: no encoding maps
-/// it to a name. Glyph 0 is the `.notdef` of every face a substitute is drawn from
+/// stated or 0 (ADR 2687). Glyph 0 is the `.notdef` of every face a substitute is drawn from
 /// ([`NOTDEF_GLYPH`]).
+///
+/// A code the encoding assigns no character to — an empty slot, such as `StandardEncoding`'s
+/// codes below 32 — takes the same advance (ADR 2948). §9.6.5.1: "Except for Type 3 fonts, every
+/// font program shall have a built-in encoding", which §9.6.5.2 makes "an 'encoding' array that is
+/// part of the font program", and a dictionary's `/Encoding` "shall override a Type 1 font's
+/// mapping from character codes to character names" without changing what that mapping is. The
+/// Adobe Type 1 Font Format, a normative reference, indexes the array by every code to obtain a
+/// name, and builds it by first putting `/.notdef` in each of its 256 slots. A code no character was assigned to therefore names `.notdef`, which §9.6.5.2
+/// requires of every program ("All Type 1 font programs shall contain an actual glyph named
+/// .notdef"), and §9.2.4 moves the text position by that glyph's width.
 fn notdef_advanced(font: SimpleMetrics<'_>, widths: &mut BTreeMap<u32, f32>) -> CodeSet {
     let mut by_notdef = CodeSet::default();
     if font.substituted.is_none() || font.states_descriptor {
@@ -266,7 +276,7 @@ fn notdef_advanced(font: SimpleMetrics<'_>, widths: &mut BTreeMap<u32, f32>) -> 
         .iter()
         .zip(font.names.into_iter().flat_map(|names| names.iter()))
         .enumerate()
-        .filter(|(_, (glyph, name))| glyph.is_none() && !name.is_empty())
+        .filter(|(_, (glyph, _))| glyph.is_none())
         .filter_map(|(code, _)| u32::try_from(code).ok())
         .filter(|code| !widths.contains_key(code))
         .collect();
@@ -1283,6 +1293,40 @@ mod substituted_width_tests {
                 font.advance(notdef)
             );
         }
+    }
+
+    /// A code the encoding assigns no character to — code 10, empty in `StandardEncoding` (the
+    /// built-in encoding of a name-alone `Times-Roman`) and in `MacRomanEncoding` — names
+    /// `.notdef` in the Type 1 encoding array, so it is advanced by `.notdef` as the code naming
+    /// it outright is (ADR 2948), and draws nothing. A `/Differences` entry naming `.notdef` is
+    /// the comparison; a descriptor keeps ADR 2687's `/MissingWidth` here too.
+    #[test]
+    fn an_empty_encoding_slot_takes_the_notdef_advance() {
+        for encoding in ["", "/BaseEncoding /MacRomanEncoding"] {
+            let (document, dict) = font_dictionary(&format!(
+                "/BaseFont /Times-Roman /Encoding << {encoding} /Differences [67 /.notdef] >>"
+            ));
+            let font = LoadedFont::load(&document, &dict, "F1").expect("a standard 14 name loads");
+            let (empty, notdef) = (Code::single_byte(10), Code::single_byte(67));
+            assert!(font.advanced_by_notdef(empty), "{encoding}");
+            assert!(
+                (font.advance(empty) - 0.250).abs() < 1e-6,
+                "{encoding}: {}",
+                font.advance(empty)
+            );
+            assert!((font.advance(empty) - font.advance(notdef)).abs() < 1e-6);
+            assert!(font.outline(empty).is_none_or(|path| path.is_empty()));
+        }
+        let (document, dict) = font_dictionary("/BaseFont /Courier /Encoding /MacRomanEncoding");
+        let font = LoadedFont::load(&document, &dict, "F1").expect("a standard 14 name loads");
+        assert!((font.advance(Code::single_byte(10)) - 0.600).abs() < 1e-6);
+
+        let (document, dict) = font_dictionary(
+            "/BaseFont /Times-Roman /FontDescriptor << /Type /FontDescriptor /Flags 34 >>",
+        );
+        let font = LoadedFont::load(&document, &dict, "F1").expect("a standard 14 name loads");
+        assert!(!font.advanced_by_notdef(Code::single_byte(10)));
+        assert!(font.advance(Code::single_byte(10)).abs() < 1e-6);
     }
 
     /// The boundary ADR 2687 drew: a dictionary that states a descriptor states where

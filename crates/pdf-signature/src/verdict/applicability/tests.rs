@@ -687,6 +687,80 @@ fn a_tokens_unit_is_the_certificate_its_signer_info_names() {
     assert_eq!(unit(&bare), None);
 }
 
+/// TS 119 312 clause 9.5's time-stamping unit, asked in the report itself: the two-revision
+/// document whose tokens carry and name [`timestamp::tests::fixtures::TOKEN`]'s unit, asked about
+/// the first timestamp, takes the second's token as a time (d) ii) 2)), and `Report::of` asks that
+/// token's unit — 2048-bit RSA under PKCS #1 v1.5, its certificate valid to 2036-01-01 — against
+/// Tables 2 and 6, as [`a_tokens_unit_is_the_certificate_its_signer_info_names`] does by hand. The
+/// same document whose tokens name no certificate raises neither.
+#[test]
+fn the_report_asks_the_unit_of_each_token_it_takes_as_a_time() {
+    use super::ts_119_312::KeyRole;
+    use crate::timestamp::chain;
+    use crate::timestamp::tests::fixtures::{two_timestamps, two_timestamps_by_a_unit};
+    let unit_issues = |bytes: Vec<u8>| {
+        let document = pdf_syntax::Document::open(bytes).expect("the fixture opens");
+        let found = crate::signature::signatures(&document);
+        let anchors = TrustAnchors::none();
+        let chain = chain(&document, &anchors, &[], &Material::none(), AT);
+        let authenticity = Authenticity::Verified {
+            digest: Digest::Sha256,
+            family: Family::Rsa,
+            key_bits: 3_072,
+            over: Signed::TheDocumentsBytes,
+        };
+        let report = Report::of(&Asked {
+            signature: &found[0],
+            authenticity: &authenticity,
+            when: BestSignatureTime::now(AT),
+            chain: &chain,
+            index: 0,
+            material: &Material::none(),
+            anchors: &anchors,
+            now: AT,
+            signatures: &found,
+            lists: &[],
+            path: &[],
+        });
+        report
+            .security
+            .expect("a suite was reached")
+            .issues
+            .into_iter()
+            .filter(|issue| {
+                matches!(
+                    issue,
+                    Issue::OtherKeyOutlived {
+                        key: KeyRole::TimeStampingUnit,
+                        ..
+                    }
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let not_after = Instant::from_unix_seconds(2_082_758_400);
+    assert_eq!(
+        unit_issues(two_timestamps_by_a_unit()),
+        [
+            Issue::OtherKeyOutlived {
+                key: KeyRole::TimeStampingUnit,
+                rule: Rule::SignatureAlgorithms,
+                entry: "RSA-PKCS#1v1_5",
+                class: Class::LEGACY,
+                until: not_after,
+            },
+            Issue::OtherKeyOutlived {
+                key: KeyRole::TimeStampingUnit,
+                rule: Rule::RsaKeySizes,
+                entry: "at least 1 900 and below 3 000 bits",
+                class: Class::legacy_until(2026),
+                until: not_after,
+            },
+        ]
+    );
+    assert_eq!(unit_issues(two_timestamps(false)), []);
+}
+
 /// TS 119 312 clause 9.5's OCSP responder: the delegate a response about the signer's
 /// certificate names and carries (RFC 6960 section 4.2.2.2 criterion 3), certified by the
 /// signer's issuer. The fixture's responder has a 3072-bit key under a CA whose key is 2048 bits,

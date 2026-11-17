@@ -25,7 +25,8 @@ impl LoadedFont {
     /// Whether [`Self::advance`] for `code` is the drawn program's `.notdef` advance: the font is
     /// one of ISO 32000-2 §9.6.2.2's fourteen stated by name alone, and `code` names a glyph
     /// neither the published metrics nor that program hold, so §9.6.5.2 substitutes `.notdef`
-    /// for it and the width is that glyph's (ADR 2942).
+    /// for it and the width is that glyph's (ADR 2942), or the encoding assigns `code` no
+    /// character and its slot names `.notdef` (ADR 2948).
     ///
     /// A converter that draws such a code from a face holding the glyph by name is the caller:
     /// that face's own glyph is what its file shows, and §9.2.4 makes the glyph shown the one

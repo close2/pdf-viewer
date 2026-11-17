@@ -1482,8 +1482,12 @@ fn a_page_past_the_bound_crosses_as_marks_to_a_host_that_draws_them() {
 /// which the list format carries as a producer resolved at the device's scale and therefore does
 /// not carry at all (`Uncodable::DeferredColours`): red rising left to right, green with it.
 fn a_page_whose_marks_cannot_cross() -> Vec<u8> {
+    a_page_shaded_by("{ pop dup 0 }")
+}
+
+/// The same page, its shading's colours the type 4 `function`'s.
+fn a_page_shaded_by(function: &str) -> Vec<u8> {
     let contents = "q 0 0 612 792 re W n /Sh0 sh Q\n";
-    let function = "{ pop dup 0 }";
     let page_contents = format!(
         "<< /Length {} >>\nstream\n{contents}endstream",
         contents.len()
@@ -1626,6 +1630,60 @@ fn a_page_under_the_bound_whose_window_is_a_tenth_of_it_crosses_as_its_window() 
         matches!(whole.payload, viewer_confined::Payload::Raster(_)),
         "to a host that places no window the page crosses whole: {whole:?}"
     );
+}
+
+/// **A type 1 grid's fault crosses the pipe after the worker draws the window** (ADR 2946):
+/// ISO 32000-2 §7.10.5.3, "It shall be an error for the number of remaining operands to differ
+/// from the number of output variables specified by Range". The program leaves two operands for
+/// an `x` between a tenth and a fifth against `/Range`'s three, so it errs only where §8.7.4.5.2's
+/// grid is evaluated there — inside the window at the page's left edge, and at none of the domain's
+/// corners. Opened at four times its size (Annex O's `zoom`), the page crosses as its
+/// window, answered `Rendered::Listed` and drawn after the command; the worker's empty
+/// `Command::Declined` is where its viewer learns that draw is over, and the fault crosses as one
+/// `Event::Reported` with the command's events. A second draw of the window says nothing again.
+#[test]
+fn a_type_1_grids_fault_crosses_after_a_worker_drawn_window() {
+    let is_a_fault = |event: &Event| {
+        matches!(event, Event::Reported { page: Some(0), notes, .. }
+        if notes.iter().any(|note| {
+            note.starts_with("the document's function met an error for some inputs")
+        }))
+    };
+    let mut confined = Confined::start().expect("a confined viewer starts");
+    let mut events = Vec::new();
+    for command in [
+        Command::Resize {
+            width: VIEWPORT.0,
+            height: VIEWPORT.1,
+            scale: 1.0,
+        },
+        Command::Oversize(viewer_core::Oversize::Listed),
+        Command::Open {
+            id: DOCUMENT,
+            bytes: a_page_shaded_by(
+                "{ pop dup dup 0.1 gt exch 0.2 lt and { pop 1 1 } { dup dup } ifelse }",
+            )
+            .into(),
+            password: None,
+            fragment: Some("zoom=400".to_owned()),
+        },
+    ] {
+        events.extend(confined.handle(&command).expect("the command crosses"));
+    }
+    let shown = the_page(&mut confined);
+    assert!(
+        matches!(shown.payload, viewer_confined::Payload::Window { .. }),
+        "the page crosses as its window: {shown:?}"
+    );
+    assert_eq!(
+        events.iter().filter(|event| is_a_fault(event)).count(),
+        1,
+        "{events:?}"
+    );
+    let again = confined
+        .handle(&Command::Scroll { dx: 0.0, dy: 400.0 })
+        .expect("a scroll crosses");
+    assert!(!again.iter().any(is_a_fault), "said once: {again:?}");
 }
 
 /// **A page past the bound whose marks cross takes the route its host asks for** (ADR 2017,
