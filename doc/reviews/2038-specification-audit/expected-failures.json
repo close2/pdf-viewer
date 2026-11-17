@@ -489,6 +489,12 @@
       "test": "each_page_split_keeps_empty_warichu_boundary_elements",
       "finding": "2038-B56",
       "log": "bpc-warichu-wave73c.log"
+    },
+    {
+      "binary": "pdf-syntax::public_key_witnesses",
+      "test": "separate_stmf_and_strf_defaults_use_their_own_recipient_keys",
+      "finding": "2038-B57",
+      "log": "crypto-wave74c.log"
     }
   ]
 }

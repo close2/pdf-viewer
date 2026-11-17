@@ -1,0 +1,21 @@
+[
+  {
+    "question": "Do existing mesh assertions prove Type4 continuation flag semantics?",
+    "source": "ISO 32000-2 §8.7.4.5.5, Table81 and preceding prose require flag 0 to start a triangle, require flags on its second and third vertices to be ignored, and specify flag1 as (vb,vc,vd) and flag2 as (va,vc,vd). The stream must have whole triangles and each vertex is byte-padded independently.",
+    "evidence": "Current public Type4 pixels cover only three flag-0 vertices; the low-bit integration fixture also has flags all zero. Type6/7 continuation tests are a distinct patch format and do not cover Type4's triangles.",
+    "decision": "Keep Type4 continuation fields as an explicit coverage gap, not a runtime defect. The source wording is precise enough for an independent model-level expected triangle topology test.",
+    "draft": "drafts/type4_edge_flags.rs uses exact literal expected triangle point/color sequences from Table81 and includes legal ignored nonzero vertex flags plus 2-bit per-record padding."
+  },
+  {
+    "question": "Do patch-specific ADRs supersede the Type4 edge rules?",
+    "source": "ADR1217/2546 concern Types6/7 patch geometry and color conversion, while ADR0292 concerns interpolation of a Function parameter before function evaluation. Table81 directly defines free-form triangle topology.",
+    "evidence": "The candidate has no Function, uses DeviceRGB colors, and outputs Type4 triangles rather than patches.",
+    "decision": "No. These ADR choices do not weaken or replace the Table81 topology assertions."
+  },
+  {
+    "question": "Should mesh raster pixels be used as the sole oracle for the continuation branch?",
+    "source": "The standard gives exact vertex reuse and ordering but does not prescribe antialiasing of triangle edges.",
+    "evidence": "Triangle geometry and each vertex's corner color are observable in the display-list model and can be compared with literal values; current public raster tests already establish the ordinary Type4 draw route.",
+    "decision": "Use source-derived display-list topology as this candidate's oracle and avoid a fixed edge-pixel expectation."
+  }
+]

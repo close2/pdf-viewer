@@ -1,0 +1,5 @@
+{
+  "source": "Parent enumerated all17 IDs in primary annotations, including Caret Contents; read physical608 UR3 text and current usage_rights parser/notes consumers. Physical849 Inks is continuation of Table407 begun847, not368.",
+  "review": "D50: errata-read #218 wrongly locates Table263 UR3 in Table264 and says no inner reader consumer. Actual first matching UR transform is consumed by notes/revision comparison. Exact-one producer rule has no specified malformed-array recovery; no behavior violation inferred.",
+  "limits": "Existing sibling reviews supply bounded media/geospatial/requirements assertions; this is not fresh whole-clause execution. #340 private-key prefix is a real producer obligation, not merely editorial; writer route audit active separately. #58 package note does not impose active playback. No new test warranted by these17 overlays alone."
+}

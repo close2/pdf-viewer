@@ -1555,7 +1555,7 @@
     {
       "log": "quality-wave52d.log",
       "exit": 0,
-      "scope": "Syntax/model/script/core/UI all-targets Clippy with script engine PASS; initial52\u201352c rejected fixture-only unused expectation, literal-float comparison and similar-name issues; removed/justified/renamed."
+      "scope": "Syntax/model/script/core/UI all-targets Clippy with script engine PASS; initial52–52c rejected fixture-only unused expectation, literal-float comparison and similar-name issues; removed/justified/renamed."
     },
     {
       "log": "eleven-crate-wave53.log",
@@ -1912,6 +1912,27 @@
       "log": "quality-model-transform-wave73b.log",
       "exit": 0,
       "scope": "model/transform all-targets Clippy"
+    },
+    {
+      "log": "mesh-crypto-wave74b.log",
+      "scope": "Type4 PASS; final crypto result superseded by74c after removing ToUnicode helper assumption"
+    },
+    {
+      "log": "crypto-wave74c.log",
+      "tests": 2,
+      "passed": 1,
+      "failed": 1,
+      "scope": "B57 distinct default array failure and shared-default control"
+    },
+    {
+      "log": "quality-model-syntax-wave74.log",
+      "exit": 0,
+      "scope": "model/syntax all-targets Clippy"
+    },
+    {
+      "command": "shards/dual_public_key_default_filters/verify_fixture.py on both retained test PDFs",
+      "exit": 0,
+      "scope": "Independent extracted CMS/AES plaintext and exact xref checks"
     }
   ],
   "prior_expected_failures": {

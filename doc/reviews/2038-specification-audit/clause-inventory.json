@@ -1349,7 +1349,8 @@
     "current_artifacts": [
       "shards/public_key_encryption_current/features.json",
       "shards/errata_numeric_syntax_batch_current/features.json",
-      "shards/structured_errata_security_current/features.json"
+      "shards/structured_errata_security_current/features.json",
+      "shards/dual_public_key_default_filters/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -1365,7 +1366,8 @@
       "shards/public_key_encryption_current/features.json",
       "shards/errata_early_residual_current/features.json",
       "shards/partial_writer_decisions_current/features.json",
-      "shards/structured_errata_security_current/features.json"
+      "shards/structured_errata_security_current/features.json",
+      "shards/dual_public_key_default_filters/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -1378,7 +1380,8 @@
     "prior_ledger_status": "partial",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/encryption/features.json"
+      "shards/encryption/features.json",
+      "shards/dual_public_key_default_filters/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -3440,7 +3443,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/shading_current/features.json"
+      "shards/shading_current/features.json",
+      "shards/shading_mesh_oracles_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -6407,7 +6411,8 @@
       "shards/partial_writer_decisions_current/features.json",
       "shards/errata_reference_editorial_current/features.json",
       "shards/native_print_defaults_tests_current/features.json",
-      "shards/print_scaling_policy_current/features.json"
+      "shards/print_scaling_policy_current/features.json",
+      "shards/structured_errata_metadata_media_current/features.json"
     ],
     "prior_artifacts": [
       "viewer_preferences_audit"
@@ -8566,7 +8571,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/signatures_transforms/features.json"
+      "shards/signatures_transforms/features.json",
+      "shards/structured_errata_metadata_media_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -8581,7 +8587,8 @@
     "current_artifacts": [
       "shards/signatures_transforms/features.json",
       "shards/signature_crl_public_current/features.json",
-      "shards/signature_ocsp_producedat_public/features.json"
+      "shards/signature_ocsp_producedat_public/features.json",
+      "shards/structured_errata_metadata_media_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -8679,7 +8686,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/signatures_transforms/features.json",
-      "shards/annotation_universe_current/features.json"
+      "shards/annotation_universe_current/features.json",
+      "shards/structured_errata_metadata_media_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -8692,7 +8700,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/signatures_transforms/features.json"
+      "shards/signatures_transforms/features.json",
+      "shards/structured_errata_metadata_media_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -8774,7 +8783,8 @@
     "current_artifacts": [
       "shards/measurement_geospatial_current/features.json",
       "shards/departure_decisions_residual_current/features.json",
-      "shards/errata_weak_dispositions_batch6_current/features.json"
+      "shards/errata_weak_dispositions_batch6_current/features.json",
+      "shards/structured_errata_metadata_media_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -8788,7 +8798,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/measurement_geospatial_current/features.json",
-      "shards/errata_weak_dispositions_batch6_current/features.json"
+      "shards/errata_weak_dispositions_batch6_current/features.json",
+      "shards/structured_errata_metadata_media_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -8841,7 +8852,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/document_requirements_current/features.json",
-      "shards/interactive_framing_current/features.json"
+      "shards/interactive_framing_current/features.json",
+      "shards/structured_errata_metadata_media_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -8856,7 +8868,8 @@
     "current_artifacts": [
       "shards/document_requirements_current/features.json",
       "shards/errata_weak_dispositions_batch3_current/features.json",
-      "shards/errata_weak_dispositions_batch6_current/features.json"
+      "shards/errata_weak_dispositions_batch6_current/features.json",
+      "shards/structured_errata_metadata_media_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -9052,7 +9065,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/multimedia_data_current/features.json",
-      "shards/errata_media_annex_batch_current/features.json"
+      "shards/errata_media_annex_batch_current/features.json",
+      "shards/structured_errata_metadata_media_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -9105,7 +9119,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/media_viability/features.json"
+      "shards/media_viability/features.json",
+      "shards/structured_errata_metadata_media_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -9196,7 +9211,8 @@
     "prior_ledger_status": "implemented",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/media_viability/features.json"
+      "shards/media_viability/features.json",
+      "shards/structured_errata_metadata_media_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -9366,7 +9382,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/legacy_media_annotations_current/features.json",
-      "shards/three_d_scope_current/features.json"
+      "shards/three_d_scope_current/features.json",
+      "shards/structured_errata_metadata_media_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -9765,7 +9782,8 @@
     "prior_ledger_status": "out-of-scope",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/three_d_scope_current/features.json"
+      "shards/three_d_scope_current/features.json",
+      "shards/structured_errata_metadata_media_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -11844,7 +11862,8 @@
     "prior_ledger_status": "inapplicable",
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
-      "shards/deprecated_web_prepress_current/features.json"
+      "shards/deprecated_web_prepress_current/features.json",
+      "shards/structured_errata_metadata_media_current/features.json"
     ],
     "prior_artifacts": [
       "inapplicable_conditions_audit"
@@ -12252,7 +12271,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/compatibility_extensions_current/features.json",
-      "shards/partial_writer_decisions_current/features.json"
+      "shards/partial_writer_decisions_current/features.json",
+      "shards/structured_errata_metadata_media_current/features.json"
     ],
     "prior_artifacts": [
       "annex_e_audit"
@@ -12852,7 +12872,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/transparency_groups_current/features.json",
-      "shards/transparency_detection_annex_q_current/features.json"
+      "shards/transparency_detection_annex_q_current/features.json",
+      "shards/structured_errata_metadata_media_current/features.json"
     ],
     "prior_artifacts": [
       "annex_q_audit"

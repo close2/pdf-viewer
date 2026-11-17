@@ -1,0 +1,14 @@
+{
+  "finding": "2038-B57",
+  "source": "Parent read effective Tables20/25/27 and §7.6.5.3: distinct defaults allowed, each default requires recipient array; AESV2 public-key Length128; metadata defaulttrue.",
+  "implementation": "filter_lists selects StmF else StrF as one global default, then misclassifies second default array as stream-local string. Common key storage also requires reconsideration, but failing assertion first observes opening refusal.",
+  "execution": "Parent integrated public_key_witnesses assertions: distinct default arrays FAIL at UnsupportedEncryption, shared default control PASS. Exact decrypted stream and Lang literals replace an unsuitable ToUnicode helper. crypto-wave74c.log. Type4 mesh separately PASS in mesh-crypto-wave74b.log; model/syntax ClippyPASS.",
+  "fixture": "PDF1.7/V4/s5; genuine CMS with same checked-in public test recipient and permissions; different seeds/keys. Binary header, exact classic xref, two independently decrypted retained payloads. qpdf unsupported PubSec exit is not validation.",
+  "verification": "verify_fixture.py passes on both checked-in files; OpenSSL4.1.0. Regeneration randomizes CMS ciphertext and thus hashes.",
+  "limits": [
+    "B57 records the executed rejection. Downstream distinct-key assertions cannot yet execute because opening fails.",
+    "Independent verifier decrypts CMS and AES payloads extracted from retained PDF bytes, not just regenerated ciphertext. Uses OpenSSL and independently derived keys; no external PDF-reader conformance certification.",
+    "qpdf --check exits at unsupported Adobe.PubSec; it is explicitly not treated as a successful syntax or encryption validator.",
+    "This case does not address different recipients/permissions across the two defaults, crypt-filter access timing, embedded-file defaults, or all SubFilter/V combinations."
+  ]
+}

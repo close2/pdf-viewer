@@ -11,11 +11,11 @@ retained as provenance; they are not silently promoted to current verification.
 The [evidence directory](2038-specification-audit/) records the baseline, per-clause
 continuation inventory, and work still pending.
 
-## Current checkpoint (73)
+## Current checkpoint (74)
 
 Partial reviews now cover **883 of 883 ledger rows**, with 0 wholly pending. The current
-failure manifest contains **81 assertions**, grouped into behavior findings rather
-than 81 independent defects. B08 and B42 remain unresolved interpretation/policy
+failure manifest contains **82 assertions**, grouped into behavior findings rather
+than 82 independent defects. B08 and B42 remain unresolved interpretation/policy
 probes; this is not a count of confirmed mandatory ISO violations. All 72 failures from the prior audit pass at this baseline.
 The refreshed broad run, wave64, covered eleven crates: **7,218 tests ran, 7,142 passed,
 and exactly the 76 recorded in-scope assertions failed; 58 were skipped**.
@@ -188,6 +188,14 @@ are explicit. An omitted black-point-compensation gs control also passes. Model 
 transform Clippy pass. The manifest now holds81 assertions; broad64 predates this
 failure and13 subsequent passing tests. The Screen ledger still quotes a sentence
 deleted by #42, although current code and ADR2818 already qualify that old rule.
+
+Checkpoint74 adds a public-key opening failure for valid distinct stream/string
+default crypt filters. The shared-filter control passes; OpenSSL independently
+decrypts actual retained PDF payloads. Type4 mesh continuation coordinates and
+inherited colors also pass literal expectations. Model/syntax Clippy passes.
+The manifest reaches82 assertions; broad64 predates two failures and15 new passes.
+Erratum #218 targets Table263 UR3, not Table264 Legal; current rights consumers
+exist, while malformed-cardinality recovery remains a policy boundary.
 
 The following paragraphs preserve checkpoint-specific results in chronological order.
 

@@ -2407,5 +2407,38 @@
     "summary": "Omitted UseBlackPtComp in a later gs now has an explicit state-preservation assertion.",
     "execution": "OFF then LW-only gs matches OFF control, distinct from ON black endpoint; PASS. Model/transform Clippy PASS.",
     "limits": "Synthetic supported ICC state route; not complete ICC profile conformance."
+  },
+  {
+    "id": "2038-B57",
+    "kind": "behavior-gap",
+    "clauses": [
+      "7.6.5.2",
+      "7.6.5.3",
+      "7.6.6"
+    ],
+    "summary": "Public-key handler rejects valid distinct StmF/StrF default recipient arrays.",
+    "execution": "Distinct-filter testFAIL at opening; shared-filter controlPASS. Both retained PDF payloads independently decrypted with OpenSSL.",
+    "limits": "Same recipient/permissions, AESV2/s5 only. Subsequent distinct-key checks are blocked by opening failure. Separate EFF and other recipient combinations unaudited."
+  },
+  {
+    "id": "2038-D50",
+    "kind": "stale-source-and-consumer-rationale",
+    "clauses": [
+      "12.8.6",
+      "12.8.7"
+    ],
+    "summary": "Errata inventory mislocates #218 under Legal Table264 and omits current UR-reference consumers.",
+    "evidence": "Primary Caret14145 physical608 targets Table263 UR3. signature.rs usage_rights selects first recognized UR transform; notes/revision comparison uses it.",
+    "disposition": "Correct source/consumer rationale; producer exact-one cardinality alone does not prescribe reader recovery for malformed multi-UR arrays. Audit evidence corrected, project errata inventory unchanged."
+  },
+  {
+    "id": "2038-T96",
+    "kind": "test-coverage-gap",
+    "clauses": [
+      "8.7.4.5.5"
+    ],
+    "summary": "Type4 continuation flags now have literal topology and inherited-color assertions.",
+    "execution": "One passing integration test checks three triangles from five separately padded records; model/syntax ClippyPASS.",
+    "limits": "Interpreted mesh topology, supplemented by existing ordinary triangle pixels; not full bit-width/function or raster certification."
   }
 ]

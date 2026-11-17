@@ -1,0 +1,5 @@
+{
+  "source": "EC3 physical255/240 flag-0 ignored companions;256/241 flag1 vb/vc and flag2 va/vc of preceding triangle;257/242 per-record byte padding. Parent read these and current MeshReader.",
+  "execution": "Type4 topology PASS in mesh-crypto-wave74b.log; all three literal point/color triplets checked. No-recovery/no-chain-cut and complete interpretation asserted.",
+  "limits": "No fixed raster edge pixels, all bit-widths, generic Function route or all mesh types certified."
+}

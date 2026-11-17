@@ -50,3 +50,5 @@ The same table makes UR3 conditional: only if the signature is valid and recogni
 - Parent promoted the standalone public-API DTS-only/mixed comparison pair and verified its signature crypto controls. The DTS-only expectation currently fails with seven unrankable objects; parent owns any production repair, ledger update and rerun.
 - No changes to conformance ledger or ADR were made; promotion is parent-owned.
 - This shard does not certify complete PAdES profile validation, revocation good-status logic, all malformed VRI shapes, all Legal table counts, producer LTV/signature creation, or every DOCMDP/UR transform edge.
+
+Parent checkpoint74 correction: #218 targets Table263 UR3, not Table264 Legal. The current permissions parser and notes/revision comparison consume UR references; the exact-one producer constraint does not prescribe malformed-reader recovery. See D50 and structured_errata_metadata_media_current.

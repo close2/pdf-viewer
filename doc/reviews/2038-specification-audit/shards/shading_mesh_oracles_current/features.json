@@ -1,0 +1,55 @@
+[
+  {
+    "feature": "Type 4 free-form mesh edge-flag topology and per-vertex bit alignment",
+    "clause": "ISO 32000-2 §8.7.4.5.5, Table 81; §10.7.3 only for bounded color subdivision context",
+    "source_location": "Primary EC3 PDF Table 81 and vertex record prose: physical p.254 / printed p.239; flag-0 vs continuation prose and Figure 39: physical p.255 / printed p.240; edge-flag examples and whole-triangle requirement: physical p.256 / printed p.241; per-vertex byte padding and ignored bits: physical p.257 / printed p.242. Footers directly checked. Physical p.254 Table81 annotations are cross-reference Links only; no change to flag or field requirements. EC3 #682 at physical267 is a green-line cleanup at Table85, unrelated to Type4.",
+    "errata": "No effective EC3 erratum was found changing Table81 flags, continuation, per-vertex ordering, or padding. The issue #682 annotation is at Table85 and is editorial cleanup only.",
+    "ledger": [
+      "doc/conformance/ledger.toml §8.7.4.5.5",
+      "§7.10.5.3 and §10.7.3 are adjacent function/runtime and tolerance contexts, not expanded here"
+    ],
+    "implementation": [
+      "crates/pdf-colour/src/mesh.rs::MeshReader::read_vertex",
+      "crates/pdf-colour/src/mesh.rs::MeshReader::free_form",
+      "crates/pdf-render/src/shading.rs::Triangle and Corners"
+    ],
+    "existing_assertions": [
+      {
+        "test": "crates/pdf-model/tests/shadings.rs::a_triangle_mesh_puts_its_corner_colours_at_its_corners",
+        "substance": "Valid flag-0 RGB triangle; public raster pixels verify its three corners, an interior blend, and outside transparency. It does not exercise continuation flags."
+      },
+      {
+        "test": "crates/pdf-model/tests/shading_parameters_spec_audit.rs::type4_one_bit_samples_align_each_vertex_to_its_byte",
+        "substance": "Low-bit flag-0 triangle validates independent 7-bit record encodings with per-vertex pad bits and public corner pixels, but all flag values are zero."
+      },
+      {
+        "test": "crates/pdf-model/tests/function_faults.rs::a_mesh_shadings_function_that_errs_across_its_parameter_is_said",
+        "substance": "Type4-only runtime Function failure/control path; not edge topology coverage."
+      }
+    ],
+    "assertion_gap": "No checked-in assertion found for Table81 flag 1 or 2, ignored flags on the second/third vertices of a flag-0 triangle, or continuity of inherited vertex colors. Existing flag-0 and bit-padding tests do not cover these branches.",
+    "candidate_test": "crates/pdf-model/tests/type4_edge_flags_spec_audit.rs::type4_continuation_flags_reuse_the_table81_triangle_edges",
+    "candidate_test_design": "The standalone exact-xref source encodes five records with BitsPerFlag=2, BitsPerCoordinate=8 and BitsPerComponent=8. Each 42-significant-bit vertex is separately padded to 48 bits in the source-authored fixture encoder. The initial flag-0 triangle uses nonzero coordinates and RGB primary corners; its second/third vertex flags are nonzero legal values that Table81 says are ignored. Next flag1 must produce (vb,vc,vd); following flag2 must produce (va,vc,vd) from that preceding triangle. Assertions compare all three display-list triangle coordinates and literal corner colors to the source's sequences. Source interpretation must be complete; xref is exact and unrecovered. No renderer-derived expected values.",
+    "verdict": "T96: parent integrated exact topology oracle and it passes. Display-list topology/color assertions, not a new raster oracle.",
+    "selected_adrs": [
+      {
+        "adr": "ADR 0292",
+        "decision_relevance": "Explains parameter-before-function interpolation. Candidate uses direct DeviceRGB corner colors, so it neither duplicates nor disputes that decision."
+      },
+      {
+        "adr": "ADR 1217",
+        "decision_relevance": "Moves curved Type6/7 patch fineness to device space. It does not apply to Type4 triangle edge selection; no change to this flag review."
+      },
+      {
+        "adr": "ADR 2546",
+        "decision_relevance": "Adds bounded color lattices for patches with nonlinear color conversion. Candidate uses direct DeviceRGB and is outside that color-conversion path."
+      }
+    ],
+    "residuals": [
+      "Parent execution mesh-crypto-wave74b.log PASS; model/syntax ClippyPASS. Initial draft Vec/Arc compile mismatch corrected before execution.",
+      "This tests table-defined topology in the interpreted mesh; existing tests separately provide public CPU raster coverage for an ordinary Type4 mesh. It does not assert a fixed antialiased boundary pixel.",
+      "No claim about malformed or incomplete producer streams; Table81 says an incomplete triangle errors, but that reader error policy is outside this test.",
+      "No claim of full Type4/5 or Type6/7 certification; Type5 multi-row geometry, the full mesh width matrix, patch details, and Function routes remain within prior shard residuals."
+    ]
+  }
+]

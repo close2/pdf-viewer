@@ -1,6 +1,6 @@
 {
   "baseline": "b901326c",
-  "scope": "Effective ISO 32000-2:2020 EC3 \u00a7\u00a712.8.4.2\u2013.5, 12.8.5.1\u2013.3, 12.8.6 and 12.8.7; directly coupled DocMDP/Table 257 signature-transform classification only. Producer-only LTV/attestation creation and complete signature-profile certification are outside this shard.",
+  "scope": "Effective ISO 32000-2:2020 EC3 §§12.8.4.2–.5, 12.8.5.1–.3, 12.8.6 and 12.8.7; directly coupled DocMDP/Table 257 signature-transform classification only. Producer-only LTV/attestation creation and complete signature-profile certification are outside this shard.",
   "features": [
     {
       "id": "dss-material-streams",
@@ -33,7 +33,7 @@
         "12.8.4.3",
         "12.8.4.4",
         "12.8.4.5",
-        "Tables 261\u2013262"
+        "Tables 261–262"
       ],
       "norm": "VRI is optional; a writer's VRI identifies one successfully validated CMS signature and selected material from DSS. Its key is uppercase base-16 SHA-1 over the complete hex Contents string including zero padding. Empty Cert/CRL/OCSP arrays are omitted; CRL/OCSP references must also be in DSS. The preferred data search order in .5 is expressly 'should': VRI, DSS, embedded signature data.",
       "implementation": [
@@ -116,7 +116,7 @@
         "::an_update_carrying_a_security_store_and_more_is_refused_rather_than_carved_out"
       ],
       "verdict": "Operation restrictions compose at the caller; DocMDP comparison separately checks signed/current revisions and reports violation/unrankable outcomes. RestrictionPolicy defaults off under explicit owner policy, while the public Report computes signature state when invoked. Do not interpret the off policy as transform validation or as a standards exemption. The DTS registration omission above prevents a complete carveout claim.",
-      "errata": "doc/errata-read.md:237 records #131 for \u00a712.7.5.5 Table 236 /P (DSS/DTS-only update exception); the same exception text is independently present in Table 257 in the effective PDF. doc/errata-read.md:1273 records #55 timestamp ordering."
+      "errata": "doc/errata-read.md:237 records #131 for §12.7.5.5 Table 236 /P (DSS/DTS-only update exception); the same exception text is independently present in Table 257 in the effective PDF. doc/errata-read.md:1273 records #55 timestamp ordering."
     },
     {
       "id": "usage-rights-ur3",
@@ -161,7 +161,7 @@
         "crates/pdf-signature/src/signature.rs::a_documents_own_declaration_can_be_held_against_it"
       ],
       "verdict": "The implementation retains author statements and compares ten census-able Table 264 categories against an object walk. Its sole direct test has independent expected controls: one URI agrees and two declared Launch actions disagree with zero found. It omits a number of Table 264 categories, but neither writer creation nor exhaustive independent count checking is an identified reader SHALL. Verdict remains partial library support; no legal-dictionary creation is owed to this reader.",
-      "errata": "doc/errata-read.md:2728 (#218) changes Table 264's /UR3 reference shape, which legal_information does not inspect; no relevant reader obligation was found there."
+      "errata": "EC3 #218 actually targets Table263 /UR3 on physical608/593, not Table264 Legal. It requires a nonempty Reference array with exactly one UR signature reference. Current usage_rights and notes consume it; malformed-cardinality recovery remains unspecified. D50 records stale source/consumer rationale."
     }
   ]
 }
