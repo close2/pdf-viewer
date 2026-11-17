@@ -3255,6 +3255,20 @@
       "log": "quality-core-wave128.log",
       "exit": 0,
       "scope": "viewer-core all-target Clippy after three independent timing tests"
+    },
+    {
+      "log": "pattern-stream-wave130b.log",
+      "run": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "scope": "Type5 stream through Type2 pattern and independent clipping controls"
+    },
+    {
+      "log": "quality-model-wave130.log",
+      "exit": 0,
+      "scope": "Model all-target Clippy with final strengthened stream tests"
     }
   ],
   "prior_expected_failures": {

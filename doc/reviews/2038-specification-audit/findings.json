@@ -3754,5 +3754,16 @@
     "summary": "Review artifact integrity: preserve duplicate JSON decision values and correct stale n-up coverage claims.",
     "execution": "Strict duplicate-key scan found three objects in indirect_differences_current decisions and one new TrapNet draft. Both proposition and verdict now survive decoding. All durable JSON checked with duplicate rejection. Existing n-up public test already PASS in broad123.",
     "limits": "Audit evidence correction; no new production behavior defect or historical ADR edit."
+  },
+  {
+    "id": "2038-T169",
+    "kind": "assertion-quality",
+    "clauses": [
+      "8.7.4.1",
+      "8.7.4.3"
+    ],
+    "summary": "Type2 pattern accepts a Type5 shading stream with literal raster colors and independent BBox/caller-clip controls.",
+    "execution": "Four PASS; model Clippy PASS. Original non-discriminating outside-mesh probes replaced; interior oracle tightened to3-level tolerance.",
+    "limits": "Selected stream-form combination, not all shading types/states."
   }
 ]

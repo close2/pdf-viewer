@@ -3473,7 +3473,8 @@
     "current_review_state": "partial-current-source-assertion-review",
     "current_artifacts": [
       "shards/shading_type1_current/features.json",
-      "shards/pattern_dictionary_cells_current/features.json"
+      "shards/pattern_dictionary_cells_current/features.json",
+      "shards/shading_pattern_type5_stream_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."
@@ -3502,7 +3503,8 @@
     "current_artifacts": [
       "shards/shading_current/features.json",
       "shards/indirect_shading_values_current/features.json",
-      "shards/shading_dictionary_cells_current/features.json"
+      "shards/shading_dictionary_cells_current/features.json",
+      "shards/shading_pattern_type5_stream_current/features.json"
     ],
     "prior_artifacts": [],
     "review_limit": "Only explicitly discussed features/assertions are reviewed; unmentioned requirements and consumers remain pending. This is not whole-row implementation or coverage certification."

@@ -1,0 +1,5 @@
+{
+  "source": "Read75/244 stream form,77 BBox actual246 and82 actual258. Type5 required fields are present, row length/bytes consistent. Initial agent BBox locator245 corrected to246.",
+  "oracle": "At user45.5,45.5 within20..80 triangle, barycentric weights.15,.425,.425 predictRGB38,108,108. Tolerance3 levels, alpha255,100x100 raster. Each clip removes a sample the baseline paints; tests cannot pass merely because mesh has no geometry there.",
+  "execution": "Four selected PASS; Clippy clean. This closes the bounded stream-pattern gap noted at126; other combinations remain partial."
+}

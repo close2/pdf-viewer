@@ -139,5 +139,6 @@
     "test": "crates/pdf-model/tests/shading_pattern_matrix_spec_audit.rs::shading_pattern_matrix_maps_pattern_space_before_sampling_its_gradient",
     "status": "Parent reports PASS; this closes the draft’s public assertion gap. This agent did not run Cargo."
   },
-  "parent_assertion_qualification": "The nested shading-pattern test in tiling.rs asserts display-list transforms, not raster pixels. Pattern Matrix test now has literal RGB, 100x100 dimensions and alpha255 checks; omitted and explicit identity controls pass. Selected ExtGState and parent-space assertions do not certify all combinations."
+  "parent_assertion_qualification": "The nested shading-pattern test in tiling.rs asserts display-list transforms, not raster pixels. Pattern Matrix test now has literal RGB, 100x100 dimensions and alpha255 checks; omitted and explicit identity controls pass. Selected ExtGState and parent-space assertions do not certify all combinations.",
+  "parent_stream_followup_130": "The earlier unasserted Table75 stream-form residual is now covered for a valid Type5 lattice by four PASS tests: public pattern/directsh literal controls and independently discriminating BBox/caller-clip variants. Other stream/transform/transparency combinations remain partial."
 }

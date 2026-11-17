@@ -1,0 +1,13 @@
+{
+  "scope": "Selected Table75 Shading stream form composed with Table77 BBox and current clipping; Type5 lattice carrier under Table82.",
+  "source": "75 physical243 plus244;77 BBox physical246;82 physical258 plus Type5 prose257–259. Existing75/77/82 matrices stay partial; no duplicate matrix count.",
+  "fixture": "PDF1.7 ASCIIHex stream, exactxref/noRecovery/noChainCut, Resources,2x2 row-major vertices,8-bit coordinates/components,Decode20..80, opaque RGB corner data. Type2 Pattern Shading references stream indirectly.",
+  "assertions": [
+    "Baseline Pattern and directsh both satisfy independent literal corner dominance/alpha and interior38,108,108 within3 levels.",
+    "BBox left30 removes red corner22,22 while green78,22 and interior survive; caller clip still includes both.",
+    "Caller clip right60 removes green corner78,22 while red and interior survive; BBox still includes both.",
+    "Combined BBox/caller clip removes both corners while interior remains literal and opaque."
+  ],
+  "execution": "Four PASS in pattern-stream-wave130b;quality-model-wave130PASS.",
+  "limits": "One Type5 stream/identity Matrix combination and clipping intersections. No certification of all shading streams, transforms or transparency states."
+}
